@@ -1,0 +1,5 @@
+.lwrap{position:relative;margin-bottom:12px}
+.lwrap .legend{position:absolute;top:-9px;left:14px;padding:0 8px;height:16px;border:1px solid #1f2430;border-radius:10px;background:#0f1115;font-size:12px;line-height:16px;color:#AAB1C2}
+.linput,.lselect,.ltextarea{width:100%;background:rgba(19,23,33,.6);border:1px solid #2a3140;border-radius:12px;padding:10px 12px;color:#eaeef0}
+.ltextarea{min-height:96px}
+.linput:focus,.lselect:focus,.ltextarea:focus{outline:none;box-shadow:0 0 0 2px rgba(57,189,248,.25);border-color:#39bdf8}

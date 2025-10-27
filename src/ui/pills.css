@@ -1,0 +1,5 @@
+:root{--pill-bg:#141821;--pill-bd:#2a3140;--pill-tx:#c9d1db;--pill-ph:#9aa4b2;--pill-focus:rgba(57,189,248,.35)}
+.pill{display:flex;align-items:center;gap:10px;background:var(--pill-bg);border:1px solid var(--pill-bd);color:var(--pill-tx);border-radius:16px;padding:10px 14px;height:42px}
+.pill input,.pill select{background:transparent;border:0;outline:none;color:var(--pill-tx);width:100%;font-size:14px}
+.pill input::placeholder{color:var(--pill-ph)}
+.pill:focus-within{box-shadow:0 0 0 2px var(--pill-focus);border-color:#39bdf8}
