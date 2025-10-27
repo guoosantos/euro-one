@@ -1,0 +1,11 @@
+import { execSync } from "node:child_process";
+import { mkdirSync, existsSync } from "node:fs";
+const ts = new Date().toISOString().replace(/[:.]/g,'-');
+const snap = `backups/deploy-${ts}`;
+mkdirSync(snap, { recursive: true });
+if (existsSync("dist")) execSync(`cp -a dist ${snap}/dist`, {stdio:'inherit'});
+console.log(`📦 snapshot: ${snap}`);
+execSync("npm run build", {stdio:'inherit'});
+execSync("sudo rsync -a --delete dist/ /var/www/euro/web/", {stdio:'inherit'});
+execSync("sudo systemctl reload nginx", {stdio:'inherit'});
+console.log("✅ publicado");
