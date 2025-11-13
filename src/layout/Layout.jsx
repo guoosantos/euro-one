@@ -1,17 +1,25 @@
-import React from 'react'
-import { Sidebar } from '../components/Sidebar'
-import { Topbar } from '../components/Topbar'
-export default function Layout({children,title}){
+import React from 'react';
+import Sidebar from '../components/Sidebar';
+import { Topbar } from '../components/Topbar';
+import ErrorBoundary from '../components/ErrorBoundary';
+import DeviceModalGlobal from '../components/DeviceModalGlobal';
+
+export default function Layout({ children, title, hideTitle = false }) {
   return (
     <div className="min-h-screen flex">
-      <Sidebar/>
+      <Sidebar />
       <div className="flex-1 flex flex-col">
-        <Topbar/>
+        <Topbar />
         <main className="mx-auto w-full max-w-7xl p-4 space-y-4">
-          {title && <h1 className="text-xl font-semibold">{title}</h1>}
-          {children}
+          {title && !hideTitle && (
+            <h1 className="text-xl font-semibold">{title}</h1>
+          )}
+          <ErrorBoundary>
+            {children}
+          </ErrorBoundary>
+          <DeviceModalGlobal />
         </main>
       </div>
     </div>
-  )
+  );
 }

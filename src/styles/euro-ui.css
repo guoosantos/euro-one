@@ -1,0 +1,96 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Tokens padrão Euro One */
+:root{
+  --e-header-h: 56px;        /* altura do topo */
+  --e-sidebar-w: 264px;      /* largura do menu esquerdo */
+  --e-radius: 14px;
+  --e-text: 15px;
+}
+
+/* ── Tipografia base para headings */
+.e-heading    { @apply text-[17px] font-semibold leading-tight tracking-tight; }
+.e-subheading { @apply text-[15px] font-medium leading-tight text-white/70; }
+
+/* ──────────────────────────────────────────────────────────────
+   Padronização NÃO intrusiva (somente CSS, sem mexer em JSX)
+   ─ força dimensões e tipografia do header e sidebar
+   ────────────────────────────────────────────────────────────── */
+
+/* Sidebar: qualquer <aside> do layout principal */
+aside{
+  width: var(--e-sidebar-w) !important;
+  flex: 0 0 var(--e-sidebar-w) !important;
+  border-right: 1px solid rgba(255,255,255,0.10);
+}
+
+/* Itens de navegação (anchors dentro do nav do sidebar) */
+aside nav a{
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  height: 36px !important;                 /* h-9 */
+  padding: 0 12px !important;              /* px-3 */
+  border-radius: 12px !important;          /* rounded-xl */
+  font-size: var(--e-text) !important;     /* ~15px */
+  color: rgba(255,255,255,0.80) !important;
+}
+aside nav a:hover{
+  color: #fff !important;
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* Títulos de seção no sidebar (EURO VIEW, FROTAS etc.) */
+aside [class*="uppercase"],
+aside .section-title{
+  font-size: 12px !important;
+  letter-spacing: .06em !important;
+  color: rgba(255,255,255,0.40) !important;
+  padding: 8px 8px 4px 8px !important;
+  text-transform: uppercase !important;
+}
+
+/* Ícones do menu (qualquer svg/picture dentro do link) */
+aside nav a svg,
+aside nav a img{
+  width: 20px !important;
+  height: 20px !important;
+}
+
+/* Header/topbar: assume que o primeiro bloco do <main> é o cabeçalho */
+main > :first-child{
+  min-height: var(--e-header-h) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid rgba(255,255,255,0.10) !important;
+}
+
+/* Título dentro do header (pega h1, [data-title], .page-title, etc.) */
+main > :first-child h1,
+main > :first-child [data-title],
+main > :first-child .page-title,
+main > :first-child .title{
+  font-size: 17px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  margin: 0 !important;
+  color: #fff !important;
+}
+
+/* Container de conteúdo após o header: espaçamento consistente */
+main > :nth-child(2){
+  padding: 16px !important; /* e-page */
+}
+
+/* Tabelas e filtros: harmoniza tamanhos de fonte/inputs sem mexer no markup */
+table, thead, tbody, th, td{
+  font-size: 14px !important;
+}
+input, select, button{
+  font-size: 14px !important;
+  border-radius: 12px !important;
+}

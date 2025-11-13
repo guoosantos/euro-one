@@ -1,58 +1,46 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { loadGooglePlaces } from '../lib/google'
 
-export default function AddressAutocomplete({label='Endereço', onSelect, placeholder='Rua, número, cidade…'}) {
+export default function AddressAutocomplete({label='Endereço', onSelect, placeholder='Digite um endereço'}) {
+  const [ready, setReady] = useState(false)
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
   const [items, setItems] = useState([])
-  const serviceRef = useRef(null)
+  const serviceRef = useRef(null); const placesRef = useRef(null); const mapDiv = useRef(null)
 
-  useEffect(()=>{ // tenta carregar Google Places — se não tiver chave, vira input simples
-    loadGooglePlaces().then(g=>{
-      if (g?.maps?.places) {
-        serviceRef.current = new g.maps.places.AutocompleteService()
-      }
-    })
-  },[])
+  useEffect(()=>{ loadGooglePlaces().then((g)=>{
+    if(!g) return; serviceRef.current = new g.maps.places.AutocompleteService()
+    const map = new g.maps.Map(mapDiv.current||document.createElement('div'))
+    placesRef.current = new g.maps.places.PlacesService(map); setReady(true)
+  }) },[])
 
   useEffect(()=>{
-    const svc = serviceRef.current
-    if (!svc || !query || query.length < 3){ setItems([]); return }
-    const request = { input: query, componentRestrictions:{ country: ['br'] } }
-    svc.getPlacePredictions(request, (preds)=> {
-      setItems((preds||[]).map(p=>({ id:p.place_id, main:p.structured_formatting.main_text, sec:p.structured_formatting.secondary_text })))
-    })
+    const s = serviceRef.current
+    if(!s || !query){ setItems([]); return }
+    s.getPlacePredictions({ input: query, componentRestrictions:{ country:['br'] } }, (pred=[])=> setItems(pred))
   },[query])
 
-  function choose(it){
-    // Quando não temos detalhes, repassamos só o texto; o map real usará geocode no backend
-    setOpen(false); setQuery(`${it.main}${it.sec?' - '+it.sec:''}`)
-    onSelect?.({ lat: -23.5505, lng: -46.6333, address: `${it.main}${it.sec?' - '+it.sec:''}` }) // centro fictício (SP) só para UI
+  const pick = (it)=>{
+    const p = placesRef.current; if(!p) return setQuery(it.description)
+    p.getDetails({placeId: it.place_id, fields:['geometry','formatted_address']}, (d)=>{
+      if(!d?.geometry) return
+      const loc = d.geometry.location
+      onSelect && onSelect({ address: d.formatted_address, lat: loc.lat(), lng: loc.lng() })
+      setQuery(d.formatted_address); setItems([])
+    })
   }
 
   return (
-    <div className="lwrap ac-wrap">
+    <div className="lwrap relative">
       <span className="legend">{label}</span>
-      <input
-        className="linput ac-input"
-        value={query}
-        onChange={e=>{ setQuery(e.target.value); setOpen(true) }}
-        onFocus={()=>setOpen(true)}
-        onBlur={()=>setTimeout(()=>setOpen(false), 100)}
-        placeholder={placeholder}
-      />
-      {open && items.length>0 && (
-        <div className="ac-menu">
+      <input className="linput" placeholder={placeholder} value={query} onChange={e=>setQuery(e.target.value)}/>
+      {!!items.length && ready && (
+        <div className="absolute z-30 left-0 right-0 mt-2 bg-bg border border-stroke rounded-xl max-h-64 overflow-auto">
           {items.map(it=>(
-            <div key={it.id} className="ac-item" onMouseDown={()=>choose(it)}>
-              <div>
-                <div>{it.main}</div>
-                {it.sec && <small>{it.sec}</small>}
-              </div>
-            </div>
+            <div key={it.place_id} className="px-3 py-2 hover:bg-card cursor-pointer text-sm" onMouseDown={()=>pick(it)}>{it.description}</div>
           ))}
         </div>
       )}
+      <div ref={mapDiv} style={{display:'none'}} />
     </div>
   )
 }

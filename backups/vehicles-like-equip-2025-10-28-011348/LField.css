@@ -1,0 +1,35 @@
+.lwrap{position:relative;margin-bottom:12px}
+.lwrap .legend{
+  position:absolute;top:-9px;left:14px;padding:0 8px;height:16px;
+  border:1px solid #1f2430;border-radius:10px;background:#0f1115;
+  font-size:12px;line-height:16px;color:#AAB1C2
+}
+.linput,.lselect,.ltextarea{
+  width:100%;background:#141821;border:1px solid #2a3140;
+  border-radius:14px;padding:12px 14px;color:#eaeef0;font-size:14px
+}
+.linput::placeholder,.ltextarea::placeholder{color:#9aa4b2}
+.linput:focus,.lselect:focus,.ltextarea:focus{
+  outline:none;box-shadow:0 0 0 2px rgba(57,189,248,.25);border-color:#39bdf8
+}
+.ltextarea{min-height:110px}
+.row{display:grid;gap:12px}
+.row-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.row-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.row-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width: 1024px){ .row-3,.row-4{grid-template-columns:repeat(2,minmax(0,1fr))} }
+@media (max-width: 640px){ .row-2,.row-3,.row-4{grid-template-columns:1fr} }
+
+/* Toggle (Sim/Não) */
+.seg{
+  display:inline-flex;gap:6px;background:#141821;border:1px solid #2a3140;
+  border-radius:12px;padding:4px
+}
+.seg button{
+  padding:6px 10px;border-radius:10px;border:1px solid transparent;
+  color:#c9d1db;background:transparent
+}
+.seg button.active{background:#1c2432;border-color:#39bdf8;color:#eaf6ff}
+
+/* Input “caps-only” visual feedback */
+.caps{ text-transform: uppercase; letter-spacing: .5px; }

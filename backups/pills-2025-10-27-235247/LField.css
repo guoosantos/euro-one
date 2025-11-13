@@ -1,0 +1,11 @@
+.lwrap{position:relative;margin-bottom:12px}
+.lwrap .legend{position:absolute;top:-9px;left:14px;padding:0 8px;height:16px;border:1px solid var(--bd-soft);border-radius:10px;background:#0f1115;font-size:12px;line-height:16px;color:var(--txt-muted)}
+.linput,.lselect,.ltextarea{width:100%;background:#131721;border:1px solid var(--bd);border-radius:12px;padding:10px 12px;color:var(--txt)}
+.ltextarea{min-height:96px}
+.linput:focus,.lselect:focus,.ltextarea:focus{outline:none;box-shadow:0 0 0 2px var(--focus);border-color:#39bdf8}
+.pill{display:flex;align-items:center;gap:10px;background:var(--pill-bg);border:1px solid var(--bd);border-radius:var(--radius);height:var(--pill-h);padding:10px 14px;color:var(--txt)}
+.pill input,.pill select{background:transparent;border:0;outline:none;color:var(--txt);width:100%;font-size:14px}
+.pill input::placeholder{color:var(--txt-muted)}
+.pill:focus-within{box-shadow:0 0 0 2px var(--focus);border-color:#39bdf8}
+.pill-select{background:var(--pill-bg);border:1px solid var(--bd);border-radius:var(--radius);height:var(--pill-h);padding:10px 14px;color:var(--txt)}
+.pill-select:focus{outline:none;box-shadow:0 0 0 2px var(--focus);border-color:#39bdf8}

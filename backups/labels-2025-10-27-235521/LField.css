@@ -1,0 +1,40 @@
+/* Rótulo embutido (para quem já usa LInput/LSelect) */
+.lwrap{position:relative;margin-bottom:12px}
+.lwrap .legend{position:absolute;top:-9px;left:14px;padding:0 8px;height:16px;border:1px solid var(--bd-soft);border-radius:10px;background:#0f1115;font-size:12px;line-height:16px;color:var(--txt-muted)}
+.linput,.lselect,.ltextarea{width:100%;background:#131721;border:1px solid var(--bd);border-radius:12px;padding:10px 12px;color:var(--txt)}
+.ltextarea{min-height:96px}
+.linput:focus,.lselect:focus,.ltextarea:focus{outline:none;box-shadow:0 0 0 2px var(--focus);border-color:#39bdf8}
+
+/* 🔥 PILL AUTOMÁTICO nos filtros (NÃO muda JSX) */
+.filters input,
+.filters select,
+.filters .pill-auto { 
+  background:var(--pill-bg) !important;
+  border:1px solid var(--bd) !important;
+  border-radius:var(--radius) !important;
+  height:var(--pill-h) !important;
+  padding:10px 14px !important;
+  color:var(--txt) !important;
+  outline:none !important;
+}
+.filters input::placeholder{ color:var(--txt-muted) }
+.filters input:focus, .filters select:focus{
+  box-shadow:0 0 0 2px var(--focus) !important;
+  border-color:#39bdf8 !important;
+}
+
+/* Estoque: aplica também na “Pesquisa” se a seção não usar .filters */
+.section-search input,
+.section-search select{
+  background:var(--pill-bg) !important;
+  border:1px solid var(--bd) !important;
+  border-radius:var(--radius) !important;
+  height:var(--pill-h) !important;
+  padding:10px 14px !important;
+  color:var(--txt) !important;
+}
+.section-search input::placeholder{ color:var(--txt-muted) }
+.section-search input:focus, .section-search select:focus{
+  box-shadow:0 0 0 2px var(--focus) !important;
+  border-color:#39bdf8 !important;
+}

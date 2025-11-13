@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html { font-family: theme('fontFamily.sans'); }
+body { @apply bg-bg text-text; }
+
+.card { @apply bg-card rounded-2xl border border-stroke p-5 shadow-soft; }
+.muted { @apply text-sub; }
+.btn { @apply inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 hover:bg-stroke/40 transition; }
+.chip { @apply inline-flex items-center rounded-lg px-2 py-1 text-xs border border-stroke; }
+.chip.green { @apply text-green border-green/30; }
+.chip.red { @apply text-red border-red/30; }
+.chip.yellow { @apply text-yellow border-yellow/30; }
+.nav-link { @apply flex items-center gap-3 px-3 py-2 rounded-xl text-sub hover:text-text hover:bg-stroke/30; }
+.nav-link.active { @apply bg-stroke/60 text-text; }
+
+.grid-cards { @apply grid gap-4 md:grid-cols-2 xl:grid-cols-4; }
+.h1 { @apply text-[22px] font-semibold; }
+.stat-title { @apply text-[12px] leading-4 text-sub; }
+.stat-value { @apply text-[28px] leading-7 font-semibold; }
+.sync-bar { @apply text-[12px] text-sub; }
+@import "./styles-legend.css";
+@import "./ui/LField.css";
+@import "./ui/pills.css";
+
+/* === Pill style nos filtros (apenas na faixa "Filtros") === */
+.filters .pillized,
+.filters input[type="text"],
+.filters input[type="search"],
+.filters input[type="number"],
+.filters input:not([type]),
+.filters select,
+.filters .input {
+  background: #141821 !important;
+  border: 1px solid #2a3140 !important;
+  color: #c9d1db !important;
+  border-radius: 16px !important;
+  height: 42px !important;
+  padding: 10px 14px !important;
+  outline: none !important;
+  font-size: 14px !important;
+  line-height: 20px !important;
+}
+
+/* placeholder mais claro */
+.filters input::placeholder { color: #9aa4b2 !important; }
+
+/* foco com glow azul */
+.filters input:focus,
+.filters select:focus,
+.filters .input:focus {
+  box-shadow: 0 0 0 2px rgba(57,189,248,.35) !important;
+  border-color: #39bdf8 !important;
+}
+
+/* selects com mesma cara */
+.filters select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+}
+
+/* espaçamento entre filtros */
+.filters .wrap { margin-top: 8px; }
+
+/* ==== Pills dentro de modais (cadastros) ==== */
+.modal input[type="text"],
+.modal input[type="number"],
+.modal input[type="date"],
+.modal input[type="email"],
+.modal input[type="tel"],
+.modal select,
+.modal textarea {
+  background: #141821 !important;     /* mesmo bg dos pills */
+  border: 1px solid #2a3140 !important;
+  color: #c9d1db !important;
+  border-radius: 16px !important;
+  padding: 10px 14px !important;
+  height: 42px;
+}
+
+.modal textarea { height: auto; min-height: 80px; }
+
+.modal input::placeholder,
+.modal textarea::placeholder {
+  color: #9aa4b2 !important;
+}
+
+.modal input:focus,
+.modal select:focus,
+.modal textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(57,189,248,.35);
+  border-color: #39bdf8 !important;
+}
+
+/* ==== Pills dentro de modais (cadastros) ==== */
+.modal input[type="text"],
+.modal input[type="number"],
+.modal input[type="date"],
+.modal input[type="email"],
+.modal input[type="tel"],
+.modal select,
+.modal textarea {
+  background: #141821 !important;     /* mesmo bg dos pills */
+  border: 1px solid #2a3140 !important;
+  color: #c9d1db !important;
+  border-radius: 16px !important;
+  padding: 10px 14px !important;
+  height: 42px;
+}
+
+.modal textarea { height: auto; min-height: 80px; }
+
+.modal input::placeholder,
+.modal textarea::placeholder {
+  color: #9aa4b2 !important;
+}
+
+.modal input:focus,
+.modal select:focus,
+.modal textarea:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(57,189,248,.35);
+  border-color: #39bdf8 !important;
+}
+@import "./ui/tokens.css";
+@import "./styles-patches/filters-pill.css";
+/* hide-temp-equip-buttons */
+button, a { /* nada aqui; só a âncora do bloco */ }
+:root:has(body) .es-root * { /* garante escopo */ }
+/* esconde qualquer botão/anchor cujo conteúdo seja exatamente esses textos */
+.es-root button, .es-root a { }

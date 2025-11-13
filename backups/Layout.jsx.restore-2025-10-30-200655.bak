@@ -1,0 +1,24 @@
+import DeviceModalGlobal from "../components/DeviceModalGlobal";
+import React from 'react'
+import Sidebar from '../components/Sidebar'
+import { Topbar } from '../components/Topbar'
+import ErrorBoundary from '../components/ErrorBoundary';
+export default function Layout({children,title}){
+  const _props=(typeof arguments!=="undefined"&&arguments[0])||{}; const hideTitle=_props.hideTitle ?? (typeof hideTitle!=="undefined"?hideTitle:false);
+
+  const _props=(typeof arguments!=="undefined"&&arguments[0])||{}; const hideTitle=_props.hideTitle ?? (typeof hideTitle!=="undefined"?hideTitle:false);
+
+  return (
+    <div className="min-h-screen flex">
+      <Sidebar/>
+      <div className="flex-1 flex flex-col">
+        <Topbar/>
+        <main className="mx-auto w-full max-w-7xl p-4 space-y-4">
+           {title && (hideTitle ?  null : ({hideTitle ? null : (<h1 className="text-xl font-semibold">{title}</h1>)})}
+          <ErrorBoundary><ErrorBoundary>{children}</ErrorBoundary></ErrorBoundary>
+        <DeviceModalGlobal />
+        </main>
+      </div>
+    </div>
+  )
+}

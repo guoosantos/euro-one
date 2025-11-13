@@ -1,0 +1,10 @@
+import React from 'react';
+
+export default function Vehicles() {
+  return (
+    <div className="p-6 text-white/90">
+      <h1 className="text-2xl font-semibold mb-2">Veículos</h1>
+      <p className="text-white/60">Tela temporária — rota ativa e compilando. Vamos reativar os componentes depois.</p>
+    </div>
+  );
+}

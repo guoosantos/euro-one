@@ -1,0 +1,45 @@
+/* ====== PILL STYLE para filtros (sem alterar JSX) ====== */
+:root{
+  --pill-bg: #141821;
+  --pill-bd: #2a3140;
+  --pill-tx: #c9d1db;
+  --pill-ph: #9aa4b2;
+  --pill-focus: rgba(57,189,248,.35);
+}
+
+/* Escopo: apenas blocos "Filtros" (título que já existe nas páginas) */
+.card:has(> .title, > .card-title, > .legend):where(:not(.table)) .filters input,
+.card:has(> .title, > .card-title, > .legend):where(:not(.table)) .filters select,
+.filters input, .filters select {
+  appearance:none;
+  background:var(--pill-bg) !important;
+  border:1px solid var(--pill-bd) !important;
+  color:var(--pill-tx) !important;
+  border-radius:16px !important;
+  padding:10px 14px !important;
+  height:42px !important;
+  line-height:20px !important;
+  box-shadow:none !important;
+}
+
+/* Placeholder mais claro */
+.filters input::placeholder { color:var(--pill-ph) !important; }
+
+/* Foco com anel sutil */
+.filters input:focus, .filters select:focus {
+  outline:none !important;
+  box-shadow:0 0 0 2px var(--pill-focus) !important;
+  border-color:#39bdf8 !important;
+}
+
+/* Ícone de busca (se usar input com padding-left já funciona) – opcional */
+.filters .with-icon { position:relative; }
+.filters .with-icon::before {
+  content:"";
+  position:absolute; left:12px; top:50%; transform:translateY(-50%);
+  width:18px; height:18px; opacity:.7;
+  background: currentColor;
+  -webkit-mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path fill="%23fff" d="M21 21l-4.35-4.35A7.5 7.5 0 1 0 16.65 18.5L21 21zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z"/></svg>') no-repeat center / contain;
+          mask:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path fill="%23fff" d="M21 21l-4.35-4.35A7.5 7.5 0 1 0 16.65 18.5L21 21zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z"/></svg>') no-repeat center / contain;
+}
+.filters .with-icon input { padding-left:40px !important; }

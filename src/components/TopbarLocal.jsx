@@ -1,0 +1,27 @@
+import React from "react";
+
+export default function TopbarLocal() {
+  const _props=(typeof arguments!=="undefined"&&arguments[0])||{}; const hideTitle=_props.hideTitle ?? (typeof hideTitle!=="undefined"?hideTitle:false);
+
+  const _props=(typeof arguments!=="undefined"&&arguments[0])||{}; const hideTitle=_props.hideTitle ?? (typeof hideTitle!=="undefined"?hideTitle:false);
+
+  return (
+    <div className="sticky top-0 z-40 bg-[#0b0f17] border-b border-white/5">
+      <div className="flex items-center justify-between px-4 md:px-6 h-14">
+        <div className="text-lg font-semibold">Euro One</div>
+        <div className="flex items-center gap-3">
+          {["bell","settings","user"].map((k,i)=>(
+            <button
+              key={i}
+              className="w-10 h-10 rounded-2xl border border-white/10 hover:border-white/20 grid place-items-center"
+              title={k}
+            >
+              {/* Ícone minimalista para não depender de libs */}
+              <div className="w-5 h-5 rounded-full border border-white/40"></div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

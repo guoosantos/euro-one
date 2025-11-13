@@ -1,0 +1,60 @@
+/* ===== Euro One — Sidebar compact tech look ===== */
+:root{
+  --menu-fs: 13px;         /* alvo: ~13px como no screenshot */
+  --menu-lh: 1.25;         /* linha mais “seca” */
+  --menu-pad-y: 8px;       /* altura ~36px com ícone 16px */
+  --menu-pad-x: 10px;
+  --menu-icon: 16px;
+  --menu-radius: 10px;
+  --menu-weight: 500;
+}
+
+/* Escopo: qualquer <aside> com navegação à esquerda */
+aside nav a,
+aside .nav a,
+aside [role="navigation"] a{
+  font-size: var(--menu-fs) !important;
+  line-height: var(--menu-lh) !important;
+  font-weight: var(--menu-weight);
+  padding: var(--menu-pad-y) var(--menu-pad-x) !important;
+  border-radius: var(--menu-radius) !important;
+  letter-spacing: .2px;
+}
+
+/* Ícones do menu (lucide / svg dentro do link) */
+aside nav a svg,
+aside .nav a svg,
+aside [role="navigation"] a svg{
+  width: var(--menu-icon) !important;
+  height: var(--menu-icon) !important;
+  flex: 0 0 var(--menu-icon);
+  opacity: .9;
+}
+
+/* Espaçamento entre ícone e label */
+aside nav a, aside .nav a, aside [role="navigation"] a{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Subitens (quando houver setinha/accordion) um pouco mais fechados */
+aside nav .pl-6, aside nav .ml-6,
+aside .nav .pl-6, aside .nav .ml-6{
+  padding-left: 14px !important;
+  margin-left: 0 !important;
+}
+
+/* Estados */
+aside nav a[aria-current="page"],
+aside nav a.active{
+  filter: none;
+}
+
+/* Título/section na barra (se houver) um pouco menor também */
+aside nav .section-label,
+aside .nav .section-label{
+  font-size: 11.5px;
+  letter-spacing: .3px;
+  opacity: .8;
+}

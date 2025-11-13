@@ -1,0 +1,72 @@
+import React, { useState } from 'react';
+import Modal from '../ui/Modal';
+import Button from '../ui/Button';
+import LInput from '../ui/LInput';
+import LSelect from '../ui/LSelect';
+import LTextArea from '../ui/LTextArea';
+
+export default function VehicleModal({ open, onClose, onSave }) {
+  const [f, setF] = useState({
+    cliente:'', tipo:'', placa:'', identificador:'',
+    grupo:'', classificacao:'',
+    modelo:'', marca:'', chassi:'', renavam:'', cor:'',
+    anoModelo:'', anoFabricacao:'', codigoFipe:'', valorFipe:'',
+    zeroKm:'Não', observacoes:''
+  });
+
+  const on = (k) => (e) => setF(s => ({ ...s, [k]: e.target.value }));
+
+  const salvar = () => {
+    const obrig = [['cliente','Cliente'],['tipo','Tipo'],['placa','Placa'],['modelo','Modelo']];
+    const falt = obrig.filter(([k]) => !String(f[k]||'').trim()).map(([,l])=>l);
+    if (falt.length) { alert('Preencha: ' + falt.join(', ')); return; }
+    onSave?.(f);
+    onClose?.();
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Novo veículo" width="max-w-5xl">
+      <div className="grid md:grid-cols-2 gap-4">
+        <div className="grid gap-3">
+          <LInput  label="Cliente *" value={f.cliente} onChange={on('cliente')} />
+          <LSelect label="Tipo *" value={f.tipo} onChange={on('tipo')}>
+            <option value="">Selecione…</option>
+            <option value="leve">Leve</option>
+            <option value="pesado">Pesado</option>
+            <option value="implemento">Implemento</option>
+            <option value="maquina">Máquina</option>
+          </LSelect>
+          <LInput  label="Placa *" value={f.placa} onChange={on('placa')} placeholder="ABC1D23" />
+          <LInput  label="Identificador" value={f.identificador} onChange={on('identificador')} placeholder="Patrimônio, frota, etc."/>
+          <LInput  label="Grupo" value={f.grupo} onChange={on('grupo')} />
+          <LInput  label="Classificação" value={f.classificacao} onChange={on('classificacao')} placeholder="Próprio, agregado, etc."/>
+          <LInput  label="Ano Modelo" value={f.anoModelo} onChange={on('anoModelo')} placeholder="YYYY" />
+          <LInput  label="Ano de Fabricação" value={f.anoFabricacao} onChange={on('anoFabricacao')} placeholder="YYYY" />
+        </div>
+
+        <div className="grid gap-3">
+          <LInput  label="Modelo *" value={f.modelo} onChange={on('modelo')} placeholder="FH 540, Actros, etc."/>
+          <LInput  label="Marca" value={f.marca} onChange={on('marca')} placeholder="Volvo, Mercedes, Scania…"/>
+          <LInput  label="Chassi" value={f.chassi} onChange={on('chassi')} />
+          <LInput  label="Renavam" value={f.renavam} onChange={on('renavam')} />
+          <LInput  label="Cor" value={f.cor} onChange={on('cor')} />
+          <LInput  label="Código FIPE" value={f.codigoFipe} onChange={on('codigoFipe')} />
+          <LInput  label="Valor FIPE" value={f.valorFipe} onChange={on('valorFipe')} placeholder="Somente números"/>
+          <LSelect label="Zero Km" value={f.zeroKm} onChange={on('zeroKm')}>
+            <option>Não</option>
+            <option>Sim</option>
+          </LSelect>
+        </div>
+
+        <div className="md:col-span-2">
+          <LTextArea label="Observações" value={f.observacoes} onChange={on('observacoes')} />
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end gap-2">
+        <Button onClick={onClose}>Cancelar</Button>
+        <Button onClick={salvar}>Salvar</Button>
+      </div>
+    </Modal>
+  );
+}
