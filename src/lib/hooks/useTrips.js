@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import api from "../api";
+import api from "../api.js";
 
 export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {}) {
   const [trips, setTrips] = useState([]);

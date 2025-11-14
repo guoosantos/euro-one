@@ -27,6 +27,8 @@ import Monitoramento from "./pages/Monitoramento";
 import Reports from "./pages/Reports";
 import Login from "./pages/Login";
 import PrivateRoute from "./components/PrivateRoute";
+import AdminClients from "./pages/AdminClients";
+import ClientUsers from "./pages/ClientUsers";
 
 const withLayout = (Component, options = {}) => (
   <Layout title={options.title} hideTitle={options.hideTitle}>
@@ -67,6 +69,8 @@ export default function App() {
         <Route path="/reports" element={withLayout(Reports, { title: "Analytics e relatórios" })} />
         <Route path="/account" element={withLayout(Account, { title: "Conta e clientes" })} />
         <Route path="/settings" element={withLayout(Settings, { title: "Configurações" })} />
+        <Route path="/admin/clients" element={withLayout(AdminClients, { title: "Gestão de clientes" })} />
+        <Route path="/admin/users" element={withLayout(ClientUsers, { title: "Gestão de usuários" })} />
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Route>

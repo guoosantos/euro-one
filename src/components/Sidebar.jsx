@@ -17,6 +17,7 @@ import {
   Radio,
   Settings,
   User,
+  Users,
   Video,
   Wrench,
 } from "lucide-react";
@@ -41,7 +42,9 @@ export default function Sidebar() {
   const [openAnalytics, setOpenAnalytics] = useState(false);
   const [openProfile, setOpenProfile] = useState(false);
 
-  const { tenant } = useTenant();
+  const { tenant, role } = useTenant();
+  const isAdmin = role === "admin";
+  const canManageUsers = role === "admin" || role === "manager";
 
   return (
     <aside className={`h-full bg-[#0f141c] ${collapsed ? "w-16" : "w-72"} border-r border-[#1f2430]`}> 
@@ -200,6 +203,20 @@ export default function Sidebar() {
           <Package size={18} />
           <span className={collapsed ? "sr-only" : ""}>Entregas</span>
         </NavLink>
+
+        {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
+        {isAdmin && (
+          <NavLink to="/admin/clients" className={linkClass(collapsed)}>
+            <Users size={18} />
+            <span className={collapsed ? "sr-only" : ""}>Clientes</span>
+          </NavLink>
+        )}
+        {canManageUsers && (
+          <NavLink to="/admin/users" className={linkClass(collapsed)}>
+            <User size={18} />
+            <span className={collapsed ? "sr-only" : ""}>Usuários</span>
+          </NavLink>
+        )}
         <NavLink to="/geofences" className={linkClass(collapsed)}>
           <Map size={18} />
           <span className={collapsed ? "sr-only" : ""}>Cercas</span>

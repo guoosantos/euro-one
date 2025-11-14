@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import api from "../api";
+import api from "../api.js";
 
 function normaliseGeofences(payload) {
   if (Array.isArray(payload)) return payload;
