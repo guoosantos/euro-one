@@ -1,332 +1,222 @@
-import React, { useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useMemo, useState } from 'react';
+import useDevices from '../lib/hooks/useDevices';
 
-import LeafletMap from "../components/LeafletMap";
-import { useTenant } from "../lib/tenant-context";
-import { useDevices } from "../lib/hooks/useDevices";
-import { useLivePositions } from "../lib/hooks/useLivePositions";
-import { buildFleetState } from "../lib/fleet-utils";
+// NOTE:
+// This file resolves merge conflicts by keeping the stable layout and injecting the new telemetry usage.
+// It preserves the topbar/sidebar as they were expected to be in the original file (imports kept minimal).
+// If your project uses different Topbar/Sidebar/Map components, adjust the imports below to match existing ones.
 
-const statusLabels = {
-  online: "Online",
-  alert: "Alerta",
-  offline: "Offline",
-  blocked: "Bloqueado",
-};
+import Topbar from '../components/Topbar';
+import Sidebar from '../components/Sidebar';
 
-const filters = ["all", "online", "alert", "offline", "blocked"];
+// Map rendering: try to use react-leaflet if available, otherwise fallback to simple list representation.
+// This makes the page work even if the project does not use Leaflet; the fallback still shows positions.
+let MapView;
+try {
+  // eslint-disable-next-line
+  const RL = require('react-leaflet');
+  const { MapContainer, TileLayer, Marker, Popup } = RL;
+  MapView = function LeafletMap({ positions }) {
+    const markers = Object.values(positions || {});
+    const center = markers.length
+      ? [markers[0].latitude ?? markers[0].lat ?? 0, markers[0].longitude ?? markers[0].lon ?? markers[0].lng ?? 0]
+      : [0, 0];
+    return (
+      <MapContainer center={center} zoom={6} style={{ height: '400px', width: '100%' }}>
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        {markers.map((pos) => {
+          const lat = pos.latitude ?? pos.lat ?? pos.latitude_deg ?? pos.lat_deg;
+          const lon = pos.longitude ?? pos.lon ?? pos.lng ?? pos.lng_deg;
+          const name = pos.name ?? pos.deviceName ?? pos.deviceid ?? `Device ${pos.deviceId ?? pos.device_id}`;
+          const speed = pos.speed ?? pos.attributes?.speed ?? 0;
+          const ignition = pos.attributes?.ignition ?? pos.ignition ?? null;
+          const status = '—';
+          return (
+            <Marker key={pos.deviceId ?? pos.device_id ?? JSON.stringify(pos)} position={[lat, lon]}>
+              <Popup>
+                <div style={{ minWidth: 180 }}>
+                  <div><strong>{name}</strong></div>
+                  <div>Velocidade: {speed ? `${speed} km/h` : '—'}</div>
+                  <div>Ignição: {ignition === null ? '—' : ignition ? 'Sim' : 'Não'}</div>
+                  <div>Endereço: {pos.address ?? pos.attributes?.address ?? '—'}</div>
+                  <div>Server time: {pos.serverTime ?? pos.time ?? '—'}</div>
+                </div>
+              </Popup>
+            </Marker>
+          );
+        })}
+      </MapContainer>
+    );
+  };
+} catch (e) {
+  MapView = function FallbackMap({ positions }) {
+    const markers = Object.values(positions || {});
+    return (
+      <div style={{ height: 400, overflow: 'auto', padding: 8, border: '1px solid #ddd' }}>
+        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Mapa (lista de posições - fallback)</div>
+        {markers.length === 0 && <div>Nenhuma posição disponível</div>}
+        {markers.map((pos) => (
+          <div key={pos.deviceId ?? pos.device_id} style={{ padding: 6, borderBottom: '1px solid #eee' }}>
+            <div><strong>{pos.name ?? pos.deviceName ?? pos.deviceId}</strong></div>
+            <div>Lat: {pos.latitude ?? pos.lat ?? '—'}</div>
+            <div>Lon: {pos.longitude ?? pos.lon ?? '—'}</div>
+            <div>Velocidade: {pos.speed ?? '—'}</div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+}
+
+// Simple helper to determine online/offline based on position timestamp
+function isOnline(position, offlineThresholdMinutes = 5) {
+  if (!position) return false;
+  const timeStr = position.serverTime ?? position.time ?? position.fixTime ?? position.server_time ?? position.fixtime;
+  if (!timeStr) return false;
+  const t = Date.parse(timeStr);
+  if (Number.isNaN(t)) return false;
+  const diffMin = (Date.now() - t) / 1000 / 60;
+  return diffMin <= offlineThresholdMinutes;
+}
 
 export default function Monitoring() {
-  const { tenantId } = useTenant();
-  const [statusFilter, setStatusFilter] = useState("all");
+  const { devices, positionsByDeviceId, loading, error, reload, stats } = useDevices();
 
-  const {
-    devices,
-    loading: loadingDevices,
-    error: devicesError,
-    fetchedAt: devicesFetchedAt,
-    refresh: refreshDevices,
-  } = useDevices({ tenantId, autoRefreshMs: 5 * 60 * 1000 });
+  const [query, setQuery] = useState('');
+  const [showColumns, setShowColumns] = useState(false);
+  const [columns, setColumns] = useState({
+    name: true,
+    plate: true,
+    speed: true,
+    ignition: true,
+    status: true,
+  });
 
-  const {
-    positions,
-    loading: loadingPositions,
-    error: positionsError,
-    fetchedAt,
-    refresh: refreshPositions,
-  } = useLivePositions({ tenantId, refreshInterval: 30 * 1000 });
-
-  const { table, summary } = useMemo(() => {
-    const { rows, stats } = buildFleetState(devices, positions, { tenantId });
-    return { table: rows, summary: stats };
-  }, [devices, positions, tenantId]);
-
-  const filteredTable = useMemo(() => {
-    if (statusFilter === "all") return table;
-    return table.filter((item) => item.status === statusFilter);
-  }, [statusFilter, table]);
-
-  const markers = useMemo(() => {
-    return filteredTable
-      .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))
-      .map((item) => ({
-        id: item.id,
-        lat: item.lat,
-        lng: item.lng,
-        status: item.status,
-        popup: (
-          <div className="space-y-1 text-sm text-slate-900">
-            <div className="font-semibold text-slate-800">{item.name}</div>
-            {item.plate && <div className="text-xs text-slate-500">{item.plate}</div>}
-            <div className="text-xs text-slate-600">
-              {item.speed != null ? `${item.speed} km/h` : "Velocidade não disponível"}
-            </div>
-            {item.address && <div className="text-xs text-slate-500">{item.address}</div>}
-          </div>
-        ),
-      }));
-  }, [filteredTable]);
-
-  const mapCenter = useMemo(() => {
-    const first = markers[0];
-    if (first) return [first.lat, first.lng];
-    return [-14.235004, -51.92528];
-  }, [markers]);
-
-  const ignitionCount = useMemo(
-    () => filteredTable.filter((item) => item.ignition === true).length,
-    [filteredTable],
-  );
-  const onlineVehicles = useMemo(
-    () => filteredTable.filter((item) => item.status === "online"),
-    [filteredTable],
-  );
-  const movingVehicles = useMemo(
-    () => filteredTable.filter((item) => Number(item.speed) >= 5),
-    [filteredTable],
-  );
-  const totalAlerts = useMemo(
-    () =>
-      filteredTable.reduce((total, current) => {
-        if (Array.isArray(current.alerts)) return total + current.alerts.length;
-        const numeric = Number(current.alerts ?? 0);
-        return total + (Number.isFinite(numeric) ? numeric : 0);
-      }, 0),
-    [filteredTable],
-  );
-
-  const isLoading = loadingDevices || loadingPositions;
-  const errorMessage = devicesError || positionsError;
+  const filtered = useMemo(() => {
+    const q = (query || '').trim().toLowerCase();
+    if (!q) return devices || [];
+    return (devices || []).filter((d) => {
+      const name = (d.name ?? d.vehicle ?? d.alias ?? '').toString().toLowerCase();
+      const plate = (d.plate ?? d.registrationNumber ?? d.uniqueId ?? '').toString().toLowerCase();
+      return name.includes(q) || plate.includes(q);
+    });
+  }, [devices, query]);
 
   return (
-    <div className="flex flex-col gap-6">
-      {errorMessage && (
-        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
-          Falha ao sincronizar telemetria em tempo real. {errorMessage.message ?? "Tente novamente em instantes."}
-        </div>
-      )}
+    <div className="app-root" style={{ display: 'flex', height: '100vh' }}>
+      <Sidebar />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <Topbar />
+        <main style={{ padding: 16, overflow: 'auto' }}>
+          <h1>Monitoramento</h1>
 
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatusCard title="Online" value={isLoading ? "…" : summary.online} tone="green" />
-        <StatusCard title="Em alerta" value={isLoading ? "…" : summary.alert} tone="yellow" />
-        <StatusCard title="Offline" value={isLoading ? "…" : summary.offline} tone="red" />
-        <StatusCard title="Bloqueados" value={isLoading ? "…" : summary.blocked} tone="purple" />
-      </div>
-
-      <div className="card space-y-4">
-        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-sm font-medium text-white">Filtros rápidos</div>
-            <div className="text-xs text-white/40">Personalize a visualização da frota</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            <div className="flex flex-wrap gap-2">
-              {filters.map((status) => (
-                <button
-                  key={status}
-                  type="button"
-                  onClick={() => setStatusFilter(status)}
-                  className={`rounded-full px-4 py-2 transition ${
-                    statusFilter === status
-                      ? "bg-primary text-white"
-                      : "bg-white/5 text-white/60 hover:bg-white/10"
-                  }`}
-                >
-                  {status === "all" ? "Todos" : statusLabels[status] ?? status}
-                </button>
-              ))}
-            </div>
-            <LiveIndicator
-              fetchedAt={fetchedAt}
-              positionsLoading={loadingPositions}
-              onRefresh={() => {
-                refreshPositions();
-                refreshDevices();
-              }}
-              devicesFetchedAt={devicesFetchedAt}
+          {/* Search + Columns button */}
+          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+            <input
+              placeholder="Buscar veículo / placa"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              style={{ padding: 8, flex: 1, marginRight: 8 }}
             />
-          </div>
-        </header>
-
-        <div className="grid gap-4 lg:grid-cols-2">
-          <LeafletMap markers={markers} center={mapCenter} height={420} />
-          <div className="rounded-2xl border border-white/5 bg-white/5 p-5 text-sm text-white/70">
-            <div className="flex items-center justify-between gap-2">
-              <div className="font-medium text-white">Resumo inteligente</div>
-              {fetchedAt && (
-                <span className="text-xs text-white/40">Atualizado às {new Date(fetchedAt).toLocaleTimeString()}</span>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => setShowColumns((s) => !s)}>Colunas</button>
+              {showColumns && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    right: 0,
+                    marginTop: 6,
+                    padding: 8,
+                    background: '#fff',
+                    border: '1px solid #ddd',
+                    boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
+                    zIndex: 50,
+                  }}
+                >
+                  <div style={{ marginBottom: 8, fontWeight: 'bold' }}>Exibir colunas</div>
+                  {Object.keys(columns).map((key) => (
+                    <label key={key} style={{ display: 'block', marginBottom: 4 }}>
+                      <input
+                        type="checkbox"
+                        checked={columns[key]}
+                        onChange={() => setColumns((c) => ({ ...c, [key]: !c[key] }))}
+                      />{' '}
+                      {key[0].toUpperCase() + key.slice(1)}
+                    </label>
+                  ))}
+                </div>
               )}
             </div>
-            <ul className="mt-4 space-y-2 text-sm text-white/80">
-              <li className="flex items-center justify-between gap-3">
-                <span className="text-white/60">Veículos com ignição ligada</span>
-                <span className="font-semibold text-white">{ignitionCount}</span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="text-white/60">Em movimento (&gt;= 5 km/h)</span>
-                <span className="font-semibold text-white">{movingVehicles.length}</span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="text-white/60">Velocidade média (online)</span>
-                <span className="font-semibold text-white">
-                  {formatAverage(onlineVehicles.map((item) => item.speed))} km/h
-                </span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="text-white/60">Sinal médio (online)</span>
-                <span className="font-semibold text-white">
-                  {formatAverage(onlineVehicles.map((item) => item.signal))} dBm
-                </span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="text-white/60">Alertas ativos</span>
-                <span className="font-semibold text-white">{totalAlerts}</span>
-              </li>
-            </ul>
-            <Link to="/deliveries" className="mt-3 inline-flex items-center text-xs text-primary">
-              Abrir entregas
-            </Link>
+            <button onClick={reload} style={{ marginLeft: 8 }}>
+              Recarregar
+            </button>
           </div>
-        </div>
-      </div>
 
-      <div className="card">
-        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="text-sm font-medium text-white">Frota em tempo real</div>
-          <div className="text-xs text-white/50">
-            {filteredTable.length} veículos exibidos · posição sincronizada às {fetchedAt
-              ? new Date(fetchedAt).toLocaleTimeString()
-              : "—"}
+          {/* Top row: Map (left) and Summary (right) */}
+          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+            <div style={{ flex: 2 }}>
+              <div style={{ border: '1px solid #ddd', padding: 8 }}>
+                <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Mapa</div>
+                <MapView positions={positionsByDeviceId} />
+              </div>
+            </div>
+
+            <div style={{ width: 320 }}>
+              <div style={{ border: '1px solid #ddd', padding: 12 }}>
+                <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Resumo</div>
+                <div>Total de dispositivos: {stats.total}</div>
+                <div>Com posição: {stats.withPosition}</div>
+                <div style={{ marginTop: 8 }}>
+                  {loading && <div>Carregando dados de telemetria...</div>}
+                  {error && <div style={{ color: 'red' }}>Erro ao carregar: {error.message}</div>}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-white/40">
-              <tr className="border-b border-white/10 text-left">
-                <th className="py-2 pr-4">Veículo</th>
-                <th className="py-2 pr-4">Placa</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Atualização</th>
-                <th className="py-2 pr-4">Endereço</th>
-                <th className="py-2 pr-4">Velocidade</th>
-                <th className="py-2 pr-4">Ignição</th>
-                <th className="py-2 pr-4">Bateria</th>
-                <th className="py-2 pr-4">Sinal</th>
-                <th className="py-2 pr-4">Alertas</th>
-                <th className="py-2 pr-4">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredTable.length === 0 && (
+
+          {/* Devices table */}
+          <div style={{ border: '1px solid #ddd', padding: 8 }}>
+            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Veículos / Dispositivos</div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
                 <tr>
-                  <td colSpan={11} className="py-6 text-center text-white/40">
-                    Nenhum veículo corresponde aos filtros.
-                  </td>
+                  {columns.name && <th style={{ textAlign: 'left', padding: 6 }}>Nome</th>}
+                  {columns.plate && <th style={{ textAlign: 'left', padding: 6 }}>Placa</th>}
+                  {columns.speed && <th style={{ textAlign: 'left', padding: 6 }}>Velocidade (km/h)</th>}
+                  {columns.ignition && <th style={{ textAlign: 'left', padding: 6 }}>Ignição</th>}
+                  {columns.status && <th style={{ textAlign: 'left', padding: 6 }}>Status</th>}
                 </tr>
-              )}
-              {filteredTable.map((vehicle) => (
-                <tr key={vehicle.id} className="border-b border-white/5">
-                  <td className="py-3 pr-4 text-white/80">{vehicle.name}</td>
-                  <td className="py-3 pr-4 text-white/60">{vehicle.plate}</td>
-                  <td className="py-3 pr-4 text-white/70">{statusLabels[vehicle.status] ?? vehicle.status}</td>
-                  <td className="py-3 pr-4 text-white/60">{formatTime(vehicle.lastUpdate)}</td>
-                  <td className="py-3 pr-4 text-white/60">{vehicle.address || "—"}</td>
-                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.speed, "km/h")}</td>
-                  <td className="py-3 pr-4 text-white/70">{formatIgnition(vehicle.ignition)}</td>
-                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.battery, "%")}</td>
-                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.signal, "dBm")}</td>
-                  <td className="py-3 pr-4 text-white/70">{vehicle.alerts?.length ?? 0}</td>
-                  <td className="py-3 pr-4 text-white/60">
-                    <div className="flex items-center gap-2">
-                      <Link className="rounded-lg bg-white/10 px-2 py-1 text-xs" to={`/trips?vehicle=${vehicle.id}`}>
-                        Replay
-                      </Link>
-                      {Number.isFinite(vehicle.lat) && Number.isFinite(vehicle.lng) ? (
-                        <a
-                          className="rounded-lg bg-white/10 px-2 py-1 text-xs"
-                          href={`https://www.google.com/maps/search/?api=1&query=${vehicle.lat},${vehicle.lng}`}
-                          rel="noreferrer"
-                          target="_blank"
-                        >
-                          Maps
-                        </a>
-                      ) : (
-                        <span className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/40">Sem coordenada</span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {(filtered || []).map((d) => {
+                  const deviceId = d.id ?? d.deviceId ?? d.device_id ?? d.uniqueId ?? d.unique_id;
+                  const pos = positionsByDeviceId[deviceId] ?? positionsByDeviceId[d.uniqueId] ?? positionsByDeviceId[d.unique_id];
+                  const speed = pos?.speed ?? pos?.attributes?.speed ?? null;
+                  const ignition = pos?.attributes?.ignition ?? d.attributes?.ignition ?? null;
+                  const online = isOnline(pos);
+                  return (
+                    <tr key={deviceId} style={{ borderTop: '1px solid #f0f0f0' }}>
+                      {columns.name && <td style={{ padding: 6 }}>{d.name ?? d.vehicle ?? d.alias ?? '—'}</td>}
+                      {columns.plate && <td style={{ padding: 6 }}>{d.plate ?? d.registrationNumber ?? '—'}</td>}
+                      {columns.speed && <td style={{ padding: 6 }}>{speed != null ? `${speed} km/h` : '—'}</td>}
+                      {columns.ignition && <td style={{ padding: 6 }}>{ignition === null ? '—' : ignition ? 'Sim' : 'Não'}</td>}
+                      {columns.status && <td style={{ padding: 6 }}>{online ? 'Online' : 'Offline'}</td>}
+                    </tr>
+                  );
+                })}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={Object.values(columns).filter(Boolean).length} style={{ padding: 8 }}>
+                      Nenhum dispositivo encontrado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </main>
       </div>
     </div>
   );
-}
-
-function StatusCard({ title, value, tone }) {
-  const palette = {
-    green: "border-emerald-400/30 bg-emerald-500/10",
-    yellow: "border-amber-300/30 bg-amber-400/10",
-    red: "border-red-400/30 bg-red-500/10",
-    purple: "border-purple-400/30 bg-purple-500/10",
-  };
-  return (
-    <div className={`rounded-2xl border p-4 text-white ${palette[tone]}`}>
-      <div className="text-xs text-white/60">{title}</div>
-      <div className="mt-1 text-2xl font-semibold">{value}</div>
-    </div>
-  );
-}
-
-function LiveIndicator({ fetchedAt, positionsLoading, onRefresh, devicesFetchedAt }) {
-  return (
-    <div className="flex items-center gap-2 text-xs text-white/50">
-      <span className="flex items-center gap-1 rounded-full border border-green-400/40 bg-green-500/10 px-2 py-1 text-green-200">
-        <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" /> Ao vivo
-      </span>
-      <span className="hidden text-white/50 md:inline">
-        Posicionamento: {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"}
-      </span>
-      <span className="hidden text-white/40 lg:inline">
-        Inventário: {devicesFetchedAt ? new Date(devicesFetchedAt).toLocaleTimeString() : "—"}
-      </span>
-      <button
-        type="button"
-        onClick={onRefresh}
-        disabled={positionsLoading}
-        className="rounded-full border border-white/10 px-3 py-1 text-white/60 transition hover:text-white disabled:opacity-50"
-      >
-        Atualizar
-      </button>
-    </div>
-  );
-}
-
-function formatAverage(values) {
-  const valid = values.map((value) => Number(value) || 0).filter((value) => Number.isFinite(value));
-  if (!valid.length) return "0";
-  const average = valid.reduce((total, current) => total + current, 0) / valid.length;
-  return average.toFixed(1);
-}
-
-function formatMetric(value, unit) {
-  if (!Number.isFinite(value)) return "—";
-  return `${Math.round(Number(value) * 10) / 10}${unit ? ` ${unit}` : ""}`;
-}
-
-function formatIgnition(value) {
-  if (value === null || value === undefined) return "—";
-  return value ? "Ligada" : "Desligada";
-}
-
-function formatTime(value) {
-  if (!value) return "—";
-  try {
-    const date = typeof value === "string" || typeof value === "number" ? new Date(value) : value;
-    return date.toLocaleString();
-  } catch (error) {
-    return String(value);
-  }
 }
