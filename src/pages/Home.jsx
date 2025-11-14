@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { Link } from "react-router-dom";
 
 import { useTenant } from "../lib/tenant-context";
-import { useDevices } from "../lib/hooks/useDevices";
+import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useTrips } from "../lib/hooks/useTrips";

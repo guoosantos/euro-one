@@ -4,7 +4,7 @@ import { Bell, Menu, Search, Settings, User } from "lucide-react";
 
 import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
-import { useDevices } from "../lib/hooks/useDevices";
+import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import { useEvents } from "../lib/hooks/useEvents";
 import { buildFleetState } from "../lib/fleet-utils";
