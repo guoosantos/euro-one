@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import api from "../api";
+import api from "../api.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;

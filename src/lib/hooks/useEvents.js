@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import api from "../api";
+import api from "../api.js";
 
-function buildParams({ deviceId, types, from, to, limit }) {
+export function buildParams({ deviceId, types, from, to, limit }) {
   const params = {};
   if (deviceId) params.deviceId = deviceId;
   if (Array.isArray(types) && types.length) {

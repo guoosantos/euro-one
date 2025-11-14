@@ -1,8 +1,8 @@
 import axios from "axios";
 
-const TOKEN_STORAGE_KEY = "euro-one.traccar.token";
-const USER_STORAGE_KEY = "euro-one.traccar.user";
-const BASE_URL = (import.meta?.env?.VITE_TRACCAR_BASE_URL || "http://localhost:8082").replace(/\/$/, "");
+const TOKEN_STORAGE_KEY = "euro-one.session.token";
+const USER_STORAGE_KEY = "euro-one.session.user";
+const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "http://localhost:3001").replace(/\/$/, "");
 
 function getStorage() {
   try {
@@ -10,7 +10,7 @@ function getStorage() {
       return window.localStorage;
     }
   } catch (error) {
-    console.warn("Storage unavailable", error);
+    console.warn("Storage indisponível", error);
   }
   return null;
 }
@@ -26,7 +26,7 @@ export function getStoredSession() {
       user: rawUser ? JSON.parse(rawUser) : null,
     };
   } catch (error) {
-    console.warn("Failed to parse stored session", error);
+    console.warn("Falha ao carregar sessão persistida", error);
     return { token: null, user: null };
   }
 }
@@ -42,7 +42,7 @@ export function setStoredSession(session) {
       storage.setItem(USER_STORAGE_KEY, JSON.stringify(session.user));
     }
   } catch (error) {
-    console.warn("Failed to persist session", error);
+    console.warn("Falha ao persistir sessão", error);
   }
 }
 
@@ -53,35 +53,16 @@ export function clearStoredSession() {
     storage.removeItem(TOKEN_STORAGE_KEY);
     storage.removeItem(USER_STORAGE_KEY);
   } catch (error) {
-    console.warn("Failed to clear session", error);
+    console.warn("Falha ao limpar sessão", error);
   }
 }
 
 function normaliseToken(value) {
   if (!value) return null;
-  if (/^Bearer |^Basic |^Token /i.test(value)) {
+  if (/^Bearer /i.test(value)) {
     return value;
   }
   return `Bearer ${value}`;
-}
-
-function getEnvAuthorization() {
-  const tokenFromEnv = normaliseToken(import.meta?.env?.VITE_TRACCAR_TOKEN);
-  if (tokenFromEnv) {
-    return tokenFromEnv;
-  }
-
-  const username = import.meta?.env?.VITE_TRACCAR_USERNAME;
-  const password = import.meta?.env?.VITE_TRACCAR_PASSWORD;
-  if (username && password) {
-    try {
-      const credentials = btoa(`${username}:${password}`);
-      return `Basic ${credentials}`;
-    } catch (error) {
-      console.warn("Failed to encode credentials", error);
-    }
-  }
-  return null;
 }
 
 function resolveAuthorizationHeader() {
@@ -89,13 +70,13 @@ function resolveAuthorizationHeader() {
   if (stored?.token) {
     return normaliseToken(stored.token);
   }
-  return getEnvAuthorization();
+  return null;
 }
 
 export const api = axios.create({
   baseURL: `${BASE_URL}/api`,
   withCredentials: true,
-  timeout: 20000,
+  timeout: 20_000,
 });
 
 api.interceptors.request.use((config) => {

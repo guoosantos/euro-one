@@ -9,58 +9,77 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
 
 ## Configuração
 
-1. Copie `.env.example` para `.env` e preencha com as credenciais do Traccar:
+1. Copie `.env.example` para `.env` e configure as variáveis de ambiente que serão compartilhadas entre front-end (Vite) e o backend Node:
 
    ```bash
    cp .env.example .env
    ```
 
    ```env
-   VITE_TRACCAR_BASE_URL=http://3.17.172.94:8082
-   VITE_TRACCAR_USERNAME=seu_usuario
-   VITE_TRACCAR_PASSWORD=sua_senha
-   # Opcional: caso utilize token
-   VITE_TRACCAR_TOKEN=
+   VITE_API_BASE_URL=http://localhost:3001
+
+   # Backend
+   TRACCAR_BASE_URL=http://3.17.172.94:8082
+   TRACCAR_ADMIN_USER=admin@euro-one
+   TRACCAR_ADMIN_PASSWORD=senha_segura
+   JWT_SECRET=altere-esta-chave
+   ALLOWED_ORIGINS=http://localhost:5173
    ```
 
-   O token pode ser obtido na interface do Traccar. Caso informe usuário/senha, o front-end utilizará Basic Auth; se preferir token JWT/API, basta definir `VITE_TRACCAR_TOKEN`.
+   - `VITE_API_BASE_URL` aponta para o backend da plataforma Euro One (por padrão `http://localhost:3001`).
+   - O backend utiliza as variáveis `TRACCAR_*` para autenticar-se junto ao Traccar e executar operações administrativas (criação de clientes, usuários, geofences etc.).
+   - `JWT_SECRET` define a chave usada para assinar os tokens de sessão emitidos pelo backend.
+   - `ALLOWED_ORIGINS` lista as origens autorizadas a consumir a API (separe múltiplas origens por vírgula).
 
-2. Instale as dependências:
+2. Instale as dependências (front-end + backend):
 
    ```bash
    npm install
    ```
 
-3. Execute o projeto em modo desenvolvimento:
+3. Suba o backend que faz proxy/autenticação com o Traccar:
+
+   ```bash
+   npm run server
+   ```
+
+   O servidor Express ficará disponível em `http://localhost:3001` por padrão.
+
+4. Em um segundo terminal, execute o front-end:
 
    ```bash
    npm run dev
    ```
 
-   O aplicativo ficará disponível em `http://localhost:5173`.
+   A aplicação React ficará disponível em `http://localhost:5173` consumindo automaticamente o backend configurado na etapa anterior.
+
+   Para facilitar, deixe ambos os terminais abertos ou utilize ferramentas como `tmux`/`foreman` à sua escolha.
 
 ## Autenticação
 
-- Utilize o usuário e a senha do Traccar no formulário de login.
-- A sessão é mantida em `localStorage` (token `Basic` ou `Bearer`).
-- Todas as requisições usam automaticamente o header `Authorization` configurado no módulo `src/lib/api.js`.
+- Utilize seu e-mail e senha cadastrados no backend Euro One (os dados são validados no Traccar via `/api/session`).
+- O backend emite um token JWT com papel (`admin`, `manager`, `driver`) e identificador do usuário; o front-end armazena esse token com segurança (localStorage ou cookie HttpOnly).
+- Todos os requests utilizam o módulo `src/lib/api.js`, que injeta automaticamente o cabeçalho `Authorization: Bearer <token>` e inclui o token em chamadas subsequentes.
+- O endpoint `/api/session` do backend permite restaurar a sessão em recarregamentos; `/api/logout` encerra a sessão.
 
 ## Funcionalidades
 
 - **Dashboard**: KPIs de telemetria, ranking de motoristas e gráficos Recharts (velocidade média, distância, eventos, consumo CAN).
-- **Monitoramento**: dispositivos e posições em tempo real com polling a cada 10 segundos.
-- **Eventos**: listagem ao vivo com filtros, configuração de alertas e notificações.
-- **Geofences**: criação/edição via Leaflet, associação de dispositivos e sincronização com o Traccar.
-- **Relatórios**: geração de relatórios de viagens (`/api/reports/trips`) e exportação CSV.
-- **Vídeo**: player HLS/RTSP com suporte a URLs nos atributos do dispositivo e streams manuais.
-- **Reconhecimento facial**: consumo do endpoint `/media/face/alerts` (ou stub) para alertas de cabine.
+- **Monitoramento**: dispositivos e posições em tempo real com polling a cada 10 segundos (via `/api/devices` e `/api/positions/last`).
+- **Gestão de clientes**: cadastro, edição e remoção de tenants (usuários *manager* no Traccar) por meio das rotas `/api/clients`.
+- **Gestão de usuários**: criação de operadores, gestores e motoristas vinculados a um cliente com controle de permissões (`/api/users`).
+- **Eventos**: listagem em tempo real com filtros, configuração de alertas e integração direta com `/api/events`.
+- **Geofences**: criação/edição via Leaflet, associação de dispositivos/grupos e sincronização com o Traccar (`/api/geofences`, `/api/permissions`).
+- **Relatórios**: geração de relatórios de viagens (`/api/reports/trips`) e exportação CSV/Excel.
+- **Vídeo**: player HLS/RTSP com suporte a streams configuradas nos atributos dos dispositivos; exibe status on-line/off-line.
+- **Reconhecimento facial**: módulo com integração simulada/real para identificação de motoristas e alertas de fadiga.
 - **Temas e i18n**: tema claro/escuro e tradução pt-BR/en-US (Topbar > ícone de idioma).
 
 ## Testes
 
 ### Unitários
 
-Os testes unitários utilizam Jest + React Testing Library.
+Os testes unitários utilizam o runner nativo do Node (`node --test`) com Jest DOM/RTL para validar hooks e utilitários.
 
 ```bash
 npm run test
@@ -95,6 +114,7 @@ npm run cypress:open
 - `npm run preview` – preview local após build.
 - `npm run test` – testes unitários.
 - `npm run cypress:open` – runner do Cypress.
+- `npm run server` – executa o backend Express com integração ao Traccar.
 
 ## Suporte ao Traccar
 
@@ -104,5 +124,7 @@ npm run cypress:open
 - Geofences: `/api/geofences` + `/api/permissions`
 - Relatórios: `/api/reports/trips`
 - Reconhecimento facial (personalizado): `/api/media/face/alerts`
+
+> Certifique-se de que o Traccar esteja acessível a partir do backend (teste com `curl $TRACCAR_BASE_URL/api/server`) e que o usuário administrador possua privilégios para criar outros usuários/managers.
 
 > Certifique-se de ativar CORS no servidor Traccar ou proxy reverso para permitir chamadas do front-end.
