@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
+import { useTenant } from "../lib/tenant-context";
+import { vehicles as fleetVehicles } from "../mock/fleet";
 
 function getFixDate(d) {
   const posTime = d?.position?.fixTime || d?.lastFix || d?.lastCommunication;
@@ -24,29 +26,12 @@ function bucketOf(hours) {
 }
 
 export default function CommBuckets() {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { tenantId } = useTenant();
+  const [loading] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [q, setQ] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        setLoading(true);
-        const r = await fetch("/api/core/devices", { credentials: "include" });
-        const data = await r.json();
-        if (!alive) return;
-        setItems(Array.isArray(data) ? data : (data?.items || []));
-      } catch (e) {
-        console.error("CommBuckets fetch error", e);
-        setItems([]);
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => { alive = false; };
-  }, []);
+  const items = useMemo(() => fleetVehicles.filter((vehicle) => vehicle.tenantId === tenantId), [tenantId]);
 
   const now = useMemo(() => new Date(), []);
   const grouped = useMemo(() => {
