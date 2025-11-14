@@ -16,7 +16,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   }, [title]);
 
   return (
-    <div className="min-h-screen bg-bg text-text">
+    <div className="flex min-h-screen bg-bg text-text">
       {sidebarOpen && (
         <button
           type="button"
@@ -34,16 +34,18 @@ export default function Layout({ children, title, hideTitle = false }) {
         <Sidebar />
       </aside>
 
-      <div className="md:pl-72">
-        <div className="min-h-screen flex flex-col">
-          <Topbar title={title} />
+      <div className="flex flex-1 flex-col md:pl-72">
+        <Topbar title={title} />
 
-          <main className="mx-auto w-full max-w-7xl px-4 py-6 space-y-6">
-            {title && !hideTitle && <h1 className="text-2xl font-semibold">{title}</h1>}
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-6 px-4 py-6">
+              {title && !hideTitle && <h1 className="text-2xl font-semibold">{title}</h1>}
 
-            <ErrorBoundary>{children}</ErrorBoundary>
-          </main>
-        </div>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
+          </div>
+        </main>
       </div>
 
       <DeviceModalGlobal />
