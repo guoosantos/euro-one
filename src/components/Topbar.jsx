@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Bell, Menu, Search, Settings, User } from "lucide-react";
+import { Bell, Languages, Menu, Moon, Search, Settings, Sun, User } from "lucide-react";
 
 import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
@@ -18,6 +18,10 @@ const statusLabels = {
 
 export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
+  const theme = useUI((state) => state.theme);
+  const toggleTheme = useUI((state) => state.toggleTheme);
+  const locale = useUI((state) => state.locale);
+  const setLocale = useUI((state) => state.setLocale);
   const { tenantId, setTenantId, tenant, tenants } = useTenant();
   const navigate = useNavigate();
 
@@ -26,7 +30,7 @@ export function Topbar({ title }) {
 
   const { devices } = useDevices({ tenantId });
   const { positions } = useLivePositions({ tenantId, refreshInterval: 120 * 1000 });
-  const { events: recentEvents } = useEvents({ tenantId, limit: 3, autoRefreshMs: 120 * 1000 });
+  const { events: recentEvents } = useEvents({ limit: 3, refreshInterval: 120 * 1000 });
 
   const fleetIndex = useMemo(() => {
     const { rows } = buildFleetState(devices, positions, { tenantId });
@@ -144,6 +148,27 @@ export function Topbar({ title }) {
               </option>
             ))}
           </select>
+
+          <div className="relative hidden items-center gap-2 md:flex">
+            <Languages size={18} className="text-white/60" />
+            <select
+              value={locale}
+              onChange={(event) => setLocale(event.target.value)}
+              className="h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none"
+            >
+              <option value="pt-BR">Português</option>
+              <option value="en-US">English</option>
+            </select>
+          </div>
+
+          <button
+            className="btn hidden md:inline-flex"
+            type="button"
+            title="Alternar tema"
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
 
           <button className="btn" type="button" title="Central de alertas">
             <Bell size={18} />

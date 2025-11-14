@@ -1,17 +1,5 @@
-// Resolved merge: unified hook combining main branch stability with PR telemetry improvements
-// Exports a hook: useDevices()
-// Returns: { devices, positionsByDeviceId, loading, error, reload, stats }
-
-import { useState, useEffect, useCallback, useRef } from 'react';
-
-const POSITION_ENDPOINTS = ['/core/api/positions', '/core/api/positions/last', '/core/api/lastpositions'];
-
-function normaliseArrayPayload(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.data)) return payload.data;
-  if (Array.isArray(payload?.positions)) return payload.positions;
-  return [];
-}
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import api from "../api";
 
 function toDeviceKey(value) {
   if (value === null || value === undefined) return null;
@@ -22,184 +10,130 @@ function toDeviceKey(value) {
   }
 }
 
-function pickTime(position) {
-  const candidates = [
-    position?.serverTime,
-    position?.time,
-    position?.fixTime,
-    position?.server_time,
-    position?.fixtime,
-  ];
-
-  for (const value of candidates) {
-    if (!value) continue;
-    const parsed = Date.parse(value);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return 0;
+function normaliseDeviceList(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.devices)) return payload.devices;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return [];
 }
 
-function mapPositions(rawPositions) {
-  if (!Array.isArray(rawPositions) || rawPositions.length === 0) {
-    return {};
-  }
-
-  const byDevice = {};
-
-  for (const position of rawPositions) {
-    const key =
-      toDeviceKey(position?.deviceId) ??
-      toDeviceKey(position?.device_id) ??
-      toDeviceKey(position?.idDevice) ??
-      toDeviceKey(position?.device);
-
-    if (!key) continue;
-
-    const current = byDevice[key];
-    const incomingTime = pickTime(position);
-
-    if (!current || (current.__timeValue ?? 0) < incomingTime) {
-      byDevice[key] = { ...position, __timeValue: incomingTime };
+function pickNewestPosition(positions) {
+  if (!Array.isArray(positions) || positions.length === 0) return null;
+  return positions.reduce((latest, current) => {
+    const latestTime = latest ? Date.parse(latest.fixTime ?? latest.serverTime ?? latest.time ?? 0) : 0;
+    const currentTime = Date.parse(current.fixTime ?? current.serverTime ?? current.time ?? 0);
+    if (Number.isNaN(currentTime)) {
+      return latest;
     }
-  }
-
-  for (const key of Object.keys(byDevice)) {
-    delete byDevice[key].__timeValue;
-  }
-
-  return byDevice;
+    if (!latest || currentTime > latestTime) {
+      return current;
+    }
+    return latest;
+  }, null);
 }
 
-function parseDevices(payload) {
-  const list = normaliseArrayPayload(payload);
-  return Array.isArray(list) ? list : [];
+function normalisePositionResponse(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.positions)) return payload.positions;
+  if (payload?.data && Array.isArray(payload.data)) return payload.data;
+  return payload ? [payload] : [];
 }
 
-function ensureError(value) {
-  if (value instanceof Error) return value;
-  if (typeof value === 'string') return new Error(value);
-  return new Error('Falha ao carregar dispositivos');
-}
-
-function useDevices(options = {}) {
-  const { tenantId } = options ?? {};
-
+export function useDevices() {
   const [devices, setDevices] = useState([]);
   const [positionsByDeviceId, setPositionsByDeviceId] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const mounted = useRef(true);
+  const devicesRef = useRef([]);
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
   }, []);
 
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+    let cancelled = false;
+    let intervalId;
 
-  useEffect(() => {
-    let active = true;
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-
-    async function fetchAll() {
+    async function fetchDevices() {
       setLoading(true);
       setError(null);
-
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
-      };
-
       try {
-        const devicesResponse = await fetch('/core/api/devices', {
-          headers,
-          credentials: 'same-origin',
-          signal: controller?.signal,
-        });
-
-        if (!devicesResponse.ok) {
-          throw new Error(`${devicesResponse.status} ${devicesResponse.statusText}`);
-        }
-
-        const devicesPayload = await devicesResponse.json();
-        const normalisedDevices = parseDevices(devicesPayload);
-
-        let positions = [];
-        for (const endpoint of POSITION_ENDPOINTS) {
-          try {
-            const response = await fetch(endpoint, {
-              headers,
-              credentials: 'same-origin',
-              signal: controller?.signal,
-            });
-
-            if (!response.ok) continue;
-
-            const payload = await response.json();
-            positions = normaliseArrayPayload(payload);
-
-            if (positions.length > 0 || Array.isArray(payload)) {
-              break;
-            }
-          } catch (positionError) {
-            if (positionError?.name === 'AbortError') {
-              throw positionError;
-            }
-            // try the next endpoint
-          }
-        }
-
-        if (!active || !mounted.current) return;
-
-        setDevices(normalisedDevices);
-        setPositionsByDeviceId(mapPositions(positions));
+        const response = await api.get("/devices");
+        if (cancelled) return;
+        const list = normaliseDeviceList(response?.data);
+        setDevices(list);
+        devicesRef.current = list;
+        await fetchPositionsForDevices(list);
       } catch (requestError) {
-        if (!active || !mounted.current) return;
-
-        if (requestError?.name === 'AbortError') {
-          return;
-        }
-
-        const resolvedError = ensureError(requestError);
-        const logger = requestError instanceof SyntaxError ? console.warn : console.error;
-        logger('useDevices', resolvedError);
-        setError(resolvedError);
+        if (cancelled) return;
+        console.error("Failed to load devices", requestError);
+        setError(requestError instanceof Error ? requestError : new Error("Erro ao carregar dispositivos"));
         setDevices([]);
         setPositionsByDeviceId({});
       } finally {
-        if (active && mounted.current) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
     }
 
-    fetchAll();
+    async function fetchPositionsForDevices(deviceList = devicesRef.current) {
+      if (!Array.isArray(deviceList) || deviceList.length === 0) {
+        setPositionsByDeviceId({});
+        return;
+      }
+      const requests = deviceList
+        .map((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id))
+        .filter(Boolean)
+        .map((deviceId) =>
+          api
+            .get("/positions/last", { params: { deviceId } })
+            .then((response) => ({ deviceId, payload: response?.data }))
+            .catch((requestError) => {
+              console.warn("Falha ao carregar posição do dispositivo", deviceId, requestError);
+              return null;
+            }),
+        );
+
+      const results = await Promise.all(requests);
+      if (cancelled) return;
+
+      const next = {};
+      results
+        .filter(Boolean)
+        .forEach(({ deviceId, payload }) => {
+          const positions = normalisePositionResponse(payload);
+          const position = pickNewestPosition(positions);
+          if (position) {
+            next[deviceId] = position;
+          }
+        });
+
+      setPositionsByDeviceId(next);
+    }
+
+    fetchDevices();
+    intervalId = globalThis.setInterval(() => {
+      fetchPositionsForDevices();
+    }, 10_000);
 
     return () => {
-      active = false;
-      controller?.abort();
+      cancelled = true;
+      if (intervalId) {
+        globalThis.clearInterval(intervalId);
+      }
     };
-  }, [reloadKey, tenantId]);
+  }, [reloadKey]);
 
-  const stats = {
-    total: Array.isArray(devices) ? devices.length : 0,
-    withPosition: Object.keys(positionsByDeviceId || {}).length,
-  };
+  const stats = useMemo(() => {
+    const total = Array.isArray(devices) ? devices.length : 0;
+    const withPosition = positionsByDeviceId ? Object.keys(positionsByDeviceId).length : 0;
+    return { total, withPosition };
+  }, [devices, positionsByDeviceId]);
 
-  return {
-    devices,
-    positionsByDeviceId,
-    loading,
-    error,
-    reload,
-    stats,
-  };
+  return { devices, positionsByDeviceId, loading, error, reload, stats };
 }
 
 export default useDevices;
-export { useDevices };

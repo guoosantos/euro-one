@@ -8,7 +8,9 @@
     "build": "bash scripts/prebuild-guard.sh && vite build",
     "preview": "vite preview --port 5173 --strictPort",
     "safe:build": "node scripts/safe-build.js",
-    "safe:revert": "bash scripts/safe-revert.sh"
+    "safe:revert": "bash scripts/safe-revert.sh",
+    "test": "node --test",
+    "cypress:open": "cypress open"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.59.15",

@@ -1,26 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
-import { API } from "../api";
-import { matchesTenant } from "../tenancy";
+import api from "../api";
 
-export function useTrips({ tenantId, limit = 10, autoRefreshMs } = {}) {
-  const [state, setState] = useState({ trips: [], loading: true, error: null, fetchedAt: null });
+export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {}) {
+  const [trips, setTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState(null);
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
     let timer;
 
-    const load = async () => {
-      setState((prev) => ({
-        ...prev,
-        loading: prev.trips.length === 0,
-        error: null,
-      }));
-
+    async function fetchTrips() {
+      setLoading(true);
+      setError(null);
       try {
-        const response = await API.trips.list({ tenantId, limit });
-        if (!active) return;
-        const data = response?.data ?? response;
+        const now = new Date();
+        const defaultFrom = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+        const payload = {
+          deviceId,
+          from: (from ? new Date(from) : defaultFrom).toISOString(),
+          to: (to ? new Date(to) : now).toISOString(),
+          type: "all",
+        };
+        const response = await api.post("/reports/trips", payload);
+        if (cancelled) return;
+        const data = response?.data;
         const items = Array.isArray(data)
           ? data
           : Array.isArray(data?.trips)
@@ -28,26 +34,29 @@ export function useTrips({ tenantId, limit = 10, autoRefreshMs } = {}) {
           : Array.isArray(data?.items)
           ? data.items
           : [];
-        const filtered = tenantId ? items.filter((trip) => matchesTenant(trip, tenantId)) : items;
-        setState({ trips: filtered.slice(0, limit), loading: false, error: null, fetchedAt: new Date() });
-      } catch (error) {
-        if (!active) return;
-        setState((prev) => ({ ...prev, loading: false, error }));
+        setTrips(items.slice(0, limit));
+        setFetchedAt(new Date());
+      } catch (requestError) {
+        if (cancelled) return;
+        setError(requestError);
+        setTrips([]);
       } finally {
-        if (!active || !autoRefreshMs) return;
-        timer = setTimeout(() => {
-          setVersion((value) => value + 1);
-        }, autoRefreshMs);
+        if (!cancelled) {
+          setLoading(false);
+          if (refreshInterval) {
+            timer = setTimeout(fetchTrips, refreshInterval);
+          }
+        }
       }
-    };
+    }
 
-    load();
+    fetchTrips();
 
     return () => {
-      active = false;
+      cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [tenantId, limit, version, autoRefreshMs]);
+  }, [deviceId, from, to, limit, refreshInterval, version]);
 
   const refresh = useMemo(
     () => () => {
@@ -56,5 +65,7 @@ export function useTrips({ tenantId, limit = 10, autoRefreshMs } = {}) {
     [],
   );
 
-  return { ...state, refresh };
+  return { trips, loading, error, fetchedAt, refresh };
 }
+
+export default useTrips;

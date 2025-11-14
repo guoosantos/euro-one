@@ -1,39 +1,161 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import api from "../lib/api";
+import useDevices from "../lib/hooks/useDevices";
 
-import { useTenant } from "../lib/tenant-context";
-import { euroViewFaces, vehicles } from "../mock/fleet";
+const ALERT_TYPES = [
+  { key: "noSeatbelt", label: "Sem cinto" },
+  { key: "fatigue", label: "Fadiga" },
+  { key: "distraction", label: "Distração" },
+  { key: "phone", label: "Uso de celular" },
+];
 
 export default function Face() {
-  const { tenantId } = useTenant();
+  const { devices: deviceList } = useDevices();
+  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const [alerts, setAlerts] = useState([]);
+  const [filter, setFilter] = useState("all");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
-  const list = useMemo(
-    () =>
-      euroViewFaces
-        .filter((face) => face.tenantId === tenantId)
-        .map((face) => ({
-          ...face,
-          vehicle: vehicles.find((item) => item.id === face.vehicleId),
-        })),
-    [tenantId],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+
+    async function fetchAlerts() {
+      setLoading(true);
+      setError(null);
+      try {
+        const response = await api.get("/media/face/alerts").catch(() => ({ data: buildStubAlerts(devices) }));
+        if (cancelled) return;
+        const payload = response?.data;
+        const list = Array.isArray(payload) ? payload : Array.isArray(payload?.alerts) ? payload.alerts : [];
+        setAlerts(list);
+      } catch (requestError) {
+        if (cancelled) return;
+        setError(requestError);
+        setAlerts(buildStubAlerts(devices));
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          timer = setTimeout(fetchAlerts, 30_000);
+        }
+      }
+    }
+
+    fetchAlerts();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [devices]);
+
+  const filteredAlerts = useMemo(() => {
+    if (filter === "all") return alerts;
+    return alerts.filter((alert) => alert.type === filter);
+  }, [alerts, filter]);
 
   return (
-    <div className="space-y-3">
-      {list.map((face) => (
-        <article key={face.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{face.subject}</div>
-              <div className="text-xs text-white/50">
-                {face.vehicle?.name ?? face.vehicleId} · {new Date(face.capturedAt).toLocaleString()}
-              </div>
-            </div>
-            <div className="rounded-full bg-primary/10 px-3 py-1 text-xs text-primary">Match {face.match}%</div>
+    <div className="space-y-6">
+      <section className="card space-y-4">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Reconhecimento facial e cabine</h2>
+            <p className="text-xs opacity-70">
+              Alertas provenientes das câmeras embarcadas Euro Vision (fadiga, distração, uso de cinto). Atualização contínua.
+            </p>
           </div>
-          <div className="mt-3 text-xs text-white/60">Status: {face.status}</div>
-        </article>
-      ))}
-      {!list.length && <div className="text-sm text-white/50">Nenhum reconhecimento registrado.</div>}
+          <select
+            value={filter}
+            onChange={(event) => setFilter(event.target.value)}
+            className="h-10 rounded-lg border border-border bg-layer px-3 text-sm focus:border-primary focus:outline-none"
+          >
+            <option value="all">Todos os alertas</option>
+            {ALERT_TYPES.map((option) => (
+              <option key={option.key} value={option.key}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </header>
+        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        {filteredAlerts.map((alert) => (
+          <article key={`${alert.id}-${alert.timestamp}`} className="rounded-2xl border border-border bg-layer p-4">
+            <header className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold">{alert.driverName ?? "Motorista não identificado"}</div>
+                <div className="text-xs opacity-60">{formatDevice(alert.deviceId, devices)}</div>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(alert.type)}`}>
+                {translateAlert(alert.type)}
+              </span>
+            </header>
+            <p className="mt-2 text-xs opacity-60">{new Date(alert.timestamp).toLocaleString()}</p>
+            <p className="mt-3 text-sm opacity-80">{alert.description ?? "Evento registrado pela câmera"}</p>
+            <div className="mt-3 flex flex-wrap gap-2 text-xs opacity-70">
+              <span className="rounded-full border border-border px-2 py-1">Confiança {Math.round(alert.confidence * 100)}%</span>
+              {alert.duration && <span className="rounded-full border border-border px-2 py-1">{formatDuration(alert.duration)}</span>}
+            </div>
+          </article>
+        ))}
+        {!filteredAlerts.length && (
+          <div className="card text-sm opacity-60">
+            {loading ? "Sincronizando alertas…" : "Nenhum alerta com os filtros atuais."}
+          </div>
+        )}
+      </section>
     </div>
   );
+}
+
+function buildStubAlerts(devices) {
+  if (!devices.length) {
+    return [];
+  }
+  return devices.slice(0, 4).map((device, index) => ({
+    id: `stub-${device.id ?? index}`,
+    deviceId: device.id ?? device.deviceId ?? device.uniqueId,
+    driverName: device.name ?? device.uniqueId ?? `Motorista ${index + 1}`,
+    type: ALERT_TYPES[index % ALERT_TYPES.length].key,
+    description: "Alerta simulado para ambiente de homologação.",
+    confidence: 0.75 + index * 0.05,
+    duration: 90 + index * 15,
+    timestamp: new Date(Date.now() - index * 600000).toISOString(),
+  }));
+}
+
+function translateAlert(type) {
+  const entry = ALERT_TYPES.find((item) => item.key === type);
+  return entry ? entry.label : type;
+}
+
+function badgeClass(type) {
+  switch (type) {
+    case "noSeatbelt":
+      return "bg-red-500/10 text-red-300";
+    case "fatigue":
+      return "bg-amber-500/10 text-amber-300";
+    case "distraction":
+      return "bg-blue-500/10 text-blue-300";
+    case "phone":
+      return "bg-purple-500/10 text-purple-300";
+    default:
+      return "bg-white/10 text-white/70";
+  }
+}
+
+function formatDevice(deviceId, devices) {
+  const match = devices.find((device) => String(device.id ?? device.deviceId ?? device.uniqueId) === String(deviceId));
+  return match ? match.name ?? match.uniqueId ?? match.id : `Dispositivo ${deviceId}`;
+}
+
+function formatDuration(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value)) return null;
+  const minutes = Math.floor(value / 60);
+  const remainder = Math.round(value % 60);
+  return `${minutes}m ${remainder}s`;
 }

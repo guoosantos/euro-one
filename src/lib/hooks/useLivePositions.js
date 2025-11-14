@@ -1,69 +1,76 @@
-import { useEffect, useMemo, useState } from "react";
-import { API } from "../api";
-import { matchesTenant } from "../tenancy";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import api from "../api";
 
-export function useLivePositions({ tenantId, deviceIds, refreshInterval = 30000, params } = {}) {
-  const [state, setState] = useState({ positions: [], loading: true, error: null, fetchedAt: null });
+function normalise(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.positions)) return payload.positions;
+  if (Array.isArray(payload?.data)) return payload.data;
+  return payload ? [payload] : [];
+}
+
+export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
+  const [positions, setPositions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
+  const [fetchedAt, setFetchedAt] = useState(null);
 
-  const serialized = JSON.stringify({ tenantId, deviceIds, params });
+  const ids = useMemo(() => {
+    if (!deviceIds) return [];
+    if (Array.isArray(deviceIds)) return deviceIds;
+    return [deviceIds];
+  }, [deviceIds]);
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
     let timer;
 
-    const load = async () => {
-      setState((prev) => ({
-        ...prev,
-        loading: prev.positions.length === 0,
-        error: null,
-      }));
-
+    async function fetchPositions() {
+      setLoading(true);
+      setError(null);
       try {
-        const query = { ...(params || {}) };
-        if (tenantId !== undefined && tenantId !== null) {
-          if (!("tenantId" in query)) query.tenantId = tenantId;
-          if (!("groupId" in query)) query.groupId = tenantId;
-        }
-        if (Array.isArray(deviceIds) && deviceIds.length) {
-          query.deviceId = deviceIds.join(",");
-        }
-
-        const response = await API.devices.lastPositions(query);
-        if (!active) return;
-        const data = response?.data ?? response;
-        const items = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.positions)
-          ? data.positions
-          : [];
-        const filtered = tenantId ? items.filter((item) => matchesTenant(item, tenantId)) : items;
-        setState({ positions: filtered, loading: false, error: null, fetchedAt: new Date() });
-      } catch (error) {
-        if (!active) return;
-        setState((prev) => ({ ...prev, loading: false, error }));
+        const targets = ids.length ? ids : [null];
+        const requests = targets.map((deviceId) =>
+          api
+            .get("/positions/last", { params: deviceId ? { deviceId } : undefined })
+            .then((response) => normalise(response?.data))
+            .catch((requestError) => {
+              console.warn("Failed to load live position", deviceId, requestError);
+              return [];
+            }),
+        );
+        const results = await Promise.all(requests);
+        if (cancelled) return;
+        const merged = [].concat(...results).filter(Boolean);
+        setPositions(merged);
+        setFetchedAt(new Date());
+      } catch (requestError) {
+        if (cancelled) return;
+        setError(requestError);
+        setPositions([]);
       } finally {
-        if (!active) return;
-        timer = setTimeout(() => {
-          setVersion((value) => value + 1);
-        }, refreshInterval);
+        if (!cancelled) {
+          setLoading(false);
+          if (refreshInterval) {
+            timer = setTimeout(fetchPositions, refreshInterval);
+          }
+        }
       }
-    };
+    }
 
-    load();
+    fetchPositions();
 
     return () => {
-      active = false;
+      cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [serialized, refreshInterval, version]);
+  }, [ids, refreshInterval, version]);
 
-  const refresh = useMemo(
-    () => () => {
-      setVersion((value) => value + 1);
-    },
-    [],
-  );
+  const refresh = useCallback(() => {
+    setVersion((value) => value + 1);
+  }, []);
 
-  return { ...state, refresh };
+  return { positions, loading, error, refresh, fetchedAt };
 }
+
+export default useLivePositions;
