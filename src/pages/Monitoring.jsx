@@ -1,82 +1,183 @@
 import React, { useMemo, useState } from 'react';
+import MapImpl from '../components/_MapImpl.jsx';
 import useDevices from '../lib/hooks/useDevices';
 
-// NOTE:
-// This file resolves merge conflicts by keeping the stable layout and injecting the new telemetry usage.
-// It preserves the topbar/sidebar as they were expected to be in the original file (imports kept minimal).
-// If your project uses different Topbar/Sidebar/Map components, adjust the imports below to match existing ones.
+const DEFAULT_COLUMNS = {
+  name: true,
+  plate: true,
+  speed: true,
+  ignition: true,
+  status: true,
+};
 
-import Topbar from '../components/Topbar';
-import Sidebar from '../components/Sidebar';
-
-// Map rendering: try to use react-leaflet if available, otherwise fallback to simple list representation.
-// This makes the page work even if the project does not use Leaflet; the fallback still shows positions.
-let MapView;
-try {
-  // eslint-disable-next-line
-  const RL = require('react-leaflet');
-  const { MapContainer, TileLayer, Marker, Popup } = RL;
-  MapView = function LeafletMap({ positions }) {
-    const markers = Object.values(positions || {});
-    const center = markers.length
-      ? [markers[0].latitude ?? markers[0].lat ?? 0, markers[0].longitude ?? markers[0].lon ?? markers[0].lng ?? 0]
-      : [0, 0];
-    return (
-      <MapContainer center={center} zoom={6} style={{ height: '400px', width: '100%' }}>
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-        {markers.map((pos) => {
-          const lat = pos.latitude ?? pos.lat ?? pos.latitude_deg ?? pos.lat_deg;
-          const lon = pos.longitude ?? pos.lon ?? pos.lng ?? pos.lng_deg;
-          const name = pos.name ?? pos.deviceName ?? pos.deviceid ?? `Device ${pos.deviceId ?? pos.device_id}`;
-          const speed = pos.speed ?? pos.attributes?.speed ?? 0;
-          const ignition = pos.attributes?.ignition ?? pos.ignition ?? null;
-          const status = '—';
-          return (
-            <Marker key={pos.deviceId ?? pos.device_id ?? JSON.stringify(pos)} position={[lat, lon]}>
-              <Popup>
-                <div style={{ minWidth: 180 }}>
-                  <div><strong>{name}</strong></div>
-                  <div>Velocidade: {speed ? `${speed} km/h` : '—'}</div>
-                  <div>Ignição: {ignition === null ? '—' : ignition ? 'Sim' : 'Não'}</div>
-                  <div>Endereço: {pos.address ?? pos.attributes?.address ?? '—'}</div>
-                  <div>Server time: {pos.serverTime ?? pos.time ?? '—'}</div>
-                </div>
-              </Popup>
-            </Marker>
-          );
-        })}
-      </MapContainer>
-    );
-  };
-} catch (e) {
-  MapView = function FallbackMap({ positions }) {
-    const markers = Object.values(positions || {});
-    return (
-      <div style={{ height: 400, overflow: 'auto', padding: 8, border: '1px solid #ddd' }}>
-        <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Mapa (lista de posições - fallback)</div>
-        {markers.length === 0 && <div>Nenhuma posição disponível</div>}
-        {markers.map((pos) => (
-          <div key={pos.deviceId ?? pos.device_id} style={{ padding: 6, borderBottom: '1px solid #eee' }}>
-            <div><strong>{pos.name ?? pos.deviceName ?? pos.deviceId}</strong></div>
-            <div>Lat: {pos.latitude ?? pos.lat ?? '—'}</div>
-            <div>Lon: {pos.longitude ?? pos.lon ?? '—'}</div>
-            <div>Velocidade: {pos.speed ?? '—'}</div>
-          </div>
-        ))}
-      </div>
-    );
-  };
+function toKey(value) {
+  if (value === null || value === undefined) return null;
+  try {
+    return String(value);
+  } catch (error) {
+    return null;
+  }
 }
 
-// Simple helper to determine online/offline based on position timestamp
+function getDeviceKey(device) {
+  return (
+    toKey(device?.id) ??
+    toKey(device?.deviceId) ??
+    toKey(device?.device_id) ??
+    toKey(device?.uniqueId) ??
+    toKey(device?.unique_id) ??
+    toKey(device?.identifier)
+  );
+}
+
+function pickCoordinate(values) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function pickSpeed(position) {
+  const candidates = [position?.speed, position?.attributes?.speed];
+  for (const value of candidates) {
+    if (value === null || value === undefined) continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) {
+      return Math.round(number);
+    }
+  }
+  return null;
+}
+
+function getIgnition(position, device) {
+  const candidates = [
+    position?.attributes?.ignition,
+    position?.ignition,
+    device?.attributes?.ignition,
+  ];
+
+  for (const value of candidates) {
+    if (value === null || value === undefined) continue;
+    if (typeof value === 'boolean') return value;
+    if (value === 1 || value === '1' || value === 'true') return true;
+    if (value === 0 || value === '0' || value === 'false') return false;
+  }
+
+  return null;
+}
+
+function getLastUpdate(position) {
+  if (!position) return null;
+  const candidates = [
+    position.serverTime,
+    position.time,
+    position.fixTime,
+    position.server_time,
+    position.fixtime,
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return new Date(parsed);
+  }
+
+  return null;
+}
+
+function formatDateTime(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return '—';
+  }
+  try {
+    return value.toLocaleString();
+  } catch (error) {
+    return value.toISOString();
+  }
+}
+
+function formatIgnition(value) {
+  if (value === true) return 'Ligada';
+  if (value === false) return 'Desligada';
+  return '—';
+}
+
 function isOnline(position, offlineThresholdMinutes = 5) {
-  if (!position) return false;
-  const timeStr = position.serverTime ?? position.time ?? position.fixTime ?? position.server_time ?? position.fixtime;
-  if (!timeStr) return false;
-  const t = Date.parse(timeStr);
-  if (Number.isNaN(t)) return false;
-  const diffMin = (Date.now() - t) / 1000 / 60;
-  return diffMin <= offlineThresholdMinutes;
+  const lastUpdate = getLastUpdate(position);
+  if (!lastUpdate) return false;
+  const diffMinutes = (Date.now() - lastUpdate.getTime()) / 1000 / 60;
+  return diffMinutes <= offlineThresholdMinutes;
+}
+
+function deriveStatus(position) {
+  if (!position) return 'offline';
+  if (!isOnline(position)) return 'offline';
+  if (position?.attributes?.blocked || position?.blocked) return 'blocked';
+  if (position?.attributes?.alarm || position?.alarm) return 'alert';
+  return 'online';
+}
+
+function getStatusBadge(position) {
+  const status = deriveStatus(position);
+  switch (status) {
+    case 'online':
+      return {
+        label: 'Online',
+        status,
+        className: 'inline-flex items-center rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-200',
+      };
+    case 'alert':
+      return {
+        label: 'Alerta',
+        status,
+        className: 'inline-flex items-center rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200',
+      };
+    case 'blocked':
+      return {
+        label: 'Bloqueado',
+        status,
+        className: 'inline-flex items-center rounded-full bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-200',
+      };
+    default:
+      return {
+        label: 'Offline',
+        status,
+        className: 'inline-flex items-center rounded-full bg-white/10 px-3 py-1 text-xs font-medium text-white/60',
+      };
+  }
+}
+
+function MapSection({ markers }) {
+  if (!Array.isArray(markers) || markers.length === 0) {
+    return (
+      <div className="flex h-[360px] items-center justify-center text-sm text-white/50">
+        Nenhuma posição disponível no momento.
+      </div>
+    );
+  }
+
+  if (typeof window === 'undefined') {
+    return (
+      <div className="flex h-[360px] flex-col justify-center gap-2 p-6 text-sm text-white/60">
+        <strong className="text-white/80">Mapa indisponível.</strong>
+        <span>O mapa interativo só é exibido no ambiente do navegador.</span>
+      </div>
+    );
+  }
+
+  try {
+    return <MapImpl markers={markers} height={360} className="bg-[#0b0f17]" />;
+  } catch (mapError) {
+    console.error('Monitoring map render failed', mapError);
+    return (
+      <div className="flex h-[360px] flex-col justify-center gap-2 p-6 text-sm text-white/60">
+        <strong className="text-white/80">Não foi possível carregar o mapa.</strong>
+        <span>O mapa interativo está temporariamente indisponível. Tente novamente em instantes.</span>
+      </div>
+    );
+  }
 }
 
 export default function Monitoring() {
@@ -84,139 +185,287 @@ export default function Monitoring() {
 
   const [query, setQuery] = useState('');
   const [showColumns, setShowColumns] = useState(false);
-  const [columns, setColumns] = useState({
-    name: true,
-    plate: true,
-    speed: true,
-    ignition: true,
-    status: true,
-  });
+  const [columns, setColumns] = useState(DEFAULT_COLUMNS);
 
-  const filtered = useMemo(() => {
-    const q = (query || '').trim().toLowerCase();
-    if (!q) return devices || [];
-    return (devices || []).filter((d) => {
-      const name = (d.name ?? d.vehicle ?? d.alias ?? '').toString().toLowerCase();
-      const plate = (d.plate ?? d.registrationNumber ?? d.uniqueId ?? '').toString().toLowerCase();
-      return name.includes(q) || plate.includes(q);
+  const safeDevices = useMemo(() => (Array.isArray(devices) ? devices : []), [devices]);
+  const safePositions = useMemo(
+    () => (positionsByDeviceId && typeof positionsByDeviceId === 'object' ? positionsByDeviceId : {}),
+    [positionsByDeviceId],
+  );
+
+  const deviceIndex = useMemo(() => {
+    const map = new Map();
+    for (const device of safeDevices) {
+      const key = getDeviceKey(device);
+      if (key) {
+        map.set(key, device);
+      }
+    }
+    return map;
+  }, [safeDevices]);
+
+  const filteredDevices = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    if (!term) return safeDevices;
+    return safeDevices.filter((device) => {
+      const name = (device?.name ?? device?.vehicle ?? device?.alias ?? '').toString().toLowerCase();
+      const plate = (device?.plate ?? device?.registrationNumber ?? device?.uniqueId ?? '').toString().toLowerCase();
+      return name.includes(term) || plate.includes(term);
     });
-  }, [devices, query]);
+  }, [safeDevices, query]);
+
+  const markers = useMemo(() => {
+    const entries = Object.entries(safePositions);
+    return entries
+      .map(([key, position]) => {
+        const lat = pickCoordinate([
+          position?.latitude,
+          position?.lat,
+          position?.latitude_deg,
+          position?.lat_deg,
+        ]);
+        const lng = pickCoordinate([
+          position?.longitude,
+          position?.lon,
+          position?.lng,
+          position?.lng_deg,
+        ]);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+        const device = deviceIndex.get(key) ?? null;
+        const label = device?.name ?? device?.vehicle ?? position?.name ?? `Dispositivo ${key}`;
+        const address = position?.address ?? position?.attributes?.address ?? device?.address ?? 'Endereço indisponível';
+        const ignition = formatIgnition(getIgnition(position, device));
+        const speed = pickSpeed(position);
+        const lastUpdate = formatDateTime(getLastUpdate(position));
+        const badge = getStatusBadge(position);
+
+        return {
+          id: key,
+          lat,
+          lng,
+          status: badge.status,
+          label,
+          popup: (
+            <div className="space-y-2 text-xs text-white/80">
+              <div className="text-sm font-medium text-white">{label}</div>
+              <div className="flex items-center justify-between">
+                <span>Status</span>
+                <span className="font-medium">{badge.label}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Velocidade</span>
+                <span>{speed !== null ? `${speed} km/h` : '—'}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Ignição</span>
+                <span>{ignition}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Atualizado</span>
+                <span>{lastUpdate}</span>
+              </div>
+              <div className="text-[11px] text-white/60">{address}</div>
+            </div>
+          ),
+        };
+      })
+      .filter(Boolean);
+  }, [safePositions, deviceIndex]);
+
+  const onlineCount = useMemo(() => {
+    let count = 0;
+    for (const device of safeDevices) {
+      const key = getDeviceKey(device);
+      if (!key) continue;
+      if (isOnline(safePositions[key])) {
+        count += 1;
+      }
+    }
+    return count;
+  }, [safeDevices, safePositions]);
+
+  const summary = {
+    total: stats?.total ?? safeDevices.length,
+    withPosition: stats?.withPosition ?? Object.keys(safePositions).length,
+    online: onlineCount,
+    offline: Math.max(0, (stats?.total ?? safeDevices.length) - onlineCount),
+  };
+
+  const visibleColumnCount = Math.max(1, Object.values(columns).filter(Boolean).length);
 
   return (
-    <div className="app-root" style={{ display: 'flex', height: '100vh' }}>
-      <Sidebar />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Topbar />
-        <main style={{ padding: 16, overflow: 'auto' }}>
-          <h1>Monitoramento</h1>
+    <div className="space-y-6">
+      {error && (
+        <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          <div className="font-medium">Não foi possível atualizar os dados de telemetria.</div>
+          <div className="mt-1 text-xs opacity-80">{error.message ?? 'Verifique a conexão com o servidor e tente novamente.'}</div>
+        </div>
+      )}
 
-          {/* Search + Columns button */}
-          <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="card p-6">
+          <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">Mapa em tempo real</div>
+              <div className="text-xs text-white/50">
+                {loading ? 'Sincronizando telemetria…' : `Dispositivos com posição: ${summary.withPosition}`}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="btn"
+                onClick={reload}
+                disabled={loading}
+              >
+                {loading ? 'Atualizando…' : 'Recarregar'}
+              </button>
+            </div>
+          </header>
+
+          <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
+            <MapSection markers={markers} />
+          </div>
+        </div>
+
+        <aside className="card space-y-4 p-6">
+          <div>
+            <div className="text-sm font-medium text-white">Resumo da frota</div>
+            <div className="text-xs text-white/50">Estado consolidado das integrações Traccar.</div>
+          </div>
+          <dl className="space-y-3 text-sm text-white/80">
+            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <dt className="text-white/60">Dispositivos cadastrados</dt>
+              <dd className="text-base font-semibold text-white">{summary.total}</dd>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <dt className="text-white/60">Com posição válida</dt>
+              <dd className="text-base font-semibold text-white">{summary.withPosition}</dd>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <dt className="text-white/60">Online agora</dt>
+              <dd className="text-base font-semibold text-emerald-200">{summary.online}</dd>
+            </div>
+            <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <dt className="text-white/60">Sem sinal recente</dt>
+              <dd className="text-base font-semibold text-white/70">{summary.offline}</dd>
+            </div>
+          </dl>
+        </aside>
+      </section>
+
+      <section className="card">
+        <header className="flex flex-col gap-4 border-b border-white/5 p-6 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="text-sm font-medium text-white">Telemetria da frota</div>
+            <div className="text-xs text-white/50">
+              {loading ? 'Atualizando dados em tempo real…' : `Exibindo ${filteredDevices.length} dispositivos`}
+            </div>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <input
-              placeholder="Buscar veículo / placa"
+              type="search"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              style={{ padding: 8, flex: 1, marginRight: 8 }}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar por veículo ou placa"
+              className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-white placeholder:text-white/40 focus:border-primary/40 focus:outline-none sm:w-64"
             />
-            <div style={{ position: 'relative' }}>
-              <button onClick={() => setShowColumns((s) => !s)}>Colunas</button>
+            <div className="relative">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setShowColumns((value) => !value)}
+              >
+                Colunas
+              </button>
               {showColumns && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    right: 0,
-                    marginTop: 6,
-                    padding: 8,
-                    background: '#fff',
-                    border: '1px solid #ddd',
-                    boxShadow: '0 2px 6px rgba(0,0,0,0.1)',
-                    zIndex: 50,
-                  }}
-                >
-                  <div style={{ marginBottom: 8, fontWeight: 'bold' }}>Exibir colunas</div>
+                <div className="absolute right-0 z-10 mt-2 w-48 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                    Exibir colunas
+                  </div>
                   {Object.keys(columns).map((key) => (
-                    <label key={key} style={{ display: 'block', marginBottom: 4 }}>
+                    <label key={key} className="flex items-center justify-between py-1">
+                      <span className="capitalize text-white/70">{key}</span>
                       <input
                         type="checkbox"
                         checked={columns[key]}
-                        onChange={() => setColumns((c) => ({ ...c, [key]: !c[key] }))}
-                      />{' '}
-                      {key[0].toUpperCase() + key.slice(1)}
+                        onChange={() => setColumns((current) => ({ ...current, [key]: !current[key] }))}
+                      />
                     </label>
                   ))}
                 </div>
               )}
             </div>
-            <button onClick={reload} style={{ marginLeft: 8 }}>
-              Recarregar
-            </button>
           </div>
+        </header>
 
-          {/* Top row: Map (left) and Summary (right) */}
-          <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
-            <div style={{ flex: 2 }}>
-              <div style={{ border: '1px solid #ddd', padding: 8 }}>
-                <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Mapa</div>
-                <MapView positions={positionsByDeviceId} />
-              </div>
-            </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/40">
+              <tr>
+                {columns.name && <th className="px-6 py-3">Veículo</th>}
+                {columns.plate && <th className="px-6 py-3">Placa</th>}
+                {columns.speed && <th className="px-6 py-3">Velocidade</th>}
+                {columns.ignition && <th className="px-6 py-3">Ignição</th>}
+                {columns.status && <th className="px-6 py-3">Status</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredDevices.map((device) => {
+                const key = getDeviceKey(device);
+                const position = key ? safePositions[key] : undefined;
+                const speed = pickSpeed(position);
+                const ignition = getIgnition(position, device);
+                const badge = getStatusBadge(position);
 
-            <div style={{ width: 320 }}>
-              <div style={{ border: '1px solid #ddd', padding: 12 }}>
-                <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Resumo</div>
-                <div>Total de dispositivos: {stats.total}</div>
-                <div>Com posição: {stats.withPosition}</div>
-                <div style={{ marginTop: 8 }}>
-                  {loading && <div>Carregando dados de telemetria...</div>}
-                  {error && <div style={{ color: 'red' }}>Erro ao carregar: {error.message}</div>}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Devices table */}
-          <div style={{ border: '1px solid #ddd', padding: 8 }}>
-            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Veículos / Dispositivos</div>
-
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {columns.name && <th style={{ textAlign: 'left', padding: 6 }}>Nome</th>}
-                  {columns.plate && <th style={{ textAlign: 'left', padding: 6 }}>Placa</th>}
-                  {columns.speed && <th style={{ textAlign: 'left', padding: 6 }}>Velocidade (km/h)</th>}
-                  {columns.ignition && <th style={{ textAlign: 'left', padding: 6 }}>Ignição</th>}
-                  {columns.status && <th style={{ textAlign: 'left', padding: 6 }}>Status</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {(filtered || []).map((d) => {
-                  const deviceId = d.id ?? d.deviceId ?? d.device_id ?? d.uniqueId ?? d.unique_id;
-                  const pos = positionsByDeviceId[deviceId] ?? positionsByDeviceId[d.uniqueId] ?? positionsByDeviceId[d.unique_id];
-                  const speed = pos?.speed ?? pos?.attributes?.speed ?? null;
-                  const ignition = pos?.attributes?.ignition ?? d.attributes?.ignition ?? null;
-                  const online = isOnline(pos);
-                  return (
-                    <tr key={deviceId} style={{ borderTop: '1px solid #f0f0f0' }}>
-                      {columns.name && <td style={{ padding: 6 }}>{d.name ?? d.vehicle ?? d.alias ?? '—'}</td>}
-                      {columns.plate && <td style={{ padding: 6 }}>{d.plate ?? d.registrationNumber ?? '—'}</td>}
-                      {columns.speed && <td style={{ padding: 6 }}>{speed != null ? `${speed} km/h` : '—'}</td>}
-                      {columns.ignition && <td style={{ padding: 6 }}>{ignition === null ? '—' : ignition ? 'Sim' : 'Não'}</td>}
-                      {columns.status && <td style={{ padding: 6 }}>{online ? 'Online' : 'Offline'}</td>}
-                    </tr>
-                  );
-                })}
-                {filtered.length === 0 && (
-                  <tr>
-                    <td colSpan={Object.values(columns).filter(Boolean).length} style={{ padding: 8 }}>
-                      Nenhum dispositivo encontrado.
-                    </td>
+                return (
+                  <tr key={key ?? device?.id ?? device?.uniqueId} className="border-b border-white/5 last:border-none">
+                    {columns.name && (
+                      <td className="px-6 py-3 text-white">
+                        {device?.name ?? device?.vehicle ?? device?.alias ?? '—'}
+                      </td>
+                    )}
+                    {columns.plate && (
+                      <td className="px-6 py-3 text-white/70">
+                        {device?.plate ?? device?.registrationNumber ?? '—'}
+                      </td>
+                    )}
+                    {columns.speed && (
+                      <td className="px-6 py-3 text-white/80">{speed !== null ? `${speed} km/h` : '—'}</td>
+                    )}
+                    {columns.ignition && (
+                      <td className="px-6 py-3 text-white/80">{formatIgnition(ignition)}</td>
+                    )}
+                    {columns.status && (
+                      <td className="px-6 py-3">
+                        <span className={badge.className}>{badge.label}</span>
+                      </td>
+                    )}
                   </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </main>
-      </div>
+                );
+              })}
+
+              {!loading && filteredDevices.length === 0 && (
+                <tr>
+                  <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
+                    Nenhum dispositivo encontrado para os filtros aplicados.
+                  </td>
+                </tr>
+              )}
+
+              {loading && (
+                <tr>
+                  <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
+                    Carregando dados de telemetria…
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

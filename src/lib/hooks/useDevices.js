@@ -4,21 +4,95 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-function safeJson(res) {
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+const POSITION_ENDPOINTS = ['/core/api/positions', '/core/api/positions/last', '/core/api/lastpositions'];
+
+function normaliseArrayPayload(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.positions)) return payload.positions;
+  return [];
 }
 
-export default function useDevices() {
+function toDeviceKey(value) {
+  if (value === null || value === undefined) return null;
+  try {
+    return String(value);
+  } catch (error) {
+    return null;
+  }
+}
+
+function pickTime(position) {
+  const candidates = [
+    position?.serverTime,
+    position?.time,
+    position?.fixTime,
+    position?.server_time,
+    position?.fixtime,
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function mapPositions(rawPositions) {
+  if (!Array.isArray(rawPositions) || rawPositions.length === 0) {
+    return {};
+  }
+
+  const byDevice = {};
+
+  for (const position of rawPositions) {
+    const key =
+      toDeviceKey(position?.deviceId) ??
+      toDeviceKey(position?.device_id) ??
+      toDeviceKey(position?.idDevice) ??
+      toDeviceKey(position?.device);
+
+    if (!key) continue;
+
+    const current = byDevice[key];
+    const incomingTime = pickTime(position);
+
+    if (!current || (current.__timeValue ?? 0) < incomingTime) {
+      byDevice[key] = { ...position, __timeValue: incomingTime };
+    }
+  }
+
+  for (const key of Object.keys(byDevice)) {
+    delete byDevice[key].__timeValue;
+  }
+
+  return byDevice;
+}
+
+function parseDevices(payload) {
+  const list = normaliseArrayPayload(payload);
+  return Array.isArray(list) ? list : [];
+}
+
+function ensureError(value) {
+  if (value instanceof Error) return value;
+  if (typeof value === 'string') return new Error(value);
+  return new Error('Falha ao carregar dispositivos');
+}
+
+function useDevices(options = {}) {
+  const { tenantId } = options ?? {};
+
   const [devices, setDevices] = useState([]);
   const [positionsByDeviceId, setPositionsByDeviceId] = useState({});
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const mounted = useRef(true);
 
   const reload = useCallback(() => {
-    setReloadKey((k) => k + 1);
+    setReloadKey((value) => value + 1);
   }, []);
 
   useEffect(() => {
@@ -29,83 +103,76 @@ export default function useDevices() {
   }, []);
 
   useEffect(() => {
-    let abort = false;
+    let active = true;
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
     async function fetchAll() {
       setLoading(true);
       setError(null);
 
+      const headers = {
+        'Content-Type': 'application/json',
+        ...(tenantId ? { 'X-Tenant-Id': tenantId } : {}),
+      };
+
       try {
-        // Fetch devices
-        const devicesResp = await fetch('/core/api/devices', {
-          headers: { 'Content-Type': 'application/json' },
+        const devicesResponse = await fetch('/core/api/devices', {
+          headers,
           credentials: 'same-origin',
+          signal: controller?.signal,
         });
-        const devicesData = await safeJson(devicesResp);
 
-        // Try to fetch last positions. The backend sometimes exposes /positions or /positions/last
-        // Try endpoints in order of likelihood.
-        let positionsData = [];
-        const attempts = ['/core/api/positions', '/core/api/positions/last', '/core/api/lastpositions'];
-        for (const ep of attempts) {
+        if (!devicesResponse.ok) {
+          throw new Error(`${devicesResponse.status} ${devicesResponse.statusText}`);
+        }
+
+        const devicesPayload = await devicesResponse.json();
+        const normalisedDevices = parseDevices(devicesPayload);
+
+        let positions = [];
+        for (const endpoint of POSITION_ENDPOINTS) {
           try {
-            const resp = await fetch(ep, {
-              headers: { 'Content-Type': 'application/json' },
+            const response = await fetch(endpoint, {
+              headers,
               credentials: 'same-origin',
+              signal: controller?.signal,
             });
-            if (!resp.ok) {
-              // try next
-              continue;
+
+            if (!response.ok) continue;
+
+            const payload = await response.json();
+            positions = normaliseArrayPayload(payload);
+
+            if (positions.length > 0 || Array.isArray(payload)) {
+              break;
             }
-            const json = await resp.json();
-            // Some endpoints return { data: [...] } others return array directly
-            if (Array.isArray(json)) positionsData = json;
-            else if (Array.isArray(json.data)) positionsData = json.data;
-            else if (json && typeof json === 'object' && Array.isArray(json.positions)) positionsData = json.positions;
-            else positionsData = [];
-            break;
-          } catch (err) {
-            // ignore and try next
-            continue;
+          } catch (positionError) {
+            if (positionError?.name === 'AbortError') {
+              throw positionError;
+            }
+            // try the next endpoint
           }
         }
 
-        // Map positions by deviceId (choose the latest by timestamp if multiple)
-        const map = {};
-        for (const p of positionsData) {
-          // Accept common keys: deviceId, device_id, idDevice
-          const deviceId = p.deviceId ?? p.device_id ?? p.idDevice ?? p.device;
-          if (!deviceId) continue;
+        if (!active || !mounted.current) return;
 
-          // pick a numeric timestamp for comparison
-          const timeVal =
-            (p.serverTime && Date.parse(p.serverTime)) ||
-            (p.time && Date.parse(p.time)) ||
-            (p.fixTime && Date.parse(p.fixTime)) ||
-            (p.server_time && Date.parse(p.server_time)) ||
-            (p.fixtime && Date.parse(p.fixtime)) ||
-            0;
+        setDevices(normalisedDevices);
+        setPositionsByDeviceId(mapPositions(positions));
+      } catch (requestError) {
+        if (!active || !mounted.current) return;
 
-          if (!map[deviceId] || (map[deviceId].__timeVal || 0) < timeVal) {
-            // keep original position object but attach a helper
-            map[deviceId] = { ...p, __timeVal: timeVal };
-          }
+        if (requestError?.name === 'AbortError') {
+          return;
         }
 
-        // Clean helper keys before exposing
-        for (const k of Object.keys(map)) {
-          delete map[k].__timeVal;
-        }
-
-        if (!abort && mounted.current) {
-          setDevices(Array.isArray(devicesData) ? devicesData : devicesData.data ?? []);
-          setPositionsByDeviceId(map);
-
-          setLoading(false);
-          setError(null);
-        }
-      } catch (err) {
-        if (!abort && mounted.current) {
-          setError(err);
+        const resolvedError = ensureError(requestError);
+        const logger = requestError instanceof SyntaxError ? console.warn : console.error;
+        logger('useDevices', resolvedError);
+        setError(resolvedError);
+        setDevices([]);
+        setPositionsByDeviceId({});
+      } finally {
+        if (active && mounted.current) {
           setLoading(false);
         }
       }
@@ -114,13 +181,13 @@ export default function useDevices() {
     fetchAll();
 
     return () => {
-      abort = true;
+      active = false;
+      controller?.abort();
     };
-  }, [reloadKey]);
+  }, [reloadKey, tenantId]);
 
-  // Derive stats: total devices and devices with position
   const stats = {
-    total: devices ? devices.length : 0,
+    total: Array.isArray(devices) ? devices.length : 0,
     withPosition: Object.keys(positionsByDeviceId || {}).length,
   };
 
@@ -133,3 +200,6 @@ export default function useDevices() {
     stats,
   };
 }
+
+export default useDevices;
+export { useDevices };
