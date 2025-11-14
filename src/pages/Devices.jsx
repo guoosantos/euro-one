@@ -1,5 +1,4 @@
 import React, { useState } from 'react'
-import Layout from '../layout/Layout'
 import PageHeader from '../ui/PageHeader'
 import Input from '../ui/Input'
 import Select from '../ui/Select'
@@ -68,7 +67,7 @@ export default function Devices(){
   }
 
   return (
-    <Layout title="Dispositivos">
+    <div className="space-y-5">
       <PageHeader
         title="Equipamentos"
         right={
@@ -206,6 +205,6 @@ export default function Devices(){
           <Button onClick={salvarMassa}>Cadastrar</Button>
         </div>
       </Modal>
-    </Layout>
+    </div>
   )
 }

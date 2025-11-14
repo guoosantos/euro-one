@@ -1,100 +1,106 @@
-import CommBuckets from "../components/CommBuckets";
-import React, { useState } from 'react'
-import Layout from '../layout/Layout'
-import PageHeader from '../ui/PageHeader'
-import Input from '../ui/Input'
-import Button from '../ui/Button'
-import Field from '../ui/Field'
-import { Table, Pager } from '../ui/Table'
-import VehicleModal from '../components/VehicleModal'
-import { Search } from 'lucide-react'
+import React, { useMemo, useState } from "react";
 
-export default function Vehicles(){
-  // Demo/local state (substituir por API real depois)
-  const [rows, setRows] = useState([])  // cada item: {id, placa, modelo, proprietario, grupo, equipamento, status, updatedAt}
-  const [q, setQ] = useState('')
-  const [open, setOpen] = useState(false)
-  const [mode, setMode] = useState('new') // 'new' | 'edit'
-  const [current, setCurrent] = useState(null) // registro atual p/ edição
-  const [linkMap, setLinkMap] = useState({})   // vehicleId -> imei
+import PageHeader from "../ui/PageHeader";
+import Input from "../ui/Input";
+import Button from "../ui/Button";
+import Field from "../ui/Field";
+import { Table, Pager } from "../ui/Table";
+import VehicleModal from "../components/VehicleModal";
+import { Search } from "lucide-react";
+import { useTenant } from "../lib/tenant-context";
+import { vehicles as fleetVehicles } from "../mock/fleet";
 
-  const abrirNovo = () => { setMode('new'); setCurrent(null); setOpen(true) }
-  const abrirEditar = (row) => { setMode('edit'); setCurrent(row); setOpen(true) }
+export default function Vehicles() {
+  const { tenantId, tenant } = useTenant();
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(null);
 
-  const handleSave = (veh) => {
-    if (mode==='new') {
-      const id = Date.now()
-      setRows(r=>[...r,{ id, placa:veh.placa, modelo:veh.modelo, proprietario:veh.cliente, grupo:veh.grupo, equipamento: linkMap[id]||'', status:'Ativo', updatedAt:new Date().toISOString() }])
-    } else if (current) {
-      setRows(r=>r.map(x=> x.id===current.id ? { ...x, placa:veh.placa, modelo:veh.modelo, proprietario:veh.cliente, grupo:veh.grupo, updatedAt:new Date().toISOString() } : x))
-    }
-  }
+  const tenantVehicles = useMemo(() => fleetVehicles.filter((vehicle) => vehicle.tenantId === tenantId), [tenantId]);
+  const filtered = useMemo(() => {
+    if (!query.trim()) return tenantVehicles;
+    const term = query.trim().toLowerCase();
+    return tenantVehicles.filter((vehicle) =>
+      [vehicle.name, vehicle.plate, vehicle.driver, vehicle.group]
+        .filter(Boolean)
+        .some((value) => value.toLowerCase().includes(term)),
+    );
+  }, [query, tenantVehicles]);
 
-  const handleLink = (vehicleIdOrNull, imei) => {
-    // se for novo, guardamos num "buffer" e aplicamos após salvar (vehicleId real)
-    if (!vehicleIdOrNull) {
-      // buffer (usa -1 como chave temporária)
-      setLinkMap(m=>({ ...m, '-pending': imei }))
-      return
-    }
-    setLinkMap(m=>({ ...m, [vehicleIdOrNull]: imei }))
-    setRows(r=>r.map(x=> x.id===vehicleIdOrNull ? { ...x, equipamento: imei } : x))
-  }
+  const rows = filtered.map((vehicle) => [
+    vehicle.plate,
+    vehicle.name,
+    vehicle.driver ?? "—",
+    vehicle.group ?? "—",
+    vehicle.status,
+    new Date(vehicle.lastUpdate).toLocaleString(),
+    <div key={vehicle.id} className="flex justify-end gap-2">
+      <Button
+        onClick={() => {
+          setSelected(vehicle);
+          setOpen(true);
+        }}
+      >
+        Detalhes
+      </Button>
+    </div>,
+  ]);
 
-  // Se houve vinculação antes de salvar o "novo", aplica ao id recém criado
-  React.useEffect(()=>{
-    if (!open && mode==='new' && linkMap['-pending']) {
-      const last = rows[rows.length-1]
-      if (last?.id) {
-        setLinkMap(m=>{
-          const { ['-pending']:pending, ...rest } = m
-          return { ...rest, [last.id]: pending }
-        })
-        setRows(r=>r.map((x,i)=> i===r.length-1 ? { ...x, equipamento: linkMap['-pending'] } : x))
+  const modalData = selected
+    ? {
+        id: selected.id,
+        cliente: tenant?.name ?? "",
+        tipo: selected.type ?? "",
+        placa: selected.plate ?? "",
+        modelo: selected.name ?? "",
+        grupo: selected.group ?? "",
+        classificacao: "Operação",
+        anoModelo: "2024",
+        anoFabricacao: "2023",
+        observacoes: selected.address ?? "",
       }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open])
-
-  const filtered = rows.filter(r => JSON.stringify(r).toLowerCase().includes(q.toLowerCase()))
-
-  const head = ['PLACA','VEÍCULO','PROPRIETÁRIO','GRUPO','EQUIPAMENTO','STATUS','ATUALIZADO EM','AÇÕES']
-  const body = filtered.map(r => ([
-    r.placa, r.modelo, r.proprietario || '-', r.grupo || '-', r.equipamento || '-', r.status || '-', new Date(r.updatedAt||Date.now()).toLocaleString(),
-    <div className="flex gap-2 justify-end" key={'act'+r.id}>
-      <Button onClick={()=>abrirEditar(r)}>Editar</Button>
-    </div>
-  ]))
+    : null;
 
   return (
-<Layout title="Veículos">
-      <PageHeader
-        title="Veículos Euro"
-        right={<Button onClick={abrirNovo}>+ Novo veículo</Button>}
-      />
+    <div className="space-y-5">
+      <PageHeader title="Veículos Euro" right={<Button onClick={() => setOpen(true)}>+ Novo veículo</Button>} />
 
       <Field label="Busca">
-        <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">
-          <Input placeholder="Buscar (placa, VIN, marca, modelo, proprietário, grupo)" icon={Search} value={q} onChange={e=>setQ(e.target.value)} />
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Input
+            placeholder="Buscar (placa, VIN, marca, modelo, proprietário, grupo)"
+            icon={Search}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+          />
         </div>
       </Field>
 
       <div className="mt-3">
         <Field label="Resultados">
-          <Table head={head} rows={body}/>
+          <Table
+            head={["PLACA", "VEÍCULO", "MOTORISTA", "GRUPO", "STATUS", "ATUALIZADO EM", "AÇÕES"]}
+            rows={rows}
+          />
           <Pager />
         </Field>
       </div>
 
       <VehicleModal
         open={open}
-        mode={mode}
-        initialData={current}
-        onClose={()=>setOpen(false)}
-        onSave={handleSave}
-        onLinkDevice={handleLink}
-        linkedDevice={current ? linkMap[current.id] || '' : (linkMap['-pending'] || '')}
+        mode={selected ? "edit" : "new"}
+        initialData={modalData}
+        onClose={() => {
+          setOpen(false);
+          setSelected(null);
+        }}
+        onSave={(payload) => {
+          console.log("Salvar veículo", payload);
+          setOpen(false);
+        }}
+        onLinkDevice={(vehicleId, imei) => console.log("Vincular", vehicleId, imei)}
+        linkedDevice={""}
       />
-    </Layout>
-  )
+    </div>
+  );
 }
