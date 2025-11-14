@@ -1,271 +1,241 @@
-import { useEffect, useMemo, useState } from "react";
-import LayoutLocal from "../components/LayoutLocal";
+import { useMemo } from "react";
+import { Link } from "react-router-dom";
 
-// Tenta usar a Sidebar original do projeto; se não existir, ignora sem quebrar a Home
-let Sidebar = null;
-try { Sidebar = require("../components/Sidebar").Sidebar || require("../components/Sidebar").default || null; } catch {}
+import { useTenant } from "../lib/tenant-context";
+import {
+  analyticsTimeline,
+  deliveries,
+  events,
+  summariseFleet,
+  trips,
+  vehicles,
+} from "../mock/fleet";
 
-// ==== helpers ====
-const d = (v) => (v ? new Date(v) : null);
-const agoH = (h) => new Date(Date.now() - h * 3600_000);
-const recent = (dt, h = 6) => dt && dt > agoH(h);
-const pct = (a, b) => (b ? Math.round((a / b) * 100) : 0);
+function percentage(partial, total) {
+  if (!total) return 0;
+  return Math.round((partial / total) * 100);
+}
 
-// Normaliza devices de origens diferentes
-function normDevice(raw) {
-  const pos = raw?.position || raw?.lastPosition || null;
-  const last =
-    d(raw?.lastFix) ||
-    d(raw?.lastSeen) ||
-    d(raw?.lastUpdate) ||
-    (pos && d(pos.fixTime)) ||
-    null;
-
-  const online =
-    typeof raw?.online === "boolean"
-      ? raw.online
-      : raw?.status
-      ? String(raw.status).toLowerCase() === "online"
-      : recent(last, 1);
-
-  return {
-    id: raw.id ?? raw.deviceId ?? raw.uniqueId ?? Math.random().toString(36).slice(2),
-    name: raw.name ?? raw.uniqueId ?? "Sem nome",
-    model: raw.model ?? raw.type ?? "-",
-    last,
-    blocked: !!raw.blocked,
-    lat: pos?.latitude ?? pos?.lat ?? null,
-    lng: pos?.longitude ?? pos?.lng ?? null,
-    online,
-  };
+function toLocale(dateLike) {
+  try {
+    return new Date(dateLike).toLocaleString();
+  } catch (error) {
+    return String(dateLike);
+  }
 }
 
 export default function Home() {
-  const [items, setItems] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
+  const { tenantId } = useTenant();
 
-  // Devices
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      try {
-        setLoading(true); setErr("");
-        const r = await fetch("/api/core/devices", { credentials: "include" });
-        if (!r.ok) throw new Error("devices " + r.status);
-        const data = await r.json();
-        const list = Array.isArray(data) ? data : data.items || data.devices || [];
-        const normed = list.map(normDevice);
-        if (alive) setItems(normed);
-      } catch (e) {
-        if (alive) setErr(String(e?.message || e));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    };
-    load();
-    const t = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(t); };
-  }, []);
-
-  // Events (se o endpoint não existir, faço fallback)
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try {
-        const r = await fetch("/api/core/events?from=-24h", { credentials: "include" });
-        if (!r.ok) throw new Error("events " + r.status);
-        const data = await r.json();
-        const list = Array.isArray(data) ? data : data.items || data.events || [];
-        if (alive) setEvents(list.slice(0, 8));
-      } catch {
-        // fallback: sintetiza eventos a partir de devices fora/online
-        if (alive) {
-          const synth = items.slice(0, 8).map((d, i) => ({
-            id: d.id + ":" + i,
-            time: (d.last || new Date()).toISOString(),
-            deviceName: d.name,
-            type: d.online ? "status.online" : "status.offline",
-            severity: d.online ? "low" : "high",
-          }));
-          setEvents(synth);
-        }
-      }
-    })();
-    return () => { alive = false; };
-  }, [items]);
-
-  const stats = useMemo(() => {
-    const total = items.length;
-    const ativos = items.filter(v => recent(v.last, 6)).length;
-    const inativos = total - ativos;
-    const bloqueados = items.filter(v => v.blocked).length;
-    const conectados = items.filter(v => v.online).length;
-    const withPos = items.filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng)).length;
-
-    // distribui horária sintética p/ gráfico (até termos endpoint real)
-    const hours = Array.from({ length: 24 }, (_, k) => k);
-    const series = hours.map(h => {
-      const bucket = items.filter(v => {
-        const L = v.last;
-        return L && L.getHours() === h && recent(L, 24);
-      }).length;
-      return bucket;
-    });
-
-    return { total, ativos, inativos, bloqueados, conectados, withPos, hours, series };
-  }, [items]);
+  const summary = useMemo(() => summariseFleet(tenantId), [tenantId]);
+  const tenantVehicles = useMemo(() => vehicles.filter((vehicle) => vehicle.tenantId === tenantId), [tenantId]);
+  const tenantEvents = useMemo(() => events.filter((event) => event.tenantId === tenantId).slice(0, 6), [tenantId]);
+  const tenantDeliveries = useMemo(
+    () => deliveries.filter((delivery) => delivery.tenantId === tenantId).slice(0, 3),
+    [tenantId],
+  );
+  const tenantTrips = useMemo(() => trips.filter((trip) => trip.tenantId === tenantId).slice(0, 4), [tenantId]);
 
   return (
-    <div className="min-h-screen bg-[#0c111a] text-white flex">
-      {/* Sidebar (se existir) */}
-      {Sidebar ? (
-        <aside className="w-[240px] hidden md:block border-r border-white/5">
-          <Sidebar />
-        </aside>
-      ) : null}
+    <div className="space-y-6">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard title="Veículos monitorados" value={summary.total} />
+        <StatCard title="Ativos online" value={summary.online} hint={`${percentage(summary.online, summary.total)}% em rota`} />
+        <StatCard title="Em alerta" value={summary.alert} hint="Eventos críticos acionados" variant="alert" />
+        <StatCard title="Câmeras operacionais" value={summary.camerasOk} hint="Integrações Euro View" />
+      </section>
 
-      <main className="flex-1 px-6 py-5">
-        <header className="mb-2">
-          <div className="text-xs text-white/50">Última sincronização: {new Date().toLocaleTimeString()}</div>
-        </header>
-
-        {/* KPIs topo */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-          <Kpi title="VEÍCULOS (TOTAL)" value={loading ? "—" : stats.total} />
-          <Kpi title="ATIVOS" value={loading ? "—" : stats.ativos} sub={`${pct(stats.ativos, stats.total)}% câmeras OK`} />
-          <Kpi title="INATIVOS" value={loading ? "—" : stats.inativos} sub={`${stats.inativos} sem fix >= 6h`} />
-          <Kpi title="BLOQUEADOS" value={loading ? "—" : stats.bloqueados} />
-        </div>
-
-        {/* Atalhos (inclui Euro View) */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <ActionCard href="/monitoramento" title="Câmeras (Euro View)" sub="Eventos, vídeos e Live" />
-          <ActionCard href="/trajetos" title="Rotas / Trajetos" sub="Replays e desempenho" />
-          <ActionCard href="/servicos" title="Serviços / Entregas" sub="OS, SLA e histórico" />
-        </div>
-
-        {/* Linha: Gráfico + Status no mapa */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-          <div className="lg:col-span-2 rounded-2xl bg-[#12161f] border border-white/5 p-4">
-            <div className="text-sm font-medium mb-3">ALERTAS NAS ÚLTIMAS 24H</div>
-            <MiniBars hours={stats.hours} data={stats.series} />
-          </div>
-
-          <div className="rounded-2xl bg-[#12161f] border border-white/5 p-4">
-            <div className="text-sm font-medium mb-3">STATUS NO MAPA (RESUMO)</div>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Conectados</li>
-              <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" />Inativos</li>
-              <li className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Erro</li>
-            </ul>
-            <div className="mt-3 text-sm space-y-1">
-              <div>Conectados: <b>{loading ? "—" : stats.conectados}</b></div>
-              <div>Inativos: <b>{loading ? "—" : stats.inativos}</b></div>
-              <div>Com posição: <b>{loading ? "—" : stats.withPos}</b></div>
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <header className="mb-3 flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">Eventos recentes</div>
+              <div className="text-xs text-white/50">Sincronizado às {new Date().toLocaleTimeString()}</div>
             </div>
-
-            {/* Abas simples */}
-            <div className="mt-4 flex gap-2">
-              <a className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm" href="/monitoramento">No mapa</a>
-              <a className="px-3 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-sm" href="/trajetos">Replay</a>
-            </div>
-          </div>
-        </div>
-
-        {/* Últimos eventos importantes */}
-        <section className="rounded-2xl bg-[#12161f] border border-white/5 p-4">
-          <div className="text-sm font-medium mb-3">ÚLTIMOS EVENTOS IMPORTANTES</div>
-          <div className="overflow-auto">
-            <table className="w-full text-sm">
-              <thead className="text-white/60">
-                <tr className="[&>th]:text-left [&>th]:py-2 border-b border-white/10">
-                  <th>DATA/HORA</th><th>EVENTO</th><th>VEÍCULO</th><th>SEVERIDADE</th><th>AÇÕES</th>
+            <Link to="/events" className="text-xs text-primary">
+              Ver todos
+            </Link>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-white/40">
+                <tr className="border-b border-white/10 text-left">
+                  <th className="py-2 pr-6">Horário</th>
+                  <th className="py-2 pr-6">Tipo</th>
+                  <th className="py-2 pr-6">Veículo</th>
+                  <th className="py-2 pr-6">Severidade</th>
                 </tr>
               </thead>
               <tbody>
-                {events.length === 0 ? (
-                  <tr><td colSpan={5} className="py-4 text-white/40">Sem eventos nas últimas 24h.</td></tr>
-                ) : events.map((e) => (
-                  <tr key={e.id || e.time} className="[&>td]:py-2 border-b border-white/5">
-                    <td>{fmt(e.time)}</td>
-                    <td>{e.type || e.event || "evento"}</td>
-                    <td>{e.deviceName || e.device || "-"}</td>
-                    <td><SeverityBadge level={sev(e.severity || e.level || e.type)} /></td>
-                    <td className="space-x-2">
-                      <a className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20" href="/monitoramento">No mapa</a>
-                      <a className="text-xs px-2 py-1 rounded bg-white/10 hover:bg-white/20" href="/trajetos">Replay</a>
+                {tenantEvents.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-center text-white/40">
+                      Nenhum evento nas últimas horas.
                     </td>
                   </tr>
-                ))}
+                )}
+                {tenantEvents.map((event) => {
+                  const vehicle = tenantVehicles.find((item) => item.id === event.deviceId);
+                  return (
+                    <tr key={event.id} className="border-b border-white/5">
+                      <td className="py-2 pr-6 text-white/70">{toLocale(event.time)}</td>
+                      <td className="py-2 pr-6 text-white/80">{event.type}</td>
+                      <td className="py-2 pr-6 text-white/70">{vehicle?.name ?? event.deviceId}</td>
+                      <td className="py-2 pr-6">
+                        <SeverityBadge severity={event.severity} />
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        </section>
+        </div>
 
-        {err && (
-          <div className="mt-4 rounded-xl border border-red-500/40 bg-red-500/10 text-red-200 p-3 text-sm">
-            Falha ao carregar devices: {err}
+        <div className="card space-y-4">
+          <div>
+            <div className="text-sm font-medium text-white">Entregas & SLA</div>
+            <div className="text-xs text-white/50">Roteirização em tempo real</div>
           </div>
-        )}
-      </main>
+          <ul className="space-y-3 text-sm text-white/80">
+            {tenantDeliveries.length === 0 && <li className="text-white/50">Nenhuma rota ativa.</li>}
+            {tenantDeliveries.map((delivery) => {
+              const vehicle = tenantVehicles.find((item) => item.id === delivery.vehicleId);
+              return (
+                <li key={delivery.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{delivery.route}</div>
+                    <span className="text-xs text-white/40">{delivery.status}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-white/50">
+                    {delivery.completed} de {delivery.total} entregas concluídas · ETA {toLocale(delivery.eta)}
+                  </div>
+                  <div className="mt-1 text-xs text-white/40">{vehicle?.name ?? "Veículo"}</div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      </section>
+
+      <section className="card">
+        <header className="mb-4 flex items-center justify-between">
+          <div className="text-sm font-medium text-white">Performance nas últimas viagens</div>
+          <Link to="/trips" className="text-xs text-primary">
+            Abrir Trajetos
+          </Link>
+        </header>
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-white/40">
+              <tr className="border-b border-white/10 text-left">
+                <th className="py-2 pr-6">Veículo</th>
+                <th className="py-2 pr-6">Início</th>
+                <th className="py-2 pr-6">Fim</th>
+                <th className="py-2 pr-6">Distância</th>
+                <th className="py-2 pr-6">Vel. média</th>
+                <th className="py-2 pr-6">Alertas</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tenantTrips.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-4 text-center text-white/40">
+                    Nenhum trajeto registrado.
+                  </td>
+                </tr>
+              )}
+              {tenantTrips.map((trip) => {
+                const vehicle = tenantVehicles.find((item) => item.id === trip.vehicleId);
+                return (
+                  <tr key={trip.id} className="border-b border-white/5">
+                    <td className="py-2 pr-6 text-white/80">{vehicle?.name ?? trip.vehicleId}</td>
+                    <td className="py-2 pr-6 text-white/60">{toLocale(trip.start)}</td>
+                    <td className="py-2 pr-6 text-white/60">{toLocale(trip.end)}</td>
+                    <td className="py-2 pr-6 text-white/80">{trip.distanceKm} km</td>
+                    <td className="py-2 pr-6 text-white/80">{trip.avgSpeed} km/h</td>
+                    <td className="py-2 pr-6 text-white/80">{trip.alerts}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="card">
+        <header className="mb-3 flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium text-white">Analytics</div>
+            <div className="text-xs text-white/50">Distância total x alertas críticos</div>
+          </div>
+        </header>
+        <AnalyticsChart data={analyticsTimeline} />
+      </section>
     </div>
   );
 }
 
-// ===== components locais =====
-function Kpi({ title, value, sub }) {
-  return (
-    <div className="rounded-2xl bg-[#12161f] border border-white/5 p-4">
-      <div className="text-xs text-white/60">{title}</div>
-      <div className="text-3xl font-semibold mt-1">{value}</div>
-      {sub && <div className="text-[11px] text-white/40 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function ActionCard({ href, title, sub }) {
-  return (
-    <a href={href} className="block rounded-2xl bg-[#12161f] border border-white/5 p-4 hover:border-white/20 transition">
-      <div className="text-sm font-medium">{title}</div>
-      <div className="text-xs text-white/50 mt-1">{sub}</div>
-    </a>
-  );
-}
-
-function MiniBars({ hours, data }) {
-  const max = Math.max(1, ...data);
-  const H = 120, W = 24 * 18, barW = 12, gap = 6;
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-[150px]">
-      {data.map((v, i) => {
-        const h = Math.round((v / max) * (H - 20));
-        const x = i * (barW + gap);
-        return <rect key={i} x={x} y={H - h} width={barW} height={h} rx="3" className="fill-white/40" />;
-      })}
-    </svg>
-  );
-}
-
-function SeverityBadge({ level }) {
-  const map = {
-    high: "bg-red-500/20 text-red-200 border-red-500/40",
-    med: "bg-yellow-500/20 text-yellow-200 border-yellow-500/40",
-    low: "bg-green-500/20 text-green-200 border-green-500/40",
+function StatCard({ title, value, hint, variant = "default" }) {
+  const palette = {
+    default: "bg-[#12161f] border border-white/5",
+    alert: "bg-red-500/10 border border-red-500/30",
   };
-  const cls = map[level] || "bg-white/10 text-white/70 border-white/20";
-  const label = level === "high" ? "Alta" : level === "med" ? "Média" : level === "low" ? "Baixa" : "—";
-  return <span className={`px-2 py-1 rounded border text-xs ${cls}`}>{label}</span>;
+
+  return (
+    <div className={`rounded-2xl p-4 ${palette[variant]}`}>
+      <div className="text-xs text-white/50">{title}</div>
+      <div className="mt-1 text-3xl font-semibold text-white">{value}</div>
+      {hint && <div className="mt-1 text-[11px] text-white/40">{hint}</div>}
+    </div>
+  );
 }
 
-function fmt(t) {
-  try { return new Date(t).toLocaleString(); } catch { return String(t).slice(0,19).replace("T"," "); }
+function SeverityBadge({ severity }) {
+  const normalized = String(severity ?? "").toLowerCase();
+  const palette = {
+    critical: "bg-red-500/20 text-red-200 border border-red-500/40",
+    high: "bg-red-500/20 text-red-200 border border-red-500/40",
+    medium: "bg-yellow-500/20 text-yellow-200 border border-yellow-500/40",
+    low: "bg-green-500/20 text-green-200 border border-green-500/40",
+  };
+  const label =
+    normalized === "critical"
+      ? "Crítica"
+      : normalized === "high"
+      ? "Alta"
+      : normalized === "medium"
+      ? "Média"
+      : "Baixa";
+  return <span className={`rounded-full px-3 py-1 text-xs ${palette[normalized] ?? palette.low}`}>{label}</span>;
 }
-function sev(s) {
-  const k = String(s || "").toLowerCase();
-  if (k.includes("alarm") || k.includes("panic") || k.includes("offline")) return "high";
-  if (k.includes("warn") || k.includes("geofence")) return "med";
-  if (k.includes("online")) return "low";
-  return "med";
+
+function AnalyticsChart({ data }) {
+  const maxDistance = Math.max(...data.map((item) => item.distance));
+  return (
+    <div className="grid gap-6 md:grid-cols-2">
+      <div className="space-y-3">
+        {data.map((item) => (
+          <div key={item.month} className="flex items-center gap-3">
+            <div className="w-12 text-sm text-white/60">{item.month}</div>
+            <div className="flex-1 rounded-full bg-white/10">
+              <div
+                className="h-3 rounded-full bg-primary"
+                style={{ width: `${Math.round((item.distance / maxDistance) * 100)}%` }}
+              />
+            </div>
+            <div className="w-20 text-right text-xs text-white/50">{item.distance.toLocaleString()} km</div>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-3">
+        {data.map((item) => (
+          <div key={`${item.month}-alerts`} className="flex items-center justify-between text-sm text-white/70">
+            <span>{item.month}</span>
+            <span>{item.alerts} alertas · {item.deliveriesOnTime}% SLA</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

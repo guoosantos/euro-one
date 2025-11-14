@@ -1,10 +1,11 @@
-import React, { useEffect, useRef, useState } from 'react'
-import Layout from '../layout/Layout'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import PageHeader from '../ui/PageHeader'
 import Field from '../ui/Field'
 import Input from '../ui/Input'
 import Button from '../ui/Button'
 import LeafletMap from '../components/LeafletMap'
+import { useTenant } from '../lib/tenant-context'
+import { stockSummary } from '../mock/fleet'
 
 async function fetchStock({ lat, lng, raioKm }) {
   // mock até conectar no backend
@@ -30,6 +31,9 @@ const Stat = ({title, value})=>(
 )
 
 export default function Stock(){
+  const { tenantId } = useTenant()
+  const tenantStock = useMemo(() => stockSummary.find(item => item.tenantId === tenantId) || null, [tenantId])
+
   // endereço + sugestões
   const [query, setQuery]   = useState('')
   const [sugs, setSugs]     = useState([])
@@ -41,7 +45,7 @@ export default function Stock(){
   const [raio, setRaio]     = useState(50) // km
 
   // resultados
-  const [summary, setSummary] = useState(null)
+  const [summary, setSummary] = useState(tenantStock)
   const [running, setRunning] = useState(false)
   const [lastAt, setLastAt]   = useState('—')
 
@@ -94,8 +98,10 @@ export default function Stock(){
     >{v} km</button>
   )
 
+  useEffect(()=>{ setSummary(tenantStock) }, [tenantStock])
+
   return (
-    <Layout title="Estoque">
+    <div className="space-y-5">
       <PageHeader
         title="Estoque"
         subtitle="Busque por endereço, defina o raio e visualize a distribuição."
@@ -147,8 +153,7 @@ export default function Stock(){
       {/* CONTEÚDO: mapa à esquerda, cards à direita */}
       <div className="grid gap-3 lg:grid-cols-[minmax(440px,1fr)_380px]">
         <Field label="Mapa">
-          {/* Mantemos seu LeafletMap; quando expuser props, pluga center/raio aqui */}
-          <LeafletMap />
+          <LeafletMap center={[center.lat, center.lng]} markers={[{ lat:center.lat, lng:center.lng, label:center.label }]} zoom={tenantStock ? 8 : 5} />
         </Field>
 
         <div className="grid gap-3">
@@ -171,6 +176,6 @@ export default function Stock(){
           </Field>
         </div>
       </div>
-    </Layout>
+    </div>
   )
 }

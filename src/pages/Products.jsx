@@ -1,35 +1,47 @@
-import React, { useState } from 'react'
-import Layout from '../layout/Layout'
-import PageHeader from '../ui/PageHeader'
-import Input from '../ui/Input'
-import Button from '../ui/Button'
-import Field from '../ui/Field'
-import { Table, Pager } from '../ui/Table'
+import React, { useMemo, useState } from "react";
 
-export default function Products(){
-  const [f, setF] = useState({ nome:'', fabricante:'', protocolo:'', tipo:'' })
-  const on = k => e => setF(s=>({...s,[k]:e.target.value}))
-  const salvar = ()=>{ console.log('PRODUTO_SAVE', f) }
+import PageHeader from "../ui/PageHeader";
+import Input from "../ui/Input";
+import Button from "../ui/Button";
+import Field from "../ui/Field";
+import { Table, Pager } from "../ui/Table";
+import { products } from "../mock/fleet";
+
+export default function Products() {
+  const [form, setForm] = useState({ nome: "", fabricante: "", protocolo: "", tipo: "" });
+
+  const rows = useMemo(
+    () => products.map((product) => [product.name, "Euro", product.connectivity, product.inputs + " entradas", "Editar"]),
+    [],
+  );
+
+  const onChange = (key) => (event) => setForm((state) => ({ ...state, [key]: event.target.value }));
+  const handleSave = () => {
+    console.log("Salvar produto", form);
+    setForm({ nome: "", fabricante: "", protocolo: "", tipo: "" });
+  };
 
   return (
-    <Layout title="Produtos">
+    <div className="space-y-5">
       <PageHeader title="Produtos (modelos)" />
       <div className="grid gap-3">
         <Field label="Novo modelo">
-          <div className="grid md:grid-cols-4 gap-3">
-            <Input placeholder="Nome * (ex.: ES-JAMMER)" value={f.nome} onChange={on('nome')}/>
-            <Input placeholder="Fabricante (ex.: Euro)" value={f.fabricante} onChange={on('fabricante')}/>
-            <Input placeholder="Protocolo (GT06, Suntech, Euro)" value={f.protocolo} onChange={on('protocolo')}/>
-            <Input placeholder="Tipo (rastreador/câmera/módulo)" value={f.tipo} onChange={on('tipo')}/>
+          <div className="grid gap-3 md:grid-cols-4">
+            <Input placeholder="Nome * (ex.: ES-JAMMER)" value={form.nome} onChange={onChange("nome")} />
+            <Input placeholder="Fabricante" value={form.fabricante} onChange={onChange("fabricante")} />
+            <Input placeholder="Conectividade" value={form.protocolo} onChange={onChange("protocolo")} />
+            <Input placeholder="Tipo" value={form.tipo} onChange={onChange("tipo")} />
           </div>
-          <div className="mt-3"><Button onClick={salvar}>Salvar modelo</Button></div>
+          <div className="mt-3">
+            <Button onClick={handleSave}>Salvar modelo</Button>
+          </div>
         </Field>
 
         <Field label="Modelos cadastrados">
-          <Table head={['Nome','Fabricante','Protocolo','Tipo','Ações']} rows={[]}/>
+          <Table head={["Nome", "Fabricante", "Conectividade", "IO", "Ações"]} rows={rows} />
           <Pager />
         </Field>
       </div>
-    </Layout>
-  )
+    </div>
+  );
 }
