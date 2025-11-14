@@ -32,6 +32,8 @@ A aplicação mantém a estrutura visual atual do projeto Euro, com layout respo
 - **Tabela configurável** listando placa, última atualização, endereço via geocodificação reversa, velocidade, ignição, odômetro, bateria, sinal, satélites e status.
 - **Ações rápidas por veículo**: abrir replay, abrir Google Maps (`https://google.com/maps/search/?api=1&query={lat},{lon}`), enviar comandos e acessar detalhes completos.
 - **Atualização periódica** via polling (30 s) com possibilidade de WebSocket do Traccar (`/api/socket`) para push em tempo real.
+- **Integração direta com telemetria real**: o frontend consulta o proxy multi-tenant em `/api/devices` e `/api/positions/last` (via `API.devices.list` e `API.devices.lastPositions`), que por sua vez agregam os dados vivos do Traccar. Os contadores da tela utilizam esses retornos para classificar veículos em `online`, `alerta`, `offline` e `bloqueados` (baseado no `status` do device e na idade da última posição). O resumo inteligente calcula ignição ligada, veículos em movimento (>= 5 km/h), velocidade média e sinal médio dos dispositivos online, além da quantidade de alertas ativos informada em `attributes.alarm`.
+- **Fallback controlado**: os mocks antigos permanecem apenas para desenvolvimento offline e não são carregados na tela principal (`Monitoring`/`Monitoramento` compartilham o mesmo componente conectado à API real).
 
 ### Replay de Trajetos
 

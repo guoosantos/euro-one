@@ -3,46 +3,114 @@ import { Link } from "react-router-dom";
 
 import LeafletMap from "../components/LeafletMap";
 import { useTenant } from "../lib/tenant-context";
-import { buildVehicleTable, summariseFleet, vehicles } from "../mock/fleet";
+import { useDevices } from "../lib/hooks/useDevices";
+import { useLivePositions } from "../lib/hooks/useLivePositions";
+import { buildFleetState } from "../lib/fleet-utils";
 
 const statusLabels = {
   online: "Online",
   alert: "Alerta",
   offline: "Offline",
+  blocked: "Bloqueado",
 };
+
+const filters = ["all", "online", "alert", "offline", "blocked"];
 
 export default function Monitoring() {
   const { tenantId } = useTenant();
   const [statusFilter, setStatusFilter] = useState("all");
 
-  const summary = useMemo(() => summariseFleet(tenantId), [tenantId]);
-  const table = useMemo(() => buildVehicleTable(tenantId), [tenantId]);
+  const {
+    devices,
+    loading: loadingDevices,
+    error: devicesError,
+    fetchedAt: devicesFetchedAt,
+    refresh: refreshDevices,
+  } = useDevices({ tenantId, autoRefreshMs: 5 * 60 * 1000 });
+
+  const {
+    positions,
+    loading: loadingPositions,
+    error: positionsError,
+    fetchedAt,
+    refresh: refreshPositions,
+  } = useLivePositions({ tenantId, refreshInterval: 30 * 1000 });
+
+  const { table, summary } = useMemo(() => {
+    const { rows, stats } = buildFleetState(devices, positions, { tenantId });
+    return { table: rows, summary: stats };
+  }, [devices, positions, tenantId]);
 
   const filteredTable = useMemo(() => {
     if (statusFilter === "all") return table;
     return table.filter((item) => item.status === statusFilter);
   }, [statusFilter, table]);
 
-  const markers = useMemo(
+  const markers = useMemo(() => {
+    return filteredTable
+      .filter((item) => Number.isFinite(item.lat) && Number.isFinite(item.lng))
+      .map((item) => ({
+        id: item.id,
+        lat: item.lat,
+        lng: item.lng,
+        status: item.status,
+        popup: (
+          <div className="space-y-1 text-sm text-slate-900">
+            <div className="font-semibold text-slate-800">{item.name}</div>
+            {item.plate && <div className="text-xs text-slate-500">{item.plate}</div>}
+            <div className="text-xs text-slate-600">
+              {item.speed != null ? `${item.speed} km/h` : "Velocidade não disponível"}
+            </div>
+            {item.address && <div className="text-xs text-slate-500">{item.address}</div>}
+          </div>
+        ),
+      }));
+  }, [filteredTable]);
+
+  const mapCenter = useMemo(() => {
+    const first = markers[0];
+    if (first) return [first.lat, first.lng];
+    return [-14.235004, -51.92528];
+  }, [markers]);
+
+  const ignitionCount = useMemo(
+    () => filteredTable.filter((item) => item.ignition === true).length,
+    [filteredTable],
+  );
+  const onlineVehicles = useMemo(
+    () => filteredTable.filter((item) => item.status === "online"),
+    [filteredTable],
+  );
+  const movingVehicles = useMemo(
+    () => filteredTable.filter((item) => Number(item.speed) >= 5),
+    [filteredTable],
+  );
+  const totalAlerts = useMemo(
     () =>
-      vehicles
-        .filter((vehicle) => vehicle.tenantId === tenantId)
-        .filter((vehicle) => (statusFilter === "all" ? true : vehicle.status === statusFilter))
-        .map((vehicle) => ({
-          lat: vehicle.lat,
-          lng: vehicle.lng,
-          label: `${vehicle.name} · ${vehicle.plate}`,
-        })),
-    [statusFilter, tenantId],
+      filteredTable.reduce((total, current) => {
+        if (Array.isArray(current.alerts)) return total + current.alerts.length;
+        const numeric = Number(current.alerts ?? 0);
+        return total + (Number.isFinite(numeric) ? numeric : 0);
+      }, 0),
+    [filteredTable],
   );
 
+  const isLoading = loadingDevices || loadingPositions;
+  const errorMessage = devicesError || positionsError;
+
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-6">
+      {errorMessage && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+          Falha ao sincronizar telemetria em tempo real. {errorMessage.message ?? "Tente novamente em instantes."}
+        </div>
+      )}
+
       <div className="grid gap-4 md:grid-cols-4">
-        <StatusCard title="Online" value={summary.online} tone="green" />
-        <StatusCard title="Em alerta" value={summary.alert} tone="yellow" />
-        <StatusCard title="Offline" value={summary.offline} tone="red" />
-        <StatusCard title="Bloqueados" value={summary.blocked} tone="purple" />
+        <StatusCard title="Online" value={isLoading ? "…" : summary.online} tone="green" />
+        <StatusCard title="Em alerta" value={isLoading ? "…" : summary.alert} tone="yellow" />
+        <StatusCard title="Offline" value={isLoading ? "…" : summary.offline} tone="red" />
+        <StatusCard title="Bloqueados" value={isLoading ? "…" : summary.blocked} tone="purple" />
       </div>
 
       <div className="card space-y-4">
@@ -51,32 +119,69 @@ export default function Monitoring() {
             <div className="text-sm font-medium text-white">Filtros rápidos</div>
             <div className="text-xs text-white/40">Personalize a visualização da frota</div>
           </div>
-          <div className="flex flex-wrap gap-2 text-xs">
-            {(["all", "online", "alert", "offline"]).map((status) => (
-              <button
-                key={status}
-                type="button"
-                onClick={() => setStatusFilter(status)}
-                className={`rounded-full px-4 py-2 transition ${
-                  statusFilter === status
-                    ? "bg-primary text-white"
-                    : "bg-white/5 text-white/60 hover:bg-white/10"
-                }`}
-              >
-                {status === "all" ? "Todos" : statusLabels[status]}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <div className="flex flex-wrap gap-2">
+              {filters.map((status) => (
+                <button
+                  key={status}
+                  type="button"
+                  onClick={() => setStatusFilter(status)}
+                  className={`rounded-full px-4 py-2 transition ${
+                    statusFilter === status
+                      ? "bg-primary text-white"
+                      : "bg-white/5 text-white/60 hover:bg-white/10"
+                  }`}
+                >
+                  {status === "all" ? "Todos" : statusLabels[status] ?? status}
+                </button>
+              ))}
+            </div>
+            <LiveIndicator
+              fetchedAt={fetchedAt}
+              positionsLoading={loadingPositions}
+              onRefresh={() => {
+                refreshPositions();
+                refreshDevices();
+              }}
+              devicesFetchedAt={devicesFetchedAt}
+            />
           </div>
         </header>
 
         <div className="grid gap-4 lg:grid-cols-2">
-          <LeafletMap markers={markers} />
-          <div className="rounded-2xl border border-white/5 bg-white/5 p-4 text-sm text-white/70">
-            <div className="font-medium text-white">Resumo inteligente</div>
-            <ul className="mt-3 space-y-2">
-              <li>Veículos com ignição ligada: {filteredTable.filter((item) => item.ignition).length}</li>
-              <li>Velocidade média: {average(filteredTable.map((item) => item.speed)).toFixed(1)} km/h</li>
-              <li>Sinal médio: {average(filteredTable.map((item) => item.signal)).toFixed(0)} dBm</li>
+          <LeafletMap markers={markers} center={mapCenter} height={420} />
+          <div className="rounded-2xl border border-white/5 bg-white/5 p-5 text-sm text-white/70">
+            <div className="flex items-center justify-between gap-2">
+              <div className="font-medium text-white">Resumo inteligente</div>
+              {fetchedAt && (
+                <span className="text-xs text-white/40">Atualizado às {new Date(fetchedAt).toLocaleTimeString()}</span>
+              )}
+            </div>
+            <ul className="mt-4 space-y-2 text-sm text-white/80">
+              <li className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Veículos com ignição ligada</span>
+                <span className="font-semibold text-white">{ignitionCount}</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Em movimento (&gt;= 5 km/h)</span>
+                <span className="font-semibold text-white">{movingVehicles.length}</span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Velocidade média (online)</span>
+                <span className="font-semibold text-white">
+                  {formatAverage(onlineVehicles.map((item) => item.speed))} km/h
+                </span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Sinal médio (online)</span>
+                <span className="font-semibold text-white">
+                  {formatAverage(onlineVehicles.map((item) => item.signal))} dBm
+                </span>
+              </li>
+              <li className="flex items-center justify-between gap-3">
+                <span className="text-white/60">Alertas ativos</span>
+                <span className="font-semibold text-white">{totalAlerts}</span>
+              </li>
             </ul>
             <Link to="/deliveries" className="mt-3 inline-flex items-center text-xs text-primary">
               Abrir entregas
@@ -86,9 +191,13 @@ export default function Monitoring() {
       </div>
 
       <div className="card">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="text-sm font-medium text-white">Frota em tempo real</div>
-          <div className="text-xs text-white/50">{filteredTable.length} veículos exibidos</div>
+          <div className="text-xs text-white/50">
+            {filteredTable.length} veículos exibidos · posição sincronizada às {fetchedAt
+              ? new Date(fetchedAt).toLocaleTimeString()
+              : "—"}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
@@ -121,27 +230,29 @@ export default function Monitoring() {
                   <td className="py-3 pr-4 text-white/60">{vehicle.plate}</td>
                   <td className="py-3 pr-4 text-white/70">{statusLabels[vehicle.status] ?? vehicle.status}</td>
                   <td className="py-3 pr-4 text-white/60">{formatTime(vehicle.lastUpdate)}</td>
-                  <td className="py-3 pr-4 text-white/60">{vehicle.address}</td>
-                  <td className="py-3 pr-4 text-white/70">{vehicle.speed ?? 0} km/h</td>
-                  <td className="py-3 pr-4 text-white/70">{vehicle.ignition ? "Ligada" : "Desligada"}</td>
-                  <td className="py-3 pr-4 text-white/70">{vehicle.battery}%</td>
-                  <td className="py-3 pr-4 text-white/70">{vehicle.signal} dBm</td>
+                  <td className="py-3 pr-4 text-white/60">{vehicle.address || "—"}</td>
+                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.speed, "km/h")}</td>
+                  <td className="py-3 pr-4 text-white/70">{formatIgnition(vehicle.ignition)}</td>
+                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.battery, "%")}</td>
+                  <td className="py-3 pr-4 text-white/70">{formatMetric(vehicle.signal, "dBm")}</td>
                   <td className="py-3 pr-4 text-white/70">{vehicle.alerts?.length ?? 0}</td>
                   <td className="py-3 pr-4 text-white/60">
                     <div className="flex items-center gap-2">
                       <Link className="rounded-lg bg-white/10 px-2 py-1 text-xs" to={`/trips?vehicle=${vehicle.id}`}>
                         Replay
                       </Link>
-                      <a
-                        className="rounded-lg bg-white/10 px-2 py-1 text-xs"
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-                          vehicle.address ?? "",
-                        )}`}
-                        rel="noreferrer"
-                        target="_blank"
-                      >
-                        Maps
-                      </a>
+                      {Number.isFinite(vehicle.lat) && Number.isFinite(vehicle.lng) ? (
+                        <a
+                          className="rounded-lg bg-white/10 px-2 py-1 text-xs"
+                          href={`https://www.google.com/maps/search/?api=1&query=${vehicle.lat},${vehicle.lng}`}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          Maps
+                        </a>
+                      ) : (
+                        <span className="rounded-lg bg-white/5 px-2 py-1 text-xs text-white/40">Sem coordenada</span>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -169,15 +280,53 @@ function StatusCard({ title, value, tone }) {
   );
 }
 
-function average(values) {
-  if (!values.length) return 0;
-  return values.reduce((total, current) => total + (Number(current) || 0), 0) / values.length;
+function LiveIndicator({ fetchedAt, positionsLoading, onRefresh, devicesFetchedAt }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-white/50">
+      <span className="flex items-center gap-1 rounded-full border border-green-400/40 bg-green-500/10 px-2 py-1 text-green-200">
+        <span className="h-2 w-2 animate-pulse rounded-full bg-green-400" /> Ao vivo
+      </span>
+      <span className="hidden text-white/50 md:inline">
+        Posicionamento: {fetchedAt ? new Date(fetchedAt).toLocaleTimeString() : "—"}
+      </span>
+      <span className="hidden text-white/40 lg:inline">
+        Inventário: {devicesFetchedAt ? new Date(devicesFetchedAt).toLocaleTimeString() : "—"}
+      </span>
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={positionsLoading}
+        className="rounded-full border border-white/10 px-3 py-1 text-white/60 transition hover:text-white disabled:opacity-50"
+      >
+        Atualizar
+      </button>
+    </div>
+  );
+}
+
+function formatAverage(values) {
+  const valid = values.map((value) => Number(value) || 0).filter((value) => Number.isFinite(value));
+  if (!valid.length) return "0";
+  const average = valid.reduce((total, current) => total + current, 0) / valid.length;
+  return average.toFixed(1);
+}
+
+function formatMetric(value, unit) {
+  if (!Number.isFinite(value)) return "—";
+  return `${Math.round(Number(value) * 10) / 10}${unit ? ` ${unit}` : ""}`;
+}
+
+function formatIgnition(value) {
+  if (value === null || value === undefined) return "—";
+  return value ? "Ligada" : "Desligada";
 }
 
 function formatTime(value) {
+  if (!value) return "—";
   try {
-    return new Date(value).toLocaleString();
+    const date = typeof value === "string" || typeof value === "number" ? new Date(value) : value;
+    return date.toLocaleString();
   } catch (error) {
-    return value;
+    return String(value);
   }
 }
