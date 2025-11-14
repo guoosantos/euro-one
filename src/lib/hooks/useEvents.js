@@ -1,63 +1,79 @@
-import { useEffect, useMemo, useState } from "react";
-import { API } from "../api";
-import { matchesTenant } from "../tenancy";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import api from "../api";
 
-export function useEvents({ tenantId, limit = 10, autoRefreshMs } = {}) {
-  const [state, setState] = useState({ events: [], loading: true, error: null, fetchedAt: null });
+function buildParams({ deviceId, types, from, to, limit }) {
+  const params = {};
+  if (deviceId) params.deviceId = deviceId;
+  if (Array.isArray(types) && types.length) {
+    params.type = types.join(",");
+  } else if (typeof types === "string") {
+    params.type = types;
+  }
+  if (from) params.from = from;
+  if (to) params.to = to;
+  if (limit) params.limit = limit;
+  return params;
+}
+
+export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterval = 15_000 } = {}) {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
-    let active = true;
+    let cancelled = false;
     let timer;
 
-    const load = async () => {
-      setState((prev) => ({
-        ...prev,
-        loading: prev.events.length === 0,
-        error: null,
-      }));
-
+    async function fetchEvents() {
+      setLoading(true);
+      setError(null);
       try {
-        const response = await API.events.list({ tenantId, limit });
-        if (!active) return;
-        const data = response?.data ?? response;
-        const items = Array.isArray(data)
-          ? data
-          : Array.isArray(data?.events)
-          ? data.events
+        const params = buildParams({ deviceId, types, from, to, limit });
+        const response = await api.get("/events", { params });
+        if (cancelled) return;
+        const payload = response?.data;
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.events)
+          ? payload.events
+          : Array.isArray(payload?.data)
+          ? payload.data
           : [];
-        const filtered = tenantId ? items.filter((event) => matchesTenant(event, tenantId)) : items;
-        setState({
-          events: filtered.slice(0, limit),
-          loading: false,
-          error: null,
-          fetchedAt: new Date(),
-        });
-      } catch (error) {
-        if (!active) return;
-        setState((prev) => ({ ...prev, loading: false, error }));
+        setEvents(list.slice(0, limit));
+        setLastUpdated(new Date());
+      } catch (requestError) {
+        if (cancelled) return;
+        console.error("Failed to load events", requestError);
+        setError(requestError);
+        setEvents([]);
       } finally {
-        if (!active || !autoRefreshMs) return;
-        timer = setTimeout(() => {
-          setVersion((value) => value + 1);
-        }, autoRefreshMs);
+        if (!cancelled) {
+          setLoading(false);
+          if (refreshInterval) {
+            timer = setTimeout(fetchEvents, refreshInterval);
+          }
+        }
       }
-    };
+    }
 
-    load();
+    fetchEvents();
 
     return () => {
-      active = false;
+      cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [tenantId, limit, version, autoRefreshMs]);
+  }, [deviceId, types, from, to, limit, refreshInterval, version]);
 
-  const refresh = useMemo(
-    () => () => {
-      setVersion((value) => value + 1);
-    },
-    [],
+  const refresh = useCallback(() => {
+    setVersion((value) => value + 1);
+  }, []);
+
+  return useMemo(
+    () => ({ events, loading, error, refresh, lastUpdated }),
+    [events, loading, error, refresh, lastUpdated],
   );
-
-  return { ...state, refresh };
 }
+
+export default useEvents;

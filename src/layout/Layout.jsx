@@ -9,11 +9,20 @@ import { useUI } from "../lib/store";
 export default function Layout({ children, title, hideTitle = false }) {
   const sidebarOpen = useUI((state) => state.sidebarOpen);
   const toggleSidebar = useUI((state) => state.toggle);
+  const theme = useUI((state) => state.theme);
+  const locale = useUI((state) => state.locale);
 
   useEffect(() => {
     if (!title) return;
     document.title = `${title} · Euro One`;
   }, [title]);
+
+  useEffect(() => {
+    if (typeof document !== "undefined") {
+      document.documentElement.dataset.theme = theme;
+      document.documentElement.lang = locale || "pt-BR";
+    }
+  }, [theme, locale]);
 
   return (
     <div className="flex min-h-screen bg-bg text-text">
