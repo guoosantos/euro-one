@@ -32,6 +32,8 @@ A aplicação mantém a estrutura visual atual do projeto Euro, com layout respo
 - **Tabela configurável** listando placa, última atualização, endereço via geocodificação reversa, velocidade, ignição, odômetro, bateria, sinal, satélites e status.
 - **Ações rápidas por veículo**: abrir replay, abrir Google Maps (`https://google.com/maps/search/?api=1&query={lat},{lon}`), enviar comandos e acessar detalhes completos.
 - **Atualização periódica** via polling (30 s) com possibilidade de WebSocket do Traccar (`/api/socket`) para push em tempo real.
+- **Streaming WebSocket nativo**: o frontend mantém uma conexão opcional com o backend (`/socket`), que retransmite eventos do Traccar em tempo real.
+  Quando disponível, os mapas e painéis indicam que estão em modo "Streaming ao vivo" e exibem o timestamp da última mensagem recebida.
 
 ### Replay de Trajetos
 

@@ -18,7 +18,10 @@ import FleetPopup from "../components/FleetPopup";
 import { useFleetDevices, FLEET_STATUS_LABELS } from "../lib/useFleetDevices";
 
 export default function Atlas() {
-  const { devices, isFetching, refetch, source, lastUpdated } = useFleetDevices({ autoRefresh: 45_000 });
+  const { devices, isFetching, refetch, source, lastUpdated, lastRealtime } = useFleetDevices({
+    autoRefresh: 45_000,
+    enableRealtime: true,
+  });
   const [selectedId, setSelectedId] = useState(null);
   const [onlyLive, setOnlyLive] = useState(false);
 
@@ -74,9 +77,9 @@ export default function Atlas() {
 
       <div className="pointer-events-none absolute left-6 top-6 z-[500] flex flex-wrap items-center gap-3">
         <SourceBadge source={source} isFetching={isFetching} />
-        {lastUpdated && (
+        {(lastRealtime || lastUpdated) && (
           <span className="pointer-events-auto rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs text-white/70 backdrop-blur">
-            Atualizado em {formatTime(lastUpdated)}
+            Atualizado em {formatTime(lastRealtime ?? lastUpdated)}
           </span>
         )}
         <button
@@ -116,13 +119,18 @@ export default function Atlas() {
 }
 
 function SourceBadge({ source, isFetching }) {
-  const tone =
-    source === "realtime"
-      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
-      : "border-white/10 bg-black/40 text-white/60";
+  const isLive = source === "realtime" || source === "socket";
+  const tone = isLive
+    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+    : "border-white/10 bg-black/40 text-white/60";
+  const label = isLive
+    ? source === "socket"
+      ? "Streaming ao vivo"
+      : "Dados sincronizados"
+    : "Dados de demonstração";
   return (
     <span className={`pointer-events-auto inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${tone}`}>
-      {source === "realtime" ? "Dados em tempo real" : "Dados de demonstração"}
+      {label}
       {isFetching && <Loader2 size={14} className="animate-spin" />}
     </span>
   );

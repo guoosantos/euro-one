@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { API } from "./api";
@@ -15,6 +15,7 @@ export const FLEET_STATUS_LABELS = {
 const STATUS_PRIORITY = ["alert", "blocked", "online", "offline"];
 const OFFLINE_THRESHOLD = 10 * 60 * 1000; // 10 minutos
 const LIVE_THRESHOLD = 2 * 60 * 1000; // 2 minutos
+const SOCKET_RETRY_MS = 5_000;
 
 export function useFleetDevices(options = {}) {
   const { tenantId } = useTenant();
@@ -23,7 +24,15 @@ export function useFleetDevices(options = {}) {
     listRefresh = 120_000,
     positionsRefresh = 30_000,
     includeInactive = true,
+    enableRealtime = true,
+    socketPath: socketPathOption,
   } = options;
+
+  const socketPath = socketPathOption ?? import.meta.env?.VITE_CORE_SOCKET_PATH ?? "/socket";
+
+  const livePositionsRef = useRef(new Map());
+  const [liveVersion, setLiveVersion] = useState(0);
+  const [lastRealtimeTs, setLastRealtimeTs] = useState(null);
 
   const listQuery = useQuery({
     queryKey: ["devices", tenantId, includeInactive],
@@ -51,16 +60,120 @@ export function useFleetDevices(options = {}) {
 
   const fallbackDevices = useMemo(() => buildFromMocks(tenantId), [tenantId]);
 
+  useEffect(() => {
+    livePositionsRef.current = new Map();
+    setLiveVersion((value) => value + 1);
+  }, [tenantId]);
+
+  useEffect(() => {
+    if (!enableRealtime) {
+      livePositionsRef.current = new Map();
+      setLiveVersion((value) => value + 1);
+      return undefined;
+    }
+
+    if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let retryHandle = null;
+    let socket = null;
+
+    const scheduleRetry = () => {
+      if (cancelled) return;
+      if (retryHandle) window.clearTimeout(retryHandle);
+      retryHandle = window.setTimeout(connect, SOCKET_RETRY_MS);
+    };
+
+    const connect = () => {
+      if (cancelled) return;
+
+      const url = buildSocketUrl(socketPath);
+      if (!url) {
+        return;
+      }
+
+      try {
+        socket = new WebSocket(url);
+      } catch (error) {
+        console.warn("[fleet] não foi possível abrir WebSocket", error);
+        scheduleRetry();
+        return;
+      }
+
+      socket.onopen = () => {
+        if (tenantId) {
+          try {
+            socket.send(JSON.stringify({ action: "subscribe", tenantId }));
+          } catch (error) {
+            console.warn("[fleet] subscribe falhou", error);
+          }
+        }
+      };
+
+      socket.onmessage = (event) => {
+        if (cancelled) return;
+        const updates = parseSocketMessage(event.data);
+        if (!updates.length) return;
+
+        let changed = false;
+        const map = new Map(livePositionsRef.current);
+
+        updates.forEach((payload) => {
+          const id = normalizeId(payload);
+          if (!id) return;
+          if (tenantId && payload?.tenantId && String(payload.tenantId) !== String(tenantId)) return;
+          map.set(id, payload);
+          changed = true;
+        });
+
+        if (changed) {
+          livePositionsRef.current = map;
+          setLiveVersion((value) => value + 1);
+          setLastRealtimeTs(Date.now());
+        }
+      };
+
+      socket.onerror = (error) => {
+        console.warn("[fleet] erro no WebSocket", error);
+        try {
+          socket?.close();
+        } catch (err) {
+          /* noop */
+        }
+      };
+
+      socket.onclose = () => {
+        if (cancelled) return;
+        scheduleRetry();
+      };
+    };
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (retryHandle) window.clearTimeout(retryHandle);
+      try {
+        socket?.close();
+      } catch (error) {
+        /* noop */
+      }
+    };
+  }, [enableRealtime, socketPath, tenantId]);
+
   const normalized = useMemo(() => {
     const list = Array.isArray(listQuery.data) ? listQuery.data : [];
     const positions = Array.isArray(positionsQuery.data) ? positionsQuery.data : [];
+    const livePositions = Array.from(livePositionsRef.current.values());
 
-    if (!list.length && !positions.length) {
+    if (!list.length && !positions.length && !livePositions.length) {
       return fallbackDevices;
     }
 
-    return mergeRemote(list, positions, tenantId);
-  }, [fallbackDevices, listQuery.data, positionsQuery.data, tenantId]);
+    return mergeRemote(list, positions, tenantId, livePositions);
+  }, [fallbackDevices, listQuery.data, liveVersion, positionsQuery.data, tenantId]);
 
   const summary = useMemo(
     () =>
@@ -84,11 +197,16 @@ export function useFleetDevices(options = {}) {
     return latest || null;
   }, [normalized]);
 
+  const hasLiveStream = livePositionsRef.current.size > 0;
+  const source = normalized === fallbackDevices ? "mock" : hasLiveStream ? "socket" : "realtime";
+
   return {
     devices: normalized,
     summary,
     lastUpdated,
-    source: normalized === fallbackDevices ? "mock" : "realtime",
+    source,
+    liveDevices: livePositionsRef.current.size,
+    lastRealtime: lastRealtimeTs,
     isLoading: listQuery.isLoading || positionsQuery.isLoading,
     isFetching: listQuery.isFetching || positionsQuery.isFetching,
     error: listQuery.error || positionsQuery.error,
@@ -98,7 +216,7 @@ export function useFleetDevices(options = {}) {
   };
 }
 
-function mergeRemote(devices, positions, tenantId) {
+function mergeRemote(devices, positions, tenantId, livePositions = []) {
   const byId = new Map();
 
   devices.forEach((device) => {
@@ -116,8 +234,16 @@ function mergeRemote(devices, positions, tenantId) {
     byId.set(id, entry);
   });
 
+  livePositions.forEach((livePosition) => {
+    const id = normalizeId(livePosition);
+    if (!id) return;
+    const entry = byId.get(id) ?? {};
+    entry.livePosition = livePosition;
+    byId.set(id, entry);
+  });
+
   return Array.from(byId.entries())
-    .map(([id, payload]) => normaliseDevice(id, payload.device, payload.position))
+    .map(([id, payload]) => normaliseDevice(id, payload.device, payload.position, payload.livePosition))
     .sort((a, b) => {
       const priorityA = resolvePriority(a.status);
       const priorityB = resolvePriority(b.status);
@@ -158,35 +284,78 @@ function buildFromMocks(tenantId) {
     }));
 }
 
-function normaliseDevice(id, device = {}, position = {}) {
+function normaliseDevice(id, device = {}, position = {}, livePosition = {}) {
   const attributes = {
     ...(device?.attributes || {}),
     ...(position?.attributes || {}),
+    ...(livePosition?.attributes || {}),
   };
 
-  const lat = toNumber(position.latitude ?? position.lat ?? attributes.latitude ?? device.latitude);
-  const lng = toNumber(position.longitude ?? position.lng ?? attributes.longitude ?? device.longitude);
+  const lat = toNumber(
+    livePosition.latitude ??
+      livePosition.lat ??
+      position.latitude ??
+      position.lat ??
+      attributes.latitude ??
+      device.latitude,
+  );
+  const lng = toNumber(
+    livePosition.longitude ??
+      livePosition.lng ??
+      position.longitude ??
+      position.lng ??
+      attributes.longitude ??
+      device.longitude,
+  );
 
   const lastUpdate =
-    position.deviceTime || position.fixTime || position.serverTime || device.lastUpdate || device.lastCommunication;
+    livePosition.deviceTime ||
+    livePosition.fixTime ||
+    livePosition.serverTime ||
+    position.deviceTime ||
+    position.fixTime ||
+    position.serverTime ||
+    device.lastUpdate ||
+    device.lastCommunication;
   const lastUpdateTs = toTimestamp(lastUpdate);
 
-  const alarm = attributes.alarm || position.alarm || device.alarm;
+  const alarm = attributes.alarm || livePosition.alarm || position.alarm || device.alarm;
   const blocked =
     Boolean(attributes.blocked || attributes.block || attributes.engineBlocked || attributes.io83) ||
     device?.blocked === true;
   const odometerMeters =
-    firstNumber(attributes.totalDistance, attributes.odometer, attributes.odometerMeters, device.totalDistance) ?? null;
+    firstNumber(
+      attributes.totalDistance,
+      attributes.odometer,
+      attributes.odometerMeters,
+      livePosition.totalDistance,
+      livePosition.odometer,
+      device.totalDistance,
+    ) ?? null;
   const odometer = typeof odometerMeters === "number" ? Math.round(odometerMeters / 1000) : null;
 
-  const speedValue = firstNumber(position.speed, attributes.speed, device.speed);
+  const speedValue = firstNumber(livePosition.speed, position.speed, attributes.speed, device.speed);
   const speed = typeof speedValue === "number" ? normaliseSpeed(speedValue) : null;
 
-  const ignition = parseBoolean(attributes.ignition ?? attributes.acc ?? attributes.engine ?? device.ignition);
+  const ignition = parseBoolean(
+    attributes.ignition ??
+      attributes.acc ??
+      attributes.engine ??
+      livePosition.ignition ??
+      livePosition.acc ??
+      livePosition.engine ??
+      device.ignition,
+  );
   const battery = firstNumber(attributes.batteryLevel, attributes.battery, attributes.power, device.batteryLevel);
   const signal = firstNumber(attributes.rssi, attributes.signal, attributes.gsm, device.signal);
-  const satellites = firstNumber(position.sat, attributes.sat, attributes.satellites, device.satellites);
-  const course = firstNumber(position.course, attributes.course, device.course);
+  const satellites = firstNumber(
+    livePosition.sat,
+    position.sat,
+    attributes.sat,
+    attributes.satellites,
+    device.satellites,
+  );
+  const course = firstNumber(livePosition.course, position.course, attributes.course, device.course);
 
   const driver =
     attributes.driverName ||
@@ -194,7 +363,7 @@ function normaliseDevice(id, device = {}, position = {}) {
     device.driverName ||
     (device.driver && (device.driver.name || device.driver.fullName));
 
-  const address = position.address || attributes.address || device.address;
+  const address = livePosition.address || position.address || attributes.address || device.address;
 
   const isCommunicating = lastUpdateTs ? Date.now() - lastUpdateTs <= LIVE_THRESHOLD : false;
   const isOnline = lastUpdateTs ? Date.now() - lastUpdateTs <= OFFLINE_THRESHOLD : false;
@@ -207,7 +376,7 @@ function normaliseDevice(id, device = {}, position = {}) {
 
   return {
     id: String(id),
-    tenantId: device.tenantId,
+    tenantId: device.tenantId ?? livePosition.tenantId ?? position.tenantId,
     name: device.name || attributes.name || attributes.vehicleName || `Dispositivo ${id}`,
     plate:
       device.plate ||
@@ -240,6 +409,7 @@ function normaliseDevice(id, device = {}, position = {}) {
     fuel: firstNumber(attributes.fuel, attributes.fuelLevel, attributes.tankLevel),
     rawDevice: device,
     rawPosition: position,
+    rawLive: livePosition,
   };
 }
 
@@ -304,3 +474,34 @@ function firstNumber(...values) {
   return null;
 }
 
+function buildSocketUrl(path) {
+  try {
+    if (!path) return null;
+    const base = import.meta.env?.VITE_CORE_WS || import.meta.env?.VITE_CORE_BASE || window.location.origin;
+    const initial = base.startsWith("http") || base.startsWith("ws") ? base : window.location.origin;
+    const url = new URL(path, initial);
+    if (url.protocol === "http:") url.protocol = "ws:";
+    if (url.protocol === "https:") url.protocol = "wss:";
+    return url.toString();
+  } catch (error) {
+    console.warn("[fleet] socket url inválida", error);
+    return null;
+  }
+}
+
+function parseSocketMessage(raw) {
+  if (!raw) return [];
+  let data = null;
+  try {
+    data = typeof raw === "string" ? JSON.parse(raw) : raw;
+  } catch (error) {
+    return [];
+  }
+
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.positions)) return data.positions;
+  if (data?.position) return [data.position];
+  if (data?.event?.position) return [data.event.position];
+  if (data?.deviceId) return [data];
+  return [];
+}

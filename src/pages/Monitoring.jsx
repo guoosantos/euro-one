@@ -12,7 +12,9 @@ const statusLabels = {
 };
 
 export default function Monitoring() {
-  const { devices, summary, isLoading, isFetching, refetch, source, lastUpdated } = useFleetDevices();
+  const { devices, summary, isLoading, isFetching, refetch, source, lastUpdated, lastRealtime } = useFleetDevices({
+    enableRealtime: true,
+  });
   const [statusFilter, setStatusFilter] = useState("all");
 
   const filteredTable = useMemo(() => {
@@ -38,17 +40,19 @@ export default function Monitoring() {
     [filteredTable],
   );
 
-  const badgeTone = source === "realtime" ? "border-emerald-400/40 text-emerald-200" : "border-white/10 text-white/60";
+  const isLiveSource = source === "realtime" || source === "socket";
+  const badgeTone = isLiveSource ? "border-emerald-400/40 text-emerald-200" : "border-white/10 text-white/60";
+  const sourceLabel = isLiveSource ? (source === "socket" ? "Streaming ao vivo" : "Dados ao vivo") : "Dados de demonstração";
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/60">
         <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${badgeTone}`}>
-          {source === "realtime" ? "Dados ao vivo" : "Dados de demonstração"}
+          {sourceLabel}
           {isFetching && <Loader2 className="h-3 w-3 animate-spin" />}
         </span>
         <div className="flex items-center gap-3">
-          {lastUpdated && <span>Atualizado em {formatTime(lastUpdated)}</span>}
+          {(lastRealtime || lastUpdated) && <span>Atualizado em {formatTime(lastRealtime ?? lastUpdated)}</span>}
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-1.5 text-xs text-white/70 transition hover:border-primary/60 hover:text-white"

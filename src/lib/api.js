@@ -20,6 +20,10 @@ export const API = {
     lastPositions: (params) => core.get('/positions/last', { params }),
     count: () => core.get('/devices/count').catch(()=>({ data:{ total:1200, active:1045, inactive:122, blocked:33 } })),
   },
+  vehicles: {
+    list: (params) => core.get('/vehicles', { params }),
+    detail: (id) => core.get(`/vehicles/${id}`),
+  },
   events: {
     list: (params) => core.get('/events', { params }).catch(()=>({ data:[{ts:'2025-10-26T21:05:43Z', type:'speed', device:'EU-100', severity:'critical'}] })),
   },
