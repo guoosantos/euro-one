@@ -220,19 +220,41 @@ export async function traccarProxy(
  * Apenas fazemos um GET em /server com Basic Auth (igual ao seu curl).
  */
 export async function initializeTraccarAdminSession() {
-  if (!config.traccar.adminUser || !config.traccar.adminPassword) {
+  const { adminUser, adminPassword, adminToken } = config.traccar;
+
+  if (!adminToken && (!adminUser || !adminPassword)) {
     console.warn("Credenciais administrativas do Traccar não configuradas");
     return;
   }
 
+  if (adminUser && adminPassword) {
+    try {
+      const auth = await loginTraccar(adminUser, adminPassword);
+      storeAdminToken(auth);
+
+      await traccarAdminRequest({
+        method: "GET",
+        url: "/server",
+      });
+
+      console.log("Conectado ao Traccar como administrador usando sessão dedicada.");
+      return;
+    } catch (error) {
+      console.warn(
+        "Falha ao autenticar no Traccar via sessão administrativa",
+        error?.status || error?.statusCode || "",
+        error?.message || error,
+      );
+    }
+  }
+
   try {
-    // Isso já valida user/senha (igual ao curl -u admin:admin /api/server)
     await traccarAdminRequest({
       method: "GET",
       url: "/server",
     });
 
-    console.log("Conectado ao Traccar como administrador.");
+    console.log("Conectado ao Traccar como administrador usando credenciais configuradas.");
   } catch (error) {
     console.warn(
       "Falha ao autenticar no Traccar como administrador",

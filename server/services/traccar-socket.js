@@ -264,7 +264,9 @@ function scheduleReconnect(connectFn) {
   if (reconnectTimer) return;
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
+    console.info("[Traccar WS] Tentando restabelecer sessão administrativa antes de reconectar...");
     await initializeTraccarAdminSession().catch(() => undefined);
+    console.info("[Traccar WS] Reabrindo conexão com o Traccar...");
     connectFn();
   }, 5_000);
 }
@@ -275,28 +277,37 @@ function connectToTraccar(connectFn) {
   try {
     const url = buildTraccarSocketUrl();
     const headers = getTraccarAdminHeaders();
+    console.info(`[Traccar WS] Conectando em ${url}...`);
     const socket = new WebSocket(url, undefined, { headers });
     traccarSocket = socket;
 
     socket.onopen = () => {
       isConnecting = false;
+      console.info("[Traccar WS] Conectado ao stream em tempo real.");
     };
 
     socket.onmessage = (event) => {
       broadcast(event.data);
     };
 
-    socket.onerror = () => {
+    socket.onerror = (error) => {
+      console.error("[Traccar WS] Erro na conexão com o Traccar", error?.message || error);
       socket.close();
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
+      console.warn(
+        "[Traccar WS] Conexão encerrada",
+        typeof event?.code === "number" ? `code=${event.code}` : "",
+        event?.reason ? `reason=${event.reason}` : "",
+      );
       traccarSocket = null;
       isConnecting = false;
       scheduleReconnect(connectFn);
     };
   } catch (error) {
     isConnecting = false;
+    console.error("[Traccar WS] Falha ao abrir WebSocket", error?.message || error);
     scheduleReconnect(connectFn);
   }
 }
