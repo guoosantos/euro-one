@@ -2,27 +2,35 @@ import React, { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   BarChart3,
+  Bell,
   Boxes,
   Camera,
   Car,
   Cpu,
+  FileBarChart,
   FileText,
   HardDrive,
   Home,
+  Layers,
   Map,
   MapPinned,
+  Navigation,
   Medal,
   Menu,
   Package,
   Radio,
+  Route,
   Settings,
+  Terminal,
   User,
   Users,
+  UserCog,
   Video,
   Wrench,
 } from "lucide-react";
 
 import { useTenant } from "../lib/tenant-context";
+import { useUI } from "../lib/store";
 
 const linkClass = (collapsed) => ({ isActive }) =>
   `flex items-center gap-2 px-3 py-2 rounded-xl transition ${
@@ -37,7 +45,8 @@ const sectionTitle = (collapsed, text) =>
   );
 
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const collapsed = useUI((state) => state.sidebarCollapsed);
+  const toggleCollapsed = useUI((state) => state.toggleSidebarCollapsed);
   const [openDisp, setOpenDisp] = useState(true);
   const [openAnalytics, setOpenAnalytics] = useState(false);
   const [openProfile, setOpenProfile] = useState(false);
@@ -47,7 +56,7 @@ export default function Sidebar() {
   const canManageUsers = role === "admin" || role === "manager";
 
   return (
-    <aside className={`h-full bg-[#0f141c] ${collapsed ? "w-16" : "w-72"} border-r border-[#1f2430]`}> 
+    <div className="h-full bg-[#0f141c]">
       <nav className="flex h-full flex-col gap-3 p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
@@ -60,7 +69,7 @@ export default function Sidebar() {
             type="button"
             aria-label="Alternar menu"
             className="p-1 text-[#AAB1C2] hover:text-white"
-            onClick={() => setCollapsed((value) => !value)}
+            onClick={toggleCollapsed}
           >
             <Menu size={18} />
           </button>
@@ -141,10 +150,16 @@ export default function Sidebar() {
           </button>
         )}
         {collapsed ? (
-          <NavLink to="/devices" className={linkClass(true)}>
-            <Cpu size={18} />
-            <span className="sr-only">Dispositivos</span>
-          </NavLink>
+          <div className="flex flex-col gap-2">
+            <NavLink to="/devices" className={linkClass(true)}>
+              <Cpu size={18} />
+              <span className="sr-only">Dispositivos</span>
+            </NavLink>
+            <NavLink to="/commands" className={linkClass(true)}>
+              <Terminal size={18} />
+              <span className="sr-only">Comandos</span>
+            </NavLink>
+          </div>
         ) : (
           openDisp && (
             <div className="ml-3 space-y-2 text-sm">
@@ -159,6 +174,10 @@ export default function Sidebar() {
               <NavLink to="/devices/products" className={linkClass(false)}>
                 <Boxes size={18} />
                 <span>Produtos</span>
+              </NavLink>
+              <NavLink to="/commands" className={linkClass(false)}>
+                <Terminal size={18} />
+                <span>Comandos</span>
               </NavLink>
               <NavLink to="/devices/stock" className={linkClass(false)}>
                 <Map size={18} />
@@ -190,6 +209,14 @@ export default function Sidebar() {
         <NavLink to="/vehicles" className={linkClass(collapsed)}>
           <Car size={18} />
           <span className={collapsed ? "sr-only" : ""}>Veículos</span>
+        </NavLink>
+        <NavLink to="/groups" className={linkClass(collapsed)}>
+          <Layers size={18} />
+          <span className={collapsed ? "sr-only" : ""}>Grupos</span>
+        </NavLink>
+        <NavLink to="/drivers" className={linkClass(collapsed)}>
+          <UserCog size={18} />
+          <span className={collapsed ? "sr-only" : ""}>Motoristas</span>
         </NavLink>
         <NavLink to="/documents" className={linkClass(collapsed)}>
           <FileText size={18} />
@@ -236,10 +263,28 @@ export default function Sidebar() {
           </button>
         )}
         {collapsed ? (
-          <NavLink to="/ranking" className={linkClass(true)}>
-            <BarChart3 size={18} />
-            <span className="sr-only">Analytics</span>
-          </NavLink>
+          <div className="flex flex-col gap-2">
+            <NavLink to="/ranking" className={linkClass(true)}>
+              <Medal size={18} />
+              <span className="sr-only">Ranking</span>
+            </NavLink>
+            <NavLink to="/reports" className={linkClass(true)}>
+              <BarChart3 size={18} />
+              <span className="sr-only">Relatórios</span>
+            </NavLink>
+            <NavLink to="/reports/route" className={linkClass(true)}>
+              <Route size={18} />
+              <span className="sr-only">Rotas</span>
+            </NavLink>
+            <NavLink to="/reports/summary" className={linkClass(true)}>
+              <FileBarChart size={18} />
+              <span className="sr-only">Resumo</span>
+            </NavLink>
+            <NavLink to="/reports/stops" className={linkClass(true)}>
+              <Navigation size={18} />
+              <span className="sr-only">Paradas</span>
+            </NavLink>
+          </div>
         ) : (
           openAnalytics && (
             <div className="ml-3 space-y-2 text-sm">
@@ -251,6 +296,18 @@ export default function Sidebar() {
                 <BarChart3 size={18} />
                 <span>Relatórios</span>
               </NavLink>
+              <NavLink to="/reports/route" className={linkClass(false)}>
+                <Route size={18} />
+                <span>Rotas</span>
+              </NavLink>
+              <NavLink to="/reports/summary" className={linkClass(false)}>
+                <FileBarChart size={18} />
+                <span>Resumo</span>
+              </NavLink>
+              <NavLink to="/reports/stops" className={linkClass(false)}>
+                <Navigation size={18} />
+                <span>Paradas</span>
+              </NavLink>
             </div>
           )
         )}
@@ -260,7 +317,11 @@ export default function Sidebar() {
           <Settings size={18} />
           <span className={collapsed ? "sr-only" : ""}>Configurações</span>
         </NavLink>
+        <NavLink to="/notifications" className={linkClass(collapsed)}>
+          <Bell size={18} />
+          <span className={collapsed ? "sr-only" : ""}>Notificações</span>
+        </NavLink>
       </nav>
-    </aside>
+    </div>
   );
 }

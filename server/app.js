@@ -56,9 +56,9 @@ app.get("/health", (_req, res) => {
 });
 
 app.use("/api", authRoutes);
+app.use("/api", proxyRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", userRoutes);
-app.use("/api", proxyRoutes);
 
 app.use((req, _res, next) => {
   next(createError(404, `Rota não encontrada: ${req.method} ${req.originalUrl}`));

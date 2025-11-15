@@ -22,6 +22,7 @@ export const config = {
     adminUser: process.env.TRACCAR_ADMIN_USER || null,
     adminPassword: process.env.TRACCAR_ADMIN_PASSWORD || null,
     adminToken: process.env.TRACCAR_ADMIN_TOKEN || null,
+    syncIntervalMs: toNumber(process.env.TRACCAR_SYNC_INTERVAL_MS, 300_000),
   },
   jwt: {
     secret: process.env.JWT_SECRET || "change-me",
