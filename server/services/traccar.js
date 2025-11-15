@@ -53,7 +53,7 @@ function storeAdminToken({ session, token }) {
 
 export function resolveUserHeaders(context) {
   if (!context) {
-    throw createError(401, "Sessão inválida");
+    return null;
   }
   const { traccar } = context;
   if (traccar?.type === "basic" && traccar?.token) {
@@ -65,13 +65,20 @@ export function resolveUserHeaders(context) {
   if (traccar?.token) {
     return { Authorization: traccar.token };
   }
-  throw createError(401, "Credenciais do Traccar não encontradas");
+  return null;
 }
 
 export async function traccarRequest(options, context, { asAdmin = false } = {}) {
+  let authHeaders;
+  if (asAdmin) {
+    authHeaders = resolveAdminHeaders();
+  } else {
+    authHeaders = resolveUserHeaders(context) || resolveAdminHeaders();
+  }
+
   const headers = {
     Accept: "application/json",
-    ...(asAdmin ? resolveAdminHeaders() : resolveUserHeaders(context)),
+    ...authHeaders,
     ...(options?.headers || {}),
   };
 
@@ -150,7 +157,6 @@ export async function initializeTraccarAdminSession() {
     const session = await loginTraccar(config.traccar.adminUser, config.traccar.adminPassword);
     storeAdminToken(session);
   } catch (error) {
-    console.error("Falha ao autenticar no Traccar como administrador", error);
-    throw error;
+    console.warn("Falha ao autenticar no Traccar como administrador", error?.message || error);
   }
 }

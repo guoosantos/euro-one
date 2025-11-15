@@ -1,5 +1,4 @@
 import express from "express";
-import cors from "cors";
 import cookieParser from "cookie-parser";
 import createError from "http-errors";
 
@@ -12,21 +11,35 @@ import proxyRoutes from "./routes/proxy.js";
 const app = express();
 
 const allowedOrigins = config.cors.origins.length ? config.cors.origins : ["http://localhost:5173"];
+const allowedOriginsSet = new Set(allowedOrigins);
 
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, origin || allowedOrigins[0]);
-      }
-      if (process.env.NODE_ENV !== "production") {
-        console.warn(`Bloqueando origem não autorizada: ${origin}`);
-      }
-      return callback(createError(403, "Origem não autorizada"));
-    },
-    credentials: true,
-  }),
-);
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  const isAllowedOrigin = !origin || allowedOriginsSet.has(origin);
+
+  if (origin && isAllowedOrigin) {
+    res.header("Access-Control-Allow-Origin", origin);
+    res.header("Access-Control-Allow-Credentials", "true");
+    res.header("Vary", "Origin");
+  }
+
+  const requestHeaders = req.headers["access-control-request-headers"]; // Pré-flight usa este header
+  res.header("Access-Control-Allow-Headers", requestHeaders || "Authorization, Content-Type, X-Requested-With");
+  res.header("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+
+  if (!isAllowedOrigin && origin) {
+    if (req.method === "OPTIONS") {
+      return res.status(403).json({ message: "Origem não autorizada" });
+    }
+    return next(createError(403, "Origem não autorizada"));
+  }
+
+  if (req.method === "OPTIONS") {
+    return res.status(204).send();
+  }
+
+  next();
+});
 
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));

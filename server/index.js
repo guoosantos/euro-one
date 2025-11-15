@@ -4,15 +4,15 @@ import { loadEnv } from "./utils/env.js";
 
 async function bootstrap() {
   await loadEnv();
-  const port = process.env.PORT || 3001;
+  const PORT = Number(process.env.PORT) || 3001;
   try {
     await initializeTraccarAdminSession();
   } catch (error) {
-    console.error("Não foi possível inicializar a sessão administrativa do Traccar", error);
+    console.warn("Não foi possível inicializar a sessão administrativa do Traccar", error?.message || error);
   }
 
-  app.listen(port, () => {
-    console.log(`API Rodando na porta ${port}`);
+  app.listen(PORT, () => {
+    console.log(`API Rodando na porta ${PORT}`);
   });
 }
 
