@@ -88,11 +88,6 @@ export default function Commands() {
               onChange={(event) => setAttributes(event.target.value)}
               rows={3}
               className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-<<<<<<< Updated upstream
-              placeholder={'{ "data": "valor" }'}
-=======
-              placeholder='{"data": "valor"}'
->>>>>>> Stashed changes
             />
           </label>
 
