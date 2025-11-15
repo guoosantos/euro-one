@@ -9,18 +9,19 @@ router.post("/login", async (req, res, next) => {
     const { email, username, login, password } = req.body || {};
     const userLogin = email || username || login;
     const user = await verifyUserCredentials(userLogin, password);
+    const sanitizedUser = sanitizeUser(user);
     const tokenPayload = {
-      id: user.id,
-      role: user.role,
-      clientId: user.clientId ?? null,
-      name: user.name,
-      email: user.email,
-      username: user.username ?? null,
+      id: sanitizedUser.id,
+      role: sanitizedUser.role,
+      clientId: sanitizedUser.clientId ?? null,
+      name: sanitizedUser.name,
+      email: sanitizedUser.email,
+      username: sanitizedUser.username ?? null,
     };
     const token = signSession(tokenPayload);
     return res.json({
       token,
-      user,
+      user: sanitizedUser,
     });
   } catch (error) {
     return next(error);

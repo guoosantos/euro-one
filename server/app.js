@@ -10,8 +10,14 @@ import proxyRoutes from "./routes/proxy.js";
 
 const app = express();
 
-const allowedOrigins = config.cors.origins.length ? config.cors.origins : ["http://localhost:5173"];
-const allowedOriginsSet = new Set(allowedOrigins);
+const viteHosts = ["localhost", "127.0.0.1"];
+const vitePorts = Array.from({ length: 18 }, (_item, index) => 5173 + index);
+const viteOrigins = viteHosts.flatMap((host) =>
+  vitePorts.map((port) => `http://${host}:${port}`),
+);
+
+const configuredOrigins = config.cors.origins.length ? config.cors.origins : [];
+const allowedOriginsSet = new Set([...viteOrigins, ...configuredOrigins]);
 
 app.use((req, res, next) => {
   const origin = req.headers.origin;
