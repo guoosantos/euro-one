@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
+import useLiveUpdates from "./useLiveUpdates.js";
 
 function toDeviceKey(value) {
   if (value === null || value === undefined) return null;
@@ -47,6 +48,55 @@ export function useDevices() {
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const devicesRef = useRef([]);
+
+  const handleLiveMessage = useCallback(
+    (payload) => {
+      if (!payload || typeof payload !== "object") return;
+      if (Array.isArray(payload.devices) && payload.devices.length) {
+        setDevices((current) => {
+          const map = new Map();
+          (Array.isArray(current) ? current : []).forEach((device) => {
+            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id);
+            if (key) {
+              map.set(key, device);
+            }
+          });
+          payload.devices.forEach((device) => {
+            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id);
+            if (key) {
+              map.set(key, device);
+            }
+          });
+          const list = Array.from(map.values());
+          devicesRef.current = list;
+          return list;
+        });
+      }
+
+      if (Array.isArray(payload.positions) && payload.positions.length) {
+        setPositionsByDeviceId((current) => {
+          const next = { ...current };
+          payload.positions.forEach((position) => {
+            const key = toDeviceKey(
+              position?.deviceId ??
+                position?.device?.id ??
+                position?.device_id ??
+                position?.deviceID ??
+                position?.device?.deviceId ??
+                position?.device?.uniqueId,
+            );
+            if (key) {
+              next[key] = position;
+            }
+          });
+          return next;
+        });
+      }
+    },
+    [setDevices, setPositionsByDeviceId],
+  );
+
+  const { connected: liveConnected, error: liveUpdatesError } = useLiveUpdates({ onMessage: handleLiveMessage });
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
@@ -115,9 +165,11 @@ export function useDevices() {
     }
 
     fetchDevices();
-    intervalId = globalThis.setInterval(() => {
-      fetchPositionsForDevices();
-    }, 10_000);
+    if (!liveConnected) {
+      intervalId = globalThis.setInterval(() => {
+        fetchPositionsForDevices();
+      }, 10_000);
+    }
 
     return () => {
       cancelled = true;
@@ -125,7 +177,13 @@ export function useDevices() {
         globalThis.clearInterval(intervalId);
       }
     };
-  }, [reloadKey]);
+  }, [reloadKey, liveConnected]);
+
+  useEffect(() => {
+    if (liveUpdatesError) {
+      setError(liveUpdatesError);
+    }
+  }, [liveUpdatesError]);
 
   const stats = useMemo(() => {
     const total = Array.isArray(devices) ? devices.length : 0;

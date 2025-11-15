@@ -24,24 +24,33 @@ function persistState(state) {
 
 const initialState = {
   sidebarOpen: false,
+  sidebarCollapsed: false,
   theme: "dark",
   locale: "pt-BR",
   ...loadState(),
 };
+
+function persistNextState(nextState) {
+  persistState({
+    theme: nextState.theme,
+    locale: nextState.locale,
+    sidebarCollapsed: nextState.sidebarCollapsed,
+  });
+}
 
 export const useUI = create((set, get) => ({
   ...initialState,
   toggle: () =>
     set((state) => {
       const next = { ...state, sidebarOpen: !state.sidebarOpen };
-      persistState({ theme: next.theme, locale: next.locale });
+      persistNextState(next);
       return next;
     }),
   setTheme: (theme) => {
     set((state) => {
       const nextTheme = theme || state.theme;
       const next = { ...state, theme: nextTheme };
-      persistState({ theme: nextTheme, locale: next.locale });
+      persistNextState(next);
       if (typeof document !== "undefined") {
         document.documentElement.dataset.theme = nextTheme;
       }
@@ -56,11 +65,24 @@ export const useUI = create((set, get) => ({
     set((state) => {
       const nextLocale = locale || state.locale;
       const next = { ...state, locale: nextLocale };
-      persistState({ theme: next.theme, locale: nextLocale });
+      persistNextState(next);
       if (typeof document !== "undefined") {
         document.documentElement.lang = nextLocale;
       }
       return next;
     });
   },
+  toggleSidebarCollapsed: () =>
+    set((state) => {
+      const next = { ...state, sidebarCollapsed: !state.sidebarCollapsed };
+      persistNextState(next);
+      return next;
+    }),
+  setSidebarCollapsed: (collapsed) =>
+    set((state) => {
+      const value = typeof collapsed === "boolean" ? collapsed : state.sidebarCollapsed;
+      const next = { ...state, sidebarCollapsed: value };
+      persistNextState(next);
+      return next;
+    }),
 }));

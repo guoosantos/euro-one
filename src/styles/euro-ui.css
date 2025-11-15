@@ -5,7 +5,8 @@
 /* ── Tokens padrão Euro One */
 :root{
   --e-header-h: 56px;        /* altura do topo */
-  --e-sidebar-w: 264px;      /* largura do menu esquerdo */
+  --e-sidebar-w: 288px;      /* largura do menu esquerdo expandido */
+  --e-sidebar-collapsed-w: 64px;
   --e-radius: 14px;
   --e-text: 15px;
 }
@@ -24,6 +25,11 @@ aside{
   width: var(--e-sidebar-w) !important;
   flex: 0 0 var(--e-sidebar-w) !important;
   border-right: 1px solid rgba(255,255,255,0.10);
+}
+
+aside[data-collapsed="true"]{
+  width: var(--e-sidebar-collapsed-w) !important;
+  flex: 0 0 var(--e-sidebar-collapsed-w) !important;
 }
 
 /* Itens de navegação (anchors dentro do nav do sidebar) */

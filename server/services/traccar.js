@@ -104,6 +104,10 @@ export async function traccarAdminRequest(options) {
   return traccarRequest(options, null, { asAdmin: true });
 }
 
+export function getTraccarAdminHeaders() {
+  return resolveAdminHeaders();
+}
+
 export async function loginTraccar(email, password) {
   const headers = {
     Authorization: `Basic ${encodeBasic(email, password)}`,
