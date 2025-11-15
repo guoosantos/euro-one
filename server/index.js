@@ -1,12 +1,13 @@
-import http from "http";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 import app from "./app.js";
-import { config } from "./config.js";
 
-const server = http.createServer(app);
+const PORT = process.env.PORT || 3001;
 
-server.listen(config.port, () => {
-  console.log(`Euro One API rodando em http://localhost:${config.port}`);
+app.listen(PORT, () => {
+  console.log(`API Rodando na porta ${PORT}`);
 });
 
 process.on("unhandledRejection", (reason) => {

@@ -25,7 +25,7 @@ export const config = {
   },
   jwt: {
     secret: process.env.JWT_SECRET || "change-me",
-    expiresIn: process.env.JWT_EXPIRES_IN || "12h",
+    expiresIn: process.env.JWT_EXPIRES_IN || "7d",
   },
   cors: {
     origins: toArray(process.env.ALLOWED_ORIGINS || "http://localhost:5173"),
