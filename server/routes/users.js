@@ -2,110 +2,144 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { buildUserPayload } from "../utils/roles.js";
-import { createUser, deleteUser, listUsers, updateUser } from "../services/traccar.js";
+import { getClientById } from "../models/client.js";
+import {
+  createUser,
+  deleteUser,
+  getUserById,
+  listUsers,
+  updateUser,
+} from "../models/user.js";
 
 const router = express.Router();
 
 router.use(authenticate);
 router.use(requireRole("manager", "admin"));
 
-function resolveClientId(reqBody, sessionUser) {
+function ensureClientAccess(sessionUser, clientId) {
   if (sessionUser.role === "admin") {
-    return reqBody.clientId || reqBody.managerId || undefined;
+    return;
   }
-  return sessionUser.id;
+  if (!sessionUser.clientId || String(sessionUser.clientId) !== String(clientId)) {
+    throw createError(403, "Operação não permitida para este cliente");
+  }
 }
 
-router.get("/users", async (req, res, next) => {
+router.get("/users", (req, res, next) => {
   try {
-    const { clientId } = req.query;
-    const context = req.user.role === "admin" ? null : req.user;
-    const users = await listUsers({}, { asAdmin: req.user.role === "admin", context });
-    const filtered = users
-      .filter((user) => {
-        if (user.administrator) return req.user.role === "admin";
-        if (req.user.role === "admin" && clientId) {
-          return (
-            user?.attributes?.administratorId === Number(clientId) ||
-            user?.administratorId === Number(clientId) ||
-            user?.attributes?.managerId === Number(clientId)
-          );
-        }
-        if (req.user.role === "manager") {
-          return !user.administrator;
-        }
-        return true;
-      })
-      .map((user) => ({ ...buildUserPayload(user), administratorId: user.administratorId }));
-
-    res.json({ users: filtered });
+    if (req.user.role === "admin") {
+      const { clientId } = req.query;
+      const filterClientId = clientId === "" || typeof clientId === "undefined" ? undefined : clientId;
+      const users = listUsers({ clientId: filterClientId });
+      return res.json({ users });
+    }
+    if (!req.user.clientId) {
+      return res.json({ users: [] });
+    }
+    const users = listUsers({ clientId: req.user.clientId });
+    return res.json({ users });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
 router.post("/users", async (req, res, next) => {
   try {
-    const { name, email, password, role = "user", deviceLimit = 0, userLimit = 0, attributes = {} } = req.body || {};
+    const { name, email, password, role = "user", username, clientId, attributes = {} } = req.body || {};
     if (!name || !email || !password) {
       throw createError(400, "Nome, e-mail e senha são obrigatórios");
     }
 
-    const clientId = resolveClientId(req.body || {}, req.user);
-    if (!clientId) {
-      throw createError(400, "Cliente associado obrigatório");
+    if (req.user.role !== "admin" && role !== "user") {
+      throw createError(403, "Somente administradores podem criar papéis avançados");
     }
 
-    const payload = {
+    const targetClientId = req.user.role === "admin" ? clientId : req.user.clientId;
+    if (role !== "admin") {
+      if (!targetClientId) {
+        throw createError(400, "clientId é obrigatório para usuários não administradores");
+      }
+      ensureClientAccess(req.user, targetClientId);
+      const client = getClientById(targetClientId);
+      if (!client) {
+        throw createError(404, "Cliente associado não encontrado");
+      }
+    }
+
+    const user = await createUser({
       name,
       email,
+      username,
       password,
-      administrator: role === "admin",
-      readonly: role === "viewer",
-      disabled: false,
-      deviceLimit,
-      userLimit,
-      attributes: {
-        role,
-        managerId: clientId,
-        ...attributes,
-      },
-    };
-
-    const created = await createUser(payload, {
-      asAdmin: req.user.role === "admin",
-      context: req.user,
-      clientId,
+      role,
+      clientId: role === "admin" ? null : targetClientId,
+      attributes,
     });
-
-    res.status(201).json({ user: buildUserPayload(created) });
+    return res.status(201).json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
 router.put("/users/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const payload = { ...req.body };
-    if (payload.attributes) {
-      payload.attributes.role = payload.attributes.role || "user";
+    const existing = getUserById(id, { includeSensitive: true });
+    if (!existing) {
+      throw createError(404, "Usuário não encontrado");
     }
-    const updated = await updateUser(id, payload, { asAdmin: req.user.role === "admin", context: req.user });
-    res.json({ user: buildUserPayload(updated) });
+
+    if (req.user.role !== "admin") {
+      ensureClientAccess(req.user, existing.clientId);
+      if (existing.role === "admin") {
+        throw createError(403, "Não é permitido atualizar administradores globais");
+      }
+      if (req.body.role && req.body.role !== "user") {
+        throw createError(403, "Somente administradores podem alterar papéis");
+      }
+      if (req.body.clientId && String(req.body.clientId) !== String(req.user.clientId)) {
+        throw createError(403, "Não é permitido mover usuários para outro cliente");
+      }
+    } else if (req.body.role && req.body.role !== "admin") {
+      const nextClientId = req.body.clientId ?? existing.clientId;
+      if (!nextClientId) {
+        throw createError(400, "clientId é obrigatório para usuários não administradores");
+      }
+      const client = getClientById(nextClientId);
+      if (!client) {
+        throw createError(404, "Cliente associado não encontrado");
+      }
+    }
+
+    const payload = { ...req.body };
+    if (payload.password === "") {
+      delete payload.password;
+    }
+
+    const user = await updateUser(id, payload);
+    return res.json({ user });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
-router.delete("/users/:id", async (req, res, next) => {
+router.delete("/users/:id", (req, res, next) => {
   try {
     const { id } = req.params;
-    await deleteUser(id, { asAdmin: req.user.role === "admin", context: req.user });
-    res.status(204).send();
+    const existing = getUserById(id, { includeSensitive: true });
+    if (!existing) {
+      throw createError(404, "Usuário não encontrado");
+    }
+    if (req.user.role !== "admin") {
+      ensureClientAccess(req.user, existing.clientId);
+      if (existing.role !== "user") {
+        throw createError(403, "Somente administradores podem remover este usuário");
+      }
+    }
+    deleteUser(id);
+    return res.status(204).send();
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
