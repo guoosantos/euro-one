@@ -2,7 +2,7 @@ import axios from "axios";
 
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
-const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "http://localhost:3001").replace(/\/$/, "");
+const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "http://3.17.172.94:3001").replace(/\/$/, "");
 
 function getStorage() {
   try {
