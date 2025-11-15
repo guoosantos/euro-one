@@ -1,9 +1,10 @@
 import crypto from "crypto";
 import { URL } from "url";
 import jwt from "jsonwebtoken";
+import WebSocket from "ws";
 
 import { config } from "../config.js";
-import { getTraccarAdminHeaders, initializeTraccarAdminSession } from "./traccar.js";
+import { getTraccarAdminHeaders, initializeTraccarAdminSession, traccarProxy } from "./traccar.js";
 import { findDeviceByTraccarId, findDeviceByUniqueId } from "../models/device.js";
 
 const WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -11,6 +12,14 @@ const CLIENTS = new Set();
 let traccarSocket = null;
 let reconnectTimer = null;
 let isConnecting = false;
+
+function normalisePositionPayload(payload) {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload.positions)) return payload.positions;
+  if (Array.isArray(payload.data)) return payload.data;
+  return [];
+}
 
 function buildTraccarSocketUrl() {
   const base = config.traccar.baseUrl.replace(/\/$/, "");
@@ -233,6 +242,27 @@ function filterPayloadForClient(data, clientId) {
   return filtered;
 }
 
+async function sendInitialSnapshot(client) {
+  try {
+    const payload = await traccarProxy("get", "/positions/last", { asAdmin: true });
+    const positions = normalisePositionPayload(payload);
+    if (!positions.length) {
+      return;
+    }
+    const { user } = client;
+    let filtered = positions;
+    if (user?.role !== "admin" && user?.clientId) {
+      filtered = positions.filter((item) => deviceBelongsToClient(item, user.clientId));
+    }
+    if (!filtered.length) {
+      return;
+    }
+    sendFrame(client.socket, { type: "snapshot", positions: filtered });
+  } catch (error) {
+    console.warn("[Traccar WS] Falha ao enviar snapshot inicial", error?.message || error);
+  }
+}
+
 function broadcast(message) {
   const stringPayload = typeof message === "string" ? message : JSON.stringify(message);
   let parsedPayload = null;
@@ -350,6 +380,9 @@ export function startTraccarSocketService(server) {
     const client = { socket, user };
     CLIENTS.add(client);
     sendFrame(socket, { type: "connection", status: "ready" });
+    setTimeout(() => {
+      sendInitialSnapshot(client);
+    }, 0);
 
     socket.on("data", (chunk) => handleClientFrame(client, chunk));
     socket.on("close", () => CLIENTS.delete(client));

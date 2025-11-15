@@ -4,7 +4,14 @@ import createError from "http-errors";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { getClientById, updateClient } from "../models/client.js";
 import { listModels, createModel, getModelById } from "../models/model.js";
-import { listDevices, createDevice, updateDevice, getDeviceById } from "../models/device.js";
+import {
+  listDevices,
+  createDevice,
+  updateDevice,
+  getDeviceById,
+  findDeviceByUniqueId,
+  findDeviceByTraccarId,
+} from "../models/device.js";
 import { listChips, createChip, updateChip, getChipById } from "../models/chip.js";
 import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehicle } from "../models/vehicle.js";
 import { traccarProxy } from "../services/traccar.js";
@@ -330,6 +337,143 @@ router.post("/models", requireRole("manager", "admin"), (req, res, next) => {
     };
     const model = createModel(payload);
     res.status(201).json({ model });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/devices/import", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const knownDevices = listDevices({});
+    const knownUniqueIds = new Set(
+      knownDevices
+        .map((device) => (device?.uniqueId ? String(device.uniqueId).toLowerCase() : null))
+        .filter(Boolean),
+    );
+    const traccarDevices = getCachedTraccarResources("devices");
+    const list = traccarDevices
+      .filter((device) => device?.uniqueId && !knownUniqueIds.has(String(device.uniqueId).toLowerCase()))
+      .map((device) => ({
+        id: device.id,
+        name: device.name,
+        uniqueId: device.uniqueId,
+        status: device.status || device.deviceStatus || null,
+        protocol: device.protocol || null,
+        groupId: device.groupId ?? null,
+        lastUpdate: safeDate(device.lastUpdate || device.serverTime || device.lastCommunication),
+        clientId,
+      }));
+    res.json({ devices: list });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/devices/import", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const { traccarId, uniqueId, modelId, name } = req.body || {};
+    if (!traccarId && !uniqueId) {
+      throw createError(400, "Informe traccarId ou uniqueId");
+    }
+
+    if (uniqueId && findDeviceByUniqueId(uniqueId)) {
+      throw createError(409, "Já existe um equipamento com este identificador");
+    }
+
+    if (traccarId && findDeviceByTraccarId(traccarId)) {
+      throw createError(409, "Este dispositivo já foi importado");
+    }
+
+    if (modelId) {
+      const model = getModelById(modelId);
+      if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
+        throw createError(404, "Modelo informado não pertence a este cliente");
+      }
+    }
+
+    const cachedDevices = getCachedTraccarResources("devices");
+    let traccarDevice = cachedDevices.find((device) => {
+      if (traccarId && String(device?.id) === String(traccarId)) {
+        return true;
+      }
+      if (uniqueId && String(device?.uniqueId) === String(uniqueId)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (!traccarDevice && traccarId) {
+      try {
+        traccarDevice = await traccarProxy("get", `/devices/${traccarId}`, { asAdmin: true });
+      } catch (_error) {
+        // ignora para tentar por uniqueId abaixo
+      }
+    }
+
+    if (!traccarDevice && uniqueId) {
+      const response = await traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
+      const list = Array.isArray(response)
+        ? response
+        : Array.isArray(response?.devices)
+        ? response.devices
+        : Array.isArray(response?.data)
+        ? response.data
+        : [];
+      traccarDevice = list.find((device) => String(device?.uniqueId) === String(uniqueId));
+    }
+
+    if (!traccarDevice) {
+      throw createError(404, "Equipamento não encontrado no Traccar");
+    }
+
+    const groupId = await ensureClientTraccarGroup(clientId);
+    const attributes = { ...(traccarDevice.attributes || {}) };
+    let attributesChanged = false;
+    if (modelId) {
+      attributes.modelId = modelId;
+      attributesChanged = true;
+    }
+
+    const requiresUpdate =
+      (groupId && String(traccarDevice.groupId) !== String(groupId)) || attributesChanged;
+    if (requiresUpdate) {
+      traccarDevice = await traccarProxy("put", `/devices/${traccarDevice.id}`, {
+        data: {
+          id: traccarDevice.id,
+          name: traccarDevice.name,
+          uniqueId: traccarDevice.uniqueId,
+          groupId: groupId || traccarDevice.groupId || undefined,
+          attributes,
+        },
+        asAdmin: true,
+      });
+    }
+
+    const device = createDevice({
+      clientId,
+      name: name || traccarDevice.name || traccarDevice.uniqueId,
+      uniqueId: traccarDevice.uniqueId,
+      modelId: modelId ? String(modelId) : null,
+      traccarId: traccarDevice?.id ? String(traccarDevice.id) : null,
+      attributes: { importedFrom: "traccar" },
+    });
+
+    const models = listModels({ clientId, includeGlobal: true });
+    const chips = listChips({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const traccarById = new Map([[String(traccarDevice.id), traccarDevice]]);
+    const traccarByUnique = new Map([[String(traccarDevice.uniqueId), traccarDevice]]);
+    const response = buildDeviceResponse(device, {
+      modelMap: new Map(models.map((item) => [item.id, item])),
+      chipMap: new Map(chips.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      traccarById,
+      traccarByUnique,
+    });
+
+    res.status(201).json({ device: response });
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,62 @@
 import React, { useMemo, useState } from "react";
+
+import Button from "../ui/Button";
+import Input from "../ui/Input";
 import useCommands from "../lib/hooks/useCommands";
 import useDevices from "../lib/hooks/useDevices";
+
+const COMMAND_TEMPLATES = [
+  {
+    type: "engineStop",
+    label: "Bloquear motor",
+    description: "Corta a ignição do veículo imediatamente (engineStop).",
+    fields: [],
+  },
+  {
+    type: "engineResume",
+    label: "Desbloquear motor",
+    description: "Restaura a ignição e libera o veículo (engineResume).",
+    fields: [],
+  },
+  {
+    type: "positionPeriodic",
+    label: "Atualização periódica",
+    description: "Solicita que o rastreador envie posições em um intervalo fixo.",
+    fields: [
+      {
+        name: "frequency",
+        label: "Intervalo (segundos)",
+        type: "number",
+        min: 10,
+        defaultValue: 60,
+      },
+    ],
+  },
+  {
+    type: "setSpeedLimit",
+    label: "Limite de velocidade",
+    description: "Define o limite máximo de velocidade aceito pelo dispositivo.",
+    fields: [
+      {
+        name: "speed",
+        label: "Velocidade máxima (km/h)",
+        type: "number",
+        min: 5,
+        defaultValue: 80,
+      },
+    ],
+  },
+];
+
+const MANUAL_TYPE = "manual";
+
+function buildFieldDefaults(template) {
+  if (!template?.fields) return {};
+  return template.fields.reduce((acc, field) => {
+    acc[field.name] = field.defaultValue ?? "";
+    return acc;
+  }, {});
+}
 
 export default function Commands() {
   const { devices: deviceList } = useDevices();
@@ -8,24 +64,48 @@ export default function Commands() {
   const { commands, loading, error, reload, sendCommand } = useCommands({ autoRefreshMs: 45_000 });
 
   const [deviceId, setDeviceId] = useState("");
-  const [type, setType] = useState("engineStop");
-  const [attributes, setAttributes] = useState("{}");
+  const [typeOption, setTypeOption] = useState(COMMAND_TEMPLATES[0].type);
+  const [manualType, setManualType] = useState("");
+  const [fieldValues, setFieldValues] = useState(buildFieldDefaults(COMMAND_TEMPLATES[0]));
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [advancedJson, setAdvancedJson] = useState("{}");
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState(null);
 
   const list = Array.isArray(commands) ? commands : [];
 
+  const selectedTemplate =
+    typeOption === MANUAL_TYPE ? null : COMMAND_TEMPLATES.find((item) => item.type === typeOption) || null;
+
   async function handleSubmit(event) {
     event.preventDefault();
     setFormError(null);
-    if (!deviceId || !type) {
+    const resolvedType = typeOption === MANUAL_TYPE ? manualType.trim() : selectedTemplate?.type;
+    if (!deviceId || !resolvedType) {
       setFormError(new Error("Selecione o dispositivo e o tipo do comando"));
       return;
     }
-    let parsedAttributes = {};
-    if (attributes.trim()) {
+    const templateAttributes = {};
+    (selectedTemplate?.fields || []).forEach((field) => {
+      const value = fieldValues[field.name];
+      if (value === undefined || value === "") return;
+      if (field.type === "number") {
+        const numericValue = Number(value);
+        if (Number.isNaN(numericValue)) {
+          templateAttributes[field.name] = value;
+        } else {
+          templateAttributes[field.name] = numericValue;
+        }
+      } else {
+        templateAttributes[field.name] = value;
+      }
+    });
+
+    let parsedAttributes = templateAttributes;
+    if (showAdvanced && advancedJson.trim()) {
       try {
-        parsedAttributes = JSON.parse(attributes);
+        const advanced = JSON.parse(advancedJson);
+        parsedAttributes = { ...templateAttributes, ...advanced };
       } catch (_parseError) {
         setFormError(new Error("Atributos devem ser um JSON válido"));
         return;
@@ -33,7 +113,7 @@ export default function Commands() {
     }
     setSending(true);
     try {
-      await sendCommand({ deviceId, type, attributes: parsedAttributes });
+      await sendCommand({ deviceId, type: resolvedType, attributes: parsedAttributes });
       reload();
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError : new Error("Erro ao enviar comando"));
@@ -50,62 +130,138 @@ export default function Commands() {
           <p className="text-xs opacity-70">Os comandos são encaminhados diretamente ao dispositivo via Traccar.</p>
         </header>
 
-        <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-3">
-          <label className="text-sm md:col-span-1">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Dispositivo</span>
-            <select
-              value={deviceId}
-              onChange={(event) => setDeviceId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              required
-            >
-              <option value="" disabled>
-                Selecione um dispositivo
-              </option>
-              {devices.map((device) => (
-                <option key={device.id ?? device.uniqueId} value={device.id ?? device.uniqueId}>
-                  {device.name ?? device.uniqueId ?? device.id}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-3">
+            <label className="text-sm md:col-span-1">
+              <span className="block text-xs uppercase tracking-wide opacity-60">Dispositivo</span>
+              <select
+                value={deviceId}
+                onChange={(event) => setDeviceId(event.target.value)}
+                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2"
+                required
+              >
+                <option value="" disabled>
+                  Selecione um dispositivo
                 </option>
-              ))}
-            </select>
-          </label>
+                {devices
+                  .map((device) => {
+                    const id = device.deviceId ?? device.traccarId ?? device.id ?? device.uniqueId;
+                    if (!id) return null;
+                    return {
+                      id,
+                      label: device.name || device.uniqueId || id,
+                    };
+                  })
+                  .filter(Boolean)
+                  .map((device) => (
+                    <option key={device.id} value={device.id}>
+                      {device.label}
+                    </option>
+                  ))}
+              </select>
+            </label>
 
-          <label className="text-sm">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Tipo</span>
-            <input
-              value={type}
-              onChange={(event) => setType(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              placeholder="engineStop"
-              required
-            />
-          </label>
+            <label className="text-sm md:col-span-1">
+              <span className="block text-xs uppercase tracking-wide opacity-60">Tipo</span>
+              <select
+                value={typeOption}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setTypeOption(value);
+                  if (value === MANUAL_TYPE) {
+                    setFieldValues({});
+                    return;
+                  }
+                  const template = COMMAND_TEMPLATES.find((item) => item.type === value);
+                  setFieldValues(buildFieldDefaults(template));
+                }}
+                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2"
+              >
+                {COMMAND_TEMPLATES.map((template) => (
+                  <option key={template.type} value={template.type}>
+                    {template.label}
+                  </option>
+                ))}
+                <option value={MANUAL_TYPE}>Outro (preencher manualmente)</option>
+              </select>
+            </label>
 
-          <label className="text-sm md:col-span-3">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Atributos (JSON)</span>
-            <textarea
-              value={attributes}
-              onChange={(event) => setAttributes(event.target.value)}
-              rows={3}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            />
-          </label>
+            {typeOption === MANUAL_TYPE && (
+              <label className="text-sm md:col-span-1">
+                <span className="block text-xs uppercase tracking-wide opacity-60">Nome do comando</span>
+                <Input
+                  value={manualType}
+                  onChange={(event) => setManualType(event.target.value)}
+                  placeholder="Ex.: customCommand"
+                  required
+                />
+              </label>
+            )}
+          </div>
 
-          <div className="md:col-span-3 flex items-center gap-3">
-            <button
-              type="submit"
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-              disabled={sending}
-            >
+          {selectedTemplate && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-white font-semibold">{selectedTemplate.label}</div>
+                  <p className="text-xs text-white/60">{selectedTemplate.description}</p>
+                </div>
+                {selectedTemplate.fields.length === 0 && (
+                  <span className="text-xs text-white/50">Nenhum parâmetro adicional obrigatório.</span>
+                )}
+              </div>
+
+              {selectedTemplate.fields.length > 0 && (
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  {selectedTemplate.fields.map((field) => (
+                    <label key={field.name} className="text-xs uppercase tracking-wide text-white/60">
+                      {field.label}
+                      <input
+                        type={field.type === "number" ? "number" : "text"}
+                        min={field.min}
+                        value={fieldValues[field.name] ?? ""}
+                        onChange={(event) =>
+                          setFieldValues((prev) => ({
+                            ...prev,
+                            [field.name]: event.target.value,
+                          }))
+                        }
+                        className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2"
+                        required
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-wide text-white/50">Modo avançado</div>
+            <Button type="button" variant="ghost" onClick={() => setShowAdvanced((value) => !value)}>
+              {showAdvanced ? "Ocultar JSON" : "Editar atributos (JSON)"}
+            </Button>
+          </div>
+
+          {showAdvanced && (
+            <label className="text-sm block">
+              <span className="block text-xs uppercase tracking-wide opacity-60">Atributos (JSON)</span>
+              <textarea
+                value={advancedJson}
+                onChange={(event) => setAdvancedJson(event.target.value)}
+                rows={4}
+                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
+              />
+            </label>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <Button type="submit" disabled={sending}>
               {sending ? "Enviando…" : "Enviar comando"}
-            </button>
-            <button
-              type="button"
-              className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-white/10"
-              onClick={reload}
-            >
+            </Button>
+            <Button type="button" variant="outline" onClick={reload}>
               Atualizar lista
-            </button>
+            </Button>
           </div>
         </form>
 

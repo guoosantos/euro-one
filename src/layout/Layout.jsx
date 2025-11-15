@@ -5,6 +5,7 @@ import { Topbar } from "../components/Topbar";
 import ErrorBoundary from "../components/ErrorBoundary";
 import DeviceModalGlobal from "../components/DeviceModalGlobal";
 import { useUI } from "../lib/store";
+import { useTenant } from "../lib/tenant-context";
 
 export default function Layout({ children, title, hideTitle = false }) {
   const sidebarOpen = useUI((state) => state.sidebarOpen);
@@ -12,6 +13,8 @@ export default function Layout({ children, title, hideTitle = false }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
   const locale = useUI((state) => state.locale);
+  const { tenant } = useTenant();
+  const accentColor = tenant?.brandColor;
 
   useEffect(() => {
     if (!title) return;
@@ -27,8 +30,15 @@ export default function Layout({ children, title, hideTitle = false }) {
 
   const sidebarWidthClass = sidebarCollapsed ? "md:w-16" : "md:w-72";
 
+  const rootStyle = accentColor
+    ? {
+        "--accent-color": accentColor,
+        "--primary": accentColor,
+      }
+    : undefined;
+
   return (
-    <div className="flex min-h-screen bg-bg text-text">
+    <div className="flex min-h-screen bg-bg text-text" style={rootStyle}>
       {sidebarOpen && (
         <button
           type="button"

@@ -16,6 +16,7 @@ import Vehicles from "./pages/Vehicles";
 import Docs from "./pages/Docs";
 import Services from "./pages/Services";
 import Deliveries from "./pages/Deliveries";
+import DeviceImport from "./pages/DeviceImport";
 import Fences from "./pages/Fences";
 import Events from "./pages/Events";
 import Videos from "./pages/Videos";
@@ -60,6 +61,10 @@ export default function App() {
         <Route path="/devices/chips" element={withLayout(Chips, { title: "Chips e SIM cards" })} />
         <Route path="/devices/products" element={withLayout(Products, { title: "Modelos de rastreadores" })} />
         <Route path="/devices/stock" element={withLayout(Stock, { title: "Estoque inteligente" })} />
+        <Route
+          path="/devices/import"
+          element={withLayout(DeviceImport, { title: "Importar dispositivos do Traccar" })}
+        />
         <Route path="/commands" element={withLayout(Commands, { title: "Comandos remotos" })} />
 
         <Route path="/vehicles" element={withLayout(Vehicles, { title: "Frota" })} />

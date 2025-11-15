@@ -29,6 +29,7 @@
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.28.0",
     "recharts": "^2.12.7",
+    "ws": "file:vendor/ws-shim",
     "zustand": "^4.5.5"
   },
   "devDependencies": {
