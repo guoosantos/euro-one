@@ -1,13 +1,92 @@
 import express from "express";
+import createError from "http-errors";
+
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { listDevices } from "../models/device.js";
 import { traccarProxy, traccarRequest } from "../services/traccar.js";
 
 const router = express.Router();
 
 router.use(authenticate);
 
+function resolveAllowedDeviceIds(req) {
+  if (req.user?.role === "admin") {
+    return null;
+  }
+  if (!req.user?.clientId) {
+    throw createError(403, "Usuário não vinculado a um cliente");
+  }
+  const devices = listDevices({ clientId: req.user.clientId });
+  const traccarIds = devices
+    .map((device) => (device?.traccarId ? String(device.traccarId) : null))
+    .filter(Boolean);
+  if (!traccarIds.length) {
+    throw createError(403, "Cliente não possui dispositivos sincronizados");
+  }
+  return traccarIds;
+}
+
+function extractDeviceIds(source = {}) {
+  const values = [];
+  const pushValue = (entry) => {
+    if (entry === undefined || entry === null) return;
+    if (Array.isArray(entry)) {
+      entry.forEach(pushValue);
+      return;
+    }
+    const stringValue = String(entry).trim();
+    if (!stringValue) return;
+    if (stringValue.includes(",")) {
+      stringValue.split(",").forEach((part) => pushValue(part));
+      return;
+    }
+    values.push(stringValue);
+  };
+  pushValue(source.deviceId);
+  pushValue(source.deviceID);
+  pushValue(source.device_id);
+  pushValue(source.deviceIds);
+  pushValue(source.device_ids);
+  pushValue(source.devices);
+  pushValue(source.id);
+  return values;
+}
+
+function enforceDeviceFilterInQuery(req) {
+  const allowed = resolveAllowedDeviceIds(req);
+  if (!allowed) {
+    return;
+  }
+  const requested = extractDeviceIds(req.query || {});
+  if (!requested.length) {
+    req.query.deviceIds = allowed.join(",");
+    req.query.deviceId = allowed;
+    return;
+  }
+  const invalid = requested.some((value) => !allowed.includes(String(value)));
+  if (invalid) {
+    throw createError(403, "Dispositivo não autorizado para este cliente");
+  }
+}
+
+function enforceDeviceFilterInBody(req) {
+  const allowed = resolveAllowedDeviceIds(req);
+  if (!allowed) {
+    return;
+  }
+  const requested = extractDeviceIds(req.body || {});
+  if (!requested.length) {
+    throw createError(400, "deviceId é obrigatório");
+  }
+  const invalid = requested.some((value) => !allowed.includes(String(value)));
+  if (invalid) {
+    throw createError(403, "Dispositivo não autorizado para este cliente");
+  }
+}
+
 async function proxyTraccarReport(req, res, next, path) {
   try {
+    enforceDeviceFilterInQuery(req);
     const format = String(req.query?.format || "").toLowerCase();
     const params = { ...req.query };
     if (format === "csv") {
@@ -84,6 +163,7 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/positions", async (req, res, next) => {
   try {
+    enforceDeviceFilterInQuery(req);
     const data = await traccarProxy("get", "/positions", { params: req.query, asAdmin: true });
     res.json(data);
   } catch (error) {
@@ -93,6 +173,7 @@ router.get("/positions", async (req, res, next) => {
 
 router.get("/positions/last", async (req, res, next) => {
   try {
+    enforceDeviceFilterInQuery(req);
     const data = await traccarProxy("get", "/positions/last", { params: req.query, asAdmin: true });
     res.json(data);
   } catch (error) {
@@ -102,6 +183,7 @@ router.get("/positions/last", async (req, res, next) => {
 
 router.get("/events", async (req, res, next) => {
   try {
+    enforceDeviceFilterInQuery(req);
     const data = await traccarProxy("get", "/events", { params: req.query, asAdmin: true });
     res.json(data);
   } catch (error) {
@@ -183,6 +265,7 @@ router.delete("/drivers/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/commands", async (req, res, next) => {
   try {
+    enforceDeviceFilterInQuery(req);
     const data = await traccarProxy("get", "/commands", { params: req.query, asAdmin: true });
     res.json(data);
   } catch (error) {
@@ -192,6 +275,7 @@ router.get("/commands", async (req, res, next) => {
 
 router.post("/commands", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    enforceDeviceFilterInBody(req);
     const data = await traccarProxy("post", "/commands", { data: req.body, asAdmin: true });
     res.status(201).json(data);
   } catch (error) {
@@ -355,6 +439,7 @@ router.post("/permissions", requireRole("manager", "admin"), async (req, res, ne
 
 router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    enforceDeviceFilterInBody(req);
     const format = req.body?.format;
     const response = await traccarRequest(
       {

@@ -63,6 +63,28 @@ body { @apply bg-bg text-text transition-colors duration-300; }
 .card { @apply bg-card rounded-2xl border border-stroke p-5 shadow-soft; }
 .muted { @apply text-sub; }
 .btn { @apply inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 hover:bg-stroke/40 transition; }
+.btn-primary {
+  color: #fff;
+  background-color: var(--accent-color, var(--primary));
+  border-color: transparent;
+}
+.btn-primary:hover {
+  background-color: color-mix(in srgb, var(--accent-color, var(--primary)) 85%, #000);
+}
+.btn-outline {
+  color: var(--accent-color, var(--primary));
+  border-color: color-mix(in srgb, var(--accent-color, var(--primary)) 50%, var(--border));
+}
+.btn-outline:hover {
+  background-color: color-mix(in srgb, var(--accent-color, var(--primary)) 12%, transparent);
+}
+.btn-ghost {
+  color: var(--accent-color, var(--primary));
+  border-color: transparent;
+}
+.btn-ghost:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
 .chip { @apply inline-flex items-center rounded-lg px-2 py-1 text-xs border border-stroke; }
 .chip.green { @apply text-green border-green/30; }
 .chip.red { @apply text-red border-red/30; }

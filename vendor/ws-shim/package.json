@@ -1,0 +1,7 @@
+{
+  "name": "ws",
+  "version": "0.0.0-shim",
+  "type": "module",
+  "main": "index.js",
+  "module": "index.js"
+}

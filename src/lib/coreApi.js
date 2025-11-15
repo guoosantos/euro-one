@@ -33,6 +33,12 @@ export const CoreApi = {
   },
   createDevice: (payload) => http("/devices", { method: "POST", body: JSON.stringify(payload) }),
   updateDevice: (id, payload) => http(`/devices/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  listImportableDevices: async (params) => {
+    const query = buildQuery(params);
+    const data = await http(`/devices/import${query}`);
+    return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
+  },
+  importDevice: (payload) => http("/devices/import", { method: "POST", body: JSON.stringify(payload) }),
   listChips: async (params) => {
     const query = buildQuery(params);
     const data = await http(`/chips${query}`);
