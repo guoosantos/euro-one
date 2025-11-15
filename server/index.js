@@ -1,9 +1,13 @@
-import app from "./app.js";
-import { initializeTraccarAdminSession } from "./services/traccar.js";
 import { loadEnv } from "./utils/env.js";
 
 async function bootstrap() {
   await loadEnv();
+
+  const [{ default: app }, { initializeTraccarAdminSession }] = await Promise.all([
+    import("./app.js"),
+    import("./services/traccar.js"),
+  ]);
+
   const PORT = Number(process.env.PORT) || 3001;
   try {
     await initializeTraccarAdminSession();
