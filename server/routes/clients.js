@@ -2,14 +2,9 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import {
-  createClient,
-  deleteClient,
-  getClientById,
-  listClients,
-  updateClient,
-} from "../models/client.js";
+import { createClient, deleteClient, getClientById, listClients, updateClient } from "../models/client.js";
 import { deleteUsersByClientId, listUsers } from "../models/user.js";
+import { deleteGroupsByClientId } from "../models/group.js";
 
 const router = express.Router();
 
@@ -68,6 +63,7 @@ router.delete("/clients/:id", requireRole("admin"), (req, res, next) => {
     const { id } = req.params;
     deleteClient(id);
     deleteUsersByClientId(id);
+    deleteGroupsByClientId(id);
     return res.status(204).send();
   } catch (error) {
     return next(error);
