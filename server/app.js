@@ -8,6 +8,7 @@ import clientRoutes from "./routes/clients.js";
 import userRoutes from "./routes/users.js";
 import proxyRoutes from "./routes/proxy.js";
 import coreRoutes from "./routes/core.js";
+import groupRoutes from "./routes/groups.js";
 
 const app = express();
 
@@ -60,6 +61,7 @@ app.use("/api", authRoutes);
 app.use("/api", proxyRoutes);
 app.use("/api/core", coreRoutes);
 app.use("/api", clientRoutes);
+app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
 
 app.use((req, _res, next) => {
