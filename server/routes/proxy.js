@@ -6,6 +6,33 @@ const router = express.Router();
 
 router.use(authenticate);
 
+async function proxyTraccarReport(req, res, next, path) {
+  try {
+    const format = String(req.query?.format || "").toLowerCase();
+    const params = { ...req.query };
+    if (format === "csv") {
+      const response = await traccarRequest(
+        {
+          method: "get",
+          url: path,
+          params,
+          headers: { Accept: "text/csv" },
+          responseType: "arraybuffer",
+        },
+        null,
+        { asAdmin: true },
+      );
+      res.setHeader("Content-Type", "text/csv");
+      res.send(Buffer.from(response.data));
+      return;
+    }
+    const data = await traccarProxy("get", path, { params, asAdmin: true });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+}
+
 function sanitizeUserQuery(query = {}) {
   const nextParams = { ...query };
   delete nextParams.target;
@@ -190,32 +217,11 @@ router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res,
   }
 });
 
-router.get("/reports/route", async (req, res, next) => {
-  try {
-    const data = await traccarProxy("get", "/reports/route", { params: req.query, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get("/reports/route", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
 
-router.get("/reports/summary", async (req, res, next) => {
-  try {
-    const data = await traccarProxy("get", "/reports/summary", { params: req.query, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get("/reports/summary", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/summary"));
 
-router.get("/reports/stops", async (req, res, next) => {
-  try {
-    const data = await traccarProxy("get", "/reports/stops", { params: req.query, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+router.get("/reports/stops", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/stops"));
 
 router.get("/notifications", async (req, res, next) => {
   try {

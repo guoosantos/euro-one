@@ -1,0 +1,662 @@
+import express from "express";
+import createError from "http-errors";
+
+import { authenticate, requireRole } from "../middleware/auth.js";
+import { getClientById, updateClient } from "../models/client.js";
+import { listModels, createModel, getModelById } from "../models/model.js";
+import { listDevices, createDevice, updateDevice, getDeviceById } from "../models/device.js";
+import { listChips, createChip, updateChip, getChipById } from "../models/chip.js";
+import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehicle } from "../models/vehicle.js";
+import { traccarProxy } from "../services/traccar.js";
+import { getCachedTraccarResources } from "../services/traccar-sync.js";
+
+const router = express.Router();
+
+router.use(authenticate);
+
+function resolveClientId(req, providedClientId, { required = true } = {}) {
+  if (req.user.role === "admin") {
+    if (providedClientId) {
+      return String(providedClientId);
+    }
+    if (!required) {
+      return req.user.clientId ? String(req.user.clientId) : null;
+    }
+    if (req.user.clientId) {
+      return String(req.user.clientId);
+    }
+    throw createError(400, "clientId é obrigatório");
+  }
+  if (!req.user.clientId) {
+    if (required) {
+      throw createError(400, "Usuário não vinculado a um cliente");
+    }
+    return null;
+  }
+  if (providedClientId && String(providedClientId) !== String(req.user.clientId)) {
+    throw createError(403, "Operação não permitida para este cliente");
+  }
+  return String(req.user.clientId);
+}
+
+function ensureClientExists(clientId) {
+  const client = getClientById(clientId);
+  if (!client) {
+    throw createError(404, "Cliente não encontrado");
+  }
+  return client;
+}
+
+async function ensureClientTraccarGroup(clientId) {
+  const client = ensureClientExists(clientId);
+  const attrs = client.attributes || {};
+  if (attrs.traccarGroupId) {
+    return attrs.traccarGroupId;
+  }
+  const desiredName = attrs.traccarGroupName || client.name || `Cliente ${clientId}`;
+  try {
+    const group = await traccarProxy("post", "/groups", { data: { name: desiredName }, asAdmin: true });
+    updateClient(clientId, { attributes: { ...attrs, traccarGroupId: group.id } });
+    return group.id;
+  } catch (error) {
+    if (error.status === 409) {
+      const groups = await traccarProxy("get", "/groups", { params: { all: true }, asAdmin: true });
+      const match = Array.isArray(groups)
+        ? groups.find((item) => item?.name === desiredName)
+        : Array.isArray(groups?.groups)
+        ? groups.groups.find((item) => item?.name === desiredName)
+        : null;
+      if (match?.id) {
+        updateClient(clientId, { attributes: { ...attrs, traccarGroupId: match.id } });
+        return match.id;
+      }
+    }
+    throw error;
+  }
+}
+
+function safeDate(value) {
+  if (!value) return null;
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+  } catch (_error) {
+    return null;
+  }
+}
+
+function resolveConnection(traccarDevice) {
+  if (!traccarDevice) {
+    return {
+      connectionStatus: "unknown",
+      connectionStatusLabel: "—",
+      lastCommunication: null,
+    };
+  }
+  const lastUpdate = safeDate(traccarDevice.lastUpdate || traccarDevice.serverTime || traccarDevice.lastCommunication);
+  if (!lastUpdate) {
+    return {
+      connectionStatus: "never",
+      connectionStatusLabel: "Nunca conectado",
+      lastCommunication: null,
+    };
+  }
+  const status = String(traccarDevice.status || traccarDevice.deviceStatus || "").toLowerCase();
+  if (status === "online") {
+    return {
+      connectionStatus: "online",
+      connectionStatusLabel: "Online",
+      lastCommunication: lastUpdate,
+    };
+  }
+  return {
+    connectionStatus: "offline",
+    connectionStatusLabel: "Offline",
+    lastCommunication: lastUpdate,
+  };
+}
+
+function buildDeviceResponse(device, context) {
+  const { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique } = context;
+  const traccarDevice =
+    (device.traccarId && traccarById.get(String(device.traccarId))) || traccarByUnique.get(String(device.uniqueId));
+  const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
+  const usageStatus = device.vehicleId ? "active" : "stock";
+  const usageStatusLabel = usageStatus === "active" ? "Ativo" : "Estoque";
+  let statusLabel = usageStatusLabel;
+  if (connectionStatus === "online" || connectionStatus === "offline") {
+    statusLabel = `${usageStatusLabel} (${connectionStatusLabel})`;
+  }
+  if (connectionStatus === "never") {
+    statusLabel = `${usageStatusLabel} (Nunca conectado)`;
+  }
+
+  const model = device.modelId ? modelMap.get(device.modelId) : null;
+  const chip = device.chipId ? chipMap.get(device.chipId) : null;
+  const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
+
+  return {
+    id: device.id,
+    internalId: device.id,
+    deviceId: device.traccarId ? String(device.traccarId) : null,
+    traccarId: device.traccarId ? String(device.traccarId) : null,
+    uniqueId: device.uniqueId,
+    name: device.name,
+    clientId: device.clientId,
+    modelId: device.modelId,
+    modelName: model?.name || null,
+    modelBrand: model?.brand || null,
+    chipId: device.chipId,
+    chip: chip
+      ? {
+          id: chip.id,
+          iccid: chip.iccid,
+          phone: chip.phone,
+          carrier: chip.carrier,
+          status: chip.status,
+        }
+      : null,
+    vehicleId: device.vehicleId,
+    vehicle: vehicle
+      ? {
+          id: vehicle.id,
+          name: vehicle.name,
+          plate: vehicle.plate,
+        }
+      : null,
+    usageStatus,
+    usageStatusLabel,
+    connectionStatus,
+    connectionStatusLabel,
+    statusLabel,
+    lastCommunication,
+    createdAt: device.createdAt,
+    updatedAt: device.updatedAt,
+    traccar: traccarDevice
+      ? {
+          id: traccarDevice.id,
+          status: traccarDevice.status,
+          lastUpdate: safeDate(traccarDevice.lastUpdate),
+        }
+      : null,
+  };
+}
+
+function buildChipResponse(chip, { deviceMap, vehicleMap }) {
+  const device = chip.deviceId ? deviceMap.get(chip.deviceId) : null;
+  const vehicle = device?.vehicleId ? vehicleMap.get(device.vehicleId) : null;
+  return {
+    ...chip,
+    device: device
+      ? {
+          id: device.id,
+          name: device.name,
+          uniqueId: device.uniqueId,
+          plate: vehicle?.plate || null,
+        }
+      : null,
+  };
+}
+
+function buildVehicleResponse(vehicle, context) {
+  const { deviceMap, traccarById } = context;
+  const device = vehicle.deviceId ? deviceMap.get(vehicle.deviceId) : null;
+  const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
+  const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
+  return {
+    ...vehicle,
+    device: device
+      ? {
+          id: device.id,
+          uniqueId: device.uniqueId,
+          name: device.name,
+          traccarId: device.traccarId ? String(device.traccarId) : null,
+        }
+      : null,
+    connectionStatus,
+    connectionStatusLabel,
+    lastCommunication,
+  };
+}
+
+function ensureSameClient(resource, clientId, message) {
+  if (!resource || String(resource.clientId) !== String(clientId)) {
+    throw createError(404, message);
+  }
+}
+
+function linkChipToDevice(clientId, chipId, deviceId) {
+  const chip = getChipById(chipId);
+  ensureSameClient(chip, clientId, "Chip não encontrado");
+  const device = getDeviceById(deviceId);
+  ensureSameClient(device, clientId, "Equipamento não encontrado");
+
+  if (device.chipId && device.chipId !== chip.id) {
+    const previousChip = getChipById(device.chipId);
+    if (previousChip && String(previousChip.clientId) === String(clientId)) {
+      updateChip(previousChip.id, {
+        deviceId: null,
+        status: previousChip.status === "Vinculado" ? "Disponível" : previousChip.status,
+      });
+    }
+  }
+
+  if (chip.deviceId && chip.deviceId !== device.id) {
+    const previousDevice = getDeviceById(chip.deviceId);
+    if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
+      updateDevice(previousDevice.id, { chipId: null });
+    }
+  }
+
+  updateChip(chip.id, {
+    deviceId: device.id,
+    status: chip.status && chip.status.length ? chip.status : "Vinculado",
+  });
+  updateDevice(device.id, { chipId: chip.id });
+}
+
+function detachChip(clientId, chipId) {
+  const chip = getChipById(chipId);
+  ensureSameClient(chip, clientId, "Chip não encontrado");
+  if (chip.deviceId) {
+    const device = getDeviceById(chip.deviceId);
+    if (device && String(device.clientId) === String(clientId)) {
+      updateDevice(device.id, { chipId: null });
+    }
+  }
+  updateChip(chip.id, {
+    deviceId: null,
+    status: chip.status === "Vinculado" ? "Disponível" : chip.status,
+  });
+}
+
+function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
+  const vehicle = getVehicleById(vehicleId);
+  ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+  const device = getDeviceById(deviceId);
+  ensureSameClient(device, clientId, "Equipamento não encontrado");
+
+  if (vehicle.deviceId && vehicle.deviceId !== device.id) {
+    const previousDevice = getDeviceById(vehicle.deviceId);
+    if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
+      updateDevice(previousDevice.id, { vehicleId: null });
+    }
+  }
+
+  if (device.vehicleId && device.vehicleId !== vehicle.id) {
+    const previousVehicle = getVehicleById(device.vehicleId);
+    if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
+      updateVehicle(previousVehicle.id, { deviceId: null });
+    }
+  }
+
+  updateVehicle(vehicle.id, { deviceId: device.id });
+  updateDevice(device.id, { vehicleId: vehicle.id });
+}
+
+function detachVehicle(clientId, vehicleId) {
+  const vehicle = getVehicleById(vehicleId);
+  ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+  if (vehicle.deviceId) {
+    const device = getDeviceById(vehicle.deviceId);
+    if (device && String(device.clientId) === String(clientId)) {
+      updateDevice(device.id, { vehicleId: null });
+    }
+  }
+  updateVehicle(vehicle.id, { deviceId: null });
+}
+
+router.get("/models", (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query.clientId, { required: false });
+    const models = listModels({ clientId, includeGlobal: true });
+    res.json({ models });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/models", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId, { required: req.user.role !== "admin" });
+    const payload = {
+      name: req.body?.name,
+      brand: req.body?.brand,
+      protocol: req.body?.protocol,
+      connectivity: req.body?.connectivity,
+      ports: Array.isArray(req.body?.ports) ? req.body.ports : [],
+      clientId: clientId ?? null,
+    };
+    const model = createModel(payload);
+    res.status(201).json({ model });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/devices", (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const devices = listDevices({ clientId });
+    const models = listModels({ clientId, includeGlobal: true });
+    const chips = listChips({ clientId });
+    const vehicles = listVehicles({ clientId });
+
+    const modelMap = new Map(models.map((item) => [item.id, item]));
+    const chipMap = new Map(chips.map((item) => [item.id, item]));
+    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+
+    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarById = new Map();
+    const traccarByUnique = new Map();
+    traccarDevices.forEach((item) => {
+      if (!item) return;
+      if (item.id !== undefined && item.id !== null) {
+        traccarById.set(String(item.id), item);
+      }
+      if (item.uniqueId) {
+        traccarByUnique.set(String(item.uniqueId), item);
+      }
+    });
+
+    const response = devices.map((device) =>
+      buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
+    );
+    res.json({ devices: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/devices", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const { name, uniqueId, modelId } = req.body || {};
+    if (!uniqueId) {
+      throw createError(400, "uniqueId é obrigatório");
+    }
+
+    if (modelId) {
+      const model = getModelById(modelId);
+      if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
+        throw createError(404, "Modelo informado não pertence a este cliente");
+      }
+    }
+
+    const groupId = await ensureClientTraccarGroup(clientId);
+    const attributes = { ...(req.body?.attributes || {}) };
+    if (modelId) {
+      attributes.modelId = modelId;
+    }
+
+    const traccarPayload = {
+      name: name || uniqueId,
+      uniqueId,
+      groupId,
+      attributes,
+    };
+    const traccarDevice = await traccarProxy("post", "/devices", { data: traccarPayload, asAdmin: true });
+
+    const device = createDevice({
+      clientId,
+      name,
+      uniqueId,
+      modelId: modelId ? String(modelId) : null,
+      traccarId: traccarDevice?.id ? String(traccarDevice.id) : null,
+      attributes,
+    });
+
+    const models = listModels({ clientId, includeGlobal: true });
+    const chips = listChips({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const traccarById = new Map();
+    if (traccarDevice?.id) {
+      traccarById.set(String(traccarDevice.id), traccarDevice);
+    }
+    const response = buildDeviceResponse(device, {
+      modelMap: new Map(models.map((item) => [item.id, item])),
+      chipMap: new Map(chips.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      traccarById,
+      traccarByUnique: new Map([[uniqueId, traccarDevice]]),
+    });
+
+    res.status(201).json({ device: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const device = getDeviceById(id);
+    if (!device) {
+      throw createError(404, "Equipamento não encontrado");
+    }
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    ensureSameClient(device, clientId, "Equipamento não encontrado");
+
+    const payload = { ...req.body };
+    if (payload.modelId) {
+      const model = getModelById(payload.modelId);
+      if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
+        throw createError(404, "Modelo informado não pertence a este cliente");
+      }
+    }
+
+    const updated = updateDevice(id, payload);
+
+    const models = listModels({ clientId, includeGlobal: true });
+    const chips = listChips({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const traccarByUnique = new Map(traccarDevices.map((item) => [String(item.uniqueId), item]));
+
+    const response = buildDeviceResponse(updated, {
+      modelMap: new Map(models.map((item) => [item.id, item])),
+      chipMap: new Map(chips.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+      traccarById,
+      traccarByUnique,
+    });
+
+    res.json({ device: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/chips", (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const chips = listChips({ clientId });
+    const devices = listDevices({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const deviceMap = new Map(devices.map((item) => [item.id, item]));
+    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+
+    const response = chips.map((chip) => buildChipResponse(chip, { deviceMap, vehicleMap }));
+    res.json({ chips: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/chips", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const { iccid, phone, carrier, status, apn, apnUser, apnPass, notes, provider, deviceId } = req.body || {};
+    const chip = createChip({
+      clientId,
+      iccid,
+      phone,
+      carrier,
+      status,
+      apn,
+      apnUser,
+      apnPass,
+      notes,
+      provider,
+    });
+
+    if (deviceId) {
+      linkChipToDevice(clientId, chip.id, deviceId);
+    }
+
+    const devices = listDevices({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const storedChip = getChipById(chip.id);
+    const response = buildChipResponse(storedChip, {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+    });
+    res.status(201).json({ chip: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/chips/:id", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const chip = getChipById(id);
+    if (!chip) {
+      throw createError(404, "Chip não encontrado");
+    }
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    ensureSameClient(chip, clientId, "Chip não encontrado");
+
+    const payload = { ...req.body };
+    if (payload.deviceId === "") {
+      payload.deviceId = null;
+    }
+
+    const updated = updateChip(id, payload);
+
+    if (payload.deviceId) {
+      linkChipToDevice(clientId, updated.id, payload.deviceId);
+    } else if (payload.deviceId === null) {
+      detachChip(clientId, updated.id);
+    }
+
+    const devices = listDevices({ clientId });
+    const vehicles = listVehicles({ clientId });
+    const response = buildChipResponse(getChipById(updated.id), {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+    });
+
+    res.json({ chip: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/vehicles", (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = listVehicles({ clientId });
+    const devices = listDevices({ clientId });
+    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const deviceMap = new Map(devices.map((item) => [item.id, item]));
+
+    const response = vehicles.map((vehicle) => buildVehicleResponse(vehicle, { deviceMap, traccarById }));
+    res.json({ vehicles: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/vehicles", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const { name, plate, driver, group, type, status, notes, deviceId } = req.body || {};
+    const vehicle = createVehicle({
+      clientId,
+      name,
+      plate,
+      driver,
+      group,
+      type,
+      status,
+      notes,
+    });
+
+    if (deviceId) {
+      linkDeviceToVehicle(clientId, vehicle.id, deviceId);
+    }
+
+    const devices = listDevices({ clientId });
+    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const response = buildVehicleResponse(getVehicleById(vehicle.id), {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      traccarById,
+    });
+    res.status(201).json({ vehicle: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/vehicles/:id", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const vehicle = getVehicleById(id);
+    if (!vehicle) {
+      throw createError(404, "Veículo não encontrado");
+    }
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+
+    const payload = { ...req.body };
+    if (payload.deviceId === "") {
+      payload.deviceId = null;
+    }
+
+    const updated = updateVehicle(id, payload);
+
+    if (payload.deviceId) {
+      linkDeviceToVehicle(clientId, updated.id, payload.deviceId);
+    } else if (payload.deviceId === null) {
+      detachVehicle(clientId, updated.id);
+    }
+
+    const devices = listDevices({ clientId });
+    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const response = buildVehicleResponse(getVehicleById(updated.id), {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      traccarById,
+    });
+
+    res.json({ vehicle: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/vehicles/:id", requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const vehicle = getVehicleById(id);
+    if (!vehicle) {
+      throw createError(404, "Veículo não encontrado");
+    }
+    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+    if (vehicle.deviceId) {
+      detachVehicle(clientId, id);
+    }
+    deleteVehicle(id);
+    res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+export default router;

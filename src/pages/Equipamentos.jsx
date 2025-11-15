@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CoreApi } from "../lib/coreApi";
+import { CoreApi } from "../lib/coreApi.js";
 
 function ModelosPortas({models}){
   if (!Array.isArray(models) || !models.length) return <div className="opacity-60">Sem modelos.</div>;
