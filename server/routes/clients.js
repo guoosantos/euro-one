@@ -2,83 +2,85 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { createUser, deleteUser, listUsers, updateUser } from "../services/traccar.js";
-import { buildUserPayload } from "../utils/roles.js";
+import {
+  createClient,
+  deleteClient,
+  getClientById,
+  listClients,
+  updateClient,
+} from "../models/client.js";
+import { deleteUsersByClientId, listUsers } from "../models/user.js";
 
 const router = express.Router();
 
 router.use(authenticate);
-router.use(requireRole("admin"));
 
-router.get("/clients", async (_req, res, next) => {
+router.get("/clients", requireRole("manager", "admin"), (req, res, next) => {
   try {
-    const managers = await listUsers({ all: true }, { asAdmin: true });
-    const payload = managers
-      .filter((user) => {
-        const role = user?.attributes?.role || (user.administrator ? "admin" : null);
-        return role === "manager" || (!user.administrator && (user.userLimit > 0 || user.deviceLimit > 0));
-      })
-      .map((user) => ({
-        ...buildUserPayload(user),
-        companyName: user?.attributes?.companyName || user.name,
-      }));
-    res.json({ clients: payload });
+    const allClients = listClients();
+    if (req.user.role === "admin") {
+      return res.json({ clients: allClients });
+    }
+    const clientId = req.user.clientId;
+    if (!clientId) {
+      return res.json({ clients: [] });
+    }
+    const client = getClientById(clientId);
+    return res.json({ clients: client ? [client] : [] });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
-router.post("/clients", async (req, res, next) => {
+router.post("/clients", requireRole("admin"), (req, res, next) => {
   try {
-    const { name, email, password, deviceLimit = 100, userLimit = 50, attributes = {} } = req.body || {};
-    if (!name || !email || !password) {
-      throw createError(400, "Nome, e-mail e senha são obrigatórios");
+    const { name, deviceLimit, userLimit, attributes = {} } = req.body || {};
+    if (!name) {
+      throw createError(400, "Nome é obrigatório");
     }
-
-    const payload = {
+    const client = createClient({
       name,
-      email,
-      password,
-      administrator: false,
-      readonly: false,
-      disabled: false,
       deviceLimit,
       userLimit,
-      attributes: {
-        role: "manager",
-        companyName: name,
-        ...attributes,
-      },
-    };
-
-    const created = await createUser(payload, { asAdmin: true });
-    res.status(201).json({ client: buildUserPayload(created) });
+      attributes: { companyName: attributes.companyName || name, ...attributes },
+    });
+    return res.status(201).json({ client });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
-router.put("/clients/:id", async (req, res, next) => {
+router.put("/clients/:id", requireRole("manager", "admin"), (req, res, next) => {
   try {
     const { id } = req.params;
-    const payload = { ...req.body };
-    if (payload.attributes) {
-      payload.attributes.role = payload.attributes.role || "manager";
+    if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
+      throw createError(403, "Permissão insuficiente para atualizar este cliente");
     }
-    const updated = await updateUser(id, payload, { asAdmin: true });
-    res.json({ client: buildUserPayload(updated) });
+    const client = updateClient(id, req.body || {});
+    return res.json({ client });
   } catch (error) {
-    next(error);
+    return next(error);
   }
 });
 
-router.delete("/clients/:id", async (req, res, next) => {
+router.delete("/clients/:id", requireRole("admin"), (req, res, next) => {
   try {
     const { id } = req.params;
-    await deleteUser(id, { asAdmin: true });
-    res.status(204).send();
+    deleteClient(id);
+    deleteUsersByClientId(id);
+    return res.status(204).send();
   } catch (error) {
-    next(error);
+    return next(error);
+  }
+});
+
+router.get("/clients/:id/users", requireRole("admin"), (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const users = listUsers({ clientId: id });
+    return res.json({ users });
+  } catch (error) {
+    return next(error);
   }
 });
 

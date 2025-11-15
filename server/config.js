@@ -1,6 +1,6 @@
-import dotenv from "dotenv";
+import { loadEnv } from "./utils/env.js";
 
-dotenv.config();
+await loadEnv();
 
 function toNumber(value, fallback) {
   const parsed = Number(value);

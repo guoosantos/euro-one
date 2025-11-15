@@ -5,20 +5,50 @@ import { config } from "../config.js";
 
 const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
 
+function normaliseAdminToken(token) {
+  if (!token) return null;
+  if (typeof token !== "string") return null;
+  if (token.startsWith("session:")) {
+    return token;
+  }
+  if (token.startsWith("JSESSIONID=")) {
+    return `session:${token.split("=")[1]}`;
+  }
+  if (/^(Basic|Bearer)\s+/i.test(token)) {
+    return token;
+  }
+  return `Bearer ${token}`;
+}
+
 function encodeBasic(user, password) {
   if (!user || !password) return null;
   return Buffer.from(`${user}:${password}`).toString("base64");
 }
 
 function resolveAdminHeaders() {
-  if (config.traccar.adminToken) {
-    return { Authorization: `Bearer ${config.traccar.adminToken}` };
+  const token = normaliseAdminToken(config.traccar.adminToken);
+  if (token) {
+    if (token.startsWith("session:")) {
+      const sessionId = token.split(":")[1];
+      return { Cookie: `JSESSIONID=${sessionId}` };
+    }
+    return { Authorization: token };
   }
   if (config.traccar.adminUser && config.traccar.adminPassword) {
     const token = encodeBasic(config.traccar.adminUser, config.traccar.adminPassword);
     return { Authorization: `Basic ${token}` };
   }
   throw createError(500, "Credenciais administrativas do Traccar não configuradas");
+}
+
+function storeAdminToken({ session, token }) {
+  if (session) {
+    config.traccar.adminToken = `session:${session}`;
+    return;
+  }
+  if (token) {
+    config.traccar.adminToken = normaliseAdminToken(token);
+  }
 }
 
 export function resolveUserHeaders(context) {
@@ -97,82 +127,7 @@ export async function loginTraccar(email, password) {
     token: headers.Authorization,
   };
 }
-
-export async function createUser(payload, { asAdmin = false, context, clientId } = {}) {
-  const response = await traccarRequest(
-    {
-      method: "post",
-      url: "/users",
-      data: payload,
-    },
-    asAdmin ? null : context,
-    { asAdmin },
-  );
-
-  if (clientId) {
-    try {
-      await traccarRequest(
-        {
-          method: "post",
-          url: "/permissions",
-          data: {
-            userId: clientId,
-            otherId: response.data?.id,
-            type: "user",
-          },
-        },
-        asAdmin ? null : context,
-        { asAdmin },
-      );
-    } catch (error) {
-      // Caso a associação falhe, ainda retornamos o usuário criado mas avisamos a camada superior.
-      error.expose = true;
-      throw error;
-    }
-  }
-
-  return response.data;
-}
-
-export async function updateUser(id, payload, { asAdmin = false, context } = {}) {
-  const response = await traccarRequest(
-    {
-      method: "put",
-      url: `/users/${id}`,
-      data: payload,
-    },
-    asAdmin ? null : context,
-    { asAdmin },
-  );
-  return response.data;
-}
-
-export async function deleteUser(id, { asAdmin = false, context } = {}) {
-  await traccarRequest(
-    {
-      method: "delete",
-      url: `/users/${id}`,
-    },
-    asAdmin ? null : context,
-    { asAdmin },
-  );
-  return true;
-}
-
-export async function listUsers(params = {}, { asAdmin = false, context } = {}) {
-  const response = await traccarRequest(
-    {
-      method: "get",
-      url: "/users",
-      params,
-    },
-    asAdmin ? null : context,
-    { asAdmin },
-  );
-  return Array.isArray(response.data) ? response.data : response.data?.users || response.data?.data || [];
-}
-
-export async function traccarProxy(method, url, { context, params, data } = {}) {
+export async function traccarProxy(method, url, { context, params, data, asAdmin = false } = {}) {
   const response = await traccarRequest(
     {
       method,
@@ -180,7 +135,22 @@ export async function traccarProxy(method, url, { context, params, data } = {}) 
       params,
       data,
     },
-    context,
+    asAdmin ? null : context,
+    { asAdmin },
   );
   return response.data;
+}
+
+export async function initializeTraccarAdminSession() {
+  if (!config.traccar.adminUser || !config.traccar.adminPassword) {
+    console.warn("Credenciais administrativas do Traccar não configuradas");
+    return;
+  }
+  try {
+    const session = await loginTraccar(config.traccar.adminUser, config.traccar.adminPassword);
+    storeAdminToken(session);
+  } catch (error) {
+    console.error("Falha ao autenticar no Traccar como administrador", error);
+    throw error;
+  }
 }

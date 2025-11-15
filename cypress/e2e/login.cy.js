@@ -8,13 +8,13 @@ describe("Fluxos principais", () => {
       statusCode: 200,
       body: {
         token: "jwt-token",
-        user: { id: 1, name: "Admin", email: "admin@euro.one", role: "admin" },
+        user: { id: 1, name: "Admin", email: "admin@euro.one", role: "admin", clientId: null },
       },
     }).as("loginRequest");
 
     cy.intercept("GET", "/api/session", {
       statusCode: 200,
-      body: { user: { id: 1, name: "Admin", email: "admin@euro.one", role: "admin" } },
+      body: { user: { id: 1, name: "Admin", email: "admin@euro.one", role: "admin", clientId: null } },
     }).as("sessionRequest");
 
     cy.intercept("GET", "/api/clients", {
