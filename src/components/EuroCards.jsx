@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { CoreApi } from "../lib/coreApi";
+import { CoreApi } from "../lib/coreApi.js";
 
 export default function EuroCards(){
   const [devices, setDevices] = useState([]);

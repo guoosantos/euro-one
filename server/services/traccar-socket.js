@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 
 import { config } from "../config.js";
 import { getTraccarAdminHeaders, initializeTraccarAdminSession } from "./traccar.js";
+import { findDeviceByTraccarId, findDeviceByUniqueId } from "../models/device.js";
 
 const WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const CLIENTS = new Set();
@@ -128,12 +129,131 @@ function handleClientFrame(client, buffer) {
   }
 }
 
+function safeParse(data) {
+  if (typeof data !== "string") return null;
+  try {
+    return JSON.parse(data);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function extractDeviceCandidates(value) {
+  const candidates = [];
+  if (value === null || value === undefined) {
+    return candidates;
+  }
+  if (typeof value === "object") {
+    const refs = [
+      value.deviceId,
+      value.device_id,
+      value.deviceID,
+      value.id,
+      value.uniqueId,
+      value.device?.id,
+      value.device?.deviceId,
+      value.device?.uniqueId,
+      value.position?.deviceId,
+    ];
+    refs.forEach((ref) => {
+      if (ref !== undefined && ref !== null) {
+        candidates.push(ref);
+      }
+    });
+  } else {
+    candidates.push(value);
+  }
+  return candidates;
+}
+
+function deviceBelongsToClient(candidate, clientId) {
+  const values = extractDeviceCandidates(candidate);
+  for (const value of values) {
+    const direct = findDeviceByTraccarId(value) || findDeviceByTraccarId(String(value));
+    if (direct && String(direct.clientId) === String(clientId)) {
+      return true;
+    }
+    const unique = findDeviceByUniqueId(String(value));
+    if (unique && String(unique.clientId) === String(clientId)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function filterPayloadForClient(data, clientId) {
+  if (!data || typeof data !== "object") {
+    return null;
+  }
+  let hasData = false;
+  const filtered = {};
+
+  if (Array.isArray(data.positions)) {
+    const list = data.positions.filter((item) => deviceBelongsToClient(item, clientId));
+    if (list.length) {
+      filtered.positions = list;
+      hasData = true;
+    }
+  }
+
+  if (Array.isArray(data.events)) {
+    const list = data.events.filter((item) => deviceBelongsToClient(item, clientId));
+    if (list.length) {
+      filtered.events = list;
+      hasData = true;
+    }
+  }
+
+  if (Array.isArray(data.devices)) {
+    const list = data.devices.filter((item) => deviceBelongsToClient(item, clientId));
+    if (list.length) {
+      filtered.devices = list;
+      hasData = true;
+    }
+  }
+
+  if (Array.isArray(data.statistics)) {
+    const list = data.statistics.filter((item) => deviceBelongsToClient(item, clientId));
+    if (list.length) {
+      filtered.statistics = list;
+      hasData = true;
+    }
+  }
+
+  if (!hasData) {
+    return null;
+  }
+
+  Object.entries(data).forEach(([key, value]) => {
+    if (!Array.isArray(value) && filtered[key] === undefined) {
+      filtered[key] = value;
+    }
+  });
+
+  return filtered;
+}
+
 function broadcast(message) {
-  const payload = typeof message === "string" ? message : JSON.stringify(message);
+  const stringPayload = typeof message === "string" ? message : JSON.stringify(message);
+  let parsedPayload = null;
   for (const client of CLIENTS) {
     if (client.socket.destroyed) continue;
     try {
-      sendFrame(client.socket, payload);
+      const { user } = client;
+      if (!user || !user.clientId || user.role === "admin") {
+        sendFrame(client.socket, stringPayload);
+        continue;
+      }
+      if (!parsedPayload) {
+        parsedPayload = typeof message === "string" ? safeParse(message) : message;
+      }
+      if (!parsedPayload || typeof parsedPayload !== "object") {
+        continue;
+      }
+      const filtered = filterPayloadForClient(parsedPayload, user.clientId);
+      if (filtered) {
+        sendFrame(client.socket, filtered);
+      }
     } catch (error) {
       client.socket.destroy();
     }

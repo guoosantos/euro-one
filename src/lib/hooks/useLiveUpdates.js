@@ -85,6 +85,10 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
           // Mantém payload original quando não for JSON
         }
       }
+      if (payload && typeof payload === "object" && payload.type === "connection" && payload.status === "ready") {
+        setError(null);
+        return;
+      }
       setLastMessage(payload);
       if (onMessageRef.current) {
         onMessageRef.current(payload);
@@ -92,7 +96,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     };
 
     socket.onerror = (event) => {
-      const message = event?.message || "Falha na conexão em tempo real";
+      const message = event?.message || "Não foi possível atualizar os dados de telemetria.";
       setError(new Error(message));
     };
 

@@ -56,13 +56,13 @@ export function useDevices() {
         setDevices((current) => {
           const map = new Map();
           (Array.isArray(current) ? current : []).forEach((device) => {
-            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id);
+            const key = toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id);
             if (key) {
               map.set(key, device);
             }
           });
           payload.devices.forEach((device) => {
-            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id);
+            const key = toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id);
             if (key) {
               map.set(key, device);
             }
@@ -110,12 +110,18 @@ export function useDevices() {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get("/devices");
+        const response = await api.get("/core/devices");
         if (cancelled) return;
         const list = normaliseDeviceList(response?.data);
-        setDevices(list);
-        devicesRef.current = list;
-        await fetchPositionsForDevices(list);
+        const normalisedList = Array.isArray(list)
+          ? list.map((device) => ({
+              ...device,
+              deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
+            }))
+          : [];
+        setDevices(normalisedList);
+        devicesRef.current = normalisedList;
+        await fetchPositionsForDevices(normalisedList);
       } catch (requestError) {
         if (cancelled) return;
         console.error("Failed to load devices", requestError);
@@ -135,7 +141,7 @@ export function useDevices() {
         return;
       }
       const requests = deviceList
-        .map((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.unique_id))
+        .map((device) => toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id))
         .filter(Boolean)
         .map((deviceId) =>
           api

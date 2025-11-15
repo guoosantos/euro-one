@@ -1,210 +1,444 @@
-import React, { useState } from 'react'
-import PageHeader from '../ui/PageHeader'
-import Input from '../ui/Input'
-import Select from '../ui/Select'
-import Button from '../ui/Button'
-import Modal from '../ui/Modal'
-import Tabs from '../ui/Tabs'
-import Field from '../ui/Field'
-import { Table, Pager } from '../ui/Table'
-import { Search } from 'lucide-react'
+import { useEffect, useMemo, useState } from "react";
+import { CoreApi } from "../lib/coreApi.js";
 
-const pad = (n, size) => String(n).padStart(size, '0')
-const seqCodes = (prefix, start, end) => {
-  const p = String(prefix)
-  const width = Math.max(String(start).length, String(end).length, 2)
-  const out = []
-  for(let i=start;i<=end;i++) out.push(p + pad(i, width))
-  return out
+function formatDate(value) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString();
+  } catch (_error) {
+    return String(value);
+  }
 }
 
-export default function Devices(){
-  const [openNew, setOpenNew] = useState(false)
-  const [openBulk, setOpenBulk] = useState(false)
-  const [tab, setTab] = useState('Dados')
+function statusBadge(device) {
+  if (!device) return "—";
+  if (device.statusLabel) return device.statusLabel;
+  const usage = device.usageStatusLabel || (device.vehicleId ? "Ativo" : "Estoque");
+  const connection = device.connectionStatusLabel ||
+    (device.connectionStatus === "online"
+      ? "Online"
+      : device.connectionStatus === "offline"
+      ? "Offline"
+      : device.connectionStatus === "never"
+      ? "Nunca conectado"
+      : "");
+  if (!connection) return usage;
+  return `${usage} (${connection})`;
+}
 
-  // form base
-  const [f, setF] = useState({
-    produto:'', imei:'', codigo:'', versao:'',
-    statusServico:'Habilitado', statusFunc:'Funcionando', freq:'433 MHz',
-    modoBloqueio:'Total', modoReset:'Automático', modoOficina:'Não',
-    tempoPainel:'0', jammerMs:'0', dtProducao:'', obs:'',
-    garantiaBase:'Instalação', garantiaDias:'365', garantiaInicio:'',
-    destino:'Estoque', cliente:'', tecnico:''
-  })
+function ModelCards({ models }) {
+  if (!Array.isArray(models) || models.length === 0) {
+    return <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">Nenhum modelo cadastrado ainda.</div>;
+  }
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      {models.map((model) => (
+        <div key={model.id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div className="text-lg font-semibold text-white">{model.name}</div>
+          <div className="text-sm text-white/70">{model.brand}</div>
+          <dl className="mt-4 space-y-1 text-sm text-white/70">
+            {model.protocol && (
+              <div>
+                <dt className="font-medium text-white">Protocolo</dt>
+                <dd>{model.protocol}</dd>
+              </div>
+            )}
+            {model.connectivity && (
+              <div>
+                <dt className="font-medium text-white">Conectividade</dt>
+                <dd>{model.connectivity}</dd>
+              </div>
+            )}
+          </dl>
+          <div className="mt-4">
+            <h4 className="text-sm font-semibold text-white">Portas / IO</h4>
+            {Array.isArray(model.ports) && model.ports.length > 0 ? (
+              <ul className="mt-2 space-y-1 text-sm text-white/70">
+                {model.ports.map((port) => (
+                  <li key={port.id || `${port.label}-${port.type}`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+                    <div className="font-medium text-white">{port.label || "Porta"}</div>
+                    <div className="text-xs uppercase tracking-wide text-white/60">{port.type || "Digital"}</div>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-2 text-sm text-white/60">Nenhuma porta cadastrada.</p>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-  // vinculações
-  const [chipSel, setChipSel] = useState('')          // ICCID escolhido
-  const [novoChipOpen, setNovoChipOpen] = useState(false)
-  const [novoChip, setNovoChip] = useState({
-    iccid:'', telefone:'', status:'Ativo', operadora:'', fornecedor:'',
-    apn:'', apnUser:'', apnPass:'', obs:''
-  })
+export default function Devices() {
+  const [tab, setTab] = useState("lista");
+  const [devices, setDevices] = useState([]);
+  const [models, setModels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [savingDevice, setSavingDevice] = useState(false);
+  const [savingModel, setSavingModel] = useState(false);
 
-  const [veicSel, setVeicSel] = useState('')          // veículo escolhido
-  const [novoVeicOpen, setNovoVeicOpen] = useState(false)
-  const [novoVeic, setNovoVeic] = useState({ placa:'', vin:'', marca:'', modelo:'' })
+  const [deviceForm, setDeviceForm] = useState({ name: "", uniqueId: "", modelId: "" });
+  const [modelForm, setModelForm] = useState({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
 
-  // cadastro em massa
-  const [bulk, setBulk] = useState({ prefixo:'25300', inicio:1, fim:100 })
-
-  const on = (k)=> (e)=> setF(s=>({...s, [k]: e.target.value }))
-  const onChip = (k)=> (e)=> setNovoChip(s=>({...s, [k]: e.target.value }))
-  const onVeic = (k)=> (e)=> setNovoVeic(s=>({...s, [k]: e.target.value }))
-  const onB = (k)=> (e)=> setBulk(s=>({...s, [k]: e.target.value }))
-
-  const salvar = ()=>{
-    const payload = { ...f, chip: chipSel || (novoChipOpen? novoChip : null), veiculo: veicSel || (novoVeicOpen? novoVeic : null) }
-    console.log('SALVAR_UNICO', payload) // TODO: POST real
-    setOpenNew(false)
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [deviceList, modelList] = await Promise.all([CoreApi.listDevices(), CoreApi.models()]);
+      setDevices(Array.isArray(deviceList) ? deviceList : []);
+      setModels(Array.isArray(modelList) ? modelList : []);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar dados"));
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const salvarMassa = ()=>{
-    const codigos = seqCodes(bulk.prefixo, Number(bulk.inicio), Number(bulk.fim))
-    const payload = codigos.map(code => ({ ...f, codigo: code }))
-    console.log('SALVAR_EM_MASSA', payload.length, payload[0], '...', payload.at(-1))
-    setOpenBulk(false)
+  useEffect(() => {
+    load();
+  }, []);
+
+  const modeloById = useMemo(() => {
+    const map = new Map();
+    models.forEach((model) => {
+      if (model?.id) {
+        map.set(model.id, model);
+      }
+    });
+    return map;
+  }, [models]);
+
+  async function handleCreateDevice(event) {
+    event.preventDefault();
+    if (!deviceForm.uniqueId.trim()) {
+      alert("Informe o IMEI / uniqueId");
+      return;
+    }
+    setSavingDevice(true);
+    try {
+      await CoreApi.createDevice({
+        name: deviceForm.name?.trim() || undefined,
+        uniqueId: deviceForm.uniqueId.trim(),
+        modelId: deviceForm.modelId || undefined,
+      });
+      await load();
+      setDeviceForm({ name: "", uniqueId: "", modelId: "" });
+      setTab("lista");
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao cadastrar equipamento");
+    } finally {
+      setSavingDevice(false);
+    }
+  }
+
+  function updateModelPort(index, key, value) {
+    setModelForm((current) => {
+      const ports = Array.isArray(current.ports) ? [...current.ports] : [];
+      ports[index] = { ...ports[index], [key]: value };
+      return { ...current, ports };
+    });
+  }
+
+  function addPort() {
+    setModelForm((current) => ({
+      ...current,
+      ports: [...(current.ports || []), { label: "", type: "digital" }],
+    }));
+  }
+
+  function removePort(index) {
+    setModelForm((current) => ({
+      ...current,
+      ports: (current.ports || []).filter((_, idx) => idx !== index),
+    }));
+  }
+
+  async function handleCreateModel(event) {
+    event.preventDefault();
+    if (!modelForm.name.trim() || !modelForm.brand.trim()) {
+      alert("Informe nome e fabricante");
+      return;
+    }
+    setSavingModel(true);
+    try {
+      await CoreApi.createModel({
+        name: modelForm.name.trim(),
+        brand: modelForm.brand.trim(),
+        protocol: modelForm.protocol?.trim() || undefined,
+        connectivity: modelForm.connectivity?.trim() || undefined,
+        ports: (modelForm.ports || [])
+          .map((port) => ({
+            label: port.label?.trim() || "Porta",
+            type: port.type?.trim() || "digital",
+          }))
+          .filter((port) => port.label),
+      });
+      await load();
+      setModelForm({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
+      setTab("modelos");
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao cadastrar modelo");
+    } finally {
+      setSavingModel(false);
+    }
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader
-        title="Equipamentos"
-        right={
-          <div className="flex gap-2">
-            <Button onClick={()=>setOpenBulk(true)}>+ Cadastro em massa</Button>
-            <Button onClick={()=>{setTab('Dados'); setOpenNew(true)}}>+ Novo equipamento</Button>
-          </div>
-        }
-      />
-
-      {/* filtros com rótulo embutido */}
-      <Field label="Filtros">
-        <div className="grid md:grid-cols-3 xl:grid-cols-6 gap-3">
-          <Input placeholder="Buscar dispositivo..." icon={Search}/>
-          <Input placeholder="Buscar endereço..." />
-          <Select><option>Instalados: Todos</option></Select>
-          <Select><option>Alocação: Estoque Euro</option></Select>
-          <Input placeholder="Cliente..." />
-          <Input placeholder="Técnico..." />
-        </div>
-        <div className="flex items-center gap-2 mt-3">
-          <Button>Limpar filtros</Button>
-          <Button>Atualizar</Button>
-        </div>
-      </Field>
-
-      {/* tabela com rótulo */}
-      <div className="mt-3">
-        <Field label="Equipamentos">
-          <Table head={['ID','Produto','IMEI','Versão','Serviço','Funcionalidade','Alocação','Endereço (último)','Garantia (até)','Status garantia','Atualizado em','Ações']} rows={[]}/>
-          <Pager />
-        </Field>
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setTab("lista")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "lista" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
+        >
+          Lista
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("cadastro")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "cadastro" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
+        >
+          Cadastro
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("modelos")}
+          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "modelos" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
+        >
+          Modelos & Portas
+        </button>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={load}
+          className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:bg-white/20"
+        >
+          Atualizar
+        </button>
       </div>
 
-      {/* MODAL: novo equipamento (com abas) */}
-      <Modal open={openNew} onClose={()=>setOpenNew(false)} title="Novo equipamento" width="max-w-6xl">
-        <Tabs tabs={['Dados','Vincular','Endereço','Histórico']} current={tab} onChange={setTab} />
+      {error && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          {error.message}
+        </div>
+      )}
 
-        {tab==='Dados' && (
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="grid gap-3">
-              <Select value={f.produto} onChange={on('produto')}><option value="">Produto *</option><option>ES-JAMMER</option><option>EURO-BLOCK V2</option><option>GT06</option><option>SUNTECH</option></Select>
-              <Input value={f.codigo} onChange={on('codigo')} placeholder="Código interno" />
-              <Input value={f.statusFunc} onChange={on('statusFunc')} placeholder="Status de funcionalidade" />
-              <Input value={f.modoReset} onChange={on('modoReset')} placeholder="Modo reset" />
-              <Input value={f.tempoPainel} onChange={on('tempoPainel')} placeholder="Tempo de bloqueio painel (s)" />
-            </div>
-            <div className="grid gap-3">
-              <Input value={f.imei} onChange={on('imei')} placeholder="IMEI * (ex.: 866512345678901)" />
-              <Input value={f.versao} onChange={on('versao')} placeholder="Versão" />
-              <Input value={f.statusServico} onChange={on('statusServico')} placeholder="Status de serviço" />
-              <Input value={f.modoBloqueio} onChange={on('modoBloqueio')} placeholder="Modo bloqueio" />
-              <Input value={f.jammerMs} onChange={on('jammerMs')} placeholder="Detecção por Jammer (ms)" />
-            </div>
-            <div className="grid gap-3">
-              <Input value={f.freq} onChange={on('freq')} placeholder="Frequência" />
-              <Input value={f.modoOficina} onChange={on('modoOficina')} placeholder="Modo oficina" />
-              <Input value={f.dtProducao} onChange={on('dtProducao')} placeholder="Data de produção (dd/mm/aaaa)" />
-              <textarea value={f.obs} onChange={(e)=>setF(s=>({...s,obs:e.target.value}))} rows={4} className="w-full bg-card/60 border border-stroke rounded-xl px-3 py-2" placeholder="Observação"/>
-            </div>
-            <div className="grid gap-3">
-              <Select value={f.garantiaBase} onChange={on('garantiaBase')}>
-                <option value="Instalação">Base da garantia: Instalação</option>
-                <option value="Venda">Base da garantia: Venda</option>
-              </Select>
-              <Input value={f.garantiaDias} onChange={on('garantiaDias')} placeholder="Dias de garantia" />
-              <Input value={f.garantiaInicio} onChange={on('garantiaInicio')} placeholder="Início da garantia (dd/mm/aaaa)" />
-              <Input value={f.destino} onChange={on('destino')} placeholder="Destino (Estoque/Cliente/Técnico)" />
-              <Input value={f.cliente} onChange={on('cliente')} placeholder="Cliente (opcional)" />
-              <Input value={f.tecnico} onChange={on('tecnico')} placeholder="Técnico (opcional)" />
-            </div>
+      {tab === "lista" && (
+        <div className="rounded-2xl border border-white/10 bg-white/5">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm text-white/80">
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
+                <tr>
+                  <th className="px-4 py-3 text-left">Nome</th>
+                  <th className="px-4 py-3 text-left">IMEI</th>
+                  <th className="px-4 py-3 text-left">Modelo</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Última comunicação</th>
+                  <th className="px-4 py-3 text-left">Veículo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {loading && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-center text-white/60">
+                      Carregando equipamentos…
+                    </td>
+                  </tr>
+                )}
+                {!loading && devices.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-6 text-center text-white/60">
+                      Nenhum equipamento cadastrado.
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  devices.map((device) => {
+                    const modelo = modeloById.get(device.modelId) || null;
+                    return (
+                      <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
+                        <td className="px-4 py-3 text-white">{device.name || "—"}</td>
+                        <td className="px-4 py-3">{device.uniqueId || "—"}</td>
+                        <td className="px-4 py-3">{device.modelName || modelo?.name || "—"}</td>
+                        <td className="px-4 py-3">{statusBadge(device)}</td>
+                        <td className="px-4 py-3">{formatDate(device.lastCommunication)}</td>
+                        <td className="px-4 py-3">{device.vehicle?.name || device.vehicle?.plate || "—"}</td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
+      )}
 
-        {tab==='Vincular' && (
-          <div className="grid md:grid-cols-2 gap-4">
-            <Field label="Chip">
-              <div className="grid md:grid-cols-2 gap-3">
-                <Input placeholder="Buscar ICCID/Telefone" onChange={(e)=>setChipSel(e.target.value)} />
-                <Button onClick={()=>setNovoChipOpen(v=>!v)}>{novoChipOpen?'Cancelar novo chip':'Cadastrar novo chip'}</Button>
-              </div>
-              {novoChipOpen && (
-                <div className="grid md:grid-cols-2 gap-3 mt-3">
-                  <Input placeholder="ICCID *" value={novoChip.iccid} onChange={onChip('iccid')}/>
-                  <Input placeholder="Telefone *" value={novoChip.telefone} onChange={onChip('telefone')}/>
-                  <Input placeholder="Status *" value={novoChip.status} onChange={onChip('status')}/>
-                  <Input placeholder="Operadora *" value={novoChip.operadora} onChange={onChip('operadora')}/>
-                  <Input placeholder="Fornecedor" value={novoChip.fornecedor} onChange={onChip('fornecedor')}/>
-                  <Input placeholder="APN" value={novoChip.apn} onChange={onChip('apn')}/>
-                  <Input placeholder="APN Usuário" value={novoChip.apnUser} onChange={onChip('apnUser')}/>
-                  <Input placeholder="APN Senha" value={novoChip.apnPass} onChange={onChip('apnPass')}/>
-                  <textarea placeholder="Observações" value={novoChip.obs} onChange={onChip('obs')} className="w-full bg-card/60 border border-stroke rounded-xl px-3 py-2 md:col-span-2" rows={3}/>
-                </div>
-              )}
-            </Field>
-
-            <Field label="Veículo">
-              <div className="grid md:grid-cols-2 gap-3">
-                <Input placeholder="Buscar por placa/VIN" onChange={(e)=>setVeicSel(e.target.value)} />
-                <Button onClick={()=>setNovoVeicOpen(v=>!v)}>{novoVeicOpen?'Cancelar novo veículo':'Cadastrar novo veículo'}</Button>
-              </div>
-              {novoVeicOpen && (
-                <div className="grid md:grid-cols-2 gap-3 mt-3">
-                  <Input placeholder="Placa *" value={novoVeic.placa} onChange={onVeic('placa')}/>
-                  <Input placeholder="VIN" value={novoVeic.vin} onChange={onVeic('vin')}/>
-                  <Input placeholder="Marca" value={novoVeic.marca} onChange={onVeic('marca')}/>
-                  <Input placeholder="Modelo" value={novoVeic.modelo} onChange={onVeic('modelo')}/>
-                </div>
-              )}
-            </Field>
+      {tab === "cadastro" && (
+        <form onSubmit={handleCreateDevice} className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 md:grid-cols-2">
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">Nome (opcional)</span>
+            <input
+              type="text"
+              value={deviceForm.name}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, name: event.target.value }))}
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: Rastreador Van 12"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">IMEI / uniqueId *</span>
+            <input
+              type="text"
+              required
+              value={deviceForm.uniqueId}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, uniqueId: event.target.value }))}
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: 866512345678901"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm md:col-span-2">
+            <span className="text-white/70">Modelo</span>
+            <select
+              value={deviceForm.modelId}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, modelId: event.target.value }))}
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="">— Selecione —</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} · {model.brand}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="md:col-span-2">
+            <button
+              type="submit"
+              disabled={savingDevice}
+              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/20 disabled:opacity-60"
+            >
+              {savingDevice ? "Salvando…" : "Cadastrar equipamento"}
+            </button>
           </div>
-        )}
+        </form>
+      )}
 
-        {tab==='Endereço' && <div className="legend-card"><div className="legend">Endereço</div><div className="mt-2 text-sm muted">Plugaremos mapa/geo aqui.</div></div>}
-        {tab==='Histórico' && <div className="legend-card"><div className="legend">Histórico</div><div className="mt-2 text-sm muted">Logs e alterações aparecerão aqui.</div></div>}
+      {tab === "modelos" && (
+        <div className="space-y-6">
+          <form onSubmit={handleCreateModel} className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 md:grid-cols-2">
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="text-white/70">Nome *</span>
+              <input
+                type="text"
+                value={modelForm.name}
+                onChange={(event) => setModelForm((current) => ({ ...current, name: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                placeholder="Ex.: TK-303"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="text-white/70">Fabricante *</span>
+              <input
+                type="text"
+                value={modelForm.brand}
+                onChange={(event) => setModelForm((current) => ({ ...current, brand: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                placeholder="Ex.: Queclink"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="text-white/70">Protocolo</span>
+              <input
+                type="text"
+                value={modelForm.protocol}
+                onChange={(event) => setModelForm((current) => ({ ...current, protocol: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                placeholder="Ex.: TK103"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm">
+              <span className="text-white/70">Conectividade</span>
+              <input
+                type="text"
+                value={modelForm.connectivity}
+                onChange={(event) => setModelForm((current) => ({ ...current, connectivity: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                placeholder="Ex.: GSM/GPRS"
+              />
+            </label>
 
-        <div className="mt-4 flex justify-end gap-2">
-          <Button onClick={()=>setOpenNew(false)}>Cancelar</Button>
-          <Button onClick={salvar}>Salvar</Button>
-        </div>
-      </Modal>
+            <div className="md:col-span-2 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-white">Portas</span>
+                <button
+                  type="button"
+                  onClick={addPort}
+                  className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
+                >
+                  + Adicionar porta
+                </button>
+              </div>
+              <div className="space-y-3">
+                {(modelForm.ports || []).map((port, index) => (
+                  <div key={`port-${index}`} className="grid gap-3 md:grid-cols-5">
+                    <div className="md:col-span-3">
+                      <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
+                        Nome
+                        <input
+                          type="text"
+                          value={port.label}
+                          onChange={(event) => updateModelPort(index, "label", event.target.value)}
+                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                          placeholder="Ex.: Ignição"
+                        />
+                      </label>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
+                        Tipo
+                        <select
+                          value={port.type}
+                          onChange={(event) => updateModelPort(index, "type", event.target.value)}
+                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                        >
+                          <option value="digital">Digital</option>
+                          <option value="analógica">Analógica</option>
+                          <option value="saida">Saída</option>
+                          <option value="entrada">Entrada</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="flex items-end justify-end">
+                      <button
+                        type="button"
+                        onClick={() => removePort(index)}
+                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
+                        disabled={(modelForm.ports || []).length <= 1}
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
 
-      {/* MODAL: cadastro em massa */}
-      <Modal open={openBulk} onClose={()=>setOpenBulk(false)} title="Cadastro em massa" width="max-w-3xl">
-        <div className="grid md:grid-cols-3 gap-3">
-          <Input value={bulk.prefixo} onChange={onB('prefixo')} placeholder="Prefixo numérico (ex.: 25300)"/>
-          <Input type="number" value={bulk.inicio} onChange={onB('inicio')} placeholder="Início (ex.: 1)"/>
-          <Input type="number" value={bulk.fim} onChange={onB('fim')} placeholder="Fim (ex.: 100)"/>
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                disabled={savingModel}
+                className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-60"
+              >
+                {savingModel ? "Salvando…" : "Salvar modelo"}
+              </button>
+            </div>
+          </form>
+
+          <ModelCards models={models} />
         </div>
-        <div className="text-sm muted mt-2">
-          Ex.: {bulk.prefixo}-{bulk.inicio}..{bulk.fim} ➜ {seqCodes(bulk.prefixo, Number(bulk.inicio), Number(bulk.fim)).slice(0,3).join(', ')}…
-        </div>
-        <div className="mt-4 flex justify-end gap-2">
-          <Button onClick={()=>setOpenBulk(false)}>Cancelar</Button>
-          <Button onClick={salvarMassa}>Cadastrar</Button>
-        </div>
-      </Modal>
+      )}
     </div>
-  )
+  );
 }
