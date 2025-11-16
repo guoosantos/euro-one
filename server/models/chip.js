@@ -1,18 +1,28 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+import { loadCollection, saveCollection } from "../services/storage.js";
+
+const STORAGE_KEY = "chips";
 const chips = new Map();
 const byIccid = new Map();
+
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(chips.values()));
+}
 
 function clone(record) {
   if (!record) return null;
   return { ...record };
 }
 
-function persist(record) {
+function persist(record, { skipSync = false } = {}) {
   chips.set(record.id, record);
   if (record.iccid) {
     byIccid.set(String(record.iccid).toLowerCase(), record);
+  }
+  if (!skipSync) {
+    syncStorage();
   }
   return clone(record);
 }
@@ -22,7 +32,14 @@ function remove(record) {
   if (record.iccid) {
     byIccid.delete(String(record.iccid).toLowerCase());
   }
+  syncStorage();
 }
+
+const persistedChips = loadCollection(STORAGE_KEY, []);
+persistedChips.forEach((record) => {
+  if (!record?.id) return;
+  persist({ ...record }, { skipSync: true });
+});
 
 export function listChips({ clientId } = {}) {
   const list = Array.from(chips.values());

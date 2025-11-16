@@ -1,12 +1,29 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+import { loadCollection, saveCollection } from "../services/storage.js";
+
+const STORAGE_KEY = "groups";
 const groups = new Map();
 
-function persistGroup(record) {
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(groups.values()));
+}
+
+function persistGroup(record, { skipSync = false } = {}) {
   groups.set(record.id, record);
+  if (!skipSync) {
+    syncStorage();
+  }
   return record;
 }
+
+const persistedGroups = loadCollection(STORAGE_KEY, []);
+persistedGroups.forEach((record) => {
+  if (record?.id) {
+    persistGroup({ ...record }, { skipSync: true });
+  }
+});
 
 export function listGroups({ clientId } = {}) {
   const collection = Array.from(groups.values());
@@ -71,6 +88,7 @@ export function updateGroup(id, updates = {}) {
     record.attributes = { ...record.attributes, ...updates.attributes };
   }
   record.updatedAt = new Date().toISOString();
+  persistGroup(record);
   return { ...record };
 }
 
@@ -80,6 +98,7 @@ export function deleteGroup(id) {
     throw createError(404, "Grupo não encontrado");
   }
   groups.delete(String(id));
+  syncStorage();
   return { ...record };
 }
 
@@ -90,4 +109,7 @@ export function deleteGroupsByClientId(clientId) {
   ids.forEach((groupId) => {
     groups.delete(groupId);
   });
+  if (ids.length) {
+    syncStorage();
+  }
 }

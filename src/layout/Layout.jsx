@@ -48,14 +48,15 @@ export default function Layout({ children, title, hideTitle = false }) {
         />
       )}
 
-      <aside
+      <div
+        role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
         className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         } ${sidebarWidthClass}`}
       >
         <Sidebar />
-      </aside>
+      </div>
 
       <div className="flex flex-1 flex-col">
         <Topbar title={title} />

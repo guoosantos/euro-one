@@ -49,9 +49,13 @@ function toRgba(color, alpha = 1) {
 }
 
 const linkClass = (collapsed) => ({ isActive }) =>
-  `flex items-center gap-2 px-3 py-2 rounded-xl transition ${
-    isActive ? "text-white font-semibold" : "text-white/60 hover:text-white"
-  } ${collapsed ? "justify-center" : ""}`;
+  `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
+    collapsed ? "justify-center" : "justify-start"
+  } ${
+    isActive
+      ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+      : "text-white/70 hover:bg-white/5 hover:text-white"
+  }`;
 
 const linkStyle = (accentColor) => ({ isActive }) =>
   isActive
@@ -63,7 +67,9 @@ const linkStyle = (accentColor) => ({ isActive }) =>
 
 const sectionTitle = (collapsed, text) =>
   collapsed ? null : (
-    <div className="mt-3 px-2 text-xs uppercase tracking-wide text-white/50">{text}</div>
+    <div className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-white/50" aria-hidden="true">
+      {text}
+    </div>
   );
 
 export default function Sidebar() {
@@ -81,21 +87,99 @@ export default function Sidebar() {
   const activeStyle = linkStyle(accentColor);
   const isAdmin = role === "admin";
   const canManageUsers = role === "admin" || role === "manager";
+  const labelVisibilityClass = collapsed ? "sr-only" : "flex-1 truncate";
+  const navLabelProps = (label) => ({ title: label, ...(collapsed ? { "aria-label": label } : {}) });
+
+  const primaryLinks = [
+    { to: "/home", label: "Home", icon: Home },
+    { to: "/monitoring", label: "Monitoramento", icon: MapPinned },
+    { to: "/trips", label: "Trajetos", icon: MapPinned },
+  ];
+
+  const deviceLinks = [
+    { to: "/devices", label: "Equipamentos", icon: Cpu },
+    { to: "/devices/chips", label: "Chips", icon: HardDrive },
+    { to: "/devices/products", label: "Produtos", icon: Boxes },
+    { to: "/devices/import", label: "Importar", icon: DownloadCloud },
+    { to: "/commands", label: "Comandos", icon: Terminal },
+    { to: "/devices/stock", label: "Estoque", icon: Map },
+  ];
+
+  const analyticsLinks = [
+    { to: "/ranking", label: "Ranking", icon: Medal },
+    { to: "/reports", label: "Relatórios", icon: BarChart3 },
+    { to: "/reports/route", label: "Rotas", icon: Route },
+    { to: "/reports/summary", label: "Resumo", icon: FileBarChart },
+    { to: "/reports/stops", label: "Paradas", icon: Navigation },
+  ];
+
+  const euroViewLinks = [
+    { to: "/events", label: "Eventos", icon: Video },
+    { to: "/videos", label: "Vídeos", icon: Camera },
+    { to: "/face", label: "Reconhecimento Facial", icon: Camera },
+    { to: "/live", label: "Live", icon: Radio },
+  ];
+
+  const fleetLinks = [
+    { to: "/vehicles", label: "Veículos", icon: Car },
+    { to: "/groups", label: "Grupos", icon: Layers },
+    { to: "/drivers", label: "Motoristas", icon: UserCog },
+    { to: "/documents", label: "Documentos", icon: FileText },
+    { to: "/services", label: "Serviços", icon: Wrench },
+    { to: "/deliveries", label: "Entregas", icon: Package },
+  ];
+
+  const adminLinks = [
+    ...(isAdmin ? [{ to: "/admin/clients", label: "Clientes", icon: Users }] : []),
+    ...(canManageUsers ? [{ to: "/admin/users", label: "Usuários", icon: User }] : []),
+    { to: "/geofences", label: "Cercas", icon: Map },
+  ];
+
+  const utilityLinks = [
+    { to: "/settings", label: "Configurações", icon: Settings },
+    { to: "/notifications", label: "Notificações", icon: Bell },
+  ];
+
+  const quickDeviceLinks = [
+    { to: "/devices", label: "Equipamentos", icon: Cpu },
+    { to: "/commands", label: "Comandos", icon: Terminal },
+  ];
+
+  const renderNavLink = (link) => (
+    <NavLink key={link.to} to={link.to} className={navLinkClass} style={activeStyle} {...navLabelProps(link.label)}>
+      <link.icon size={18} />
+      <span className={labelVisibilityClass}>{link.label}</span>
+    </NavLink>
+  );
+
+  const renderNestedLink = (link) => (
+    <NavLink key={link.to} to={link.to} className={nestedLinkClass} style={activeStyle} title={link.label}>
+      <link.icon size={18} />
+      <span>{link.label}</span>
+    </NavLink>
+  );
+
+  const renderCompactLink = (link) => (
+    <NavLink key={link.to} to={link.to} className={compactLinkClass} style={activeStyle} title={link.label}>
+      <link.icon size={18} />
+      <span className="sr-only">{link.label}</span>
+    </NavLink>
+  );
 
   return (
-    <div className="h-full bg-[#0f141c]">
-      <nav className="flex h-full flex-col gap-3 p-3">
+    <aside className="flex h-full flex-col overflow-hidden bg-[#0f141c]" aria-label="Menu principal">
+      <nav className="flex h-full flex-col gap-3 overflow-y-auto p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
           style={{ borderColor: tenant?.brandColor ? `${tenant.brandColor}33` : undefined }}
         >
-          <span className={`text-white font-semibold ${collapsed ? "hidden" : ""}`}>
+          <span className={`text-white font-semibold ${collapsed ? "hidden" : "truncate"}`}>
             {tenant?.name ?? "Euro One"}
           </span>
           <button
             type="button"
             aria-label="Alternar menu"
-            className="p-1 text-white/60 hover:text-white"
+            className="rounded-full p-1 text-white/60 transition hover:text-white"
             onClick={toggleCollapsed}
           >
             <Menu size={18} />
@@ -103,10 +187,10 @@ export default function Sidebar() {
         </div>
 
         <div className="rounded-xl border border-[#1f2430] bg-[#111827] p-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div
-                className="grid h-10 w-10 place-items-center rounded-full"
+                className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full"
                 style={{
                   backgroundColor: tenant?.brandColor ? `${tenant.brandColor}1a` : "#1f2937",
                   color: tenant?.brandColor ?? "#f8fafc",
@@ -117,7 +201,7 @@ export default function Sidebar() {
                 </span>
               </div>
               {!collapsed && (
-                <div>
+                <div className="min-w-0">
                   <div className="text-sm font-medium text-white">{tenant?.segment ?? "Operação"}</div>
                   <div className="-mt-0.5 text-xs text-[#9AA3B2]">Clientes premium</div>
                 </div>
@@ -126,22 +210,22 @@ export default function Sidebar() {
             {!collapsed && (
               <button
                 type="button"
+                className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/70 transition hover:border-white/40"
                 onClick={() => setOpenProfile((value) => !value)}
-                className="p-1 text-white/60 hover:text-white"
-                aria-label="Alternar conta"
+                aria-expanded={openProfile}
               >
-                {openProfile ? "−" : "+"}
+                {openProfile ? "Ocultar" : "Resumo"}
               </button>
             )}
           </div>
 
           {!collapsed && openProfile && (
             <div className="mt-3 space-y-2 text-sm">
-              <NavLink to="/account" className={linkClass(false)}>
+              <NavLink to="/account" className={nestedLinkClass} style={activeStyle} title="Perfil">
                 <User size={18} />
                 <span>Perfil</span>
               </NavLink>
-              <NavLink to="/settings" className={linkClass(false)}>
+              <NavLink to="/settings" className={nestedLinkClass} style={activeStyle} title="Configurações">
                 <Settings size={18} />
                 <span>Configurações</span>
               </NavLink>
@@ -149,215 +233,60 @@ export default function Sidebar() {
           )}
         </div>
 
-        <NavLink to="/home" className={navLinkClass} style={activeStyle} title="Home">
-          <Home size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Home</span>
-        </NavLink>
-
-        <NavLink to="/monitoring" className={navLinkClass} style={activeStyle} title="Monitoramento">
-          <MapPinned size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Monitoramento</span>
-        </NavLink>
-        <NavLink to="/trips" className={navLinkClass} style={activeStyle} title="Trajetos">
-          <MapPinned size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Trajetos</span>
-        </NavLink>
+        {primaryLinks.map(renderNavLink)}
 
         {!collapsed && (
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-white/60 hover:bg-[#151B24] hover:text-white"
+            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
             onClick={() => setOpenDisp((value) => !value)}
             aria-expanded={openDisp}
           >
             <span className="flex items-center gap-2">
-              <Cpu size={18} /> Dispositivos
+              <Cpu size={18} />
+              <span>Dispositivos</span>
             </span>
             <span className="text-xs">{openDisp ? "−" : "+"}</span>
           </button>
         )}
         {collapsed ? (
-          <div className="flex flex-col gap-2">
-            <NavLink to="/devices" className={compactLinkClass} style={activeStyle} title="Equipamentos">
-              <Cpu size={18} />
-              <span className="sr-only">Equipamentos</span>
-            </NavLink>
-            <NavLink to="/commands" className={compactLinkClass} style={activeStyle} title="Comandos">
-              <Terminal size={18} />
-              <span className="sr-only">Comandos</span>
-            </NavLink>
-          </div>
+          <div className="flex flex-col gap-2">{quickDeviceLinks.map(renderCompactLink)}</div>
         ) : (
-          openDisp && (
-            <div className="ml-3 space-y-2 text-sm">
-              <NavLink to="/devices" className={nestedLinkClass} style={activeStyle} title="Equipamentos">
-                <Cpu size={18} />
-                <span>Equipamentos</span>
-              </NavLink>
-              <NavLink to="/devices/chips" className={nestedLinkClass} style={activeStyle} title="Chips">
-                <HardDrive size={18} />
-                <span>Chips</span>
-              </NavLink>
-              <NavLink
-                to="/devices/products"
-                className={nestedLinkClass}
-                style={activeStyle}
-                title="Modelos"
-              >
-                <Boxes size={18} />
-                <span>Produtos</span>
-              </NavLink>
-              <NavLink to="/devices/import" className={nestedLinkClass} style={activeStyle} title="Importação">
-                <DownloadCloud size={18} />
-                <span>Importar</span>
-              </NavLink>
-              <NavLink to="/commands" className={nestedLinkClass} style={activeStyle} title="Comandos">
-                <Terminal size={18} />
-                <span>Comandos</span>
-              </NavLink>
-              <NavLink to="/devices/stock" className={nestedLinkClass} style={activeStyle} title="Estoque">
-                <Map size={18} />
-                <span>Estoque</span>
-              </NavLink>
-            </div>
-          )
+          openDisp && <div className="ml-3 space-y-2 text-sm">{deviceLinks.map(renderNestedLink)}</div>
         )}
 
         {sectionTitle(collapsed, "Euro View")}
-        <NavLink to="/events" className={navLinkClass} style={activeStyle} title="Eventos">
-          <Video size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Eventos</span>
-        </NavLink>
-        <NavLink to="/videos" className={navLinkClass} style={activeStyle} title="Vídeos">
-          <Camera size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Vídeos</span>
-        </NavLink>
-        <NavLink to="/face" className={navLinkClass} style={activeStyle} title="Reconhecimento facial">
-          <Camera size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Reconhecimento Facial</span>
-        </NavLink>
-        <NavLink to="/live" className={navLinkClass} style={activeStyle} title="Live">
-          <Radio size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Live</span>
-        </NavLink>
+        {euroViewLinks.map(renderNavLink)}
 
         {sectionTitle(collapsed, "Frotas")}
-        <NavLink to="/vehicles" className={navLinkClass} style={activeStyle} title="Veículos">
-          <Car size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Veículos</span>
-        </NavLink>
-        <NavLink to="/groups" className={navLinkClass} style={activeStyle} title="Grupos">
-          <Layers size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Grupos</span>
-        </NavLink>
-        <NavLink to="/drivers" className={navLinkClass} style={activeStyle} title="Motoristas">
-          <UserCog size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Motoristas</span>
-        </NavLink>
-        <NavLink to="/documents" className={navLinkClass} style={activeStyle} title="Documentos">
-          <FileText size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Documentos</span>
-        </NavLink>
-        <NavLink to="/services" className={navLinkClass} style={activeStyle} title="Serviços">
-          <Wrench size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Serviços</span>
-        </NavLink>
-        <NavLink to="/deliveries" className={navLinkClass} style={activeStyle} title="Entregas">
-          <Package size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Entregas</span>
-        </NavLink>
+        {fleetLinks.map(renderNavLink)}
 
         {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
-        {isAdmin && (
-          <NavLink to="/admin/clients" className={navLinkClass} style={activeStyle} title="Clientes">
-            <Users size={18} />
-            <span className={collapsed ? "sr-only" : ""}>Clientes</span>
-          </NavLink>
-        )}
-        {canManageUsers && (
-          <NavLink to="/admin/users" className={navLinkClass} style={activeStyle} title="Usuários">
-            <User size={18} />
-            <span className={collapsed ? "sr-only" : ""}>Usuários</span>
-          </NavLink>
-        )}
-        <NavLink to="/geofences" className={navLinkClass} style={activeStyle} title="Cercas">
-          <Map size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Cercas</span>
-        </NavLink>
+        {adminLinks.map(renderNavLink)}
 
         {!collapsed && (
           <button
             type="button"
-            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-white/60 hover:bg-[#151B24] hover:text-white"
+            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
             onClick={() => setOpenAnalytics((value) => !value)}
             aria-expanded={openAnalytics}
           >
             <span className="flex items-center gap-2">
-              <BarChart3 size={18} /> Analytics
+              <BarChart3 size={18} />
+              <span>Analytics</span>
             </span>
             <span className="text-xs">{openAnalytics ? "−" : "+"}</span>
           </button>
         )}
         {collapsed ? (
-          <div className="flex flex-col gap-2">
-            <NavLink to="/ranking" className={compactLinkClass} style={activeStyle} title="Ranking">
-              <Medal size={18} />
-              <span className="sr-only">Ranking</span>
-            </NavLink>
-            <NavLink to="/reports" className={compactLinkClass} style={activeStyle} title="Relatórios">
-              <BarChart3 size={18} />
-              <span className="sr-only">Relatórios</span>
-            </NavLink>
-            <NavLink to="/reports/route" className={compactLinkClass} style={activeStyle} title="Rotas">
-              <Route size={18} />
-              <span className="sr-only">Rotas</span>
-            </NavLink>
-            <NavLink to="/reports/summary" className={compactLinkClass} style={activeStyle} title="Resumo">
-              <FileBarChart size={18} />
-              <span className="sr-only">Resumo</span>
-            </NavLink>
-            <NavLink to="/reports/stops" className={compactLinkClass} style={activeStyle} title="Paradas">
-              <Navigation size={18} />
-              <span className="sr-only">Paradas</span>
-            </NavLink>
-          </div>
+          <div className="flex flex-col gap-2">{analyticsLinks.map(renderCompactLink)}</div>
         ) : (
-          openAnalytics && (
-            <div className="ml-3 space-y-2 text-sm">
-              <NavLink to="/ranking" className={nestedLinkClass} style={activeStyle} title="Ranking">
-                <Medal size={18} />
-                <span>Ranking</span>
-              </NavLink>
-              <NavLink to="/reports" className={nestedLinkClass} style={activeStyle} title="Relatórios">
-                <BarChart3 size={18} />
-                <span>Relatórios</span>
-              </NavLink>
-              <NavLink to="/reports/route" className={nestedLinkClass} style={activeStyle} title="Rotas">
-                <Route size={18} />
-                <span>Rotas</span>
-              </NavLink>
-              <NavLink to="/reports/summary" className={nestedLinkClass} style={activeStyle} title="Resumo">
-                <FileBarChart size={18} />
-                <span>Resumo</span>
-              </NavLink>
-              <NavLink to="/reports/stops" className={nestedLinkClass} style={activeStyle} title="Paradas">
-                <Navigation size={18} />
-                <span>Paradas</span>
-              </NavLink>
-            </div>
-          )
+          openAnalytics && <div className="ml-3 space-y-2 text-sm">{analyticsLinks.map(renderNestedLink)}</div>
         )}
 
         {sectionTitle(collapsed, "Admin")}
-        <NavLink to="/settings" className={navLinkClass} style={activeStyle} title="Configurações">
-          <Settings size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Configurações</span>
-        </NavLink>
-        <NavLink to="/notifications" className={navLinkClass} style={activeStyle} title="Notificações">
-          <Bell size={18} />
-          <span className={collapsed ? "sr-only" : ""}>Notificações</span>
-        </NavLink>
+        {utilityLinks.map(renderNavLink)}
       </nav>
-    </div>
+    </aside>
   );
 }

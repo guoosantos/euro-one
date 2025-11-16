@@ -2,12 +2,18 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { hashPassword, sanitizeUser, verifyPassword } from "../utils/password.js";
+import { loadCollection, saveCollection } from "../services/storage.js";
 
 const VALID_ROLES = new Set(["admin", "manager", "user"]);
 
+const STORAGE_KEY = "users";
 const users = new Map();
 const emailIndex = new Map();
 const usernameIndex = new Map();
+
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(users.values()));
+}
 
 function normaliseEmail(email) {
   if (!email) return null;
@@ -26,7 +32,7 @@ function assertRole(role) {
   return role;
 }
 
-function persistUser(record) {
+function persistUser(record, { skipSync = false } = {}) {
   users.set(record.id, record);
   if (record.emailNormalized) {
     emailIndex.set(record.emailNormalized, record.id);
@@ -34,10 +40,13 @@ function persistUser(record) {
   if (record.usernameNormalized) {
     usernameIndex.set(record.usernameNormalized, record.id);
   }
+  if (!skipSync) {
+    syncStorage();
+  }
   return record;
 }
 
-function unpersistUser(record) {
+function unpersistUser(record, { skipSync = false } = {}) {
   users.delete(record.id);
   if (record.emailNormalized) {
     emailIndex.delete(record.emailNormalized);
@@ -45,7 +54,18 @@ function unpersistUser(record) {
   if (record.usernameNormalized) {
     usernameIndex.delete(record.usernameNormalized);
   }
+  if (!skipSync) {
+    syncStorage();
+  }
 }
+
+const persistedUsers = loadCollection(STORAGE_KEY, []);
+persistedUsers.forEach((record) => {
+  if (!record?.id) {
+    return;
+  }
+  persistUser({ ...record }, { skipSync: true });
+});
 
 async function seedDefaultAdmin() {
   const existing = findByEmail("admin@euro.one") || findByUsername("admin");
@@ -233,6 +253,7 @@ export async function updateUser(id, updates = {}) {
   }
 
   record.updatedAt = new Date().toISOString();
+  persistUser(record);
   return sanitizeUser(record);
 }
 
