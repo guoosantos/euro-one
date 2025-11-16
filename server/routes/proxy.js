@@ -3,6 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { listDevices } from "../models/device.js";
+import { getClientById } from "../models/client.js";
 import { traccarProxy, traccarRequest } from "../services/traccar.js";
 
 const router = express.Router();
@@ -52,15 +53,29 @@ function extractDeviceIds(source = {}) {
   return values;
 }
 
-function enforceDeviceFilterInQuery(req) {
+function assignDeviceScope(target, allowed, { preferArray = false } = {}) {
+  if (preferArray) {
+    const list = allowed.map((value) => {
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : String(value);
+    });
+    target.deviceIds = list;
+    target.deviceId = list;
+  } else {
+    target.deviceIds = allowed.join(",");
+    target.deviceId = allowed;
+  }
+}
+
+function enforceDeviceFilterInQuery(req, target = req.query) {
   const allowed = resolveAllowedDeviceIds(req);
   if (!allowed) {
     return;
   }
-  const requested = extractDeviceIds(req.query || {});
+  const params = target || (req.query = {});
+  const requested = extractDeviceIds(params);
   if (!requested.length) {
-    req.query.deviceIds = allowed.join(",");
-    req.query.deviceId = allowed;
+    assignDeviceScope(params, allowed, { preferArray: false });
     return;
   }
   const invalid = requested.some((value) => !allowed.includes(String(value)));
@@ -69,26 +84,63 @@ function enforceDeviceFilterInQuery(req) {
   }
 }
 
-function enforceDeviceFilterInBody(req) {
+function enforceDeviceFilterInBody(req, target = req.body) {
   const allowed = resolveAllowedDeviceIds(req);
   if (!allowed) {
     return;
   }
-  const requested = extractDeviceIds(req.body || {});
+  const body = target || (req.body = {});
+  const requested = extractDeviceIds(body);
   if (!requested.length) {
-    throw createError(400, "deviceId é obrigatório");
+    assignDeviceScope(body, allowed, { preferArray: true });
+    return;
   }
   const invalid = requested.some((value) => !allowed.includes(String(value)));
   if (invalid) {
     throw createError(403, "Dispositivo não autorizado para este cliente");
+  }
+}
+
+function resolveClientGroupId(req) {
+  if (req.user?.role === "admin") {
+    return null;
+  }
+  const clientId = req.user?.clientId;
+  if (!clientId) {
+    return null;
+  }
+  const client = getClientById(clientId);
+  return client?.attributes?.traccarGroupId ?? null;
+}
+
+function enforceClientGroupInQuery(req, target = req.query) {
+  const groupId = resolveClientGroupId(req);
+  if (!groupId) {
+    return;
+  }
+  const params = target || (req.query = {});
+  if (params.groupId === undefined && params.groupIds === undefined) {
+    params.groupId = groupId;
+  }
+}
+
+function enforceClientGroupInBody(req, target = req.body) {
+  const groupId = resolveClientGroupId(req);
+  if (!groupId) {
+    return;
+  }
+  const body = target || (req.body = {});
+  if (body.groupId === undefined && body.groupIds === undefined) {
+    body.groupId = groupId;
   }
 }
 
 async function proxyTraccarReport(req, res, next, path) {
   try {
-    enforceDeviceFilterInQuery(req);
-    const format = String(req.query?.format || "").toLowerCase();
-    const params = { ...req.query };
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const format = String(params?.format || "").toLowerCase();
     if (format === "csv") {
       const response = await traccarRequest(
         {
@@ -163,8 +215,10 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/positions", async (req, res, next) => {
   try {
-    enforceDeviceFilterInQuery(req);
-    const data = await traccarProxy("get", "/positions", { params: req.query, asAdmin: true });
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/positions", { params, asAdmin: true });
     res.json(data);
   } catch (error) {
     next(error);
@@ -173,8 +227,10 @@ router.get("/positions", async (req, res, next) => {
 
 router.get("/positions/last", async (req, res, next) => {
   try {
-    enforceDeviceFilterInQuery(req);
-    const data = await traccarProxy("get", "/positions/last", { params: req.query, asAdmin: true });
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/positions/last", { params, asAdmin: true });
     res.json(data);
   } catch (error) {
     next(error);
@@ -183,8 +239,10 @@ router.get("/positions/last", async (req, res, next) => {
 
 router.get("/events", async (req, res, next) => {
   try {
-    enforceDeviceFilterInQuery(req);
-    const data = await traccarProxy("get", "/events", { params: req.query, asAdmin: true });
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/events", { params, asAdmin: true });
     res.json(data);
   } catch (error) {
     next(error);
@@ -265,8 +323,10 @@ router.delete("/drivers/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/commands", async (req, res, next) => {
   try {
-    enforceDeviceFilterInQuery(req);
-    const data = await traccarProxy("get", "/commands", { params: req.query, asAdmin: true });
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/commands", { params, asAdmin: true });
     res.json(data);
   } catch (error) {
     next(error);
@@ -440,6 +500,7 @@ router.post("/permissions", requireRole("manager", "admin"), async (req, res, ne
 router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     enforceDeviceFilterInBody(req);
+    enforceClientGroupInBody(req);
     const format = req.body?.format;
     const response = await traccarRequest(
       {

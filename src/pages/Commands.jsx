@@ -76,6 +76,51 @@ export default function Commands() {
 
   const selectedTemplate =
     typeOption === MANUAL_TYPE ? null : COMMAND_TEMPLATES.find((item) => item.type === typeOption) || null;
+  const selectedFields = selectedTemplate?.fields ?? [];
+
+  const templateAttributes = useMemo(() => {
+    if (!selectedTemplate) return {};
+    return selectedFields.reduce((acc, field) => {
+      const value = fieldValues[field.name];
+      if (value === undefined || value === "") {
+        return acc;
+      }
+      if (field.type === "number") {
+        const numericValue = Number(value);
+        acc[field.name] = Number.isNaN(numericValue) ? value : numericValue;
+      } else {
+        acc[field.name] = value;
+      }
+      return acc;
+    }, {});
+  }, [fieldValues, selectedTemplate]);
+
+  const parsedAdvanced = useMemo(() => {
+    if (!advancedJson.trim()) {
+      return { data: {}, error: null };
+    }
+    try {
+      return { data: JSON.parse(advancedJson), error: null };
+    } catch (_parseError) {
+      return { data: {}, error: "JSON inválido" };
+    }
+  }, [advancedJson]);
+
+  const previewAttributes = useMemo(
+    () => ({ ...templateAttributes, ...(showAdvanced ? parsedAdvanced.data : {}) }),
+    [parsedAdvanced.data, showAdvanced, templateAttributes],
+  );
+  const previewJson = useMemo(() => JSON.stringify(previewAttributes, null, 2), [previewAttributes]);
+
+  function applyTemplate(value) {
+    setTypeOption(value);
+    if (value === MANUAL_TYPE) {
+      setFieldValues({});
+      return;
+    }
+    const template = COMMAND_TEMPLATES.find((item) => item.type === value);
+    setFieldValues(buildFieldDefaults(template));
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -85,35 +130,14 @@ export default function Commands() {
       setFormError(new Error("Selecione o dispositivo e o tipo do comando"));
       return;
     }
-    const templateAttributes = {};
-    (selectedTemplate?.fields || []).forEach((field) => {
-      const value = fieldValues[field.name];
-      if (value === undefined || value === "") return;
-      if (field.type === "number") {
-        const numericValue = Number(value);
-        if (Number.isNaN(numericValue)) {
-          templateAttributes[field.name] = value;
-        } else {
-          templateAttributes[field.name] = numericValue;
-        }
-      } else {
-        templateAttributes[field.name] = value;
-      }
-    });
-
-    let parsedAttributes = templateAttributes;
-    if (showAdvanced && advancedJson.trim()) {
-      try {
-        const advanced = JSON.parse(advancedJson);
-        parsedAttributes = { ...templateAttributes, ...advanced };
-      } catch (_parseError) {
-        setFormError(new Error("Atributos devem ser um JSON válido"));
-        return;
-      }
+    if (showAdvanced && parsedAdvanced.error) {
+      setFormError(new Error("Corrija o JSON avançado antes de enviar"));
+      return;
     }
+    const mergedAttributes = showAdvanced ? previewAttributes : templateAttributes;
     setSending(true);
     try {
-      await sendCommand({ deviceId, type: resolvedType, attributes: parsedAttributes });
+      await sendCommand({ deviceId, type: resolvedType, attributes: mergedAttributes });
       reload();
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError : new Error("Erro ao enviar comando"));
@@ -165,16 +189,7 @@ export default function Commands() {
               <span className="block text-xs uppercase tracking-wide opacity-60">Tipo</span>
               <select
                 value={typeOption}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setTypeOption(value);
-                  if (value === MANUAL_TYPE) {
-                    setFieldValues({});
-                    return;
-                  }
-                  const template = COMMAND_TEMPLATES.find((item) => item.type === value);
-                  setFieldValues(buildFieldDefaults(template));
-                }}
+                onChange={(event) => applyTemplate(event.target.value)}
                 className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2"
               >
                 {COMMAND_TEMPLATES.map((template) => (
@@ -199,6 +214,28 @@ export default function Commands() {
             )}
           </div>
 
+          <div className="space-y-2">
+            <span className="text-xs uppercase tracking-wide text-white/60">Atalhos de comandos</span>
+            <div className="grid gap-3 md:grid-cols-2">
+              {COMMAND_TEMPLATES.map((template) => (
+                <button
+                  key={template.type}
+                  type="button"
+                  onClick={() => applyTemplate(template.type)}
+                  aria-pressed={typeOption === template.type}
+                  className={`rounded-2xl border px-4 py-3 text-left text-sm transition focus:outline-none focus:ring-2 focus:ring-white/40 ${
+                    typeOption === template.type
+                      ? "border-primary/60 bg-primary/10 text-white"
+                      : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
+                  }`}
+                >
+                  <div className="text-white font-semibold">{template.label}</div>
+                  <p className="mt-1 text-xs text-white/60">{template.description}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
           {selectedTemplate && (
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -206,14 +243,14 @@ export default function Commands() {
                   <div className="text-white font-semibold">{selectedTemplate.label}</div>
                   <p className="text-xs text-white/60">{selectedTemplate.description}</p>
                 </div>
-                {selectedTemplate.fields.length === 0 && (
+                {selectedFields.length === 0 && (
                   <span className="text-xs text-white/50">Nenhum parâmetro adicional obrigatório.</span>
                 )}
               </div>
 
-              {selectedTemplate.fields.length > 0 && (
+              {selectedFields.length > 0 && (
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
-                  {selectedTemplate.fields.map((field) => (
+                  {selectedFields.map((field) => (
                     <label key={field.name} className="text-xs uppercase tracking-wide text-white/60">
                       {field.label}
                       <input
@@ -250,10 +287,27 @@ export default function Commands() {
                 value={advancedJson}
                 onChange={(event) => setAdvancedJson(event.target.value)}
                 rows={4}
-                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
+                className={`mt-1 w-full rounded-xl border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none ${
+                  parsedAdvanced.error ? "border-red-500/60" : "border-border"
+                }`}
               />
+              {parsedAdvanced.error && (
+                <span className="mt-1 block text-xs text-red-300">{parsedAdvanced.error}</span>
+              )}
             </label>
           )}
+
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+            <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/60">
+              <span>Pré-visualização do payload</span>
+              <code className="text-white/80">
+                {typeOption === MANUAL_TYPE ? manualType || "manual" : selectedTemplate?.type || "—"}
+              </code>
+            </div>
+            <pre className="mt-3 max-h-48 overflow-auto rounded-xl bg-black/40 p-3 text-xs text-white/80">
+              {previewJson}
+            </pre>
+          </div>
 
           <div className="flex flex-wrap items-center gap-3">
             <Button type="submit" disabled={sending}>

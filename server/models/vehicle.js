@@ -1,18 +1,28 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+import { loadCollection, saveCollection } from "../services/storage.js";
+
+const STORAGE_KEY = "vehicles";
 const vehicles = new Map();
 const byPlate = new Map();
+
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(vehicles.values()));
+}
 
 function clone(record) {
   if (!record) return null;
   return { ...record };
 }
 
-function persist(record) {
+function persist(record, { skipSync = false } = {}) {
   vehicles.set(record.id, record);
   if (record.plate) {
     byPlate.set(`${record.clientId}:${record.plate.toLowerCase()}`, record);
+  }
+  if (!skipSync) {
+    syncStorage();
   }
   return clone(record);
 }
@@ -22,7 +32,14 @@ function remove(record) {
   if (record.plate) {
     byPlate.delete(`${record.clientId}:${record.plate.toLowerCase()}`);
   }
+  syncStorage();
 }
+
+const persistedVehicles = loadCollection(STORAGE_KEY, []);
+persistedVehicles.forEach((record) => {
+  if (!record?.id) return;
+  persist({ ...record }, { skipSync: true });
+});
 
 export function listVehicles({ clientId } = {}) {
   const list = Array.from(vehicles.values());

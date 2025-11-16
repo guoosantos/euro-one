@@ -1,22 +1,32 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+import { loadCollection, saveCollection } from "../services/storage.js";
+
+const STORAGE_KEY = "devices";
 const devices = new Map();
 const byUniqueId = new Map();
 const byTraccarId = new Map();
+
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(devices.values()));
+}
 
 function clone(record) {
   if (!record) return null;
   return { ...record };
 }
 
-function persist(record) {
+function persist(record, { skipSync = false } = {}) {
   devices.set(record.id, record);
   if (record.uniqueId) {
     byUniqueId.set(String(record.uniqueId).toLowerCase(), record);
   }
   if (record.traccarId) {
     byTraccarId.set(String(record.traccarId), record);
+  }
+  if (!skipSync) {
+    syncStorage();
   }
   return clone(record);
 }
@@ -30,6 +40,12 @@ function removeIndexes(record) {
     byTraccarId.delete(String(record.traccarId));
   }
 }
+
+const persistedDevices = loadCollection(STORAGE_KEY, []);
+persistedDevices.forEach((record) => {
+  if (!record?.id) return;
+  persist({ ...record }, { skipSync: true });
+});
 
 export function listDevices({ clientId } = {}) {
   const list = Array.from(devices.values());
@@ -129,6 +145,7 @@ export function deleteDevice(id) {
   }
   devices.delete(String(id));
   removeIndexes(record);
+  syncStorage();
   return clone(record);
 }
 

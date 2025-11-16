@@ -32,6 +32,26 @@ function buildTraccarSocketUrl() {
   return `${base}/api/socket`;
 }
 
+function buildTraccarSocketHeaders() {
+  const headers = { ...getTraccarAdminHeaders() };
+  if (!headers.Authorization) {
+    const { adminToken, adminUser, adminPassword } = config.traccar;
+    if (adminToken && typeof adminToken === "string" && adminToken.startsWith("Bearer")) {
+      headers.Authorization = adminToken;
+    } else if (adminUser && adminPassword) {
+      const basic = Buffer.from(`${adminUser}:${adminPassword}`).toString("base64");
+      headers.Authorization = `Basic ${basic}`;
+    }
+  }
+  try {
+    const origin = new URL(config.traccar.baseUrl);
+    headers.Origin = `${origin.protocol}//${origin.host}`;
+  } catch (_error) {
+    headers.Origin = config.traccar.baseUrl;
+  }
+  return headers;
+}
+
 function decodeClientToken(request) {
   try {
     const origin = request.headers.host || "localhost";
@@ -270,7 +290,7 @@ function broadcast(message) {
     if (client.socket.destroyed) continue;
     try {
       const { user } = client;
-      if (!user || !user.clientId || user.role === "admin") {
+      if (!user || user.role === "admin") {
         sendFrame(client.socket, stringPayload);
         continue;
       }
@@ -306,22 +326,25 @@ function connectToTraccar(connectFn) {
   isConnecting = true;
   try {
     const url = buildTraccarSocketUrl();
-    const headers = getTraccarAdminHeaders();
-    console.info(`[Traccar WS] Conectando em ${url}...`);
-    const socket = new WebSocket(url, undefined, { headers });
+    const headers = buildTraccarSocketHeaders();
+    const authDescriptor = headers.Cookie ? "cookie" : headers.Authorization ? "authorization" : "sem credencial";
+    console.info(`[Traccar WS] Conectando em ${url} usando ${authDescriptor}...`);
+    const socket = new WebSocket(url, ["traccar"], { headers });
     traccarSocket = socket;
 
     socket.onopen = () => {
       isConnecting = false;
-      console.info("[Traccar WS] Conectado ao stream em tempo real.");
+      console.info("[Traccar WS] Conectado ao stream em tempo real (readyState=%s).", socket.readyState);
     };
 
     socket.onmessage = (event) => {
       broadcast(event.data);
     };
 
-    socket.onerror = (error) => {
-      console.error("[Traccar WS] Erro na conexão com o Traccar", error?.message || error);
+    socket.onerror = (event) => {
+      const error = event?.error || event;
+      const message = error?.message || event?.message || "Erro desconhecido";
+      console.error("[Traccar WS] Erro na conexão com o Traccar", message);
       socket.close();
     };
 
@@ -330,6 +353,7 @@ function connectToTraccar(connectFn) {
         "[Traccar WS] Conexão encerrada",
         typeof event?.code === "number" ? `code=${event.code}` : "",
         event?.reason ? `reason=${event.reason}` : "",
+        typeof event?.wasClean === "boolean" ? `clean=${event.wasClean}` : "",
       );
       traccarSocket = null;
       isConnecting = false;
@@ -356,6 +380,11 @@ export function startTraccarSocketService(server) {
     const user = decodeClientToken(request);
     if (!user) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    if (user.role !== "admin" && !user.clientId) {
+      socket.write("HTTP/1.1 403 Forbidden\r\n\r\n");
       socket.destroy();
       return;
     }

@@ -1,7 +1,14 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+import { loadCollection, saveCollection } from "../services/storage.js";
+
+const STORAGE_KEY = "models";
 const models = new Map();
+
+function syncStorage() {
+  saveCollection(STORAGE_KEY, Array.from(models.values()));
+}
 
 function clone(record) {
   if (!record) return null;
@@ -28,10 +35,19 @@ function normalisePort(port, index) {
   };
 }
 
-function store(record) {
+function store(record, { skipSync = false } = {}) {
   models.set(record.id, record);
+  if (!skipSync) {
+    syncStorage();
+  }
   return clone(record);
 }
+
+const persistedModels = loadCollection(STORAGE_KEY, []);
+persistedModels.forEach((record) => {
+  if (!record?.id) return;
+  store({ ...record }, { skipSync: true });
+});
 
 export function listModels({ clientId, includeGlobal = true } = {}) {
   return Array.from(models.values())
@@ -126,6 +142,7 @@ export function deleteModel(id) {
   if (!exists) {
     throw createError(404, "Modelo não encontrado");
   }
+  syncStorage();
 }
 
 export default {
