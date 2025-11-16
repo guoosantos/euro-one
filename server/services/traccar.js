@@ -6,6 +6,8 @@ import { config } from "../config.js";
 // Garante que nunca termina com / e sempre aponta para /api
 const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
 
+let adminSessionCookie = null;
+
 /**
  * Normaliza um token de admin do Traccar.
  * Aceita:
@@ -41,6 +43,13 @@ function encodeBasic(user, password) {
   return Buffer.from(`${user}:${password}`).toString("base64");
 }
 
+function storeAdminSession(session) {
+  adminSessionCookie = session || null;
+  if (session) {
+    config.traccar.adminToken = `session:${session}`;
+  }
+}
+
 /**
  * Headers padrão para chamadas como administrador.
  * Preferência:
@@ -48,10 +57,15 @@ function encodeBasic(user, password) {
  *  2. Se não tiver token, usa Basic com adminUser/adminPassword
  */
 function resolveAdminHeaders() {
+  if (adminSessionCookie) {
+    return { Cookie: `JSESSIONID=${adminSessionCookie}` };
+  }
+
   const token = normaliseAdminToken(config.traccar.adminToken);
   if (token) {
     if (token.startsWith("session:")) {
       const sessionId = token.split(":")[1];
+      storeAdminSession(sessionId);
       return { Cookie: `JSESSIONID=${sessionId}` };
     }
     return { Authorization: token };
@@ -70,6 +84,7 @@ function resolveAdminHeaders() {
  */
 function storeAdminToken({ session, token }) {
   if (session) {
+    storeAdminSession(session);
     config.traccar.adminToken = `session:${session}`;
     return;
   }
@@ -101,6 +116,10 @@ export function resolveUserHeaders(context) {
   }
 
   return null;
+}
+
+export function getAdminSessionCookie() {
+  return adminSessionCookie;
 }
 
 /**
@@ -165,14 +184,16 @@ export function getTraccarAdminHeaders() {
  * porque usamos Basic Auth diretamente.
  */
 export async function loginTraccar(email, password) {
-  const response = await axios.post(
-    `${BASE_URL}/session`,
-    { email, password },
-    {
-      // não jogar exception automática em 4xx, vamos tratar na mão
-      validateStatus: (status) => status >= 200 && status < 500,
+  const response = await axios({
+    method: "POST",
+    url: `${BASE_URL}/session`,
+    data: new URLSearchParams({ email, password }),
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-  );
+    // não jogar exception automática em 4xx, vamos tratar na mão
+    validateStatus: (status) => status >= 200 && status < 500,
+  });
 
   if (response.status >= 400) {
     throw createError(response.status, response.data?.message || "Credenciais inválidas no Traccar");
@@ -216,8 +237,8 @@ export async function traccarProxy(
 
 /**
  * Inicializa uma sessão/admin "testando" a conexão.
- * Aqui NÃO tentamos mais logar via /session.
- * Apenas fazemos um GET em /server com Basic Auth (igual ao seu curl).
+ * Tenta criar sessão via /api/session (cookie) e, em último caso,
+ * valida conexão usando as credenciais configuradas.
  */
 export async function initializeTraccarAdminSession() {
   const { adminUser, adminPassword, adminToken } = config.traccar;
@@ -229,8 +250,15 @@ export async function initializeTraccarAdminSession() {
 
   if (adminUser && adminPassword) {
     try {
+      storeAdminSession(null);
       const auth = await loginTraccar(adminUser, adminPassword);
       storeAdminToken(auth);
+
+      if (auth.session) {
+        console.log("Sessão administrativa do Traccar criada (JSESSIONID capturado).");
+      } else {
+        console.warn("Login administrativo efetuado, mas JSESSIONID não encontrado na resposta.");
+      }
 
       await traccarAdminRequest({
         method: "GET",
