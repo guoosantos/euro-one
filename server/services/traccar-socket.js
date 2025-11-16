@@ -4,7 +4,11 @@ import jwt from "jsonwebtoken";
 import WebSocket from "ws";
 
 import { config } from "../config.js";
-import { getTraccarAdminHeaders, initializeTraccarAdminSession, traccarProxy } from "./traccar.js";
+import {
+  getAdminSessionCookie,
+  initializeTraccarAdminSession,
+  traccarProxy,
+} from "./traccar.js";
 import { findDeviceByTraccarId, findDeviceByUniqueId } from "../models/device.js";
 
 const WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
@@ -33,16 +37,12 @@ function buildTraccarSocketUrl() {
 }
 
 function buildTraccarSocketHeaders() {
-  const headers = { ...getTraccarAdminHeaders() };
-  if (!headers.Authorization) {
-    const { adminToken, adminUser, adminPassword } = config.traccar;
-    if (adminToken && typeof adminToken === "string" && adminToken.startsWith("Bearer")) {
-      headers.Authorization = adminToken;
-    } else if (adminUser && adminPassword) {
-      const basic = Buffer.from(`${adminUser}:${adminPassword}`).toString("base64");
-      headers.Authorization = `Basic ${basic}`;
-    }
+  const session = getAdminSessionCookie();
+  if (!session) {
+    throw new Error("Sessão administrativa do Traccar indisponível.");
   }
+
+  const headers = { Cookie: `JSESSIONID=${session}` };
   try {
     const origin = new URL(config.traccar.baseUrl);
     headers.Origin = `${origin.protocol}//${origin.host}`;
@@ -327,14 +327,13 @@ function connectToTraccar(connectFn) {
   try {
     const url = buildTraccarSocketUrl();
     const headers = buildTraccarSocketHeaders();
-    const authDescriptor = headers.Cookie ? "cookie" : headers.Authorization ? "authorization" : "sem credencial";
-    console.info(`[Traccar WS] Conectando em ${url} usando ${authDescriptor}...`);
+    console.info(`[Traccar WS] Conectando em ${url} usando cookie de sessão...`);
     const socket = new WebSocket(url, ["traccar"], { headers });
     traccarSocket = socket;
 
     socket.onopen = () => {
       isConnecting = false;
-      console.info("[Traccar WS] Conectado ao stream em tempo real (readyState=%s).", socket.readyState);
+      console.info("[Traccar WS] Conexão estabelecida (readyState=%s).", socket.readyState);
     };
 
     socket.onmessage = (event) => {
@@ -357,6 +356,10 @@ function connectToTraccar(connectFn) {
       );
       traccarSocket = null;
       isConnecting = false;
+      const shouldRenewSession = event?.code === 1006;
+      if (shouldRenewSession) {
+        initializeTraccarAdminSession().catch(() => undefined);
+      }
       scheduleReconnect(connectFn);
     };
   } catch (error) {
@@ -367,8 +370,22 @@ function connectToTraccar(connectFn) {
 }
 
 export function startTraccarSocketService(server) {
-  function ensureConnection() {
+  async function ensureConnection() {
     if (traccarSocket || isConnecting) return;
+
+    if (!getAdminSessionCookie()) {
+      console.info("[Traccar WS] Criando sessão administrativa antes de abrir o WebSocket...");
+      await initializeTraccarAdminSession().catch((error) => {
+        console.warn("[Traccar WS] Falha ao preparar sessão administrativa", error?.message || error);
+      });
+    }
+
+    if (!getAdminSessionCookie()) {
+      console.warn("[Traccar WS] Sessão administrativa ausente; nova tentativa em breve.");
+      scheduleReconnect(ensureConnection);
+      return;
+    }
+
     connectToTraccar(ensureConnection);
   }
 
