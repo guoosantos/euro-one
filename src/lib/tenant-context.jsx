@@ -9,6 +9,7 @@ import React, {
 import api, {
   clearStoredSession,
   getStoredSession,
+  registerUnauthorizedHandler,
   setStoredSession,
 } from "./api.js";
 
@@ -119,6 +120,19 @@ export function TenantProvider({ children }) {
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    const unsubscribe = registerUnauthorizedHandler(() => {
+      setToken(null);
+      setUser(null);
+      setTenants([]);
+      setTenantId(null);
+      setLoading(false);
+      setInitialising(false);
+    });
+
+    return unsubscribe;
+  }, []);
 
   const refreshClients = useCallback(async () => {
     if (!user) return [];
