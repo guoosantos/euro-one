@@ -8,6 +8,13 @@ const caches = {
   geofences: new Map(),
 };
 
+const syncState = {
+  lastRunAt: null,
+  lastSuccessAt: null,
+  lastError: null,
+  resources: {},
+};
+
 function toList(payload, key) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.[key])) return payload[key];
@@ -28,17 +35,23 @@ function store(cacheKey, list, idKey = "id") {
 }
 
 async function syncResource(cacheKey, url, idKey) {
+  const result = { key: cacheKey, success: true, error: null };
+
   try {
     const data = await traccarProxy("get", url, { asAdmin: true });
     const list = toList(data, cacheKey);
     store(cacheKey, list, idKey);
   } catch (error) {
     console.warn(`Falha ao sincronizar ${cacheKey} do Traccar`, error?.message || error);
+    result.success = false;
+    result.error = error?.message || String(error);
   }
+
+  return result;
 }
 
-export async function syncTraccarResources() {
-  await Promise.all([
+async function syncAllResources() {
+  return Promise.all([
     syncResource("devices", "/devices"),
     syncResource("groups", "/groups"),
     syncResource("drivers", "/drivers"),
@@ -46,12 +59,34 @@ export async function syncTraccarResources() {
   ]);
 }
 
+export async function syncTraccarResources() {
+  return syncAllResources();
+}
+
 export function startTraccarSyncJob() {
   const intervalMs = Number(config.traccar.syncIntervalMs || 300_000);
   let timer = null;
 
   async function run() {
-    await syncTraccarResources();
+    syncState.lastRunAt = new Date().toISOString();
+
+    const results = await syncAllResources();
+
+    syncState.resources = Object.fromEntries(
+      results.map(({ key, success, error }) => [key, { success, error }]),
+    );
+
+    const failures = results.filter(({ success }) => !success);
+    if (failures.length) {
+      syncState.lastError = {
+        at: syncState.lastRunAt,
+        resources: failures.map(({ key, error }) => ({ key, error })),
+      };
+      return;
+    }
+
+    syncState.lastSuccessAt = syncState.lastRunAt;
+    syncState.lastError = null;
   }
 
   run().catch((error) => {
@@ -76,6 +111,10 @@ export function getCachedTraccarResources(cacheKey) {
   const cache = caches[cacheKey];
   if (!cache) return [];
   return Array.from(cache.values());
+}
+
+export function getTraccarSyncState() {
+  return { ...syncState };
 }
 
 export default startTraccarSyncJob;

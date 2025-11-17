@@ -1,10 +1,92 @@
-import axios from "axios";
 import createError from "http-errors";
 
 import { config } from "../config.js";
 
 // Garante que nunca termina com / e sempre aponta para /api
 const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
+
+function buildUrl(base, path, params) {
+  const url = new URL(path, base);
+  if (params && typeof params === "object") {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, item));
+        return;
+      }
+      url.searchParams.set(key, value);
+    });
+  }
+  return url.toString();
+}
+
+async function httpRequest({ baseURL = "", method = "GET", url, params, data, headers = {}, timeout = 20_000 }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
+
+  const finalUrl = buildUrl(baseURL, url, params);
+  const resolvedHeaders = new Headers({ Accept: "application/json", ...headers });
+  const init = {
+    method: method.toUpperCase(),
+    headers: resolvedHeaders,
+    signal: controller.signal,
+  };
+
+  if (data !== undefined && data !== null) {
+    if (data instanceof URLSearchParams || typeof data === "string") {
+      init.body = data;
+      if (!resolvedHeaders.has("Content-Type")) {
+        resolvedHeaders.set("Content-Type", "application/x-www-form-urlencoded");
+      }
+    } else if (data instanceof Buffer || data instanceof ArrayBuffer || ArrayBuffer.isView(data)) {
+      init.body = data;
+    } else {
+      init.body = JSON.stringify(data);
+      if (!resolvedHeaders.has("Content-Type")) {
+        resolvedHeaders.set("Content-Type", "application/json");
+      }
+    }
+  }
+
+  try {
+    const response = await fetch(finalUrl, init);
+    clearTimeout(timer);
+
+    let payload;
+    try {
+      payload = await response.clone().json();
+    } catch (parseError) {
+      payload = await response.text();
+    }
+
+    const rawHeaders = typeof response.headers.raw === "function"
+      ? response.headers.raw()
+      : Object.fromEntries(response.headers.entries());
+
+    const normalisedResponse = {
+      status: response.status,
+      statusText: response.statusText,
+      headers: rawHeaders,
+      data: payload,
+    };
+
+    if (!response.ok) {
+      const message = payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
+      const error = createError(response.status || 500, message);
+      error.response = normalisedResponse;
+      throw error;
+    }
+
+    return normalisedResponse;
+  } catch (error) {
+    clearTimeout(timer);
+    if (error?.status) {
+      throw error;
+    }
+
+    throw createError(502, error?.message || "Erro de rede ao comunicar com o Traccar");
+  }
+}
 
 let adminSessionCookie = null;
 
@@ -137,30 +219,15 @@ export async function traccarRequest(options, context, { asAdmin = false } = {})
   }
 
   const headers = {
-    Accept: "application/json",
     ...authHeaders,
     ...(options?.headers || {}),
   };
 
-  try {
-    const response = await axios({
-      baseURL: BASE_URL,
-      timeout: 20_000,
-      ...options,
-      headers,
-    });
-
-    return response;
-  } catch (error) {
-    if (error?.response) {
-      const { status, data } = error.response;
-      const message =
-        data?.message || data?.cause || error.message || "Falha ao comunicar com o Traccar";
-      throw createError(status, message);
-    }
-
-    throw createError(502, error?.message || "Erro de rede ao comunicar com o Traccar");
-  }
+  return httpRequest({
+    baseURL: BASE_URL,
+    ...options,
+    headers,
+  });
 }
 
 /**
@@ -177,6 +244,25 @@ export function getTraccarAdminHeaders() {
   return resolveAdminHeaders();
 }
 
+export function describeAdminAuth() {
+  if (getAdminSessionCookie()) {
+    return "session";
+  }
+
+  const token = normaliseAdminToken(config.traccar.adminToken);
+  if (token) {
+    if (token.startsWith("Bearer")) return "bearer";
+    if (token.startsWith("Basic")) return "basic";
+    return "token";
+  }
+
+  if (config.traccar.adminUser && config.traccar.adminPassword) {
+    return "basic";
+  }
+
+  return "unknown";
+}
+
 /**
  * Login explícito no Traccar via /api/session.
  * Útil se você quiser autenticar um usuário com sessão própria,
@@ -184,20 +270,15 @@ export function getTraccarAdminHeaders() {
  * porque usamos Basic Auth diretamente.
  */
 export async function loginTraccar(email, password) {
-  const response = await axios({
+  const response = await httpRequest({
     method: "POST",
-    url: `${BASE_URL}/session`,
+    baseURL: BASE_URL,
+    url: "/session",
     data: new URLSearchParams({ email, password }),
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    // não jogar exception automática em 4xx, vamos tratar na mão
-    validateStatus: (status) => status >= 200 && status < 500,
   });
-
-  if (response.status >= 400) {
-    throw createError(response.status, response.data?.message || "Credenciais inválidas no Traccar");
-  }
 
   const cookies = response.headers?.["set-cookie"] || [];
   const sessionCookie = cookies
@@ -289,5 +370,32 @@ export async function initializeTraccarAdminSession() {
       error?.status || error?.statusCode || "",
       error?.message || error,
     );
+  }
+}
+
+export async function getTraccarHealth() {
+  const authStrategy = describeAdminAuth();
+  const sessionActive = Boolean(getAdminSessionCookie());
+
+  try {
+    const response = await traccarAdminRequest({
+      method: "GET",
+      url: "/server",
+    });
+
+    return {
+      status: "ok",
+      authStrategy,
+      sessionActive,
+      server: response.data,
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      authStrategy,
+      sessionActive,
+      message: error?.message || "Falha ao consultar servidor do Traccar",
+      code: error?.status || error?.statusCode || 503,
+    };
   }
 }

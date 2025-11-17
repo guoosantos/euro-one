@@ -1,5 +1,3 @@
-import axios from "axios";
-
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
 const RAW_BASE_URL = import.meta?.env?.VITE_API_BASE_URL || "";
@@ -92,32 +90,92 @@ function resolveAuthorizationHeader() {
   return null;
 }
 
-export const api = axios.create({
-  baseURL: `${BASE_URL || ""}/api`,
-  withCredentials: true,
-  timeout: 20_000,
-});
-
-api.interceptors.request.use((config) => {
-  const authorization = resolveAuthorizationHeader();
-  if (authorization) {
-    config.headers = {
-      ...(config.headers || {}),
-      Authorization: authorization,
-    };
+function buildUrl(path, params) {
+  const url = new URL(path, `${BASE_URL || ""}/api`);
+  if (params && typeof params === "object") {
+    Object.entries(params).forEach(([key, value]) => {
+      if (value === undefined || value === null) return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, item));
+        return;
+      }
+      url.searchParams.set(key, value);
+    });
   }
-  return config;
-});
+  return url.toString();
+}
 
-api.interceptors.response.use(
-  (response) => response,
-  (error) => {
-    if (error?.response?.status === 401) {
-      clearStoredSession();
-      notifyUnauthorized(error);
+async function request({ method = "GET", url, params, data, headers = {}, timeout = 20_000 }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
+
+  const finalUrl = buildUrl(url, params);
+  const resolvedHeaders = new Headers(headers);
+  const authorization = resolveAuthorizationHeader();
+  if (authorization && !resolvedHeaders.has("Authorization")) {
+    resolvedHeaders.set("Authorization", authorization);
+  }
+
+  const init = {
+    method: method.toUpperCase(),
+    headers: resolvedHeaders,
+    credentials: "include",
+    signal: controller.signal,
+  };
+
+  if (data !== undefined && data !== null) {
+    if (data instanceof FormData || data instanceof Blob || data instanceof ArrayBuffer) {
+      init.body = data;
+    } else {
+      init.body = JSON.stringify(data);
+      if (!resolvedHeaders.has("Content-Type")) {
+        resolvedHeaders.set("Content-Type", "application/json");
+      }
     }
-    return Promise.reject(error);
-  },
-);
+  }
+
+  try {
+    const response = await fetch(finalUrl, init);
+    clearTimeout(timer);
+
+    let payload;
+    try {
+      payload = await response.clone().json();
+    } catch (parseError) {
+      payload = await response.text();
+    }
+
+    const normalised = {
+      status: response.status,
+      statusText: response.statusText,
+      data: payload,
+    };
+
+    if (response.status === 401) {
+      clearStoredSession();
+      notifyUnauthorized(normalised);
+    }
+
+    if (!response.ok) {
+      const error = new Error(payload?.message || response.statusText || "Erro na requisição");
+      error.response = normalised;
+      throw error;
+    }
+
+    return normalised;
+  } catch (error) {
+    clearTimeout(timer);
+    throw error;
+  }
+}
+
+const api = {
+  request,
+  get: (url, options = {}) => request({ ...options, method: "GET", url }),
+  delete: (url, options = {}) => request({ ...options, method: "DELETE", url }),
+  post: (url, data, options = {}) => request({ ...options, method: "POST", url, data }),
+  put: (url, data, options = {}) => request({ ...options, method: "PUT", url, data }),
+  patch: (url, data, options = {}) => request({ ...options, method: "PATCH", url, data }),
+};
 
 export default api;

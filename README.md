@@ -97,7 +97,7 @@ npm run cypress:open
 
 ## Estrutura principal
 
-- `src/lib/api.js` – cliente Axios configurado com autenticação.
+- `src/lib/api.js` – cliente HTTP com autenticação e tratamento centralizado de erros.
 - `src/lib/hooks` – hooks para dispositivos, eventos, geofences, relatórios etc.
 - `src/pages` – páginas de monitoramento, dashboard, eventos, geofences, relatórios, vídeo e reconhecimento facial.
 
@@ -115,6 +115,12 @@ npm run cypress:open
 - `npm run test` – testes unitários.
 - `npm run cypress:open` – runner do Cypress.
 - `npm run server` – executa o backend Express com integração ao Traccar.
+
+## Endpoints de saúde
+
+- `GET /health` – verifica se o backend Express está acessível.
+- `GET /health/traccar` – retorna status de autenticação com o Traccar (tipo de credencial, sessão ativa) e o último estado da
+  sincronização automática (`devices`, `groups`, `drivers`, `geofences`).
 
 ## Suporte ao Traccar
 

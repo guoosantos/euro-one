@@ -9,6 +9,7 @@ import userRoutes from "./routes/users.js";
 import proxyRoutes from "./routes/proxy.js";
 import coreRoutes from "./routes/core.js";
 import groupRoutes from "./routes/groups.js";
+import healthRoutes from "./routes/health.js";
 
 const app = express();
 
@@ -53,9 +54,7 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-app.get("/health", (_req, res) => {
-  res.json({ status: "ok" });
-});
+app.use("/health", healthRoutes);
 
 app.use("/api", authRoutes);
 app.use("/api", proxyRoutes);
