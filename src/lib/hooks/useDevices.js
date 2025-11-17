@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 import useLiveUpdates from "./useLiveUpdates.js";
 
 function toDeviceKey(value) {
@@ -110,7 +111,7 @@ export function useDevices() {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get("/core/devices");
+        const response = await api.get(API_ROUTES.core.devices);
         if (cancelled) return;
         const list = normaliseDeviceList(response?.data);
         const normalisedList = Array.isArray(list)
@@ -145,7 +146,7 @@ export function useDevices() {
         .filter(Boolean)
         .map((deviceId) =>
           api
-            .get("/positions/last", { params: { deviceId } })
+            .get(API_ROUTES.lastPositions, { params: { deviceId } })
             .then((response) => ({ deviceId, payload: response?.data }))
             .catch((requestError) => {
               console.warn("Falha ao carregar posição do dispositivo", deviceId, requestError);

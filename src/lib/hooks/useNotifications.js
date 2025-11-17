@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function normaliseNotifications(payload) {
   if (Array.isArray(payload)) return payload;
@@ -24,7 +25,7 @@ export function useNotifications({ params = {}, autoRefreshMs = 60_000 } = {}) {
       setError(null);
       try {
         const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-        const response = await api.get("/notifications", { params: parsedParams });
+        const response = await api.get(API_ROUTES.notifications, { params: parsedParams });
         if (cancelled) return;
         setData(normaliseNotifications(response?.data));
       } catch (requestError) {
@@ -57,7 +58,7 @@ export function useNotifications({ params = {}, autoRefreshMs = 60_000 } = {}) {
   }, []);
 
   const createNotification = useCallback(async (payload) => {
-    const response = await api.post("/notifications", payload);
+    const response = await api.post(API_ROUTES.notifications, payload);
     reload();
     return response?.data;
   }, [reload]);

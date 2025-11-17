@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -32,7 +33,7 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
         const targets = ids.length ? ids : [null];
         const requests = targets.map((deviceId) =>
           api
-            .get("/positions/last", { params: deviceId ? { deviceId } : undefined })
+            .get(API_ROUTES.lastPositions, { params: deviceId ? { deviceId } : undefined })
             .then((response) => normalise(response?.data))
             .catch((requestError) => {
               console.warn("Failed to load live position", deviceId, requestError);

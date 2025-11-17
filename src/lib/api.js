@@ -2,6 +2,10 @@ const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
 const RAW_BASE_URL = import.meta?.env?.VITE_API_BASE_URL || "";
 const BASE_URL = RAW_BASE_URL ? RAW_BASE_URL.replace(/\/$/, "") : "";
+const FALLBACK_BASE_URL =
+  typeof window !== "undefined" && window.location?.origin
+    ? window.location.origin
+    : "http://localhost:3001";
 
 const unauthorizedHandlers = new Set();
 
@@ -90,8 +94,23 @@ function resolveAuthorizationHeader() {
   return null;
 }
 
-function buildUrl(path, params) {
-  const url = new URL(path, `${BASE_URL || ""}/api`);
+function buildUrl(path, params, { apiPrefix = true } = {}) {
+  const targetPath = typeof path === "string" ? path : String(path || "");
+  const isAbsolute = /^https?:\/\//i.test(targetPath);
+
+  const url = isAbsolute
+    ? new URL(targetPath)
+    : (() => {
+        const base = new URL(BASE_URL || FALLBACK_BASE_URL);
+        const normalisedPath = targetPath.replace(/^\/+/, "");
+        const prefix = apiPrefix ? "api" : "";
+        const segments = [base.pathname.replace(/\/$/, ""), prefix, normalisedPath]
+          .filter(Boolean)
+          .join("/");
+        base.pathname = segments.replace(/\/{2,}/g, "/");
+        return base;
+      })();
+
   if (params && typeof params === "object") {
     Object.entries(params).forEach(([key, value]) => {
       if (value === undefined || value === null) return;
@@ -105,11 +124,19 @@ function buildUrl(path, params) {
   return url.toString();
 }
 
-async function request({ method = "GET", url, params, data, headers = {}, timeout = 20_000 }) {
+async function request({
+  method = "GET",
+  url,
+  params,
+  data,
+  headers = {},
+  timeout = 20_000,
+  apiPrefix = true,
+}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
 
-  const finalUrl = buildUrl(url, params);
+  const finalUrl = buildUrl(url, params, { apiPrefix });
   const resolvedHeaders = new Headers(headers);
   const authorization = resolveAuthorizationHeader();
   if (authorization && !resolvedHeaders.has("Authorization")) {

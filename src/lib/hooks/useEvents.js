@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 export function buildParams({ deviceId, types, from, to, limit }) {
   const params = {};
@@ -31,7 +32,7 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       setError(null);
       try {
         const params = buildParams({ deviceId, types, from, to, limit });
-        const response = await api.get("/events", { params });
+        const response = await api.get(API_ROUTES.events, { params });
         if (cancelled) return;
         const payload = response?.data;
         const list = Array.isArray(payload)

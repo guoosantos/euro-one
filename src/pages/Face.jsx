@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
+import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices";
 
 const ALERT_TYPES = [
@@ -25,7 +26,7 @@ export default function Face() {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get("/media/face/alerts").catch(() => ({ data: buildStubAlerts(devices) }));
+        const response = await api.get(API_ROUTES.media.faceAlerts).catch(() => ({ data: buildStubAlerts(devices) }));
         if (cancelled) return;
         const payload = response?.data;
         const list = Array.isArray(payload) ? payload : Array.isArray(payload?.alerts) ? payload.alerts : [];

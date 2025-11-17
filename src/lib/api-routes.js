@@ -1,0 +1,36 @@
+export const API_ROUTES = {
+  session: "session",
+  login: "login",
+  logout: "logout",
+  events: "events",
+  lastPositions: "positions/last",
+  reports: {
+    trips: "reports/trips",
+    stops: "reports/stops",
+    summary: "reports/summary",
+    route: "reports/route",
+  },
+  commands: "commands",
+  notifications: "notifications",
+  groups: "groups",
+  clients: "clients",
+  users: "users",
+  geofences: "geofences",
+  drivers: "drivers",
+  media: {
+    faceAlerts: "media/face/alerts",
+  },
+  core: {
+    base: "core",
+    models: "core/models",
+    devices: "core/devices",
+    importDevices: "core/devices/import",
+    chips: "core/chips",
+    vehicles: "core/vehicles",
+  },
+  health: "health",
+  traccarHealth: "health/traccar",
+  websocket: "/ws/live",
+};
+
+export default API_ROUTES;

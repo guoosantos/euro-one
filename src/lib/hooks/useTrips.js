@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {}) {
   const [trips, setTrips] = useState([]);
@@ -24,7 +25,7 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
           to: (to ? new Date(to) : now).toISOString(),
           type: "all",
         };
-        const response = await api.post("/reports/trips", payload);
+        const response = await api.post(API_ROUTES.reports.trips, payload);
         if (cancelled) return;
         const data = response?.data;
         const items = Array.isArray(data)

@@ -1,64 +1,46 @@
-const BASE = "/api/core";
+import api from "./api.js";
+import { API_ROUTES } from "./api-routes.js";
 
-async function http(path, opts = {}) {
-  const url = path.startsWith("http") ? path : `${BASE}${path}`;
-  const res = await fetch(url, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    credentials: "include",
-    ...opts,
-  });
-  if (res.status === 204) return null;
-  const ct = res.headers.get("content-type") || "";
-  const isJson = ct.includes("application/json");
-  if (!res.ok) {
-    const body = isJson ? await res.json().catch(() => null) : await res.text();
-    throw new Error(`HTTP ${res.status} ${res.statusText} → ${typeof body === "string" ? body : JSON.stringify(body)}`);
-  }
-  return isJson ? res.json() : res.text();
+const CORE_BASE = API_ROUTES.core.base;
+
+async function http(path, { method = "GET", params, payload, headers } = {}) {
+  const url = path.startsWith("http") ? path : `${CORE_BASE}/${path.replace(/^\/+/, "")}`;
+  const response = await api.request({ method, url, params, data: payload, headers });
+  return response?.data ?? null;
 }
 
 export const CoreApi = {
   // health compat no Nginx já responde 200
-  health: () => fetch("/api/health").then((r) => r.ok),
+  health: () => api.get(API_ROUTES.health, { apiPrefix: false }).then((r) => r?.status === 200),
   models: async (params) => {
-    const query = buildQuery(params);
-    const data = await http(`/models${query}`);
+    const data = await http("models", { params });
     return Array.isArray(data?.models) ? data.models : normaliseDevices(data);
   },
-  createModel: (payload) => http("/models", { method: "POST", body: JSON.stringify(payload) }),
+  createModel: (payload) => http("models", { method: "POST", payload }),
   listDevices: async (params) => {
-    const query = buildQuery(params);
-    const data = await http(`/devices${query}`);
+    const data = await http("devices", { params });
     return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
   },
-  createDevice: (payload) => http("/devices", { method: "POST", body: JSON.stringify(payload) }),
-  updateDevice: (id, payload) => http(`/devices/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  createDevice: (payload) => http("devices", { method: "POST", payload }),
+  updateDevice: (id, payload) => http(`devices/${id}`, { method: "PUT", payload }),
   listImportableDevices: async (params) => {
-    const query = buildQuery(params);
-    const data = await http(`/devices/import${query}`);
+    const data = await http("devices/import", { params });
     return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
   },
-  importDevice: (payload) => http("/devices/import", { method: "POST", body: JSON.stringify(payload) }),
+  importDevice: (payload) => http("devices/import", { method: "POST", payload }),
   listChips: async (params) => {
-    const query = buildQuery(params);
-    const data = await http(`/chips${query}`);
+    const data = await http("chips", { params });
     return Array.isArray(data?.chips) ? data.chips : normaliseDevices(data);
   },
-  createChip: (payload) => http("/chips", { method: "POST", body: JSON.stringify(payload) }),
-  updateChip: (id, payload) => http(`/chips/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
+  createChip: (payload) => http("chips", { method: "POST", payload }),
+  updateChip: (id, payload) => http(`chips/${id}`, { method: "PUT", payload }),
   listVehicles: async (params) => {
-    const query = buildQuery(params);
-    const data = await http(`/vehicles${query}`);
+    const data = await http("vehicles", { params });
     return Array.isArray(data?.vehicles) ? data.vehicles : normaliseDevices(data);
   },
-  createVehicle: (payload) => http("/vehicles", { method: "POST", body: JSON.stringify(payload) }),
-  updateVehicle: (id, payload) => http(`/vehicles/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
-  deleteVehicle: (id, payload) =>
-    http(`/vehicles/${id}`, {
-      method: "DELETE",
-      body: payload ? JSON.stringify(payload) : undefined,
-      headers: payload ? { "Content-Type": "application/json" } : undefined,
-    }),
+  createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
+  updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
+  deleteVehicle: (id, payload) => http(`vehicles/${id}`, { method: "DELETE", payload }),
 };
 
 function normaliseDevices(payload) {
@@ -72,10 +54,3 @@ function normaliseDevices(payload) {
   return [];
 }
 
-function buildQuery(params) {
-  if (!params) return "";
-  const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "");
-  if (!entries.length) return "";
-  const search = new URLSearchParams(entries);
-  return `?${search.toString()}`;
-}

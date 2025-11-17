@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function normaliseGroups(payload) {
   if (Array.isArray(payload)) return payload;
@@ -24,7 +25,7 @@ export function useGroups({ params = {}, autoRefreshMs = 60_000 } = {}) {
       setError(null);
       try {
         const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-        const response = await api.get("/groups", { params: parsedParams });
+        const response = await api.get(API_ROUTES.groups, { params: parsedParams });
         if (cancelled) return;
         setData(normaliseGroups(response?.data));
       } catch (requestError) {
@@ -57,7 +58,7 @@ export function useGroups({ params = {}, autoRefreshMs = 60_000 } = {}) {
   }, []);
 
   const createGroup = useCallback(async (payload) => {
-    const response = await api.post("/groups", payload);
+    const response = await api.post(API_ROUTES.groups, payload);
     reload();
     return response?.data;
   }, [reload]);

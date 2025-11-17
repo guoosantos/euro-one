@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 
 import api from "../lib/api";
+import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 
 const initialForm = {
@@ -33,7 +34,7 @@ export default function AdminClients() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get("/clients");
+      const response = await api.get(API_ROUTES.clients);
       const list = response?.data?.clients || response?.data || [];
       setClients(Array.isArray(list) ? list : []);
       refreshClients();
@@ -60,7 +61,7 @@ export default function AdminClients() {
         await api.put(`/clients/${editingId}`, payload);
         setMessage("Cliente atualizado com sucesso");
       } else {
-        await api.post("/clients", payload);
+        await api.post(API_ROUTES.clients, payload);
         setMessage("Cliente criado com sucesso");
       }
       setForm(initialForm);
