@@ -37,6 +37,7 @@ import Login from "./pages/Login";
 import PrivateRoute from "./components/PrivateRoute";
 import AdminClients from "./pages/AdminClients";
 import ClientUsers from "./pages/ClientUsers";
+import NotFound from "./pages/NotFound";
 
 const withLayout = (Component, options = {}) => (
   <Layout title={options.title} hideTitle={options.hideTitle}>
@@ -91,8 +92,9 @@ export default function App() {
         <Route path="/admin/clients" element={withLayout(AdminClients, { title: "Gestão de clientes" })} />
         <Route path="/admin/users" element={withLayout(ClientUsers, { title: "Gestão de usuários" })} />
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={withLayout(NotFound, { title: "Página não encontrada", hideTitle: true })} />
       </Route>
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }

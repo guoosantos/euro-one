@@ -2,7 +2,26 @@ import axios from "axios";
 
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
-const BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "http://3.17.172.94:3001").replace(/\/$/, "");
+const RAW_BASE_URL = import.meta?.env?.VITE_API_BASE_URL || "";
+const BASE_URL = RAW_BASE_URL ? RAW_BASE_URL.replace(/\/$/, "") : "";
+
+const unauthorizedHandlers = new Set();
+
+export function registerUnauthorizedHandler(handler) {
+  if (typeof handler !== "function") return () => {};
+  unauthorizedHandlers.add(handler);
+  return () => unauthorizedHandlers.delete(handler);
+}
+
+function notifyUnauthorized(error) {
+  unauthorizedHandlers.forEach((handler) => {
+    try {
+      handler(error);
+    } catch (notifyError) {
+      console.warn("Falha ao notificar 401", notifyError);
+    }
+  });
+}
 
 function getStorage() {
   try {
@@ -74,7 +93,7 @@ function resolveAuthorizationHeader() {
 }
 
 export const api = axios.create({
-  baseURL: `${BASE_URL}/api`,
+  baseURL: `${BASE_URL || ""}/api`,
   withCredentials: true,
   timeout: 20_000,
 });
@@ -95,6 +114,7 @@ api.interceptors.response.use(
   (error) => {
     if (error?.response?.status === 401) {
       clearStoredSession();
+      notifyUnauthorized(error);
     }
     return Promise.reject(error);
   },
