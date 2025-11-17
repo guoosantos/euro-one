@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getStoredSession } from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function resolveBaseUrl() {
   const raw = (import.meta?.env?.VITE_API_BASE_URL || "http://localhost:3001").trim();
@@ -10,15 +11,15 @@ function resolveBaseUrl() {
 function buildWebSocketUrl() {
   const base = resolveBaseUrl();
   if (base.startsWith("ws://") || base.startsWith("wss://")) {
-    return `${base}/ws/live`;
+    return `${base}${API_ROUTES.websocket}`;
   }
   if (base.startsWith("https://")) {
-    return `wss://${base.slice("https://".length)}/ws/live`;
+    return `wss://${base.slice("https://".length)}${API_ROUTES.websocket}`;
   }
   if (base.startsWith("http://")) {
-    return `ws://${base.slice("http://".length)}/ws/live`;
+    return `ws://${base.slice("http://".length)}${API_ROUTES.websocket}`;
   }
-  return `ws://${base}/ws/live`;
+  return `ws://${base}${API_ROUTES.websocket}`;
 }
 
 function appendToken(url, token) {
@@ -36,6 +37,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
   const socketRef = useRef(null);
   const reconnectTimerRef = useRef(null);
   const manualCloseRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
   const onMessageRef = useRef(onMessage);
 
   useEffect(() => {
@@ -60,8 +62,15 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
 
     clearReconnectTimer();
 
-    const baseUrl = buildWebSocketUrl();
     const token = getStoredSession()?.token || null;
+    if (!token) {
+      setConnecting(false);
+      setConnected(false);
+      setError(new Error("Sessão não autenticada. Faça login novamente."));
+      return;
+    }
+
+    const baseUrl = buildWebSocketUrl();
     const url = appendToken(baseUrl, token);
 
     setConnecting(true);
@@ -74,6 +83,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
       setConnected(true);
       setConnecting(false);
       setError(null);
+      reconnectAttemptsRef.current = 0;
     };
 
     socket.onmessage = (event) => {
@@ -109,10 +119,12 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
         return;
       }
       if (!reconnectTimerRef.current) {
+        const nextDelay = Math.min(reconnectDelayMs * 2 ** reconnectAttemptsRef.current, 30_000);
+        reconnectAttemptsRef.current += 1;
         reconnectTimerRef.current = globalThis.setTimeout(() => {
           reconnectTimerRef.current = null;
           connect();
-        }, reconnectDelayMs);
+        }, nextDelay);
       }
     };
   }, [clearReconnectTimer, enabled, reconnectDelayMs]);

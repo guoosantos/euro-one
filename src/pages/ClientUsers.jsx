@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import api from "../lib/api";
+import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
 
 const defaultUserForm = {
@@ -62,7 +63,7 @@ export default function ClientUsers() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get("/users", { params: role === "admin" ? { clientId } : {} });
+      const response = await api.get(API_ROUTES.users, { params: role === "admin" ? { clientId } : {} });
       const list = response?.data?.users || response?.data || [];
       setUsers(Array.isArray(list) ? list : []);
     } catch (loadError) {
@@ -88,7 +89,7 @@ export default function ClientUsers() {
         await api.put(`/users/${editingId}`, payload);
         setMessage("Usuário atualizado");
       } else {
-        await api.post("/users", payload);
+        await api.post(API_ROUTES.users, payload);
         setMessage("Usuário criado");
       }
       setForm({ ...defaultUserForm, clientId: selectedTenantId });

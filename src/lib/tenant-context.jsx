@@ -12,6 +12,7 @@ import api, {
   registerUnauthorizedHandler,
   setStoredSession,
 } from "./api.js";
+import { API_ROUTES } from "./api-routes.js";
 
 const TenantContext = createContext(null);
 
@@ -66,7 +67,7 @@ export function TenantProvider({ children }) {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get("/session");
+        const response = await api.get(API_ROUTES.session);
         if (cancelled) return;
         const nextUser = response?.data?.user || response?.data || null;
         setUser(nextUser);
@@ -98,7 +99,7 @@ export function TenantProvider({ children }) {
     async function refreshClientsInternal(currentUser) {
       if (!currentUser || currentUser.role !== "admin") return;
       try {
-        const response = await api.get("/clients");
+        const response = await api.get(API_ROUTES.clients);
         if (!cancelled) {
           const list = normaliseClients(response?.data, currentUser);
           setTenants(list);
@@ -142,7 +143,7 @@ export function TenantProvider({ children }) {
       setTenantId((prev) => prev ?? list[0]?.id ?? user.id ?? null);
       return list;
     }
-    const response = await api.get("/clients");
+    const response = await api.get(API_ROUTES.clients);
     const list = normaliseClients(response?.data, user);
     setTenants(list);
     if (!tenantId && list.length) {
@@ -156,7 +157,7 @@ export function TenantProvider({ children }) {
     setError(null);
     try {
       const payload = { email: username, password, remember };
-      const response = await api.post("/login", payload);
+      const response = await api.post(API_ROUTES.login, payload);
       const responseUser = response?.data?.user || { login: username };
       const responseToken = response?.data?.token;
       if (!responseToken) {
@@ -184,7 +185,7 @@ export function TenantProvider({ children }) {
 
   const logout = useCallback(async () => {
     try {
-      await api.post("/logout").catch(() => undefined);
+      await api.post(API_ROUTES.logout).catch(() => undefined);
     } finally {
       clearStoredSession();
       setToken(null);

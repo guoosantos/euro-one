@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function normaliseDrivers(payload) {
   if (Array.isArray(payload)) return payload;
@@ -24,7 +25,7 @@ export function useDrivers({ params = {}, autoRefreshMs = 60_000 } = {}) {
       setError(null);
       try {
         const parsedParams = paramsKey ? JSON.parse(paramsKey) : {};
-        const response = await api.get("/drivers", { params: parsedParams });
+        const response = await api.get(API_ROUTES.drivers, { params: parsedParams });
         if (cancelled) return;
         setData(normaliseDrivers(response?.data));
       } catch (requestError) {
@@ -57,7 +58,7 @@ export function useDrivers({ params = {}, autoRefreshMs = 60_000 } = {}) {
   }, []);
 
   const createDriver = useCallback(async (payload) => {
-    const response = await api.post("/drivers", payload);
+    const response = await api.post(API_ROUTES.drivers, payload);
     reload();
     return response?.data;
   }, [reload]);

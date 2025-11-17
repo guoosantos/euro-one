@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 export function useReports() {
   const [loading, setLoading] = useState(false);
@@ -11,7 +12,7 @@ export function useReports() {
     setError(null);
     try {
       const payload = { deviceId, from, to, type };
-      const response = await api.post("/reports/trips", payload);
+      const response = await api.post(API_ROUTES.reports.trips, payload);
       setData(response?.data ?? null);
       return response?.data ?? null;
     } catch (requestError) {
@@ -25,7 +26,7 @@ export function useReports() {
 
   const downloadTripsCsv = useCallback(async ({ deviceId, from, to, type = "all" }) => {
     const payload = { deviceId, from, to, type, format: "csv" };
-    const response = await api.post("/reports/trips", payload, { responseType: "blob" });
+    const response = await api.post(API_ROUTES.reports.trips, payload, { responseType: "blob" });
     if (typeof document === "undefined") {
       return response?.data ?? null;
     }

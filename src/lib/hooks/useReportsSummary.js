@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 export function useReportsSummary() {
   const [data, setData] = useState(null);
@@ -10,7 +11,7 @@ export function useReportsSummary() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get("/reports/summary", { params });
+      const response = await api.get(API_ROUTES.reports.summary, { params });
       setData(response?.data ?? null);
       return response?.data ?? null;
     } catch (requestError) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
+import { API_ROUTES } from "../api-routes.js";
 
 function normaliseGeofences(payload) {
   if (Array.isArray(payload)) return payload;
@@ -22,7 +23,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       setLoading(true);
       setError(null);
       try {
-        const response = await api.get("/geofences");
+        const response = await api.get(API_ROUTES.geofences);
         if (cancelled) return;
         setGeofences(normaliseGeofences(response?.data));
       } catch (requestError) {
@@ -53,7 +54,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
   }, []);
 
   const createGeofence = useCallback(async (payload) => {
-    const response = await api.post("/geofences", payload);
+    const response = await api.post(API_ROUTES.geofences, payload);
     refresh();
     return response?.data;
   }, [refresh]);
@@ -74,7 +75,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
         ...(deviceId ? { deviceId } : {}),
         ...(groupId ? { groupId } : {}),
       };
-      const response = await api.post("/permissions", payload);
+      const response = await api.post("permissions", payload);
       refresh();
       return response?.data;
     },

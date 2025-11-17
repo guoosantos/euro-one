@@ -15,21 +15,14 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
    cp .env.example .env
    ```
 
-   ```env
-   VITE_API_BASE_URL=http://localhost:3001
+   Variáveis principais:
 
-   # Backend
-   TRACCAR_BASE_URL=http://3.17.172.94:8082
-   TRACCAR_ADMIN_USER=admin@euro-one
-   TRACCAR_ADMIN_PASSWORD=senha_segura
-   JWT_SECRET=altere-esta-chave
-   ALLOWED_ORIGINS=http://localhost:5173
-   ```
-
-   - `VITE_API_BASE_URL` aponta para o backend da plataforma Euro One (por padrão `http://localhost:3001`).
-   - O backend utiliza as variáveis `TRACCAR_*` para autenticar-se junto ao Traccar e executar operações administrativas (criação de clientes, usuários, geofences etc.).
-   - `JWT_SECRET` define a chave usada para assinar os tokens de sessão emitidos pelo backend.
-   - `ALLOWED_ORIGINS` lista as origens autorizadas a consumir a API (separe múltiplas origens por vírgula).
+   - `VITE_API_BASE_URL`: **sempre** apontar para a origem do backend Euro One. Em desenvolvimento use `http://localhost:3001`. Em produção configure o host/IP público (ex.: `https://seu-dominio:3001`).
+   - `TRACCAR_BASE_URL`: URL do servidor Traccar acessível pelo backend (ex.: `http://localhost:8082`).
+   - `TRACCAR_ADMIN_USER` / `TRACCAR_ADMIN_PASSWORD` ou `TRACCAR_ADMIN_TOKEN`: credenciais do administrador do Traccar usadas para criar sessão administrativa e executar o job de sincronização.
+   - `TRACCAR_SYNC_INTERVAL_MS`: intervalo (ms) entre sincronizações automáticas de devices/grupos/geofences.
+   - `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend (altere em produção).
+   - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS, separadas por vírgula (inclua `http://localhost:5173` para desenvolvimento com Vite).
 
 2. Instale as dependências (front-end + backend):
 
@@ -59,7 +52,7 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
 
 - Utilize seu e-mail e senha cadastrados no backend Euro One (os dados são validados no Traccar via `/api/session`).
 - O backend emite um token JWT com papel (`admin`, `manager`, `driver`) e identificador do usuário; o front-end armazena esse token com segurança (localStorage ou cookie HttpOnly).
-- Todos os requests utilizam o módulo `src/lib/api.js`, que injeta automaticamente o cabeçalho `Authorization: Bearer <token>` e inclui o token em chamadas subsequentes.
+- Todos os requests utilizam o módulo `src/lib/api.js` (em conjunto com as rotas declaradas em `src/lib/api-routes.js`), que normaliza URLs com o prefixo `/api` e injeta automaticamente o cabeçalho `Authorization: Bearer <token>`.
 - O endpoint `/api/session` do backend permite restaurar a sessão em recarregamentos; `/api/logout` encerra a sessão.
 
 ## Funcionalidades
