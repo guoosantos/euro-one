@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { getClientById, updateClient } from "../models/client.js";
 import { listModels, createModel, getModelById } from "../models/model.js";
 import {
@@ -513,7 +514,7 @@ router.get("/devices", (req, res, next) => {
   }
 });
 
-router.post("/devices", requireRole("manager", "admin"), async (req, res, next) => {
+router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddleware, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const { name, uniqueId, modelId } = req.body || {};

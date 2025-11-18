@@ -18,6 +18,7 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
    Variáveis principais:
 
    - `VITE_API_BASE_URL`: **sempre** apontar para a origem do backend Euro One. Em desenvolvimento use `http://localhost:3001`. Em produção configure o host/IP público (ex.: `https://seu-dominio:3001`).
+   - `VITE_TRACCAR_BASE_URL`: origem do Traccar para features de mapa e heatmap no front-end (ex.: `http://localhost:8082`).
    - `TRACCAR_BASE_URL`: URL do servidor Traccar acessível pelo backend (ex.: `http://localhost:8082`).
    - `TRACCAR_ADMIN_USER` / `TRACCAR_ADMIN_PASSWORD` ou `TRACCAR_ADMIN_TOKEN`: credenciais do administrador do Traccar usadas para criar sessão administrativa e executar o job de sincronização.
    - `TRACCAR_SYNC_INTERVAL_MS`: intervalo (ms) entre sincronizações automáticas de devices/grupos/geofences.
@@ -37,6 +38,11 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
    ```
 
    O servidor Express ficará disponível em `http://localhost:3001` por padrão.
+
+## Notas rápidas
+
+- O WebSocket de telemetria é servido em `/ws/live` e o front monta a URL a partir de `VITE_API_BASE_URL`, alternando entre `ws://` e `wss://` conforme o protocolo.
+- Para recursos de mapas/heatmap, configure `VITE_TRACCAR_BASE_URL` apontando para o mesmo host utilizado pelo backend (`TRACCAR_BASE_URL`).
 
 4. Em um segundo terminal, execute o front-end:
 

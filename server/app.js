@@ -8,6 +8,7 @@ import clientRoutes from "./routes/clients.js";
 import userRoutes from "./routes/users.js";
 import proxyRoutes from "./routes/proxy.js";
 import coreRoutes from "./routes/core.js";
+import modelRoutes from "./routes/models.js";
 import groupRoutes from "./routes/groups.js";
 import healthRoutes from "./routes/health.js";
 import moduleRoutes from "./routes/modules.js";
@@ -59,6 +60,7 @@ app.use("/health", healthRoutes);
 
 app.use("/api", authRoutes);
 app.use("/api", proxyRoutes);
+app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);

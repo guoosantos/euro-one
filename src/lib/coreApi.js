@@ -13,7 +13,8 @@ export const CoreApi = {
   // health compat no Nginx já responde 200
   health: () => api.get(API_ROUTES.health, { apiPrefix: false }).then((r) => r?.status === 200),
   models: async (params) => {
-    const data = await http("models", { params });
+    const response = await api.get(API_ROUTES.models, { params });
+    const data = response?.data || null;
     return Array.isArray(data?.models) ? data.models : normaliseDevices(data);
   },
   createModel: (payload) => http("models", { method: "POST", payload }),

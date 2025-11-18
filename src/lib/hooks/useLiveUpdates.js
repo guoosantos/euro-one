@@ -10,29 +10,21 @@ function resolveBaseUrl() {
 
 function buildWebSocketUrl() {
   const base = resolveBaseUrl();
-
-  // garante que o path do websocket sempre tenha uma barra no começo
   const wsPath = API_ROUTES.websocket.startsWith("/")
     ? API_ROUTES.websocket
     : `/${API_ROUTES.websocket}`;
 
-  // base já com protocolo ws/wss
-  if (base.startsWith("ws://") || base.startsWith("wss://")) {
-    return `${base.replace(/\/$/, "")}${wsPath}`;
+  try {
+    const httpUrl = base.startsWith("http") || base.startsWith("ws") ? base : `http://${base}`;
+    const parsed = new URL(httpUrl);
+    const protocol = parsed.protocol === "https:" || parsed.protocol === "wss:" ? "wss:" : "ws:";
+    const path = wsPath.startsWith("/") ? wsPath : `/${wsPath}`;
+    return `${protocol}//${parsed.host}${path}`;
+  } catch (_error) {
+    return base.startsWith("wss://") || base.startsWith("ws://")
+      ? `${base.replace(/\/$/, "")}${wsPath}`
+      : `ws://${base.replace(/\/$/, "")}${wsPath}`;
   }
-
-  // https -> wss
-  if (base.startsWith("https://")) {
-    return `wss://${base.slice("https://".length).replace(/\/$/, "")}${wsPath}`;
-  }
-
-  // http -> ws
-  if (base.startsWith("http://")) {
-    return `ws://${base.slice("http://".length).replace(/\/$/, "")}${wsPath}`;
-  }
-
-  // fallback: assume host:porta sem protocolo
-  return `ws://${base.replace(/\/$/, "")}${wsPath}`;
 }
 
 function appendToken(url, token) {
