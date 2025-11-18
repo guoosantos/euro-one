@@ -3,10 +3,12 @@ import { NavLink } from "react-router-dom";
 import {
   BarChart3,
   Bell,
+  Banknote,
   Boxes,
   Camera,
   Car,
   Cpu,
+  Flame,
   DownloadCloud,
   FileBarChart,
   FileText,
@@ -21,8 +23,10 @@ import {
   Package,
   Radio,
   Route,
+  ShieldCheck,
   Settings,
   Terminal,
+  Gauge,
   User,
   Users,
   UserCog,
@@ -111,6 +115,23 @@ export default function Sidebar() {
     { to: "/reports/route", label: "Rotas", icon: Route },
     { to: "/reports/summary", label: "Resumo", icon: FileBarChart },
     { to: "/reports/stops", label: "Paradas", icon: Navigation },
+  ];
+
+  const businessLinks = [
+    { to: "/dashboard", label: "Dashboard", icon: Home },
+    { to: "/finance", label: "Financeiro", icon: Banknote },
+    { to: "/clients", label: "Clientes", icon: Users },
+    { to: "/users", label: "Usuários", icon: User },
+  ];
+
+  const telematicsLinks = [
+    { to: "/driver-behavior", label: "Driver Behavior", icon: Gauge },
+    { to: "/maintenance", label: "Manutenção", icon: Wrench },
+    { to: "/fuel", label: "Combustível", icon: Flame },
+    { to: "/routing", label: "Roteirização", icon: Route },
+    { to: "/compliance", label: "Compliance", icon: ShieldCheck },
+    { to: "/iot-sensors", label: "Sensores IoT", icon: Cpu },
+    { to: "/video-telematics", label: "Vídeo Telemetria", icon: Video },
   ];
 
   const euroViewLinks = [
@@ -233,6 +254,10 @@ export default function Sidebar() {
           )}
         </div>
 
+        {sectionTitle(collapsed, "Negócios")}
+        {businessLinks.map(renderNavLink)}
+
+        {sectionTitle(collapsed, "Principais")}
         {primaryLinks.map(renderNavLink)}
 
         {!collapsed && (
@@ -283,6 +308,9 @@ export default function Sidebar() {
         ) : (
           openAnalytics && <div className="ml-3 space-y-2 text-sm">{analyticsLinks.map(renderNestedLink)}</div>
         )}
+
+        {sectionTitle(collapsed, "Telemetria")}
+        <div className="flex flex-col gap-2">{telematicsLinks.map(renderNavLink)}</div>
 
         {sectionTitle(collapsed, "Admin")}
         {utilityLinks.map(renderNavLink)}

@@ -10,6 +10,7 @@ import proxyRoutes from "./routes/proxy.js";
 import coreRoutes from "./routes/core.js";
 import groupRoutes from "./routes/groups.js";
 import healthRoutes from "./routes/health.js";
+import moduleRoutes from "./routes/modules.js";
 
 const app = express();
 
@@ -62,6 +63,7 @@ app.use("/api/core", coreRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
+app.use("/api", moduleRoutes);
 
 app.use((req, _res, next) => {
   next(createError(404, `Rota não encontrada: ${req.method} ${req.originalUrl}`));
