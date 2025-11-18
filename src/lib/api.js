@@ -1,11 +1,11 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
-const RAW_BASE_URL = import.meta?.env?.VITE_API_BASE_URL || "";
-const BASE_URL = RAW_BASE_URL ? RAW_BASE_URL.replace(/\/$/, "") : "";
+const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
 const FALLBACK_BASE_URL =
   typeof window !== "undefined" && window.location?.origin
     ? window.location.origin
     : "http://localhost:3001";
+const BASE_URL = (RAW_BASE_URL || FALLBACK_BASE_URL).replace(/\/$/, "");
 
 const unauthorizedHandlers = new Set();
 
@@ -102,9 +102,10 @@ function buildUrl(path, params, { apiPrefix = true } = {}) {
     ? new URL(targetPath)
     : (() => {
         const base = new URL(BASE_URL || FALLBACK_BASE_URL);
+        const basePath = base.pathname.replace(/\/$/, "");
         const normalisedPath = targetPath.replace(/^\/+/, "");
-        const prefix = apiPrefix ? "api" : "";
-        const segments = [base.pathname.replace(/\/$/, ""), prefix, normalisedPath]
+        const shouldPrefix = apiPrefix && !/^(api\/?)/.test(normalisedPath) && !/\/api\/?$/.test(basePath);
+        const segments = [basePath, shouldPrefix ? "api" : "", normalisedPath]
           .filter(Boolean)
           .join("/");
         base.pathname = segments.replace(/\/{2,}/g, "/");
@@ -181,6 +182,10 @@ async function request({
     if (response.status === 401) {
       clearStoredSession();
       notifyUnauthorized(normalised);
+      if (typeof window !== "undefined") {
+        window.alert?.("Sessão expirada. Faça login novamente.");
+        window.location.assign("/login");
+      }
     }
 
     if (!response.ok) {

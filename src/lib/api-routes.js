@@ -4,6 +4,14 @@ export const API_ROUTES = {
   logout: "logout",
   events: "events",
   lastPositions: "positions/last",
+  finance: "finance",
+  driverBehavior: "driver-behavior",
+  maintenance: "maintenance",
+  fuel: "reports/fuel",
+  routing: "routing",
+  compliance: "compliance",
+  iotSensors: "iot-sensors",
+  videoTelematics: "video-telematics",
   reports: {
     trips: "reports/trips",
     stops: "reports/stops",
@@ -30,7 +38,7 @@ export const API_ROUTES = {
   },
   health: "health",
   traccarHealth: "health/traccar",
-  websocket: "/ws/live",
+  websocket: "ws/live",
 };
 
 export default API_ROUTES;
