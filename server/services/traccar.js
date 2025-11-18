@@ -5,8 +5,15 @@ import { config } from "../config.js";
 // Garante que nunca termina com / e sempre aponta para /api
 const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
 
+/**
+ * Constrói a URL final SEM perder o "/api"
+ * Evita o comportamento do new URL(path, base) que zera o path quando path começa com "/"
+ */
 function buildUrl(base, path, params) {
-  const url = new URL(path, base);
+  const finalBase = base.replace(/\/$/, "");
+  const finalPath = path.replace(/^\//, "");
+  const url = new URL(`${finalBase}/${finalPath}`);
+
   if (params && typeof params === "object") {
     Object.entries(params).forEach(([key, value]) => {
       if (value === undefined || value === null) return;
@@ -17,10 +24,19 @@ function buildUrl(base, path, params) {
       url.searchParams.set(key, value);
     });
   }
+
   return url.toString();
 }
 
-async function httpRequest({ baseURL = "", method = "GET", url, params, data, headers = {}, timeout = 20_000 }) {
+async function httpRequest({
+  baseURL = "",
+  method = "GET",
+  url,
+  params,
+  data,
+  headers = {},
+  timeout = 20_000,
+}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
 
@@ -55,13 +71,14 @@ async function httpRequest({ baseURL = "", method = "GET", url, params, data, he
     let payload;
     try {
       payload = await response.clone().json();
-    } catch (parseError) {
+    } catch (_parseError) {
       payload = await response.text();
     }
 
-    const rawHeaders = typeof response.headers.raw === "function"
-      ? response.headers.raw()
-      : Object.fromEntries(response.headers.entries());
+    const rawHeaders =
+      typeof response.headers.raw === "function"
+        ? response.headers.raw()
+        : Object.fromEntries(response.headers.entries());
 
     const normalisedResponse = {
       status: response.status,
@@ -71,7 +88,8 @@ async function httpRequest({ baseURL = "", method = "GET", url, params, data, he
     };
 
     if (!response.ok) {
-      const message = payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
+      const message =
+        payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
       const error = createError(response.status || 500, message);
       error.response = normalisedResponse;
       throw error;
@@ -280,9 +298,17 @@ export async function loginTraccar(email, password) {
     },
   });
 
-  const cookies = response.headers?.["set-cookie"] || [];
+  // Normaliza o header Set-Cookie (pode vir string ou array)
+  const rawSetCookie = response.headers?.["set-cookie"];
+
+  const cookies = Array.isArray(rawSetCookie)
+    ? rawSetCookie
+    : rawSetCookie
+    ? [rawSetCookie]
+    : [];
+
   const sessionCookie = cookies
-    .map((item) => item.split(";")[0])
+    .map((item) => String(item).split(";")[0])
     .find((item) => item.startsWith("JSESSIONID="));
 
   const sessionId = sessionCookie ? sessionCookie.split("=")[1] : null;

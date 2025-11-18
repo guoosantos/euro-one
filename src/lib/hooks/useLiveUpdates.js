@@ -10,16 +10,29 @@ function resolveBaseUrl() {
 
 function buildWebSocketUrl() {
   const base = resolveBaseUrl();
+
+  // garante que o path do websocket sempre tenha uma barra no começo
+  const wsPath = API_ROUTES.websocket.startsWith("/")
+    ? API_ROUTES.websocket
+    : `/${API_ROUTES.websocket}`;
+
+  // base já com protocolo ws/wss
   if (base.startsWith("ws://") || base.startsWith("wss://")) {
-    return `${base}${API_ROUTES.websocket}`;
+    return `${base.replace(/\/$/, "")}${wsPath}`;
   }
+
+  // https -> wss
   if (base.startsWith("https://")) {
-    return `wss://${base.slice("https://".length)}${API_ROUTES.websocket}`;
+    return `wss://${base.slice("https://".length).replace(/\/$/, "")}${wsPath}`;
   }
+
+  // http -> ws
   if (base.startsWith("http://")) {
-    return `ws://${base.slice("http://".length)}${API_ROUTES.websocket}`;
+    return `ws://${base.slice("http://".length).replace(/\/$/, "")}${wsPath}`;
   }
-  return `ws://${base}${API_ROUTES.websocket}`;
+
+  // fallback: assume host:porta sem protocolo
+  return `ws://${base.replace(/\/$/, "")}${wsPath}`;
 }
 
 function appendToken(url, token) {
@@ -56,7 +69,11 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     if (typeof window === "undefined") return;
 
     const currentSocket = socketRef.current;
-    if (currentSocket && (currentSocket.readyState === WebSocket.OPEN || currentSocket.readyState === WebSocket.CONNECTING)) {
+    if (
+      currentSocket &&
+      (currentSocket.readyState === WebSocket.OPEN ||
+        currentSocket.readyState === WebSocket.CONNECTING)
+    ) {
       return;
     }
 
@@ -95,7 +112,12 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
           // Mantém payload original quando não for JSON
         }
       }
-      if (payload && typeof payload === "object" && payload.type === "connection" && payload.status === "ready") {
+      if (
+        payload &&
+        typeof payload === "object" &&
+        payload.type === "connection" &&
+        payload.status === "ready"
+      ) {
         setError(null);
         return;
       }
@@ -114,12 +136,17 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
       setConnected(false);
       setConnecting(false);
       socketRef.current = null;
+
       if (manualCloseRef.current || !enabled) {
         manualCloseRef.current = false;
         return;
       }
+
       if (!reconnectTimerRef.current) {
-        const nextDelay = Math.min(reconnectDelayMs * 2 ** reconnectAttemptsRef.current, 30_000);
+        const nextDelay = Math.min(
+          reconnectDelayMs * 2 ** reconnectAttemptsRef.current,
+          30_000,
+        );
         reconnectAttemptsRef.current += 1;
         reconnectTimerRef.current = globalThis.setTimeout(() => {
           reconnectTimerRef.current = null;
