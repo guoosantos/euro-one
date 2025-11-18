@@ -26,7 +26,7 @@ function normalisePositionPayload(payload) {
 }
 
 function buildTraccarSocketUrl() {
-  const base = config.traccar.baseUrl.replace(/\/$/, "");
+  const base = (config.traccar.baseUrl || "http://localhost:8082").replace(/\/$/, "");
   if (base.startsWith("https://")) {
     return `wss://${base.slice("https://".length)}/api/socket`;
   }
@@ -331,6 +331,10 @@ function connectToTraccar(connectFn) {
     const socket = new WebSocket(url, ["traccar"], { headers });
     traccarSocket = socket;
 
+    socket.on("unexpected-response", (_req, res) => {
+      console.error("[Traccar WS] unexpected-response", res?.statusCode, res?.headers);
+    });
+
     socket.onopen = () => {
       isConnecting = false;
       console.info("[Traccar WS] Conexão estabelecida (readyState=%s).", socket.readyState);
@@ -343,6 +347,7 @@ function connectToTraccar(connectFn) {
     socket.onerror = (event) => {
       const error = event?.error || event;
       const message = error?.message || event?.message || "Erro desconhecido";
+      console.error("[Traccar WS] Error", error || message);
       console.error("[Traccar WS] Erro na conexão com o Traccar", message);
       socket.close();
     };

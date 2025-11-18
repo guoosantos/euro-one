@@ -23,6 +23,7 @@ export const API_ROUTES = {
   groups: "groups",
   clients: "clients",
   users: "users",
+  models: "models",
   geofences: "geofences",
   drivers: "drivers",
   media: {

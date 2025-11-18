@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../lib/coreApi.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -72,6 +73,7 @@ function ModelCards({ models }) {
 }
 
 export default function Devices() {
+  const { tenantId, user } = useTenant();
   const [tab, setTab] = useState("lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
@@ -123,6 +125,7 @@ export default function Devices() {
         name: deviceForm.name?.trim() || undefined,
         uniqueId: deviceForm.uniqueId.trim(),
         modelId: deviceForm.modelId || undefined,
+        clientId: tenantId || user?.clientId,
       });
       await load();
       setDeviceForm({ name: "", uniqueId: "", modelId: "" });
