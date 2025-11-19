@@ -1,3 +1,4 @@
+// server/routes/proxy.js
 import express from "express";
 import createError from "http-errors";
 
@@ -7,20 +8,23 @@ import { getClientById } from "../models/client.js";
 import { traccarProxy, traccarRequest } from "../services/traccar.js";
 
 const router = express.Router();
-
 router.use(authenticate);
 
+/**
+ * === Helpers de escopo de dispositivo / cliente ===
+ */
+
 function resolveAllowedDeviceIds(req) {
-  if (req.user?.role === "admin") {
-    return null;
-  }
+  if (req.user?.role === "admin") return null;
+
   if (!req.user?.clientId) {
     throw createError(403, "Usuário não vinculado a um cliente");
   }
   const devices = listDevices({ clientId: req.user.clientId });
   const traccarIds = devices
-    .map((device) => (device?.traccarId ? String(device.traccarId) : null))
+    .map((d) => (d?.traccarId ? String(d.traccarId) : null))
     .filter(Boolean);
+
   if (!traccarIds.length) {
     throw createError(403, "Cliente não possui dispositivos sincronizados");
   }
@@ -35,13 +39,13 @@ function extractDeviceIds(source = {}) {
       entry.forEach(pushValue);
       return;
     }
-    const stringValue = String(entry).trim();
-    if (!stringValue) return;
-    if (stringValue.includes(",")) {
-      stringValue.split(",").forEach((part) => pushValue(part));
+    const s = String(entry).trim();
+    if (!s) return;
+    if (s.includes(",")) {
+      s.split(",").forEach((p) => pushValue(p));
       return;
     }
-    values.push(stringValue);
+    values.push(s);
   };
   pushValue(source.deviceId);
   pushValue(source.deviceID);
@@ -53,32 +57,32 @@ function extractDeviceIds(source = {}) {
   return values;
 }
 
-function assignDeviceScope(target, allowed, { preferArray = false } = {}) {
+function assignDeviceScope(target, allowed, { preferArray = true } = {}) {
+  const list = allowed.map((v) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : String(v);
+  });
   if (preferArray) {
-    const list = allowed.map((value) => {
-      const numeric = Number(value);
-      return Number.isFinite(numeric) ? numeric : String(value);
-    });
-    target.deviceIds = list;
     target.deviceId = list;
+    target.deviceIds = list; // compat com front antigo
   } else {
-    target.deviceIds = allowed.join(",");
-    target.deviceId = allowed;
+    target.deviceId = list.join(",");
+    target.deviceIds = list.join(",");
   }
 }
 
 function enforceDeviceFilterInQuery(req, target = req.query) {
   const allowed = resolveAllowedDeviceIds(req);
-  if (!allowed) {
-    return;
-  }
+  if (!allowed) return;
+
   const params = target || (req.query = {});
   const requested = extractDeviceIds(params);
+
   if (!requested.length) {
-    assignDeviceScope(params, allowed, { preferArray: false });
+    assignDeviceScope(params, allowed, { preferArray: true });
     return;
   }
-  const invalid = requested.some((value) => !allowed.includes(String(value)));
+  const invalid = requested.some((v) => !allowed.includes(String(v)));
   if (invalid) {
     throw createError(403, "Dispositivo não autorizado para este cliente");
   }
@@ -86,38 +90,33 @@ function enforceDeviceFilterInQuery(req, target = req.query) {
 
 function enforceDeviceFilterInBody(req, target = req.body) {
   const allowed = resolveAllowedDeviceIds(req);
-  if (!allowed) {
-    return;
-  }
+  if (!allowed) return;
+
   const body = target || (req.body = {});
   const requested = extractDeviceIds(body);
+
   if (!requested.length) {
     assignDeviceScope(body, allowed, { preferArray: true });
     return;
   }
-  const invalid = requested.some((value) => !allowed.includes(String(value)));
+  const invalid = requested.some((v) => !allowed.includes(String(v)));
   if (invalid) {
     throw createError(403, "Dispositivo não autorizado para este cliente");
   }
 }
 
 function resolveClientGroupId(req) {
-  if (req.user?.role === "admin") {
-    return null;
-  }
+  if (req.user?.role === "admin") return null;
   const clientId = req.user?.clientId;
-  if (!clientId) {
-    return null;
-  }
+  if (!clientId) return null;
   const client = getClientById(clientId);
   return client?.attributes?.traccarGroupId ?? null;
 }
 
 function enforceClientGroupInQuery(req, target = req.query) {
   const groupId = resolveClientGroupId(req);
-  if (!groupId) {
-    return;
-  }
+  if (!groupId) return;
+
   const params = target || (req.query = {});
   if (params.groupId === undefined && params.groupIds === undefined) {
     params.groupId = groupId;
@@ -126,43 +125,217 @@ function enforceClientGroupInQuery(req, target = req.query) {
 
 function enforceClientGroupInBody(req, target = req.body) {
   const groupId = resolveClientGroupId(req);
-  if (!groupId) {
-    return;
-  }
+  if (!groupId) return;
+
   const body = target || (req.body = {});
   if (body.groupId === undefined && body.groupIds === undefined) {
     body.groupId = groupId;
   }
 }
 
-async function proxyTraccarReport(req, res, next, path) {
-  try {
-    const params = { ...(req.query || {}) };
-    enforceDeviceFilterInQuery(req, params);
-    enforceClientGroupInQuery(req, params);
-    const format = String(params?.format || "").toLowerCase();
-    if (format === "csv") {
-      const response = await traccarRequest(
-        {
-          method: "get",
-          url: path,
-          params,
-          headers: { Accept: "text/csv" },
-          responseType: "arraybuffer",
-        },
-        null,
-        { asAdmin: true },
-      );
-      res.setHeader("Content-Type", "text/csv");
-      res.send(Buffer.from(response.data));
+/**
+ * === Helpers de serialização/headers para a API do Traccar ===
+ */
+
+function appendRepeat(search, key, value) {
+  if (value === undefined || value === null) return;
+  const arr = Array.isArray(value) ? value : String(value).split(",");
+  for (const raw of arr) {
+    const v = String(raw).trim();
+    if (v) search.append(key, v);
+  }
+}
+
+function toIsoOrNull(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function buildReportSearch(params = {}) {
+  const search = new URLSearchParams();
+
+  // devices
+  const ids = extractDeviceIds(params);
+  if (ids.length) ids.forEach((id) => search.append("deviceId", String(id)));
+  else appendRepeat(search, "deviceId", params.deviceId || params.deviceIds);
+
+  // groups
+  appendRepeat(search, "groupId", params.groupId || params.groupIds);
+
+  // types (para events)
+  appendRepeat(search, "type", params.type || params.types);
+
+  // datas
+  const from = toIsoOrNull(params.from);
+  const to = toIsoOrNull(params.to);
+  if (from) search.set("from", from);
+  if (to) search.set("to", to);
+
+  // extras (limit, etc)
+  for (const [k, v] of Object.entries(params)) {
+    if (["deviceId", "deviceIds", "groupId", "groupIds", "type", "types", "from", "to", "format"].includes(k)) continue;
+    if (v !== undefined && v !== null && String(v).trim() !== "") {
+      appendRepeat(search, k, v);
+    }
+  }
+
+  return search;
+}
+
+function pickAccept(format = "") {
+  const f = String(format).toLowerCase();
+  if (f === "csv") return "text/csv";
+  if (f === "gpx") return "application/gpx+xml";
+  if (f === "xls") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (f === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return "application/json";
+}
+
+/**
+ * Converte deviceId interno (UUID) → traccarId numérico para relatórios.
+ */
+function normalizeReportDeviceIds(params = {}) {
+  const ids = extractDeviceIds(params);
+  if (!ids.length) return params;
+
+  // Se já são todos numéricos, não precisa fazer nada.
+  const allNumeric = ids.every((v) => /^\d+$/.test(String(v)));
+  if (allNumeric) return params;
+
+  // Carrega todos os devices (admin) ou por client (já está em memória).
+  const allDevices = listDevices() || [];
+  const byInternalId = new Map();
+  allDevices.forEach((d) => {
+    if (d?.id) {
+      byInternalId.set(String(d.id), d);
+    }
+  });
+
+  const traccarIds = [];
+  ids.forEach((v) => {
+    const s = String(v);
+    if (/^\d+$/.test(s)) {
+      traccarIds.push(s);
       return;
     }
-    const data = await traccarProxy("get", path, { params, asAdmin: true });
-    res.json(data);
+    const dev = byInternalId.get(s);
+    if (dev?.traccarId) {
+      traccarIds.push(String(dev.traccarId));
+    }
+  });
+
+  if (!traccarIds.length) {
+    // Não conseguimos mapear → deixa como está (vai dar erro e aparecer no log).
+    return params;
+  }
+
+  const next = { ...params };
+  next.deviceId = traccarIds;
+  next.deviceIds = traccarIds;
+  return next;
+}
+
+/**
+ * Tenta GET e, se o Traccar responder 404/405/415, faz fallback em POST.
+ */
+async function requestReportWithFallback(path, params, accept, wantsBinary) {
+  const search = buildReportSearch(params);
+  const urlGet = `${path}?${search.toString()}`;
+
+  // 1) GET
+  try {
+    const res = await traccarRequest(
+      {
+        method: "get",
+        url: urlGet,
+        responseType: wantsBinary ? "arraybuffer" : "json",
+        headers: { Accept: accept },
+      },
+      null,
+      { asAdmin: true },
+    );
+    return res;
+  } catch (err) {
+    const status = err?.response?.status;
+    const shouldFallback = status === 404 || status === 405 || status === 415;
+    if (!shouldFallback) throw err;
+
+    // 2) POST
+    const res = await traccarRequest(
+      {
+        method: "post",
+        url: path,
+        data: params,
+        responseType: wantsBinary ? "arraybuffer" : "json",
+        headers: { Accept: accept },
+      },
+      null,
+      { asAdmin: true },
+    );
+    return res;
+  }
+}
+
+/**
+ * Proxy genérico de relatórios (/reports/*) com:
+ *  - filtro de cliente
+ *  - conversão de deviceId interno → traccarId
+ *  - datas padrão (últimas 24h)
+ *  - fallback GET→POST
+ */
+async function proxyTraccarReportWithParams(req, res, next, path, paramsIn) {
+  try {
+    let params = { ...(paramsIn || {}) };
+
+    // converte UUID → traccarId ANTES de ir pro Traccar
+    params = normalizeReportDeviceIds(params);
+
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+
+    if (!params.from || !params.to) {
+      const now = new Date();
+      const to = params.to ? new Date(params.to) : now;
+      const from = params.from ? new Date(params.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      params.from = from.toISOString();
+      params.to = to.toISOString();
+    }
+
+    const accept = pickAccept(String(params.format || ""));
+    const wantsBinary = accept !== "application/json";
+
+    const response = await requestReportWithFallback(path, params, accept, wantsBinary);
+
+    if (wantsBinary) {
+      res.setHeader("Content-Type", accept);
+      res.send(Buffer.from(response.data));
+    } else {
+      res.json(response.data);
+    }
   } catch (error) {
+    if (error?.response) {
+      console.error(
+        "[traccar report error]",
+        path,
+        error.response.status,
+        typeof error.response.data === "string" ? error.response.data : JSON.stringify(error.response.data),
+      );
+    } else {
+      console.error("[traccar report error]", path, error?.message);
+    }
     next(error);
   }
 }
+
+async function proxyTraccarReport(req, res, next, path) {
+  return proxyTraccarReportWithParams(req, res, next, path, { ...(req.query || {}) });
+}
+
+/**
+ * === Helpers /users ===
+ */
 
 function sanitizeUserQuery(query = {}) {
   const nextParams = { ...query };
@@ -176,6 +349,10 @@ function isTraccarUserRequest(req) {
   const marker = req.query?.target || req.query?.scope || req.query?.provider;
   return marker === "traccar";
 }
+
+/**
+ * === Devices ===
+ */
 
 router.get("/devices", async (req, res, next) => {
   try {
@@ -213,11 +390,82 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
   }
 });
 
+/**
+ * === Positions ===
+ */
+
 router.get("/positions", async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };
+
     enforceDeviceFilterInQuery(req, params);
-    enforceClientGroupInQuery(req, params);
+
+    const hasDeviceId =
+      extractDeviceIds(params).length ||
+      params.deviceId !== undefined ||
+      params.deviceIds !== undefined;
+
+    if (hasDeviceId && (!params.from || !params.to)) {
+      const now = new Date();
+      const to = params.to ? new Date(params.to) : now;
+      const from = params.from ? new Date(params.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      params.from = from.toISOString();
+      params.to = to.toISOString();
+    }
+
+    const accept = pickAccept(String(params.format || ""));
+    const wantsBinary = accept !== "application/json";
+
+    const search = new URLSearchParams();
+    const ids = extractDeviceIds(params);
+    if (ids.length) ids.forEach((id) => search.append("deviceId", String(id)));
+    appendRepeat(search, "id", params.id);
+    if (params.from) search.set("from", toIsoOrNull(params.from));
+    if (params.to) search.set("to", toIsoOrNull(params.to));
+
+    const url = `/positions?${search.toString()}`;
+
+    const response = await traccarRequest(
+      {
+        method: "get",
+        url,
+        responseType: wantsBinary ? "arraybuffer" : "json",
+        headers: { Accept: accept },
+      },
+      null,
+      { asAdmin: true },
+    );
+
+    if (wantsBinary) {
+      res.setHeader("Content-Type", accept);
+      res.send(Buffer.from(response.data));
+    } else {
+      res.json(response.data);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+// /positions/last (compat)
+router.get("/positions/last", async (req, res, next) => {
+  try {
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+
+    const hasDeviceId =
+      extractDeviceIds(params).length ||
+      params.deviceId !== undefined ||
+      params.deviceIds !== undefined;
+
+    if (hasDeviceId && (!params.from || !params.to)) {
+      const now = new Date();
+      const to = params.to ? new Date(params.to) : now;
+      const from = params.from ? new Date(params.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      params.from = from.toISOString();
+      params.to = to.toISOString();
+    }
+
     const data = await traccarProxy("get", "/positions", { params, asAdmin: true });
     res.json(data);
   } catch (error) {
@@ -225,29 +473,17 @@ router.get("/positions", async (req, res, next) => {
   }
 });
 
-router.get("/positions/last", async (req, res, next) => {
-  try {
-    const params = { ...(req.query || {}) };
-    enforceDeviceFilterInQuery(req, params);
-    enforceClientGroupInQuery(req, params);
-    const data = await traccarProxy("get", "/positions/last", { params, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+/**
+ * === Events (usa /reports/events) ===
+ */
 
-router.get("/events", async (req, res, next) => {
-  try {
-    const params = { ...(req.query || {}) };
-    enforceDeviceFilterInQuery(req, params);
-    enforceClientGroupInQuery(req, params);
-    const data = await traccarProxy("get", "/events", { params, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+router.all("/events", (req, res, next) =>
+  proxyTraccarReport(req, res, next, "/reports/events"),
+);
+
+/**
+ * === Groups / Drivers ===
+ */
 
 router.get("/groups", async (req, res, next) => {
   try {
@@ -321,6 +557,10 @@ router.delete("/drivers/:id", requireRole("manager", "admin"), async (req, res, 
   }
 });
 
+/**
+ * === Commands ===
+ */
+
 router.get("/commands", async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };
@@ -361,11 +601,19 @@ router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res,
   }
 });
 
-router.get("/reports/route", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
+/**
+ * === Reports (GET no nosso backend, GET→POST no Traccar) ===
+ */
 
+router.get("/reports/route",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
 router.get("/reports/summary", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/summary"));
+router.get("/reports/stops",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/stops"));
+router.get("/reports/trips",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/trips"));
+router.get("/reports/events",  (req, res, next) => proxyTraccarReport(req, res, next, "/reports/events"));
 
-router.get("/reports/stops", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/stops"));
+/**
+ * === Notifications ===
+ */
 
 router.get("/notifications", async (req, res, next) => {
   try {
@@ -403,10 +651,12 @@ router.delete("/notifications/:id", requireRole("manager", "admin"), async (req,
   }
 });
 
+/**
+ * === Users (quando target=traccar) ===
+ */
+
 router.get("/users", async (req, res, next) => {
-  if (!isTraccarUserRequest(req)) {
-    return next();
-  }
+  if (!isTraccarUserRequest(req)) return next();
   try {
     const params = sanitizeUserQuery(req.query);
     const data = await traccarProxy("get", "/users", { params, asAdmin: true });
@@ -417,9 +667,7 @@ router.get("/users", async (req, res, next) => {
 });
 
 router.post("/users", requireRole("manager", "admin"), async (req, res, next) => {
-  if (!isTraccarUserRequest(req)) {
-    return next();
-  }
+  if (!isTraccarUserRequest(req)) return next();
   try {
     const data = await traccarProxy("post", "/users", { data: req.body, asAdmin: true });
     res.status(201).json(data);
@@ -429,9 +677,7 @@ router.post("/users", requireRole("manager", "admin"), async (req, res, next) =>
 });
 
 router.put("/users/:id", requireRole("manager", "admin"), async (req, res, next) => {
-  if (!isTraccarUserRequest(req)) {
-    return next();
-  }
+  if (!isTraccarUserRequest(req)) return next();
   try {
     const data = await traccarProxy("put", `/users/${req.params.id}`, { data: req.body, asAdmin: true });
     res.json(data);
@@ -441,9 +687,7 @@ router.put("/users/:id", requireRole("manager", "admin"), async (req, res, next)
 });
 
 router.delete("/users/:id", requireRole("manager", "admin"), async (req, res, next) => {
-  if (!isTraccarUserRequest(req)) {
-    return next();
-  }
+  if (!isTraccarUserRequest(req)) return next();
   try {
     await traccarProxy("delete", `/users/${req.params.id}`, { asAdmin: true });
     res.status(204).send();
@@ -451,6 +695,10 @@ router.delete("/users/:id", requireRole("manager", "admin"), async (req, res, ne
     next(error);
   }
 });
+
+/**
+ * === Geofences ===
+ */
 
 router.get("/geofences", async (req, res, next) => {
   try {
@@ -488,6 +736,10 @@ router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res
   }
 });
 
+/**
+ * === Permissions ===
+ */
+
 router.post("/permissions", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const data = await traccarProxy("post", "/permissions", { data: req.body, asAdmin: true });
@@ -497,28 +749,47 @@ router.post("/permissions", requireRole("manager", "admin"), async (req, res, ne
   }
 });
 
+/**
+ * === Compat: POST /api/reports/trips (front antigo) ===
+ */
+
 router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     enforceDeviceFilterInBody(req);
     enforceClientGroupInBody(req);
-    const format = req.body?.format;
-    const response = await traccarRequest(
-      {
-        method: "post",
-        url: "/reports/trips",
-        data: req.body,
-        responseType: format === "csv" || format === "xls" ? "arraybuffer" : "json",
-      },
-      null,
-      { asAdmin: true },
-    );
-    if (format === "csv" || format === "xls") {
-      res.setHeader("Content-Type", format === "xls" ? "application/vnd.ms-excel" : "text/csv");
+
+    let body = { ...(req.body || {}) };
+    body = normalizeReportDeviceIds(body);
+
+    if (!body.from || !body.to) {
+      const now = new Date();
+      const to = body.to ? new Date(body.to) : now;
+      const from = body.from ? new Date(body.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
+      body.from = from.toISOString();
+      body.to = to.toISOString();
+    }
+
+    const accept = pickAccept(String(body.format || ""));
+    const wantsBinary = accept !== "application/json";
+
+    const response = await requestReportWithFallback("/reports/trips", body, accept, wantsBinary);
+
+    if (wantsBinary) {
+      res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
       res.json(response.data);
     }
   } catch (error) {
+    if (error?.response) {
+      console.error(
+        "[traccar report error] /reports/trips",
+        error.response.status,
+        typeof error.response.data === "string" ? error.response.data : JSON.stringify(error.response.data),
+      );
+    } else {
+      console.error("[traccar report error] /reports/trips", error?.message);
+    }
     next(error);
   }
 });
