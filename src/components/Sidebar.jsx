@@ -110,6 +110,7 @@ export default function Sidebar() {
   ];
 
   const analyticsLinks = [
+    { to: "/analytics/heatmap", label: "Analytics", icon: BarChart3 },
     { to: "/ranking", label: "Ranking", icon: Medal },
     { to: "/reports", label: "Relatórios", icon: BarChart3 },
     { to: "/reports/route", label: "Rotas", icon: Route },

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTenant } from "../tenant-context.jsx";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -10,6 +11,7 @@ function normalise(payload) {
 }
 
 export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
+  const { tenantId } = useTenant();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -31,15 +33,17 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
       setError(null);
       try {
         const targets = ids.length ? ids : [null];
-        const requests = targets.map((deviceId) =>
-          api
-            .get(API_ROUTES.lastPositions, { params: deviceId ? { deviceId } : undefined })
+        const requests = targets.map((deviceId) => {
+          const params = deviceId ? { deviceId } : {};
+          if (tenantId) params.clientId = tenantId;
+          return api
+            .get(API_ROUTES.lastPositions, { params: Object.keys(params).length ? params : undefined })
             .then((response) => normalise(response?.data))
             .catch((requestError) => {
               console.warn("Failed to load live position", deviceId, requestError);
               return [];
-            }),
-        );
+            });
+        });
         const results = await Promise.all(requests);
         if (cancelled) return;
         const merged = [].concat(...results).filter(Boolean);
@@ -47,7 +51,8 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
         setFetchedAt(new Date());
       } catch (requestError) {
         if (cancelled) return;
-        setError(requestError);
+        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar posições";
+        setError(new Error(friendly));
         setPositions([]);
       } finally {
         if (!cancelled) {
@@ -65,7 +70,7 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ids, refreshInterval, version]);
+  }, [ids, refreshInterval, version, tenantId]);
 
   const refresh = useCallback(() => {
     setVersion((value) => value + 1);

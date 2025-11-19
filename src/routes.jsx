@@ -27,6 +27,7 @@ import Reports from "./pages/Reports";
 import ReportsRoute from "./pages/ReportsRoute";
 import ReportsSummary from "./pages/ReportsSummary";
 import ReportsStops from "./pages/ReportsStops";
+import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
@@ -48,6 +49,9 @@ import VideoTelematics from "./pages/VideoTelematics";
 import LivePage from "./pages/Live";
 import NotFound from "./pages/NotFound";
 import RoutesPage from "./pages/Routes";
+import Tasks from "./pages/Tasks";
+import TaskForm from "./pages/TaskForm";
+import TaskDetails from "./pages/TaskDetails";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true },
@@ -68,12 +72,16 @@ export const routeConfig = [
   { path: "/documents", element: Docs, title: "Documentos" },
   { path: "/services", element: Services, title: "Serviços" },
   { path: "/deliveries", element: Deliveries, title: "Entregas" },
+  { path: "/tasks", element: Tasks, title: "Tasks" },
+  { path: "/tasks/new", element: TaskForm, title: "Nova task" },
+  { path: "/tasks/:id", element: TaskDetails, title: "Detalhes da task" },
   { path: "/geofences", element: Fences, title: "Cercas" },
   { path: "/events", element: Events, title: "Eventos" },
   { path: "/videos", element: Videos, title: "Vídeos" },
   { path: "/face", element: Face, title: "Reconhecimento facial" },
   { path: "/live", element: LivePage, title: "Streams" },
   { path: "/ranking", element: Ranking, title: "Ranking" },
+  { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics" },
   { path: "/reports", element: Reports, title: "Relatórios" },
   { path: "/reports/route", element: ReportsRoute, title: "Rotas" },
   { path: "/reports/summary", element: ReportsSummary, title: "Resumo" },

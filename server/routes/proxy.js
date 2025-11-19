@@ -3,125 +3,20 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { listDevices } from "../models/device.js";
-import { getClientById } from "../models/client.js";
+import { getDeviceById, listDevices } from "../models/device.js";
 import { traccarProxy, traccarRequest } from "../services/traccar.js";
+import {
+  enforceClientGroupInQuery,
+  enforceDeviceFilterInBody,
+  enforceDeviceFilterInQuery,
+  extractDeviceIds,
+  normalizeReportDeviceIds,
+  resolveClientGroupId,
+  resolveAllowedDeviceIds,
+} from "../utils/report-helpers.js";
 
 const router = express.Router();
 router.use(authenticate);
-
-/**
- * === Helpers de escopo de dispositivo / cliente ===
- */
-
-function resolveAllowedDeviceIds(req) {
-  if (req.user?.role === "admin") return null;
-
-  if (!req.user?.clientId) {
-    throw createError(403, "Usuário não vinculado a um cliente");
-  }
-  const devices = listDevices({ clientId: req.user.clientId });
-  const traccarIds = devices
-    .map((d) => (d?.traccarId ? String(d.traccarId) : null))
-    .filter(Boolean);
-
-  if (!traccarIds.length) {
-    throw createError(403, "Cliente não possui dispositivos sincronizados");
-  }
-  return traccarIds;
-}
-
-function extractDeviceIds(source = {}) {
-  const values = [];
-  const pushValue = (entry) => {
-    if (entry === undefined || entry === null) return;
-    if (Array.isArray(entry)) {
-      entry.forEach(pushValue);
-      return;
-    }
-    const s = String(entry).trim();
-    if (!s) return;
-    if (s.includes(",")) {
-      s.split(",").forEach((p) => pushValue(p));
-      return;
-    }
-    values.push(s);
-  };
-  pushValue(source.deviceId);
-  pushValue(source.deviceID);
-  pushValue(source.device_id);
-  pushValue(source.deviceIds);
-  pushValue(source.device_ids);
-  pushValue(source.devices);
-  pushValue(source.id);
-  return values;
-}
-
-function assignDeviceScope(target, allowed, { preferArray = true } = {}) {
-  const list = allowed.map((v) => {
-    const n = Number(v);
-    return Number.isFinite(n) ? n : String(v);
-  });
-  if (preferArray) {
-    target.deviceId = list;
-    target.deviceIds = list; // compat com front antigo
-  } else {
-    target.deviceId = list.join(",");
-    target.deviceIds = list.join(",");
-  }
-}
-
-function enforceDeviceFilterInQuery(req, target = req.query) {
-  const allowed = resolveAllowedDeviceIds(req);
-  if (!allowed) return;
-
-  const params = target || (req.query = {});
-  const requested = extractDeviceIds(params);
-
-  if (!requested.length) {
-    assignDeviceScope(params, allowed, { preferArray: true });
-    return;
-  }
-  const invalid = requested.some((v) => !allowed.includes(String(v)));
-  if (invalid) {
-    throw createError(403, "Dispositivo não autorizado para este cliente");
-  }
-}
-
-function enforceDeviceFilterInBody(req, target = req.body) {
-  const allowed = resolveAllowedDeviceIds(req);
-  if (!allowed) return;
-
-  const body = target || (req.body = {});
-  const requested = extractDeviceIds(body);
-
-  if (!requested.length) {
-    assignDeviceScope(body, allowed, { preferArray: true });
-    return;
-  }
-  const invalid = requested.some((v) => !allowed.includes(String(v)));
-  if (invalid) {
-    throw createError(403, "Dispositivo não autorizado para este cliente");
-  }
-}
-
-function resolveClientGroupId(req) {
-  if (req.user?.role === "admin") return null;
-  const clientId = req.user?.clientId;
-  if (!clientId) return null;
-  const client = getClientById(clientId);
-  return client?.attributes?.traccarGroupId ?? null;
-}
-
-function enforceClientGroupInQuery(req, target = req.query) {
-  const groupId = resolveClientGroupId(req);
-  if (!groupId) return;
-
-  const params = target || (req.query = {});
-  if (params.groupId === undefined && params.groupIds === undefined) {
-    params.groupId = groupId;
-  }
-}
 
 function enforceClientGroupInBody(req, target = req.body) {
   const groupId = resolveClientGroupId(req);
@@ -131,6 +26,34 @@ function enforceClientGroupInBody(req, target = req.body) {
   if (body.groupId === undefined && body.groupIds === undefined) {
     body.groupId = groupId;
   }
+}
+
+function resolveTraccarDeviceId(req, allowed = null) {
+  const requested = extractDeviceIds(req.body);
+  if (!requested.length) return null;
+
+  const allowedIds = allowed ?? resolveAllowedDeviceIds(req);
+  const first = String(requested[0]);
+
+  if (/^\d+$/.test(first) && (!allowedIds || allowedIds.includes(first))) {
+    return first;
+  }
+
+  const direct = getDeviceById(first);
+  const devices = direct ? [direct] : listDevices({});
+  const match = devices.find((device) =>
+    [device?.traccarId, device?.id, device?.uniqueId].some((value) => value && String(value) === first),
+  );
+
+  if (!match?.traccarId) {
+    throw createError(404, "Equipamento não encontrado");
+  }
+
+  if (allowedIds && !allowedIds.includes(String(match.traccarId))) {
+    throw createError(403, "Dispositivo não autorizado para este cliente");
+  }
+
+  return String(match.traccarId);
 }
 
 /**
@@ -575,8 +498,23 @@ router.get("/commands", async (req, res, next) => {
 
 router.post("/commands", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    enforceDeviceFilterInBody(req);
-    const data = await traccarProxy("post", "/commands", { data: req.body, asAdmin: true });
+    const allowed = resolveAllowedDeviceIds(req);
+    const traccarDeviceId = resolveTraccarDeviceId(req, allowed);
+    if (!traccarDeviceId) {
+      throw createError(400, "deviceId é obrigatório");
+    }
+
+    const payload = {
+      type: req.body?.type,
+      attributes: req.body?.attributes || {},
+      deviceId: Number(traccarDeviceId),
+    };
+
+    if (!payload.type) {
+      throw createError(400, "type é obrigatório");
+    }
+
+    const data = await traccarProxy("post", "/commands", { data: payload, asAdmin: true });
     res.status(201).json(data);
   } catch (error) {
     next(error);

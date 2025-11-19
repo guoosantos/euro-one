@@ -26,14 +26,23 @@ function normalisePositionPayload(payload) {
 }
 
 function buildTraccarSocketUrl() {
-  const base = (config.traccar.baseUrl || "http://localhost:8082").replace(/\/$/, "");
-  if (base.startsWith("https://")) {
-    return `wss://${base.slice("https://".length)}/api/socket`;
+  try {
+    const parsed = new URL(config.traccar.baseUrl || "http://localhost:8082");
+    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/api/socket`;
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch (_error) {
+    const base = (config.traccar.baseUrl || "http://localhost:8082").replace(/\/$/, "");
+    if (base.startsWith("https://")) {
+      return `wss://${base.slice("https://".length)}/api/socket`;
+    }
+    if (base.startsWith("http://")) {
+      return `ws://${base.slice("http://".length)}/api/socket`;
+    }
+    return `${base}/api/socket`;
   }
-  if (base.startsWith("http://")) {
-    return `ws://${base.slice("http://".length)}/api/socket`;
-  }
-  return `${base}/api/socket`;
 }
 
 function buildTraccarSocketHeaders() {
@@ -44,7 +53,7 @@ function buildTraccarSocketHeaders() {
 
   const headers = { Cookie: `JSESSIONID=${session}` };
   try {
-    const origin = new URL(config.traccar.baseUrl);
+    const origin = new URL(config.traccar.baseUrl || "http://localhost:8082");
     headers.Origin = `${origin.protocol}//${origin.host}`;
   } catch (_error) {
     headers.Origin = config.traccar.baseUrl;

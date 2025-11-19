@@ -12,6 +12,7 @@ export const API_ROUTES = {
   compliance: "compliance",
   iotSensors: "iot-sensors",
   videoTelematics: "video-telematics",
+  positionsExport: "positions/export",
   reports: {
     trips: "reports/trips",
     stops: "reports/stops",
@@ -21,6 +22,9 @@ export const API_ROUTES = {
   commands: "commands",
   notifications: "notifications",
   groups: "groups",
+  analytics: {
+    eventsHeatmap: "events/heatmap",
+  },
   clients: "clients",
   users: "users",
   models: "models",

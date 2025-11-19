@@ -70,6 +70,9 @@ Interface web construída com React, Vite e Tailwind para integrar-se ao servido
 - **Eventos**: listagem em tempo real com filtros, configuração de alertas e integração direta com `/api/events`.
 - **Geofences**: criação/edição via Leaflet, associação de dispositivos/grupos e sincronização com o Traccar (`/api/geofences`, `/api/permissions`).
 - **Relatórios**: geração de relatórios de viagens (`/api/reports/trips`) e exportação CSV/Excel.
+- **Analytics / Heatmap**: visualização de zonas quentes de eventos via `/api/events/heatmap` com agrupamento por coordenada.
+- **Exportação de posições**: download CSV de posições filtradas com `/api/positions/export`.
+- **Entregas e coletas (tasks)**: cadastro e acompanhamento de ordens simples via `/api/tasks`.
 - **Vídeo**: player HLS/RTSP com suporte a streams configuradas nos atributos dos dispositivos; exibe status on-line/off-line.
 - **Reconhecimento facial**: módulo com integração simulada/real para identificação de motoristas e alertas de fadiga.
 - **Temas e i18n**: tema claro/escuro e tradução pt-BR/en-US (Topbar > ícone de idioma).
@@ -126,6 +129,8 @@ npm run cypress:open
 - Devices: `/api/devices`
 - Posições: `/api/positions/last`
 - Eventos: `/api/events`
+- Heatmap de eventos: `/api/events/heatmap`
+- Exportação de posições: `/api/positions/export`
 - Geofences: `/api/geofences` + `/api/permissions`
 - Relatórios: `/api/reports/trips`
 - Reconhecimento facial (personalizado): `/api/media/face/alerts`
