@@ -343,7 +343,7 @@ router.post("/models", requireRole("manager", "admin"), (req, res, next) => {
   }
 });
 
-router.get("/devices/import", requireRole("manager", "admin"), (req, res, next) => {
+router.get("/devices/import", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const knownDevices = listDevices({});
@@ -371,7 +371,7 @@ router.get("/devices/import", requireRole("manager", "admin"), (req, res, next) 
   }
 });
 
-router.post("/devices/import", requireRole("manager", "admin"), async (req, res, next) => {
+router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdMiddleware, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const { traccarId, uniqueId, modelId, name } = req.body || {};
@@ -630,7 +630,7 @@ router.get("/chips", (req, res, next) => {
   }
 });
 
-router.post("/chips", requireRole("manager", "admin"), (req, res, next) => {
+router.post("/chips", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const { iccid, phone, carrier, status, apn, apnUser, apnPass, notes, provider, deviceId } = req.body || {};
@@ -664,7 +664,7 @@ router.post("/chips", requireRole("manager", "admin"), (req, res, next) => {
   }
 });
 
-router.put("/chips/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.put("/chips/:id", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
     const chip = getChipById(id);
@@ -716,7 +716,7 @@ router.get("/vehicles", (req, res, next) => {
   }
 });
 
-router.post("/vehicles", requireRole("manager", "admin"), (req, res, next) => {
+router.post("/vehicles", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const { name, plate, driver, group, type, status, notes, deviceId } = req.body || {};
@@ -748,7 +748,7 @@ router.post("/vehicles", requireRole("manager", "admin"), (req, res, next) => {
   }
 });
 
-router.put("/vehicles/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.put("/vehicles/:id", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
     const vehicle = getVehicleById(id);

@@ -7,6 +7,7 @@ import Field from "../ui/Field";
 import Modal from "../ui/Modal";
 import { Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -18,6 +19,7 @@ function formatDate(value) {
 }
 
 export default function Vehicles() {
+  const { tenantId, user } = useTenant();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +116,7 @@ export default function Vehicles() {
           status: form.status || undefined,
           notes: form.notes?.trim() || undefined,
           deviceId: form.deviceId || null,
+          clientId: tenantId || user?.clientId,
         });
       } else {
         await CoreApi.createVehicle({
@@ -125,6 +128,7 @@ export default function Vehicles() {
           status: form.status || undefined,
           notes: form.notes?.trim() || undefined,
           deviceId: form.deviceId || undefined,
+          clientId: tenantId || user?.clientId,
         });
       }
       setOpen(false);

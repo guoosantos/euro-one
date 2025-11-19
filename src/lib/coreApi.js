@@ -42,6 +42,10 @@ export const CoreApi = {
   createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
   updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
   deleteVehicle: (id, payload) => http(`vehicles/${id}`, { method: "DELETE", payload }),
+  // tasks
+  listTasks: (params) => http("tasks", { params }),
+  createTask: (payload) => http("tasks", { method: "POST", payload }),
+  updateTask: (id, payload) => http(`tasks/${id}`, { method: "PUT", payload }),
 };
 
 function normaliseDevices(payload) {

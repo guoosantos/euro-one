@@ -6,7 +6,7 @@ import {
   pickNewestPosition,
   normalisePositionResponse,
 } from "../src/lib/hooks/useDevices.js";
-import { buildParams } from "../src/lib/hooks/useEvents.js";
+import { buildParams } from "../src/lib/hooks/events-helpers.js";
 
 describe("useDevices helpers", () => {
   it("normalises device arrays from different payload formats", () => {

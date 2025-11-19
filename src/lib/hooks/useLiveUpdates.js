@@ -3,9 +3,12 @@ import { getStoredSession } from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 
 function resolveBaseUrl() {
-  const raw = (import.meta?.env?.VITE_API_BASE_URL || "http://localhost:3001").trim();
-  if (!raw) return "http://localhost:3001";
-  return raw.replace(/\/$/, "");
+  const raw = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
+  if (raw) return raw.replace(/\/$/, "");
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin.replace(/\/$/, "");
+  }
+  return "http://localhost:3001";
 }
 
 function buildWebSocketUrl() {

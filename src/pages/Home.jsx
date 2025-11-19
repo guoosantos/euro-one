@@ -77,9 +77,9 @@ export default function Home() {
           variant="alert"
         />
         <StatCard
-          title="Telemetria com sinal"
+          title="Rotas perigosas"
           value={table.filter((item) => Number.isFinite(item.signal)).length}
-          hint="Integrações operacionais"
+          hint="Veículos em zonas críticas"
         />
       </section>
 

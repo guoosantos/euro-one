@@ -8,6 +8,7 @@ import Modal from "../ui/Modal";
 import Field from "../ui/Field";
 import { Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -15,6 +16,7 @@ function formatStatus(status) {
 }
 
 export default function Chips() {
+  const { tenantId, user } = useTenant();
   const [chips, setChips] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +115,7 @@ export default function Chips() {
         apnPass: form.apnPass.trim() || undefined,
         notes: form.notes.trim() || undefined,
         deviceId: form.deviceId || undefined,
+        clientId: tenantId || user?.clientId,
       });
       setOpen(false);
       setForm({
@@ -129,6 +132,7 @@ export default function Chips() {
       });
       await load();
     } catch (requestError) {
+      setError(requestError instanceof Error ? requestError : new Error("Falha ao cadastrar chip"));
       alert(requestError?.message || "Falha ao cadastrar chip");
     } finally {
       setSaving(false);

@@ -1,22 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
-
-export function buildParams({ deviceId, types, from, to, limit }) {
-  const params = {};
-  if (deviceId) params.deviceId = deviceId;
-  if (Array.isArray(types) && types.length) {
-    params.type = types.join(",");
-  } else if (typeof types === "string") {
-    params.type = types;
-  }
-  if (from) params.from = from;
-  if (to) params.to = to;
-  if (limit) params.limit = limit;
-  return params;
-}
+import { useTenant } from "../tenant-context.jsx";
+import { buildParams } from "./events-helpers.js";
 
 export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterval = 15_000 } = {}) {
+  const { tenantId } = useTenant();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -32,6 +21,7 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       setError(null);
       try {
         const params = buildParams({ deviceId, types, from, to, limit });
+        if (tenantId) params.clientId = tenantId;
         const response = await api.get(API_ROUTES.events, { params });
         if (cancelled) return;
         const payload = response?.data;
@@ -47,7 +37,8 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       } catch (requestError) {
         if (cancelled) return;
         console.error("Failed to load events", requestError);
-        setError(requestError);
+        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar eventos";
+        setError(new Error(friendly));
         setEvents([]);
       } finally {
         if (!cancelled) {
@@ -65,7 +56,7 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [deviceId, types, from, to, limit, refreshInterval, version]);
+  }, [deviceId, types, from, to, limit, refreshInterval, version, tenantId]);
 
   const refresh = useCallback(() => {
     setVersion((value) => value + 1);

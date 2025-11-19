@@ -12,6 +12,9 @@ import modelRoutes from "./routes/models.js";
 import groupRoutes from "./routes/groups.js";
 import healthRoutes from "./routes/health.js";
 import moduleRoutes from "./routes/modules.js";
+import taskRoutes from "./routes/tasks.js";
+import analyticsRoutes from "./routes/analytics.js";
+import exportRoutes from "./routes/export.js";
 
 const app = express();
 
@@ -66,6 +69,9 @@ app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
 app.use("/api", moduleRoutes);
+app.use("/api", taskRoutes);
+app.use("/api", analyticsRoutes);
+app.use("/api", exportRoutes);
 
 app.use((req, _res, next) => {
   next(createError(404, `Rota não encontrada: ${req.method} ${req.originalUrl}`));

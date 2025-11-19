@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTenant } from "../tenant-context.jsx";
 
 export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {}) {
+  const { tenantId } = useTenant();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -25,6 +27,7 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
           to: (to ? new Date(to) : now).toISOString(),
           type: "all",
         };
+        if (tenantId) payload.clientId = tenantId;
         const response = await api.post(API_ROUTES.reports.trips, payload);
         if (cancelled) return;
         const data = response?.data;
@@ -39,7 +42,8 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
         setFetchedAt(new Date());
       } catch (requestError) {
         if (cancelled) return;
-        setError(requestError);
+        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar viagens";
+        setError(new Error(friendly));
         setTrips([]);
       } finally {
         if (!cancelled) {
@@ -57,7 +61,7 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [deviceId, from, to, limit, refreshInterval, version]);
+  }, [deviceId, from, to, limit, refreshInterval, version, tenantId]);
 
   const refresh = useMemo(
     () => () => {
