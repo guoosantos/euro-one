@@ -13,6 +13,8 @@ import { useTrips } from "../lib/hooks/useTrips";
 import useTasks from "../lib/hooks/useTasks";
 import { useHeatmapEvents } from "../lib/hooks/useHeatmapEvents";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
+import { translateEventType } from "../lib/event-translations.js";
+import { formatAddress } from "../lib/format-address.js";
 
 const FALLBACK_ANALYTICS = [
   { month: "Jan", distance: 0, alerts: 0, deliveriesOnTime: 100 },
@@ -215,7 +217,7 @@ export default function Home() {
                 )}
                 {events.map((event) => {
                   const vehicle = resolveVehicle(event, vehicleIndex);
-                  const address = event.address || event.attributes?.address || "—";
+                  const address = formatAddress(event.address || event.attributes?.address);
                   return (
                     <tr
                       key={event.id ?? `${event.deviceId}-${event.time}`}
@@ -223,7 +225,7 @@ export default function Home() {
                       onClick={() => navigate("/events")}
                     >
                       <td className="py-2 pr-6 text-white/70">{formatDate(event.time ?? event.eventTime ?? event.serverTime, locale)}</td>
-                      <td className="py-2 pr-6 text-white/80">{translateEventType(event.type ?? event.event, t)}</td>
+                      <td className="py-2 pr-6 text-white/80">{translateEventType(event.type ?? event.event, locale, t)}</td>
                       <td className="py-2 pr-6 text-white/70">
                         {vehicle?.name ?? vehicle?.plate ?? event.deviceName ?? "—"}
                         {event.driverName ? ` · ${event.driverName}` : ""}
@@ -231,7 +233,7 @@ export default function Home() {
                       <td className="py-2 pr-6">
                         <SeverityBadge severity={event.severity ?? event.level ?? "low"} />
                       </td>
-                      <td className="py-2 pr-6 text-white/70">{address}</td>
+                      <td className="py-2 pr-6 text-white/70">{address || t("home.locationUnavailable")}</td>
                     </tr>
                   );
                 })}
@@ -258,7 +260,7 @@ export default function Home() {
                   <div className="font-medium">{vehicle.name}</div>
                   <span className="text-xs text-white/40">{formatSpeed(vehicle.speed)}</span>
                 </div>
-                <div className="mt-1 text-xs text-white/50">{vehicle.address || t("home.locationUnavailable")}</div>
+                <div className="mt-1 text-xs text-white/50">{formatAddress(vehicle.address) || t("home.locationUnavailable")}</div>
                 <div className="mt-1 text-xs text-white/40">
                   {t("home.updatedRelative", { time: formatRelativeTime(vehicle.lastUpdate) })}
                 </div>
@@ -831,23 +833,6 @@ function buildOfflineBuckets(table = []) {
     ...bucket,
     vehicles: withLast.filter((vehicle) => vehicle.offlineHours >= bucket.min && vehicle.offlineHours < bucket.max),
   }));
-}
-
-function translateEventType(type, t) {
-  const mapping = {
-    alarm: t("events.alarm"),
-    ignitionon: t("events.ignitionOn"),
-    ignitionoff: t("events.ignitionOff"),
-    speeding: t("events.speeding"),
-    geofenceenter: t("events.geofenceEnter"),
-    geofenceexit: t("events.geofenceExit"),
-    sos: t("events.sos"),
-    theft: t("events.theft"),
-    crime: t("events.crime"),
-    assalto: t("events.assault"),
-  };
-  const normalized = String(type || "").toLowerCase();
-  return mapping[normalized] || type || t("events.generic");
 }
 
 function capitalize(value) {

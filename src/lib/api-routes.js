@@ -22,6 +22,7 @@ export const API_ROUTES = {
   commands: "commands",
   notifications: "notifications",
   groups: "groups",
+  userPreferences: "user/preferences",
   analytics: {
     eventsHeatmap: "events/heatmap",
   },
