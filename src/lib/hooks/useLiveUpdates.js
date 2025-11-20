@@ -1,16 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getStoredSession } from "../api.js";
+import { getApiBaseUrl, getStoredSession } from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 
 function buildWebSocketUrl() {
-  const raw = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
-  const fallback = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://localhost:3001";
-  const base = (raw || fallback).replace(/\/$/, "");
-  const host = base.replace(/^https?:\/\//, "");
-  const protocol = base.startsWith("https://") ? "wss" : "ws";
-  const path = API_ROUTES.websocket.startsWith("/") ? API_ROUTES.websocket : `/${API_ROUTES.websocket}`;
-  return `${protocol}://${host}${path}`;
+  const base = getApiBaseUrl();
+  try {
+    const url = new URL(base);
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    url.pathname = `/${API_ROUTES.websocket.replace(/^\/+/, "")}`;
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch (_error) {
+    const normalised = (base || "").replace(/\/$/, "");
+    const protocol = normalised.startsWith("https://") ? "wss" : "ws";
+    const host = normalised.replace(/^https?:\/\//, "");
+    const path = API_ROUTES.websocket.startsWith("/") ? API_ROUTES.websocket : `/${API_ROUTES.websocket}`;
+    return `${protocol}://${host}${path}`;
+  }
 }
 
 function appendToken(url, token) {

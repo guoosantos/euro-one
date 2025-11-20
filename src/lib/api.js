@@ -7,6 +7,10 @@ const FALLBACK_BASE_URL =
     : "http://localhost:3001";
 const BASE_URL = (RAW_BASE_URL || FALLBACK_BASE_URL).replace(/\/$/, "");
 
+export function getApiBaseUrl() {
+  return BASE_URL;
+}
+
 const unauthorizedHandlers = new Set();
 
 export function registerUnauthorizedHandler(handler) {
