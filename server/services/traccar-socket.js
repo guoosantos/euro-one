@@ -16,6 +16,11 @@ const CLIENTS = new Set();
 let traccarSocket = null;
 let reconnectTimer = null;
 let isConnecting = false;
+let reconnectAttempts = 0;
+
+const RECONNECTABLE_CODES = new Set([1000, 1001, 1006]);
+const RECONNECT_BASE_DELAY = 2_000;
+const RECONNECT_MAX_DELAY = 60_000;
 
 function normalisePositionPayload(payload) {
   if (!payload) return [];
@@ -321,13 +326,20 @@ function broadcast(message) {
 
 function scheduleReconnect(connectFn) {
   if (reconnectTimer) return;
+  const delay = Math.min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * 2 ** reconnectAttempts);
+  reconnectAttempts += 1;
+  console.info(
+    "[Traccar WS] Reconexão agendada em %dms (tentativa #%d)...",
+    delay,
+    reconnectAttempts,
+  );
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
     console.info("[Traccar WS] Tentando restabelecer sessão administrativa antes de reconectar...");
     await initializeTraccarAdminSession().catch(() => undefined);
     console.info("[Traccar WS] Reabrindo conexão com o Traccar...");
     connectFn();
-  }, 5_000);
+  }, delay);
 }
 
 function connectToTraccar(connectFn) {
@@ -340,42 +352,33 @@ function connectToTraccar(connectFn) {
     const socket = new WebSocket(url, ["traccar"], { headers });
     traccarSocket = socket;
 
+    socket.on("open", () => {
+      isConnecting = false;
+      reconnectAttempts = 0;
+      console.info("[Traccar WS] Conexão aberta.");
+    });
+
     socket.on("unexpected-response", (_req, res) => {
       console.error("[Traccar WS] unexpected-response", res?.statusCode, res?.headers);
     });
-
-    socket.onopen = () => {
-      isConnecting = false;
-      console.info("[Traccar WS] Conexão estabelecida (readyState=%s).", socket.readyState);
-    };
 
     socket.onmessage = (event) => {
       broadcast(event.data);
     };
 
-    socket.onerror = (event) => {
-      const error = event?.error || event;
-      const message = error?.message || event?.message || "Erro desconhecido";
-      console.error("[Traccar WS] Error", error || message);
-      console.error("[Traccar WS] Erro na conexão com o Traccar", message);
-      socket.close();
+    socket.onerror = (err) => {
+      console.error("[Traccar WS] Error", err);
     };
 
-    socket.onclose = (event) => {
-      console.warn(
-        "[Traccar WS] Conexão encerrada",
-        typeof event?.code === "number" ? `code=${event.code}` : "",
-        event?.reason ? `reason=${event.reason}` : "",
-        typeof event?.wasClean === "boolean" ? `clean=${event.wasClean}` : "",
-      );
+    socket.on("close", (code, reason) => {
+      const reasonText = reason?.toString?.("utf8") || reason || "";
+      console.warn("[Traccar WS] Conexão fechada", { code, reason: reasonText });
       traccarSocket = null;
       isConnecting = false;
-      const shouldRenewSession = event?.code === 1006;
-      if (shouldRenewSession) {
-        initializeTraccarAdminSession().catch(() => undefined);
+      if (RECONNECTABLE_CODES.has(code)) {
+        scheduleReconnect(connectFn);
       }
-      scheduleReconnect(connectFn);
-    };
+    });
   } catch (error) {
     isConnecting = false;
     console.error("[Traccar WS] Falha ao abrir WebSocket", error?.message || error);
@@ -469,6 +472,7 @@ export function stopTraccarSocketService() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  reconnectAttempts = 0;
   for (const client of CLIENTS) {
     try {
       client.socket.end();

@@ -117,50 +117,6 @@ function pickAccept(format = "") {
 }
 
 /**
- * Converte deviceId interno (UUID) → traccarId numérico para relatórios.
- */
-function normalizeReportDeviceIds(params = {}) {
-  const ids = extractDeviceIds(params);
-  if (!ids.length) return params;
-
-  // Se já são todos numéricos, não precisa fazer nada.
-  const allNumeric = ids.every((v) => /^\d+$/.test(String(v)));
-  if (allNumeric) return params;
-
-  // Carrega todos os devices (admin) ou por client (já está em memória).
-  const allDevices = listDevices() || [];
-  const byInternalId = new Map();
-  allDevices.forEach((d) => {
-    if (d?.id) {
-      byInternalId.set(String(d.id), d);
-    }
-  });
-
-  const traccarIds = [];
-  ids.forEach((v) => {
-    const s = String(v);
-    if (/^\d+$/.test(s)) {
-      traccarIds.push(s);
-      return;
-    }
-    const dev = byInternalId.get(s);
-    if (dev?.traccarId) {
-      traccarIds.push(String(dev.traccarId));
-    }
-  });
-
-  if (!traccarIds.length) {
-    // Não conseguimos mapear → deixa como está (vai dar erro e aparecer no log).
-    return params;
-  }
-
-  const next = { ...params };
-  next.deviceId = traccarIds;
-  next.deviceIds = traccarIds;
-  return next;
-}
-
-/**
  * Tenta GET e, se o Traccar responder 404/405/415, faz fallback em POST.
  */
 async function requestReportWithFallback(path, params, accept, wantsBinary) {

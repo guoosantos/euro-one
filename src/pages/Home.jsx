@@ -1,11 +1,17 @@
-import { useMemo } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
+import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context";
 import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useTrips } from "../lib/hooks/useTrips";
+import useTasks from "../lib/hooks/useTasks";
+import { useHeatmapEvents } from "../lib/hooks/useHeatmapEvents";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 
 const FALLBACK_ANALYTICS = [
@@ -17,8 +23,46 @@ const FALLBACK_ANALYTICS = [
   { month: "Jun", distance: 0, alerts: 0, deliveriesOnTime: 100 },
 ];
 
+const RISK_EVENT_TYPES = "crime,theft,assalto";
+
+function HeatCircles({ points }) {
+  const map = useMap();
+  const layers = useMemo(() => L.layerGroup(), []);
+
+  useEffect(() => {
+    if (!map) return undefined;
+    layers.addTo(map);
+    layers.clearLayers();
+
+    if (points?.length) {
+      points.forEach((point) => {
+        const intensity = Math.max(1, Math.min(point.count || 1, 20));
+        const radius = 120 * intensity;
+        const opacity = Math.min(0.15 + intensity * 0.03, 0.8);
+        L.circle([point.lat, point.lng], {
+          radius,
+          color: "#ef4444",
+          fillColor: "#ef4444",
+          weight: 0,
+          fillOpacity: opacity,
+        }).addTo(layers);
+      });
+    }
+
+    return () => {
+      layers.clearLayers();
+      layers.removeFrom(map);
+    };
+  }, [map, layers, points]);
+
+  return null;
+}
+
 export default function Home() {
+  const { t, locale } = useTranslation();
+  const navigate = useNavigate();
   const { tenantId } = useTenant();
+  const [showCommunicationModal, setShowCommunicationModal] = useState(false);
 
   const { devices, loading: loadingDevices } = useDevices({ tenantId });
   const { positions, loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
@@ -28,13 +72,27 @@ export default function Home() {
 
   const { events, loading: loadingEvents, error: eventsError } = useEvents({
     tenantId,
-    limit: 6,
+    limit: 10,
     autoRefreshMs: 60 * 1000,
   });
   const { trips, loading: loadingTrips, error: tripsError } = useTrips({
     tenantId,
     limit: 6,
     autoRefreshMs: 5 * 60 * 1000,
+  });
+  const { tasks } = useTasks({ clientId: tenantId });
+
+  const { points, topZones, loading: loadingHeatmap } = useHeatmapEvents({
+    tenantId,
+    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date().toISOString(),
+  });
+
+  const { points: riskPoints, total: riskTotal } = useHeatmapEvents({
+    tenantId,
+    eventType: RISK_EVENT_TYPES,
+    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+    to: new Date().toISOString(),
   });
 
   const { summary, table } = useMemo(() => {
@@ -43,7 +101,7 @@ export default function Home() {
   }, [devices, positions, tenantId]);
 
   const onlineVehicles = useMemo(
-    () => table.filter((vehicle) => vehicle.status === "online").slice(0, 3),
+    () => table.filter((vehicle) => vehicle.status === "online" && vehicle.speed > 5).slice(0, 3),
     [table],
   );
 
@@ -56,88 +114,118 @@ export default function Home() {
   }, [table]);
 
   const analyticsData = useMemo(() => buildAnalytics(trips), [trips]);
+  const taskMetrics = useMemo(() => buildTaskMetrics(tasks), [tasks]);
+  const routeMetrics = useMemo(() => buildRouteMetrics(table, tasks), [table, tasks]);
+  const communicationBuckets = useMemo(() => buildOfflineBuckets(table), [table]);
+
+  const criticalEvents = useMemo(
+    () => events.filter((event) => String(event.severity ?? event.level ?? "").toLowerCase() === "critical"),
+    [events],
+  );
+
+  const heatmapCenter = useMemo(() => {
+    if (points.length) return [points[0].lat, points[0].lng];
+    return [-23.5505, -46.6333];
+  }, [points]);
 
   return (
     <div className="space-y-6">
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
-          title="Veículos monitorados"
+          title={t("home.vehiclesMonitored")}
           value={loadingDevices ? "…" : summary.total}
-          hint={`Sincronizado às ${telemetryFetchedAt ? new Date(telemetryFetchedAt).toLocaleTimeString() : "—"}`}
+          hint={t("home.syncedAt", {
+            time: telemetryFetchedAt ? new Date(telemetryFetchedAt).toLocaleTimeString(locale) : "—",
+          })}
+          action={{ label: t("home.communicationStatus"), onClick: () => setShowCommunicationModal(true) }}
         />
         <StatCard
-          title="Ativos online"
-          value={loadingPositions ? "…" : summary.online}
-          hint={`${percentage(summary.online, summary.total)}% em rota`}
+          title={t("home.inRoute")}
+          value={loadingPositions ? "…" : routeMetrics.onRoute}
+          hint={t("home.onRouteHint", { percent: percentage(routeMetrics.onRoute, summary.total) })}
         />
         <StatCard
-          title="Em alerta"
-          value={loadingPositions ? "…" : summary.alert}
-          hint="Eventos críticos em andamento"
+          title={t("home.inAlertTitle")}
+          value={loadingPositions ? "…" : criticalEvents.length || summary.alert}
+          hint={t("home.inAlertHint")}
           variant="alert"
+          onClick={() => navigate("/events?severity=critical")}
         />
         <StatCard
-          title="Rotas perigosas"
-          value={table.filter((item) => Number.isFinite(item.signal)).length}
-          hint="Veículos em zonas críticas"
+          title={t("home.dangerousRoutes")}
+          value={riskPoints.length || riskTotal || 0}
+          hint={t("home.dangerousRoutesHint")}
+          onClick={() => navigate("/analytics/events?filter=crime")}
         />
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="card lg:col-span-2">
+      <section className="grid gap-4 xl:grid-cols-3">
+        <div className="card xl:col-span-2">
           <header className="mb-3 flex items-center justify-between">
             <div>
-              <div className="text-sm font-medium text-white">Eventos recentes</div>
+              <div className="text-sm font-medium text-white">{t("home.recentEvents")}</div>
               <div className="text-xs text-white/50">
-                {telemetryFetchedAt ? `Atualizado às ${new Date(telemetryFetchedAt).toLocaleTimeString()}` : "Sincronizando…"}
+                {telemetryFetchedAt
+                  ? t("home.updatedAt", { time: new Date(telemetryFetchedAt).toLocaleTimeString(locale) })
+                  : t("home.syncing")}
               </div>
             </div>
             <Link to="/events" className="text-xs text-primary">
-              Ver todos
+              {t("home.viewAll")}
             </Link>
           </header>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="text-white/40">
                 <tr className="border-b border-white/10 text-left">
-                  <th className="py-2 pr-6">Horário</th>
-                  <th className="py-2 pr-6">Tipo</th>
-                  <th className="py-2 pr-6">Veículo</th>
-                  <th className="py-2 pr-6">Severidade</th>
+                  <th className="py-2 pr-6">{t("home.time")}</th>
+                  <th className="py-2 pr-6">{t("home.type")}</th>
+                  <th className="py-2 pr-6">{t("home.vehicleDriver")}</th>
+                  <th className="py-2 pr-6">{t("home.severity")}</th>
+                  <th className="py-2 pr-6">{t("home.location")}</th>
                 </tr>
               </thead>
               <tbody>
                 {loadingEvents && (
                   <tr>
-                    <td colSpan={4} className="py-4 text-center text-white/40">
-                      Carregando eventos…
+                    <td colSpan={5} className="py-4 text-center text-white/40">
+                      {t("home.loadingEvents")}
                     </td>
                   </tr>
                 )}
                 {!loadingEvents && eventsError && (
                   <tr>
-                    <td colSpan={4} className="py-4 text-center text-red-200/80">
-                      Não foi possível carregar os eventos.
+                    <td colSpan={5} className="py-4 text-center text-red-200/80">
+                      {t("home.eventsError")}
                     </td>
                   </tr>
                 )}
                 {!loadingEvents && !eventsError && events.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-4 text-center text-white/40">
-                      Nenhum evento nas últimas horas.
+                    <td colSpan={5} className="py-4 text-center text-white/40">
+                      {t("home.noRecentEvents")}
                     </td>
                   </tr>
                 )}
                 {events.map((event) => {
                   const vehicle = resolveVehicle(event, vehicleIndex);
+                  const address = event.address || event.attributes?.address || "—";
                   return (
-                    <tr key={event.id ?? `${event.deviceId}-${event.time}`} className="border-b border-white/5">
-                      <td className="py-2 pr-6 text-white/70">{formatDate(event.time ?? event.eventTime ?? event.serverTime)}</td>
-                      <td className="py-2 pr-6 text-white/80">{event.type ?? event.event}</td>
-                      <td className="py-2 pr-6 text-white/70">{vehicle?.name ?? vehicle?.plate ?? event.deviceName ?? "—"}</td>
+                    <tr
+                      key={event.id ?? `${event.deviceId}-${event.time}`}
+                      className="cursor-pointer border-b border-white/5 hover:bg-white/5"
+                      onClick={() => navigate("/events")}
+                    >
+                      <td className="py-2 pr-6 text-white/70">{formatDate(event.time ?? event.eventTime ?? event.serverTime, locale)}</td>
+                      <td className="py-2 pr-6 text-white/80">{translateEventType(event.type ?? event.event, t)}</td>
+                      <td className="py-2 pr-6 text-white/70">
+                        {vehicle?.name ?? vehicle?.plate ?? event.deviceName ?? "—"}
+                        {event.driverName ? ` · ${event.driverName}` : ""}
+                      </td>
                       <td className="py-2 pr-6">
                         <SeverityBadge severity={event.severity ?? event.level ?? "low"} />
                       </td>
+                      <td className="py-2 pr-6 text-white/70">{address}</td>
                     </tr>
                   );
                 })}
@@ -147,119 +235,317 @@ export default function Home() {
         </div>
 
         <div className="card space-y-4">
-          <div>
-            <div className="text-sm font-medium text-white">Veículos em rota</div>
-            <div className="text-xs text-white/50">Telemetria ao vivo</div>
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("home.vehiclesOnRoute")}</div>
+              <div className="text-xs text-white/50">{t("home.liveTelemetry")}</div>
+            </div>
+            <Link to="/monitoring" className="text-xs text-primary">
+              {t("home.openMonitoring")}
+            </Link>
           </div>
           <ul className="space-y-3 text-sm text-white/80">
-            {onlineVehicles.length === 0 && <li className="text-white/50">Nenhum veículo em movimento.</li>}
+            {onlineVehicles.length === 0 && <li className="text-white/50">{t("home.noVehiclesMoving")}</li>}
             {onlineVehicles.map((vehicle) => (
               <li key={vehicle.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
                 <div className="flex items-center justify-between">
                   <div className="font-medium">{vehicle.name}</div>
                   <span className="text-xs text-white/40">{formatSpeed(vehicle.speed)}</span>
                 </div>
-                <div className="mt-1 text-xs text-white/50">{vehicle.address || "Localização indisponível"}</div>
+                <div className="mt-1 text-xs text-white/50">{vehicle.address || t("home.locationUnavailable")}</div>
                 <div className="mt-1 text-xs text-white/40">
-                  Atualizado {formatRelativeTime(vehicle.lastUpdate)}
+                  {t("home.updatedRelative", { time: formatRelativeTime(vehicle.lastUpdate) })}
                 </div>
               </li>
             ))}
           </ul>
+          <div className="grid grid-cols-2 gap-2 text-xs text-white/70">
+            <div className="rounded-lg bg-white/5 p-2">
+              <div className="text-white/50">{t("home.collecting")}</div>
+              <div className="text-xl font-semibold text-white">{routeMetrics.collecting}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-2">
+              <div className="text-white/50">{t("home.delivering")}</div>
+              <div className="text-xl font-semibold text-white">{routeMetrics.delivering}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-2">
+              <div className="text-white/50">{t("home.routeDelay")}</div>
+              <div className="text-xl font-semibold text-white">{routeMetrics.routeDelay}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-2">
+              <div className="text-white/50">{t("home.serviceDelay")}</div>
+              <div className="text-xl font-semibold text-white">{routeMetrics.serviceDelay}</div>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="card">
-        <header className="mb-4 flex items-center justify-between">
-          <div className="text-sm font-medium text-white">Performance nas últimas viagens</div>
-          <Link to="/trips" className="text-xs text-primary">
-            Abrir Trajetos
-          </Link>
-        </header>
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-white/40">
-              <tr className="border-b border-white/10 text-left">
-                <th className="py-2 pr-6">Veículo</th>
-                <th className="py-2 pr-6">Início</th>
-                <th className="py-2 pr-6">Fim</th>
-                <th className="py-2 pr-6">Distância</th>
-                <th className="py-2 pr-6">Vel. média</th>
-                <th className="py-2 pr-6">Alertas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loadingTrips && (
-                <tr>
-                  <td colSpan={6} className="py-4 text-center text-white/40">
-                    Carregando viagens…
-                  </td>
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="card lg:col-span-2">
+          <header className="mb-4 flex items-center justify-between">
+            <div className="text-sm font-medium text-white">{t("home.tripPerformance")}</div>
+            <Link to="/trips" className="text-xs text-primary">
+              {t("home.openTrips")}
+            </Link>
+          </header>
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-white/40">
+                <tr className="border-b border-white/10 text-left">
+                  <th className="py-2 pr-6">{t("home.vehicle")}</th>
+                  <th className="py-2 pr-6">{t("home.start")}</th>
+                  <th className="py-2 pr-6">{t("home.end")}</th>
+                  <th className="py-2 pr-6">{t("home.distance")}</th>
+                  <th className="py-2 pr-6">{t("home.avgSpeed")}</th>
+                  <th className="py-2 pr-6">{t("home.alerts")}</th>
                 </tr>
-              )}
-              {!loadingTrips && tripsError && (
-                <tr>
-                  <td colSpan={6} className="py-4 text-center text-red-200/80">
-                    Não foi possível carregar as viagens.
-                  </td>
-                </tr>
-              )}
-              {!loadingTrips && !tripsError && trips.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-4 text-center text-white/40">
-                    Nenhum trajeto registrado.
-                  </td>
-                </tr>
-              )}
-              {trips.map((trip) => {
-                const vehicle = resolveVehicle(trip, vehicleIndex);
-                return (
-                  <tr key={trip.id ?? `${trip.deviceId}-${trip.start}` } className="border-b border-white/5">
-                    <td className="py-2 pr-6 text-white/80">{vehicle?.name ?? vehicle?.plate ?? trip.deviceName ?? "—"}</td>
-                    <td className="py-2 pr-6 text-white/60">{formatDate(trip.start ?? trip.startTime ?? trip.from)}</td>
-                    <td className="py-2 pr-6 text-white/60">{formatDate(trip.end ?? trip.endTime ?? trip.to)}</td>
-                    <td className="py-2 pr-6 text-white/80">{formatDistance(trip.distanceKm ?? trip.distance ?? trip.totalDistance)}</td>
-                    <td className="py-2 pr-6 text-white/80">{formatSpeed(trip.avgSpeed ?? trip.averageSpeed)}</td>
-                    <td className="py-2 pr-6 text-white/80">{trip.alerts ?? trip.eventCount ?? 0}</td>
+              </thead>
+              <tbody>
+                {loadingTrips && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-white/40">
+                      {t("home.loadingTrips")}
+                    </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+                {!loadingTrips && tripsError && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-red-200/80">
+                      {t("home.tripsError")}
+                    </td>
+                  </tr>
+                )}
+                {!loadingTrips && !tripsError && trips.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-4 text-center text-white/40">
+                      {t("home.noTrips")}
+                    </td>
+                  </tr>
+                )}
+                {trips.map((trip) => {
+                  const vehicle = resolveVehicle(trip, vehicleIndex);
+                  return (
+                    <tr key={trip.id ?? `${trip.deviceId}-${trip.start}`} className="border-b border-white/5">
+                      <td className="py-2 pr-6 text-white/80">{vehicle?.name ?? vehicle?.plate ?? trip.deviceName ?? "—"}</td>
+                      <td className="py-2 pr-6 text-white/60">{formatDate(trip.start ?? trip.startTime ?? trip.from, locale)}</td>
+                      <td className="py-2 pr-6 text-white/60">{formatDate(trip.end ?? trip.endTime ?? trip.to, locale)}</td>
+                      <td className="py-2 pr-6 text-white/80">{formatDistance(trip.distanceKm ?? trip.distance ?? trip.totalDistance)}</td>
+                      <td className="py-2 pr-6 text-white/80">{formatSpeed(trip.avgSpeed ?? trip.averageSpeed)}</td>
+                      <td className="py-2 pr-6 text-white/80">{trip.alerts ?? trip.eventCount ?? 0}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-white/70">
+            <MetricBadge label={t("home.tasksOnTime")} value={taskMetrics.onTimePercent} />
+            <MetricBadge label={t("home.arrivalDelay")} value={taskMetrics.arrivalDelayPercent} variant="warning" />
+            <MetricBadge label={t("home.serviceDelayLabel")} value={taskMetrics.serviceDelayPercent} variant="warning" />
+            <MetricBadge label={t("home.noChecklist")} value={taskMetrics.noChecklistPercent} variant="muted" />
+            <Link to="/tasks" className="col-span-2 text-right text-primary">
+              {t("home.viewTasks")}
+            </Link>
+          </div>
+        </div>
+
+        <div className="card space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("home.analyticsHeatmapCard")}</div>
+              <div className="text-xs text-white/50">{t("home.last24h")}</div>
+            </div>
+            <Link to="/analytics/events" className="text-xs text-primary">
+              {t("home.viewFullAnalysis")}
+            </Link>
+          </div>
+          <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
+            <MapContainer
+              center={heatmapCenter}
+              zoom={points.length ? 10 : 4}
+              style={{ height: 220 }}
+              scrollWheelZoom={false}
+              dragging={!loadingHeatmap}
+              className="h-56"
+            >
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              <HeatCircles points={points} />
+            </MapContainer>
+          </div>
+          <div className="space-y-2 text-xs text-white/80">
+            <div className="text-white/50">{t("home.topRegions")}</div>
+            {topZones.slice(0, 5).map((zone, index) => (
+              <div key={`${zone.lat}-${zone.lng}`} className="flex items-center justify-between rounded-lg bg-white/5 p-2">
+                <div>
+                  <div className="text-sm font-semibold text-white">#{index + 1}</div>
+                  <div className="text-xs text-white/60">
+                    {zone.name || `${zone.lat.toFixed(4)}, ${zone.lng.toFixed(4)}`}
+                  </div>
+                </div>
+                <span className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-200">
+                  {zone.count} {t("home.events")}
+                </span>
+              </div>
+            ))}
+            {topZones.length === 0 && <div className="text-white/50">{t("home.noHeatmapData")}</div>}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("home.dangerousRoutes")}</div>
+              <div className="text-xs text-white/50">{t("home.dangerousRoutesHint")}</div>
+            </div>
+            <Link to="/analytics/events?filter=crime" className="text-xs text-primary">
+              {t("home.viewMore")}
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.vehiclesInRisk")}</div>
+              <div className="text-2xl font-semibold text-white">{riskPoints.length}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.averageStay")}</div>
+              <div className="text-2xl font-semibold text-white">~{Math.max(1, riskTotal || 1)}m</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("home.alertsInProgress")}</div>
+              <div className="text-xs text-white/50">{t("home.criticalEventsOngoing")}</div>
+            </div>
+            <Link to="/events?severity=critical" className="text-xs text-primary">
+              {t("home.viewAll")}
+            </Link>
+          </div>
+          <div className="text-4xl font-semibold text-red-200">{criticalEvents.length || summary.alert}</div>
+        </div>
+
+        <div className="card space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("home.services")}</div>
+              <div className="text-xs text-white/50">{t("home.servicesThisMonth")}</div>
+            </div>
+            <Link to="/services" className="text-xs text-primary">
+              {t("home.viewServices")}
+            </Link>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.total")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.totalServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.closed")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.closedServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.idle")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.idleServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.cancelled")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.cancelledServices}</div>
+            </div>
+          </div>
         </div>
       </section>
 
       <section className="card">
         <header className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-medium text-white">Analytics</div>
-            <div className="text-xs text-white/50">Distância total x alertas críticos</div>
+            <div className="text-sm font-medium text-white">{t("home.analyticsTitle")}</div>
+            <div className="text-xs text-white/50">{t("home.analyticsDescription")}</div>
           </div>
-          <span className="text-xs text-white/40">
-            Baseado em {trips.length} viagens recentes
-          </span>
+          <span className="text-xs text-white/40">{t("home.tripsBased", { count: trips.length })}</span>
         </header>
         <AnalyticsChart data={analyticsData.length ? analyticsData : FALLBACK_ANALYTICS} />
       </section>
+
+      {showCommunicationModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-3xl rounded-2xl bg-[#111827] p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <div className="text-lg font-semibold text-white">{t("home.communicationStatus")}</div>
+                <div className="text-xs text-white/50">{t("home.communicationStatusHint")}</div>
+              </div>
+              <button
+                type="button"
+                className="text-white/60 hover:text-white"
+                onClick={() => setShowCommunicationModal(false)}
+              >
+                {t("home.close")}
+              </button>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {communicationBuckets.map((bucket) => (
+                <div key={bucket.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs text-white/50">{bucket.label}</div>
+                  <div className="text-2xl font-semibold text-white">{bucket.vehicles.length}</div>
+                  <div className="mt-2 space-y-1 text-[11px] text-white/60">
+                    {bucket.vehicles.slice(0, 4).map((vehicle) => (
+                      <div key={vehicle.id} className="flex justify-between">
+                        <span>{vehicle.plate ?? vehicle.name}</span>
+                        <span>{formatDate(vehicle.lastUpdate, locale)}</span>
+                      </div>
+                    ))}
+                    {bucket.vehicles.length === 0 && <div className="text-white/40">{t("home.noVehicles")}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function StatCard({ title, value, hint, variant = "default" }) {
+function StatCard({ title, value, hint, variant = "default", onClick, action }) {
   const palette = {
     default: "bg-[#12161f] border border-white/5",
     alert: "bg-red-500/10 border border-red-500/30",
   };
 
   return (
-    <div className={`rounded-2xl p-4 ${palette[variant]}`}>
-      <div className="text-xs text-white/50">{title}</div>
-      <div className="mt-1 text-3xl font-semibold text-white">{value}</div>
-      {hint && <div className="mt-1 text-[11px] text-white/40">{hint}</div>}
+    <div className={`rounded-2xl p-4 ${palette[variant]}`} onClick={onClick} role={onClick ? "button" : undefined}>
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-xs text-white/50">{title}</div>
+          <div className="mt-1 text-3xl font-semibold text-white">{value}</div>
+          {hint && <div className="mt-1 text-[11px] text-white/40">{hint}</div>}
+        </div>
+        {action ? (
+          <button
+            type="button"
+            className="rounded-full bg-white/10 px-3 py-1 text-[11px] text-white hover:bg-white/20"
+            onClick={(event) => {
+              event.stopPropagation();
+              action.onClick?.();
+            }}
+          >
+            {action.label}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }
 
 function SeverityBadge({ severity }) {
+  const { t } = useTranslation();
   const normalized = String(severity ?? "").toLowerCase();
   const palette = {
     critical: "bg-red-500/20 text-red-200 border border-red-500/40",
@@ -270,14 +556,14 @@ function SeverityBadge({ severity }) {
   };
   const label =
     normalized === "critical"
-      ? "Crítica"
+      ? t("severity.critical")
       : normalized === "high"
-      ? "Alta"
+      ? t("severity.high")
       : normalized === "medium"
-      ? "Média"
+      ? t("severity.medium")
       : normalized === "info"
-      ? "Info"
-      : "Baixa";
+      ? t("severity.info")
+      : t("severity.low");
   return <span className={`rounded-full px-3 py-1 text-xs ${palette[normalized] ?? palette.low}`}>{label}</span>;
 }
 
@@ -303,10 +589,25 @@ function AnalyticsChart({ data }) {
         {data.map((item) => (
           <div key={`${item.month}-alerts`} className="flex items-center justify-between text-sm text-white/70">
             <span>{item.month}</span>
-            <span>{item.alerts ?? 0} alertas · {item.deliveriesOnTime ?? 0}% SLA</span>
+            <span>
+              {item.alerts ?? 0} alertas · {item.deliveriesOnTime ?? 0}% SLA
+            </span>
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function MetricBadge({ label, value, variant = "default" }) {
+  const palette = {
+    default: "bg-green-500/10 text-green-200",
+    warning: "bg-yellow-500/10 text-yellow-200",
+    muted: "bg-white/5 text-white/70",
+  };
+  return (
+    <div className={`rounded-full px-3 py-2 text-xs font-semibold ${palette[variant] ?? palette.default}`}>
+      {label}: {Math.round(value)}%
     </div>
   );
 }
@@ -335,12 +636,12 @@ function resolveVehicle(item, vehicleIndex) {
   return null;
 }
 
-function formatDate(value) {
+function formatDate(value, locale = undefined) {
   if (!value) return "—";
   try {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleString();
+    return date.toLocaleString(locale ?? undefined);
   } catch (error) {
     return "—";
   }
@@ -395,6 +696,152 @@ function buildAnalytics(trips) {
   return Array.from(map.values())
     .sort((a, b) => a.order - b.order)
     .slice(0, 6);
+}
+
+function buildTaskMetrics(tasks = []) {
+  if (!Array.isArray(tasks) || tasks.length === 0) {
+    return {
+      onTimePercent: 0,
+      arrivalDelayPercent: 0,
+      serviceDelayPercent: 0,
+      noChecklistPercent: 0,
+      totalServices: 0,
+      closedServices: 0,
+      idleServices: 0,
+      cancelledServices: 0,
+    };
+  }
+
+  const now = Date.now();
+  let onTime = 0;
+  let arrivalDelay = 0;
+  let serviceDelay = 0;
+  let noChecklist = 0;
+  let closed = 0;
+  let idle = 0;
+  let cancelled = 0;
+
+  for (const task of tasks) {
+    const startExpected = task.startTimeExpected ? Date.parse(task.startTimeExpected) : null;
+    const endExpected = task.endTimeExpected ? Date.parse(task.endTimeExpected) : null;
+    const updated = task.updatedAt ? Date.parse(task.updatedAt) : null;
+
+    if (String(task.status).toLowerCase().includes("final")) {
+      closed += 1;
+    } else if (String(task.status).toLowerCase().includes("cancel")) {
+      cancelled += 1;
+    } else if (String(task.status).toLowerCase().includes("improdut")) {
+      idle += 1;
+    }
+
+    if (!task.attachments || task.attachments.length === 0) {
+      noChecklist += 1;
+    }
+
+    if (startExpected && updated && updated <= startExpected && String(task.status).toLowerCase().includes("final")) {
+      onTime += 1;
+    }
+
+    if (startExpected && now > startExpected && !String(task.status).toLowerCase().includes("final")) {
+      arrivalDelay += 1;
+    }
+
+    if (endExpected && now > endExpected && String(task.status).toLowerCase().includes("em atendimento")) {
+      serviceDelay += 1;
+    }
+  }
+
+  const total = tasks.length || 1;
+
+  return {
+    onTimePercent: (onTime / total) * 100,
+    arrivalDelayPercent: (arrivalDelay / total) * 100,
+    serviceDelayPercent: (serviceDelay / total) * 100,
+    noChecklistPercent: (noChecklist / total) * 100,
+    totalServices: tasks.length,
+    closedServices: closed,
+    idleServices: idle,
+    cancelledServices: cancelled,
+  };
+}
+
+function buildRouteMetrics(table = [], tasks = []) {
+  const activeTasks = Array.isArray(tasks) ? tasks : [];
+  const online = Array.isArray(table) ? table : [];
+
+  const onRoute = online.filter((vehicle) => vehicle.status === "online" && Number(vehicle.speed) > 5).length;
+
+  let collecting = 0;
+  let delivering = 0;
+  let routeDelay = 0;
+  let serviceDelay = 0;
+  const now = Date.now();
+
+  for (const task of activeTasks) {
+    const vehicle = online.find((item) => String(item.id) === String(task.vehicleId));
+    const normalizedStatus = String(task.status || "").toLowerCase();
+    const startExpected = task.startTimeExpected ? Date.parse(task.startTimeExpected) : null;
+    const endExpected = task.endTimeExpected ? Date.parse(task.endTimeExpected) : null;
+
+    if (normalizedStatus.includes("atendimento")) {
+      if (String(task.type || "").toLowerCase().includes("colet")) collecting += 1;
+      if (String(task.type || "").toLowerCase().includes("entreg")) delivering += 1;
+      if (endExpected && now > endExpected) serviceDelay += 1;
+    }
+
+    if (!normalizedStatus.includes("final") && startExpected && now > startExpected) {
+      routeDelay += 1;
+    }
+
+    if (vehicle && vehicle.speed > 5 && !normalizedStatus.includes("final")) {
+      // already counted as onRoute
+    }
+  }
+
+  return { onRoute, collecting, delivering, routeDelay, serviceDelay };
+}
+
+function buildOfflineBuckets(table = []) {
+  const now = Date.now();
+  const offlineVehicles = table.filter((item) => item.status === "offline");
+  const buckets = [
+    { label: "0-1h", min: 0, max: 1 },
+    { label: "1-6h", min: 1, max: 6 },
+    { label: "6-12h", min: 6, max: 12 },
+    { label: "12-24h", min: 12, max: 24 },
+    { label: "24-72h", min: 24, max: 72 },
+    { label: "72h-10d", min: 72, max: 240 },
+    { label: "10-30d", min: 240, max: 720 },
+    { label: "30+d", min: 720, max: Infinity },
+  ];
+
+  const withLast = offlineVehicles.map((vehicle) => {
+    const lastUpdate = vehicle.lastUpdate ? Date.parse(vehicle.lastUpdate) : null;
+    const hours = lastUpdate ? (now - lastUpdate) / (1000 * 60 * 60) : Infinity;
+    return { ...vehicle, offlineHours: hours };
+  });
+
+  return buckets.map((bucket) => ({
+    ...bucket,
+    vehicles: withLast.filter((vehicle) => vehicle.offlineHours >= bucket.min && vehicle.offlineHours < bucket.max),
+  }));
+}
+
+function translateEventType(type, t) {
+  const mapping = {
+    alarm: t("events.alarm"),
+    ignitionon: t("events.ignitionOn"),
+    ignitionoff: t("events.ignitionOff"),
+    speeding: t("events.speeding"),
+    geofenceenter: t("events.geofenceEnter"),
+    geofenceexit: t("events.geofenceExit"),
+    sos: t("events.sos"),
+    theft: t("events.theft"),
+    crime: t("events.crime"),
+    assalto: t("events.assault"),
+  };
+  const normalized = String(type || "").toLowerCase();
+  return mapping[normalized] || type || t("events.generic");
 }
 
 function capitalize(value) {

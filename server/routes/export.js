@@ -1,6 +1,6 @@
 import express from "express";
 
-import { requireAuth } from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
 import {
   buildSearchParams,
   ensureReportDateRange,
@@ -13,7 +13,7 @@ import { traccarRequest } from "../services/traccar.js";
 
 const router = express.Router();
 
-router.use(requireAuth);
+router.use(authenticate);
 
 function parseColumns(raw) {
   if (!raw) {
@@ -54,20 +54,24 @@ router.get("/positions/export", async (req, res, next) => {
     const header = columns.join(",");
     const rows = positions.map((position) =>
       columns
-        .map((column) =>
-          formatValue(
+        .map((column) => {
+          const fallbackDeviceId = position?.device_id || position?.deviceId || position?.device?.id;
+          return formatValue(
             position?.[column] ??
               position?.attributes?.[column] ??
               position?.device?.[column] ??
-              (column === "deviceId" ? position?.device_id || position?.deviceId : undefined),
-          ),
-        )
+              (column === "deviceId" ? fallbackDeviceId : ""),
+          );
+        })
         .join(","),
     );
-    const csv = [header, ...rows].join("\n");
 
-    res.setHeader("Content-Type", "text/csv");
-    res.setHeader("Content-Disposition", "attachment; filename=positions.csv");
+    const csv = "\ufeff" + [header, ...rows].join("\n");
+
+    const today = new Date();
+    const filename = `positions-export-${today.toISOString().slice(0, 10).replace(/-/g, "")}.csv`;
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
     res.send(csv);
   } catch (error) {
     next(error);

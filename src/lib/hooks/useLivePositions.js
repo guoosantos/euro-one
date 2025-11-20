@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 
 function normalise(payload) {
@@ -12,6 +13,7 @@ function normalise(payload) {
 
 export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
   const { tenantId } = useTenant();
+  const { t } = useTranslation();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -51,7 +53,7 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
         setFetchedAt(new Date());
       } catch (requestError) {
         if (cancelled) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar posições";
+        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
         setError(new Error(friendly));
         setPositions([]);
       } finally {
@@ -70,7 +72,7 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [ids, refreshInterval, version, tenantId]);
+  }, [ids, refreshInterval, version, tenantId, t]);
 
   const refresh = useCallback(() => {
     setVersion((value) => value + 1);

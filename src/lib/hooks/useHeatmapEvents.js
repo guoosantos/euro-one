@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 
-export function useHeatmapEvents({ from, to, eventType, groupId, tenantId: overrideTenant } = {}) {
+export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, tenantId: overrideTenant } = {}) {
   const { tenantId } = useTenant();
+  const { t } = useTranslation();
   const [points, setPoints] = useState([]);
   const [topZones, setTopZones] = useState([]);
   const [total, setTotal] = useState(0);
@@ -17,7 +19,10 @@ export function useHeatmapEvents({ from, to, eventType, groupId, tenantId: overr
     const next = {};
     if (from) next.from = from;
     if (to) next.to = to;
-    if (eventType) next.type = eventType;
+    const resolvedTypes = eventTypes || eventType;
+    if (resolvedTypes?.length) {
+      next.type = Array.isArray(resolvedTypes) ? resolvedTypes.join(",") : resolvedTypes;
+    }
     if (groupId) next.groupId = groupId;
     const resolvedTenant = overrideTenant ?? tenantId;
     if (resolvedTenant) next.clientId = resolvedTenant;
@@ -41,7 +46,7 @@ export function useHeatmapEvents({ from, to, eventType, groupId, tenantId: overr
         if (cancelled) return;
         console.error("Falha ao carregar heatmap de eventos", requestError);
         const friendlyMessage =
-          requestError?.response?.data?.message || requestError.message || "Não foi possível carregar o heatmap";
+          requestError?.response?.data?.message || requestError.message || t("errors.loadHeatmap");
         setError(new Error(friendlyMessage));
         setPoints([]);
         setTopZones([]);
@@ -58,7 +63,7 @@ export function useHeatmapEvents({ from, to, eventType, groupId, tenantId: overr
     return () => {
       cancelled = true;
     };
-  }, [params, version]);
+  }, [params, version, t]);
 
   const refresh = useCallback(() => setVersion((value) => value + 1), []);
 
