@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
+import { usePollingTask } from "./usePollingTask.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -11,14 +12,19 @@ function normalise(payload) {
   return payload ? [payload] : [];
 }
 
-export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
+export function useLivePositions({
+  deviceIds,
+  refreshInterval = 5_000,
+  maxConsecutiveErrors = 3,
+  pauseWhenHidden = true,
+} = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
   const [positions, setPositions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [version, setVersion] = useState(0);
   const [fetchedAt, setFetchedAt] = useState(null);
+  const mountedRef = useRef(true);
 
   const ids = useMemo(() => {
     if (!deviceIds) return [];
@@ -26,56 +32,61 @@ export function useLivePositions({ deviceIds, refreshInterval = 30_000 } = {}) {
     return [deviceIds];
   }, [deviceIds]);
 
-  useEffect(() => {
-    let cancelled = false;
-    let timer;
-
-    async function fetchPositions() {
-      setLoading(true);
+  const fetchPositions = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const targets = ids.length ? ids : [null];
+      const requests = targets.map((deviceId) => {
+        const params = deviceId ? { deviceId } : {};
+        if (tenantId) params.clientId = tenantId;
+        return api
+          .get(API_ROUTES.lastPositions, { params: Object.keys(params).length ? params : undefined })
+          .then((response) => normalise(response?.data))
+          .catch((requestError) => {
+            console.warn("Failed to load live position", deviceId, requestError);
+            return [];
+          });
+      });
+      const results = await Promise.all(requests);
+      if (!mountedRef.current) return;
+      const merged = [].concat(...results).filter(Boolean);
+      setPositions(merged);
+      setFetchedAt(new Date());
       setError(null);
-      try {
-        const targets = ids.length ? ids : [null];
-        const requests = targets.map((deviceId) => {
-          const params = deviceId ? { deviceId } : {};
-          if (tenantId) params.clientId = tenantId;
-          return api
-            .get(API_ROUTES.lastPositions, { params: Object.keys(params).length ? params : undefined })
-            .then((response) => normalise(response?.data))
-            .catch((requestError) => {
-              console.warn("Failed to load live position", deviceId, requestError);
-              return [];
-            });
-        });
-        const results = await Promise.all(requests);
-        if (cancelled) return;
-        const merged = [].concat(...results).filter(Boolean);
-        setPositions(merged);
-        setFetchedAt(new Date());
-      } catch (requestError) {
-        if (cancelled) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
-        setError(new Error(friendly));
-        setPositions([]);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          if (refreshInterval) {
-            timer = setTimeout(fetchPositions, refreshInterval);
-          }
-        }
+    } catch (requestError) {
+      if (!mountedRef.current) return;
+      const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
+      setError(new Error(friendly));
+      setPositions([]);
+      throw requestError;
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
       }
     }
+  }, [ids, tenantId, t]);
 
-    fetchPositions();
-
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [ids, refreshInterval, version, tenantId, t]);
+  usePollingTask(fetchPositions, {
+    enabled: true,
+    intervalMs: refreshInterval,
+    maxConsecutiveErrors,
+    pauseWhenHidden,
+    onPermanentFailure: (err) => {
+      if (!err || !mountedRef.current) return;
+      console.error("Live positions polling halted after consecutive failures", err);
+    },
+  });
 
   const refresh = useCallback(() => {
-    setVersion((value) => value + 1);
+    void fetchPositions();
+  }, [fetchPositions]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
   }, []);
 
   return { positions, loading, error, refresh, fetchedAt };

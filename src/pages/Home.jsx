@@ -64,6 +64,12 @@ export default function Home() {
   const { tenantId } = useTenant();
   const [showCommunicationModal, setShowCommunicationModal] = useState(false);
 
+  const heatmapRange = useMemo(() => {
+    const now = new Date();
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    return { from: from.toISOString(), to: now.toISOString() };
+  }, []);
+
   const { devices, loading: loadingDevices } = useDevices({ tenantId });
   const { positions, loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
     tenantId,
@@ -84,15 +90,15 @@ export default function Home() {
 
   const { points, topZones, loading: loadingHeatmap } = useHeatmapEvents({
     tenantId,
-    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date().toISOString(),
+    from: heatmapRange.from,
+    to: heatmapRange.to,
   });
 
   const { points: riskPoints, total: riskTotal } = useHeatmapEvents({
     tenantId,
     eventType: RISK_EVENT_TYPES,
-    from: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-    to: new Date().toISOString(),
+    from: heatmapRange.from,
+    to: heatmapRange.to,
   });
 
   const { summary, table } = useMemo(() => {
