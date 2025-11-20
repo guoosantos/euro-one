@@ -33,6 +33,9 @@ export function authenticate(req, _res, next) {
   }
 }
 
+// Alias para compatibilidade com imports antigos
+export const requireAuth = authenticate;
+
 export function requireRole(...roles) {
   return (req, _res, next) => {
     const allowed = roles.flat();

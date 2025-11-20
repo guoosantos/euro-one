@@ -1,46 +1,79 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import { useLocation, useSearchParams } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "leaflet.heat";
 
 import { useTranslation } from "../../lib/i18n.js";
+import useGroups from "../../lib/hooks/useGroups.js";
 import { useHeatmapEvents } from "../../lib/hooks/useHeatmapEvents.js";
 
-function HeatCircles({ points }) {
+const CRIME_TYPES = ["crime", "theft", "assalto", "robbery"];
+const EVENT_TYPE_OPTIONS = [
+  "alarm",
+  "ignitionOn",
+  "ignitionOff",
+  "deviceOnline",
+  "deviceOffline",
+  "theft",
+  "sos",
+  "geofenceEnter",
+  "geofenceExit",
+  "harshAcceleration",
+  "harshBraking",
+];
+
+function HeatLayer({ points }) {
   const map = useMap();
-  const layers = useMemo(() => L.layerGroup(), []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!map) return undefined;
-    layers.addTo(map);
-    layers.clearLayers();
-
-    points.forEach((point) => {
-      const intensity = Math.max(1, Math.min(point.count || 1, 20));
-      const radius = 120 * intensity;
-      const opacity = Math.min(0.15 + intensity * 0.03, 0.8);
-      L.circle([point.lat, point.lng], {
-        radius,
-        color: "#ef4444",
-        fillColor: "#ef4444",
-        weight: 0,
-        fillOpacity: opacity,
-      }).addTo(layers);
-    });
+    const heat = L.heatLayer([], { radius: 20, blur: 25, minOpacity: 0.2, maxZoom: 14 }).addTo(map);
+    const formatted = points.map((p) => [p.lat, p.lng, Math.max(0.2, Math.min(p.count || 1, 20))]);
+    heat.setLatLngs(formatted);
 
     return () => {
-      layers.clearLayers();
-      layers.removeFrom(map);
+      map.removeLayer(heat);
     };
-  }, [map, layers, points]);
+  }, [map, points]);
 
   return null;
 }
 
 export default function HeatmapAnalytics() {
   const { t } = useTranslation();
-  const [filters, setFilters] = useState({ from: "", to: "", eventType: "" });
-  const { points, topZones, total, loading, error, refresh } = useHeatmapEvents(filters);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { search } = useLocation();
+  const [filters, setFilters] = useState({ from: "", to: "", eventTypes: [], groupId: "" });
+  const { groups } = useGroups();
+  const requestFilters = useMemo(
+    () => ({
+      ...filters,
+      from: filters.from ? new Date(filters.from).toISOString() : undefined,
+      to: filters.to ? new Date(filters.to).toISOString() : undefined,
+    }),
+    [filters],
+  );
+  const { points, topZones, total, loading, error, refresh } = useHeatmapEvents(requestFilters);
+
+  useEffect(() => {
+    const now = new Date();
+    const defaultTo = now.toISOString().slice(0, 16);
+    const defaultFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
+    setFilters((prev) => ({
+      ...prev,
+      from: prev.from || defaultFrom,
+      to: prev.to || defaultTo,
+    }));
+  }, []);
+
+  useEffect(() => {
+    const filterParam = searchParams.get("filter");
+    if (filterParam === "crime") {
+      setFilters((prev) => ({ ...prev, eventTypes: CRIME_TYPES }));
+    }
+  }, [searchParams]);
 
   const center = useMemo(() => {
     if (points.length) {
@@ -52,9 +85,35 @@ export default function HeatmapAnalytics() {
 
   const totalPoints = useMemo(() => points.reduce((sum, item) => sum + (item.count || 0), 0), [points]);
 
-  const handleChange = (event) => {
+  const handleDateChange = (event) => {
     const { name, value } = event.target;
     setFilters((current) => ({ ...current, [name]: value }));
+  };
+
+  const toggleEventType = (value) => {
+    setFilters((current) => {
+      const exists = current.eventTypes.includes(value);
+      const nextTypes = exists ? current.eventTypes.filter((item) => item !== value) : [...current.eventTypes, value];
+      return { ...current, eventTypes: nextTypes };
+    });
+  };
+
+  const handleGroupChange = (event) => {
+    setFilters((current) => ({ ...current, groupId: event.target.value }));
+  };
+
+  const applyFilters = () => {
+    const nextParams = new URLSearchParams(search);
+    if (filters.eventTypes?.length) {
+      nextParams.set("types", filters.eventTypes.join(","));
+    } else {
+      nextParams.delete("types");
+    }
+    if (filters.groupId) nextParams.set("groupId", filters.groupId);
+    if (filters.from) nextParams.set("from", filters.from);
+    if (filters.to) nextParams.set("to", filters.to);
+    setSearchParams(nextParams);
+    refresh();
   };
 
   return (
@@ -71,7 +130,7 @@ export default function HeatmapAnalytics() {
               type="datetime-local"
               name="from"
               value={filters.from}
-              onChange={handleChange}
+              onChange={handleDateChange}
               className="rounded border px-2 py-1"
             />
           </label>
@@ -81,24 +140,42 @@ export default function HeatmapAnalytics() {
               type="datetime-local"
               name="to"
               value={filters.to}
-              onChange={handleChange}
+              onChange={handleDateChange}
               className="rounded border px-2 py-1"
             />
           </label>
-          <label className="flex flex-col">
+          <div className="flex flex-col">
             <span className="text-gray-600">{t("eventType")}</span>
-            <input
-              type="text"
-              name="eventType"
-              value={filters.eventType}
-              onChange={handleChange}
-              placeholder={t("eventTypePlaceholder")}
-              className="rounded border px-2 py-1"
-            />
+            <div className="flex flex-wrap gap-2 rounded border px-2 py-1">
+              {EVENT_TYPE_OPTIONS.map((option) => {
+                const active = filters.eventTypes.includes(option);
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => toggleEventType(option)}
+                    className={`rounded px-2 py-1 text-xs ${active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+                  >
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <label className="flex flex-col">
+            <span className="text-gray-600">{t("group")}</span>
+            <select value={filters.groupId} onChange={handleGroupChange} className="rounded border px-2 py-1">
+              <option value="">{t("all")}</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
           </label>
           <button
             type="button"
-            onClick={refresh}
+            onClick={applyFilters}
             className="self-end rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
           >
             {loading ? t("loading") : t("refresh")}
@@ -121,7 +198,7 @@ export default function HeatmapAnalytics() {
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-            <HeatCircles points={points} />
+            <HeatLayer points={points} />
           </MapContainer>
         </div>
 

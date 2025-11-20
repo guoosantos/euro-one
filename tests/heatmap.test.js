@@ -31,3 +31,14 @@ test("rankHeatmapZones retorna top ordenado", () => {
   assert.strictEqual(ranked.length, 2);
   assert.deepStrictEqual(ranked[0], points[1]);
 });
+
+test("aggregateHeatmapEvents ignora eventos sem coordenada", () => {
+  const events = [
+    { some: "data" },
+    { latitude: null, longitude: undefined },
+    { latitude: -10, longitude: 20 },
+  ];
+  const points = aggregateHeatmapEvents(events);
+  assert.strictEqual(points.length, 1);
+  assert.deepStrictEqual(points[0], { lat: -10, lng: 20, count: 1 });
+});

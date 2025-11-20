@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 
 export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {}) {
   const { tenantId } = useTenant();
+  const { t } = useTranslation();
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -42,7 +44,7 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
         setFetchedAt(new Date());
       } catch (requestError) {
         if (cancelled) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar viagens";
+        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadTrips");
         setError(new Error(friendly));
         setTrips([]);
       } finally {
@@ -61,7 +63,7 @@ export function useTrips({ deviceId, from, to, limit = 10, refreshInterval } = {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [deviceId, from, to, limit, refreshInterval, version, tenantId]);
+  }, [deviceId, from, to, limit, refreshInterval, version, tenantId, t]);
 
   const refresh = useMemo(
     () => () => {

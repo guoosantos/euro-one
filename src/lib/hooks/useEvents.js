@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { buildParams } from "./events-helpers.js";
 
 export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterval = 15_000 } = {}) {
   const { tenantId } = useTenant();
+  const { t } = useTranslation();
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -37,7 +39,8 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       } catch (requestError) {
         if (cancelled) return;
         console.error("Failed to load events", requestError);
-        const friendly = requestError?.response?.data?.message || requestError.message || "Erro ao carregar eventos";
+        const friendly =
+          requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
         setError(new Error(friendly));
         setEvents([]);
       } finally {
@@ -56,7 +59,7 @@ export function useEvents({ deviceId, types, from, to, limit = 50, refreshInterv
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [deviceId, types, from, to, limit, refreshInterval, version, tenantId]);
+  }, [deviceId, types, from, to, limit, refreshInterval, version, tenantId, t]);
 
   const refresh = useCallback(() => {
     setVersion((value) => value + 1);

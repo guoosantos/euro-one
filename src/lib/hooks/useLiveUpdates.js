@@ -1,33 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getStoredSession } from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
-
-function resolveBaseUrl() {
-  const raw = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
-  if (raw) return raw.replace(/\/$/, "");
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin.replace(/\/$/, "");
-  }
-  return "http://localhost:3001";
-}
+import { useTranslation } from "../i18n.js";
 
 function buildWebSocketUrl() {
-  const base = resolveBaseUrl();
-  const wsPath = API_ROUTES.websocket.startsWith("/")
-    ? API_ROUTES.websocket
-    : `/${API_ROUTES.websocket}`;
-
-  try {
-    const httpUrl = base.startsWith("http") || base.startsWith("ws") ? base : `http://${base}`;
-    const parsed = new URL(httpUrl);
-    const protocol = parsed.protocol === "https:" || parsed.protocol === "wss:" ? "wss:" : "ws:";
-    const path = wsPath.startsWith("/") ? wsPath : `/${wsPath}`;
-    return `${protocol}//${parsed.host}${path}`;
-  } catch (_error) {
-    return base.startsWith("wss://") || base.startsWith("ws://")
-      ? `${base.replace(/\/$/, "")}${wsPath}`
-      : `ws://${base.replace(/\/$/, "")}${wsPath}`;
-  }
+  const raw = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
+  const fallback = typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://localhost:3001";
+  const base = (raw || fallback).replace(/\/$/, "");
+  const host = base.replace(/^https?:\/\//, "");
+  const protocol = base.startsWith("https://") ? "wss" : "ws";
+  const path = API_ROUTES.websocket.startsWith("/") ? API_ROUTES.websocket : `/${API_ROUTES.websocket}`;
+  return `${protocol}://${host}${path}`;
 }
 
 function appendToken(url, token) {
@@ -37,6 +20,7 @@ function appendToken(url, token) {
 }
 
 export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMessage } = {}) {
+  const { t } = useTranslation();
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [error, setError] = useState(null);
@@ -78,7 +62,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     if (!token) {
       setConnecting(false);
       setConnected(false);
-      setError(new Error("Sessão não autenticada. Faça login novamente."));
+      setError(new Error(t("errors.websocketAuth")));
       return;
     }
 
@@ -149,7 +133,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
         }, nextDelay);
       }
     };
-  }, [clearReconnectTimer, enabled, reconnectDelayMs]);
+  }, [clearReconnectTimer, enabled, reconnectDelayMs, t]);
 
   const disconnect = useCallback(() => {
     manualCloseRef.current = true;

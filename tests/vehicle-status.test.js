@@ -26,3 +26,17 @@ test("classifyVehicleStates agrupa entregas e coletas com atrasos", () => {
   assert.ok(result.routeDelay.includes("1") && result.routeDelay.includes("3"));
   assert.ok(result.serviceDelay.includes("2") && result.serviceDelay.includes("3"));
 });
+
+test("classifyVehicleStates remove duplicações e respeita velocidade mínima", () => {
+  const positions = [
+    { deviceId: "10", speed: 6 },
+    { deviceId: "10", speed: 12 },
+    { deviceId: "11", speed: 2 },
+  ];
+  const tasks = [{ vehicleId: "10", type: "coleta", status: "em rota", endTimeExpected: "2000-01-01" }];
+  const result = classifyVehicleStates({ positions, tasks, now: "2000-01-02T00:00:00Z" });
+  assert.deepStrictEqual(result.enRoute, ["10"]);
+  assert.deepStrictEqual(result.collecting, ["10"]);
+  assert.deepStrictEqual(result.routeDelay, ["10"]);
+  assert.deepStrictEqual(result.serviceDelay, []);
+});
