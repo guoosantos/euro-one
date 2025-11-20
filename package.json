@@ -9,7 +9,7 @@
     "preview": "vite preview --port 5173 --strictPort",
     "safe:build": "node scripts/safe-build.js",
     "safe:revert": "bash scripts/safe-revert.sh",
-    "test": "node --test",
+    "test": "NODE_ENV=test node --test",
     "cypress:open": "cypress open",
     "server": "node server/index.js"
   },

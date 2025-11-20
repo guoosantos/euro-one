@@ -2,6 +2,8 @@ import createError from "http-errors";
 
 import { config } from "../config.js";
 
+const TRACCAR_UNAVAILABLE_MESSAGE = "Não foi possível consultar o Traccar";
+
 // Garante que nunca termina com / e sempre aponta para /api
 const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
 
@@ -92,18 +94,34 @@ async function httpRequest({
         payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
       const error = createError(response.status || 500, message);
       error.response = normalisedResponse;
-      throw error;
+      throw buildTraccarUnavailableError(error, { url: finalUrl, method: init.method, response: payload });
     }
 
     return normalisedResponse;
   } catch (error) {
     clearTimeout(timer);
-    if (error?.status) {
+    if (error?.isTraccarError || error?.code === "TRACCAR_UNAVAILABLE") {
       throw error;
     }
 
-    throw createError(502, error?.message || "Erro de rede ao comunicar com o Traccar");
+    throw buildTraccarUnavailableError(error, { url: finalUrl, method: init.method });
   }
+}
+
+export function buildTraccarUnavailableError(reason, context = {}) {
+  const statusFromReason = Number(reason?.status || reason?.statusCode || reason?.response?.status);
+  const status = Number.isFinite(statusFromReason) && statusFromReason >= 400 ? statusFromReason : 502;
+
+  const error = createError(status, TRACCAR_UNAVAILABLE_MESSAGE);
+  error.code = "TRACCAR_UNAVAILABLE";
+  error.isTraccarError = true;
+  error.details = {
+    ...(context || {}),
+    status,
+    cause: reason?.message || reason?.code || reason,
+    response: reason?.response?.data,
+  };
+  return error;
 }
 
 let adminSessionCookie = null;

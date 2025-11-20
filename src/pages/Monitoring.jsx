@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 
-import MapImpl from "../components/_MapImpl.jsx";
+import MonitoringMap from "../components/map/MonitoringMap.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { formatAddress } from "../lib/format-address.js";
 import {
   deriveStatus,
   distanceInKm,
@@ -19,6 +20,8 @@ import {
 } from "../lib/monitoring-helpers.js";
 import useDevices from "../lib/hooks/useDevices";
 import useHeatmapEvents from "../lib/hooks/useHeatmapEvents.js";
+import useGeofences from "../lib/hooks/useGeofences.js";
+import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
 
@@ -102,7 +105,17 @@ function buildColumns(t) {
       },
     },
     { key: "course", label: t("monitoring.columns.course"), render: (row) => row.position?.course ?? "—" },
-    { key: "address", label: t("monitoring.columns.address"), render: (row) => row.position?.address ?? row.position?.attributes?.address ?? "—" },
+    {
+      key: "address",
+      label: t("monitoring.columns.address"),
+      render: (row) =>
+        formatAddress(
+          row.position?.formattedAddress ||
+            row.position?.address ||
+            row.position?.attributes?.address ||
+            row.device?.address,
+        ),
+    },
     { key: "accuracy", label: t("monitoring.columns.accuracy"), render: (row) => row.position?.accuracy ?? "—" },
     {
       key: "geofenceIds",
@@ -128,6 +141,28 @@ function buildColumns(t) {
     { key: "totalDistance", label: t("monitoring.columns.totalDistance"), render: (row) => row.position?.totalDistance ?? "—" },
     { key: "motion", label: t("monitoring.columns.motion"), render: (row) => (row.position?.motion ? t("common.yes") : t("common.no")) },
     { key: "hours", label: t("monitoring.columns.hours"), render: (row) => row.position?.hours ?? row.position?.attributes?.hours ?? "—" },
+    {
+      key: "actions",
+      label: t("monitoring.columns.actions"),
+      render: (row) => (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-primary/15 px-3 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+            onClick={() => row.onFocus?.(row.deviceId)}
+          >
+            {t("monitoring.actions.map")}
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 hover:border-white/30"
+            onClick={() => row.onReplay?.(row.deviceId)}
+          >
+            {t("monitoring.actions.replay")}
+          </button>
+        </div>
+      ),
+    },
   ];
 }
 
@@ -153,7 +188,7 @@ function saveColumnPreferences(prefs) {
   }
 }
 
-function MapSection({ markers, t }) {
+function MapSection({ markers, geofences, focusMarkerId, t }) {
   if (!Array.isArray(markers) || markers.length === 0) {
     return (
       <div className="flex h-[360px] items-center justify-center text-sm text-white/50">{t("monitoring.noPositions")}</div>
@@ -170,7 +205,7 @@ function MapSection({ markers, t }) {
   }
 
   try {
-    return <MapImpl markers={markers} height={360} className="bg-[#0b0f17]" />;
+    return <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={focusMarkerId} height={360} />;
   } catch (mapError) {
     console.error("Monitoring map render failed", mapError);
     return (
@@ -187,6 +222,8 @@ export default function Monitoring() {
   const navigate = useNavigate();
   const { devices, positionsByDeviceId, loading, error, reload, stats } = useDevices();
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime" });
+  const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
+  const { preferences, loading: loadingPreferences, savePreferences, resetPreferences } = useUserPreferences();
 
   const [query, setQuery] = useState("");
   const [filterMode, setFilterMode] = useState("all");
@@ -197,6 +234,7 @@ export default function Monitoring() {
     to: new Date(),
   });
   const [exportColumns, setExportColumns] = useState([]);
+  const [focusedMarkerId, setFocusedMarkerId] = useState(null);
 
   const allColumns = useMemo(() => buildColumns(t), [t]);
   const defaultPreferences = useMemo(
@@ -207,15 +245,49 @@ export default function Monitoring() {
     [allColumns],
   );
 
+  const mergeColumnPrefs = useCallback(
+    (saved) => ({
+      visible: { ...defaultPreferences.visible, ...(saved?.visible || {}) },
+      order: saved?.order?.length ? saved.order : defaultPreferences.order,
+    }),
+    [defaultPreferences],
+  );
+
   const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
 
   useEffect(() => {
-    setColumnPrefs((current) => loadColumnPreferences(current));
-  }, []);
+    if (loadingPreferences) return;
+    const saved = preferences?.monitoringTableColumns || loadColumnPreferences(defaultPreferences);
+    setColumnPrefs(mergeColumnPrefs(saved));
+    if (preferences?.monitoringDefaultFilters?.mode) {
+      setFilterMode(preferences.monitoringDefaultFilters.mode);
+    }
+  }, [defaultPreferences, loadingPreferences, mergeColumnPrefs, preferences]);
 
   useEffect(() => {
     saveColumnPreferences(columnPrefs);
   }, [columnPrefs]);
+
+  const persistColumnPrefs = useCallback(
+    (next) => {
+      saveColumnPreferences(next);
+      if (!loadingPreferences) {
+        savePreferences({ monitoringTableColumns: { visible: next.visible, order: next.order } }).catch((prefError) => {
+          console.warn("Falha ao salvar preferências de colunas", prefError);
+        });
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    const currentMode = preferences?.monitoringDefaultFilters?.mode;
+    if (currentMode === filterMode) return;
+    savePreferences({
+      monitoringDefaultFilters: { ...(preferences?.monitoringDefaultFilters || {}), mode: filterMode },
+    }).catch((prefError) => console.warn("Falha ao salvar filtro padrão", prefError));
+  }, [filterMode, loadingPreferences, preferences, savePreferences]);
 
   const visibleColumns = useMemo(() => {
     const visible = columnPrefs.visible || {};
@@ -227,6 +299,19 @@ export default function Monitoring() {
     const missing = allColumns.filter((column) => !order.includes(column.key) && visible[column.key] !== false);
     return [...ordered, ...missing];
   }, [allColumns, columnPrefs]);
+
+  const handleFocusOnMap = useCallback((deviceId) => {
+    if (!deviceId) return;
+    setFocusedMarkerId(deviceId);
+  }, []);
+
+  const handleReplay = useCallback(
+    (deviceId) => {
+      if (!deviceId) return;
+      navigate(`/trips?deviceId=${encodeURIComponent(deviceId)}`);
+    },
+    [navigate],
+  );
 
   const safeDevices = useMemo(() => (Array.isArray(devices) ? devices : []), [devices]);
   const safePositions = useMemo(
@@ -291,9 +376,11 @@ export default function Monitoring() {
         lastUpdate,
         riskZone,
         locale: i18n.language,
+        onFocus: handleFocusOnMap,
+        onReplay: handleReplay,
       };
     });
-  }, [dangerPoints, i18n.language, safePositions, searchFilteredDevices, t]);
+  }, [dangerPoints, handleFocusOnMap, handleReplay, i18n.language, safePositions, searchFilteredDevices, t]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -321,71 +408,84 @@ export default function Monitoring() {
       .map((row) => {
         if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
         const address =
-          row.position?.address ?? row.position?.attributes?.address ?? row.device?.address ?? t("monitoring.noAddress");
+          formatAddress(
+            row.position?.formattedAddress ||
+              row.position?.address ||
+              row.position?.attributes?.address ||
+              row.device?.address,
+          ) || t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
         const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), i18n.language);
         const distance = row.position?.totalDistance ?? row.position?.distance;
+        const color =
+          row.statusBadge?.status === "online"
+            ? row.position?.motion
+              ? "#22c55e"
+              : "#10b981"
+            : row.statusBadge?.status === "alert"
+              ? "#facc15"
+              : "#f87171";
         return {
           id: row.deviceId,
           lat: row.lat,
           lng: row.lng,
           status: row.statusBadge?.status,
           label: row.deviceName,
-          popup: (
-            <div className="space-y-2 text-xs text-white/80">
-              <div className="text-sm font-medium text-white">{row.deviceName}</div>
-              <div className="flex items-center justify-between">
-                <span>{t("monitoring.popup.gpsTime")}</span>
-                <span>{formatDateTime(row.position?.deviceTime ? new Date(row.position.deviceTime) : null, i18n.language)}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>{t("monitoring.popup.serverTime")}</span>
-                <span>{lastUpdateLabel}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>{t("monitoring.popup.speed")}</span>
-                <span>{speed !== null ? `${speed} km/h` : "—"}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>{t("monitoring.popup.totalDistance")}</span>
-                <span>{distance ?? "—"}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span>{t("monitoring.popup.status")}</span>
-                <span className={row.statusBadge?.className}>{row.statusBadge?.label}</span>
-              </div>
-              <button
-                type="button"
-                className="mt-2 w-full rounded-lg bg-primary/20 px-3 py-2 text-[11px] font-semibold text-primary hover:bg-primary/30"
-                onClick={() => navigate("/devices")}
-              >
-                {t("monitoring.popup.moreDetails")}
-              </button>
-              <div className="text-[11px] text-white/60">{address}</div>
-            </div>
-          ),
+          address,
+          speedLabel: speed !== null ? `${speed} km/h` : "—",
+          speedTitle: t("monitoring.popup.speed"),
+          statusLabel: row.statusBadge?.label,
+          statusTitle: t("monitoring.popup.status"),
+          lastUpdateLabel,
+          updatedTitle: t("monitoring.popup.serverTime"),
+          color,
         };
       })
       .filter(Boolean);
-  }, [filteredRows, i18n.language, navigate, t]);
+  }, [filteredRows, i18n.language, t]);
 
   const onlineCount = useMemo(() => filteredRows.filter((row) => isOnline(row.position)).length, [filteredRows]);
+  const movingCount = useMemo(() => filteredRows.filter((row) => row.position?.motion || pickSpeed(row.position) > 0).length, [filteredRows]);
+  const ignitionOnCount = useMemo(
+    () => filteredRows.filter((row) => getIgnition(row.position, row.device) === true).length,
+    [filteredRows],
+  );
+  const ignitionOffCount = useMemo(
+    () => filteredRows.filter((row) => getIgnition(row.position, row.device) === false).length,
+    [filteredRows],
+  );
 
   const summary = {
     total: stats?.total ?? safeDevices.length,
     withPosition: stats?.withPosition ?? Object.keys(safePositions).length,
     online: onlineCount,
     offline: Math.max(0, (stats?.total ?? safeDevices.length) - onlineCount),
+    moving: movingCount,
+    ignitionOn: ignitionOnCount,
+    ignitionOff: ignitionOffCount,
   };
 
   const visibleColumnCount = Math.max(1, visibleColumns.length);
 
-  const handleToggleColumn = useCallback((key) => {
-    setColumnPrefs((current) => ({
-      ...current,
-      visible: { ...current.visible, [key]: !current.visible?.[key] },
-    }));
-  }, []);
+  const handleToggleColumn = useCallback(
+    (key) => {
+      setColumnPrefs((current) => {
+        const isVisible = current.visible?.[key] !== false;
+        const next = { ...current, visible: { ...current.visible, [key]: !isVisible } };
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [persistColumnPrefs],
+  );
+
+  const handleRestoreColumns = useCallback(() => {
+    const next = mergeColumnPrefs(defaultPreferences);
+    setColumnPrefs(next);
+    persistColumnPrefs(next);
+    resetPreferences().catch((prefError) => console.warn("Falha ao restaurar preferências", prefError));
+    setFilterMode("all");
+  }, [defaultPreferences, mergeColumnPrefs, persistColumnPrefs, resetPreferences]);
 
   const handleExport = useCallback(
     async (event) => {
@@ -476,7 +576,7 @@ export default function Monitoring() {
             </header>
 
             <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
-              <MapSection markers={markers} t={t} />
+              <MapSection markers={markers} geofences={geofences} focusMarkerId={focusedMarkerId} t={t} />
             </div>
           </div>
 
@@ -501,6 +601,18 @@ export default function Monitoring() {
               <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
                 <dt className="text-white/60">{t("monitoring.noRecentSignal")}</dt>
                 <dd className="text-base font-semibold text-white/70">{summary.offline}</dd>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <dt className="text-white/60">{t("monitoring.moving")}</dt>
+                <dd className="text-base font-semibold text-sky-200">{summary.moving}</dd>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <dt className="text-white/60">{t("monitoring.ignitionOnNow")}</dt>
+                <dd className="text-base font-semibold text-amber-200">{summary.ignitionOn}</dd>
+              </div>
+              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <dt className="text-white/60">{t("monitoring.ignitionOffNow")}</dt>
+                <dd className="text-base font-semibold text-white/70">{summary.ignitionOff}</dd>
               </div>
             </dl>
           </aside>
@@ -544,6 +656,13 @@ export default function Monitoring() {
                       />
                     </label>
                   ))}
+                  <button
+                    type="button"
+                    className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+                    onClick={handleRestoreColumns}
+                  >
+                    {t("monitoring.restoreDefaults")}
+                  </button>
                 </div>
               )}
             </div>
