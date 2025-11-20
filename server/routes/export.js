@@ -1,78 +1,115 @@
+// server/routes/export.js
 import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
 import {
-  buildSearchParams,
   ensureReportDateRange,
   enforceClientGroupInQuery,
   enforceDeviceFilterInQuery,
   normalizeReportDeviceIds,
-  normaliseJsonList,
+  buildSearchParams,
 } from "../utils/report-helpers.js";
 import { traccarRequest } from "../services/traccar.js";
 
 const router = express.Router();
 
+// exige usuário autenticado em todas as rotas de export
 router.use(authenticate);
 
-function parseColumns(raw) {
-  if (!raw) {
-    return ["deviceId", "time", "latitude", "longitude", "speed", "address"];
-  }
-  if (Array.isArray(raw)) return raw;
-  return String(raw)
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean);
+function pickAccept(format = "") {
+  const f = String(format).toLowerCase();
+  if (f === "csv") return "text/csv";
+  if (f === "gpx") return "application/gpx+xml";
+  if (f === "xls") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  if (f === "xlsx") return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+  return "application/json";
 }
 
-function formatValue(value) {
-  if (value === undefined || value === null) return "";
-  const str = String(value).replace(/"/g, '""');
-  if (str.includes(",") || str.includes("\n")) {
-    return `"${str}"`;
-  }
-  return str;
-}
-
+/**
+ * Exportação de posições
+ * GET /api/positions/export
+ * Query params:
+ *  - deviceId / deviceIds
+ *  - from / to
+ *  - format=csv|xlsx|gpx|json (default json)
+ */
 router.get("/positions/export", async (req, res, next) => {
   try {
-    let params = normalizeReportDeviceIds({ ...(req.query || {}) });
+    let params = { ...(req.query || {}) };
+
     enforceDeviceFilterInQuery(req, params);
     enforceClientGroupInQuery(req, params);
     params = ensureReportDateRange(params);
 
     const search = buildSearchParams(params);
     const url = `/positions?${search.toString()}`;
+
+    const accept = pickAccept(String(params.format || "csv"));
+    const wantsBinary = accept !== "application/json";
+
     const response = await traccarRequest(
-      { method: "get", url, headers: { Accept: "application/json" } },
+      {
+        method: "get",
+        url,
+        responseType: wantsBinary ? "arraybuffer" : "json",
+        headers: { Accept: accept },
+      },
       null,
       { asAdmin: true },
     );
-    const positions = normaliseJsonList(response?.data, ["positions", "data", "items"]);
-    const columns = parseColumns(req.query.columns);
-    const header = columns.join(",");
-    const rows = positions.map((position) =>
-      columns
-        .map((column) => {
-          const fallbackDeviceId = position?.device_id || position?.deviceId || position?.device?.id;
-          return formatValue(
-            position?.[column] ??
-              position?.attributes?.[column] ??
-              position?.device?.[column] ??
-              (column === "deviceId" ? fallbackDeviceId : ""),
-          );
-        })
-        .join(","),
+
+    if (wantsBinary) {
+      res.setHeader("Content-Type", accept);
+      res.send(Buffer.from(response.data));
+    } else {
+      res.json(response.data);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Exportação de relatórios
+ * GET /api/reports/:type/export
+ *  - :type = route|summary|stops|trips|events (ou outros suportados)
+ * Query params:
+ *  - deviceId / deviceIds / groupId / groupIds
+ *  - from / to
+ *  - format=csv|xlsx|gpx|json (default csv)
+ */
+router.get("/reports/:type/export", async (req, res, next) => {
+  try {
+    const { type } = req.params;
+
+    let params = normalizeReportDeviceIds({ ...(req.query || {}) });
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    params = ensureReportDateRange(params);
+
+    const search = buildSearchParams(params);
+    const url = `/reports/${type}?${search.toString()}`;
+
+    const accept = pickAccept(String(params.format || "csv"));
+    const wantsBinary = accept !== "application/json";
+
+    const response = await traccarRequest(
+      {
+        method: "get",
+        url,
+        responseType: wantsBinary ? "arraybuffer" : "json",
+        headers: { Accept: accept },
+      },
+      null,
+      { asAdmin: true },
     );
 
-    const csv = "\ufeff" + [header, ...rows].join("\n");
-
-    const today = new Date();
-    const filename = `positions-export-${today.toISOString().slice(0, 10).replace(/-/g, "")}.csv`;
-    res.setHeader("Content-Type", "text/csv; charset=utf-8");
-    res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-    res.send(csv);
+    if (wantsBinary) {
+      res.setHeader("Content-Type", accept);
+      res.send(Buffer.from(response.data));
+    } else {
+      res.json(response.data);
+    }
   } catch (error) {
     next(error);
   }

@@ -1,3 +1,4 @@
+// server/app.js
 import express from "express";
 import cookieParser from "cookie-parser";
 import createError from "http-errors";
@@ -12,7 +13,7 @@ import modelRoutes from "./routes/models.js";
 import groupRoutes from "./routes/groups.js";
 import healthRoutes from "./routes/health.js";
 import moduleRoutes from "./routes/modules.js";
-import taskRoutes from "./routes/tasks.js";
+// import taskRoutes from "./routes/tasks.js"; // desabilitado por enquanto
 import analyticsRoutes from "./routes/analytics.js";
 import exportRoutes from "./routes/export.js";
 
@@ -69,7 +70,7 @@ app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
 app.use("/api", moduleRoutes);
-app.use("/api", taskRoutes);
+// app.use("/api", taskRoutes); // desabilitado enquanto ajustamos middleware/client.js
 app.use("/api", analyticsRoutes);
 app.use("/api", exportRoutes);
 

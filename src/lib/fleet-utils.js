@@ -67,6 +67,34 @@ export function parsePositionTime(position) {
   return Number.isNaN(ts) ? null : ts;
 }
 
+/**
+ * Helper genérico para formatar datas em texto.
+ * Usado pelas telas (ex: Tasks) para exibir datas de forma consistente.
+ */
+export function formatDate(value, locale = "pt-BR", extraOptions = {}) {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) {
+    // se não for uma data válida, devolve o valor original como string
+    return String(value);
+  }
+
+  const baseOptions = {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  };
+
+  const options = { ...baseOptions, ...extraOptions };
+
+  try {
+    return new Intl.DateTimeFormat(locale, options).format(d);
+  } catch {
+    // fallback bem defensivo
+    return d.toISOString();
+  }
+}
+
 function buildRow(key, device, position, now) {
   const attributes = position?.attributes ?? {};
   const timestamp = parsePositionTime(position);
