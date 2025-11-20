@@ -16,6 +16,8 @@ import moduleRoutes from "./routes/modules.js";
 // import taskRoutes from "./routes/tasks.js"; // desabilitado por enquanto
 import analyticsRoutes from "./routes/analytics.js";
 import exportRoutes from "./routes/export.js";
+import preferencesRoutes from "./routes/preferences.js";
+import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
 
@@ -73,20 +75,12 @@ app.use("/api", moduleRoutes);
 // app.use("/api", taskRoutes); // desabilitado enquanto ajustamos middleware/client.js
 app.use("/api", analyticsRoutes);
 app.use("/api", exportRoutes);
+app.use("/api", preferencesRoutes);
 
 app.use((req, _res, next) => {
   next(createError(404, `Rota não encontrada: ${req.method} ${req.originalUrl}`));
 });
 
-app.use((err, _req, res, _next) => {
-  const status = err.status || err.statusCode || 500;
-  const payload = {
-    message: err.expose ? err.message : "Erro interno no servidor",
-  };
-  if (process.env.NODE_ENV !== "production") {
-    payload.details = err.message;
-  }
-  res.status(status).json(payload);
-});
+app.use(errorHandler);
 
 export default app;

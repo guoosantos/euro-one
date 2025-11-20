@@ -14,6 +14,7 @@ import {
   resolveClientGroupId,
   resolveAllowedDeviceIds,
 } from "../utils/report-helpers.js";
+import { enrichPositionsWithAddresses } from "../utils/address.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -319,7 +320,12 @@ router.get("/positions", async (req, res, next) => {
       res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
-      res.json(response.data);
+      const body = Array.isArray(response.data)
+        ? await enrichPositionsWithAddresses(response.data)
+        : response.data?.positions && Array.isArray(response.data.positions)
+        ? { ...response.data, positions: await enrichPositionsWithAddresses(response.data.positions) }
+        : response.data;
+      res.json(body);
     }
   } catch (error) {
     next(error);
@@ -346,7 +352,12 @@ router.get("/positions/last", async (req, res, next) => {
     }
 
     const data = await traccarProxy("get", "/positions", { params, asAdmin: true });
-    res.json(data);
+    const body = Array.isArray(data)
+      ? await enrichPositionsWithAddresses(data)
+      : data?.positions && Array.isArray(data.positions)
+      ? { ...data, positions: await enrichPositionsWithAddresses(data.positions) }
+      : data;
+    res.json(body);
   } catch (error) {
     next(error);
   }

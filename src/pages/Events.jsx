@@ -1,6 +1,9 @@
 import React, { useMemo, useState } from "react";
 import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
+import { useTranslation } from "../lib/i18n.js";
+import { translateEventType } from "../lib/event-translations.js";
+import { formatAddress } from "../lib/format-address.js";
 
 const EVENT_TYPES = [
   "all",
@@ -18,6 +21,7 @@ const EVENT_TYPES = [
 ];
 
 export default function Events() {
+  const { locale } = useTranslation();
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const [selectedDevice, setSelectedDevice] = useState("all");
@@ -42,6 +46,7 @@ export default function Events() {
         type: event.type ?? event.attributes?.type ?? event.event,
         time: event.serverTime ?? event.eventTime ?? event.time,
         severity: event.attributes?.alarm ?? event.severity ?? "normal",
+        address: event.attributes?.address || event.address,
         description: event.attributes?.message || event.attributes?.description || event.attributes?.type || "—",
       })),
     [events, devices],
@@ -92,7 +97,7 @@ export default function Events() {
             >
               {EVENT_TYPES.map((option) => (
                 <option key={option} value={option}>
-                  {translateEventType(option)}
+                  {option === "all" ? "Todos" : translateEventType(option, locale)}
                 </option>
               ))}
             </select>
@@ -156,11 +161,11 @@ export default function Events() {
                 <tr key={row.id} className="hover:bg-white/5">
                   <td className="py-2 pr-6 text-white/80">{formatDateTime(row.time)}</td>
                   <td className="py-2 pr-6 text-white">{row.device}</td>
-                  <td className="py-2 pr-6 text-white/80">{translateEventType(row.type)}</td>
+                  <td className="py-2 pr-6 text-white/80">{translateEventType(row.type, locale)}</td>
                   <td className="py-2 pr-6">
                     <SeverityPill severity={row.severity} />
                   </td>
-                  <td className="py-2 pr-6 text-white/70">{row.description}</td>
+                  <td className="py-2 pr-6 text-white/70">{formatAddress(row.address) || row.description}</td>
                 </tr>
               ))}
             </tbody>
@@ -214,24 +219,6 @@ function formatDateTime(value) {
   } catch (error) {
     return String(value);
   }
-}
-
-function translateEventType(type) {
-  if (!type || type === "all") return "Todos";
-  const map = {
-    deviceOnline: "Online",
-    deviceOffline: "Offline",
-    geofenceEnter: "Entrada em cerca",
-    geofenceExit: "Saída de cerca",
-    speedLimit: "Excesso de velocidade",
-    alarm: "Alarme",
-    maintenance: "Manutenção",
-    driverChanged: "Troca de motorista",
-    harshAcceleration: "Aceleração brusca",
-    harshBraking: "Frenagem brusca",
-    harshCornering: "Curva brusca",
-  };
-  return map[type] || type;
 }
 
 function SeverityPill({ severity }) {

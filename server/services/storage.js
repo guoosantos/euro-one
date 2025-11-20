@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../data");
 const DATA_FILE = path.join(DATA_DIR, "storage.json");
+const SHOULD_PERSIST = process.env.NODE_ENV !== "test";
 
 let snapshot = null;
 let flushTimer = null;
@@ -33,6 +34,12 @@ function ensureSnapshot() {
   if (snapshot) {
     return snapshot;
   }
+
+  if (!SHOULD_PERSIST) {
+    snapshot = {};
+    return snapshot;
+  }
+
   try {
     const raw = fs.readFileSync(DATA_FILE, "utf8");
     snapshot = raw ? JSON.parse(raw) : {};
@@ -43,6 +50,8 @@ function ensureSnapshot() {
 }
 
 function scheduleFlush() {
+  if (!SHOULD_PERSIST) return;
+
   if (flushTimer) {
     return;
   }
