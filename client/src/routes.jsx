@@ -83,6 +83,7 @@ export const routeConfig = [
   { path: "/ranking", element: Ranking, title: "Ranking" },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics" },
   { path: "/reports", element: Reports, title: "Relatórios" },
+  { path: "/reports/trips", element: Reports, title: "Relatórios" },
   { path: "/reports/route", element: ReportsRoute, title: "Rotas" },
   { path: "/reports/summary", element: ReportsSummary, title: "Resumo" },
   { path: "/reports/stops", element: ReportsStops, title: "Paradas" },

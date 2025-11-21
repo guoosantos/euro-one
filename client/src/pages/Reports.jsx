@@ -10,19 +10,47 @@ export default function Reports() {
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
+  const [formError, setFormError] = useState("");
+  const [feedback, setFeedback] = useState(null);
+  const [downloading, setDownloading] = useState(false);
 
   async function handleGenerate(event) {
     event.preventDefault();
-    if (!deviceId) return;
-    await generateTripsReport({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+    setFeedback(null);
+    const validationMessage = validateFields({ deviceId, from, to });
+    if (validationMessage) {
+      setFormError(validationMessage);
+      return;
+    }
+    setFormError("");
+    try {
+      await generateTripsReport({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      setFeedback({ type: "success", message: "Relatório criado com sucesso." });
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
+    }
   }
 
   async function handleDownload() {
-    if (!deviceId) return;
-    await downloadTripsCsv({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+    const validationMessage = validateFields({ deviceId, from, to });
+    if (validationMessage) {
+      setFormError(validationMessage);
+      return;
+    }
+    setFormError("");
+    setDownloading(true);
+    try {
+      await downloadTripsCsv({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      setFeedback({ type: "success", message: "Exportação iniciada com sucesso." });
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao exportar CSV." });
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const trips = Array.isArray(data) ? data : Array.isArray(data?.trips) ? data.trips : [];
+  const lastGeneratedAt = data?.__meta?.generatedAt;
 
   return (
     <div className="space-y-6">
@@ -83,15 +111,29 @@ export default function Reports() {
             <button
               type="button"
               onClick={handleDownload}
-              disabled={loading || !deviceId}
+              disabled={loading || downloading || !deviceId}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-white/10 disabled:opacity-60"
             >
-              Exportar CSV
+              {downloading ? "Preparando…" : "Exportar CSV"}
             </button>
           </div>
         </form>
-
-        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+        {formError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+        )}
+        {feedback && feedback.type === "success" && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+            {feedback.message}
+          </div>
+        )}
+        {(feedback?.type === "error" || error) && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+            {feedback?.type === "error" ? feedback.message : error?.message}
+          </div>
+        )}
+        {lastGeneratedAt && (
+          <p className="text-xs text-white/60">Última geração: {formatDate(lastGeneratedAt)}</p>
+        )}
       </section>
 
       <section className="card space-y-4">
@@ -150,6 +192,16 @@ function formatDate(value) {
   } catch (error) {
     return String(value);
   }
+}
+
+function validateFields({ deviceId, from, to }) {
+  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!from || !to) return "Preencha as datas de início e fim.";
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return "Datas inválidas.";
+  if (fromDate > toDate) return "A data inicial deve ser anterior à final.";
+  return "";
 }
 
 function formatDuration(seconds) {

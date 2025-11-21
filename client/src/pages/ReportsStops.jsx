@@ -1,25 +1,37 @@
 import React, { useMemo, useState } from "react";
 import useDevices from "../lib/hooks/useDevices";
-import useReportsRoute from "../lib/hooks/useReportsRoute";
+import useReportsStops from "../lib/hooks/useReportsStops";
 
-export default function ReportsRoute() {
+export default function ReportsStops() {
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
-  const { data, loading, error, generate } = useReportsRoute();
+  const { data, loading, error, generate } = useReportsStops();
 
   const [deviceId, setDeviceId] = useState("");
-  const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 16));
+  const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [fetching, setFetching] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
-  const points = Array.isArray(data?.positions) ? data.positions : Array.isArray(data) ? data : [];
+  const stops = Array.isArray(data?.stops) ? data.stops : Array.isArray(data) ? data : [];
+  const lastGeneratedAt = data?.__meta?.generatedAt;
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!deviceId) return;
+    setFeedback(null);
+    const validationMessage = validateFields({ deviceId, from, to });
+    if (validationMessage) {
+      setFormError(validationMessage);
+      return;
+    }
+    setFormError("");
     setFetching(true);
     try {
       await generate({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      setFeedback({ type: "success", message: "Relatório de paradas criado com sucesso." });
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório de paradas." });
     } finally {
       setFetching(false);
     }
@@ -29,8 +41,8 @@ export default function ReportsRoute() {
     <div className="space-y-6">
       <section className="card space-y-4">
         <header>
-          <h2 className="text-lg font-semibold">Relatório de rota</h2>
-          <p className="text-xs opacity-70">Extrai todos os pontos percorridos no intervalo informado.</p>
+          <h2 className="text-lg font-semibold">Relatório de paradas</h2>
+          <p className="text-xs opacity-70">Identifica os locais onde o veículo permaneceu estacionado.</p>
         </header>
 
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
@@ -87,45 +99,56 @@ export default function ReportsRoute() {
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
         )}
+        {formError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+        )}
+        {feedback && feedback.type === "success" && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+            {feedback.message}
+          </div>
+        )}
+        {lastGeneratedAt && (
+          <p className="text-xs text-white/60">Última geração: {formatDate(lastGeneratedAt)}</p>
+        )}
       </section>
 
       <section className="card space-y-4">
         <header className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Pontos encontrados</h3>
-          <span className="text-xs opacity-60">{points.length} registros</span>
+          <h3 className="text-lg font-semibold">Paradas</h3>
+          <span className="text-xs opacity-60">{stops.length} registros</span>
         </header>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                <th className="py-2 pr-6">Horário</th>
-                <th className="py-2 pr-6">Latitude</th>
-                <th className="py-2 pr-6">Longitude</th>
-                <th className="py-2 pr-6">Velocidade</th>
+                <th className="py-2 pr-6">Local</th>
+                <th className="py-2 pr-6">Início</th>
+                <th className="py-2 pr-6">Fim</th>
+                <th className="py-2 pr-6">Duração</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-sm opacity-60">
-                    Processando rota…
+                    Processando paradas…
                   </td>
                 </tr>
               )}
-              {!loading && !points.length && (
+              {!loading && !stops.length && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-sm opacity-60">
-                    Gere um relatório para visualizar os pontos percorridos.
+                    Nenhuma parada encontrada no intervalo informado.
                   </td>
                 </tr>
               )}
-              {points.map((point) => (
-                <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
-                  <td className="py-2 pr-6 text-white/80">{formatDate(point.fixTime || point.serverTime)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatCoordinate(point.latitude)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatCoordinate(point.longitude)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatSpeed(point.speed)}</td>
+              {stops.map((stop) => (
+                <tr key={`${stop.deviceId}-${stop.startTime}-${stop.endTime}`} className="hover:bg-white/5">
+                  <td className="py-2 pr-6 text-white/80">{formatLocation(stop)}</td>
+                  <td className="py-2 pr-6 text-white/70">{formatDate(stop.startTime)}</td>
+                  <td className="py-2 pr-6 text-white/70">{formatDate(stop.endTime)}</td>
+                  <td className="py-2 pr-6 text-white/70">{formatDuration(stop.duration)}</td>
                 </tr>
               ))}
             </tbody>
@@ -145,16 +168,29 @@ function formatDate(value) {
   }
 }
 
-function formatCoordinate(value) {
-  if (value === null || value === undefined) return "—";
+function formatDuration(value) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return number.toFixed(5);
+  if (!Number.isFinite(number)) return "—";
+  const hours = Math.floor(number / 3600);
+  const minutes = Math.floor((number % 3600) / 60);
+  return `${hours}h ${minutes}m`;
 }
 
-function formatSpeed(value) {
-  if (value === null || value === undefined) return "0 km/h";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return `${(number * 1.852).toFixed(1)} km/h`;
+function formatLocation(stop) {
+  if (!stop) return "—";
+  if (stop.address) return stop.address;
+  if (stop.latitude && stop.longitude) {
+    return `${Number(stop.latitude).toFixed(5)}, ${Number(stop.longitude).toFixed(5)}`;
+  }
+  return "—";
+}
+
+function validateFields({ deviceId, from, to }) {
+  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!from || !to) return "Preencha as datas de início e fim.";
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return "Datas inválidas.";
+  if (fromDate > toDate) return "A data inicial deve ser anterior à final.";
+  return "";
 }
