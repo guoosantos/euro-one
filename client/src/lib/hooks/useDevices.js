@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
-import useLiveUpdates from "./useLiveUpdates.js";
+import useLiveSocket from "./useLiveSocket.js";
 
 function toDeviceKey(value) {
   if (value === null || value === undefined) return null;
@@ -97,7 +97,12 @@ export function useDevices() {
     [setDevices, setPositionsByDeviceId],
   );
 
-  const { connected: liveConnected, error: liveUpdatesError } = useLiveUpdates({ onMessage: handleLiveMessage });
+  const {
+    connected: liveConnected,
+    error: liveUpdatesError,
+    fallback: liveFallback,
+    fallbackMessage,
+  } = useLiveSocket({ onMessage: handleLiveMessage });
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
@@ -206,7 +211,16 @@ export function useDevices() {
     return { total, withPosition };
   }, [devices, positionsByDeviceId]);
 
-  return { devices, positionsByDeviceId, loading, error, reload, stats };
+  const liveStatus = useMemo(
+    () => ({
+      connected: liveConnected,
+      fallback: liveFallback,
+      fallbackMessage,
+    }),
+    [fallbackMessage, liveConnected, liveFallback],
+  );
+
+  return { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus };
 }
 
 export default useDevices;
