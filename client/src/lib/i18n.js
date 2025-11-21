@@ -150,6 +150,7 @@ const TRANSLATIONS = {
     "monitoring.ignitionOffNow": "Ignição desligada",
     "monitoring.tableTitle": "Telemetria da frota",
     "monitoring.updating": "Atualizando dados em tempo real…",
+    "monitoring.liveFallback": "Conexão em tempo real instável, dados em modo consulta periódica.",
     "monitoring.showingDevices": "Exibindo {count} dispositivos",
     "monitoring.searchPlaceholder": "Buscar por veículo ou placa",
     "monitoring.columnsButton": "Colunas",

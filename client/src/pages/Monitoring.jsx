@@ -220,7 +220,7 @@ function MapSection({ markers, geofences, focusMarkerId, t }) {
 export default function Monitoring() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
-  const { devices, positionsByDeviceId, loading, error, reload, stats } = useDevices();
+  const { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus } = useDevices();
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime" });
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences, resetPreferences } = useUserPreferences();
@@ -534,6 +534,15 @@ export default function Monitoring() {
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
           <div className="font-medium">{t("monitoring.loadErrorTitle")}</div>
           <div className="mt-1 text-xs opacity-80">{error.message ?? t("monitoring.loadErrorBody")}</div>
+        </div>
+      )}
+
+      {liveStatus?.fallback && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          <div className="font-medium">{t("monitoring.liveFallback")}</div>
+          {liveStatus?.fallbackMessage && (
+            <div className="mt-1 text-xs opacity-80">{liveStatus.fallbackMessage}</div>
+          )}
         </div>
       )}
 
