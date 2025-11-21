@@ -139,7 +139,9 @@ export default function ReportsSummary() {
               {!loading && !summary.length && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-sm opacity-60">
-                    Nenhum resultado gerado para o intervalo informado.
+                    {lastGeneratedAt
+                      ? "Nenhum registro encontrado para o período selecionado."
+                      : "Gere um relatório para visualizar o resumo."}
                   </td>
                 </tr>
               )}

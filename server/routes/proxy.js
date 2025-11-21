@@ -13,6 +13,7 @@ import {
   normalizeReportDeviceIds,
   resolveClientGroupId,
   resolveAllowedDeviceIds,
+  normaliseJsonList,
 } from "../utils/report-helpers.js";
 import { enrichPositionsWithAddresses } from "../utils/address.js";
 
@@ -117,6 +118,40 @@ function pickAccept(format = "") {
   return "application/json";
 }
 
+function normalizeReportPayload(path, payload) {
+  const isObject = payload && typeof payload === "object" && !Array.isArray(payload);
+  const base = isObject ? { ...payload } : {};
+  const ensureList = (keys = []) => {
+    if (Array.isArray(payload)) return payload;
+    for (const key of keys) {
+      if (Array.isArray(payload?.[key])) return payload[key];
+    }
+    return normaliseJsonList(payload, keys);
+  };
+
+  if (path.includes("/route")) {
+    base.positions = ensureList(["positions", "route", "routes", "data", "items"]);
+    return base;
+  }
+
+  if (path.includes("/stops")) {
+    base.stops = ensureList(["stops", "data", "items"]);
+    return base;
+  }
+
+  if (path.includes("/summary")) {
+    base.summary = ensureList(["summary", "data", "items"]);
+    return base;
+  }
+
+  if (path.includes("/trips")) {
+    base.trips = ensureList(["trips", "data", "items"]);
+    return base;
+  }
+
+  return payload ?? {};
+}
+
 /**
  * Tenta GET e, se o Traccar responder 404/405/415, faz fallback em POST.
  */
@@ -192,7 +227,7 @@ async function proxyTraccarReportWithParams(req, res, next, path, paramsIn) {
       res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
-      res.json(response.data);
+      res.json(normalizeReportPayload(path, response?.data));
     }
   } catch (error) {
     if (error?.response) {
@@ -205,7 +240,13 @@ async function proxyTraccarReportWithParams(req, res, next, path, paramsIn) {
     } else {
       console.error("[traccar report error]", path, error?.message);
     }
-    next(error);
+    const status = error?.response?.status ?? 500;
+    const message =
+      error?.response?.data?.message ||
+      (typeof error?.response?.data === "string" ? error.response.data : null) ||
+      error?.message ||
+      "Erro ao gerar relatório";
+    next(createError(status, message));
   }
 }
 
@@ -683,7 +724,7 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
       res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
-      res.json(response.data);
+      res.json(normalizeReportPayload("/reports/trips", response?.data));
     }
   } catch (error) {
     if (error?.response) {
@@ -695,7 +736,13 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
     } else {
       console.error("[traccar report error] /reports/trips", error?.message);
     }
-    next(error);
+    const status = error?.response?.status ?? 500;
+    const message =
+      error?.response?.data?.message ||
+      (typeof error?.response?.data === "string" ? error.response.data : null) ||
+      error?.message ||
+      "Erro ao gerar relatório";
+    next(createError(status, message));
   }
 });
 

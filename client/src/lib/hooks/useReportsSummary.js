@@ -7,6 +7,23 @@ export function useReportsSummary() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const normalizeSummary = useCallback((payload) => {
+    if (!payload) return { summary: [] };
+    const base = Array.isArray(payload)
+      ? { summary: payload }
+      : typeof payload === "object"
+        ? { ...payload }
+        : {};
+
+    const summary = Array.isArray(base.summary)
+      ? base.summary
+      : Array.isArray(base.data)
+        ? base.data
+        : [];
+
+    return { ...base, summary: summary.filter(Boolean) };
+  }, []);
+
   const persistData = useCallback((value) => {
     setData(value);
     if (typeof window === "undefined") return;
@@ -22,31 +39,33 @@ export function useReportsSummary() {
     try {
       const cached = window.localStorage.getItem("reports:summary:last");
       if (cached) {
-        setData(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        persistData(normalizeSummary(parsed));
       }
     } catch (_error) {
       // Ignore hydration failures
     }
-  }, []);
+  }, [normalizeSummary, persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);
     setError(null);
     try {
       const response = await api.get(API_ROUTES.reports.summary, { params });
-      const enriched =
-        response?.data && typeof response.data === "object"
-          ? { ...response.data, __meta: { generatedAt: new Date().toISOString(), params } }
-          : response?.data ?? null;
+      const enriched = {
+        ...normalizeSummary(response?.data),
+        __meta: { generatedAt: new Date().toISOString(), params },
+      };
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de resumo"));
-      throw requestError;
+      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de resumo");
+      setError(fallbackError);
+      throw fallbackError;
     } finally {
       setLoading(false);
     }
-  }, [persistData]);
+  }, [normalizeSummary, persistData]);
 
   return { data, loading, error, generate };
 }
