@@ -47,6 +47,10 @@ export default function HeatmapAnalytics() {
   const { search } = useLocation();
   const [filters, setFilters] = useState({ from: "", to: "", eventTypes: [], groupId: "" });
   const { groups } = useGroups();
+  const tileUrl = useMemo(
+    () => import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    [],
+  );
   const requestFilters = useMemo(
     () => ({
       ...filters,
@@ -56,6 +60,9 @@ export default function HeatmapAnalytics() {
     [filters],
   );
   const { points, topZones, total, loading, error, refresh } = useHeatmapEvents(requestFilters);
+  const hasPoints = points.length > 0;
+  const plottedPoints = useMemo(() => points.length, [points]);
+  const eventsCount = useMemo(() => (Number.isFinite(total) ? total : points.reduce((sum, item) => sum + (item.count || 0), 0)), [points, total]);
 
   useEffect(() => {
     const now = new Date();
@@ -82,8 +89,6 @@ export default function HeatmapAnalytics() {
     }
     return [-23.5505, -46.6333];
   }, [points]);
-
-  const totalPoints = useMemo(() => points.reduce((sum, item) => sum + (item.count || 0), 0), [points]);
 
   const handleDateChange = (event) => {
     const { name, value } = event.target;
@@ -189,17 +194,24 @@ export default function HeatmapAnalytics() {
         <div className="md:col-span-2 overflow-hidden rounded-lg border bg-white shadow-sm">
           <div className="flex items-center justify-between border-b px-4 py-2 text-sm text-gray-700">
             <span>
-              {t("pointsPlotted", { count: totalPoints })} · {t("eventsCount", { count: total })}
+              {t("pointsPlotted", { count: plottedPoints })} · {t("eventsCount", { count: eventsCount })}
             </span>
             {loading ? <span className="text-xs text-gray-500">{t("loading")}</span> : null}
           </div>
-          <MapContainer center={center} zoom={points.length ? 12 : 4} style={{ height: 420 }} scrollWheelZoom>
-            <TileLayer
-              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-            <HeatLayer points={points} />
-          </MapContainer>
+          <div className="relative">
+            <MapContainer center={center} zoom={points.length ? 12 : 4} style={{ height: 420 }} scrollWheelZoom>
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url={tileUrl}
+              />
+              <HeatLayer points={points} />
+            </MapContainer>
+            {!hasPoints && !loading ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/70 text-sm text-gray-700">
+                Sem dados para o período
+              </div>
+            ) : null}
+          </div>
         </div>
 
         <div className="space-y-3 rounded-lg border bg-white p-4 shadow-sm">

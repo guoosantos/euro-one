@@ -19,15 +19,18 @@ export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, ten
     const next = {};
     if (from) next.from = from;
     if (to) next.to = to;
-    const resolvedTypes = eventTypes || eventType;
+    const resolvedTypes = eventTypes?.length ? eventTypes : eventType;
     if (resolvedTypes?.length) {
-      next.type = Array.isArray(resolvedTypes) ? resolvedTypes.join(",") : resolvedTypes;
+      const list = Array.isArray(resolvedTypes) ? resolvedTypes : [resolvedTypes];
+      const joined = list.join(",");
+      next.eventTypes = joined;
+      next.type = joined; // compat with backend filters
     }
     if (groupId) next.groupId = groupId;
     const resolvedTenant = overrideTenant ?? tenantId;
     if (resolvedTenant) next.clientId = resolvedTenant;
     return next;
-  }, [from, to, eventType, groupId, tenantId, overrideTenant]);
+  }, [eventType, eventTypes, from, groupId, overrideTenant, tenantId, to]);
 
   useEffect(() => {
     let cancelled = false;
