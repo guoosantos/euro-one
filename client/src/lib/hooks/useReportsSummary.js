@@ -1,51 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { readCachedReport, writeCachedReport } from "./reportStorage.js";
+
+const SUMMARY_CACHE_KEY = "reports:summary:last";
+
+export const normalizeSummary = (payload) => {
+  if (!payload) return { summary: [] };
+  const base = Array.isArray(payload)
+    ? { summary: payload }
+    : typeof payload === "object"
+      ? { ...payload }
+      : {};
+
+  const summary = Array.isArray(base.summary)
+    ? base.summary
+    : Array.isArray(base.data)
+      ? base.data
+      : [];
+
+  return { ...base, summary: summary.filter(Boolean) };
+};
 
 export function useReportsSummary() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const normalizeSummary = useCallback((payload) => {
-    if (!payload) return { summary: [] };
-    const base = Array.isArray(payload)
-      ? { summary: payload }
-      : typeof payload === "object"
-        ? { ...payload }
-        : {};
-
-    const summary = Array.isArray(base.summary)
-      ? base.summary
-      : Array.isArray(base.data)
-        ? base.data
-        : [];
-
-    return { ...base, summary: summary.filter(Boolean) };
-  }, []);
-
   const persistData = useCallback((value) => {
     setData(value);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("reports:summary:last", JSON.stringify(value));
-    } catch (_error) {
-      // Ignore persistence failures
-    }
+    writeCachedReport(SUMMARY_CACHE_KEY, value);
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const cached = window.localStorage.getItem("reports:summary:last");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        persistData(normalizeSummary(parsed));
-      }
-    } catch (_error) {
-      // Ignore hydration failures
+    const cached = readCachedReport(SUMMARY_CACHE_KEY, normalizeSummary);
+    if (cached) {
+      persistData(cached);
     }
-  }, [normalizeSummary, persistData]);
+  }, [persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);

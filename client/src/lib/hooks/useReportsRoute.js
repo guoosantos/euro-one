@@ -1,51 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { readCachedReport, writeCachedReport } from "./reportStorage.js";
+
+const ROUTE_CACHE_KEY = "reports:route:last";
+
+export const normalizeRoute = (payload) => {
+  if (!payload) return { positions: [] };
+  const base = Array.isArray(payload)
+    ? { positions: payload }
+    : typeof payload === "object"
+      ? { ...payload }
+      : {};
+
+  const positions = Array.isArray(base.positions)
+    ? base.positions
+    : Array.isArray(base.data)
+      ? base.data
+      : [];
+
+  return { ...base, positions: positions.filter(Boolean) };
+};
 
 export function useReportsRoute() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const normalizeRoute = useCallback((payload) => {
-    if (!payload) return { positions: [] };
-    const base = Array.isArray(payload)
-      ? { positions: payload }
-      : typeof payload === "object"
-        ? { ...payload }
-        : {};
-
-    const positions = Array.isArray(base.positions)
-      ? base.positions
-      : Array.isArray(base.data)
-        ? base.data
-        : [];
-
-    return { ...base, positions: positions.filter(Boolean) };
-  }, []);
-
   const persistData = useCallback((value) => {
     setData(value);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("reports:route:last", JSON.stringify(value));
-    } catch (_error) {
-      // Ignore persistence failures
-    }
+    writeCachedReport(ROUTE_CACHE_KEY, value);
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const cached = window.localStorage.getItem("reports:route:last");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        persistData(normalizeRoute(parsed));
-      }
-    } catch (_error) {
-      // Ignore hydration failures
+    const cached = readCachedReport(ROUTE_CACHE_KEY, normalizeRoute);
+    if (cached) {
+      persistData(cached);
     }
-  }, [normalizeRoute, persistData]);
+  }, [persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);

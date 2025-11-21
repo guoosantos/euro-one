@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import { classifyVehicleStates } from "../server/utils/vehicle-status.js";
+import { classifyVehicleStates } from "../../server/utils/vehicle-status.js";
 
 test("classifyVehicleStates identifica veículos em movimento", () => {
   const result = classifyVehicleStates({

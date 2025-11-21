@@ -2,13 +2,26 @@ import test from "node:test";
 import assert from "node:assert";
 import http from "node:http";
 
-import app from "../server/app.js";
-import { signSession } from "../server/middleware/auth.js";
-import { resetUserPreferences } from "../server/models/user-preferences.js";
+import { resetUserPreferences } from "../../server/models/user-preferences.js";
 
-const token = signSession({ id: "user-1", role: "admin" });
+let serverApp;
+let signSession;
 
-function startTestServer() {
+const ensureServer = async () => {
+  process.env.TRACCAR_ADMIN_USER ??= "admin";
+  process.env.TRACCAR_ADMIN_PASSWORD ??= "admin";
+  process.env.TRACCAR_URL ??= "http://localhost";
+
+  if (!serverApp || !signSession) {
+    ({ default: serverApp } = await import("../../server/app.js"));
+    ({ signSession } = await import("../../server/middleware/auth.js"));
+  }
+
+  return { serverApp, signSession };
+};
+
+async function startTestServer() {
+  const { serverApp: app } = await ensureServer();
   return new Promise((resolve) => {
     const server = http.createServer(app);
     server.listen(0, () => resolve(server));
@@ -24,6 +37,8 @@ test.beforeEach(() => {
 });
 
 test("GET /api/user/preferences retorna payload padrão", async () => {
+  const { signSession } = await ensureServer();
+  const token = signSession({ id: "user-1", role: "admin" });
   const server = await startTestServer();
   const base = `http://127.0.0.1:${server.address().port}`;
 
@@ -42,6 +57,8 @@ test("GET /api/user/preferences retorna payload padrão", async () => {
 });
 
 test("PUT /api/user/preferences persiste colunas e filtros", async () => {
+  const { signSession } = await ensureServer();
+  const token = signSession({ id: "user-1", role: "admin" });
   const server = await startTestServer();
   const base = `http://127.0.0.1:${server.address().port}`;
   const payload = {

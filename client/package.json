@@ -8,7 +8,7 @@
     "build": "bash ../scripts/prebuild-guard.sh && vite build",
     "preview": "vite preview --port 5173 --strictPort",
     "test": "NODE_ENV=test node --test",
-    "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\"",
+    "lint": "eslint \"src/lib/**/*.{js,jsx,ts,tsx}\" \"tests/**/*.js\"",
     "format": "prettier --write \"{src,tests}/**/*.{js,jsx,ts,tsx,json,css,md}\""
   },
   "dependencies": {

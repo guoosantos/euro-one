@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import { bucketCommunicationAge, groupByCommunication, COMMUNICATION_BUCKETS } from "../server/utils/communication-buckets.js";
+import { bucketCommunicationAge, groupByCommunication, COMMUNICATION_BUCKETS } from "../../server/utils/communication-buckets.js";
 
 test("bucketCommunicationAge categoriza corretamente", () => {
   const now = Date.parse("2024-01-01T12:00:00Z");
