@@ -11,15 +11,27 @@ export default function ReportsSummary() {
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [fetching, setFetching] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [feedback, setFeedback] = useState(null);
 
   const summary = Array.isArray(data?.summary) ? data.summary : Array.isArray(data) ? data : [];
+  const lastGeneratedAt = data?.__meta?.generatedAt;
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!deviceId) return;
+    setFeedback(null);
+    const validationMessage = validateFields({ deviceId, from, to });
+    if (validationMessage) {
+      setFormError(validationMessage);
+      return;
+    }
+    setFormError("");
     setFetching(true);
     try {
       await generate({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      setFeedback({ type: "success", message: "Relatório de resumo criado com sucesso." });
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório de resumo." });
     } finally {
       setFetching(false);
     }
@@ -86,6 +98,17 @@ export default function ReportsSummary() {
 
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
+        )}
+        {formError && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+        )}
+        {feedback && feedback.type === "success" && (
+          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">
+            {feedback.message}
+          </div>
+        )}
+        {lastGeneratedAt && (
+          <p className="text-xs text-white/60">Última geração: {formatDate(lastGeneratedAt)}</p>
         )}
       </section>
 
@@ -163,4 +186,14 @@ function formatSpeed(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "0 km/h";
   return `${(number * 1.852).toFixed(1)} km/h`;
+}
+
+function validateFields({ deviceId, from, to }) {
+  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!from || !to) return "Preencha as datas de início e fim.";
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return "Datas inválidas.";
+  if (fromDate > toDate) return "A data inicial deve ser anterior à final.";
+  return "";
 }

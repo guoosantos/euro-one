@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 
@@ -7,22 +7,47 @@ export function useReports() {
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
 
+  const persistData = useCallback((value) => {
+    setData(value);
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem("reports:trips:last", JSON.stringify(value));
+    } catch (_error) {
+      // Ignore persistence failures
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const cached = window.localStorage.getItem("reports:trips:last");
+      if (cached) {
+        setData(JSON.parse(cached));
+      }
+    } catch (_error) {
+      // Ignore hydration failures
+    }
+  }, []);
+
   const generateTripsReport = useCallback(async ({ deviceId, from, to, type = "all" }) => {
     setLoading(true);
     setError(null);
     try {
       const payload = { deviceId, from, to, type };
       const response = await api.post(API_ROUTES.reports.trips, payload);
-      setData(response?.data ?? null);
-      return response?.data ?? null;
+      const enriched =
+        response?.data && typeof response.data === "object"
+          ? { ...response.data, __meta: { generatedAt: new Date().toISOString(), params: payload } }
+          : response?.data ?? null;
+      persistData(enriched);
+      return enriched;
     } catch (requestError) {
       setError(requestError);
-      setData(null);
       throw requestError;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [persistData]);
 
   const downloadTripsCsv = useCallback(async ({ deviceId, from, to, type = "all" }) => {
     const payload = { deviceId, from, to, type, format: "csv" };

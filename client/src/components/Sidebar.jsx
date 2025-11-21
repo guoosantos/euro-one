@@ -112,10 +112,13 @@ export default function Sidebar() {
   const analyticsLinks = [
     { to: "/analytics/heatmap", label: "Analytics", icon: BarChart3 },
     { to: "/ranking", label: "Ranking", icon: Medal },
-    { to: "/reports", label: "Relatórios", icon: BarChart3 },
+  ];
+
+  const reportLinks = [
+    { to: "/reports/trips", label: "Viagens", icon: FileText },
     { to: "/reports/route", label: "Rotas", icon: Route },
-    { to: "/reports/summary", label: "Resumo", icon: FileBarChart },
     { to: "/reports/stops", label: "Paradas", icon: Navigation },
+    { to: "/reports/summary", label: "Resumo", icon: FileBarChart },
   ];
 
   const businessLinks = [
@@ -286,6 +289,9 @@ export default function Sidebar() {
 
         {sectionTitle(collapsed, "Frotas")}
         {fleetLinks.map(renderNavLink)}
+
+        {sectionTitle(collapsed, "Relatórios")}
+        <div className="flex flex-col gap-2">{reportLinks.map(renderNavLink)}</div>
 
         {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
         {adminLinks.map(renderNavLink)}

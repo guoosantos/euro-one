@@ -1,7 +1,15 @@
 import { existsSync, readFileSync } from "fs";
-import { resolve } from "path";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 
 let loaded = false;
+
+const moduleDir = dirname(fileURLToPath(import.meta.url));
+const envSearchPaths = [
+  resolve(process.cwd(), ".env"),
+  resolve(moduleDir, "..", ".env"),
+  resolve(moduleDir, ".env"),
+];
 
 function applyEnv(content) {
   content
@@ -26,6 +34,10 @@ function applyEnv(content) {
     });
 }
 
+function resolveEnvPath() {
+  return envSearchPaths.find((candidate) => existsSync(candidate));
+}
+
 export async function loadEnv() {
   if (loaded) return;
   try {
@@ -41,8 +53,8 @@ export async function loadEnv() {
     }
   }
 
-  const envPath = resolve(process.cwd(), ".env");
-  if (!existsSync(envPath)) {
+  const envPath = resolveEnvPath();
+  if (!envPath) {
     loaded = true;
     return;
   }

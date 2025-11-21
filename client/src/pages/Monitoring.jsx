@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "../lib/i18n.js";
 import { useNavigate } from "react-router-dom";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -218,7 +218,7 @@ function MapSection({ markers, geofences, focusMarkerId, t }) {
 }
 
 export default function Monitoring() {
-  const { t, i18n } = useTranslation();
+  const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const { devices, positionsByDeviceId, loading, error, reload, stats } = useDevices();
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime" });
@@ -375,12 +375,12 @@ export default function Monitoring() {
         statusBadge: badge,
         lastUpdate,
         riskZone,
-        locale: i18n.language,
+        locale,
         onFocus: handleFocusOnMap,
         onReplay: handleReplay,
       };
     });
-  }, [dangerPoints, handleFocusOnMap, handleReplay, i18n.language, safePositions, searchFilteredDevices, t]);
+  }, [dangerPoints, handleFocusOnMap, handleReplay, locale, safePositions, searchFilteredDevices, t]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -415,7 +415,7 @@ export default function Monitoring() {
               row.device?.address,
           ) || t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
-        const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), i18n.language);
+        const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), locale);
         const distance = row.position?.totalDistance ?? row.position?.distance;
         const color =
           row.statusBadge?.status === "online"
@@ -442,7 +442,7 @@ export default function Monitoring() {
         };
       })
       .filter(Boolean);
-  }, [filteredRows, i18n.language, t]);
+  }, [filteredRows, locale, t]);
 
   const onlineCount = useMemo(() => filteredRows.filter((row) => isOnline(row.position)).length, [filteredRows]);
   const movingCount = useMemo(() => filteredRows.filter((row) => row.position?.motion || pickSpeed(row.position) > 0).length, [filteredRows]);
