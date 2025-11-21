@@ -77,6 +77,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     const baseUrl = buildWebSocketUrl();
     const url = appendToken(baseUrl, token);
 
+    console.info("[LiveUpdates] Opening WebSocket", { url });
     setConnecting(true);
     setError(null);
 
@@ -84,6 +85,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     socketRef.current = socket;
 
     socket.onopen = () => {
+      console.info("[LiveUpdates] WebSocket connected");
       setConnected(true);
       setConnecting(false);
       setError(null);
@@ -120,6 +122,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     };
 
     socket.onclose = () => {
+      console.info("[LiveUpdates] WebSocket closed");
       setConnected(false);
       setConnecting(false);
       socketRef.current = null;
@@ -149,6 +152,7 @@ export function useLiveUpdates({ enabled = true, reconnectDelayMs = 5_000, onMes
     const socket = socketRef.current;
     if (socket) {
       try {
+        console.info("[LiveUpdates] Closing WebSocket manually");
         socket.close();
       } catch (_error) {
         // Ignora falhas no fechamento

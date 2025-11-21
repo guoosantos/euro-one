@@ -127,8 +127,6 @@ export function useDevices() {
         if (cancelled) return;
         console.error("Failed to load devices", requestError);
         setError(requestError instanceof Error ? requestError : new Error("Erro ao carregar dispositivos"));
-        setDevices([]);
-        setPositionsByDeviceId({});
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -157,6 +155,11 @@ export function useDevices() {
       const results = await Promise.all(requests);
       if (cancelled) return;
 
+      const hasSuccessfulResponse = results.some(Boolean);
+      if (!hasSuccessfulResponse) {
+        return;
+      }
+
       const next = {};
       results
         .filter(Boolean)
@@ -168,7 +171,12 @@ export function useDevices() {
           }
         });
 
-      setPositionsByDeviceId(next);
+      setPositionsByDeviceId((current) => {
+        if (Object.keys(next).length === 0 && current && Object.keys(current).length > 0) {
+          return current;
+        }
+        return next;
+      });
     }
 
     fetchDevices();

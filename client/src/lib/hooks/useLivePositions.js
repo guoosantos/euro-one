@@ -58,7 +58,6 @@ export function useLivePositions({
       if (!mountedRef.current) return;
       const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
       setError(new Error(friendly));
-      setPositions([]);
       throw requestError;
     } finally {
       if (mountedRef.current) {
