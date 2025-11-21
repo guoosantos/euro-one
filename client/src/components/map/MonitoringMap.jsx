@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import MapImpl from "../_MapImpl.jsx";
 
 const MAPTILER_FALLBACK_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const TILE_STYLE = import.meta.env.VITE_MAP_TILE_URL || MAPTILER_FALLBACK_STYLE;
 
 function injectStylesheet(href) {
   if (typeof document === "undefined") return;
@@ -58,11 +59,41 @@ function useLazyMaplibre() {
   return lib;
 }
 
+function buildTileStyle(url) {
+  if (!url) return MAPTILER_FALLBACK_STYLE;
+  const hasTemplate = url.includes("{z}") && url.includes("{x}") && url.includes("{y}");
+  const isStyleJson = url.endsWith(".json") || url.startsWith("http") && !hasTemplate;
+  if (isStyleJson) return url;
+  if (hasTemplate) {
+    return {
+      version: 8,
+      sources: {
+        base: {
+          type: "raster",
+          tiles: [url],
+          tileSize: 256,
+          attribution: "© OpenStreetMap contributors",
+        },
+      },
+      layers: [
+        {
+          id: "base",
+          type: "raster",
+          source: "base",
+        },
+      ],
+    };
+  }
+  return MAPTILER_FALLBACK_STYLE;
+}
+
 export default function MonitoringMap({ markers = [], geofences = [], focusMarkerId = null, height = 360 }) {
   const containerRef = useRef(null);
   const { maplibregl, failed } = useLazyMaplibre();
+  const mapStyle = useMemo(() => buildTileStyle(TILE_STYLE), []);
   const mapRef = useRef(null);
   const markerRefs = useRef([]);
+  const containerHeight = useMemo(() => (typeof height === "number" ? `${height}px` : height || "360px"), [height]);
 
   const safeMarkers = useMemo(() => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)), [markers]);
 
@@ -71,7 +102,7 @@ export default function MonitoringMap({ markers = [], geofences = [], focusMarke
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: MAPTILER_FALLBACK_STYLE,
+      style: mapStyle,
       center: [safeMarkers[0]?.lng ?? -46.63, safeMarkers[0]?.lat ?? -23.55],
       zoom: 11,
     });
@@ -84,7 +115,7 @@ export default function MonitoringMap({ markers = [], geofences = [], focusMarke
       map.remove();
       mapRef.current = null;
     };
-  }, [failed, maplibregl, safeMarkers]);
+  }, [failed, mapStyle, maplibregl]);
 
   useEffect(() => {
     if (!mapRef.current || !maplibregl) return;
@@ -111,6 +142,14 @@ export default function MonitoringMap({ markers = [], geofences = [], focusMarke
 
       markerRefs.current.push(mapMarker);
     });
+
+    if (safeMarkers.length > 0) {
+      const bounds = new maplibregl.LngLatBounds();
+      safeMarkers.forEach((marker) => bounds.extend([marker.lng, marker.lat]));
+      mapRef.current.fitBounds(bounds, { padding: 48, duration: 600, maxZoom: 16 });
+    } else {
+      mapRef.current.easeTo({ center: [-46.63, -23.55], zoom: 10, duration: 300 });
+    }
   }, [maplibregl, safeMarkers]);
 
   useEffect(() => {
@@ -125,5 +164,5 @@ export default function MonitoringMap({ markers = [], geofences = [], focusMarke
     return <MapImpl markers={markers} height={height} />;
   }
 
-  return <div ref={containerRef} className="rounded-xl border border-white/5 bg-[#0b0f17]" style={{ height }} />;
+  return <div ref={containerRef} className="rounded-xl border border-white/5 bg-[#0b0f17]" style={{ height: containerHeight }} />;
 }

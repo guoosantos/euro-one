@@ -189,12 +189,6 @@ function saveColumnPreferences(prefs) {
 }
 
 function MapSection({ markers, geofences, focusMarkerId, t }) {
-  if (!Array.isArray(markers) || markers.length === 0) {
-    return (
-      <div className="flex h-[360px] items-center justify-center text-sm text-white/50">{t("monitoring.noPositions")}</div>
-    );
-  }
-
   if (typeof window === "undefined") {
     return (
       <div className="flex h-[360px] flex-col justify-center gap-2 p-6 text-sm text-white/60">
@@ -204,8 +198,21 @@ function MapSection({ markers, geofences, focusMarkerId, t }) {
     );
   }
 
+  const hasMarkers = Array.isArray(markers) && markers.length > 0;
+
   try {
-    return <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={focusMarkerId} height={360} />;
+    return (
+      <div className="relative h-[360px]">
+        <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={focusMarkerId} height={360} />
+        {!hasMarkers ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl text-sm text-white/60">
+            <span className="rounded-lg bg-black/50 px-3 py-2 shadow-lg shadow-black/40">
+              {t("monitoring.noPositions")}
+            </span>
+          </div>
+        ) : null}
+      </div>
+    );
   } catch (mapError) {
     console.error("Monitoring map render failed", mapError);
     return (
