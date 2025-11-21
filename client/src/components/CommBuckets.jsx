@@ -68,7 +68,7 @@ export default function CommBuckets() {
       const key = bucketOf(hours);
       groups[key].push({
         id: device.internalId || device.id || device.uniqueId,
-        name: device.name || device.uniqueId || "Dispositivo",
+        name: device.name || device.uniqueId || "Veículo",
         plate: device.vehicle?.plate || device.vehicle?.name || "",
         last,
       });

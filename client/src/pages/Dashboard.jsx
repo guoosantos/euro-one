@@ -19,6 +19,8 @@ import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useReports } from "../lib/hooks/useReports";
 import Card from "../ui/Card.jsx";
+import { translateEventType } from "../lib/event-translations.js";
+import { useTranslation } from "../lib/i18n.js";
 
 function toArray(value) {
   if (Array.isArray(value)) return value;
@@ -84,6 +86,7 @@ function computeDriverRanking(events) {
 }
 
 export default function Dashboard() {
+  const { locale, t } = useTranslation();
   const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices();
   const { events, loading: loadingEvents } = useEvents({ limit: 200, refreshInterval: 60_000 });
   const { generateTripsReport, loading: generatingReport, error: reportError } = useReports();
@@ -134,15 +137,15 @@ export default function Dashboard() {
   const eventChartData = useMemo(
     () =>
       Object.entries(summary.eventsByType).map(([key, value]) => ({
-        name: key,
+        name: translateEventType(key, locale, t),
         value,
       })),
-    [summary.eventsByType],
+    [locale, summary.eventsByType, t],
   );
 
   const handleQuickReport = useCallback(async () => {
     if (!devices.length) {
-      setQuickFeedback({ type: "error", message: "Nenhum dispositivo disponível para gerar o relatório." });
+      setQuickFeedback({ type: "error", message: "Nenhum veículo disponível para gerar o relatório." });
       return;
     }
 
@@ -176,7 +179,7 @@ export default function Dashboard() {
         <Card
           className="xl:col-span-2"
           title="Telemetria da frota"
-          subtitle="Velocidade média, distância e horas de motor por dispositivo"
+          subtitle="Velocidade média, distância e horas de motor por veículo"
         >
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={summary.speedDistribution}>

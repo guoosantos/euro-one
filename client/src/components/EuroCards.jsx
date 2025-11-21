@@ -52,7 +52,7 @@ export default function EuroCards(){
 
   return (
     <div className="grid md:grid-cols-3 gap-3">
-      <Card title="Dispositivos" value={stats.total} note="Total cadastrados" />
+      <Card title="Veículos" value={stats.total} note="Total cadastrados" />
       <Card title="Com fix < 6h" value={stats.ativos} note="Atividade recente" />
       <Card title="Sem fix ≥ 6h" value={stats.semFix} note="Atenção" />
     </div>
