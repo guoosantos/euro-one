@@ -442,14 +442,25 @@ export function startTraccarSocketService(server) {
 
     const client = { socket, user };
     CLIENTS.add(client);
+    console.info("[Live WS] Client connected", {
+      userId: user?.id || user?.userId || user?.sub || null,
+      role: user?.role || "unknown",
+      clientId: user?.clientId || null,
+    });
     sendFrame(socket, { type: "connection", status: "ready" });
     setTimeout(() => {
       sendInitialSnapshot(client);
     }, 0);
 
     socket.on("data", (chunk) => handleClientFrame(client, chunk));
-    socket.on("close", () => CLIENTS.delete(client));
-    socket.on("error", () => CLIENTS.delete(client));
+    socket.on("close", (code) => {
+      CLIENTS.delete(client);
+      console.info("[Live WS] Client connection closed", { code });
+    });
+    socket.on("error", (err) => {
+      CLIENTS.delete(client);
+      console.error("[Live WS] Client connection error", err?.message || err);
+    });
   });
 
   ensureConnection();
