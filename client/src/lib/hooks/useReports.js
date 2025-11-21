@@ -7,6 +7,23 @@ export function useReports() {
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
 
+  const normalizeTrips = useCallback((payload) => {
+    if (!payload) return { trips: [] };
+    const base = Array.isArray(payload)
+      ? { trips: payload }
+      : typeof payload === "object"
+        ? { ...payload }
+        : {};
+
+    const trips = Array.isArray(base.trips)
+      ? base.trips
+      : Array.isArray(base.data)
+        ? base.data
+        : [];
+
+    return { ...base, trips: trips.filter(Boolean) };
+  }, []);
+
   const persistData = useCallback((value) => {
     setData(value);
     if (typeof window === "undefined") return;
@@ -22,12 +39,13 @@ export function useReports() {
     try {
       const cached = window.localStorage.getItem("reports:trips:last");
       if (cached) {
-        setData(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        persistData(normalizeTrips(parsed));
       }
     } catch (_error) {
       // Ignore hydration failures
     }
-  }, []);
+  }, [normalizeTrips, persistData]);
 
   const generateTripsReport = useCallback(async ({ deviceId, from, to, type = "all" }) => {
     setLoading(true);
@@ -35,31 +53,42 @@ export function useReports() {
     try {
       const payload = { deviceId, from, to, type };
       const response = await api.post(API_ROUTES.reports.trips, payload);
-      const enriched =
-        response?.data && typeof response.data === "object"
-          ? { ...response.data, __meta: { generatedAt: new Date().toISOString(), params: payload } }
-          : response?.data ?? null;
+      const enriched = {
+        ...normalizeTrips(response?.data),
+        __meta: { generatedAt: new Date().toISOString(), params: payload },
+      };
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      setError(requestError);
-      throw requestError;
+      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de viagens");
+      setError(fallbackError);
+      throw fallbackError;
     } finally {
       setLoading(false);
     }
-  }, [persistData]);
+  }, [normalizeTrips, persistData]);
 
   const downloadTripsCsv = useCallback(async ({ deviceId, from, to, type = "all" }) => {
+    if (!deviceId) {
+      throw new Error("Selecione um dispositivo para exportar o relatório.");
+    }
+    if (!from || !to) {
+      throw new Error("Informe as datas de início e fim para exportar o relatório.");
+    }
     const payload = { deviceId, from, to, type, format: "csv" };
     const response = await api.post(API_ROUTES.reports.trips, payload, { responseType: "blob" });
     if (typeof document === "undefined") {
       return response?.data ?? null;
     }
-    const blob = response?.data instanceof Blob ? response.data : new Blob([response?.data], { type: "text/csv" });
+    const blob = response?.data instanceof Blob ? response.data : new Blob([response?.data ?? ""], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `trips-${deviceId}-${from}-${to}.csv`;
+    const fromLabel = new Date(from).toISOString();
+    const toLabel = new Date(to).toISOString();
+    const fileDevice = String(deviceId || "device").replace(/[^a-zA-Z0-9-_]/g, "-");
+    const sanitize = (value) => String(value).replace(/[:\s]/g, "-").replace(/[^a-zA-Z0-9-_.]/g, "-");
+    anchor.download = `trips-${fileDevice}-${sanitize(fromLabel)}-${sanitize(toLabel)}.csv`;
     anchor.click();
     setTimeout(() => {
       URL.revokeObjectURL(url);

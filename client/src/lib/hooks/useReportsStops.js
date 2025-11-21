@@ -7,6 +7,23 @@ export function useReportsStops() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const normalizeStops = useCallback((payload) => {
+    if (!payload) return { stops: [] };
+    const base = Array.isArray(payload)
+      ? { stops: payload }
+      : typeof payload === "object"
+        ? { ...payload }
+        : {};
+
+    const stops = Array.isArray(base.stops)
+      ? base.stops
+      : Array.isArray(base.data)
+        ? base.data
+        : [];
+
+    return { ...base, stops: stops.filter(Boolean) };
+  }, []);
+
   const persistData = useCallback((value) => {
     setData(value);
     if (typeof window === "undefined") return;
@@ -22,31 +39,33 @@ export function useReportsStops() {
     try {
       const cached = window.localStorage.getItem("reports:stops:last");
       if (cached) {
-        setData(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        persistData(normalizeStops(parsed));
       }
     } catch (_error) {
       // Ignore hydration failures
     }
-  }, []);
+  }, [normalizeStops, persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);
     setError(null);
     try {
       const response = await api.get(API_ROUTES.reports.stops, { params });
-      const enriched =
-        response?.data && typeof response.data === "object"
-          ? { ...response.data, __meta: { generatedAt: new Date().toISOString(), params } }
-          : response?.data ?? null;
+      const enriched = {
+        ...normalizeStops(response?.data),
+        __meta: { generatedAt: new Date().toISOString(), params },
+      };
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de paradas"));
-      throw requestError;
+      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de paradas");
+      setError(fallbackError);
+      throw fallbackError;
     } finally {
       setLoading(false);
     }
-  }, [persistData]);
+  }, [normalizeStops, persistData]);
 
   return { data, loading, error, generate };
 }

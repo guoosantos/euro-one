@@ -7,6 +7,23 @@ export function useReportsRoute() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const normalizeRoute = useCallback((payload) => {
+    if (!payload) return { positions: [] };
+    const base = Array.isArray(payload)
+      ? { positions: payload }
+      : typeof payload === "object"
+        ? { ...payload }
+        : {};
+
+    const positions = Array.isArray(base.positions)
+      ? base.positions
+      : Array.isArray(base.data)
+        ? base.data
+        : [];
+
+    return { ...base, positions: positions.filter(Boolean) };
+  }, []);
+
   const persistData = useCallback((value) => {
     setData(value);
     if (typeof window === "undefined") return;
@@ -22,31 +39,33 @@ export function useReportsRoute() {
     try {
       const cached = window.localStorage.getItem("reports:route:last");
       if (cached) {
-        setData(JSON.parse(cached));
+        const parsed = JSON.parse(cached);
+        persistData(normalizeRoute(parsed));
       }
     } catch (_error) {
       // Ignore hydration failures
     }
-  }, []);
+  }, [normalizeRoute, persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);
     setError(null);
     try {
       const response = await api.get(API_ROUTES.reports.route, { params });
-      const enriched =
-        response?.data && typeof response.data === "object"
-          ? { ...response.data, __meta: { generatedAt: new Date().toISOString(), params } }
-          : response?.data ?? null;
+      const enriched = {
+        ...normalizeRoute(response?.data),
+        __meta: { generatedAt: new Date().toISOString(), params },
+      };
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de rota"));
-      throw requestError;
+      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de rota");
+      setError(fallbackError);
+      throw fallbackError;
     } finally {
       setLoading(false);
     }
-  }, [persistData]);
+  }, [normalizeRoute, persistData]);
 
   return { data, loading, error, generate };
 }

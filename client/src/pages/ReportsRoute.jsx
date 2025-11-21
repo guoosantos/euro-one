@@ -139,7 +139,9 @@ export default function ReportsRoute() {
               {!loading && !points.length && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-sm opacity-60">
-                    Gere um relatório para visualizar os pontos percorridos.
+                    {lastGeneratedAt
+                      ? "Nenhum registro encontrado para o período selecionado."
+                      : "Gere um relatório para visualizar os pontos percorridos."}
                   </td>
                 </tr>
               )}

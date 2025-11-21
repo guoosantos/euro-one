@@ -139,7 +139,9 @@ export default function ReportsStops() {
               {!loading && !stops.length && (
                 <tr>
                   <td colSpan={4} className="py-4 text-center text-sm opacity-60">
-                    Nenhuma parada encontrada no intervalo informado.
+                    {lastGeneratedAt
+                      ? "Nenhum registro encontrado para o período selecionado."
+                      : "Gere um relatório para visualizar as paradas."}
                   </td>
                 </tr>
               )}

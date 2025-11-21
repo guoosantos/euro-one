@@ -49,7 +49,7 @@ export default function Reports() {
     }
   }
 
-  const trips = Array.isArray(data) ? data : Array.isArray(data?.trips) ? data.trips : [];
+  const trips = Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
 
   return (
@@ -164,7 +164,9 @@ export default function Reports() {
               {!loading && !trips.length && (
                 <tr>
                   <td colSpan={5} className="py-4 text-center text-sm opacity-60">
-                    Gere um relatório para visualizar as viagens.
+                    {lastGeneratedAt
+                      ? "Nenhum registro encontrado para o período selecionado."
+                      : "Gere um relatório para visualizar as viagens."}
                   </td>
                 </tr>
               )}
