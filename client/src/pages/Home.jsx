@@ -15,6 +15,7 @@ import { useHeatmapEvents } from "../lib/hooks/useHeatmapEvents";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import { formatAddress } from "../lib/format-address.js";
+import Card from "../ui/Card.jsx";
 
 const FALLBACK_ANALYTICS = [
   { month: "Jan", distance: 0, alerts: 0, deliveriesOnTime: 100 },
@@ -138,7 +139,7 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
           value={loadingDevices ? "…" : summary.total}
@@ -167,21 +168,21 @@ export default function Home() {
         />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <div className="card xl:col-span-2">
-          <header className="mb-3 flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.recentEvents")}</div>
-              <div className="text-xs text-white/50">
-                {telemetryFetchedAt
-                  ? t("home.updatedAt", { time: new Date(telemetryFetchedAt).toLocaleTimeString(locale) })
-                  : t("home.syncing")}
-              </div>
-            </div>
-            <Link to="/events" className="text-xs text-primary">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card
+          className="xl:col-span-2"
+          title={t("home.recentEvents")}
+          subtitle={
+            telemetryFetchedAt
+              ? t("home.updatedAt", { time: new Date(telemetryFetchedAt).toLocaleTimeString(locale) })
+              : t("home.syncing")
+          }
+          actions={
+            <Link to="/events" className="text-xs font-semibold text-primary">
               {t("home.viewAll")}
             </Link>
-          </header>
+          }
+        >
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="text-white/40">
@@ -240,18 +241,17 @@ export default function Home() {
               </tbody>
             </table>
           </div>
-        </div>
+        </Card>
 
-        <div className="card space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.vehiclesOnRoute")}</div>
-              <div className="text-xs text-white/50">{t("home.liveTelemetry")}</div>
-            </div>
-            <Link to="/monitoring" className="text-xs text-primary">
+        <Card
+          title={t("home.vehiclesOnRoute")}
+          subtitle={t("home.liveTelemetry")}
+          actions={
+            <Link to="/monitoring" className="text-xs font-semibold text-primary">
               {t("home.openMonitoring")}
             </Link>
-          </div>
+          }
+        >
           <ul className="space-y-3 text-sm text-white/80">
             {onlineVehicles.length === 0 && <li className="text-white/50">{t("home.noVehiclesMoving")}</li>}
             {onlineVehicles.map((vehicle) => (
@@ -267,7 +267,7 @@ export default function Home() {
               </li>
             ))}
           </ul>
-          <div className="grid grid-cols-2 gap-2 text-xs text-white/70">
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-white/70">
             <div className="rounded-lg bg-white/5 p-2">
               <div className="text-white/50">{t("home.collecting")}</div>
               <div className="text-xl font-semibold text-white">{routeMetrics.collecting}</div>
@@ -285,17 +285,19 @@ export default function Home() {
               <div className="text-xl font-semibold text-white">{routeMetrics.serviceDelay}</div>
             </div>
           </div>
-        </div>
+        </Card>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="card lg:col-span-2">
-          <header className="mb-4 flex items-center justify-between">
-            <div className="text-sm font-medium text-white">{t("home.tripPerformance")}</div>
-            <Link to="/trips" className="text-xs text-primary">
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <Card
+          className="lg:col-span-2"
+          title={t("home.tripPerformance")}
+          actions={
+            <Link to="/trips" className="text-xs font-semibold text-primary">
               {t("home.openTrips")}
             </Link>
-          </header>
+          }
+        >
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="text-white/40">
@@ -355,18 +357,17 @@ export default function Home() {
               {t("home.viewTasks")}
             </Link>
           </div>
-        </div>
+        </Card>
 
-        <div className="card space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.analyticsHeatmapCard")}</div>
-              <div className="text-xs text-white/50">{t("home.last24h")}</div>
-            </div>
-            <Link to="/analytics/events" className="text-xs text-primary">
+        <Card
+          title={t("home.analyticsHeatmapCard")}
+          subtitle={t("home.last24h")}
+          actions={
+            <Link to="/analytics/events" className="text-xs font-semibold text-primary">
               {t("home.viewFullAnalysis")}
             </Link>
-          </div>
+          }
+        >
           <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
             <MapContainer
               center={heatmapCenter}
@@ -400,86 +401,83 @@ export default function Home() {
             ))}
             {topZones.length === 0 && <div className="text-white/50">{t("home.noHeatmapData")}</div>}
           </div>
-        </div>
+        </Card>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-3">
-        <div className="card space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.dangerousRoutes")}</div>
-              <div className="text-xs text-white/50">{t("home.dangerousRoutesHint")}</div>
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Card
+            className="space-y-2"
+            title={t("home.dangerousRoutes")}
+            subtitle={t("home.dangerousRoutesHint")}
+            actions={
+              <Link to="/analytics/events?filter=crime" className="text-xs font-semibold text-primary">
+                {t("home.viewMore")}
+              </Link>
+            }
+          >
+            <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.vehiclesInRisk")}</div>
+                <div className="text-2xl font-semibold text-white">{riskPoints.length}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.averageStay")}</div>
+                <div className="text-2xl font-semibold text-white">~{Math.max(1, riskTotal || 1)}m</div>
+              </div>
             </div>
-            <Link to="/analytics/events?filter=crime" className="text-xs text-primary">
-              {t("home.viewMore")}
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.vehiclesInRisk")}</div>
-              <div className="text-2xl font-semibold text-white">{riskPoints.length}</div>
-            </div>
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.averageStay")}</div>
-              <div className="text-2xl font-semibold text-white">~{Math.max(1, riskTotal || 1)}m</div>
-            </div>
-          </div>
-        </div>
+          </Card>
 
-        <div className="card space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.alertsInProgress")}</div>
-              <div className="text-xs text-white/50">{t("home.criticalEventsOngoing")}</div>
-            </div>
-            <Link to="/events?severity=critical" className="text-xs text-primary">
-              {t("home.viewAll")}
-            </Link>
-          </div>
-          <div className="text-4xl font-semibold text-red-200">{criticalEvents.length || summary.alert}</div>
-        </div>
+          <Card
+            className="space-y-2"
+            title={t("home.alertsInProgress")}
+            subtitle={t("home.criticalEventsOngoing")}
+            actions={
+              <Link to="/events?severity=critical" className="text-xs font-semibold text-primary">
+                {t("home.viewAll")}
+              </Link>
+            }
+          >
+            <div className="text-4xl font-semibold text-red-200">{criticalEvents.length || summary.alert}</div>
+          </Card>
 
-        <div className="card space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-medium text-white">{t("home.services")}</div>
-              <div className="text-xs text-white/50">{t("home.servicesThisMonth")}</div>
+          <Card
+            className="space-y-2"
+            title={t("home.services")}
+            subtitle={t("home.servicesThisMonth")}
+            actions={
+              <Link to="/services" className="text-xs font-semibold text-primary">
+                {t("home.viewServices")}
+              </Link>
+            }
+          >
+            <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.total")}</div>
+                <div className="text-2xl font-semibold text-white">{taskMetrics.totalServices}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.closed")}</div>
+                <div className="text-2xl font-semibold text-white">{taskMetrics.closedServices}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.idle")}</div>
+                <div className="text-2xl font-semibold text-white">{taskMetrics.idleServices}</div>
+              </div>
+              <div className="rounded-lg bg-white/5 p-3">
+                <div className="text-xs text-white/50">{t("home.cancelled")}</div>
+                <div className="text-2xl font-semibold text-white">{taskMetrics.cancelledServices}</div>
+              </div>
             </div>
-            <Link to="/services" className="text-xs text-primary">
-              {t("home.viewServices")}
-            </Link>
-          </div>
-          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.total")}</div>
-              <div className="text-2xl font-semibold text-white">{taskMetrics.totalServices}</div>
-            </div>
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.closed")}</div>
-              <div className="text-2xl font-semibold text-white">{taskMetrics.closedServices}</div>
-            </div>
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.idle")}</div>
-              <div className="text-2xl font-semibold text-white">{taskMetrics.idleServices}</div>
-            </div>
-            <div className="rounded-lg bg-white/5 p-3">
-              <div className="text-xs text-white/50">{t("home.cancelled")}</div>
-              <div className="text-2xl font-semibold text-white">{taskMetrics.cancelledServices}</div>
-            </div>
-          </div>
-        </div>
+          </Card>
       </section>
 
-      <section className="card">
-        <header className="mb-3 flex items-center justify-between">
-          <div>
-            <div className="text-sm font-medium text-white">{t("home.analyticsTitle")}</div>
-            <div className="text-xs text-white/50">{t("home.analyticsDescription")}</div>
-          </div>
-          <span className="text-xs text-white/40">{t("home.tripsBased", { count: trips.length })}</span>
-        </header>
+      <Card
+        title={t("home.analyticsTitle")}
+        subtitle={t("home.analyticsDescription")}
+        actions={<span className="text-xs text-white/60">{t("home.tripsBased", { count: trips.length })}</span>}
+      >
         <AnalyticsChart data={analyticsData.length ? analyticsData : FALLBACK_ANALYTICS} />
-      </section>
+      </Card>
 
       {showCommunicationModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

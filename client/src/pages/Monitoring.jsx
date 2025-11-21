@@ -22,6 +22,7 @@ import useDevices from "../lib/hooks/useDevices";
 import useHeatmapEvents from "../lib/hooks/useHeatmapEvents.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import Card from "../ui/Card.jsx";
 
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
 
@@ -578,8 +579,8 @@ export default function Monitoring() {
             </button>
           </div>
         </div>
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="card p-6">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <Card className="p-6">
             <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <div className="text-sm font-medium text-white">{t("monitoring.mapTitle")}</div>
@@ -594,9 +595,9 @@ export default function Monitoring() {
             <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
               <MapSection markers={markers} geofences={geofences} focusMarkerId={focusedMarkerId} t={t} />
             </div>
-          </div>
+          </Card>
 
-          <aside className="card space-y-4 p-6">
+          <Card className="space-y-4 p-6">
             <div>
               <div className="text-sm font-medium text-white">{t("monitoring.fleetSummary")}</div>
               <div className="text-xs text-white/50">{t("monitoring.fleetSummarySubtitle")}</div>
@@ -631,11 +632,11 @@ export default function Monitoring() {
                 <dd className="text-base font-semibold text-white/70">{summary.ignitionOff}</dd>
               </div>
             </dl>
-          </aside>
+          </Card>
         </div>
       </section>
 
-      <section className="card">
+      <Card className="card" padding={false}>
         <header className="flex flex-col gap-4 border-b border-white/5 p-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm font-medium text-white">{t("monitoring.tableTitle")}</div>
@@ -725,7 +726,7 @@ export default function Monitoring() {
             </tbody>
           </table>
         </div>
-      </section>
+      </Card>
 
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">

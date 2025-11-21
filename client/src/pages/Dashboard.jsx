@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -18,6 +18,7 @@ import {
 import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useReports } from "../lib/hooks/useReports";
+import Card from "../ui/Card.jsx";
 
 function toArray(value) {
   if (Array.isArray(value)) return value;
@@ -85,7 +86,8 @@ function computeDriverRanking(events) {
 export default function Dashboard() {
   const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices();
   const { events, loading: loadingEvents } = useEvents({ limit: 200, refreshInterval: 60_000 });
-  const { generateTripsReport } = useReports();
+  const { generateTripsReport, loading: generatingReport, error: reportError } = useReports();
+  const [quickFeedback, setQuickFeedback] = useState(null);
 
   const positions = useMemo(() => positionsByDeviceId ?? {}, [positionsByDeviceId]);
 
@@ -138,9 +140,28 @@ export default function Dashboard() {
     [summary.eventsByType],
   );
 
+  const handleQuickReport = useCallback(async () => {
+    if (!devices.length) {
+      setQuickFeedback({ type: "error", message: "Nenhum dispositivo disponível para gerar o relatório." });
+      return;
+    }
+
+    const first = devices[0];
+    const now = new Date();
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    setQuickFeedback(null);
+
+    try {
+      await generateTripsReport({ deviceId: first.id ?? first.deviceId, from: from.toISOString(), to: now.toISOString() });
+      setQuickFeedback({ type: "success", message: "Relatório das últimas 24h gerado e salvo no histórico." });
+    } catch (error) {
+      setQuickFeedback({ type: "error", message: error?.message ?? "Não foi possível gerar o relatório." });
+    }
+  }, [devices, generateTripsReport]);
+
   return (
     <div className="space-y-6">
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardStat title="Veículos monitorados" value={loadingDevices ? "…" : devices.length} />
         <DashboardStat
           title="Distância acumulada"
@@ -151,14 +172,12 @@ export default function Dashboard() {
         <DashboardStat title="Motor ligado" value={`${summary.engineTotal} h`} hint="Horas acumuladas de ignição" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <div className="card xl:col-span-2">
-          <header className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Telemetria da frota</h2>
-              <p className="text-xs opacity-70">Velocidade média, distância e horas de motor por dispositivo</p>
-            </div>
-          </header>
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        <Card
+          className="xl:col-span-2"
+          title="Telemetria da frota"
+          subtitle="Velocidade média, distância e horas de motor por dispositivo"
+        >
           <ResponsiveContainer width="100%" height={320}>
             <LineChart data={summary.speedDistribution}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
@@ -171,92 +190,88 @@ export default function Dashboard() {
               <Line type="monotone" dataKey="motor" stroke="#f97316" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+        </Card>
 
-        <div className="card">
-          <header className="mb-4">
-            <h2 className="text-lg font-semibold">Eventos por tipo</h2>
-            <p className="text-xs opacity-70">Atualização contínua a cada minuto</p>
-          </header>
+        <Card title="Eventos por tipo" subtitle="Atualização contínua a cada minuto">
           <ResponsiveContainer width="100%" height={320}>
             <PieChart>
               <Pie data={eventChartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} fill="#6366f1" label />
               <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
             </PieChart>
           </ResponsiveContainer>
-        </div>
+        </Card>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
-        <div className="card">
-          <header className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Ranking de motoristas</h2>
-              <p className="text-xs opacity-70">Pontuação baseada em eventos de condução</p>
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <Card title="Ranking de motoristas" subtitle="Pontuação baseada em eventos de condução">
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={summary.drivers}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="driver" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
+                <YAxis stroke="rgba(148,163,184,0.7)" />
+                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <Legend />
+                <Bar dataKey="score" fill="#10b981" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="infractions" fill="#ef4444" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
+
+          <Card title="Consumo CAN" subtitle="Nível de combustível e rotações por minuto">
+            <ResponsiveContainer width="100%" height={320}>
+              <AreaChart data={summary.fuelSeries}>
+                <defs>
+                  <linearGradient id="colorFuel" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#facc15" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#facc15" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" />
+                <YAxis stroke="rgba(148,163,184,0.7)" />
+                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <Legend />
+                <Area type="monotone" dataKey="consumo" stroke="#facc15" fillOpacity={1} fill="url(#colorFuel)" />
+                <Line type="monotone" dataKey="rpm" stroke="#60a5fa" strokeWidth={2} dot={false} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </Card>
+        </section>
+
+        <Card
+          title="Relatório rápido de viagens"
+          subtitle="Dispare um relatório de viagens diretamente do dashboard"
+          actions={
+            <button
+              type="button"
+              onClick={handleQuickReport}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow hover:bg-primary/90 disabled:opacity-60"
+              disabled={generatingReport}
+            >
+              {generatingReport ? "Gerando…" : "Gerar últimas 24h"}
+            </button>
+          }
+        >
+          <p className="text-sm opacity-70">
+            O relatório será salvo no histórico e pode ser exportado em CSV na página de relatórios.
+          </p>
+          {reportError && (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              {reportError.message}
             </div>
-          </header>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={summary.drivers}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-              <XAxis dataKey="driver" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-              <YAxis stroke="rgba(148,163,184,0.7)" />
-              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
-              <Legend />
-              <Bar dataKey="score" fill="#10b981" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="infractions" fill="#ef4444" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="card">
-          <header className="mb-4">
-            <h2 className="text-lg font-semibold">Consumo CAN</h2>
-            <p className="text-xs opacity-70">Nível de combustível e rotações por minuto</p>
-          </header>
-          <ResponsiveContainer width="100%" height={320}>
-            <AreaChart data={summary.fuelSeries}>
-              <defs>
-                <linearGradient id="colorFuel" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#facc15" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#facc15" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-              <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" />
-              <YAxis stroke="rgba(148,163,184,0.7)" />
-              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
-              <Legend />
-              <Area type="monotone" dataKey="consumo" stroke="#facc15" fillOpacity={1} fill="url(#colorFuel)" />
-              <Line type="monotone" dataKey="rpm" stroke="#60a5fa" strokeWidth={2} dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </section>
-
-      <section className="card">
-        <header className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Relatório rápido de viagens</h2>
-            <p className="text-xs opacity-70">Dispare um relatório de viagens diretamente do dashboard</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              if (!devices.length) return;
-              const first = devices[0];
-              const now = new Date();
-              const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-              generateTripsReport({ deviceId: first.id ?? first.deviceId, from: from.toISOString(), to: now.toISOString() });
-            }}
-            className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow hover:bg-primary/90"
-          >
-            Gerar últimas 24h
-          </button>
-        </header>
-        <p className="text-sm opacity-70">
-          O relatório será salvo no histórico e pode ser exportado em CSV na página de relatórios.
-        </p>
-      </section>
+          )}
+          {quickFeedback && (
+            <div
+              className={`mt-3 rounded-lg border p-3 text-sm ${
+                quickFeedback.type === "success"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {quickFeedback.message}
+            </div>
+          )}
+        </Card>
 
       {loadingEvents && <div className="text-xs opacity-60">Sincronizando eventos em tempo real…</div>}
     </div>
@@ -265,10 +280,10 @@ export default function Dashboard() {
 
 function DashboardStat({ title, value, hint }) {
   return (
-    <div className="card space-y-2">
+    <Card className="space-y-2">
       <div className="text-xs uppercase tracking-wider opacity-60">{title}</div>
       <div className="text-2xl font-semibold">{value}</div>
       {hint && <div className="text-xs opacity-60">{hint}</div>}
-    </div>
+    </Card>
   );
 }
