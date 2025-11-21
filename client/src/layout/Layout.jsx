@@ -63,10 +63,12 @@ export default function Layout({ children, title, hideTitle = false }) {
 
         <main className="flex flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
-            <div className="flex h-full w-full flex-col gap-6 px-4 py-6">
-              {title && !hideTitle && <h1 className="text-2xl font-semibold">{title}</h1>}
+            <div className="flex h-full w-full flex-col px-4 py-6">
+              <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+                {title && !hideTitle && <h1 className="text-3xl font-semibold text-white">{title}</h1>}
 
-              <ErrorBoundary>{children}</ErrorBoundary>
+                <ErrorBoundary>{children}</ErrorBoundary>
+              </div>
             </div>
           </div>
         </main>
