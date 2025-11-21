@@ -73,7 +73,7 @@ export default function Events() {
 
         <div className="grid gap-4 md:grid-cols-4">
           <label className="text-sm">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Dispositivo</span>
+            <span className="block text-xs uppercase tracking-wide opacity-60">Veículo</span>
             <select
               value={selectedDevice}
               onChange={(event) => setSelectedDevice(event.target.value)}
@@ -129,7 +129,7 @@ export default function Events() {
             <thead className="text-left text-xs uppercase tracking-wider opacity-60">
               <tr>
                 <th className="py-2 pr-6">Horário</th>
-                <th className="py-2 pr-6">Dispositivo</th>
+                <th className="py-2 pr-6">Veículo</th>
                 <th className="py-2 pr-6">Tipo</th>
                 <th className="py-2 pr-6">Severidade</th>
                 <th className="py-2 pr-6">Descrição</th>
@@ -237,7 +237,7 @@ function resolveDeviceName(event, devices) {
   const targetId = event.deviceId ?? event.device?.id ?? event.device;
   if (!targetId) return event.deviceName || "—";
   const match = devices.find((device) => String(device.id ?? device.deviceId ?? device.uniqueId) === String(targetId));
-  return match?.name ?? match?.attributes?.name ?? event.deviceName ?? `Dispositivo ${targetId}`;
+  return match?.name ?? match?.attributes?.name ?? event.deviceName ?? `Veículo ${targetId}`;
 }
 
 function renderNotificationSummary(notifications) {

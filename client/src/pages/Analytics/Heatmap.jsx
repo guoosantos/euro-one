@@ -6,6 +6,7 @@ import "leaflet/dist/leaflet.css";
 import "leaflet.heat";
 
 import { useTranslation } from "../../lib/i18n.js";
+import { translateEventType } from "../../lib/event-translations.js";
 import useGroups from "../../lib/hooks/useGroups.js";
 import { useHeatmapEvents } from "../../lib/hooks/useHeatmapEvents.js";
 
@@ -42,7 +43,7 @@ function HeatLayer({ points }) {
 }
 
 export default function HeatmapAnalytics() {
-  const { t } = useTranslation();
+  const { t, locale } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { search } = useLocation();
   const [filters, setFilters] = useState({ from: "", to: "", eventTypes: [], groupId: "" });
@@ -161,7 +162,7 @@ export default function HeatmapAnalytics() {
                     onClick={() => toggleEventType(option)}
                     className={`rounded px-2 py-1 text-xs ${active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
                   >
-                    {option}
+                    {translateEventType(option, locale, t)}
                   </button>
                 );
               })}

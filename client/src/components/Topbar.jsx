@@ -8,6 +8,8 @@ import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import { useEvents } from "../lib/hooks/useEvents";
 import { buildFleetState } from "../lib/fleet-utils";
+import { translateEventType } from "../lib/event-translations.js";
+import { useTranslation } from "../lib/i18n.js";
 
 const statusLabels = {
   online: "Online",
@@ -20,10 +22,10 @@ export function Topbar({ title }) {
   const toggleSidebar = useUI((state) => state.toggle);
   const theme = useUI((state) => state.theme);
   const toggleTheme = useUI((state) => state.toggleTheme);
-  const locale = useUI((state) => state.locale);
   const setLocale = useUI((state) => state.setLocale);
   const { tenantId, setTenantId, tenant, tenants } = useTenant();
   const navigate = useNavigate();
+  const { locale } = useTranslation();
 
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -126,7 +128,7 @@ export function Topbar({ title }) {
               <ul>
                 {recentEvents.map((event) => (
                   <li key={event.id ?? `${event.deviceId}-${event.time}` } className="px-4 py-2 text-sm text-white/70">
-                    <div className="font-medium">{event.type ?? event.event}</div>
+                    <div className="font-medium">{translateEventType(event.type ?? event.event, locale)}</div>
                     <div className="text-xs text-white/40">{formatDate(event.time ?? event.eventTime ?? event.serverTime)}</div>
                   </li>
                 ))}
