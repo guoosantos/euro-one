@@ -1,51 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { readCachedReport, writeCachedReport } from "./reportStorage.js";
+
+const TRIPS_CACHE_KEY = "reports:trips:last";
+
+export const normalizeTrips = (payload) => {
+  if (!payload) return { trips: [] };
+  const base = Array.isArray(payload)
+    ? { trips: payload }
+    : typeof payload === "object"
+      ? { ...payload }
+      : {};
+
+  const trips = Array.isArray(base.trips)
+    ? base.trips
+    : Array.isArray(base.data)
+      ? base.data
+      : [];
+
+  return { ...base, trips: trips.filter(Boolean) };
+};
 
 export function useReports() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
 
-  const normalizeTrips = useCallback((payload) => {
-    if (!payload) return { trips: [] };
-    const base = Array.isArray(payload)
-      ? { trips: payload }
-      : typeof payload === "object"
-        ? { ...payload }
-        : {};
-
-    const trips = Array.isArray(base.trips)
-      ? base.trips
-      : Array.isArray(base.data)
-        ? base.data
-        : [];
-
-    return { ...base, trips: trips.filter(Boolean) };
-  }, []);
-
   const persistData = useCallback((value) => {
     setData(value);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("reports:trips:last", JSON.stringify(value));
-    } catch (_error) {
-      // Ignore persistence failures
-    }
+    writeCachedReport(TRIPS_CACHE_KEY, value);
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const cached = window.localStorage.getItem("reports:trips:last");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        persistData(normalizeTrips(parsed));
-      }
-    } catch (_error) {
-      // Ignore hydration failures
+    const cached = readCachedReport(TRIPS_CACHE_KEY, normalizeTrips);
+    if (cached) {
+      persistData(cached);
     }
-  }, [normalizeTrips, persistData]);
+  }, [persistData]);
 
   const generateTripsReport = useCallback(async ({ deviceId, from, to, type = "all" }) => {
     setLoading(true);

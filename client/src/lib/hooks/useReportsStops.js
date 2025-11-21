@@ -1,51 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
+import { readCachedReport, writeCachedReport } from "./reportStorage.js";
+
+const STOPS_CACHE_KEY = "reports:stops:last";
+
+export const normalizeStops = (payload) => {
+  if (!payload) return { stops: [] };
+  const base = Array.isArray(payload)
+    ? { stops: payload }
+    : typeof payload === "object"
+      ? { ...payload }
+      : {};
+
+  const stops = Array.isArray(base.stops)
+    ? base.stops
+    : Array.isArray(base.data)
+      ? base.data
+      : [];
+
+  return { ...base, stops: stops.filter(Boolean) };
+};
 
 export function useReportsStops() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const normalizeStops = useCallback((payload) => {
-    if (!payload) return { stops: [] };
-    const base = Array.isArray(payload)
-      ? { stops: payload }
-      : typeof payload === "object"
-        ? { ...payload }
-        : {};
-
-    const stops = Array.isArray(base.stops)
-      ? base.stops
-      : Array.isArray(base.data)
-        ? base.data
-        : [];
-
-    return { ...base, stops: stops.filter(Boolean) };
-  }, []);
-
   const persistData = useCallback((value) => {
     setData(value);
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem("reports:stops:last", JSON.stringify(value));
-    } catch (_error) {
-      // Ignore persistence failures
-    }
+    writeCachedReport(STOPS_CACHE_KEY, value);
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const cached = window.localStorage.getItem("reports:stops:last");
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        persistData(normalizeStops(parsed));
-      }
-    } catch (_error) {
-      // Ignore hydration failures
+    const cached = readCachedReport(STOPS_CACHE_KEY, normalizeStops);
+    if (cached) {
+      persistData(cached);
     }
-  }, [normalizeStops, persistData]);
+  }, [persistData]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);

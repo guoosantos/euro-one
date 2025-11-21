@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 
-import { aggregateHeatmapEvents, extractCoordinates, rankHeatmapZones } from "../server/utils/heatmap.js";
+import { aggregateHeatmapEvents, extractCoordinates, rankHeatmapZones } from "../../server/utils/heatmap.js";
 
 test("extractCoordinates resolve lat/lng from multiple shapes", () => {
   const event = { attributes: { latitude: "-23.1", longitude: "-46.2" } };
