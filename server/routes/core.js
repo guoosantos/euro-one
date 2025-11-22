@@ -3,6 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
+import { resolveClientId } from "../middleware/client.js";
 import { getClientById, updateClient } from "../models/client.js";
 import { listModels, createModel, getModelById } from "../models/model.js";
 import {
@@ -21,31 +22,6 @@ import { getCachedTraccarResources } from "../services/traccar-sync.js";
 const router = express.Router();
 
 router.use(authenticate);
-
-function resolveClientId(req, providedClientId, { required = true } = {}) {
-  if (req.user.role === "admin") {
-    if (providedClientId) {
-      return String(providedClientId);
-    }
-    if (!required) {
-      return req.user.clientId ? String(req.user.clientId) : null;
-    }
-    if (req.user.clientId) {
-      return String(req.user.clientId);
-    }
-    throw createError(400, "clientId é obrigatório");
-  }
-  if (!req.user.clientId) {
-    if (required) {
-      throw createError(400, "Usuário não vinculado a um cliente");
-    }
-    return null;
-  }
-  if (providedClientId && String(providedClientId) !== String(req.user.clientId)) {
-    throw createError(403, "Operação não permitida para este cliente");
-  }
-  return String(req.user.clientId);
-}
 
 function ensureClientExists(clientId) {
   const client = getClientById(clientId);

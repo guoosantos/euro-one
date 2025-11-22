@@ -229,12 +229,13 @@ export default function Monitoring() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus } = useDevices();
-  const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime" });
+  const [filterMode, setFilterMode] = useState("all");
+  const heatmapEnabled = filterMode === "danger";
+  const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime", enabled: heatmapEnabled });
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences, resetPreferences } = useUserPreferences();
 
   const [query, setQuery] = useState("");
-  const [filterMode, setFilterMode] = useState("all");
   const [showColumns, setShowColumns] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportRange, setExportRange] = useState({

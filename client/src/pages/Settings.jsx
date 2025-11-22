@@ -16,8 +16,8 @@ export default function Settings() {
         <div className="rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/80">
           <div className="font-medium text-white">Atualizações em tempo real</div>
           <p className="mt-1 text-xs text-white/60">
-            WebSockets estão desativados neste ambiente. Os dados são atualizados automaticamente a cada 5 segundos via
-            polling.
+            Os dados são atualizados automaticamente a cada 5 segundos via polling HTTP. Ajuste o intervalo pelas
+            preferências avançadas caso queira um ciclo diferente.
           </p>
         </div>
         <label className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/80">

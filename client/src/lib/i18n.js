@@ -31,7 +31,6 @@ const TRANSLATIONS = {
     "errors.loadPositions": "Não foi possível carregar posições.",
     "errors.loadTrips": "Não foi possível carregar viagens.",
     "errors.loadTasks": "Não foi possível carregar tarefas.",
-    "errors.websocketAuth": "Sessão não autenticada. Faça login novamente.",
     // Home
     "home.vehiclesMonitored": "Veículos monitorados",
     "home.syncedAt": "Sincronizado às {time}",
@@ -266,7 +265,6 @@ const TRANSLATIONS = {
     "errors.loadPositions": "Could not load positions.",
     "errors.loadTrips": "Could not load trips.",
     "errors.loadTasks": "Could not load tasks.",
-    "errors.websocketAuth": "Session expired. Please sign in again.",
     // Home
     "home.vehiclesMonitored": "Vehicles monitored",
     "home.syncedAt": "Synced at {time}",
