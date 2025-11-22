@@ -23,6 +23,14 @@ const router = express.Router();
 
 router.use(authenticate);
 
+function normaliseList(payload, keys = []) {
+  if (Array.isArray(payload)) return payload;
+  for (const key of keys) {
+    if (Array.isArray(payload?.[key])) return payload[key];
+  }
+  return [];
+}
+
 function ensureClientExists(clientId) {
   const client = getClientById(clientId);
   if (!client) {
@@ -451,6 +459,115 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
     });
 
     res.status(201).json({ device: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+
+    const devices = listDevices({ clientId });
+    const models = listModels({ clientId, includeGlobal: true });
+    const chips = listChips({ clientId });
+    const vehicles = listVehicles({ clientId });
+
+    const modelMap = new Map(models.map((item) => [item.id, item]));
+    const chipMap = new Map(chips.map((item) => [item.id, item]));
+    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+
+    const traccarDevicesRaw = await traccarProxy("get", "/devices", { params: { all: true }, asAdmin: true });
+    const traccarDevices = normaliseList(traccarDevicesRaw, ["devices", "data"]);
+    const traccarById = new Map();
+    const traccarByUnique = new Map();
+    const positionIds = new Set();
+
+    traccarDevices.forEach((item) => {
+      if (!item) return;
+      if (item.id !== undefined && item.id !== null) {
+        traccarById.set(String(item.id), item);
+      }
+      if (item.uniqueId) {
+        traccarByUnique.set(String(item.uniqueId), item);
+      }
+      if (item.positionId !== undefined && item.positionId !== null) {
+        positionIds.add(String(item.positionId));
+      }
+    });
+
+    let positions = [];
+    if (positionIds.size > 0) {
+      try {
+        const positionResponse = await traccarProxy("get", "/positions", {
+          params: { id: Array.from(positionIds) },
+          asAdmin: true,
+        });
+        positions = normaliseList(positionResponse, ["positions", "data"]);
+      } catch (positionError) {
+        console.warn("[telemetry] failed to load positions", positionError?.message || positionError);
+      }
+    }
+
+    const positionById = new Map();
+    positions.forEach((pos) => {
+      if (pos?.id !== undefined && pos?.id !== null) {
+        positionById.set(String(pos.id), pos);
+      }
+    });
+
+    const deviceIds = devices
+      .map((device) => device?.traccarId)
+      .filter((value) => value !== null && value !== undefined)
+      .map((value) => String(value));
+
+    let events = [];
+    if (deviceIds.length) {
+      const now = new Date();
+      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      try {
+        const eventsResponse = await traccarProxy("get", "/events", {
+          params: { deviceId: deviceIds, from: from.toISOString(), to: now.toISOString() },
+          asAdmin: true,
+        });
+        events = normaliseList(eventsResponse, ["events", "data"]);
+      } catch (eventError) {
+        console.warn("[telemetry] failed to load events", eventError?.message || eventError);
+      }
+    }
+
+    const lastEventByDevice = new Map();
+    events.forEach((event) => {
+      if (!event || event.deviceId === undefined || event.deviceId === null) return;
+      const deviceId = String(event.deviceId);
+      const time = Date.parse(event.eventTime || event.serverTime || event.deviceTime || event.time || 0);
+      const current = lastEventByDevice.get(deviceId);
+      if (!current) {
+        lastEventByDevice.set(deviceId, { event, time });
+        return;
+      }
+      if (Number.isFinite(time) && (!Number.isFinite(current.time) || time > current.time)) {
+        lastEventByDevice.set(deviceId, { event, time });
+      }
+    });
+
+    const response = devices.map((device) => {
+      const traccarDevice =
+        (device.traccarId && traccarById.get(String(device.traccarId))) ||
+        traccarByUnique.get(String(device.uniqueId));
+      const position = traccarDevice?.positionId
+        ? positionById.get(String(traccarDevice.positionId)) || null
+        : null;
+      const lastEvent = traccarDevice?.id ? lastEventByDevice.get(String(traccarDevice.id))?.event || null : null;
+
+      return {
+        ...buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
+        position,
+        lastEvent,
+      };
+    });
+
+    res.json({ telemetry: response });
   } catch (error) {
     next(error);
   }
