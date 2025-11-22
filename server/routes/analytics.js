@@ -43,7 +43,8 @@ router.get("/events/heatmap", async (req, res, next) => {
       total: events.length,
     });
   } catch (error) {
-    next(error);
+    console.error("[analytics] heatmap error", error?.message || error);
+    res.json({ points: [], topZones: [], total: 0 });
   }
 });
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
-import useLiveSocket from "./useLiveSocket.js";
+import { useTranslation } from "../i18n.js";
 
 function toDeviceKey(value) {
   if (value === null || value === undefined) return null;
@@ -43,66 +43,13 @@ export function normalisePositionResponse(payload) {
 }
 
 export function useDevices() {
+  const { t } = useTranslation();
   const [devices, setDevices] = useState([]);
   const [positionsByDeviceId, setPositionsByDeviceId] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const devicesRef = useRef([]);
-
-  const handleLiveMessage = useCallback(
-    (payload) => {
-      if (!payload || typeof payload !== "object") return;
-      if (Array.isArray(payload.devices) && payload.devices.length) {
-        setDevices((current) => {
-          const map = new Map();
-          (Array.isArray(current) ? current : []).forEach((device) => {
-            const key = toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id);
-            if (key) {
-              map.set(key, device);
-            }
-          });
-          payload.devices.forEach((device) => {
-            const key = toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id);
-            if (key) {
-              map.set(key, device);
-            }
-          });
-          const list = Array.from(map.values());
-          devicesRef.current = list;
-          return list;
-        });
-      }
-
-      if (Array.isArray(payload.positions) && payload.positions.length) {
-        setPositionsByDeviceId((current) => {
-          const next = { ...current };
-          payload.positions.forEach((position) => {
-            const key = toDeviceKey(
-              position?.deviceId ??
-                position?.device?.id ??
-                position?.device_id ??
-                position?.deviceID ??
-                position?.device?.deviceId ??
-                position?.device?.uniqueId,
-            );
-            if (key) {
-              next[key] = position;
-            }
-          });
-          return next;
-        });
-      }
-    },
-    [setDevices, setPositionsByDeviceId],
-  );
-
-  const {
-    connected: liveConnected,
-    error: liveUpdatesError,
-    fallback: liveFallback,
-    fallbackMessage,
-  } = useLiveSocket({ onMessage: handleLiveMessage });
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
@@ -185,11 +132,9 @@ export function useDevices() {
     }
 
     fetchDevices();
-    if (!liveConnected) {
-      intervalId = globalThis.setInterval(() => {
-        fetchPositionsForDevices();
-      }, 10_000);
-    }
+    intervalId = globalThis.setInterval(() => {
+      fetchPositionsForDevices();
+    }, 5_000);
 
     return () => {
       cancelled = true;
@@ -197,13 +142,7 @@ export function useDevices() {
         globalThis.clearInterval(intervalId);
       }
     };
-  }, [reloadKey, liveConnected]);
-
-  useEffect(() => {
-    if (liveUpdatesError) {
-      setError(liveUpdatesError);
-    }
-  }, [liveUpdatesError]);
+  }, [reloadKey]);
 
   const stats = useMemo(() => {
     const total = Array.isArray(devices) ? devices.length : 0;
@@ -213,11 +152,14 @@ export function useDevices() {
 
   const liveStatus = useMemo(
     () => ({
-      connected: liveConnected,
-      fallback: liveFallback,
-      fallbackMessage,
+      connected: false,
+      fallback: true,
+      fallbackMessage: t(
+        "monitoring.liveFallback",
+        { defaultValue: "Conexão em tempo real indisponível. Atualizando a cada 5 segundos." },
+      ),
     }),
-    [fallbackMessage, liveConnected, liveFallback],
+    [t],
   );
 
   return { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus };
