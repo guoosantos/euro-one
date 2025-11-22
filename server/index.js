@@ -8,12 +8,10 @@ async function bootstrap() {
   const [
     { default: app },
     { initializeTraccarAdminSession },
-    { default: startTraccarSocketService },
     { startTraccarSyncJob },
   ] = await Promise.all([
     import("./app.js"),
     import("./services/traccar.js"),
-    import("./services/traccar-socket.js"),
     import("./services/traccar-sync.js"),
   ]);
 
@@ -26,7 +24,6 @@ async function bootstrap() {
     console.warn("Não foi possível inicializar a sessão administrativa do Traccar", error?.message || error);
   }
 
-  startTraccarSocketService(server);
   stopSync = startTraccarSyncJob();
 
   server.listen(PORT, () => {

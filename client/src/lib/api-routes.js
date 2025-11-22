@@ -44,7 +44,6 @@ export const API_ROUTES = {
   },
   health: "health",
   traccarHealth: "health/traccar",
-  websocket: "ws/live",
 };
 
 export default API_ROUTES;

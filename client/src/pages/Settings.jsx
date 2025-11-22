@@ -1,7 +1,6 @@
 import React, { useState } from "react";
 
 export default function Settings() {
-  const [websocket, setWebsocket] = useState(true);
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(true);
 
@@ -14,10 +13,13 @@ export default function Settings() {
             Configure como a plataforma consome dados em tempo real do Traccar e quais canais devem ser atualizados.
           </p>
         </header>
-        <label className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/80">
-          <span>Atualizações via WebSocket</span>
-          <input type="checkbox" checked={websocket} onChange={(event) => setWebsocket(event.target.checked)} />
-        </label>
+        <div className="rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/80">
+          <div className="font-medium text-white">Atualizações em tempo real</div>
+          <p className="mt-1 text-xs text-white/60">
+            WebSockets estão desativados neste ambiente. Os dados são atualizados automaticamente a cada 5 segundos via
+            polling.
+          </p>
+        </div>
         <label className="flex items-center justify-between rounded-xl border border-white/5 bg-white/5 px-4 py-3 text-sm text-white/80">
           <span>Notificações por e-mail</span>
           <input type="checkbox" checked={notifications} onChange={(event) => setNotifications(event.target.checked)} />

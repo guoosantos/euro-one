@@ -13,7 +13,7 @@ import modelRoutes from "./routes/models.js";
 import groupRoutes from "./routes/groups.js";
 import healthRoutes from "./routes/health.js";
 import moduleRoutes from "./routes/modules.js";
-// import taskRoutes from "./routes/tasks.js"; // desabilitado por enquanto
+import taskRoutes from "./routes/tasks.js";
 import analyticsRoutes from "./routes/analytics.js";
 import exportRoutes from "./routes/export.js";
 import preferencesRoutes from "./routes/preferences.js";
@@ -68,11 +68,11 @@ app.use("/api", authRoutes);
 app.use("/api", proxyRoutes);
 app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);
+app.use("/api/core", taskRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
 app.use("/api", moduleRoutes);
-// app.use("/api", taskRoutes); // desabilitado enquanto ajustamos middleware/client.js
 app.use("/api", analyticsRoutes);
 app.use("/api", exportRoutes);
 app.use("/api", preferencesRoutes);
