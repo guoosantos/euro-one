@@ -41,6 +41,7 @@ export const API_ROUTES = {
     importDevices: "core/devices/import",
     chips: "core/chips",
     vehicles: "core/vehicles",
+    telemetry: "core/telemetry",
   },
   health: "health",
   traccarHealth: "health/traccar",

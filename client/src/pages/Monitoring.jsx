@@ -18,10 +18,10 @@ import {
   pickCoordinate,
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
-import useDevices from "../lib/hooks/useDevices";
 import useHeatmapEvents from "../lib/hooks/useHeatmapEvents.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import useTelemetry from "../lib/hooks/useTelemetry.js";
 import Card from "../ui/Card.jsx";
 
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
@@ -84,6 +84,11 @@ function buildColumns(t) {
       key: "fixTime",
       label: t("monitoring.columns.fixTime"),
       render: (row) => formatDateTime(row.position?.fixTime ? new Date(row.position.fixTime) : null, row.locale),
+    },
+    {
+      key: "lastEvent",
+      label: t("monitoring.columns.lastEvent"),
+      render: (row) => row.lastEventName || "—",
     },
     { key: "valid", label: t("monitoring.columns.valid"), render: (row) => (row.position?.valid ? t("common.yes") : t("common.no")) },
     {
@@ -228,7 +233,7 @@ function MapSection({ markers, geofences, focusMarkerId, t }) {
 export default function Monitoring() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
-  const { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus } = useDevices();
+  const { telemetry, loading, error, reload, stats, liveStatus } = useTelemetry();
   const [filterMode, setFilterMode] = useState("all");
   const heatmapEnabled = filterMode === "danger";
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime", enabled: heatmapEnabled });
@@ -322,37 +327,37 @@ export default function Monitoring() {
     [navigate],
   );
 
-  const safeDevices = useMemo(() => (Array.isArray(devices) ? devices : []), [devices]);
-  const safePositions = useMemo(
-    () => (positionsByDeviceId && typeof positionsByDeviceId === "object" ? positionsByDeviceId : {}),
-    [positionsByDeviceId],
-  );
+  const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
   const deviceIndex = useMemo(() => {
     const map = new Map();
-    for (const device of safeDevices) {
+    safeTelemetry.forEach((item) => {
+      const device = item?.device || item;
       const key = getDeviceKey(device);
       if (key) {
         map.set(key, device);
       }
-    }
+    });
     return map;
-  }, [safeDevices]);
+  }, [safeTelemetry]);
 
   const searchFilteredDevices = useMemo(() => {
     const term = query.trim().toLowerCase();
-    if (!term) return safeDevices;
-    return safeDevices.filter((device) => {
-      const name = (device?.name ?? device?.vehicle ?? device?.alias ?? "").toString().toLowerCase();
-      const plate = (device?.plate ?? device?.registrationNumber ?? device?.uniqueId ?? "").toString().toLowerCase();
-      return name.includes(term) || plate.includes(term);
-    });
-  }, [safeDevices, query]);
+    if (!term) return safeTelemetry.map((item) => item?.device || item);
+    return safeTelemetry
+      .map((item) => item?.device || item)
+      .filter((device) => {
+        const name = (device?.name ?? device?.vehicle ?? device?.alias ?? "").toString().toLowerCase();
+        const plate = (device?.plate ?? device?.registrationNumber ?? device?.uniqueId ?? "").toString().toLowerCase();
+        return name.includes(term) || plate.includes(term);
+      });
+  }, [safeTelemetry, query]);
 
   const rows = useMemo(() => {
     return searchFilteredDevices.map((device) => {
       const key = getDeviceKey(device);
-      const position = key ? safePositions[key] : undefined;
+      const telemetryItem = safeTelemetry.find((item) => getDeviceKey(item?.device || item) === key);
+      const position = telemetryItem?.position;
       const lat = pickCoordinate([
         position?.latitude,
         position?.lat,
@@ -367,6 +372,7 @@ export default function Monitoring() {
       ]);
       const badge = getStatusBadge(position, t);
       const lastUpdate = getLastUpdate(position);
+      const lastEventName = telemetryItem?.lastEvent?.type || telemetryItem?.lastEvent?.event || telemetryItem?.lastEvent?.attributes?.alarm;
       const riskZone = dangerPoints.some((point) => {
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
         if (!point?.lat || !point?.lng) return false;
@@ -378,18 +384,20 @@ export default function Monitoring() {
         deviceId: key,
         position,
         deviceName: device?.name ?? device?.vehicle ?? device?.alias ?? t("monitoring.unknownDevice"),
-        plate: device?.plate ?? device?.registrationNumber ?? device?.uniqueId,
+        plate: device?.plate ?? device?.vehicle?.plate ?? device?.registrationNumber ?? device?.uniqueId,
         lat,
         lng,
         statusBadge: badge,
         lastUpdate,
         riskZone,
+        lastEvent: telemetryItem?.lastEvent || null,
+        lastEventName,
         locale,
         onFocus: handleFocusOnMap,
         onReplay: handleReplay,
       };
     });
-  }, [dangerPoints, handleFocusOnMap, handleReplay, locale, safePositions, searchFilteredDevices, t]);
+  }, [dangerPoints, handleFocusOnMap, handleReplay, locale, safeTelemetry, searchFilteredDevices, t]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((row) => {
@@ -465,10 +473,10 @@ export default function Monitoring() {
   );
 
   const summary = {
-    total: stats?.total ?? safeDevices.length,
-    withPosition: stats?.withPosition ?? Object.keys(safePositions).length,
+    total: stats?.total ?? safeTelemetry.length,
+    withPosition: stats?.withPosition ?? safeTelemetry.filter((item) => item?.position).length,
     online: onlineCount,
-    offline: Math.max(0, (stats?.total ?? safeDevices.length) - onlineCount),
+    offline: Math.max(0, (stats?.total ?? safeTelemetry.length) - onlineCount),
     moving: movingCount,
     ignitionOn: ignitionOnCount,
     ignitionOff: ignitionOffCount,

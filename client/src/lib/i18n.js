@@ -174,6 +174,7 @@ const TRANSLATIONS = {
     "monitoring.columns.serverTime": "Hora do servidor",
     "monitoring.columns.deviceTime": "Hora do dispositivo",
     "monitoring.columns.fixTime": "Hora GPS",
+    "monitoring.columns.lastEvent": "Último evento",
     "monitoring.columns.valid": "Válido",
     "monitoring.columns.latitude": "Latitude",
     "monitoring.columns.longitude": "Longitude",
