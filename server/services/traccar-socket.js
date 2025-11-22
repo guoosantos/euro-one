@@ -1,26 +1,14 @@
 import crypto from "crypto";
-import { URL } from "url";
 import jwt from "jsonwebtoken";
-import WebSocket from "ws";
 
 import { config } from "../config.js";
-import {
-  getAdminSessionCookie,
-  initializeTraccarAdminSession,
-  traccarProxy,
-} from "./traccar.js";
+import { traccarProxy } from "./traccar.js";
 import { findDeviceByTraccarId, findDeviceByUniqueId } from "../models/device.js";
+import { TraccarWsClient } from "./traccar-ws-client.js";
 
 const WS_MAGIC_STRING = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 const CLIENTS = new Set();
-let traccarSocket = null;
-let reconnectTimer = null;
-let isConnecting = false;
-let reconnectAttempts = 0;
-
-const RECONNECTABLE_CODES = new Set([1000, 1001, 1006]);
-const RECONNECT_BASE_DELAY = 2_000;
-const RECONNECT_MAX_DELAY = 60_000;
+let traccarClient = null;
 
 function normalisePositionPayload(payload) {
   if (!payload) return [];
@@ -28,42 +16,6 @@ function normalisePositionPayload(payload) {
   if (Array.isArray(payload.positions)) return payload.positions;
   if (Array.isArray(payload.data)) return payload.data;
   return [];
-}
-
-function buildTraccarSocketUrl() {
-  try {
-    const parsed = new URL(config.traccar.baseUrl || "http://localhost:8082");
-    parsed.protocol = parsed.protocol === "https:" ? "wss:" : "ws:";
-    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/api/socket`;
-    parsed.search = "";
-    parsed.hash = "";
-    return parsed.toString();
-  } catch (_error) {
-    const base = (config.traccar.baseUrl || "http://localhost:8082").replace(/\/$/, "");
-    if (base.startsWith("https://")) {
-      return `wss://${base.slice("https://".length)}/api/socket`;
-    }
-    if (base.startsWith("http://")) {
-      return `ws://${base.slice("http://".length)}/api/socket`;
-    }
-    return `${base}/api/socket`;
-  }
-}
-
-function buildTraccarSocketHeaders() {
-  const session = getAdminSessionCookie();
-  if (!session) {
-    throw new Error("Sessão administrativa do Traccar indisponível.");
-  }
-
-  const headers = { Cookie: `JSESSIONID=${session}` };
-  try {
-    const origin = new URL(config.traccar.baseUrl || "http://localhost:8082");
-    headers.Origin = `${origin.protocol}//${origin.host}`;
-  } catch (_error) {
-    headers.Origin = config.traccar.baseUrl;
-  }
-  return headers;
 }
 
 function decodeClientToken(request) {
@@ -324,87 +276,10 @@ function broadcast(message) {
   }
 }
 
-function scheduleReconnect(connectFn) {
-  if (reconnectTimer) return;
-  const delay = Math.min(RECONNECT_MAX_DELAY, RECONNECT_BASE_DELAY * 2 ** reconnectAttempts);
-  reconnectAttempts += 1;
-  console.info(
-    "[Traccar WS] Reconexão agendada em %dms (tentativa #%d)...",
-    delay,
-    reconnectAttempts,
-  );
-  reconnectTimer = setTimeout(async () => {
-    reconnectTimer = null;
-    console.info("[Traccar WS] Tentando restabelecer sessão administrativa antes de reconectar...");
-    await initializeTraccarAdminSession().catch(() => undefined);
-    console.info("[Traccar WS] Reabrindo conexão com o Traccar...");
-    connectFn();
-  }, delay);
-}
-
-function connectToTraccar(connectFn) {
-  if (isConnecting) return;
-  isConnecting = true;
-  try {
-    const url = buildTraccarSocketUrl();
-    const headers = buildTraccarSocketHeaders();
-    console.info(`[Traccar WS] Conectando em ${url} usando cookie de sessão...`);
-    const socket = new WebSocket(url, ["traccar"], { headers });
-    traccarSocket = socket;
-
-    socket.on("open", () => {
-      isConnecting = false;
-      reconnectAttempts = 0;
-      console.info("[Traccar WS] Conexão aberta.");
-    });
-
-    socket.on("unexpected-response", (_req, res) => {
-      console.error("[Traccar WS] unexpected-response", res?.statusCode, res?.headers);
-    });
-
-    socket.onmessage = (event) => {
-      broadcast(event.data);
-    };
-
-    socket.onerror = (err) => {
-      console.error("[Traccar WS] Error", err);
-    };
-
-    socket.on("close", (code, reason) => {
-      const reasonText = reason?.toString?.("utf8") || reason || "";
-      console.warn("[Traccar WS] Conexão fechada", { code, reason: reasonText });
-      traccarSocket = null;
-      isConnecting = false;
-      if (RECONNECTABLE_CODES.has(code)) {
-        scheduleReconnect(connectFn);
-      }
-    });
-  } catch (error) {
-    isConnecting = false;
-    console.error("[Traccar WS] Falha ao abrir WebSocket", error?.message || error);
-    scheduleReconnect(connectFn);
-  }
-}
-
 export function startTraccarSocketService(server) {
-  async function ensureConnection() {
-    if (traccarSocket || isConnecting) return;
-
-    if (!getAdminSessionCookie()) {
-      console.info("[Traccar WS] Criando sessão administrativa antes de abrir o WebSocket...");
-      await initializeTraccarAdminSession().catch((error) => {
-        console.warn("[Traccar WS] Falha ao preparar sessão administrativa", error?.message || error);
-      });
-    }
-
-    if (!getAdminSessionCookie()) {
-      console.warn("[Traccar WS] Sessão administrativa ausente; nova tentativa em breve.");
-      scheduleReconnect(ensureConnection);
-      return;
-    }
-
-    connectToTraccar(ensureConnection);
-  }
+  traccarClient = new TraccarWsClient({
+    onMessage: (data) => broadcast(data),
+  });
 
   server.on("upgrade", (request, socket) => {
     if (!request.url || !request.url.startsWith("/ws/live")) {
@@ -463,7 +338,7 @@ export function startTraccarSocketService(server) {
     });
   });
 
-  ensureConnection();
+  traccarClient.ensureConnection();
 
   return {
     broadcast,
@@ -471,19 +346,10 @@ export function startTraccarSocketService(server) {
 }
 
 export function stopTraccarSocketService() {
-  if (traccarSocket) {
-    try {
-      traccarSocket.close();
-    } catch (error) {
-      // ignore
-    }
-    traccarSocket = null;
+  if (traccarClient) {
+    traccarClient.stop();
+    traccarClient = null;
   }
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
-  }
-  reconnectAttempts = 0;
   for (const client of CLIENTS) {
     try {
       client.socket.end();
