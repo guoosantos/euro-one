@@ -5,7 +5,17 @@ import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 
-export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, tenantId: overrideTenant } = {}) {
+const MAX_CONSECUTIVE_ERRORS = 3;
+
+export function useHeatmapEvents({
+  from,
+  to,
+  eventType,
+  eventTypes,
+  groupId,
+  tenantId: overrideTenant,
+  enabled = true,
+} = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
   const [points, setPoints] = useState([]);
@@ -14,6 +24,8 @@ export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, ten
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
+  const [consecutiveErrors, setConsecutiveErrors] = useState(0);
+  const [stopped, setStopped] = useState(false);
 
   const params = useMemo(() => {
     const next = {};
@@ -33,6 +45,13 @@ export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, ten
   }, [eventType, eventTypes, from, groupId, overrideTenant, tenantId, to]);
 
   useEffect(() => {
+    if (!enabled) {
+      return undefined;
+    }
+    if (stopped) {
+      return undefined;
+    }
+
     let cancelled = false;
 
     async function fetchHeatmap() {
@@ -45,12 +64,19 @@ export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, ten
         setPoints(Array.isArray(payload.points) ? payload.points : []);
         setTopZones(Array.isArray(payload.topZones) ? payload.topZones : []);
         setTotal(Number(payload.total) || 0);
+        setConsecutiveErrors(0);
       } catch (requestError) {
         if (cancelled) return;
         console.error("Falha ao carregar heatmap de eventos", requestError);
         const friendlyMessage =
           requestError?.response?.data?.message || requestError.message || t("errors.loadHeatmap");
+        const nextErrorCount = consecutiveErrors + 1;
+        const reachedLimit = nextErrorCount >= MAX_CONSECUTIVE_ERRORS;
         setError(new Error(friendlyMessage));
+        setConsecutiveErrors(nextErrorCount);
+        if (reachedLimit) {
+          setStopped(true);
+        }
         setPoints([]);
         setTopZones([]);
         setTotal(0);
@@ -66,9 +92,13 @@ export function useHeatmapEvents({ from, to, eventType, eventTypes, groupId, ten
     return () => {
       cancelled = true;
     };
-  }, [params, version, t]);
+  }, [params, version, t, consecutiveErrors, enabled, stopped]);
 
-  const refresh = useCallback(() => setVersion((value) => value + 1), []);
+  const refresh = useCallback(() => {
+    setStopped(false);
+    setConsecutiveErrors(0);
+    setVersion((value) => value + 1);
+  }, []);
 
   return { points, topZones, total, loading, error, refresh };
 }

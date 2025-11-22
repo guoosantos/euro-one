@@ -9,9 +9,10 @@ export function toKey(value) {
 
 export function getDeviceKey(device) {
   return (
-    toKey(device?.id) ??
     toKey(device?.deviceId) ??
+    toKey(device?.traccarId) ??
     toKey(device?.device_id) ??
+    toKey(device?.id) ??
     toKey(device?.uniqueId) ??
     toKey(device?.unique_id) ??
     toKey(device?.identifier)
