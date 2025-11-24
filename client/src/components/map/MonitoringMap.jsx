@@ -3,8 +3,9 @@ import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-const DEFAULT_CENTER = [-23.55, -46.63];
-const DEFAULT_ZOOM = 11;
+const DEFAULT_CENTER = [-19.9167, -43.9345];
+const DEFAULT_ZOOM = 12;
+const FOCUS_ZOOM = 15;
 
 const markerIconCache = new Map();
 
@@ -61,21 +62,21 @@ function MarkerLayer({ markers, focusMarkerId }) {
   );
 
   useEffect(() => {
-    if (!safeMarkers.length) {
-      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    if (focusMarkerId) {
+      const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
+      if (target) {
+        map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { duration: 0.75 });
+        return;
+      }
+    }
+
+    if (safeMarkers.length) {
+      const bounds = L.latLngBounds(safeMarkers.map((marker) => [marker.lat, marker.lng]));
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
       return;
     }
 
-    const bounds = L.latLngBounds(safeMarkers.map((marker) => [marker.lat, marker.lng]));
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
-  }, [map, safeMarkers]);
-
-  useEffect(() => {
-    if (!focusMarkerId) return;
-    const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
-    if (target) {
-      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), 14), { duration: 0.75 });
-    }
+    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
   }, [focusMarkerId, map, safeMarkers]);
 
   return safeMarkers.map((marker) => (

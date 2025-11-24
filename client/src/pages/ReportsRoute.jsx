@@ -1,8 +1,11 @@
 import React, { useMemo, useState } from "react";
 import useDevices from "../lib/hooks/useDevices";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
+import { useTranslation } from "../lib/i18n.js";
+import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.js";
 
 export default function ReportsRoute() {
+  const { t, locale } = useTranslation();
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const { data, loading, error, generate } = useReportsRoute();
@@ -16,6 +19,19 @@ export default function ReportsRoute() {
 
   const points = Array.isArray(data?.positions) ? data.positions : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
+
+  const tableColumns = useMemo(
+    () =>
+      ["gpsTime", "latitude", "longitude", "speed"]
+        .map((key) => getTelemetryColumnByKey(key))
+        .filter(Boolean)
+        .map((column) => ({
+          ...column,
+          label: t(column.labelKey),
+          render: (row) => column.getValue(row, { t, locale }),
+        })),
+    [locale, t],
+  );
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -122,23 +138,24 @@ export default function ReportsRoute() {
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                <th className="py-2 pr-6">Horário</th>
-                <th className="py-2 pr-6">Latitude</th>
-                <th className="py-2 pr-6">Longitude</th>
-                <th className="py-2 pr-6">Velocidade</th>
+                {tableColumns.map((column) => (
+                  <th key={column.key} className="py-2 pr-6">
+                    {column.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
-                  <td colSpan={4} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={tableColumns.length} className="py-4 text-center text-sm opacity-60">
                     Processando rota…
                   </td>
                 </tr>
               )}
               {!loading && !points.length && (
                 <tr>
-                  <td colSpan={4} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={tableColumns.length} className="py-4 text-center text-sm opacity-60">
                     {lastGeneratedAt
                       ? "Nenhum registro encontrado para o período selecionado."
                       : "Gere um relatório para visualizar os pontos percorridos."}
@@ -147,10 +164,14 @@ export default function ReportsRoute() {
               )}
               {points.map((point) => (
                 <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
-                  <td className="py-2 pr-6 text-white/80">{formatDate(point.fixTime || point.serverTime)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatCoordinate(point.latitude)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatCoordinate(point.longitude)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatSpeed(point.speed)}</td>
+                  {tableColumns.map((column) => {
+                    const row = { position: point };
+                    return (
+                      <td key={column.key} className="py-2 pr-6 text-white/80">
+                        {column.render ? column.render(row) : column.getValue?.(row, { t, locale })}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -168,20 +189,6 @@ function formatDate(value) {
   } catch (_error) {
     return String(value);
   }
-}
-
-function formatCoordinate(value) {
-  if (value === null || value === undefined) return "—";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return number.toFixed(5);
-}
-
-function formatSpeed(value) {
-  if (value === null || value === undefined) return "0 km/h";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return String(value);
-  return `${(number * 1.852).toFixed(1)} km/h`;
 }
 
 function validateFields({ deviceId, from, to }) {
