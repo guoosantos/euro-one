@@ -17,6 +17,7 @@ import taskRoutes from "./routes/tasks.js";
 import analyticsRoutes from "./routes/analytics.js";
 import exportRoutes from "./routes/export.js";
 import preferencesRoutes from "./routes/preferences.js";
+import crmRoutes from "./routes/crm.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -69,6 +70,7 @@ app.use("/api", proxyRoutes);
 app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);
 app.use("/api/core", taskRoutes);
+app.use("/api/crm", crmRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);

@@ -43,6 +43,11 @@ export const API_ROUTES = {
     vehicles: "core/vehicles",
     telemetry: "core/telemetry",
   },
+  crm: {
+    base: "crm",
+    clients: "clients",
+    contacts: (clientId) => `clients/${clientId}/contacts`,
+  },
   health: "health",
   traccarHealth: "health/traccar",
 };

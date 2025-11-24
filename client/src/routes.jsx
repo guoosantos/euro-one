@@ -52,6 +52,7 @@ import RoutesPage from "./pages/Routes";
 import Tasks from "./pages/Tasks";
 import TaskForm from "./pages/TaskForm";
 import TaskDetails from "./pages/TaskDetails";
+import Crm from "./pages/Crm";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true },
@@ -94,6 +95,7 @@ export const routeConfig = [
   { path: "/admin/users", element: ClientUsers, title: "Usuários" },
   { path: "/clients", element: Clients, title: "Clientes" },
   { path: "/users", element: Users, title: "Usuários" },
+  { path: "/crm", element: Crm, title: "CRM" },
   { path: "/finance", element: Finance, title: "Financeiro" },
   { path: "/driver-behavior", element: DriverBehavior, title: "Driver Behavior" },
   { path: "/maintenance", element: Maintenance, title: "Manutenção" },

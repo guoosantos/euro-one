@@ -32,6 +32,7 @@ import {
   UserCog,
   Video,
   Wrench,
+  NotebookPen,
 } from "lucide-react";
 
 import { useTenant } from "../lib/tenant-context";
@@ -126,6 +127,7 @@ export default function Sidebar() {
     { to: "/finance", label: "Financeiro", icon: Banknote },
     { to: "/clients", label: "Clientes", icon: Users },
     { to: "/users", label: "Usuários", icon: User },
+    { to: "/crm", label: "CRM", icon: NotebookPen },
   ];
 
   const telematicsLinks = [
