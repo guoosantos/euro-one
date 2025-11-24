@@ -47,10 +47,13 @@ const defaultInteraction = {
   nextStepDate: "",
 };
 
+const DEFAULT_CONTRACT_ALERT_DAYS = 30;
+const DEFAULT_TRIAL_ALERT_DAYS = 7;
+
 function formatDate(value) {
   if (!value) return "—";
   try {
-    return new Date(value).toLocaleDateString();
+    return new Date(value).toLocaleDateString("pt-BR");
   } catch (_error) {
     return value;
   }
@@ -79,6 +82,13 @@ export default function Crm() {
   const [saving, setSaving] = useState(false);
   const [interactionSaving, setInteractionSaving] = useState(false);
   const [detailError, setDetailError] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterInterest, setFilterInterest] = useState("");
+  const [filterCloseProbability, setFilterCloseProbability] = useState("");
+  const [filterTag, setFilterTag] = useState("");
+  const [alerts, setAlerts] = useState({ contractAlerts: [], trialAlerts: [] });
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsError, setAlertsError] = useState(null);
   const { contacts, loading: contactsLoading, error: contactsError, addContact } = useCrmContacts(selectedId);
 
   const interestBadge = useMemo(() => {
@@ -166,7 +176,54 @@ export default function Crm() {
     };
   }, [selectedId]);
 
-  const filteredClients = useMemo(() => clients, [clients]);
+  useEffect(() => {
+    let cancelled = false;
+    setAlertsLoading(true);
+    setAlertsError(null);
+    CoreApi.listCrmAlerts({
+      contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
+      trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setAlerts({
+          contractAlerts: response?.contractAlerts || [],
+          trialAlerts: response?.trialAlerts || [],
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAlertsError(err instanceof Error ? err : new Error("Falha ao carregar alertas"));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setAlertsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
+
+  const filteredClients = useMemo(
+    () =>
+      clients.filter((client) => {
+        if (searchTerm && !client.name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+
+        if (filterInterest && client.interestLevel !== filterInterest) return false;
+
+        if (filterCloseProbability && client.closeProbability !== filterCloseProbability) return false;
+
+        if (filterTag) {
+          const tags = client.tags || [];
+          const match = tags.some((tag) => tag.toLowerCase().includes(filterTag.toLowerCase()));
+          if (!match) return false;
+        }
+
+        return true;
+      }),
+    [clients, searchTerm, filterInterest, filterCloseProbability, filterTag],
+  );
 
   function handleFieldChange(event) {
     const { name, value, type, checked } = event.target;
@@ -250,6 +307,45 @@ export default function Crm() {
           }
         >
           {error && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{error.message}</div>}
+          <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1">
+              <div className="text-xs text-white/60">Buscar por nome</div>
+              <Input
+                placeholder="Digite o nome do cliente"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-white/60">Nível de interesse</div>
+              <Select value={filterInterest} onChange={(event) => setFilterInterest(event.target.value)}>
+                <option value="">Todos</option>
+                <option value="baixo">Baixo</option>
+                <option value="medio">Médio</option>
+                <option value="alto">Alto</option>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-white/60">Probabilidade de fechamento</div>
+              <Select
+                value={filterCloseProbability}
+                onChange={(event) => setFilterCloseProbability(event.target.value)}
+              >
+                <option value="">Todas</option>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <div className="text-xs text-white/60">Filtrar por tag</div>
+              <Input
+                placeholder="Ex.: frota, logística"
+                value={filterTag}
+                onChange={(event) => setFilterTag(event.target.value)}
+              />
+            </div>
+          </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead className="text-white/50">
@@ -286,7 +382,14 @@ export default function Crm() {
                         <Contact2 size={16} className="text-white/60" />
                         <div>
                           <div className="font-semibold">{client.name}</div>
-                          <div className="text-xs text-white/50">{client.primaryContact?.name || "Sem contato"}</div>
+                          <div className="text-xs text-white/50">
+                            {client.mainContactName || client.primaryContact?.name || "Sem contato"}
+                          </div>
+                          {(client.mainContactRole || client.primaryContact?.role) && (
+                            <div className="text-[11px] text-white/40">
+                              {client.mainContactRole || client.primaryContact?.role}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -613,51 +716,96 @@ export default function Crm() {
           )}
         </Card>
 
-        <Card
-          title="Status rápido"
-          subtitle="Contrato, teste e perfil comercial"
-          className="xl:col-span-1"
-          actions={selectedClient && <span className="text-xs text-white/60">Atualizado {formatDate(selectedClient.updatedAt)}</span>}
-        >
-          {!selectedClient && <div className="text-sm text-white/60">Selecione um cliente para visualizar o resumo.</div>}
-          {selectedClient && (
-            <div className="space-y-3 text-sm text-white/80">
-              <div>
-                <div className="text-white/50">Nível de interesse</div>
-                <div className="font-semibold">{interestLabel[selectedClient.interestLevel] || "—"}</div>
-              </div>
-              <div>
-                <div className="text-white/50">Probabilidade de fechamento</div>
-                <div className="font-semibold">{closeProbabilityLabel[selectedClient.closeProbability] || "—"}</div>
-              </div>
-              <div>
-                <div className="text-white/50">Contrato concorrente</div>
-                <div className="font-semibold">{buildContractLabel(selectedClient)}</div>
-              </div>
-              <div>
-                <div className="text-white/50">Teste</div>
-                <div className="font-semibold">{buildTrialLabel(selectedClient)}</div>
-              </div>
-              <div>
-                <div className="text-white/50">Tags</div>
-                <div className="flex flex-wrap gap-2">
-                  {(selectedClient.tags || []).map((tag) => (
-                    <span key={tag} className="rounded-full bg-white/10 px-2 py-1 text-xs">
-                      {tag}
-                    </span>
-                  ))}
-                  {(selectedClient.tags || []).length === 0 && <span className="text-white/60">Sem tags</span>}
-                </div>
-              </div>
-              {selectedClient.notes && (
+        <div className="space-y-4">
+          <Card
+            title="Status rápido"
+            subtitle="Contrato, teste e perfil comercial"
+            actions={selectedClient && <span className="text-xs text-white/60">Atualizado {formatDate(selectedClient.updatedAt)}</span>}
+          >
+            {!selectedClient && <div className="text-sm text-white/60">Selecione um cliente para visualizar o resumo.</div>}
+            {selectedClient && (
+              <div className="space-y-3 text-sm text-white/80">
                 <div>
-                  <div className="text-white/50">Notas</div>
-                  <div className="whitespace-pre-line">{selectedClient.notes}</div>
+                  <div className="text-white/50">Nível de interesse</div>
+                  <div className="font-semibold">{interestLabel[selectedClient.interestLevel] || "—"}</div>
                 </div>
-              )}
-            </div>
-          )}
-        </Card>
+                <div>
+                  <div className="text-white/50">Probabilidade de fechamento</div>
+                  <div className="font-semibold">{closeProbabilityLabel[selectedClient.closeProbability] || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-white/50">Contrato concorrente</div>
+                  <div className="font-semibold">{buildContractLabel(selectedClient)}</div>
+                </div>
+                <div>
+                  <div className="text-white/50">Teste</div>
+                  <div className="font-semibold">{buildTrialLabel(selectedClient)}</div>
+                </div>
+                <div>
+                  <div className="text-white/50">Tags</div>
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedClient.tags || []).map((tag) => (
+                      <span key={tag} className="rounded-full bg-white/10 px-2 py-1 text-xs">
+                        {tag}
+                      </span>
+                    ))}
+                    {(selectedClient.tags || []).length === 0 && <span className="text-white/60">Sem tags</span>}
+                  </div>
+                </div>
+                {selectedClient.notes && (
+                  <div>
+                    <div className="text-white/50">Notas</div>
+                    <div className="whitespace-pre-line">{selectedClient.notes}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+
+          <Card title="Alertas de contrato e teste" subtitle="Acompanhe vencimentos iminentes">
+            {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
+            {alertsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{alertsError.message}</div>}
+            {!alertsLoading && !alertsError && alerts.contractAlerts.length === 0 && alerts.trialAlerts.length === 0 && (
+              <div className="text-sm text-white/60">Nenhum alerta no momento.</div>
+            )}
+
+            {!alertsError && (
+              <div className="space-y-4 text-sm text-white/80">
+                <div className="space-y-2">
+                  <div className="text-white/60 font-semibold">
+                    Contratos concorrentes vencendo em até {DEFAULT_CONTRACT_ALERT_DAYS} dias
+                  </div>
+                  {alerts.contractAlerts.map((client) => (
+                    <div key={client.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                      <div className="font-semibold">{client.name}</div>
+                      <div className="text-white/70">
+                        Contrato com {client.competitorName || "concorrente"} termina em {formatDate(client.competitorContractEnd)}.
+                      </div>
+                    </div>
+                  ))}
+                  {!alertsLoading && alerts.contractAlerts.length === 0 && (
+                    <div className="text-white/60">Nenhum contrato concorrente vencendo no período.</div>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="text-white/60 font-semibold">
+                    Testes (trial) terminando em até {DEFAULT_TRIAL_ALERT_DAYS} dias
+                  </div>
+                  {alerts.trialAlerts.map((client) => (
+                    <div key={client.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
+                      <div className="font-semibold">{client.name}</div>
+                      <div className="text-white/70">Teste termina em {formatDate(client.trialEnd)}.</div>
+                    </div>
+                  ))}
+                  {!alertsLoading && alerts.trialAlerts.length === 0 && (
+                    <div className="text-white/60">Nenhum teste terminando no período.</div>
+                  )}
+                </div>
+              </div>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

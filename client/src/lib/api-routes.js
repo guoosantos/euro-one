@@ -46,6 +46,7 @@ export const API_ROUTES = {
   crm: {
     base: "crm",
     clients: "clients",
+    alerts: "alerts",
     contacts: (clientId) => `clients/${clientId}/contacts`,
   },
   health: "health",
