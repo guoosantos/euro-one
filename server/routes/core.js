@@ -18,6 +18,7 @@ import { listChips, createChip, updateChip, getChipById } from "../models/chip.j
 import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehicle } from "../models/vehicle.js";
 import { traccarProxy } from "../services/traccar.js";
 import { getCachedTraccarResources } from "../services/traccar-sync.js";
+import { enrichPositionsWithAddresses } from "../utils/address.js";
 
 const router = express.Router();
 
@@ -503,7 +504,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
           params: { id: Array.from(positionIds) },
           asAdmin: true,
         });
-        positions = normaliseList(positionResponse, ["positions", "data"]);
+        positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
       } catch (positionError) {
         console.warn("[telemetry] failed to load positions", positionError?.message || positionError);
       }
@@ -580,7 +581,9 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
           params: { deviceId: missingPositionDeviceIds, from: from.toISOString(), to: now.toISOString() },
           asAdmin: true,
         });
-        const fallbackPositions = normaliseList(fallbackPositionsResponse, ["positions", "data"]);
+        const fallbackPositions = await enrichPositionsWithAddresses(
+          normaliseList(fallbackPositionsResponse, ["positions", "data"]),
+        );
         const latestByDevice = new Map();
 
         fallbackPositions.forEach((pos) => {

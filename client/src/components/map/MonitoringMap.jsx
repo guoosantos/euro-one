@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -56,6 +56,8 @@ function PopupContent({ marker }) {
 
 function MarkerLayer({ markers, focusMarkerId }) {
   const map = useMap();
+  const lastFocusedRef = useRef(null);
+  const hasInitialFitRef = useRef(false);
   const safeMarkers = useMemo(
     () => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)),
     [markers],
@@ -64,19 +66,25 @@ function MarkerLayer({ markers, focusMarkerId }) {
   useEffect(() => {
     if (focusMarkerId) {
       const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
-      if (target) {
+      if (target && lastFocusedRef.current !== focusMarkerId) {
+        lastFocusedRef.current = focusMarkerId;
         map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { duration: 0.75 });
         return;
       }
     }
 
-    if (safeMarkers.length) {
-      const bounds = L.latLngBounds(safeMarkers.map((marker) => [marker.lat, marker.lng]));
-      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
+    if (!safeMarkers.length) {
+      hasInitialFitRef.current = false;
+      lastFocusedRef.current = null;
+      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
       return;
     }
 
-    map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+    if (!hasInitialFitRef.current) {
+      const bounds = L.latLngBounds(safeMarkers.map((marker) => [marker.lat, marker.lng]));
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
+      hasInitialFitRef.current = true;
+    }
   }, [focusMarkerId, map, safeMarkers]);
 
   return safeMarkers.map((marker) => (

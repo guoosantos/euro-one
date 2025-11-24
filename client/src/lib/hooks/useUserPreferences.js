@@ -7,6 +7,7 @@ const STORAGE_KEY = "userPrefs:monitoring";
 
 const DEFAULT_PREFERENCES = {
   monitoringTableColumns: null,
+  routeReportColumns: null,
   monitoringDefaultFilters: null,
 };
 
@@ -30,6 +31,7 @@ function normalisePreferences(raw) {
     ...DEFAULT_PREFERENCES,
     ...raw,
     monitoringTableColumns: normaliseColumns(raw.monitoringTableColumns),
+    routeReportColumns: normaliseColumns(raw.routeReportColumns),
     monitoringDefaultFilters:
       typeof raw.monitoringDefaultFilters === "object" ? { ...raw.monitoringDefaultFilters } : null,
   };
