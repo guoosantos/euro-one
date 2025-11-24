@@ -2,9 +2,16 @@ import api from "./api.js";
 import { API_ROUTES } from "./api-routes.js";
 
 const CORE_BASE = API_ROUTES.core.base;
+const CRM_BASE = API_ROUTES.crm.base;
 
 async function http(path, { method = "GET", params, payload, headers } = {}) {
   const url = path.startsWith("http") ? path : `${CORE_BASE}/${path.replace(/^\/+/, "")}`;
+  const response = await api.request({ method, url, params, data: payload, headers });
+  return response?.data ?? null;
+}
+
+async function crmHttp(path, { method = "GET", params, payload, headers } = {}) {
+  const url = path.startsWith("http") ? path : `${CRM_BASE}/${path.replace(/^\/+/, "")}`;
   const response = await api.request({ method, url, params, data: payload, headers });
   return response?.data ?? null;
 }
@@ -47,14 +54,13 @@ export const CoreApi = {
   createTask: (payload) => http("tasks", { method: "POST", payload }),
   updateTask: (id, payload) => http(`tasks/${id}`, { method: "PUT", payload }),
   // crm
-  listCrmClients: (params) => http(API_ROUTES.crm.clients, { params }),
-  createCrmClient: (payload) => http(API_ROUTES.crm.clients, { method: "POST", payload }),
-  updateCrmClient: (id, payload) => http(`${API_ROUTES.crm.clients}/${id}`, { method: "PUT", payload }),
-  listCrmContacts: (clientId, params) =>
-    http(`${API_ROUTES.crm.clients}/${clientId}/contacts`, { params }),
-  createCrmContact: (clientId, payload) =>
-    http(`${API_ROUTES.crm.clients}/${clientId}/contacts`, { method: "POST", payload }),
-  listCrmAlerts: (params) => http(API_ROUTES.crm.alerts, { params }),
+  listCrmClients: (params) => crmHttp(API_ROUTES.crm.clients, { params }),
+  createCrmClient: (payload) => crmHttp(API_ROUTES.crm.clients, { method: "POST", payload }),
+  getCrmClient: (id, params) => crmHttp(`${API_ROUTES.crm.clients}/${id}`, { params }),
+  updateCrmClient: (id, payload) => crmHttp(`${API_ROUTES.crm.clients}/${id}`, { method: "PUT", payload }),
+  listCrmContacts: (clientId, params) => crmHttp(API_ROUTES.crm.contacts(clientId), { params }),
+  addCrmContact: (clientId, payload) => crmHttp(API_ROUTES.crm.contacts(clientId), { method: "POST", payload }),
+  listCrmAlerts: (params) => crmHttp(API_ROUTES.crm.alerts, { params }),
 };
 
 function normaliseDevices(payload) {
@@ -67,4 +73,3 @@ function normaliseDevices(payload) {
   if (Array.isArray(payload.rows)) return payload.rows;
   return [];
 }
-
