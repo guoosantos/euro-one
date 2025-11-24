@@ -1,36 +1,49 @@
-export interface CrmContact {
+export interface CrmClient {
   id: string;
-  crmClientId: string;
-  clientId: string;
   name: string;
-  role?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  notes?: string | null;
+  segment?: string;
+  companySize?: "micro" | "pequena" | "media" | "grande";
+  city?: string;
+  state?: string;
+  website?: string;
+
+  mainContactName?: string;
+  mainContactRole?: string;
+  mainContactPhone?: string;
+  mainContactEmail?: string;
+
+  interestLevel?: "baixo" | "medio" | "alto";
+  closeProbability?: "baixa" | "media" | "alta";
+  tags?: string[];
+
+  hasCompetitorContract?: boolean;
+  competitorName?: string;
+  competitorContractStart?: string | null;
+  competitorContractEnd?: string | null;
+
+  inTrial?: boolean;
+  trialProduct?: string;
+  trialStart?: string | null;
+  trialDurationDays?: number | null;
+  trialEnd?: string | null;
+
+  notes?: string;
   createdAt?: string;
   updatedAt?: string;
 }
 
-export interface CrmClient {
+export type CrmContactType = "ligacao" | "whatsapp" | "email" | "reuniao";
+
+export interface CrmContact {
   id: string;
   clientId: string;
-  name: string;
-  tags?: string[];
-  interestLevel?: string | null;
-  closeProbability?: string | null;
-  mainContactName?: string | null;
-  mainContactRole?: string | null;
-  mainContactPhone?: string | null;
-  mainContactEmail?: string | null;
-  hasCompetitorContract?: boolean;
-  competitorContractEnd?: string | null;
-  competitorName?: string | null;
-  inTrial?: boolean;
-  trialEnd?: string | null;
-  primaryContact?: {
-    name?: string;
-    email?: string;
-    phone?: string;
-    role?: string;
-  } | null;
+  date: string;
+  type: CrmContactType;
+  internalUser?: string;
+  clientContactName?: string;
+  clientContactRole?: string;
+  summary?: string;
+  nextStep?: string;
+  nextStepDate?: string | null;
+  createdAt?: string;
 }
