@@ -126,6 +126,7 @@ export default function Sidebar() {
     { to: "/finance", label: "Financeiro", icon: Banknote },
     { to: "/clients", label: "Clientes", icon: Users },
     { to: "/users", label: "Usuários", icon: User },
+    { to: "/crm", label: "CRM", icon: FileBarChart },
   ];
 
   const telematicsLinks = [

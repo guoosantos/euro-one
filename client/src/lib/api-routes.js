@@ -26,6 +26,11 @@ export const API_ROUTES = {
   analytics: {
     eventsHeatmap: "events/heatmap",
   },
+  crm: {
+    base: "crm",
+    clients: "crm/clients",
+    alerts: "crm/alerts",
+  },
   clients: "clients",
   users: "users",
   models: "models",

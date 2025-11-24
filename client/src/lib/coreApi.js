@@ -46,6 +46,15 @@ export const CoreApi = {
   listTasks: (params) => http("tasks", { params }),
   createTask: (payload) => http("tasks", { method: "POST", payload }),
   updateTask: (id, payload) => http(`tasks/${id}`, { method: "PUT", payload }),
+  // crm
+  listCrmClients: (params) => http(API_ROUTES.crm.clients, { params }),
+  createCrmClient: (payload) => http(API_ROUTES.crm.clients, { method: "POST", payload }),
+  updateCrmClient: (id, payload) => http(`${API_ROUTES.crm.clients}/${id}`, { method: "PUT", payload }),
+  listCrmContacts: (clientId, params) =>
+    http(`${API_ROUTES.crm.clients}/${clientId}/contacts`, { params }),
+  createCrmContact: (clientId, payload) =>
+    http(`${API_ROUTES.crm.clients}/${clientId}/contacts`, { method: "POST", payload }),
+  listCrmAlerts: (params) => http(API_ROUTES.crm.alerts, { params }),
 };
 
 function normaliseDevices(payload) {

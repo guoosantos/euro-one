@@ -46,6 +46,7 @@ import Routing from "./pages/Routing";
 import Compliance from "./pages/Compliance";
 import IotSensors from "./pages/IotSensors";
 import VideoTelematics from "./pages/VideoTelematics";
+import Crm from "./pages/Crm";
 import LivePage from "./pages/Live";
 import NotFound from "./pages/NotFound";
 import RoutesPage from "./pages/Routes";
@@ -102,6 +103,7 @@ export const routeConfig = [
   { path: "/compliance", element: Compliance, title: "Compliance" },
   { path: "/iot-sensors", element: IotSensors, title: "Sensores IoT" },
   { path: "/video-telematics", element: VideoTelematics, title: "Vídeo Telemetria" },
+  { path: "/crm", element: Crm, title: "CRM" },
 ];
 
 const withLayout = (Component, options = {}) => (
