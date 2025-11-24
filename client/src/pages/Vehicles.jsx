@@ -8,6 +8,8 @@ import Modal from "../ui/Modal";
 import { Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { useTranslation } from "../lib/i18n.js";
+import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -20,6 +22,7 @@ function formatDate(value) {
 
 export default function Vehicles() {
   const { tenantId, user } = useTenant();
+  const { t, locale } = useTranslation();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +70,35 @@ export default function Vehicles() {
         .some((value) => String(value).toLowerCase().includes(term)),
     );
   }, [vehicles, query]);
+
+  const telemetryColumns = useMemo(() => {
+    const keys = ["plate", "vehicle", "deviceId", "protocol", "status", "serverTime"];
+    return keys
+      .map((key) => getTelemetryColumnByKey(key))
+      .filter(Boolean)
+      .map((column) => ({
+        ...column,
+        label: t(column.labelKey),
+        render: (row) => column.getValue(row, { t, locale }),
+      }));
+  }, [locale, t]);
+
+  const tableColumns = useMemo(
+    () => [
+      ...telemetryColumns,
+      { key: "driver", label: t("monitoring.columns.driver") || "Motorista", render: (row) => row.driver || "—" },
+      {
+        key: "actions",
+        label: t("monitoring.columns.actions"),
+        render: (row) => (
+          <Button onClick={() => openModal("edit", row.raw)} className="border border-white/10 bg-white/10 hover:bg-white/20">
+            {t("common.edit") || "Editar"}
+          </Button>
+        ),
+      },
+    ],
+    [openModal, t, telemetryColumns],
+  );
 
   const availableDevices = useMemo(() => {
     const currentDeviceId = form.deviceId;
@@ -165,26 +197,24 @@ export default function Vehicles() {
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
-                <th className="px-4 py-3 text-left">Placa</th>
-                <th className="px-4 py-3 text-left">Veículo</th>
-                <th className="px-4 py-3 text-left">Motorista</th>
-                <th className="px-4 py-3 text-left">Equipamento</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Última comunicação</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+                {tableColumns.map((column) => (
+                  <th key={column.key} className="px-4 py-3 text-left">
+                    {column.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColumns.length} className="px-4 py-6 text-center text-white/60">
                     Carregando veículos…
                   </td>
                 </tr>
               )}
               {!loading && filteredVehicles.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColumns.length} className="px-4 py-6 text-center text-white/60">
                     Nenhum veículo encontrado.
                   </td>
                 </tr>
@@ -192,20 +222,26 @@ export default function Vehicles() {
               {!loading &&
                 filteredVehicles.map((vehicle) => (
                   <tr key={vehicle.id} className="hover:bg-white/5">
-                    <td className="px-4 py-3 text-white">{vehicle.plate || "—"}</td>
-                    <td className="px-4 py-3">{vehicle.name || "—"}</td>
-                    <td className="px-4 py-3">{vehicle.driver || "—"}</td>
-                    <td className="px-4 py-3">{vehicle.device?.name || vehicle.device?.uniqueId || "—"}</td>
-                    <td className="px-4 py-3">{vehicle.connectionStatusLabel || "—"}</td>
-                    <td className="px-4 py-3">{formatDate(vehicle.lastCommunication)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <Button
-                        onClick={() => openModal("edit", vehicle)}
-                        className="border border-white/10 bg-white/10 hover:bg-white/20"
-                      >
-                        Editar
-                      </Button>
-                    </td>
+                    {tableColumns.map((column) => {
+                      const row = {
+                        vehicleName: vehicle.name,
+                        plate: vehicle.plate,
+                        vehicle,
+                        device: vehicle.device,
+                        deviceId: vehicle.device?.traccarId || vehicle.device?.id || vehicle.device?.uniqueId,
+                        traccarId: vehicle.device?.traccarId,
+                        position: vehicle.device?.position || null,
+                        lastCommunication: vehicle.lastCommunication,
+                        connectionStatusLabel: vehicle.connectionStatusLabel,
+                        driver: vehicle.driver,
+                        raw: vehicle,
+                      };
+                      return (
+                        <td key={column.key} className="px-4 py-3 text-left">
+                          {column.render ? column.render(row) : column.getValue?.(row, { t, locale })}
+                        </td>
+                      );
+                    })}
                   </tr>
                 ))}
             </tbody>

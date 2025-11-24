@@ -567,6 +567,51 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       };
     });
 
+    const missingPositionDeviceIds = response
+      .filter((item) => !item.position && item.traccarId)
+      .map((item) => String(item.traccarId));
+
+    if (missingPositionDeviceIds.length) {
+      const now = new Date();
+      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+      try {
+        const fallbackPositionsResponse = await traccarProxy("get", "/positions", {
+          params: { deviceId: missingPositionDeviceIds, from: from.toISOString(), to: now.toISOString() },
+          asAdmin: true,
+        });
+        const fallbackPositions = normaliseList(fallbackPositionsResponse, ["positions", "data"]);
+        const latestByDevice = new Map();
+
+        fallbackPositions.forEach((pos) => {
+          if (pos?.deviceId === undefined || pos?.deviceId === null) return;
+          const deviceId = String(pos.deviceId);
+          const time = Date.parse(pos.fixTime || pos.serverTime || pos.deviceTime || pos.time || 0);
+          const current = latestByDevice.get(deviceId);
+          if (!current) {
+            latestByDevice.set(deviceId, { pos, time });
+            return;
+          }
+          if (Number.isFinite(time) && (!Number.isFinite(current.time) || time > current.time)) {
+            latestByDevice.set(deviceId, { pos, time });
+          }
+        });
+
+        response.forEach((item, index) => {
+          if (item.position || !item.traccarId) return;
+          const fallback = latestByDevice.get(String(item.traccarId));
+          if (fallback?.pos) {
+            response[index] = { ...item, position: fallback.pos };
+          }
+        });
+      } catch (fallbackError) {
+        console.warn(
+          `[telemetry] fallback position error for devices ${missingPositionDeviceIds.join(",")}:`,
+          fallbackError?.message || fallbackError,
+        );
+      }
+    }
+
     res.json({ telemetry: response });
   } catch (error) {
     next(error);

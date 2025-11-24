@@ -23,14 +23,9 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import Card from "../ui/Card.jsx";
+import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
 
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
-
-function formatIgnition(value, t) {
-  if (value === true) return t("monitoring.ignitionOn");
-  if (value === false) return t("monitoring.ignitionOff");
-  return "—";
-}
 
 function getStatusBadge(position, t) {
   const status = deriveStatus(position);
@@ -63,114 +58,6 @@ function getStatusBadge(position, t) {
 }
 
 
-function buildColumns(t) {
-  return [
-    { key: "name", label: t("monitoring.columns.vehicle"), render: (row) => row.deviceName },
-    { key: "plate", label: t("monitoring.columns.plate"), render: (row) => row.plate || "—" },
-    { key: "id", label: t("monitoring.columns.id"), render: (row) => row.position?.id ?? "—" },
-    { key: "deviceId", label: t("monitoring.columns.deviceId"), render: (row) => row.deviceId || "—" },
-    { key: "protocol", label: t("monitoring.columns.protocol"), render: (row) => row.position?.protocol ?? "—" },
-    {
-      key: "serverTime",
-      label: t("monitoring.columns.serverTime"),
-      render: (row) => formatDateTime(getLastUpdate(row.position), row.locale),
-    },
-    {
-      key: "deviceTime",
-      label: t("monitoring.columns.deviceTime"),
-      render: (row) => formatDateTime(row.position?.deviceTime ? new Date(row.position.deviceTime) : null, row.locale),
-    },
-    {
-      key: "fixTime",
-      label: t("monitoring.columns.fixTime"),
-      render: (row) => formatDateTime(row.position?.fixTime ? new Date(row.position.fixTime) : null, row.locale),
-    },
-    {
-      key: "lastEvent",
-      label: t("monitoring.columns.lastEvent"),
-      render: (row) => row.lastEventName || "—",
-    },
-    { key: "valid", label: t("monitoring.columns.valid"), render: (row) => (row.position?.valid ? t("common.yes") : t("common.no")) },
-    {
-      key: "latitude",
-      label: t("monitoring.columns.latitude"),
-      render: (row) => (Number.isFinite(row.lat) ? row.lat.toFixed(5) : "—"),
-    },
-    {
-      key: "longitude",
-      label: t("monitoring.columns.longitude"),
-      render: (row) => (Number.isFinite(row.lng) ? row.lng.toFixed(5) : "—"),
-    },
-    { key: "altitude", label: t("monitoring.columns.altitude"), render: (row) => row.position?.altitude ?? "—" },
-    {
-      key: "speed",
-      label: t("monitoring.columns.speed"),
-      render: (row) => {
-        const speed = pickSpeed(row.position);
-        return speed !== null ? `${speed} km/h` : "—";
-      },
-    },
-    { key: "course", label: t("monitoring.columns.course"), render: (row) => row.position?.course ?? "—" },
-    {
-      key: "address",
-      label: t("monitoring.columns.address"),
-      render: (row) =>
-        formatAddress(
-          row.position?.formattedAddress ||
-            row.position?.address ||
-            row.position?.attributes?.address ||
-            row.device?.address,
-        ),
-    },
-    { key: "accuracy", label: t("monitoring.columns.accuracy"), render: (row) => row.position?.accuracy ?? "—" },
-    {
-      key: "geofenceIds",
-      label: t("monitoring.columns.geofenceIds"),
-      render: (row) => (row.position?.geofenceIds ? [].concat(row.position.geofenceIds).join(", ") : "—"),
-    },
-    { key: "type", label: t("monitoring.columns.type"), render: (row) => row.position?.type ?? "—" },
-    { key: "status", label: t("monitoring.columns.status"), render: (row) => row.statusBadge?.label ?? "—" },
-    {
-      key: "ignition",
-      label: t("monitoring.columns.ignition"),
-      render: (row) => formatIgnition(getIgnition(row.position, row.device), t),
-    },
-    { key: "charge", label: t("monitoring.columns.charge"), render: (row) => row.position?.charge ?? row.position?.attributes?.charge ?? "—" },
-    { key: "blocked", label: t("monitoring.columns.blocked"), render: (row) => (row.position?.blocked ? t("common.yes") : t("common.no")) },
-    {
-      key: "batteryLevel",
-      label: t("monitoring.columns.batteryLevel"),
-      render: (row) => row.position?.batteryLevel ?? row.position?.attributes?.batteryLevel ?? "—",
-    },
-    { key: "rssi", label: t("monitoring.columns.rssi"), render: (row) => row.position?.rssi ?? row.position?.attributes?.rssi ?? "—" },
-    { key: "distance", label: t("monitoring.columns.distance"), render: (row) => row.position?.distance ?? "—" },
-    { key: "totalDistance", label: t("monitoring.columns.totalDistance"), render: (row) => row.position?.totalDistance ?? "—" },
-    { key: "motion", label: t("monitoring.columns.motion"), render: (row) => (row.position?.motion ? t("common.yes") : t("common.no")) },
-    { key: "hours", label: t("monitoring.columns.hours"), render: (row) => row.position?.hours ?? row.position?.attributes?.hours ?? "—" },
-    {
-      key: "actions",
-      label: t("monitoring.columns.actions"),
-      render: (row) => (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className="rounded-lg bg-primary/15 px-3 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
-            onClick={() => row.onFocus?.(row.deviceId)}
-          >
-            {t("monitoring.actions.map")}
-          </button>
-          <button
-            type="button"
-            className="rounded-lg border border-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 hover:border-white/30"
-            onClick={() => row.onReplay?.(row.deviceId)}
-          >
-            {t("monitoring.actions.replay")}
-          </button>
-        </div>
-      ),
-    },
-  ];
-}
 
 function loadColumnPreferences(defaults) {
   try {
@@ -250,10 +137,60 @@ export default function Monitoring() {
   const [exportColumns, setExportColumns] = useState([]);
   const [focusedMarkerId, setFocusedMarkerId] = useState(null);
 
-  const allColumns = useMemo(() => buildColumns(t), [t]);
+  const handleFocusOnMap = useCallback((deviceId) => {
+    if (!deviceId) return;
+    setFocusedMarkerId(deviceId);
+  }, []);
+
+  const handleReplay = useCallback(
+    (deviceId) => {
+      if (!deviceId) return;
+      navigate(`/trips?deviceId=${encodeURIComponent(deviceId)}`);
+    },
+    [navigate],
+  );
+
+  const telemetryColumns = useMemo(
+    () =>
+      TELEMETRY_COLUMNS.map((column) => ({
+        ...column,
+        label: t(column.labelKey),
+        render: (row) => column.getValue(row, { t, locale }),
+      })),
+    [locale, t],
+  );
+
+  const actionsColumn = useMemo(
+    () => ({
+      key: "actions",
+      label: t("monitoring.columns.actions"),
+      defaultVisible: true,
+      render: (row) => (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-lg bg-primary/15 px-3 py-1 text-[11px] font-semibold text-primary hover:bg-primary/25"
+            onClick={() => row.onFocus?.(row.deviceId)}
+          >
+            {t("monitoring.actions.map")}
+          </button>
+          <button
+            type="button"
+            className="rounded-lg border border-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 hover:border-white/30"
+            onClick={() => row.onReplay?.(row.deviceId)}
+          >
+            {t("monitoring.actions.replay")}
+          </button>
+        </div>
+      ),
+    }),
+    [t],
+  );
+
+  const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [actionsColumn, telemetryColumns]);
   const defaultPreferences = useMemo(
     () => ({
-      visible: Object.fromEntries(allColumns.map((column) => [column.key, true])),
+      visible: Object.fromEntries(allColumns.map((column) => [column.key, column.defaultVisible !== false])),
       order: allColumns.map((column) => column.key),
     }),
     [allColumns],
@@ -314,19 +251,6 @@ export default function Monitoring() {
     return [...ordered, ...missing];
   }, [allColumns, columnPrefs]);
 
-  const handleFocusOnMap = useCallback((deviceId) => {
-    if (!deviceId) return;
-    setFocusedMarkerId(deviceId);
-  }, []);
-
-  const handleReplay = useCallback(
-    (deviceId) => {
-      if (!deviceId) return;
-      navigate(`/trips?deviceId=${encodeURIComponent(deviceId)}`);
-    },
-    [navigate],
-  );
-
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
   const deviceIndex = useMemo(() => {
@@ -382,9 +306,11 @@ export default function Monitoring() {
         key,
         device,
         deviceId: key,
+        traccarId: device?.traccarId || telemetryItem?.traccarId,
         position,
         deviceName: device?.name ?? device?.vehicle ?? device?.alias ?? t("monitoring.unknownDevice"),
         plate: device?.plate ?? device?.vehicle?.plate ?? device?.registrationNumber ?? device?.uniqueId,
+        vehicle: telemetryItem?.vehicle || device?.vehicle || null,
         lat,
         lng,
         statusBadge: badge,
