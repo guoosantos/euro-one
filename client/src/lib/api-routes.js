@@ -28,8 +28,12 @@ export const API_ROUTES = {
   },
   crm: {
     base: "crm",
-    clients: "crm/clients",
-    alerts: "crm/alerts",
+    // clients should be just "clients" so crmHttp builds /api/crm/clients
+    clients: "clients",
+    // contacts is a function that returns clients/:id/contacts
+    contacts: (clientId) => `clients/${clientId}/contacts`,
+    // alerts endpoint under /api/crm/alerts
+    alerts: "alerts",
   },
   clients: "clients",
   users: "users",
