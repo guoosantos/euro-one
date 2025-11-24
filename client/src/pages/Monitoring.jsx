@@ -81,7 +81,7 @@ function saveColumnPreferences(prefs) {
   }
 }
 
-function MapSection({ markers, geofences, focusMarkerId, t }) {
+function MapSection({ markers, geofences, selectedMarkerId, t }) {
   if (typeof window === "undefined") {
     return (
       <div className="flex h-[360px] flex-col justify-center gap-2 p-6 text-sm text-white/60">
@@ -96,7 +96,7 @@ function MapSection({ markers, geofences, focusMarkerId, t }) {
   try {
     return (
       <div className="relative h-[360px]">
-        <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={focusMarkerId} height={360} />
+        <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={selectedMarkerId} height={360} />
         {!hasMarkers ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl text-sm text-white/60">
             <span className="rounded-lg bg-black/50 px-3 py-2 shadow-lg shadow-black/40">
@@ -135,11 +135,11 @@ export default function Monitoring() {
     to: new Date(),
   });
   const [exportColumns, setExportColumns] = useState([]);
-  const [focusedMarkerId, setFocusedMarkerId] = useState(null);
+  const [selectedDeviceId, setSelectedDeviceId] = useState(null);
 
   const handleFocusOnMap = useCallback((deviceId) => {
     if (!deviceId) return;
-    setFocusedMarkerId(deviceId);
+    setSelectedDeviceId(deviceId);
   }, []);
 
   const handleReplay = useCallback(
@@ -165,6 +165,7 @@ export default function Monitoring() {
       key: "actions",
       label: t("monitoring.columns.actions"),
       defaultVisible: true,
+      fixed: true,
       render: (row) => (
         <div className="flex gap-2">
           <button
@@ -205,6 +206,7 @@ export default function Monitoring() {
   );
 
   const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
+  const [draggingColumn, setDraggingColumn] = useState(null);
 
   useEffect(() => {
     if (loadingPreferences) return;
@@ -231,6 +233,25 @@ export default function Monitoring() {
     [loadingPreferences, savePreferences],
   );
 
+  const handleReorderColumn = useCallback(
+    (fromKey, toKey) => {
+      if (!fromKey || !toKey || fromKey === toKey) return;
+      setColumnPrefs((current) => {
+        const currentOrder = current.order?.length ? [...current.order] : [...defaultPreferences.order];
+        const fromIndex = currentOrder.indexOf(fromKey);
+        const toIndex = currentOrder.indexOf(toKey);
+        if (fromIndex === -1 || toIndex === -1) return current;
+        const nextOrder = [...currentOrder];
+        const [moved] = nextOrder.splice(fromIndex, 1);
+        nextOrder.splice(toIndex, 0, moved);
+        const next = { ...current, order: nextOrder };
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [defaultPreferences.order, persistColumnPrefs],
+  );
+
   useEffect(() => {
     if (loadingPreferences) return;
     const currentMode = preferences?.monitoringDefaultFilters?.mode;
@@ -248,7 +269,10 @@ export default function Monitoring() {
       .filter(Boolean)
       .filter((column) => visible[column.key] !== false);
     const missing = allColumns.filter((column) => !order.includes(column.key) && visible[column.key] !== false);
-    return [...ordered, ...missing];
+    const combined = [...ordered, ...missing];
+    const movable = combined.filter((column) => column.fixed !== true);
+    const fixed = combined.filter((column) => column.fixed === true);
+    return [...movable, ...fixed];
   }, [allColumns, columnPrefs]);
 
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
@@ -350,13 +374,13 @@ export default function Monitoring() {
     return filteredRows
       .map((row) => {
         if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
-        const address =
-          formatAddress(
-            row.position?.formattedAddress ||
-              row.position?.address ||
-              row.position?.attributes?.address ||
-              row.device?.address,
-          ) || t("monitoring.noAddress");
+        const addressRaw =
+          row.position?.shortAddress ||
+          row.position?.formattedAddress ||
+          row.position?.address ||
+          row.position?.attributes?.address ||
+          row.device?.address;
+        const address = formatAddress(addressRaw) || t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
         const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), locale);
         const distance = row.position?.totalDistance ?? row.position?.distance;
@@ -412,6 +436,8 @@ export default function Monitoring() {
 
   const handleToggleColumn = useCallback(
     (key) => {
+      const column = allColumns.find((item) => item.key === key);
+      if (column?.fixed) return;
       setColumnPrefs((current) => {
         const isVisible = current.visible?.[key] !== false;
         const next = { ...current, visible: { ...current.visible, [key]: !isVisible } };
@@ -419,7 +445,7 @@ export default function Monitoring() {
         return next;
       });
     },
-    [persistColumnPrefs],
+    [allColumns, persistColumnPrefs],
   );
 
   const handleRestoreColumns = useCallback(() => {
@@ -528,7 +554,7 @@ export default function Monitoring() {
             </header>
 
             <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
-              <MapSection markers={markers} geofences={geofences} focusMarkerId={focusedMarkerId} t={t} />
+              <MapSection markers={markers} geofences={geofences} selectedMarkerId={selectedDeviceId} t={t} />
             </div>
           </Card>
 
@@ -599,14 +625,32 @@ export default function Monitoring() {
                     {t("monitoring.showColumns")}
                   </div>
                   {allColumns.map((column) => (
-                    <label key={column.key} className="flex items-center justify-between py-1">
-                      <span className="text-white/70">{column.label}</span>
+                    <div
+                      key={column.key}
+                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${
+                        draggingColumn === column.key ? "bg-white/10" : ""
+                      }`}
+                      draggable={!column.fixed}
+                      onDragStart={() => !column.fixed && setDraggingColumn(column.key)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleReorderColumn(draggingColumn, column.key);
+                        setDraggingColumn(null);
+                      }}
+                      onDragEnd={() => setDraggingColumn(null)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
+                        <span className="text-white/70">{column.label}</span>
+                      </div>
                       <input
                         type="checkbox"
                         checked={columnPrefs.visible?.[column.key] !== false}
+                        disabled={column.fixed}
                         onChange={() => handleToggleColumn(column.key)}
                       />
-                    </label>
+                    </div>
                   ))}
                   <button
                     type="button"
@@ -634,7 +678,13 @@ export default function Monitoring() {
             </thead>
             <tbody>
               {filteredRows.map((row) => (
-                <tr key={row.key ?? row.deviceId ?? row.device?.id} className="border-b border-white/5 last:border-none">
+                <tr
+                  key={row.key ?? row.deviceId ?? row.device?.id}
+                  className={`border-b border-white/5 last:border-none ${
+                    selectedDeviceId === row.deviceId ? "bg-white/5" : ""
+                  }`}
+                  onClick={() => setSelectedDeviceId(row.deviceId)}
+                >
                   {visibleColumns.map((column) => (
                     <td key={column.key} className="px-6 py-3 text-white/80">
                       {column.render(row)}

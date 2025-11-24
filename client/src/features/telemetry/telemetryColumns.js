@@ -141,7 +141,8 @@ export const TELEMETRY_COLUMNS = [
     defaultVisible: true,
     getValue: (row) =>
       formatAddress(
-        row.position?.formattedAddress ||
+        row.position?.shortAddress ||
+          row.position?.formattedAddress ||
           row.position?.address ||
           row.position?.attributes?.address ||
           row.device?.address,

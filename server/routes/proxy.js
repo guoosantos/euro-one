@@ -15,7 +15,7 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import { enrichPositionsWithAddresses } from "../utils/address.js";
+import { enrichPositionsWithAddresses, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -118,7 +118,7 @@ function pickAccept(format = "") {
   return "application/json";
 }
 
-function normalizeReportPayload(path, payload) {
+async function normalizeReportPayload(path, payload) {
   const isObject = payload && typeof payload === "object" && !Array.isArray(payload);
   const base = isObject ? { ...payload } : {};
   const ensureList = (keys = []) => {
@@ -130,7 +130,8 @@ function normalizeReportPayload(path, payload) {
   };
 
   if (path.includes("/route")) {
-    base.positions = ensureList(["positions", "route", "routes", "data", "items"]);
+    const positions = ensureList(["positions", "route", "routes", "data", "items"]);
+    base.positions = await enrichPositionsWithAddresses(positions);
     return base;
   }
 
@@ -145,7 +146,28 @@ function normalizeReportPayload(path, payload) {
   }
 
   if (path.includes("/trips")) {
-    base.trips = ensureList(["trips", "data", "items"]);
+    const trips = ensureList(["trips", "data", "items"]);
+    base.trips = await Promise.all(
+      trips.map(async (trip) => {
+        const startLat = trip.startLat ?? trip.startLatitude ?? trip.lat ?? trip.latitude;
+        const startLng = trip.startLon ?? trip.startLongitude ?? trip.lon ?? trip.longitude;
+        const endLat = trip.endLat ?? trip.endLatitude ?? trip.latTo ?? trip.latitudeTo;
+        const endLng = trip.endLon ?? trip.endLongitude ?? trip.lonTo ?? trip.longitudeTo;
+
+        const start = await resolveShortAddress(startLat, startLng, trip.startAddress);
+        const end = await resolveShortAddress(endLat, endLng, trip.endAddress);
+
+        return {
+          ...trip,
+          startAddress: start?.address || trip.startAddress,
+          endAddress: end?.address || trip.endAddress,
+          startShortAddress: start?.shortAddress || start?.formattedAddress || null,
+          endShortAddress: end?.shortAddress || end?.formattedAddress || null,
+          startFormattedAddress: start?.formattedAddress || null,
+          endFormattedAddress: end?.formattedAddress || null,
+        };
+      }),
+    );
     return base;
   }
 
@@ -227,7 +249,7 @@ async function proxyTraccarReportWithParams(req, res, next, path, paramsIn) {
       res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
-      res.json(normalizeReportPayload(path, response?.data));
+      res.json(await normalizeReportPayload(path, response?.data));
     }
   } catch (error) {
     if (error?.response) {
@@ -724,7 +746,7 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
       res.setHeader("Content-Type", accept);
       res.send(Buffer.from(response.data));
     } else {
-      res.json(normalizeReportPayload("/reports/trips", response?.data));
+      res.json(await normalizeReportPayload("/reports/trips", response?.data));
     }
   } catch (error) {
     if (error?.response) {

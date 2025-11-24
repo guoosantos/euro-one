@@ -30,7 +30,11 @@ export function getUserPreferences(userId) {
   if (!userId) throw createError(400, "userId é obrigatório");
   const record = preferences.get(String(userId));
   if (!record) return null;
-  return { ...record, monitoringTableColumns: sanitizeColumns(record.monitoringTableColumns) };
+  return {
+    ...record,
+    monitoringTableColumns: sanitizeColumns(record.monitoringTableColumns),
+    routeReportColumns: sanitizeColumns(record.routeReportColumns),
+  };
 }
 
 export function saveUserPreferences(userId, updates = {}) {
@@ -38,6 +42,7 @@ export function saveUserPreferences(userId, updates = {}) {
   const existing = preferences.get(String(userId)) || {
     userId: String(userId),
     monitoringTableColumns: null,
+    routeReportColumns: null,
     monitoringDefaultFilters: null,
     createdAt: new Date().toISOString(),
   };
@@ -48,6 +53,9 @@ export function saveUserPreferences(userId, updates = {}) {
       typeof updates.monitoringTableColumns !== "undefined"
         ? updates.monitoringTableColumns
         : existing.monitoringTableColumns,
+    ),
+    routeReportColumns: sanitizeColumns(
+      typeof updates.routeReportColumns !== "undefined" ? updates.routeReportColumns : existing.routeReportColumns,
     ),
     monitoringDefaultFilters:
       typeof updates.monitoringDefaultFilters !== "undefined"
@@ -68,6 +76,7 @@ export function resetUserPreferences(userId) {
   return {
     userId: String(userId),
     monitoringTableColumns: null,
+    routeReportColumns: null,
     monitoringDefaultFilters: null,
   };
 }

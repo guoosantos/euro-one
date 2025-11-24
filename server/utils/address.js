@@ -28,6 +28,15 @@ function collapseWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function coalesce(...values) {
+  for (const value of values) {
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+  return "";
+}
+
 export function formatAddress(address) {
   if (!address) return "—";
   const cleaned = collapseWhitespace(address);
@@ -49,11 +58,65 @@ export function formatAddress(address) {
   return `${fallback.slice(0, 2).join(", ")} - ${fallback.slice(-2).join(" - ")}`;
 }
 
+function formatShortAddressFromParts(parts = {}) {
+  const street = parts.street || coalesce(parts.road, parts.streetName, parts.route);
+  const houseNumber = parts.houseNumber || coalesce(parts.house_number, parts.house);
+  const neighbourhood = parts.neighbourhood || coalesce(parts.neighbourhood, parts.suburb, parts.quarter);
+  const city = parts.city || coalesce(parts.city, parts.town, parts.village, parts.municipality);
+  const state = parts.state || coalesce(parts.state, parts.region, parts.state_district);
+  const postalCode = parts.postalCode || coalesce(parts.postcode, parts.zipcode);
+
+  const firstLine = [street, houseNumber].filter(Boolean).join(", ");
+  const locality = [neighbourhood, city].filter(Boolean).join(", ");
+  const region = [state, postalCode].filter(Boolean).join(", ");
+
+  const suffix = [locality, region].filter(Boolean).join(" - ");
+  const compact = [firstLine, suffix].filter(Boolean).join(" - ");
+  if (compact) return compact;
+
+  const fallback = [street, neighbourhood, city, state, postalCode].filter(Boolean).join(", ");
+  return fallback || null;
+}
+
 function buildCacheKey(lat, lng) {
   const normalizedLat = normalizeCoordinate(lat);
   const normalizedLng = normalizeCoordinate(lng);
   if (normalizedLat === null || normalizedLng === null) return null;
   return `${normalizedLat},${normalizedLng}`;
+}
+
+function normalizeGeocodePayload(payload, lat, lng) {
+  const displayName = collapseWhitespace(payload?.display_name) || null;
+  const details = payload?.address || {};
+
+  const street = coalesce(
+    details.road,
+    details.residential,
+    details.cycleway,
+    details.pedestrian,
+    details.highway,
+    details.footway,
+  );
+
+  const parts = {
+    street,
+    houseNumber: details.house_number || details.house,
+    neighbourhood: coalesce(details.neighbourhood, details.suburb, details.quarter),
+    city: coalesce(details.city, details.town, details.village, details.municipality),
+    state: coalesce(details.state, details.region, details.state_district),
+    postalCode: details.postcode || details.zipcode,
+  };
+
+  const shortAddress = formatShortAddressFromParts(parts) || formatAddress(displayName);
+
+  return {
+    address: displayName,
+    formattedAddress: formatAddress(displayName),
+    shortAddress,
+    parts,
+    lat,
+    lng,
+  };
 }
 
 async function fetchGeocode(lat, lng) {
@@ -71,7 +134,7 @@ async function fetchGeocode(lat, lng) {
     throw new Error(`Geocode HTTP ${response.status}`);
   }
   const payload = await response.json();
-  return payload?.display_name || null;
+  return normalizeGeocodePayload(payload, lat, lng);
 }
 
 async function lookupGeocode(lat, lng) {
@@ -79,8 +142,8 @@ async function lookupGeocode(lat, lng) {
   if (!key) return null;
 
   const cached = cache.get(key);
-  if (cached?.address) {
-    return cached.address;
+  if (cached?.address || cached?.shortAddress) {
+    return cached;
   }
 
   if (pendingLookups.has(key)) {
@@ -91,7 +154,7 @@ async function lookupGeocode(lat, lng) {
     try {
       const address = await fetchGeocode(lat, lng);
       if (address) {
-        cache.set(key, { key, lat, lng, address, updatedAt: new Date().toISOString() });
+        cache.set(key, { key, lat, lng, ...address, updatedAt: new Date().toISOString() });
         persistCache();
       }
       return address;
@@ -108,10 +171,11 @@ async function lookupGeocode(lat, lng) {
 
 export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
-  const address = position.address || position.attributes?.address;
-  if (address) {
-    const formatted = formatAddress(address);
-    return { ...position, formattedAddress: formatted };
+  const address = position.address || position.formattedAddress || position.attributes?.address;
+  const shortAddress = position.shortAddress;
+  if (address || shortAddress) {
+    const formatted = address ? formatAddress(address) : null;
+    return { ...position, formattedAddress: formatted || shortAddress, shortAddress };
   }
 
   const lat = position.latitude ?? position.lat;
@@ -122,8 +186,13 @@ export async function ensurePositionAddress(position) {
 
   const resolved = await lookupGeocode(lat, lng);
   if (!resolved) return position;
-  const formatted = formatAddress(resolved);
-  return { ...position, address: resolved, formattedAddress: formatted };
+  return {
+    ...position,
+    address: resolved.address,
+    formattedAddress: resolved.formattedAddress,
+    shortAddress: resolved.shortAddress,
+    addressParts: resolved.parts,
+  };
 }
 
 export async function enrichPositionsWithAddresses(collection) {
@@ -132,8 +201,31 @@ export async function enrichPositionsWithAddresses(collection) {
   return enriched;
 }
 
+export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
+    return fallbackAddress
+      ? { shortAddress: formatAddress(fallbackAddress), formattedAddress: formatAddress(fallbackAddress) }
+      : null;
+  }
+
+  const resolved = await lookupGeocode(lat, lng);
+  if (resolved) {
+    return {
+      ...resolved,
+    };
+  }
+
+  if (fallbackAddress) {
+    const formatted = formatAddress(fallbackAddress);
+    return { shortAddress: formatted, formattedAddress: formatted, address: fallbackAddress };
+  }
+
+  return null;
+}
+
 export default {
   formatAddress,
   ensurePositionAddress,
   enrichPositionsWithAddresses,
+  resolveShortAddress,
 };

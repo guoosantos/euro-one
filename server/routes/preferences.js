@@ -12,6 +12,7 @@ router.get("/user/preferences", (req, res, next) => {
     const preferences = getUserPreferences(req.user.id) || {
       userId: req.user.id,
       monitoringTableColumns: null,
+      routeReportColumns: null,
       monitoringDefaultFilters: null,
     };
     return res.json({ preferences });
