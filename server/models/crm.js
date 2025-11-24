@@ -73,6 +73,18 @@ function normaliseContactType(value) {
   return map[value] || "ligacao";
 }
 
+function isDateWithinDays(dateValue, withinDays) {
+  if (!withinDays || withinDays <= 0) return false;
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return false;
+
+  const now = new Date();
+  const limit = new Date();
+  limit.setDate(limit.getDate() + withinDays);
+
+  return date >= now && date <= limit;
+}
+
 function ensureClientAccessible(record, clientId) {
   if (!record) {
     throw createError(404, "Cliente CRM não encontrado");
@@ -159,6 +171,30 @@ export function listCrmClients({ clientId } = {}) {
   return Array.from(crmClients.values())
     .filter((record) => (clientId ? String(record.clientId) === String(clientId) : true))
     .map((record) => hydrateRecord(record));
+}
+
+export function listCrmClientsWithUpcomingEvents({ clientId, contractWithinDays = 30, trialWithinDays = 7 } = {}) {
+  const contractDays = Number.isFinite(Number(contractWithinDays)) ? Number(contractWithinDays) : 30;
+  const trialDays = Number.isFinite(Number(trialWithinDays)) ? Number(trialWithinDays) : 7;
+
+  const clients = listCrmClients({ clientId });
+
+  const contractAlerts = contractDays
+    ? clients.filter(
+        (client) =>
+          client.hasCompetitorContract &&
+          client.competitorContractEnd &&
+          isDateWithinDays(client.competitorContractEnd, contractDays),
+      )
+    : [];
+
+  const trialAlerts = trialDays
+    ? clients.filter(
+        (client) => client.inTrial && client.trialEnd && isDateWithinDays(client.trialEnd, trialDays),
+      )
+    : [];
+
+  return { contractAlerts, trialAlerts };
 }
 
 export function getCrmClient(id, { clientId } = {}) {

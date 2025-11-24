@@ -7,6 +7,7 @@ import {
   createCrmClient,
   getCrmClient,
   listCrmClients,
+  listCrmClientsWithUpcomingEvents,
   listCrmContacts,
   updateCrmClient,
 } from "../models/crm.js";
@@ -49,6 +50,26 @@ router.put("/clients/:id", (req, res, next) => {
     const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
     const client = updateCrmClient(req.params.id, req.body, { clientId });
     res.json({ client });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/alerts", (req, res, next) => {
+  try {
+    const contractWithinDays = Number.isFinite(Number(req.query.contractWithinDays))
+      ? Number(req.query.contractWithinDays)
+      : undefined;
+    const trialWithinDays = Number.isFinite(Number(req.query.trialWithinDays))
+      ? Number(req.query.trialWithinDays)
+      : undefined;
+
+    const alerts = listCrmClientsWithUpcomingEvents({
+      clientId: req.clientId,
+      contractWithinDays,
+      trialWithinDays,
+    });
+    res.json(alerts);
   } catch (error) {
     next(error);
   }

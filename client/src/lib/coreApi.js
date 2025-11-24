@@ -60,6 +60,7 @@ export const CoreApi = {
   updateCrmClient: (id, payload) => crmHttp(`${API_ROUTES.crm.clients}/${id}`, { method: "PUT", payload }),
   listCrmContacts: (clientId, params) => crmHttp(API_ROUTES.crm.contacts(clientId), { params }),
   addCrmContact: (clientId, payload) => crmHttp(API_ROUTES.crm.contacts(clientId), { method: "POST", payload }),
+  listCrmAlerts: (params) => crmHttp(API_ROUTES.crm.alerts, { params }),
 };
 
 function normaliseDevices(payload) {
