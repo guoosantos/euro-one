@@ -180,8 +180,12 @@ export default function Crm() {
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
+  const contactListParams = useMemo(
+    () => (hasAdminAccess && viewScope === "mine" ? { view: "mine" } : null),
+    [hasAdminAccess, viewScope],
+  );
   const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
-    useCrmContacts(selectedId);
+    useCrmContacts(selectedId, contactListParams);
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 
@@ -219,6 +223,16 @@ export default function Crm() {
       supplier: "Fornecedor",
     }),
     [],
+  );
+
+  const relationshipFilters = useMemo(
+    () => [
+      { value: "", label: "Todos" },
+      { value: "customer", label: relationshipLabel.customer },
+      { value: "supplier", label: relationshipLabel.supplier },
+      { value: "prospection", label: relationshipLabel.prospection },
+    ],
+    [relationshipLabel.customer, relationshipLabel.prospection, relationshipLabel.supplier],
   );
 
   const relationshipBadgeStyle = useMemo(
@@ -653,12 +667,22 @@ export default function Crm() {
             </div>
             <div className="space-y-1">
               <div className="text-xs text-white/60">Relação</div>
-              <Select value={filterRelationship} onChange={(event) => setFilterRelationship(event.target.value)}>
-                <option value="">Todas</option>
-                <option value="customer">Cliente</option>
-                <option value="supplier">Fornecedor</option>
-                <option value="prospection">Prospecção</option>
-              </Select>
+              <div className="flex flex-wrap gap-2">
+                {relationshipFilters.map((option) => (
+                  <button
+                    key={option.value || "all"}
+                    type="button"
+                    onClick={() => setFilterRelationship(option.value)}
+                    className={`rounded-full px-3 py-1 text-xs transition ${
+                      filterRelationship === option.value
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-white/5 text-white/70 hover:bg-white/10"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
             {hasAdminAccess && (
               <div className="space-y-1">
@@ -675,6 +699,7 @@ export default function Crm() {
               <thead className="text-white/50">
                 <tr className="border-b border-white/10 text-left">
                   <th className="py-2 pr-4">Cliente</th>
+                  <th className="py-2 pr-4">CNPJ</th>
                   <th className="py-2 pr-4">Segmento</th>
                   <th className="py-2 pr-4">Local</th>
                   <th className="py-2 pr-4">Relação</th>
@@ -689,14 +714,14 @@ export default function Crm() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={10} className="py-4 text-center text-white/60">
+                    <td colSpan={11} className="py-4 text-center text-white/60">
                       Carregando clientes...
                     </td>
                   </tr>
                 )}
                 {!loading && filteredClients.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="py-4 text-center text-white/60">
+                    <td colSpan={11} className="py-4 text-center text-white/60">
                       Nenhum cliente cadastrado.
                     </td>
                   </tr>
@@ -727,6 +752,7 @@ export default function Crm() {
                           </div>
                         </div>
                       </td>
+                      <td className="py-2 pr-4 text-white/70">{formatCnpj(client.cnpj) || "—"}</td>
                       <td className="py-2 pr-4 text-white/70">{client.segment || "—"}</td>
                       <td className="py-2 pr-4 text-white/70">
                         {[client.city, client.state].filter(Boolean).join("/") || "—"}
@@ -790,6 +816,7 @@ export default function Crm() {
                   <>
                     <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
                     <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
+                    <div className="text-white/70">CNPJ: {formatCnpj(selectedClient.cnpj) || "—"}</div>
                     <div className="text-white/70">Relação: {relationshipLabel[selectedClient.relationshipType] || "Prospecção"}</div>
                     <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
                     <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>

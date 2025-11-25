@@ -5,7 +5,7 @@ import { useTranslation } from "../i18n.js";
 
 /** @typedef {import("../../features/crm/types").CrmContact} CrmContact */
 
-export function useCrmContacts(clientId) {
+export function useCrmContacts(clientId, params = null) {
   const { t } = useTranslation();
   const [contacts, setContacts] = useState(/** @type {CrmContact[]} */ ([]));
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,7 @@ export function useCrmContacts(clientId) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    CoreApi.listCrmContacts(clientId)
+    CoreApi.listCrmContacts(clientId, params || undefined)
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -37,7 +37,7 @@ export function useCrmContacts(clientId) {
     return () => {
       cancelled = true;
     };
-  }, [clientId, t]);
+  }, [clientId, params, t]);
 
   useEffect(() => load(), [load]);
 

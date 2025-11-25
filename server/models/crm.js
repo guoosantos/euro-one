@@ -58,11 +58,24 @@ function normaliseRelationshipType(value) {
 }
 
 function duplicateCnpjError() {
-  const error = createError(409, "Já existe um cliente com este CNPJ na base do CRM.");
+  const message = "Já existe um cliente com este CNPJ na base do CRM.";
+  const error = createError(409, message);
   error.code = "DUPLICATE_CNPJ";
   error.expose = true;
-  error.data = { code: "DUPLICATE_CNPJ" };
+  error.data = { code: "DUPLICATE_CNPJ", message };
   return error;
+}
+
+function findDuplicateCnpj({ clientId, cnpj, ignoreId } = {}) {
+  if (!clientId || !cnpj) return null;
+
+  const clientKey = String(clientId);
+  return Array.from(crmClients.values()).find((record) => {
+    if (ignoreId && record.id === ignoreId) return false;
+    const sameTenant = String(record.clientId) === clientKey;
+    const hasCnpj = Boolean(record.cnpj);
+    return sameTenant && hasCnpj && record.cnpj === cnpj;
+  });
 }
 
 function computeTrialEnd(startDate, durationDays, endDate) {
@@ -255,7 +268,7 @@ export function getCrmClient(id, { clientId, user } = {}) {
   return hydrateRecord(record);
 }
 
-export function createCrmClient(payload) {
+export function createCrmClient(payload, { user } = {}) {
   const name = normaliseString(payload?.name || payload?.companyName);
   if (!name) {
     throw createError(400, "Nome do cliente é obrigatório");
@@ -264,16 +277,10 @@ export function createCrmClient(payload) {
   if (!clientId) {
     throw createError(400, "clientId é obrigatório");
   }
-  const cnpj = normaliseCnpj(payload?.cnpj);
-  const cnpjValue = cnpj || null;
+  const cnpjValue = normaliseCnpj(payload?.cnpj) || null;
 
-  if (cnpjValue) {
-    const duplicated = Array.from(crmClients.values()).find(
-      (record) => record.clientId === clientId && record.cnpj && record.cnpj === cnpjValue,
-    );
-    if (duplicated) {
-      throw duplicateCnpjError();
-    }
+  if (findDuplicateCnpj({ clientId, cnpj: cnpjValue })) {
+    throw duplicateCnpjError();
   }
 
   const now = new Date().toISOString();
@@ -305,7 +312,7 @@ export function createCrmClient(payload) {
     trialEnd: computeTrialEnd(payload?.trialStart, payload?.trialDurationDays, payload?.trialEnd),
     notes: normaliseString(payload?.notes),
     relationshipType: normaliseRelationshipType(payload?.relationshipType),
-    createdByUserId: payload?.createdByUserId || null,
+    createdByUserId: user?.id || payload?.createdByUserId || null,
     contacts: [],
     createdAt: now,
     updatedAt: now,
@@ -321,9 +328,7 @@ export function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
     const nextCnpj = normaliseCnpj(updates.cnpj);
     const nextValue = nextCnpj || null;
     if (nextValue) {
-      const duplicated = Array.from(crmClients.values()).find(
-        (item) => item.id !== record.id && item.clientId === record.clientId && item.cnpj === nextValue,
-      );
+      const duplicated = findDuplicateCnpj({ clientId: record.clientId, cnpj: nextValue, ignoreId: record.id });
       if (duplicated) {
         throw duplicateCnpjError();
       }
@@ -371,11 +376,16 @@ export function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
   return persistClient(record);
 }
 
-export function listCrmContacts(id, { clientId, user } = {}) {
+export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
   const record = crmClients.get(String(id));
   ensureClientAccessible(record, clientId, user);
   const contacts = Array.isArray(record.contacts) ? record.contacts.map(toContactSnapshot) : [];
-  if (user?.role === "admin") return contacts;
+  if (user?.role === "admin") {
+    if (createdByUserId) {
+      return contacts.filter((contact) => contact.createdByUserId === createdByUserId);
+    }
+    return contacts;
+  }
   return contacts.filter((contact) => contact.createdByUserId === user?.id);
 }
 
@@ -394,7 +404,7 @@ export function addCrmContact(id, payload = {}, { clientId, user } = {}) {
     summary: normaliseString(payload.summary),
     nextStep: normaliseString(payload.nextStep),
     nextStepDate: normaliseDate(payload.nextStepDate),
-    createdByUserId: payload?.createdByUserId || user?.id || null,
+    createdByUserId: user?.id || payload?.createdByUserId || null,
     createdAt: new Date().toISOString(),
   };
 
