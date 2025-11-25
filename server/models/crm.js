@@ -2,6 +2,7 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
+import { normaliseClientTags } from "./crm-tags.js";
 
 const STORAGE_KEY = "crmClients";
 const crmClients = new Map();
@@ -19,22 +20,10 @@ function normaliseBoolean(value) {
   return Boolean(value);
 }
 
-function normaliseTags(tags) {
-  if (!tags) return [];
-  if (Array.isArray(tags)) {
-    return tags
-      .map((tag) => (typeof tag === "string" ? tag.trim() : ""))
-      .filter(Boolean)
-      .slice(0, 30);
-  }
-  if (typeof tags === "string") {
-    return tags
-      .split(",")
-      .map((tag) => tag.trim())
-      .filter(Boolean)
-      .slice(0, 30);
-  }
-  return [];
+function normaliseTags(tags, { clientId } = {}) {
+  if (!clientId) return [];
+  const resolved = normaliseClientTags(tags, { clientId });
+  return resolved.slice(0, 30);
 }
 
 function normaliseString(value) {
@@ -83,6 +72,13 @@ function isDateWithinDays(dateValue, withinDays) {
   limit.setDate(limit.getDate() + withinDays);
 
   return date >= now && date <= limit;
+}
+
+function isDatePastOrToday(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return date <= now;
 }
 
 function ensureClientAccessible(record, clientId) {
@@ -140,7 +136,7 @@ function migrateLegacy(record) {
     mainContactEmail: record.primaryContact?.email || record.mainContactEmail,
     interestLevel: record.interestLevel === "médio" ? "medio" : record.interestLevel,
     closeProbability: record.closeProbability === "média" ? "media" : record.closeProbability,
-    tags: record.tags || [],
+    tags: normaliseTags(record.tags, { clientId: record.clientId }),
     hasCompetitorContract: record.hasCompetitorContract,
     competitorName: record.competitorName,
     competitorContractStart: record.contractStart || record.competitorContractStart,
@@ -184,17 +180,26 @@ export function listCrmClientsWithUpcomingEvents({ clientId, contractWithinDays 
         (client) =>
           client.hasCompetitorContract &&
           client.competitorContractEnd &&
-          isDateWithinDays(client.competitorContractEnd, contractDays),
+          isDateWithinDays(client.competitorContractEnd, contractDays) &&
+          !isDatePastOrToday(client.competitorContractEnd),
       )
     : [];
+
+  const contractExpired = clients.filter(
+    (client) =>
+      client.hasCompetitorContract && client.competitorContractEnd && isDatePastOrToday(client.competitorContractEnd),
+  );
 
   const trialAlerts = trialDays
     ? clients.filter(
-        (client) => client.inTrial && client.trialEnd && isDateWithinDays(client.trialEnd, trialDays),
+        (client) =>
+          client.inTrial && client.trialEnd && isDateWithinDays(client.trialEnd, trialDays) && !isDatePastOrToday(client.trialEnd),
       )
     : [];
 
-  return { contractAlerts, trialAlerts };
+  const trialExpired = clients.filter((client) => client.inTrial && client.trialEnd && isDatePastOrToday(client.trialEnd));
+
+  return { contractAlerts, contractExpired, trialAlerts, trialExpired };
 }
 
 export function getCrmClient(id, { clientId } = {}) {
@@ -229,7 +234,7 @@ export function createCrmClient(payload) {
     mainContactEmail: normaliseString(payload?.mainContactEmail),
     interestLevel: payload?.interestLevel || "medio",
     closeProbability: payload?.closeProbability || "media",
-    tags: normaliseTags(payload?.tags),
+    tags: normaliseTags(payload?.tags, { clientId }),
     hasCompetitorContract: normaliseBoolean(payload?.hasCompetitorContract),
     competitorName: normaliseString(payload?.competitorName),
     competitorContractStart: normaliseDate(payload?.competitorContractStart),
@@ -265,7 +270,7 @@ export function updateCrmClient(id, updates = {}, { clientId } = {}) {
 
   if (updates.interestLevel !== undefined) record.interestLevel = updates.interestLevel;
   if (updates.closeProbability !== undefined) record.closeProbability = updates.closeProbability;
-  if (updates.tags !== undefined) record.tags = normaliseTags(updates.tags);
+  if (updates.tags !== undefined) record.tags = normaliseTags(updates.tags, { clientId: record.clientId });
 
   if (updates.hasCompetitorContract !== undefined) record.hasCompetitorContract = normaliseBoolean(updates.hasCompetitorContract);
   if (updates.competitorName !== undefined) record.competitorName = normaliseString(updates.competitorName);
