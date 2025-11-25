@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
-import { usePollingTask } from "./usePollingTask.js";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -18,38 +17,59 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
   const initialLoadRef = useRef(true);
+  const failuresRef = useRef(0);
+  const intervalRef = useRef(null);
 
-  const fetchTelemetry = useCallback(async (options = {}) => {
-    const showLoading = options.withLoading || initialLoadRef.current;
-    if (showLoading) setLoading(true);
-    setError(null);
-    try {
-      const response = await api.get(API_ROUTES.core.telemetry);
-      if (!mountedRef.current) return;
-      const items = normaliseTelemetry(response?.data);
-      setTelemetry(Array.isArray(items) ? items : []);
-    } catch (requestError) {
-      if (!mountedRef.current) return;
-      const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
-      setError(new Error(friendly));
-      throw requestError;
-    } finally {
-      if (mountedRef.current && showLoading) {
-        setLoading(false);
+  const fetchTelemetry = useCallback(
+    async (options = {}) => {
+      const showLoading = options.withLoading || initialLoadRef.current;
+      if (showLoading) setLoading(true);
+      try {
+        const response = await api.get(API_ROUTES.core.telemetry);
+        if (!mountedRef.current) return;
+        const items = normaliseTelemetry(response?.data);
+        setTelemetry(Array.isArray(items) ? items : []);
+        setError(null);
+        failuresRef.current = 0;
+      } catch (requestError) {
+        if (!mountedRef.current) return;
+        const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
+        setError(new Error(friendly));
+        failuresRef.current += 1;
+        if (failuresRef.current >= maxConsecutiveErrors) {
+          console.warn("Falhas consecutivas ao atualizar telemetria", requestError);
+        }
+      } finally {
+        if (mountedRef.current && showLoading) {
+          setLoading(false);
+        }
+        initialLoadRef.current = false;
       }
-      initialLoadRef.current = false;
-    }
-  }, [t]);
-
-  usePollingTask(fetchTelemetry, {
-    enabled: true,
-    intervalMs: refreshInterval,
-    maxConsecutiveErrors,
-    onPermanentFailure: (err) => {
-      if (!err || !mountedRef.current) return;
-      console.error("Telemetry polling halted after consecutive failures", err);
     },
-  });
+    [maxConsecutiveErrors, t],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+
+    fetchTelemetry({ withLoading: true });
+
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+
+    intervalRef.current = globalThis.setInterval(() => {
+      void fetchTelemetry({ withLoading: false });
+    }, refreshInterval || 5000);
+
+    return () => {
+      mountedRef.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [fetchTelemetry, refreshInterval]);
 
   const reload = useCallback(() => {
     void fetchTelemetry({ withLoading: true });
@@ -74,13 +94,6 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
     }),
     [t],
   );
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
 
   return { telemetry, loading, error, reload, stats, liveStatus };
 }
