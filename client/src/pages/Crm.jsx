@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Contact2, FilePlus2, Tag as TagIcon } from "lucide-react";
+import { AlertTriangle, Contact2, Eye, FilePlus2, Tag as TagIcon } from "lucide-react";
 
 import Card from "../ui/Card";
 import Input from "../ui/Input";
@@ -150,6 +150,7 @@ export default function Crm() {
   const [alertsError, setAlertsError] = useState(null);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("");
+  const [activeInteraction, setActiveInteraction] = useState(null);
   const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
     useCrmContacts(selectedId);
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
@@ -192,7 +193,10 @@ export default function Crm() {
     [],
   );
 
-  const tagLookup = useMemo(() => new Map(tagCatalog.map((tag) => [tag.id, tag])), [tagCatalog]);
+  const tagsById = useMemo(
+    () => Object.fromEntries(tagCatalog.map((tag) => [tag.id, tag])),
+    [tagCatalog],
+  );
 
   const loadAlerts = useCallback(() => {
     let cancelled = false;
@@ -285,6 +289,10 @@ export default function Crm() {
     return cancel;
   }, [loadAlerts]);
 
+  useEffect(() => {
+    setActiveInteraction(null);
+  }, [selectedId]);
+
   const filteredClients = useMemo(
     () =>
       clients.filter((client) => {
@@ -319,13 +327,20 @@ export default function Crm() {
 
         if (filterTag) {
           const tags = normaliseTagIds(client?.tags);
-          const hasTag = tags.includes(filterTag) || tags.some((tag) => normalise(tag) === normalise(filterTag));
+          const normalisedFilter = normalise(filterTag);
+          const hasTag = tags.some((tagId) => {
+            if (!tagId) return false;
+            if (tagId === filterTag) return true;
+            const tagName = tagsById[tagId]?.name;
+            if (tagName) return normalise(tagName) === normalisedFilter;
+            return normalise(tagId) === normalisedFilter;
+          });
           if (!hasTag) return false;
         }
 
         return true;
       }),
-    [clients, searchTerm, filterInterest, filterCloseProbability, filterTag],
+    [clients, searchTerm, filterInterest, filterCloseProbability, filterTag, tagsById],
   );
 
   const sortedContacts = useMemo(() => {
@@ -441,9 +456,7 @@ export default function Crm() {
 
   function resolveTagLabel(tagIdOrName) {
     if (!tagIdOrName) return null;
-    const tag = tagLookup.get(tagIdOrName);
-    if (tag) return tag;
-    return { id: tagIdOrName, name: tagIdOrName, color: null };
+    return tagsById[tagIdOrName] || null;
   }
 
   const interactionsTitle = selectedClient
@@ -595,6 +608,7 @@ export default function Crm() {
                         {normaliseTagIds(client.tags).length === 0 && <span className="text-white/40">—</span>}
                         {normaliseTagIds(client.tags).map((tagId) => {
                           const tag = resolveTagLabel(tagId);
+                          if (!tag) return null;
                           return <TagBadge key={tagId} label={tag.name} color={tag.color} />;
                         })}
                       </td>
@@ -641,6 +655,7 @@ export default function Crm() {
                     <div className="flex flex-wrap gap-2">
                       {normaliseTagIds(selectedClient.tags).map((tagId) => {
                         const tag = resolveTagLabel(tagId);
+                        if (!tag) return null;
                         return <TagBadge key={tagId} label={tag.name} color={tag.color} />;
                       })}
                     </div>
@@ -817,21 +832,46 @@ export default function Crm() {
                           <th className="py-2 px-3">Resumo</th>
                           <th className="py-2 px-3">Próximo passo</th>
                           <th className="py-2 px-3">Follow-up</th>
+                          <th className="py-2 px-3 text-right">Ações</th>
                         </tr>
                       </thead>
                       <tbody>
                         {sortedContacts.map((contact) => (
-                          <tr key={contact.id} className="border-b border-white/5">
-                            <td className="py-2 px-3 text-white/80">{formatDate(contact.date || contact.createdAt)}</td>
-                            <td className="py-2 px-3 text-white/80">{contactTypeLabel[contact.type] || contact.type}</td>
-                            <td className="py-2 px-3 text-white/80">{contact.internalUser || "—"}</td>
-                            <td className="py-2 px-3 text-white/80">
+                          <tr
+                            key={contact.id}
+                            className="border-b border-white/5 cursor-pointer transition hover:bg-white/5"
+                            onClick={() => setActiveInteraction(contact)}
+                          >
+                            <td className="py-2 px-3 text-white/80 align-top">{formatDate(contact.date || contact.createdAt)}</td>
+                            <td className="py-2 px-3 text-white/80 align-top">{contactTypeLabel[contact.type] || contact.type}</td>
+                            <td className="py-2 px-3 text-white/80 align-top">{contact.internalUser || "—"}</td>
+                            <td className="py-2 px-3 text-white/80 align-top">
                               <div>{contact.clientContactName || "—"}</div>
                               <div className="text-xs text-white/50">{contact.clientContactRole || ""}</div>
                             </td>
-                            <td className="py-2 px-3 text-white/80">{contact.summary || "—"}</td>
-                            <td className="py-2 px-3 text-white/80">{contact.nextStep || "—"}</td>
-                            <td className="py-2 px-3 text-white/80">{formatDate(contact.nextStepDate)}</td>
+                            <td className="py-2 px-3 text-white/80 align-top">
+                              <p
+                                className="max-h-14 overflow-hidden text-ellipsis break-words text-sm leading-snug"
+                                style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}
+                              >
+                                {contact.summary || "—"}
+                              </p>
+                            </td>
+                            <td className="py-2 px-3 text-white/80 align-top">{contact.nextStep || "—"}</td>
+                            <td className="py-2 px-3 text-white/80 align-top">{formatDate(contact.nextStepDate)}</td>
+                            <td className="py-2 px-3 text-right align-top">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="inline-flex items-center gap-1"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setActiveInteraction(contact);
+                                }}
+                              >
+                                <Eye size={14} /> Ver detalhes
+                              </Button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -900,6 +940,12 @@ export default function Crm() {
           )}
         </Card>
       </div>
+
+      <InteractionDetailsModal
+        interaction={activeInteraction}
+        onClose={() => setActiveInteraction(null)}
+        contactTypeLabel={contactTypeLabel}
+      />
 
       <Modal
         open={isFormOpen}
@@ -1156,6 +1202,50 @@ function AlertGroup({ title, items, renderDescription, tone = "info" }) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function InteractionDetailsModal({ interaction, onClose, contactTypeLabel }) {
+  return (
+    <Modal open={Boolean(interaction)} onClose={onClose} title="Detalhes da interação" width="max-w-2xl">
+      {interaction && (
+        <div className="space-y-4 text-white/80">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <DetailItem label="Data" value={formatDate(interaction.date || interaction.createdAt)} />
+            <DetailItem label="Tipo" value={contactTypeLabel[interaction.type] || interaction.type || "—"} />
+            <DetailItem label="Responsável interno" value={interaction.internalUser || "—"} />
+            <DetailItem
+              label="Contato do cliente"
+              value={interaction.clientContactName || "—"}
+              helper={interaction.clientContactRole}
+            />
+            <DetailItem label="Próximo passo" value={interaction.nextStep || "—"} />
+            <DetailItem label="Data de follow-up" value={formatDate(interaction.nextStepDate)} />
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-xs uppercase tracking-wide text-white/50">Resumo</div>
+            <p className="whitespace-pre-wrap break-words text-white">{interaction.summary || "—"}</p>
+          </div>
+
+          <div className="flex justify-end">
+            <Button variant="ghost" onClick={onClose}>
+              Fechar
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function DetailItem({ label, value, helper }) {
+  return (
+    <div className="space-y-1">
+      <div className="text-xs uppercase tracking-wide text-white/50">{label}</div>
+      <div className="text-sm text-white">{value || "—"}</div>
+      {helper ? <div className="text-xs text-white/60">{helper}</div> : null}
     </div>
   );
 }

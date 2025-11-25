@@ -4,6 +4,15 @@ import { CoreApi } from "../coreApi.js";
 import { useTenant } from "../tenant-context.jsx";
 import { useTranslation } from "../i18n.js";
 
+function normaliseTag(tag) {
+  if (!tag) return null;
+  return {
+    id: String(tag.id || ""),
+    name: tag.name || String(tag.id || ""),
+    color: tag.color || null,
+  };
+}
+
 export default function useCrmTags() {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
@@ -19,7 +28,7 @@ export default function useCrmTags() {
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.tags) ? data.tags : Array.isArray(data) ? data : [];
-        setTags(list);
+        setTags(list.map(normaliseTag).filter(Boolean));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -43,8 +52,13 @@ export default function useCrmTags() {
   const createTag = useCallback(
     async (payload) => {
       const response = await CoreApi.createCrmTag({ ...payload, clientId: tenantId });
-      const created = response?.tag || response;
-      setTags((prev) => [...prev, created]);
+      const created = normaliseTag(response?.tag || response);
+      if (!created) return null;
+      setTags((prev) => {
+        const existingIds = new Set(prev.map((tag) => tag.id));
+        if (existingIds.has(created.id)) return prev;
+        return [...prev, created];
+      });
       return created;
     },
     [tenantId],
