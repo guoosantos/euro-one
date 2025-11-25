@@ -15,7 +15,8 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import { enrichPositionsWithAddresses, resolveShortAddress } from "../utils/address.js";
+import { enrichPositionsWithAddresses, formatAddress, resolveShortAddress } from "../utils/address.js";
+import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 
 const router = express.Router();
@@ -57,6 +58,59 @@ function resolveTraccarDeviceId(req, allowed = null) {
   }
 
   return String(match.traccarId);
+}
+
+const TRIP_CSV_COLUMNS = [
+  { key: "device", label: "Dispositivo" },
+  { key: "startTime", label: "Início" },
+  { key: "endTime", label: "Fim" },
+  { key: "durationSeconds", label: "Duração (s)" },
+  { key: "distanceMeters", label: "Distância (m)" },
+  { key: "averageSpeedKmH", label: "Velocidade média (km/h)" },
+  { key: "maxSpeedKmH", label: "Velocidade máxima (km/h)" },
+  { key: "startAddress", label: "Endereço inicial" },
+  { key: "endAddress", label: "Endereço final" },
+  { key: "startLat", label: "Lat. inicial" },
+  { key: "startLon", label: "Lon. inicial" },
+  { key: "endLat", label: "Lat. final" },
+  { key: "endLon", label: "Lon. final" },
+];
+
+function pickTripAddress(trip, prefix) {
+  const short = trip?.[`${prefix}ShortAddress`];
+  const formatted = trip?.[`${prefix}FormattedAddress`];
+  const raw = trip?.[`${prefix}Address`];
+  const value = short || formatted || raw;
+  if (!value) return "";
+  const compact = formatAddress(value);
+  return compact === "—" ? "" : compact;
+}
+
+function buildTripsCsv(trips = []) {
+  const rows = trips.map((trip) => {
+    const distance = Number.isFinite(Number(trip.distance)) ? Number(trip.distance) : null;
+    const duration = Number.isFinite(Number(trip.duration)) ? Number(trip.duration) : null;
+    const average = Number.isFinite(Number(trip.averageSpeed)) ? Number(trip.averageSpeed) : null;
+    const max = Number.isFinite(Number(trip.maxSpeed)) ? Number(trip.maxSpeed) : null;
+
+    return {
+      device: trip.deviceName || trip.deviceId || trip.uniqueId || "",
+      startTime: trip.startTime || trip.start || "",
+      endTime: trip.endTime || trip.end || "",
+      durationSeconds: duration ?? "",
+      distanceMeters: distance ?? "",
+      averageSpeedKmH: average ?? "",
+      maxSpeedKmH: max ?? "",
+      startAddress: pickTripAddress(trip, "start"),
+      endAddress: pickTripAddress(trip, "end"),
+      startLat: trip.startLat ?? trip.startLatitude ?? "",
+      startLon: trip.startLon ?? trip.startLongitude ?? "",
+      endLat: trip.endLat ?? trip.endLatitude ?? "",
+      endLon: trip.endLon ?? trip.endLongitude ?? "",
+    };
+  });
+
+  return stringifyCsv(rows, TRIP_CSV_COLUMNS);
 }
 
 /**
@@ -744,6 +798,15 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
 
     const accept = pickAccept(String(body.format || ""));
     const wantsBinary = accept !== "application/json";
+
+    if (wantsBinary && String(body.format || "").toLowerCase() === "csv") {
+      const jsonResponse = await requestReportWithFallback("/reports/trips", body, "application/json", false);
+      const normalized = await normalizeReportPayload("/reports/trips", jsonResponse?.data);
+      const csv = buildTripsCsv(normalized?.trips || []);
+      res.setHeader("Content-Type", "text/csv");
+      res.send(csv);
+      return;
+    }
 
     const response = await requestReportWithFallback("/reports/trips", body, accept, wantsBinary);
 
