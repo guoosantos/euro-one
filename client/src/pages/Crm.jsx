@@ -147,6 +147,40 @@ export default function Crm() {
       setDetailLoading(false);
       return;
     }
+
+    const existing = clients.find((client) => client.id === selectedId);
+    if (existing) {
+      setSelectedClient(existing);
+      setForm({
+        name: existing?.name || "",
+        segment: existing?.segment || "",
+        companySize: existing?.companySize || "",
+        city: existing?.city || "",
+        state: existing?.state || "",
+        website: existing?.website || "",
+        mainContactName: existing?.mainContactName || "",
+        mainContactRole: existing?.mainContactRole || "",
+        mainContactPhone: existing?.mainContactPhone || "",
+        mainContactEmail: existing?.mainContactEmail || "",
+        interestLevel: existing?.interestLevel || "medio",
+        closeProbability: existing?.closeProbability || "media",
+        tags: (existing?.tags || []).join(", "),
+        hasCompetitorContract: Boolean(existing?.hasCompetitorContract),
+        competitorName: existing?.competitorName || "",
+        competitorContractStart: existing?.competitorContractStart ? existing.competitorContractStart.slice(0, 10) : "",
+        competitorContractEnd: existing?.competitorContractEnd ? existing.competitorContractEnd.slice(0, 10) : "",
+        inTrial: Boolean(existing?.inTrial),
+        trialProduct: existing?.trialProduct || "",
+        trialStart: existing?.trialStart ? existing.trialStart.slice(0, 10) : "",
+        trialDurationDays: existing?.trialDurationDays ?? "",
+        trialEnd: existing?.trialEnd ? existing.trialEnd.slice(0, 10) : "",
+        notes: existing?.notes || "",
+      });
+      setDetailError(null);
+      setDetailLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setDetailError(null);
     setDetailLoading(true);
@@ -183,7 +217,8 @@ export default function Crm() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setDetailError(err instanceof Error ? err : new Error("Falha ao carregar cliente"));
+        logCrmError(err, "getCrmClient");
+        setDetailError(new Error("Não foi possível carregar os detalhes deste cliente. Tente novamente."));
       })
       .finally(() => {
         if (cancelled) return;
@@ -192,7 +227,15 @@ export default function Crm() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [clients, selectedId]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    const current = clients.find((client) => client.id === selectedId);
+    if (current) {
+      setSelectedClient(current);
+    }
+  }, [clients, selectedId]);
 
   useEffect(() => {
     let cancelled = false;
