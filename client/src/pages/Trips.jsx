@@ -200,8 +200,24 @@ export default function Trips() {
                   <td className="py-2 pr-6 text-white/70">{formatDistance(trip.distance)}</td>
                   <td className="py-2 pr-6 text-white/70">{formatSpeed(trip.averageSpeed)}</td>
                   <td className="py-2 pr-6 text-white/70">{formatSpeed(trip.maxSpeed)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatLocation(trip.startAddress, trip.startLat, trip.startLon)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatLocation(trip.endAddress, trip.endLat, trip.endLon)}</td>
+                  <td className="py-2 pr-6 text-white/70">
+                    {formatLocation({
+                      address: trip.startAddress,
+                      shortAddress: trip.startShortAddress,
+                      formattedAddress: trip.startFormattedAddress,
+                      lat: trip.startLat,
+                      lon: trip.startLon,
+                    })}
+                  </td>
+                  <td className="py-2 pr-6 text-white/70">
+                    {formatLocation({
+                      address: trip.endAddress,
+                      shortAddress: trip.endShortAddress,
+                      formattedAddress: trip.endFormattedAddress,
+                      lat: trip.endLat,
+                      lon: trip.endLon,
+                    })}
+                  </td>
                   <td className="py-2 pr-6 text-white/80">
                     <button
                       type="button"
@@ -250,11 +266,23 @@ export default function Trips() {
             <SummaryItem label="Velocidade máxima" value={formatSpeed(selectedTrip.maxSpeed)} />
             <SummaryItem
               label="Local de início"
-              value={formatLocation(selectedTrip.startAddress, selectedTrip.startLat, selectedTrip.startLon)}
+              value={formatLocation({
+                address: selectedTrip.startAddress,
+                shortAddress: selectedTrip.startShortAddress,
+                formattedAddress: selectedTrip.startFormattedAddress,
+                lat: selectedTrip.startLat,
+                lon: selectedTrip.startLon,
+              })}
             />
             <SummaryItem
               label="Local de fim"
-              value={formatLocation(selectedTrip.endAddress, selectedTrip.endLat, selectedTrip.endLon)}
+              value={formatLocation({
+                address: selectedTrip.endAddress,
+                shortAddress: selectedTrip.endShortAddress,
+                formattedAddress: selectedTrip.endFormattedAddress,
+                lat: selectedTrip.endLat,
+                lon: selectedTrip.endLon,
+              })}
             />
           </dl>
         </section>
@@ -309,8 +337,9 @@ function formatSpeed(speed) {
   return `${Math.round(number)} km/h`;
 }
 
-function formatLocation(address, lat, lon) {
-  if (address) return formatAddress(address);
+function formatLocation({ address, shortAddress, formattedAddress, lat, lon }) {
+  const preferred = shortAddress || formattedAddress || address;
+  if (preferred) return formatAddress(preferred);
   const latitude = pickCoordinate([lat]);
   const longitude = pickCoordinate([lon]);
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
