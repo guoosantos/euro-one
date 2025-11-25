@@ -11,6 +11,7 @@ import {
   listCrmContacts,
   updateCrmClient,
 } from "../models/crm.js";
+import { createCrmTag, deleteCrmTag, listCrmTags } from "../models/crm-tags.js";
 
 const router = express.Router();
 
@@ -89,6 +90,34 @@ router.post("/clients/:id/contacts", (req, res, next) => {
     const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
     const contact = addCrmContact(req.params.id, req.body, { clientId });
     res.status(201).json({ contact });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/tags", (req, res, next) => {
+  try {
+    const tags = listCrmTags({ clientId: req.clientId });
+    res.json({ tags });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/tags", (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const tag = createCrmTag({ ...req.body, clientId });
+    res.status(201).json({ tag });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/tags/:id", (req, res, next) => {
+  try {
+    deleteCrmTag(req.params.id, { clientId: req.clientId });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }

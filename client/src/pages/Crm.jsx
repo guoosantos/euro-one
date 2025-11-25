@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Contact2, FilePlus2, NotebookPen } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Contact2, FilePlus2, Tag as TagIcon } from "lucide-react";
 
 import Card from "../ui/Card";
 import Input from "../ui/Input";
@@ -10,6 +10,7 @@ import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useCrmClients, { logCrmError } from "../lib/hooks/useCrmClients.js";
 import useCrmContacts from "../lib/hooks/useCrmContacts.js";
+import useCrmTags from "../lib/hooks/useCrmTags.js";
 
 const defaultForm = {
   name: "",
@@ -24,7 +25,7 @@ const defaultForm = {
   mainContactEmail: "",
   interestLevel: "medio",
   closeProbability: "media",
-  tags: "",
+  tags: [],
   hasCompetitorContract: false,
   competitorName: "",
   competitorContractStart: "",
@@ -81,12 +82,59 @@ function buildTrialLabel(client) {
   return "Teste em andamento";
 }
 
+function normaliseTagIds(tags) {
+  if (!tags) return [];
+  if (Array.isArray(tags)) return tags.map((tag) => (typeof tag === "string" ? tag : tag?.id)).filter(Boolean);
+  if (typeof tags === "string") return tags.split(",").map((tag) => tag.trim()).filter(Boolean);
+  return [];
+}
+
+function buildFormFromClient(client) {
+  return {
+    name: client?.name || "",
+    segment: client?.segment || "",
+    companySize: client?.companySize || "",
+    city: client?.city || "",
+    state: client?.state || "",
+    website: client?.website || "",
+    mainContactName: client?.mainContactName || "",
+    mainContactRole: client?.mainContactRole || "",
+    mainContactPhone: client?.mainContactPhone || "",
+    mainContactEmail: client?.mainContactEmail || "",
+    interestLevel: client?.interestLevel || "medio",
+    closeProbability: client?.closeProbability || "media",
+    tags: normaliseTagIds(client?.tags),
+    hasCompetitorContract: Boolean(client?.hasCompetitorContract),
+    competitorName: client?.competitorName || "",
+    competitorContractStart: client?.competitorContractStart ? client.competitorContractStart.slice(0, 10) : "",
+    competitorContractEnd: client?.competitorContractEnd ? client.competitorContractEnd.slice(0, 10) : "",
+    inTrial: Boolean(client?.inTrial),
+    trialProduct: client?.trialProduct || "",
+    trialStart: client?.trialStart ? client.trialStart.slice(0, 10) : "",
+    trialDurationDays: client?.trialDurationDays ?? "",
+    trialEnd: client?.trialEnd ? client.trialEnd.slice(0, 10) : "",
+    notes: client?.notes || "",
+  };
+}
+
+function TagBadge({ label, color }) {
+  const style = color ? { backgroundColor: `${color}30`, color } : {};
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs text-white/80"
+      style={style}
+    >
+      <TagIcon size={12} /> {label}
+    </span>
+  );
+}
+
 export default function Crm() {
   const { tenantId } = useTenant();
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients();
+  const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [interactionForm, setInteractionForm] = useState(defaultInteraction);
-  const [selectedId, setSelectedId] = useState(null);
   const [selectedClient, setSelectedClient] = useState(null);
   const [saving, setSaving] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -97,10 +145,15 @@ export default function Crm() {
   const [filterInterest, setFilterInterest] = useState("");
   const [filterCloseProbability, setFilterCloseProbability] = useState("");
   const [filterTag, setFilterTag] = useState("");
-  const [alerts, setAlerts] = useState({ contractAlerts: [], trialAlerts: [] });
+  const [alerts, setAlerts] = useState({ contractAlerts: [], contractExpired: [], trialAlerts: [], trialExpired: [] });
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsError, setAlertsError] = useState(null);
-  const { contacts, loading: contactsLoading, error: contactsError, addContact } = useCrmContacts(selectedId);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState("");
+  const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
+    useCrmContacts(selectedId);
+  const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
+    useCrmTags();
 
   const interestBadge = useMemo(() => {
     const map = {
@@ -139,43 +192,55 @@ export default function Crm() {
     [],
   );
 
+  const tagLookup = useMemo(() => new Map(tagCatalog.map((tag) => [tag.id, tag])), [tagCatalog]);
+
+  const loadAlerts = useCallback(() => {
+    let cancelled = false;
+    setAlertsLoading(true);
+    setAlertsError(null);
+    CoreApi.listCrmAlerts({
+      contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
+      trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
+    })
+      .then((response) => {
+        if (cancelled) return;
+        setAlerts({
+          contractAlerts: response?.contractAlerts || [],
+          contractExpired: response?.contractExpired || [],
+          trialAlerts: response?.trialAlerts || [],
+          trialExpired: response?.trialExpired || [],
+        });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAlertsError(err instanceof Error ? err : new Error("Falha ao carregar alertas"));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setAlertsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
+
   useEffect(() => {
     if (!selectedId) {
       setSelectedClient(null);
       setForm(defaultForm);
+      setInteractionForm(defaultInteraction);
       setDetailError(null);
       setDetailLoading(false);
       return;
     }
 
-    const existing = clients.find((client) => client.id === selectedId);
-    if (existing) {
-      setSelectedClient(existing);
-      setForm({
-        name: existing?.name || "",
-        segment: existing?.segment || "",
-        companySize: existing?.companySize || "",
-        city: existing?.city || "",
-        state: existing?.state || "",
-        website: existing?.website || "",
-        mainContactName: existing?.mainContactName || "",
-        mainContactRole: existing?.mainContactRole || "",
-        mainContactPhone: existing?.mainContactPhone || "",
-        mainContactEmail: existing?.mainContactEmail || "",
-        interestLevel: existing?.interestLevel || "medio",
-        closeProbability: existing?.closeProbability || "media",
-        tags: (existing?.tags || []).join(", "),
-        hasCompetitorContract: Boolean(existing?.hasCompetitorContract),
-        competitorName: existing?.competitorName || "",
-        competitorContractStart: existing?.competitorContractStart ? existing.competitorContractStart.slice(0, 10) : "",
-        competitorContractEnd: existing?.competitorContractEnd ? existing.competitorContractEnd.slice(0, 10) : "",
-        inTrial: Boolean(existing?.inTrial),
-        trialProduct: existing?.trialProduct || "",
-        trialStart: existing?.trialStart ? existing.trialStart.slice(0, 10) : "",
-        trialDurationDays: existing?.trialDurationDays ?? "",
-        trialEnd: existing?.trialEnd ? existing.trialEnd.slice(0, 10) : "",
-        notes: existing?.notes || "",
-      });
+    const next = clients.find((client) => client.id === selectedId) || null;
+    if (next) {
+      if (!selectedClient || selectedClient.id !== next.id || selectedClient.updatedAt !== next.updatedAt) {
+        setSelectedClient(next);
+        setForm(buildFormFromClient(next));
+      }
       setDetailError(null);
       setDetailLoading(false);
       return;
@@ -188,32 +253,9 @@ export default function Crm() {
       .then((response) => {
         if (cancelled) return;
         const client = response?.client || response;
+        if (!client) return;
         setSelectedClient(client);
-        setForm({
-          name: client?.name || "",
-          segment: client?.segment || "",
-          companySize: client?.companySize || "",
-          city: client?.city || "",
-          state: client?.state || "",
-          website: client?.website || "",
-          mainContactName: client?.mainContactName || "",
-          mainContactRole: client?.mainContactRole || "",
-          mainContactPhone: client?.mainContactPhone || "",
-          mainContactEmail: client?.mainContactEmail || "",
-          interestLevel: client?.interestLevel || "medio",
-          closeProbability: client?.closeProbability || "media",
-          tags: (client?.tags || []).join(", "),
-          hasCompetitorContract: Boolean(client?.hasCompetitorContract),
-          competitorName: client?.competitorName || "",
-          competitorContractStart: client?.competitorContractStart ? client.competitorContractStart.slice(0, 10) : "",
-          competitorContractEnd: client?.competitorContractEnd ? client.competitorContractEnd.slice(0, 10) : "",
-          inTrial: Boolean(client?.inTrial),
-          trialProduct: client?.trialProduct || "",
-          trialStart: client?.trialStart ? client.trialStart.slice(0, 10) : "",
-          trialDurationDays: client?.trialDurationDays ?? "",
-          trialEnd: client?.trialEnd ? client.trialEnd.slice(0, 10) : "",
-          notes: client?.notes || "",
-        });
+        setForm(buildFormFromClient(client));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -230,41 +272,18 @@ export default function Crm() {
   }, [clients, selectedId]);
 
   useEffect(() => {
-    if (!selectedId) return;
-    const current = clients.find((client) => client.id === selectedId);
-    if (current) {
-      setSelectedClient(current);
+    const today = new Date().toISOString().slice(0, 10);
+    if (selectedId) {
+      setInteractionForm((prev) => ({ ...defaultInteraction, date: prev.date || today }));
+    } else {
+      setInteractionForm(defaultInteraction);
     }
-  }, [clients, selectedId]);
+  }, [selectedId]);
 
   useEffect(() => {
-    let cancelled = false;
-    setAlertsLoading(true);
-    setAlertsError(null);
-    CoreApi.listCrmAlerts({
-      contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
-      trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
-    })
-      .then((response) => {
-        if (cancelled) return;
-        setAlerts({
-          contractAlerts: response?.contractAlerts || [],
-          trialAlerts: response?.trialAlerts || [],
-        });
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setAlertsError(err instanceof Error ? err : new Error("Falha ao carregar alertas"));
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setAlertsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [tenantId]);
+    const cancel = loadAlerts();
+    return cancel;
+  }, [loadAlerts]);
 
   const filteredClients = useMemo(
     () =>
@@ -299,8 +318,8 @@ export default function Crm() {
         }
 
         if (filterTag) {
-          const tags = Array.isArray(client?.tags) ? client.tags : [];
-          const hasTag = tags.some((tag) => normalise(tag).includes(normalise(filterTag)));
+          const tags = normaliseTagIds(client?.tags);
+          const hasTag = tags.includes(filterTag) || tags.some((tag) => normalise(tag) === normalise(filterTag));
           if (!hasTag) return false;
         }
 
@@ -309,10 +328,19 @@ export default function Crm() {
     [clients, searchTerm, filterInterest, filterCloseProbability, filterTag],
   );
 
+  const sortedContacts = useMemo(() => {
+    const list = Array.isArray(contacts) ? [...contacts] : [];
+    return list.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+  }, [contacts]);
+
   function handleFieldChange(event) {
     const { name, value, type, checked } = event.target;
     const parsedValue = type === "checkbox" ? checked : value;
     setForm((prev) => ({ ...prev, [name]: parsedValue }));
+  }
+
+  function handleSelectClient(id) {
+    setSelectedId(id);
   }
 
   async function handleSubmit(event) {
@@ -323,10 +351,7 @@ export default function Crm() {
     const payload = {
       ...form,
       clientId: tenantId,
-      tags: form.tags
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter(Boolean),
+      tags: form.tags,
       competitorContractStart: form.competitorContractStart || null,
       competitorContractEnd: form.competitorContractEnd || null,
       trialStart: form.trialStart || null,
@@ -380,13 +405,52 @@ export default function Crm() {
     try {
       const created = await addContact(interactionForm);
       setSelectedClient((prev) => ({ ...prev, contacts: [...(prev?.contacts || []), created] }));
-      setInteractionForm(defaultInteraction);
+      setInteractionForm((prev) => ({ ...defaultInteraction, date: prev.date || "" }));
+      refreshContacts();
     } catch (err) {
       logCrmError(err, "createInteraction");
     } finally {
       setInteractionSaving(false);
     }
   }
+
+  async function handleCreateTag(event) {
+    event.preventDefault();
+    if (!newTagName.trim()) return;
+    try {
+      const created = await createTag({ name: newTagName.trim(), color: newTagColor || undefined });
+      setNewTagName("");
+      setNewTagColor("");
+      setForm((prev) => ({ ...prev, tags: Array.from(new Set([...(prev.tags || []), created.id])) }));
+    } catch (err) {
+      logCrmError(err, "createCrmTag");
+    }
+  }
+
+  function toggleTagSelection(tagId) {
+    setForm((prev) => {
+      const current = new Set(prev.tags || []);
+      if (current.has(tagId)) {
+        current.delete(tagId);
+      } else {
+        current.add(tagId);
+      }
+      return { ...prev, tags: Array.from(current) };
+    });
+  }
+
+  function resolveTagLabel(tagIdOrName) {
+    if (!tagIdOrName) return null;
+    const tag = tagLookup.get(tagIdOrName);
+    if (tag) return tag;
+    return { id: tagIdOrName, name: tagIdOrName, color: null };
+  }
+
+  const interactionsTitle = selectedClient
+    ? `Interações – ${selectedClient.name}`
+    : "Interações – selecione um cliente na lista ao lado";
+
+  const quickStatusLabel = selectedClient ? selectedClient.name : "Nenhum cliente selecionado";
 
   return (
     <div className="space-y-4">
@@ -451,11 +515,14 @@ export default function Crm() {
             </div>
             <div className="space-y-1">
               <div className="text-xs text-white/60">Filtrar por tag</div>
-              <Input
-                placeholder="Ex.: frota, logística"
-                value={filterTag}
-                onChange={(event) => setFilterTag(event.target.value)}
-              />
+              <Select value={filterTag} onChange={(event) => setFilterTag(event.target.value)}>
+                <option value="">Todas</option>
+                {tagCatalog.map((tag) => (
+                  <option key={tag.id} value={tag.id}>
+                    {tag.name}
+                  </option>
+                ))}
+              </Select>
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -467,6 +534,7 @@ export default function Crm() {
                   <th className="py-2 pr-4">Local</th>
                   <th className="py-2 pr-4">Interesse</th>
                   <th className="py-2 pr-4">Prob. fechamento</th>
+                  <th className="py-2 pr-4">Tags</th>
                   <th className="py-2 pr-4">Contrato</th>
                   <th className="py-2 pr-4">Teste</th>
                   <th className="py-2 pr-4">Ações</th>
@@ -475,97 +543,184 @@ export default function Crm() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="py-4 text-center text-white/60">
+                    <td colSpan={9} className="py-4 text-center text-white/60">
                       Carregando clientes...
                     </td>
                   </tr>
                 )}
                 {!loading && filteredClients.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="py-4 text-center text-white/60">
+                    <td colSpan={9} className="py-4 text-center text-white/60">
                       Nenhum cliente cadastrado.
                     </td>
                   </tr>
                 )}
-                {filteredClients.map((client) => (
-                  <tr key={client.id} className="border-b border-white/5">
-                    <td className="py-2 pr-4 text-white">
-                      <div className="flex items-center gap-2">
-                        <Contact2 size={16} className="text-white/60" />
-                        <div>
-                          <div className="font-semibold">{client.name}</div>
-                          <div className="text-xs text-white/50">
-                            {client.mainContactName || client.primaryContact?.name || "Sem contato"}
-                          </div>
-                          {(client.mainContactRole || client.primaryContact?.role) && (
-                            <div className="text-[11px] text-white/40">
-                              {client.mainContactRole || client.primaryContact?.role}
+                {filteredClients.map((client) => {
+                  const isSelected = selectedId === client.id;
+                  return (
+                    <tr
+                      key={client.id}
+                      className={`border-b border-white/5 cursor-pointer transition hover:bg-white/5 ${
+                        isSelected ? "bg-primary/5 border-l-4 border-primary" : ""
+                      }`}
+                      onClick={() => handleSelectClient(client.id)}
+                    >
+                      <td className="py-2 pr-4 text-white">
+                        <div className="flex items-center gap-2">
+                          <Contact2 size={16} className="text-white/60" />
+                          <div>
+                            <div className="font-semibold">{client.name}</div>
+                            <div className="text-xs text-white/50">
+                              {client.mainContactName || client.primaryContact?.name || "Sem contato"}
                             </div>
-                          )}
+                            {(client.mainContactRole || client.primaryContact?.role) && (
+                              <div className="text-[11px] text-white/40">
+                                {client.mainContactRole || client.primaryContact?.role}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="py-2 pr-4 text-white/70">{client.segment || "—"}</td>
-                    <td className="py-2 pr-4 text-white/70">
-                      {[client.city, client.state].filter(Boolean).join("/") || "—"}
-                    </td>
-                    <td className="py-2 pr-4">
-                      <span className={`rounded-full px-2 py-1 text-xs ${interestBadge(client.interestLevel)}`}>
-                        {interestLabel[client.interestLevel] || "—"}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-4 text-white/80">{closeProbabilityLabel[client.closeProbability] || "—"}</td>
-                    <td className="py-2 pr-4 text-white/70">{buildContractLabel(client)}</td>
-                    <td className="py-2 pr-4 text-white/70">{buildTrialLabel(client)}</td>
-                    <td className="py-2 pr-4 text-white/80">
-                      <Button variant="ghost" className="px-2 py-1" onClick={() => openEditClient(client.id)}>
-                        Ver / editar
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="py-2 pr-4 text-white/70">{client.segment || "—"}</td>
+                      <td className="py-2 pr-4 text-white/70">
+                        {[client.city, client.state].filter(Boolean).join("/") || "—"}
+                      </td>
+                      <td className="py-2 pr-4">
+                        <span className={`rounded-full px-2 py-1 text-xs ${interestBadge(client.interestLevel)}`}>
+                          {interestLabel[client.interestLevel] || "—"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4 text-white/80">{closeProbabilityLabel[client.closeProbability] || "—"}</td>
+                      <td className="py-2 pr-4 text-white/80 space-y-1">
+                        {normaliseTagIds(client.tags).length === 0 && <span className="text-white/40">—</span>}
+                        {normaliseTagIds(client.tags).map((tagId) => {
+                          const tag = resolveTagLabel(tagId);
+                          return <TagBadge key={tagId} label={tag.name} color={tag.color} />;
+                        })}
+                      </td>
+                      <td className="py-2 pr-4 text-white/70">{buildContractLabel(client)}</td>
+                      <td className="py-2 pr-4 text-white/70">{buildTrialLabel(client)}</td>
+                      <td className="py-2 pr-4 text-white/80">
+                        <Button
+                          variant="ghost"
+                          className="px-2 py-1"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openEditClient(client.id);
+                          }}
+                        >
+                          Ver / editar
+                        </Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </Card>
 
-        <Card title="Cadastro / edição" subtitle="Atalhos rápidos">
-          <div className="space-y-4">
-            <Button onClick={openNewClientModal}>
-              <FilePlus2 size={16} className="mr-2" /> Novo cliente
-            </Button>
+        <div className="space-y-4">
+          <Card title="Cadastro / edição" subtitle="Atalhos rápidos">
+            <div className="space-y-4">
+              <Button onClick={openNewClientModal}>
+                <FilePlus2 size={16} className="mr-2" /> Novo cliente
+              </Button>
 
-            {selectedClient && (
               <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80">
-                <div className="text-sm font-semibold text-white">{selectedClient.name}</div>
-                <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
-                <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
-                <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
-                <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>
-                <div>
-                  <Button variant="ghost" className="px-2 py-1" onClick={() => openEditClient(selectedClient.id)}>
-                    Editar cliente
-                  </Button>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold text-white">{quickStatusLabel}</div>
+                  {selectedClient && <span className="rounded-full bg-primary/20 px-2 py-1 text-xs text-primary-foreground">Selecionado</span>}
                 </div>
+                {selectedClient ? (
+                  <>
+                    <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
+                    <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
+                    <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
+                    <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {normaliseTagIds(selectedClient.tags).map((tagId) => {
+                        const tag = resolveTagLabel(tagId);
+                        return <TagBadge key={tagId} label={tag.name} color={tag.color} />;
+                      })}
+                    </div>
+                    <div>
+                      <Button variant="ghost" className="px-2 py-1" onClick={() => openEditClient(selectedClient.id)}>
+                        Editar cliente
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-white/60">Selecione um cliente na lista para visualizar detalhes.</div>
+                )}
               </div>
+            </div>
+          </Card>
+
+          <Card title="Tags" subtitle="Catálogo para vincular aos clientes">
+            {tagsError && (
+              <div className="mb-2 rounded-lg bg-red-500/20 p-2 text-xs text-red-100">{tagsError.message}</div>
             )}
-          </div>
-        </Card>
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {tagsLoading && <span className="text-xs text-white/60">Carregando tags...</span>}
+                {!tagsLoading && tagCatalog.length === 0 && <span className="text-xs text-white/60">Nenhuma tag cadastrada.</span>}
+                {tagCatalog.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="group inline-flex items-center gap-1 rounded-full bg-white/10 px-2 py-1 text-xs text-white/80"
+                    style={tag.color ? { backgroundColor: `${tag.color}30`, color: tag.color } : {}}
+                  >
+                    <TagIcon size={12} /> {tag.name}
+                    <button
+                      type="button"
+                      className="hidden text-white/60 transition hover:text-red-300 group-hover:inline"
+                      onClick={() => deleteTag(tag.id)}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              <form onSubmit={handleCreateTag} className="grid grid-cols-[1fr_100px_auto] items-center gap-2 text-sm">
+                <Input
+                  placeholder="Nova tag"
+                  value={newTagName}
+                  onChange={(event) => setNewTagName(event.target.value)}
+                  required
+                />
+                <Input
+                  type="color"
+                  title="Cor"
+                  value={newTagColor}
+                  onChange={(event) => setNewTagColor(event.target.value)}
+                />
+                <Button type="submit" size="sm">
+                  Adicionar
+                </Button>
+              </form>
+              <Button variant="ghost" size="sm" onClick={refreshTags}>
+                Atualizar catálogo
+              </Button>
+            </div>
+          </Card>
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
-        <Card
-          title="Interações"
-          subtitle={selectedId ? "Registro de contatos recentes" : "Selecione um cliente para registrar interações"}
-          className="xl:col-span-2"
-        >
+        <Card title={interactionsTitle} subtitle="Registro de contatos recentes" className="xl:col-span-2">
           {!selectedId && <div className="text-sm text-white/60">Escolha um cliente na lista para visualizar interações.</div>}
           {selectedId && (
             <div className="space-y-4">
-              <form onSubmit={handleInteractionSubmit} className="grid gap-3 sm:grid-cols-2">
+              <form onSubmit={handleInteractionSubmit} className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs text-white/60">Data</label>
-                  <Input name="date" type="date" value={interactionForm.date} onChange={(e) => setInteractionForm((prev) => ({ ...prev, date: e.target.value }))} />
+                  <Input
+                    name="date"
+                    type="date"
+                    value={interactionForm.date}
+                    onChange={(e) => setInteractionForm((prev) => ({ ...prev, date: e.target.value }))}
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs text-white/60">Tipo</label>
@@ -621,7 +776,7 @@ export default function Crm() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Data do follow-up</label>
+                  <label className="text-xs text-white/60">Data follow-up</label>
                   <Input
                     name="nextStepDate"
                     type="date"
@@ -629,328 +784,378 @@ export default function Crm() {
                     onChange={(e) => setInteractionForm((prev) => ({ ...prev, nextStepDate: e.target.value }))}
                   />
                 </div>
-                <div className="sm:col-span-2 flex justify-end">
+                <div className="md:col-span-2 flex justify-end">
                   <Button type="submit" disabled={interactionSaving}>
                     {interactionSaving ? "Registrando..." : "Registrar contato"}
                   </Button>
                 </div>
               </form>
 
-              {contactsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{contactsError.message}</div>}
+              {contactsError && (
+                <div className="rounded-lg bg-red-500/20 p-3 text-sm text-red-100">{contactsError.message}</div>
+              )}
 
-              <div className="divide-y divide-white/5 rounded-xl border border-white/10">
-                {contactsLoading && <div className="p-3 text-sm text-white/60">Carregando contatos...</div>}
-                {!contactsLoading &&
-                  contacts
-                    .slice()
-                    .reverse()
-                    .map((interaction) => (
-                      <div key={interaction.id} className="p-3 text-sm text-white/80">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="font-semibold capitalize">{contactTypeLabel[interaction.type] || interaction.type}</div>
-                          <div className="text-xs text-white/50">{formatDate(interaction.date)}</div>
-                        </div>
-                        <div className="text-white/70">Contato: {interaction.clientContactName || "—"}</div>
-                        <div className="text-white/70">Responsável: {interaction.internalUser || "—"}</div>
-                        {interaction.summary && <div className="text-white/80">Resumo: {interaction.summary}</div>}
-                        {interaction.nextStep && (
-                          <div className="text-white/80">
-                            Próximo passo: {interaction.nextStep}
-                            {interaction.nextStepDate && ` até ${formatDate(interaction.nextStepDate)}`}
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                {!contactsLoading && contacts.length === 0 && (
-                  <div className="p-3 text-sm text-white/60">Nenhum contato registrado ainda.</div>
+              <div className="rounded-xl border border-white/10 bg-white/5">
+                <div className="border-b border-white/10 px-3 py-2 text-xs uppercase tracking-wide text-white/60">
+                  Histórico de interações
+                </div>
+                {contactsLoading && (
+                  <div className="p-4 text-sm text-white/60">Carregando contatos...</div>
+                )}
+                {!contactsLoading && sortedContacts.length === 0 && (
+                  <div className="p-4 text-sm text-white/60">Nenhum contato registrado ainda.</div>
+                )}
+                {sortedContacts.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="text-white/50">
+                        <tr className="border-b border-white/10 text-left">
+                          <th className="py-2 px-3">Data</th>
+                          <th className="py-2 px-3">Tipo</th>
+                          <th className="py-2 px-3">Responsável</th>
+                          <th className="py-2 px-3">Contato do cliente</th>
+                          <th className="py-2 px-3">Resumo</th>
+                          <th className="py-2 px-3">Próximo passo</th>
+                          <th className="py-2 px-3">Follow-up</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sortedContacts.map((contact) => (
+                          <tr key={contact.id} className="border-b border-white/5">
+                            <td className="py-2 px-3 text-white/80">{formatDate(contact.date || contact.createdAt)}</td>
+                            <td className="py-2 px-3 text-white/80">{contactTypeLabel[contact.type] || contact.type}</td>
+                            <td className="py-2 px-3 text-white/80">{contact.internalUser || "—"}</td>
+                            <td className="py-2 px-3 text-white/80">
+                              <div>{contact.clientContactName || "—"}</div>
+                              <div className="text-xs text-white/50">{contact.clientContactRole || ""}</div>
+                            </td>
+                            <td className="py-2 px-3 text-white/80">{contact.summary || "—"}</td>
+                            <td className="py-2 px-3 text-white/80">{contact.nextStep || "—"}</td>
+                            <td className="py-2 px-3 text-white/80">{formatDate(contact.nextStepDate)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
           )}
         </Card>
 
-        <div className="space-y-4">
-          <Card
-            title="Status rápido"
-            subtitle="Contrato, teste e perfil comercial"
-            actions={selectedClient && <span className="text-xs text-white/60">Atualizado {formatDate(selectedClient.updatedAt)}</span>}
-          >
-            {!selectedClient && <div className="text-sm text-white/60">Selecione um cliente para visualizar o resumo.</div>}
-            {selectedClient && (
-              <div className="space-y-3 text-sm text-white/80">
-                <div>
-                  <div className="text-white/50">Nível de interesse</div>
-                  <div className="font-semibold">{interestLabel[selectedClient.interestLevel] || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">Probabilidade de fechamento</div>
-                  <div className="font-semibold">{closeProbabilityLabel[selectedClient.closeProbability] || "—"}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">Contrato concorrente</div>
-                  <div className="font-semibold">{buildContractLabel(selectedClient)}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">Teste</div>
-                  <div className="font-semibold">{buildTrialLabel(selectedClient)}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">Tags</div>
-                  <div className="flex flex-wrap gap-2">
-                    {(selectedClient.tags || []).map((tag) => (
-                      <span key={tag} className="rounded-full bg-white/10 px-2 py-1 text-xs">
-                        {tag}
-                      </span>
-                    ))}
-                    {(selectedClient.tags || []).length === 0 && <span className="text-white/60">Sem tags</span>}
-                  </div>
-                </div>
-                {selectedClient.notes && (
-                  <div>
-                    <div className="text-white/50">Notas</div>
-                    <div className="whitespace-pre-line">{selectedClient.notes}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </Card>
-
-          <Card title="Alertas de contrato e teste" subtitle="Acompanhe vencimentos iminentes">
-            {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
-            {alertsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{alertsError.message}</div>}
-            {!alertsLoading && !alertsError && alerts.contractAlerts.length === 0 && alerts.trialAlerts.length === 0 && (
+        <Card
+          title="Alertas de contrato e teste"
+          subtitle="Resumo visual de contratos concorrentes e trials"
+          actions={
+            <Button size="sm" variant="ghost" onClick={loadAlerts}>
+              Atualizar alertas
+            </Button>
+          }
+        >
+          {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
+          {alertsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{alertsError.message}</div>}
+          {!alertsLoading && !alertsError &&
+            alerts.contractAlerts.length === 0 &&
+            alerts.trialAlerts.length === 0 &&
+            alerts.contractExpired.length === 0 &&
+            alerts.trialExpired.length === 0 && (
               <div className="text-sm text-white/60">Nenhum alerta no momento.</div>
             )}
 
-            {!alertsError && (
-              <div className="space-y-4 text-sm text-white/80">
-                <div className="space-y-2">
-                  <div className="text-white/60 font-semibold">
-                    Contratos concorrentes vencendo em até {DEFAULT_CONTRACT_ALERT_DAYS} dias
-                  </div>
-                  {alerts.contractAlerts.map((client) => (
-                    <div key={client.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
-                      <div className="font-semibold">{client.name}</div>
-                      <div className="text-white/70">
-                        Contrato com {client.competitorName || "concorrente"} termina em {formatDate(client.competitorContractEnd)}.
-                      </div>
-                    </div>
-                  ))}
-                  {!alertsLoading && alerts.contractAlerts.length === 0 && (
-                    <div className="text-white/60">Nenhum contrato concorrente vencendo no período.</div>
-                  )}
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-white/60 font-semibold">
-                    Testes (trial) terminando em até {DEFAULT_TRIAL_ALERT_DAYS} dias
-                  </div>
-                  {alerts.trialAlerts.map((client) => (
-                    <div key={client.id} className="rounded-lg border border-white/10 bg-white/5 p-3">
-                      <div className="font-semibold">{client.name}</div>
-                      <div className="text-white/70">Teste termina em {formatDate(client.trialEnd)}.</div>
-                    </div>
-                  ))}
-                  {!alertsLoading && alerts.trialAlerts.length === 0 && (
-                    <div className="text-white/60">Nenhum teste terminando no período.</div>
-                  )}
-                </div>
-              </div>
-            )}
-          </Card>
-        </div>
+          {!alertsError && (
+            <div className="space-y-4 text-sm text-white/80">
+              <AlertGroup
+                title={`Contratos concorrentes vencendo em até ${DEFAULT_CONTRACT_ALERT_DAYS} dias`}
+                items={alerts.contractAlerts}
+                tone="warning"
+                renderDescription={(client) =>
+                  `Contrato com ${client.competitorName || "concorrente"} termina em ${formatDate(
+                    client.competitorContractEnd,
+                  )}.`
+                }
+              />
+              <AlertGroup
+                title="Contratos concorrentes vencendo hoje / vencidos"
+                items={alerts.contractExpired}
+                tone="danger"
+                renderDescription={(client) =>
+                  `Contrato com ${client.competitorName || "concorrente"} venceu em ${formatDate(
+                    client.competitorContractEnd,
+                  )}.`
+                }
+              />
+              <AlertGroup
+                title={`Testes (trial) terminando em até ${DEFAULT_TRIAL_ALERT_DAYS} dias`}
+                items={alerts.trialAlerts}
+                tone="info"
+                renderDescription={(client) => `Teste termina em ${formatDate(client.trialEnd)}.`}
+              />
+              <AlertGroup
+                title="Testes já encerrados"
+                items={alerts.trialExpired}
+                tone="muted"
+                renderDescription={(client) => `Teste finalizado em ${formatDate(client.trialEnd)}.`}
+              />
+            </div>
+          )}
+        </Card>
       </div>
 
-        <Modal
-          open={isFormOpen}
-          onClose={closeFormModal}
-          title={selectedId ? "Editar cliente" : "Novo cliente"}
-          width="max-w-5xl"
-        >
-          {detailError && (
-            <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>
-          )}
-          {detailLoading && (
-            <div className="mb-3 rounded-lg bg-white/5 p-3 text-sm text-white/80">Carregando cliente...</div>
-          )}
-          <form onSubmit={handleSubmit} className="flex max-h-[70vh] flex-col gap-4">
-            <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+      <Modal
+        open={isFormOpen}
+        onClose={closeFormModal}
+        title={selectedId ? "Editar cliente" : "Novo cliente"}
+        width="max-w-5xl"
+      >
+        {detailError && (
+          <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>
+        )}
+        {detailLoading && (
+          <div className="mb-3 rounded-lg bg-white/5 p-3 text-sm text-white/80">Carregando cliente...</div>
+        )}
+        <form onSubmit={handleSubmit} className="flex max-h-[70vh] flex-col gap-4">
+          <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Nome do cliente *</label>
+              <Input name="name" value={form.name} onChange={handleFieldChange} required />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-xs text-white/60">Nome do cliente *</label>
-                <Input name="name" value={form.name} onChange={handleFieldChange} required />
+                <label className="text-xs text-white/60">Segmento</label>
+                <Input name="segment" value={form.segment} onChange={handleFieldChange} />
               </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Segmento</label>
-                  <Input name="segment" value={form.segment} onChange={handleFieldChange} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Tamanho</label>
-                  <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
-                    <option value="micro">Micro</option>
-                    <option value="pequena">Pequena</option>
-                    <option value="media">Média</option>
-                    <option value="grande">Grande</option>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Cidade</label>
-                  <Input name="city" value={form.city} onChange={handleFieldChange} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Estado</label>
-                  <Input name="state" value={form.state} onChange={handleFieldChange} />
-                </div>
-              </div>
-
               <div className="space-y-2">
-                <label className="text-xs text-white/60">Site / redes sociais</label>
-                <Input name="website" value={form.website} onChange={handleFieldChange} />
+                <label className="text-xs text-white/60">Tamanho</label>
+                <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
+                  <option value="micro">Micro</option>
+                  <option value="pequena">Pequena</option>
+                  <option value="media">Média</option>
+                  <option value="grande">Grande</option>
+                </Select>
               </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Contato principal</label>
-                  <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Cargo</label>
-                  <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Telefone / WhatsApp</label>
-                  <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">E-mail</label>
-                  <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
-                </div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Nível de interesse</label>
-                  <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
-                    <option value="baixo">Baixo</option>
-                    <option value="medio">Médio</option>
-                    <option value="alto">Alto</option>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs text-white/60">Probabilidade de fechamento</label>
-                  <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
-                    <option value="baixa">Baixa</option>
-                    <option value="media">Média</option>
-                    <option value="alta">Alta</option>
-                  </Select>
-                </div>
-              </div>
-
               <div className="space-y-2">
+                <label className="text-xs text-white/60">Cidade</label>
+                <Input name="city" value={form.city} onChange={handleFieldChange} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Estado</label>
+                <Input name="state" value={form.state} onChange={handleFieldChange} />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Site / redes sociais</label>
+              <Input name="website" value={form.website} onChange={handleFieldChange} />
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Contato principal</label>
+                <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Cargo</label>
+                <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Telefone / WhatsApp</label>
+                <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">E-mail</label>
+                <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Nível de interesse</label>
+                <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
+                  <option value="baixo">Baixo</option>
+                  <option value="medio">Médio</option>
+                  <option value="alto">Alto</option>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Probabilidade de fechamento</label>
+                <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
+                  <option value="baixa">Baixa</option>
+                  <option value="media">Média</option>
+                  <option value="alta">Alta</option>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-white/60">
                 <label className="text-xs text-white/60">Tags</label>
+                <button
+                  type="button"
+                  className="text-[11px] text-primary underline"
+                  onClick={() => setForm((prev) => ({ ...prev, tags: [] }))}
+                >
+                  Limpar tags
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {tagCatalog.map((tag) => (
+                  <button
+                    key={tag.id}
+                    type="button"
+                    onClick={() => toggleTagSelection(tag.id)}
+                    className={`rounded-full px-3 py-1 text-xs transition ${
+                      form.tags.includes(tag.id)
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-white/10 text-white hover:bg-white/20"
+                    }`}
+                    style={
+                      form.tags.includes(tag.id) || !tag.color
+                        ? undefined
+                        : { backgroundColor: `${tag.color}30`, color: tag.color }
+                    }
+                  >
+                    {tag.name}
+                  </button>
+                ))}
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                 <Input
-                  name="tags"
-                  value={form.tags}
-                  onChange={handleFieldChange}
-                  placeholder="logística, frota própria, grande conta"
+                  placeholder="Adicionar tag rápida"
+                  value={newTagName}
+                  onChange={(event) => setNewTagName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      handleCreateTag(event);
+                    }
+                  }}
                 />
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    name="hasCompetitorContract"
-                    checked={form.hasCompetitorContract}
-                    onChange={handleFieldChange}
-                    className="h-4 w-4 rounded border-white/30 bg-transparent"
-                  />
-                  Possui contrato com concorrente
-                </label>
-                {form.hasCompetitorContract && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Concorrente</label>
-                      <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Início do contrato</label>
-                      <Input
-                        name="competitorContractStart"
-                        type="date"
-                        value={form.competitorContractStart}
-                        onChange={handleFieldChange}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Término do contrato</label>
-                      <Input
-                        name="competitorContractEnd"
-                        type="date"
-                        value={form.competitorContractEnd}
-                        onChange={handleFieldChange}
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-sm text-white/80">
-                  <input
-                    type="checkbox"
-                    name="inTrial"
-                    checked={form.inTrial}
-                    onChange={handleFieldChange}
-                    className="h-4 w-4 rounded border-white/30 bg-transparent"
-                  />
-                  Está em teste (trial)
-                </label>
-                {form.inTrial && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Produto/serviço</label>
-                      <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Início do teste</label>
-                      <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Duração (dias)</label>
-                      <Input
-                        name="trialDurationDays"
-                        type="number"
-                        min="0"
-                        value={form.trialDurationDays}
-                        onChange={handleFieldChange}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs text-white/60">Término previsto</label>
-                      <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Notas internas</label>
-                <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
+                <Button type="button" onClick={handleCreateTag} size="sm">
+                  Nova tag
+                </Button>
               </div>
             </div>
 
-            <div className="sticky bottom-0 flex justify-end gap-2 border-t border-white/10 bg-card pt-3">
-              <Button variant="ghost" type="button" onClick={closeFormModal}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
-              </Button>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-white/80">
+                <input
+                  type="checkbox"
+                  name="hasCompetitorContract"
+                  checked={form.hasCompetitorContract}
+                  onChange={handleFieldChange}
+                  className="h-4 w-4 rounded border-white/30 bg-transparent"
+                />
+                Possui contrato com concorrente
+              </label>
+              {form.hasCompetitorContract && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Concorrente</label>
+                    <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Início do contrato</label>
+                    <Input
+                      name="competitorContractStart"
+                      type="date"
+                      value={form.competitorContractStart}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Término do contrato</label>
+                    <Input
+                      name="competitorContractEnd"
+                      type="date"
+                      value={form.competitorContractEnd}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
-          </form>
-        </Modal>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm text-white/80">
+                <input
+                  type="checkbox"
+                  name="inTrial"
+                  checked={form.inTrial}
+                  onChange={handleFieldChange}
+                  className="h-4 w-4 rounded border-white/30 bg-transparent"
+                />
+                Está em teste (trial)
+              </label>
+              {form.inTrial && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Produto/serviço</label>
+                    <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Início do teste</label>
+                    <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Duração (dias)</label>
+                    <Input
+                      name="trialDurationDays"
+                      type="number"
+                      min="0"
+                      value={form.trialDurationDays}
+                      onChange={handleFieldChange}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs text-white/60">Término previsto</label>
+                    <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Notas internas</label>
+              <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
+            </div>
+          </div>
+
+          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-white/10 bg-card pt-3">
+            <Button variant="ghost" type="button" onClick={closeFormModal}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </div>
+  );
+}
+
+function AlertGroup({ title, items, renderDescription, tone = "info" }) {
+  if (!items || items.length === 0) return null;
+  const toneStyles = {
+    warning: "border-amber-500/40 bg-amber-500/10",
+    danger: "border-red-500/40 bg-red-500/10",
+    info: "border-sky-500/40 bg-sky-500/10",
+    muted: "border-white/10 bg-white/5",
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 text-white/70">
+        <AlertTriangle size={16} className="text-white/50" /> {title}
+      </div>
+      <div className="space-y-2">
+        {items.map((client) => (
+          <div key={client.id} className={`rounded-lg border p-3 ${toneStyles[tone] || toneStyles.info}`}>
+            <div className="font-semibold text-white">{client.name}</div>
+            <div className="text-white/70">{renderDescription(client)}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

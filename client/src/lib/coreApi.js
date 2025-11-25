@@ -61,6 +61,9 @@ export const CoreApi = {
   listCrmContacts: (clientId, params) => crmHttp(API_ROUTES.crm.contacts(clientId), { params }),
   addCrmContact: (clientId, payload) => crmHttp(API_ROUTES.crm.contacts(clientId), { method: "POST", payload }),
   listCrmAlerts: (params) => crmHttp(API_ROUTES.crm.alerts, { params }),
+  listCrmTags: (params) => crmHttp(API_ROUTES.crm.tags, { params }),
+  createCrmTag: (payload) => crmHttp(API_ROUTES.crm.tags, { method: "POST", payload }),
+  deleteCrmTag: (id) => crmHttp(`${API_ROUTES.crm.tags}/${id}`, { method: "DELETE" }),
 };
 
 function normaliseDevices(payload) {

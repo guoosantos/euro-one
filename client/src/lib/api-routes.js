@@ -48,6 +48,7 @@ export const API_ROUTES = {
     clients: "clients",
     alerts: "alerts",
     contacts: (clientId) => `clients/${clientId}/contacts`,
+    tags: "tags",
   },
   health: "health",
   traccarHealth: "health/traccar",
