@@ -20,7 +20,8 @@ router.use(resolveClientIdMiddleware);
 
 router.get("/clients", (req, res, next) => {
   try {
-    const clients = listCrmClients({ clientId: req.clientId });
+    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
+    const clients = listCrmClients({ clientId: req.clientId, user: req.user, createdByUserId });
     res.json({ clients });
   } catch (error) {
     next(error);
@@ -30,7 +31,7 @@ router.get("/clients", (req, res, next) => {
 router.post("/clients", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
-    const client = createCrmClient({ ...req.body, clientId });
+    const client = createCrmClient({ ...req.body, clientId, createdByUserId: req.user?.id });
     res.status(201).json({ client });
   } catch (error) {
     next(error);
@@ -39,7 +40,7 @@ router.post("/clients", (req, res, next) => {
 
 router.get("/clients/:id", (req, res, next) => {
   try {
-    const client = getCrmClient(req.params.id, { clientId: req.clientId });
+    const client = getCrmClient(req.params.id, { clientId: req.clientId, user: req.user });
     res.json({ client });
   } catch (error) {
     next(error);
@@ -49,7 +50,7 @@ router.get("/clients/:id", (req, res, next) => {
 router.put("/clients/:id", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const client = updateCrmClient(req.params.id, req.body, { clientId });
+    const client = updateCrmClient(req.params.id, req.body, { clientId, user: req.user });
     res.json({ client });
   } catch (error) {
     next(error);
@@ -65,10 +66,14 @@ router.get("/alerts", (req, res, next) => {
       ? Number(req.query.trialWithinDays)
       : undefined;
 
+    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
+
     const alerts = listCrmClientsWithUpcomingEvents({
       clientId: req.clientId,
       contractWithinDays,
       trialWithinDays,
+      user: req.user,
+      createdByUserId,
     });
     res.json(alerts);
   } catch (error) {
@@ -78,7 +83,7 @@ router.get("/alerts", (req, res, next) => {
 
 router.get("/clients/:id/contacts", (req, res, next) => {
   try {
-    const contacts = listCrmContacts(req.params.id, { clientId: req.clientId });
+    const contacts = listCrmContacts(req.params.id, { clientId: req.clientId, user: req.user });
     res.json({ contacts });
   } catch (error) {
     next(error);
@@ -88,7 +93,7 @@ router.get("/clients/:id/contacts", (req, res, next) => {
 router.post("/clients/:id/contacts", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const contact = addCrmContact(req.params.id, req.body, { clientId });
+    const contact = addCrmContact(req.params.id, req.body, { clientId, user: req.user });
     res.status(201).json({ contact });
   } catch (error) {
     next(error);

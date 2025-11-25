@@ -37,6 +37,34 @@ function normaliseDate(value) {
   return date.toISOString();
 }
 
+function normaliseCnpj(value) {
+  if (!value) return "";
+  return String(value).replace(/\D/g, "").slice(0, 14);
+}
+
+function normaliseRelationshipType(value) {
+  const key = typeof value === "string" ? value.toLowerCase() : value;
+  const map = {
+    prospection: "prospection",
+    prospect: "prospection",
+    prospecting: "prospection",
+    cliente: "customer",
+    customer: "customer",
+    client: "customer",
+    supplier: "supplier",
+    fornecedor: "supplier",
+  };
+  return map[key] || "prospection";
+}
+
+function duplicateCnpjError() {
+  const error = createError(409, "Já existe um cliente com este CNPJ na base do CRM.");
+  error.code = "DUPLICATE_CNPJ";
+  error.expose = true;
+  error.data = { code: "DUPLICATE_CNPJ" };
+  return error;
+}
+
 function computeTrialEnd(startDate, durationDays, endDate) {
   const explicitEnd = normaliseDate(endDate);
   if (explicitEnd) return explicitEnd;
@@ -81,12 +109,15 @@ function isDatePastOrToday(dateValue) {
   return date <= now;
 }
 
-function ensureClientAccessible(record, clientId) {
+function ensureClientAccessible(record, clientId, user) {
   if (!record) {
     throw createError(404, "Cliente CRM não encontrado");
   }
   if (clientId && String(record.clientId) !== String(clientId)) {
     throw createError(403, "Registro não pertence ao cliente informado");
+  }
+  if (user && user.role !== "admin" && record.createdByUserId !== user.id) {
+    throw createError(403, "Você não tem permissão para acessar este cliente");
   }
 }
 
@@ -124,6 +155,7 @@ function migrateLegacy(record) {
   return {
     id: record.id,
     clientId: record.clientId,
+    cnpj: normaliseCnpj(record.cnpj) || null,
     name: record.name,
     segment: record.segment,
     companySize: record.companySize === "médio" ? "media" : record.companySize,
@@ -147,6 +179,8 @@ function migrateLegacy(record) {
     trialDurationDays: record.trial?.durationDays ?? record.trialDurationDays ?? null,
     trialEnd: record.trial?.endDate || record.trialEnd,
     notes: record.notes || record.contractNotes || record.observations || "",
+    relationshipType: normaliseRelationshipType(record.relationshipType),
+    createdByUserId: record.createdByUserId || null,
     contacts,
     createdAt: record.createdAt || new Date().toISOString(),
     updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
@@ -163,17 +197,30 @@ persisted.forEach((record) => {
   }
 });
 
-export function listCrmClients({ clientId } = {}) {
+export function listCrmClients({ clientId, user, createdByUserId } = {}) {
   return Array.from(crmClients.values())
     .filter((record) => (clientId ? String(record.clientId) === String(clientId) : true))
+    .filter((record) =>
+      createdByUserId
+        ? record.createdByUserId === createdByUserId
+        : user?.role === "admin"
+          ? true
+          : record.createdByUserId === user?.id,
+    )
     .map((record) => hydrateRecord(record));
 }
 
-export function listCrmClientsWithUpcomingEvents({ clientId, contractWithinDays = 30, trialWithinDays = 7 } = {}) {
+export function listCrmClientsWithUpcomingEvents({
+  clientId,
+  contractWithinDays = 30,
+  trialWithinDays = 7,
+  user,
+  createdByUserId,
+} = {}) {
   const contractDays = Number.isFinite(Number(contractWithinDays)) ? Number(contractWithinDays) : 30;
   const trialDays = Number.isFinite(Number(trialWithinDays)) ? Number(trialWithinDays) : 7;
 
-  const clients = listCrmClients({ clientId });
+  const clients = listCrmClients({ clientId, user, createdByUserId });
 
   const contractAlerts = contractDays
     ? clients.filter(
@@ -202,9 +249,9 @@ export function listCrmClientsWithUpcomingEvents({ clientId, contractWithinDays 
   return { contractAlerts, contractExpired, trialAlerts, trialExpired };
 }
 
-export function getCrmClient(id, { clientId } = {}) {
+export function getCrmClient(id, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
-  ensureClientAccessible(record, clientId);
+  ensureClientAccessible(record, clientId, user);
   return hydrateRecord(record);
 }
 
@@ -217,11 +264,23 @@ export function createCrmClient(payload) {
   if (!clientId) {
     throw createError(400, "clientId é obrigatório");
   }
+  const cnpj = normaliseCnpj(payload?.cnpj);
+  const cnpjValue = cnpj || null;
+
+  if (cnpjValue) {
+    const duplicated = Array.from(crmClients.values()).find(
+      (record) => record.clientId === clientId && record.cnpj && record.cnpj === cnpjValue,
+    );
+    if (duplicated) {
+      throw duplicateCnpjError();
+    }
+  }
 
   const now = new Date().toISOString();
   const record = {
     id: randomUUID(),
     clientId,
+    cnpj: cnpjValue,
     name,
     segment: normaliseString(payload?.segment),
     companySize: normaliseString(payload?.companySize || "media"),
@@ -245,6 +304,8 @@ export function createCrmClient(payload) {
     trialDurationDays: Number(payload?.trialDurationDays) || null,
     trialEnd: computeTrialEnd(payload?.trialStart, payload?.trialDurationDays, payload?.trialEnd),
     notes: normaliseString(payload?.notes),
+    relationshipType: normaliseRelationshipType(payload?.relationshipType),
+    createdByUserId: payload?.createdByUserId || null,
     contacts: [],
     createdAt: now,
     updatedAt: now,
@@ -252,9 +313,23 @@ export function createCrmClient(payload) {
   return persistClient(record);
 }
 
-export function updateCrmClient(id, updates = {}, { clientId } = {}) {
+export function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
-  ensureClientAccessible(record, clientId);
+  ensureClientAccessible(record, clientId, user);
+
+  if (updates.cnpj !== undefined) {
+    const nextCnpj = normaliseCnpj(updates.cnpj);
+    const nextValue = nextCnpj || null;
+    if (nextValue) {
+      const duplicated = Array.from(crmClients.values()).find(
+        (item) => item.id !== record.id && item.clientId === record.clientId && item.cnpj === nextValue,
+      );
+      if (duplicated) {
+        throw duplicateCnpjError();
+      }
+    }
+    record.cnpj = nextValue;
+  }
 
   if (updates.name !== undefined) record.name = normaliseString(updates.name);
   if (updates.segment !== undefined) record.segment = normaliseString(updates.segment);
@@ -290,20 +365,23 @@ export function updateCrmClient(id, updates = {}, { clientId } = {}) {
     );
 
   if (updates.notes !== undefined) record.notes = normaliseString(updates.notes);
+  if (updates.relationshipType !== undefined) record.relationshipType = normaliseRelationshipType(updates.relationshipType);
 
   record.updatedAt = new Date().toISOString();
   return persistClient(record);
 }
 
-export function listCrmContacts(id, { clientId } = {}) {
+export function listCrmContacts(id, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
-  ensureClientAccessible(record, clientId);
-  return Array.isArray(record.contacts) ? record.contacts.map(toContactSnapshot) : [];
+  ensureClientAccessible(record, clientId, user);
+  const contacts = Array.isArray(record.contacts) ? record.contacts.map(toContactSnapshot) : [];
+  if (user?.role === "admin") return contacts;
+  return contacts.filter((contact) => contact.createdByUserId === user?.id);
 }
 
-export function addCrmContact(id, payload = {}, { clientId } = {}) {
+export function addCrmContact(id, payload = {}, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
-  ensureClientAccessible(record, clientId);
+  ensureClientAccessible(record, clientId, user);
 
   const contact = {
     id: randomUUID(),
@@ -316,6 +394,7 @@ export function addCrmContact(id, payload = {}, { clientId } = {}) {
     summary: normaliseString(payload.summary),
     nextStep: normaliseString(payload.nextStep),
     nextStepDate: normaliseDate(payload.nextStepDate),
+    createdByUserId: payload?.createdByUserId || user?.id || null,
     createdAt: new Date().toISOString(),
   };
 
