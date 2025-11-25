@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useLocation } from "react-router-dom";
 import useDevices from "../lib/hooks/useDevices";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useTranslation } from "../lib/i18n.js";
@@ -6,7 +7,8 @@ import { formatAddress } from "../lib/format-address.js";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 
 export default function ReportsRoute() {
-  const { t, locale } = useTranslation();
+  const { locale } = useTranslation();
+  const location = useLocation();
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const { data, loading, error, generate } = useReportsRoute();
@@ -25,24 +27,84 @@ export default function ReportsRoute() {
     devices,
   ]);
 
+  useEffect(() => {
+    const search = new URLSearchParams(location.search || "");
+    const queryDevice = search.get("deviceId") || search.get("device");
+    const queryFrom = search.get("from");
+    const queryTo = search.get("to");
+
+    if (queryDevice && queryDevice !== deviceId) {
+      setDeviceId(queryDevice);
+    }
+    const parsedFrom = asLocalDateTime(queryFrom);
+    if (parsedFrom && parsedFrom !== from) {
+      setFrom(parsedFrom);
+    }
+    const parsedTo = asLocalDateTime(queryTo);
+    if (parsedTo && parsedTo !== to) {
+      setTo(parsedTo);
+    }
+
+    if (!queryDevice || !queryFrom || !queryTo) return;
+    const intendedFrom = parseDate(queryFrom);
+    const intendedTo = parseDate(queryTo);
+    if (!intendedFrom || !intendedTo) return;
+    const intendedParams = {
+      deviceId: queryDevice,
+      from: intendedFrom.toISOString(),
+      to: intendedTo.toISOString(),
+    };
+    const currentParams = data?.__meta?.params || {};
+    const alreadyLoaded =
+      currentParams.deviceId === intendedParams.deviceId &&
+      currentParams.from === intendedParams.from &&
+      currentParams.to === intendedParams.to;
+
+    if (!alreadyLoaded && !loading && !fetching) {
+      setFetching(true);
+      generate(intendedParams)
+        .catch(() => {
+          // falha silenciosa ao tentar pré-carregar a partir do link de viagens.
+        })
+        .finally(() => setFetching(false));
+    }
+  }, [data?.__meta?.params, deviceId, fetching, from, generate, loading, location.search, to]);
+
   const routeSummary = useMemo(() => {
-    if (!points.length) return null;
+    if (!data) return null;
+
+    const summary = data.summary || {};
+    const params = data.__meta?.params || {};
     const first = points[0];
     const last = points[points.length - 1];
-    const startTime = parseDate(first.fixTime ?? first.deviceTime ?? first.serverTime);
-    const endTime = parseDate(last.fixTime ?? last.deviceTime ?? last.serverTime);
-    const durationMs = startTime && endTime ? endTime.getTime() - startTime.getTime() : null;
+
+    const startTime =
+      parseDate(summary.startTime ?? summary.start ?? summary.from ?? params.from) ||
+      parseDate(first?.fixTime ?? first?.deviceTime ?? first?.serverTime);
+    const endTime =
+      parseDate(summary.endTime ?? summary.end ?? summary.to ?? params.to) ||
+      parseDate(last?.fixTime ?? last?.deviceTime ?? last?.serverTime);
 
     const speeds = points
       .map((point) => pickSpeed(point))
       .filter((value) => value !== null && Number.isFinite(value));
-    const averageSpeed = speeds.length ? Math.round(speeds.reduce((acc, value) => acc + value, 0) / speeds.length) : null;
-    const maxSpeed = speeds.length ? Math.max(...speeds) : null;
+    const averageSpeed =
+      pickNumber([summary.averageSpeed]) ?? (speeds.length ? Math.round(speeds.reduce((acc, value) => acc + value, 0) / speeds.length) : null);
+    const maxSpeed = pickNumber([summary.maxSpeed]) ?? (speeds.length ? Math.max(...speeds) : null);
 
-    const totalDistanceKm = computeDistanceKm(points);
+    const durationMs = pickNumber([summary.durationMs, summary.duration]) ??
+      (startTime && endTime ? endTime.getTime() - startTime.getTime() : null);
+    const totalDistanceKm = (() => {
+      const providedKm = pickNumber([summary.totalDistanceKm, summary.distanceKm]);
+      if (Number.isFinite(providedKm)) return providedKm;
+      const providedMeters = pickNumber([summary.totalDistance, summary.distanceMeters, summary.distance]);
+      if (Number.isFinite(providedMeters)) return providedMeters / 1000;
+      return computeDistanceKm(points);
+    })();
 
     return {
-      deviceName: selectedDevice?.name || selectedDevice?.vehicle || selectedDevice?.uniqueId || "—",
+      deviceName:
+        summary.deviceName || selectedDevice?.name || selectedDevice?.vehicle || selectedDevice?.uniqueId || params.deviceId || "—",
       startTime,
       endTime,
       durationMs,
@@ -52,7 +114,7 @@ export default function ReportsRoute() {
       // Tempo parado/em movimento dependem do backend devolver esses campos ou um resumo dedicado.
       movementUnavailable: true,
     };
-  }, [points, selectedDevice]);
+  }, [data, points, selectedDevice]);
 
   const tableColumns = useMemo(
     () => [
@@ -113,7 +175,8 @@ export default function ReportsRoute() {
       await generate({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
       setFeedback({ type: "success", message: "Relatório de rota criado com sucesso." });
     } catch (requestError) {
-      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório de rota." });
+      const friendlyMessage = "Não foi possível gerar o relatório de rotas. Tente novamente mais tarde.";
+      setFeedback({ type: "error", message: friendlyMessage });
     } finally {
       setFetching(false);
     }
@@ -271,7 +334,7 @@ export default function ReportsRoute() {
                   <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
                     {tableColumns.map((column) => (
                       <td key={column.key} className="py-2 pr-6 text-white/80">
-                        {column.render ? column.render(point) : column.getValue?.(point, { t, locale })}
+                        {column.render ? column.render(point) : column.getValue?.(point, { locale })}
                       </td>
                     ))}
                   </tr>
@@ -299,6 +362,13 @@ function parseDate(value) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function asLocalDateTime(value) {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString().slice(0, 16);
+}
+
 function validateFields({ deviceId, from, to }) {
   if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
   if (!from || !to) return "Preencha as datas de início e fim.";
@@ -307,6 +377,15 @@ function validateFields({ deviceId, from, to }) {
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return "Datas inválidas.";
   if (fromDate > toDate) return "A data inicial deve ser anterior à final.";
   return "";
+}
+
+function pickNumber(values = []) {
+  for (const value of values) {
+    if (value === null || value === undefined) continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
 }
 
 function formatDuration(durationMs) {

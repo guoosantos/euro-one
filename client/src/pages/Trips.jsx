@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useDevices from "../lib/hooks/useDevices";
 import { useTranslation } from "../lib/i18n.js";
@@ -21,7 +21,15 @@ export default function Trips() {
   const [feedback, setFeedback] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
 
-  const trips = Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : [];
+  const tripsRaw = Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : [];
+  const trips = useMemo(() => {
+    const list = Array.isArray(tripsRaw) ? tripsRaw.filter(Boolean) : [];
+    return [...list].sort((a, b) => {
+      const startA = parseDate(a?.startTime) || parseDate(a?.start) || new Date(0);
+      const startB = parseDate(b?.startTime) || parseDate(b?.start) || new Date(0);
+      return startB.getTime() - startA.getTime();
+    });
+  }, [tripsRaw]);
   const lastGeneratedAt = data?.__meta?.generatedAt;
 
   const deviceNameById = useMemo(() => {
@@ -46,7 +54,8 @@ export default function Trips() {
       await generateTripsReport({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString(), type: "all" });
       setFeedback({ type: "success", message: "Relatório de viagens criado com sucesso." });
     } catch (requestError) {
-      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório de viagens." });
+      const friendlyMessage = "Não foi possível carregar as viagens. Verifique o período ou tente novamente.";
+      setFeedback({ type: "error", message: friendlyMessage });
     } finally {
       setFetching(false);
     }
@@ -58,6 +67,16 @@ export default function Trips() {
     const search = new URLSearchParams({ deviceId: String(id), from: trip.startTime, to: trip.endTime });
     navigate(`/reports/route?${search.toString()}`);
   };
+
+  useEffect(() => {
+    setSelectedTrip((current) => {
+      if (!current) return null;
+      const match = trips.find(
+        (trip) => trip.deviceId === current.deviceId && trip.startTime === current.startTime && trip.endTime === current.endTime,
+      );
+      return match || null;
+    });
+  }, [trips]);
 
   return (
     <div className="space-y-6">
@@ -148,19 +167,20 @@ export default function Trips() {
                 <th className="py-2 pr-6">Vel. máx.</th>
                 <th className="py-2 pr-6">Local de início</th>
                 <th className="py-2 pr-6">Local de fim</th>
+                <th className="py-2 pr-6">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
-                  <td colSpan={9} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={10} className="py-4 text-center text-sm opacity-60">
                     Processando viagens…
                   </td>
                 </tr>
               )}
               {!loading && !trips.length && (
                 <tr>
-                  <td colSpan={9} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={10} className="py-4 text-center text-sm opacity-60">
                     {lastGeneratedAt
                       ? "Nenhuma viagem encontrada para o período selecionado."
                       : "Gere um relatório para visualizar as viagens."}
@@ -182,6 +202,18 @@ export default function Trips() {
                   <td className="py-2 pr-6 text-white/70">{formatSpeed(trip.maxSpeed)}</td>
                   <td className="py-2 pr-6 text-white/70">{formatLocation(trip.startAddress, trip.startLat, trip.startLon)}</td>
                   <td className="py-2 pr-6 text-white/70">{formatLocation(trip.endAddress, trip.endLat, trip.endLon)}</td>
+                  <td className="py-2 pr-6 text-white/80">
+                    <button
+                      type="button"
+                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleOpenRoute(trip);
+                      }}
+                    >
+                      Ver rota
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
