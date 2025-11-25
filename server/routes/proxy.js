@@ -16,6 +16,7 @@ import {
   normaliseJsonList,
 } from "../utils/report-helpers.js";
 import { enrichPositionsWithAddresses, resolveShortAddress } from "../utils/address.js";
+import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -132,6 +133,7 @@ async function normalizeReportPayload(path, payload) {
   if (path.includes("/route")) {
     const positions = ensureList(["positions", "route", "routes", "data", "items"]);
     base.positions = await enrichPositionsWithAddresses(positions);
+    base.summary = computeRouteSummary({ ...base, positions: base.positions });
     return base;
   }
 
@@ -157,8 +159,11 @@ async function normalizeReportPayload(path, payload) {
         const start = await resolveShortAddress(startLat, startLng, trip.startAddress);
         const end = await resolveShortAddress(endLat, endLng, trip.endAddress);
 
+        const metrics = computeTripMetrics(trip);
+
         return {
           ...trip,
+          ...metrics,
           startAddress: start?.address || trip.startAddress,
           endAddress: end?.address || trip.endAddress,
           startShortAddress: start?.shortAddress || start?.formattedAddress || null,

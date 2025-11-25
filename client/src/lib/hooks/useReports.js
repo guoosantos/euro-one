@@ -52,7 +52,9 @@ export function useReports() {
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de viagens");
+      const friendlyMessage = "Não foi possível carregar as viagens. Verifique o período ou tente novamente.";
+      const fallbackError =
+        requestError instanceof Error ? new Error(friendlyMessage, { cause: requestError }) : new Error(friendlyMessage);
       setError(fallbackError);
       throw fallbackError;
     } finally {

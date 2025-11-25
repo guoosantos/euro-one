@@ -51,7 +51,9 @@ export function useReportsRoute() {
       persistData(enriched);
       return enriched;
     } catch (requestError) {
-      const fallbackError = requestError instanceof Error ? requestError : new Error("Erro ao gerar relatório de rota");
+      const friendlyMessage = "Não foi possível gerar o relatório de rotas. Tente novamente mais tarde.";
+      const fallbackError =
+        requestError instanceof Error ? new Error(friendlyMessage, { cause: requestError }) : new Error(friendlyMessage);
       setError(fallbackError);
       throw fallbackError;
     } finally {
