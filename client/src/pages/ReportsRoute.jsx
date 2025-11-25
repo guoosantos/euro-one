@@ -2,7 +2,8 @@ import React, { useMemo, useState } from "react";
 import useDevices from "../lib/hooks/useDevices";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useTranslation } from "../lib/i18n.js";
-import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.js";
+import { formatAddress } from "../lib/format-address.js";
+import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 
 export default function ReportsRoute() {
   const { t, locale } = useTranslation();
@@ -19,18 +20,83 @@ export default function ReportsRoute() {
 
   const points = Array.isArray(data?.positions) ? data.positions : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
+  const selectedDevice = useMemo(() => devices.find((device) => (device.id ?? device.uniqueId) === deviceId), [
+    deviceId,
+    devices,
+  ]);
+
+  const routeSummary = useMemo(() => {
+    if (!points.length) return null;
+    const first = points[0];
+    const last = points[points.length - 1];
+    const startTime = parseDate(first.fixTime ?? first.deviceTime ?? first.serverTime);
+    const endTime = parseDate(last.fixTime ?? last.deviceTime ?? last.serverTime);
+    const durationMs = startTime && endTime ? endTime.getTime() - startTime.getTime() : null;
+
+    const speeds = points
+      .map((point) => pickSpeed(point))
+      .filter((value) => value !== null && Number.isFinite(value));
+    const averageSpeed = speeds.length ? Math.round(speeds.reduce((acc, value) => acc + value, 0) / speeds.length) : null;
+    const maxSpeed = speeds.length ? Math.max(...speeds) : null;
+
+    const totalDistanceKm = computeDistanceKm(points);
+
+    return {
+      deviceName: selectedDevice?.name || selectedDevice?.vehicle || selectedDevice?.uniqueId || "—",
+      startTime,
+      endTime,
+      durationMs,
+      totalDistanceKm,
+      averageSpeed,
+      maxSpeed,
+      // Tempo parado/em movimento dependem do backend devolver esses campos ou um resumo dedicado.
+      movementUnavailable: true,
+    };
+  }, [points, selectedDevice]);
 
   const tableColumns = useMemo(
-    () =>
-      ["gpsTime", "latitude", "longitude", "speed"]
-        .map((key) => getTelemetryColumnByKey(key))
-        .filter(Boolean)
-        .map((column) => ({
-          ...column,
-          label: t(column.labelKey),
-          render: (row) => column.getValue(row, { t, locale }),
-        })),
-    [locale, t],
+    () => [
+      {
+        key: "gpsTime",
+        label: "Hora GPS",
+        render: (point) => formatDateTime(parseDate(point.fixTime ?? point.deviceTime ?? point.serverTime), locale),
+      },
+      {
+        key: "latitude",
+        label: "Latitude",
+        render: (point) => {
+          const value = pickCoordinate([point.latitude, point.lat, point.lat_deg, point.attributes?.latitude]);
+          return Number.isFinite(value) ? value.toFixed(5) : "—";
+        },
+      },
+      {
+        key: "longitude",
+        label: "Longitude",
+        render: (point) => {
+          const value = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
+          return Number.isFinite(value) ? value.toFixed(5) : "—";
+        },
+      },
+      {
+        key: "speed",
+        label: "Velocidade (km/h)",
+        render: (point) => {
+          const speed = pickSpeed(point);
+          return speed !== null ? `${speed} km/h` : "—";
+        },
+      },
+      {
+        key: "event",
+        label: "Evento",
+        render: (point) => point.event || point.attributes?.event || point.type || "—",
+      },
+      {
+        key: "address",
+        label: "Endereço",
+        render: (point) => formatAddress(point.address || point.formattedAddress || point.attributes?.address) || "—",
+      },
+    ],
+    [locale],
   );
 
   async function handleSubmit(event) {
@@ -128,6 +194,45 @@ export default function ReportsRoute() {
         )}
       </section>
 
+      {routeSummary && (
+        <section className="card">
+          <header className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-semibold">Resumo da rota</h3>
+              <p className="text-xs opacity-70">Dados atualizados conforme os pontos retornados pela API.</p>
+            </div>
+            <div className="text-xs text-white/60">
+              {routeSummary.startTime && routeSummary.endTime
+                ? `${formatDateTime(routeSummary.startTime, locale)} → ${formatDateTime(routeSummary.endTime, locale)}`
+                : "Intervalo não informado"}
+            </div>
+          </header>
+
+          <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <SummaryItem label="Veículo / dispositivo" value={routeSummary.deviceName} />
+            <SummaryItem
+              label="Distância total percorrida"
+              value={routeSummary.totalDistanceKm !== null ? `${routeSummary.totalDistanceKm.toFixed(2)} km` : "—"}
+            />
+            <SummaryItem
+              label="Duração total"
+              value={routeSummary.durationMs !== null ? formatDuration(routeSummary.durationMs) : "—"}
+            />
+            <SummaryItem
+              label="Velocidade média"
+              value={routeSummary.averageSpeed !== null ? `${routeSummary.averageSpeed} km/h` : "—"}
+            />
+            <SummaryItem
+              label="Velocidade máxima"
+              value={routeSummary.maxSpeed !== null ? `${routeSummary.maxSpeed} km/h` : "—"}
+            />
+            {!routeSummary.movementUnavailable && (
+              <SummaryItem label="Tempo parado / em movimento" value="—" />
+            )}
+          </dl>
+        </section>
+      )}
+
       <section className="card space-y-4">
         <header className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Pontos encontrados</h3>
@@ -162,18 +267,15 @@ export default function ReportsRoute() {
                   </td>
                 </tr>
               )}
-              {points.map((point) => (
-                <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
-                  {tableColumns.map((column) => {
-                    const row = { position: point };
-                    return (
+                {points.map((point) => (
+                  <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
+                    {tableColumns.map((column) => (
                       <td key={column.key} className="py-2 pr-6 text-white/80">
-                        {column.render ? column.render(row) : column.getValue?.(row, { t, locale })}
+                        {column.render ? column.render(point) : column.getValue?.(point, { t, locale })}
                       </td>
-                    );
-                  })}
-                </tr>
-              ))}
+                    ))}
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>
@@ -191,6 +293,12 @@ function formatDate(value) {
   }
 }
 
+function parseDate(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function validateFields({ deviceId, from, to }) {
   if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
   if (!from || !to) return "Preencha as datas de início e fim.";
@@ -199,4 +307,40 @@ function validateFields({ deviceId, from, to }) {
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime())) return "Datas inválidas.";
   if (fromDate > toDate) return "A data inicial deve ser anterior à final.";
   return "";
+}
+
+function formatDuration(durationMs) {
+  if (!Number.isFinite(durationMs)) return "—";
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  return `${hours}h ${minutes}m`;
+}
+
+function computeDistanceKm(points) {
+  if (!Array.isArray(points) || points.length < 2) return null;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const startDistance = normaliseDistance(first);
+  const endDistance = normaliseDistance(last);
+  if (!Number.isFinite(startDistance) || !Number.isFinite(endDistance)) return null;
+  return Math.max(0, (endDistance - startDistance) / 1000);
+}
+
+function normaliseDistance(point) {
+  const candidates = [point?.totalDistance, point?.distance, point?.attributes?.totalDistance, point?.attributes?.distance];
+  for (const value of candidates) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
+function SummaryItem({ label, value }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+      <dt className="text-xs uppercase tracking-wide text-white/60">{label}</dt>
+      <dd className="mt-1 text-base font-semibold text-white">{value ?? "—"}</dd>
+    </div>
+  );
 }

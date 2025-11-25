@@ -17,9 +17,11 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
+  const initialLoadRef = useRef(true);
 
-  const fetchTelemetry = useCallback(async () => {
-    setLoading(true);
+  const fetchTelemetry = useCallback(async (options = {}) => {
+    const showLoading = options.withLoading || initialLoadRef.current;
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const response = await api.get(API_ROUTES.core.telemetry);
@@ -32,9 +34,10 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
       setError(new Error(friendly));
       throw requestError;
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && showLoading) {
         setLoading(false);
       }
+      initialLoadRef.current = false;
     }
   }, [t]);
 
@@ -49,7 +52,7 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
   });
 
   const reload = useCallback(() => {
-    void fetchTelemetry();
+    void fetchTelemetry({ withLoading: true });
   }, [fetchTelemetry]);
 
   const stats = useMemo(() => {
