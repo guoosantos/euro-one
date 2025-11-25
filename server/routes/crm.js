@@ -31,7 +31,7 @@ router.get("/clients", (req, res, next) => {
 router.post("/clients", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
-    const client = createCrmClient({ ...req.body, clientId, createdByUserId: req.user?.id });
+    const client = createCrmClient({ ...req.body, clientId }, { user: req.user });
     res.status(201).json({ client });
   } catch (error) {
     next(error);
@@ -83,7 +83,12 @@ router.get("/alerts", (req, res, next) => {
 
 router.get("/clients/:id/contacts", (req, res, next) => {
   try {
-    const contacts = listCrmContacts(req.params.id, { clientId: req.clientId, user: req.user });
+    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
+    const contacts = listCrmContacts(req.params.id, {
+      clientId: req.clientId,
+      user: req.user,
+      createdByUserId,
+    });
     res.json({ contacts });
   } catch (error) {
     next(error);
