@@ -13,7 +13,7 @@ export function logCrmError(error, context) {
   console.error(label, error);
 }
 
-export function useCrmClients(params = {}) {
+export function useCrmClients(params = null) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
   const [clients, setClients] = useState(/** @type {CrmClient[]} */ ([]));
@@ -29,6 +29,11 @@ export function useCrmClients(params = {}) {
     return next;
   }, [paramsKey, tenantId]);
 
+  const loadErrorMessage = useMemo(
+    () => t("errors.loadClients") || "Não foi possível carregar clientes.",
+    [t],
+  );
+
   const load = useCallback(() => {
     const currentRequestId = ++requestIdRef.current;
     let cancelled = false;
@@ -43,7 +48,7 @@ export function useCrmClients(params = {}) {
       })
       .catch((err) => {
         if (cancelled || currentRequestId !== requestIdRef.current) return;
-        const friendly = err?.response?.data?.message || t("errors.loadClients") || "Não foi possível carregar clientes.";
+        const friendly = err?.response?.data?.message || loadErrorMessage;
         const normalisedError = new Error(friendly);
         setError(normalisedError);
         logCrmError(err, "listCrmClients");
@@ -55,9 +60,12 @@ export function useCrmClients(params = {}) {
     return () => {
       cancelled = true;
     };
-  }, [resolvedParams, t]);
+  }, [resolvedParams, loadErrorMessage]);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    const cancel = load();
+    return cancel;
+  }, [load]);
 
   const createClient = useCallback(
     async (payload) => {
