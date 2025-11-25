@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { AlertTriangle, Contact2, Eye, FilePlus2, Tag as TagIcon } from "lucide-react";
 
 import Card from "../ui/Card";
@@ -14,8 +15,10 @@ import useCrmTags from "../lib/hooks/useCrmTags.js";
 
 const defaultForm = {
   name: "",
+  cnpj: "",
   segment: "",
   companySize: "media",
+  relationshipType: "prospection",
   city: "",
   state: "",
   website: "",
@@ -69,6 +72,20 @@ function formatDate(value) {
   }
 }
 
+function normaliseCnpjDigits(value) {
+  return (value || "").toString().replace(/\D/g, "").slice(0, 14);
+}
+
+function formatCnpj(value) {
+  const digits = normaliseCnpjDigits(value);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 5) return `${digits.slice(0, 2)}.${digits.slice(2)}`;
+  if (digits.length <= 8) return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5)}`;
+  if (digits.length <= 12)
+    return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8)}`;
+  return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12, 14)}`;
+}
+
 function buildContractLabel(client) {
   if (!client?.hasCompetitorContract) return "Sem contrato concorrente";
   if (client.competitorContractEnd) return `Com contrato até ${formatDate(client.competitorContractEnd)}`;
@@ -92,8 +109,10 @@ function normaliseTagIds(tags) {
 function buildFormFromClient(client) {
   return {
     name: client?.name || "",
+    cnpj: formatCnpj(client?.cnpj),
     segment: client?.segment || "",
     companySize: client?.companySize || "",
+    relationshipType: client?.relationshipType || "prospection",
     city: client?.city || "",
     state: client?.state || "",
     website: client?.website || "",
@@ -130,8 +149,16 @@ function TagBadge({ label, color }) {
 }
 
 export default function Crm() {
-  const { tenantId } = useTenant();
-  const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients();
+  const { tenantId, hasAdminAccess } = useTenant();
+  const navigate = useNavigate();
+  const { section } = useParams();
+  const resolvedTab = ["clients", "tags", "interactions", "alerts"].includes(section) ? section : "clients";
+  const [viewScope, setViewScope] = useState(hasAdminAccess ? "all" : "mine");
+  const listParams = useMemo(
+    () => (hasAdminAccess && viewScope === "mine" ? { view: "mine" } : null),
+    [hasAdminAccess, viewScope],
+  );
+  const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [interactionForm, setInteractionForm] = useState(defaultInteraction);
@@ -145,12 +172,14 @@ export default function Crm() {
   const [filterInterest, setFilterInterest] = useState("");
   const [filterCloseProbability, setFilterCloseProbability] = useState("");
   const [filterTag, setFilterTag] = useState("");
+  const [filterRelationship, setFilterRelationship] = useState("");
   const [alerts, setAlerts] = useState({ contractAlerts: [], contractExpired: [], trialAlerts: [], trialExpired: [] });
   const [alertsLoading, setAlertsLoading] = useState(false);
   const [alertsError, setAlertsError] = useState(null);
   const [newTagName, setNewTagName] = useState("");
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
+  const [cnpjError, setCnpjError] = useState(null);
   const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
     useCrmContacts(selectedId);
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
@@ -183,6 +212,24 @@ export default function Crm() {
     [],
   );
 
+  const relationshipLabel = useMemo(
+    () => ({
+      prospection: "Prospecção",
+      customer: "Cliente da Euro",
+      supplier: "Fornecedor",
+    }),
+    [],
+  );
+
+  const relationshipBadgeStyle = useMemo(
+    () => ({
+      prospection: "bg-amber-500/20 text-amber-100",
+      customer: "bg-emerald-500/20 text-emerald-100",
+      supplier: "bg-blue-500/20 text-blue-100",
+    }),
+    [],
+  );
+
   const contactTypeLabel = useMemo(
     () => ({
       ligacao: "Ligação",
@@ -205,6 +252,7 @@ export default function Crm() {
     CoreApi.listCrmAlerts({
       contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
+      view: hasAdminAccess && viewScope === "mine" ? "mine" : undefined,
     })
       .then((response) => {
         if (cancelled) return;
@@ -227,7 +275,7 @@ export default function Crm() {
     return () => {
       cancelled = true;
     };
-  }, [tenantId]);
+  }, [tenantId, hasAdminAccess, viewScope]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -290,6 +338,16 @@ export default function Crm() {
   }, [loadAlerts]);
 
   useEffect(() => {
+    if (!section) {
+      navigate("/crm/clients", { replace: true });
+    }
+  }, [navigate, section]);
+
+  useEffect(() => {
+    setViewScope(hasAdminAccess ? "all" : "mine");
+  }, [hasAdminAccess]);
+
+  useEffect(() => {
     setActiveInteraction(null);
   }, [selectedId]);
 
@@ -338,9 +396,13 @@ export default function Crm() {
           if (!hasTag) return false;
         }
 
+        if (filterRelationship && (client.relationshipType || "prospection") !== filterRelationship) {
+          return false;
+        }
+
         return true;
       }),
-    [clients, searchTerm, filterInterest, filterCloseProbability, filterTag, tagsById],
+    [clients, searchTerm, filterInterest, filterCloseProbability, filterTag, tagsById, filterRelationship],
   );
 
   const sortedContacts = useMemo(() => {
@@ -350,28 +412,37 @@ export default function Crm() {
 
   function handleFieldChange(event) {
     const { name, value, type, checked } = event.target;
+    if (name === "cnpj") {
+      const digits = normaliseCnpjDigits(value);
+      setForm((prev) => ({ ...prev, cnpj: formatCnpj(digits) }));
+      setCnpjError(null);
+      return;
+    }
     const parsedValue = type === "checkbox" ? checked : value;
     setForm((prev) => ({ ...prev, [name]: parsedValue }));
   }
 
   function handleSelectClient(id) {
-    setSelectedId(id);
+    setSelectedId(id || null);
   }
 
   async function handleSubmit(event) {
     event.preventDefault();
     if (saving) return;
     setDetailError(null);
+    setCnpjError(null);
     setSaving(true);
     const payload = {
       ...form,
       clientId: tenantId,
+      cnpj: normaliseCnpjDigits(form.cnpj) || null,
       tags: form.tags,
       competitorContractStart: form.competitorContractStart || null,
       competitorContractEnd: form.competitorContractEnd || null,
       trialStart: form.trialStart || null,
       trialEnd: form.trialEnd || null,
       trialDurationDays: form.trialDurationDays === "" ? null : Number(form.trialDurationDays),
+      relationshipType: form.relationshipType || "prospection",
     };
 
     try {
@@ -386,6 +457,16 @@ export default function Crm() {
       refresh();
       closeFormModal();
     } catch (err) {
+      const duplicateCnpjError =
+        err?.response?.status === 409 &&
+        (err?.response?.data?.code === "DUPLICATE_CNPJ" ||
+          err?.response?.data?.message?.toLowerCase?.().includes("cnpj") ||
+          err?.message?.toLowerCase?.().includes("cnpj"));
+
+      if (duplicateCnpjError) {
+        setCnpjError("Já existe um cliente com este CNPJ cadastrado no CRM. Busque na lista antes de cadastrar um novo.");
+        return;
+      }
       logCrmError(err, "saveClient");
       setDetailError(new Error("Erro ao salvar cliente. Verifique sua conexão ou tente novamente."));
       return;
@@ -399,18 +480,21 @@ export default function Crm() {
     setSelectedClient(null);
     setForm(defaultForm);
     setDetailError(null);
+    setCnpjError(null);
     setIsFormOpen(true);
   }
 
   function openEditClient(id) {
     setSelectedId(id);
     setDetailError(null);
+    setCnpjError(null);
     setIsFormOpen(true);
   }
 
   function closeFormModal() {
     setIsFormOpen(false);
     setDetailError(null);
+    setCnpjError(null);
   }
 
   async function handleInteractionSubmit(event) {
@@ -461,9 +545,24 @@ export default function Crm() {
 
   const interactionsTitle = selectedClient
     ? `Interações – ${selectedClient.name}`
-    : "Interações – selecione um cliente na lista ao lado";
+    : "Interações – selecione um cliente";
 
   const quickStatusLabel = selectedClient ? selectedClient.name : "Nenhum cliente selecionado";
+
+  const tabs = [
+    { id: "clients", label: "Clientes" },
+    { id: "tags", label: "Tags" },
+    { id: "interactions", label: "Interações" },
+    { id: "alerts", label: "Alertas" },
+  ];
+
+  function handleTabChange(tabId) {
+    if (tabId === "clients") {
+      navigate("/crm/clients");
+      return;
+    }
+    navigate(`/crm/${tabId}`);
+  }
 
   return (
     <div className="space-y-4">
@@ -475,12 +574,27 @@ export default function Crm() {
         <div className="flex gap-2" />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card
-          title="Clientes"
-          subtitle="Pipeline com principais dados comerciais"
-          className="xl:col-span-2"
-          actions={
+      <div className="flex flex-wrap gap-2 rounded-xl border border-white/10 bg-white/5 p-1">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
+              resolvedTab === tab.id ? "bg-primary text-primary-foreground" : "text-white/70 hover:bg-white/10"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {resolvedTab === "clients" && (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card
+            title="Clientes"
+            subtitle="Pipeline com principais dados comerciais"
+            className="xl:col-span-2"
+            actions={
             <span className="text-xs text-white/60">
               {loading ? "Carregando..." : `${filteredClients.length} clientes`}
             </span>
@@ -496,7 +610,7 @@ export default function Crm() {
               </div>
             </div>
           )}
-          <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-5 xl:grid-cols-6">
             <div className="space-y-1">
               <div className="text-xs text-white/60">Buscar por nome</div>
               <Input
@@ -537,6 +651,24 @@ export default function Crm() {
                 ))}
               </Select>
             </div>
+            <div className="space-y-1">
+              <div className="text-xs text-white/60">Relação</div>
+              <Select value={filterRelationship} onChange={(event) => setFilterRelationship(event.target.value)}>
+                <option value="">Todas</option>
+                <option value="customer">Cliente</option>
+                <option value="supplier">Fornecedor</option>
+                <option value="prospection">Prospecção</option>
+              </Select>
+            </div>
+            {hasAdminAccess && (
+              <div className="space-y-1">
+                <div className="text-xs text-white/60">Ver</div>
+                <Select value={viewScope} onChange={(event) => setViewScope(event.target.value)}>
+                  <option value="all">Todos os clientes</option>
+                  <option value="mine">Somente os meus</option>
+                </Select>
+              </div>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -545,6 +677,7 @@ export default function Crm() {
                   <th className="py-2 pr-4">Cliente</th>
                   <th className="py-2 pr-4">Segmento</th>
                   <th className="py-2 pr-4">Local</th>
+                  <th className="py-2 pr-4">Relação</th>
                   <th className="py-2 pr-4">Interesse</th>
                   <th className="py-2 pr-4">Prob. fechamento</th>
                   <th className="py-2 pr-4">Tags</th>
@@ -556,14 +689,14 @@ export default function Crm() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={9} className="py-4 text-center text-white/60">
+                    <td colSpan={10} className="py-4 text-center text-white/60">
                       Carregando clientes...
                     </td>
                   </tr>
                 )}
                 {!loading && filteredClients.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="py-4 text-center text-white/60">
+                    <td colSpan={10} className="py-4 text-center text-white/60">
                       Nenhum cliente cadastrado.
                     </td>
                   </tr>
@@ -599,6 +732,13 @@ export default function Crm() {
                         {[client.city, client.state].filter(Boolean).join("/") || "—"}
                       </td>
                       <td className="py-2 pr-4">
+                        <span
+                          className={`rounded-full px-2 py-1 text-xs ${relationshipBadgeStyle[client.relationshipType] || "bg-white/10 text-white"}`}
+                        >
+                          {relationshipLabel[client.relationshipType] || "Prospecção"}
+                        </span>
+                      </td>
+                      <td className="py-2 pr-4">
                         <span className={`rounded-full px-2 py-1 text-xs ${interestBadge(client.interestLevel)}`}>
                           {interestLabel[client.interestLevel] || "—"}
                         </span>
@@ -632,7 +772,7 @@ export default function Crm() {
               </tbody>
             </table>
           </div>
-        </Card>
+          </Card>
 
         <div className="space-y-4">
           <Card title="Cadastro / edição" subtitle="Atalhos rápidos">
@@ -650,6 +790,7 @@ export default function Crm() {
                   <>
                     <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
                     <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
+                    <div className="text-white/70">Relação: {relationshipLabel[selectedClient.relationshipType] || "Prospecção"}</div>
                     <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
                     <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>
                     <div className="flex flex-wrap gap-2">
@@ -671,8 +812,13 @@ export default function Crm() {
               </div>
             </div>
           </Card>
+        </div>
+      </div>
+      )}
 
-          <Card title="Tags" subtitle="Catálogo para vincular aos clientes">
+      {resolvedTab === "tags" && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card title="Catálogo de tags" subtitle="Organize as etiquetas do CRM">
             {tagsError && (
               <div className="mb-2 rounded-lg bg-red-500/20 p-2 text-xs text-red-100">{tagsError.message}</div>
             )}
@@ -720,13 +866,32 @@ export default function Crm() {
             </div>
           </Card>
         </div>
-      </div>
+      )}
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <Card title={interactionsTitle} subtitle="Registro de contatos recentes" className="xl:col-span-2">
-          {!selectedId && <div className="text-sm text-white/60">Escolha um cliente na lista para visualizar interações.</div>}
-          {selectedId && (
-            <div className="space-y-4">
+      {resolvedTab === "interactions" && (
+        <div className="grid gap-4 xl:grid-cols-3">
+          <Card title={interactionsTitle} subtitle="Registro de contatos recentes" className="xl:col-span-2">
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <div className="text-xs text-white/60">Cliente</div>
+              <Select
+                value={selectedId || ""}
+                onChange={(event) => handleSelectClient(event.target.value)}
+                className="min-w-[220px]"
+              >
+                <option value="">Selecione um cliente</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </Select>
+              <Button size="sm" variant="ghost" onClick={() => handleTabChange("clients")}>
+                Ir para Clientes
+              </Button>
+            </div>
+            {!selectedId && <div className="text-sm text-white/60">Escolha um cliente para registrar ou revisar interações.</div>}
+            {selectedId && (
+              <div className="space-y-4">
               <form onSubmit={handleInteractionSubmit} className="grid gap-3 md:grid-cols-2">
                 <div className="space-y-2">
                   <label className="text-xs text-white/60">Data</label>
@@ -881,65 +1046,70 @@ export default function Crm() {
               </div>
             </div>
           )}
-        </Card>
+          </Card>
+        </div>
+      )}
 
-        <Card
-          title="Alertas de contrato e teste"
-          subtitle="Resumo visual de contratos concorrentes e trials"
-          actions={
-            <Button size="sm" variant="ghost" onClick={loadAlerts}>
-              Atualizar alertas
-            </Button>
-          }
-        >
-          {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
-          {alertsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{alertsError.message}</div>}
-          {!alertsLoading && !alertsError &&
-            alerts.contractAlerts.length === 0 &&
-            alerts.trialAlerts.length === 0 &&
-            alerts.contractExpired.length === 0 &&
-            alerts.trialExpired.length === 0 && (
-              <div className="text-sm text-white/60">Nenhum alerta no momento.</div>
+      {resolvedTab === "alerts" && (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card
+            title="Alertas de contrato e teste"
+            subtitle="Resumo visual de contratos concorrentes e trials"
+            actions={
+              <Button size="sm" variant="ghost" onClick={loadAlerts}>
+                Atualizar alertas
+              </Button>
+            }
+          >
+            {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
+            {alertsError && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{alertsError.message}</div>}
+            {!alertsLoading && !alertsError &&
+              alerts.contractAlerts.length === 0 &&
+              alerts.trialAlerts.length === 0 &&
+              alerts.contractExpired.length === 0 &&
+              alerts.trialExpired.length === 0 && (
+                <div className="text-sm text-white/60">Nenhum alerta no momento.</div>
+              )}
+
+            {!alertsError && (
+              <div className="space-y-4 text-sm text-white/80">
+                <AlertGroup
+                  title={`Contratos concorrentes vencendo em até ${DEFAULT_CONTRACT_ALERT_DAYS} dias`}
+                  items={alerts.contractAlerts}
+                  tone="warning"
+                  renderDescription={(client) =>
+                    `Contrato com ${client.competitorName || "concorrente"} termina em ${formatDate(
+                      client.competitorContractEnd,
+                    )}.`
+                  }
+                />
+                <AlertGroup
+                  title="Contratos concorrentes vencendo hoje / vencidos"
+                  items={alerts.contractExpired}
+                  tone="danger"
+                  renderDescription={(client) =>
+                    `Contrato com ${client.competitorName || "concorrente"} venceu em ${formatDate(
+                      client.competitorContractEnd,
+                    )}.`
+                  }
+                />
+                <AlertGroup
+                  title={`Testes (trial) terminando em até ${DEFAULT_TRIAL_ALERT_DAYS} dias`}
+                  items={alerts.trialAlerts}
+                  tone="info"
+                  renderDescription={(client) => `Teste termina em ${formatDate(client.trialEnd)}.`}
+                />
+                <AlertGroup
+                  title="Testes já encerrados"
+                  items={alerts.trialExpired}
+                  tone="muted"
+                  renderDescription={(client) => `Teste finalizado em ${formatDate(client.trialEnd)}.`}
+                />
+              </div>
             )}
-
-          {!alertsError && (
-            <div className="space-y-4 text-sm text-white/80">
-              <AlertGroup
-                title={`Contratos concorrentes vencendo em até ${DEFAULT_CONTRACT_ALERT_DAYS} dias`}
-                items={alerts.contractAlerts}
-                tone="warning"
-                renderDescription={(client) =>
-                  `Contrato com ${client.competitorName || "concorrente"} termina em ${formatDate(
-                    client.competitorContractEnd,
-                  )}.`
-                }
-              />
-              <AlertGroup
-                title="Contratos concorrentes vencendo hoje / vencidos"
-                items={alerts.contractExpired}
-                tone="danger"
-                renderDescription={(client) =>
-                  `Contrato com ${client.competitorName || "concorrente"} venceu em ${formatDate(
-                    client.competitorContractEnd,
-                  )}.`
-                }
-              />
-              <AlertGroup
-                title={`Testes (trial) terminando em até ${DEFAULT_TRIAL_ALERT_DAYS} dias`}
-                items={alerts.trialAlerts}
-                tone="info"
-                renderDescription={(client) => `Teste termina em ${formatDate(client.trialEnd)}.`}
-              />
-              <AlertGroup
-                title="Testes já encerrados"
-                items={alerts.trialExpired}
-                tone="muted"
-                renderDescription={(client) => `Teste finalizado em ${formatDate(client.trialEnd)}.`}
-              />
-            </div>
-          )}
-        </Card>
-      </div>
+          </Card>
+        </div>
+      )}
 
       <InteractionDetailsModal
         interaction={activeInteraction}
@@ -964,6 +1134,18 @@ export default function Crm() {
             <div className="space-y-2">
               <label className="text-xs text-white/60">Nome do cliente *</label>
               <Input name="name" value={form.name} onChange={handleFieldChange} required />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">CNPJ *</label>
+              <Input
+                name="cnpj"
+                value={form.cnpj}
+                onChange={handleFieldChange}
+                placeholder="00.000.000/0000-00"
+                required
+              />
+              {cnpjError && <div className="text-xs text-red-300">{cnpjError}</div>}
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -993,6 +1175,15 @@ export default function Crm() {
             <div className="space-y-2">
               <label className="text-xs text-white/60">Site / redes sociais</label>
               <Input name="website" value={form.website} onChange={handleFieldChange} />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Relação com a Euro</label>
+              <Select name="relationshipType" value={form.relationshipType} onChange={handleFieldChange}>
+                <option value="prospection">Prospecção</option>
+                <option value="customer">Cliente da Euro</option>
+                <option value="supplier">Fornecedor</option>
+              </Select>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">

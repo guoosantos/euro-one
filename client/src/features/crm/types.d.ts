@@ -1,6 +1,7 @@
 export interface CrmClient {
   id: string;
   name: string;
+  cnpj?: string | null;
   segment?: string;
   companySize?: "micro" | "pequena" | "media" | "grande";
   city?: string;
@@ -28,6 +29,8 @@ export interface CrmClient {
   trialEnd?: string | null;
 
   notes?: string;
+  relationshipType?: "prospection" | "customer" | "supplier";
+  createdByUserId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -45,5 +48,6 @@ export interface CrmContact {
   summary?: string;
   nextStep?: string;
   nextStepDate?: string | null;
+  createdByUserId?: string | null;
   createdAt?: string;
 }

@@ -96,6 +96,7 @@ export const routeConfig = [
   { path: "/clients", element: Clients, title: "Clientes" },
   { path: "/users", element: Users, title: "Usuários" },
   { path: "/crm", element: Crm, title: "CRM" },
+  { path: "/crm/:section", element: Crm, title: "CRM" },
   { path: "/finance", element: Finance, title: "Financeiro" },
   { path: "/driver-behavior", element: DriverBehavior, title: "Driver Behavior" },
   { path: "/maintenance", element: Maintenance, title: "Manutenção" },
