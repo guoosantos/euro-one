@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Contact2, FilePlus2, NotebookPen, Sparkles } from "lucide-react";
+import { Contact2, FilePlus2, NotebookPen } from "lucide-react";
 
 import Card from "../ui/Card";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import Button from "../ui/Button";
+import Modal from "../ui/Modal";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useCrmClients from "../lib/hooks/useCrmClients.js";
@@ -80,6 +81,8 @@ export default function Crm() {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedClient, setSelectedClient] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [interactionSaving, setInteractionSaving] = useState(false);
   const [detailError, setDetailError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -132,10 +135,13 @@ export default function Crm() {
     if (!selectedId) {
       setSelectedClient(null);
       setForm(defaultForm);
+      setDetailError(null);
+      setDetailLoading(false);
       return;
     }
     let cancelled = false;
     setDetailError(null);
+    setDetailLoading(true);
     CoreApi.getCrmClient(selectedId)
       .then((response) => {
         if (cancelled) return;
@@ -170,6 +176,10 @@ export default function Crm() {
       .catch((err) => {
         if (cancelled) return;
         setDetailError(err instanceof Error ? err : new Error("Falha ao carregar cliente"));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDetailLoading(false);
       });
     return () => {
       cancelled = true;
@@ -258,12 +268,32 @@ export default function Crm() {
         setSelectedClient(created);
       }
       refresh();
+      closeFormModal();
     } catch (err) {
       console.error("Falha ao salvar cliente", err);
       setDetailError(err instanceof Error ? err : new Error("Falha ao salvar"));
     } finally {
       setSaving(false);
     }
+  }
+
+  function openNewClientModal() {
+    setSelectedId(null);
+    setSelectedClient(null);
+    setForm(defaultForm);
+    setDetailError(null);
+    setIsFormOpen(true);
+  }
+
+  function openEditClient(id) {
+    setSelectedId(id);
+    setDetailError(null);
+    setIsFormOpen(true);
+  }
+
+  function closeFormModal() {
+    setIsFormOpen(false);
+    setDetailError(null);
   }
 
   async function handleInteractionSubmit(event) {
@@ -288,11 +318,7 @@ export default function Crm() {
           <div className="text-lg font-semibold text-white">CRM</div>
           <p className="text-sm text-white/60">Cadastre clientes, acompanhe contratos e registre interações.</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={() => setSelectedId(null)}>
-            <FilePlus2 size={16} className="mr-2" /> Novo cliente
-          </Button>
-        </div>
+        <div className="flex gap-2" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-3">
@@ -406,7 +432,7 @@ export default function Crm() {
                     <td className="py-2 pr-4 text-white/70">{buildContractLabel(client)}</td>
                     <td className="py-2 pr-4 text-white/70">{buildTrialLabel(client)}</td>
                     <td className="py-2 pr-4 text-white/80">
-                      <Button variant="ghost" className="px-2 py-1" onClick={() => setSelectedId(client.id)}>
+                      <Button variant="ghost" className="px-2 py-1" onClick={() => openEditClient(client.id)}>
                         Ver / editar
                       </Button>
                     </td>
@@ -417,186 +443,27 @@ export default function Crm() {
           </div>
         </Card>
 
-        <Card title="Cadastro / edição" subtitle="Detalhes comerciais e operacionais">
-          {detailError && <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>}
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Nome do cliente *</label>
-              <Input name="name" value={form.name} onChange={handleFieldChange} required />
-            </div>
+        <Card title="Cadastro / edição" subtitle="Atalhos rápidos">
+          <div className="space-y-4">
+            <Button onClick={openNewClientModal}>
+              <FilePlus2 size={16} className="mr-2" /> Novo cliente
+            </Button>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Segmento</label>
-                <Input name="segment" value={form.segment} onChange={handleFieldChange} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Tamanho</label>
-                <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
-                  <option value="micro">Micro</option>
-                  <option value="pequena">Pequena</option>
-                  <option value="media">Média</option>
-                  <option value="grande">Grande</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Cidade</label>
-                <Input name="city" value={form.city} onChange={handleFieldChange} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Estado</label>
-                <Input name="state" value={form.state} onChange={handleFieldChange} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Site / redes sociais</label>
-              <Input name="website" value={form.website} onChange={handleFieldChange} />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Contato principal</label>
-                <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Cargo</label>
-                <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Telefone / WhatsApp</label>
-                <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">E-mail</label>
-                <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Nível de interesse</label>
-                <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
-                  <option value="baixo">Baixo</option>
-                  <option value="medio">Médio</option>
-                  <option value="alto">Alto</option>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs text-white/60">Probabilidade de fechamento</label>
-                <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
-                  <option value="baixa">Baixa</option>
-                  <option value="media">Média</option>
-                  <option value="alta">Alta</option>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Tags</label>
-              <Input
-                name="tags"
-                value={form.tags}
-                onChange={handleFieldChange}
-                placeholder="logística, frota própria, grande conta"
-              />
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <NotebookPen size={16} /> Operação / contrato atual
-              </div>
-              <label className="flex items-center gap-2 text-sm text-white/80">
-                <input
-                  type="checkbox"
-                  name="hasCompetitorContract"
-                  checked={form.hasCompetitorContract}
-                  onChange={handleFieldChange}
-                  className="h-4 w-4 rounded border-white/30 bg-transparent"
-                />
-                Possui contrato com concorrente
-              </label>
-              {form.hasCompetitorContract && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Concorrente</label>
-                    <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Término do contrato</label>
-                    <Input
-                      name="competitorContractEnd"
-                      type="date"
-                      value={form.competitorContractEnd}
-                      onChange={handleFieldChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Início do contrato</label>
-                    <Input
-                      name="competitorContractStart"
-                      type="date"
-                      value={form.competitorContractStart}
-                      onChange={handleFieldChange}
-                    />
-                  </div>
+            {selectedClient && (
+              <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80">
+                <div className="text-sm font-semibold text-white">{selectedClient.name}</div>
+                <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
+                <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
+                <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
+                <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>
+                <div>
+                  <Button variant="ghost" className="px-2 py-1" onClick={() => openEditClient(selectedClient.id)}>
+                    Editar cliente
+                  </Button>
                 </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-white">
-                <Sparkles size={16} /> Período de teste
               </div>
-              <label className="flex items-center gap-2 text-sm text-white/80">
-                <input
-                  type="checkbox"
-                  name="inTrial"
-                  checked={form.inTrial}
-                  onChange={handleFieldChange}
-                  className="h-4 w-4 rounded border-white/30 bg-transparent"
-                />
-                Cliente em teste
-              </label>
-              {form.inTrial && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Produto/serviço</label>
-                    <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Início do teste</label>
-                    <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Duração (dias)</label>
-                    <Input
-                      name="trialDurationDays"
-                      type="number"
-                      min="0"
-                      value={form.trialDurationDays}
-                      onChange={handleFieldChange}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-xs text-white/60">Término previsto</label>
-                    <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Notas internas</label>
-              <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
-            </div>
-
-            <div className="flex justify-end">
-              <Button type="submit" disabled={saving}>
-                {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
-              </Button>
-            </div>
-          </form>
+            )}
+          </div>
         </Card>
       </div>
 
@@ -807,6 +674,195 @@ export default function Crm() {
           </Card>
         </div>
       </div>
+
+      <Modal
+        open={isFormOpen}
+        onClose={closeFormModal}
+        title={selectedId ? "Editar cliente" : "Novo cliente"}
+        width="max-w-5xl"
+      >
+        {detailError && (
+          <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>
+        )}
+        {detailLoading && (
+          <div className="mb-3 rounded-lg bg-white/5 p-3 text-sm text-white/80">Carregando cliente...</div>
+        )}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-xs text-white/60">Nome do cliente *</label>
+            <Input name="name" value={form.name} onChange={handleFieldChange} required />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Segmento</label>
+              <Input name="segment" value={form.segment} onChange={handleFieldChange} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Tamanho</label>
+              <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
+                <option value="micro">Micro</option>
+                <option value="pequena">Pequena</option>
+                <option value="media">Média</option>
+                <option value="grande">Grande</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Cidade</label>
+              <Input name="city" value={form.city} onChange={handleFieldChange} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Estado</label>
+              <Input name="state" value={form.state} onChange={handleFieldChange} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-white/60">Site / redes sociais</label>
+            <Input name="website" value={form.website} onChange={handleFieldChange} />
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Contato principal</label>
+              <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Cargo</label>
+              <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Telefone / WhatsApp</label>
+              <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">E-mail</label>
+              <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Nível de interesse</label>
+              <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
+                <option value="baixo">Baixo</option>
+                <option value="medio">Médio</option>
+                <option value="alto">Alto</option>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-xs text-white/60">Probabilidade de fechamento</label>
+              <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+              </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-white/60">Tags</label>
+            <Input
+              name="tags"
+              value={form.tags}
+              onChange={handleFieldChange}
+              placeholder="logística, frota própria, grande conta"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm text-white/80">
+              <input
+                type="checkbox"
+                name="hasCompetitorContract"
+                checked={form.hasCompetitorContract}
+                onChange={handleFieldChange}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Possui contrato com concorrente
+            </label>
+            {form.hasCompetitorContract && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Concorrente</label>
+                  <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Início do contrato</label>
+                  <Input
+                    name="competitorContractStart"
+                    type="date"
+                    value={form.competitorContractStart}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Término do contrato</label>
+                  <Input
+                    name="competitorContractEnd"
+                    type="date"
+                    value={form.competitorContractEnd}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 text-sm text-white/80">
+              <input
+                type="checkbox"
+                name="inTrial"
+                checked={form.inTrial}
+                onChange={handleFieldChange}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Está em teste (trial)
+            </label>
+            {form.inTrial && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Produto/serviço</label>
+                  <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Início do teste</label>
+                  <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Duração (dias)</label>
+                  <Input
+                    name="trialDurationDays"
+                    type="number"
+                    min="0"
+                    value={form.trialDurationDays}
+                    onChange={handleFieldChange}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Término previsto</label>
+                  <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs text-white/60">Notas internas</label>
+            <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" type="button" onClick={closeFormModal}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }
