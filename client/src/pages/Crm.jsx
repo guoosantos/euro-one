@@ -317,6 +317,8 @@ export default function Crm() {
 
   async function handleSubmit(event) {
     event.preventDefault();
+    if (saving) return;
+    setDetailError(null);
     setSaving(true);
     const payload = {
       ...form,
@@ -759,194 +761,196 @@ export default function Crm() {
         </div>
       </div>
 
-      <Modal
-        open={isFormOpen}
-        onClose={closeFormModal}
-        title={selectedId ? "Editar cliente" : "Novo cliente"}
-        width="max-w-5xl"
-      >
-        {detailError && (
-          <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>
-        )}
-        {detailLoading && (
-          <div className="mb-3 rounded-lg bg-white/5 p-3 text-sm text-white/80">Carregando cliente...</div>
-        )}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label className="text-xs text-white/60">Nome do cliente *</label>
-            <Input name="name" value={form.name} onChange={handleFieldChange} required />
-          </div>
+        <Modal
+          open={isFormOpen}
+          onClose={closeFormModal}
+          title={selectedId ? "Editar cliente" : "Novo cliente"}
+          width="max-w-5xl"
+        >
+          {detailError && (
+            <div className="mb-3 rounded-lg bg-red-500/20 p-3 text-red-100">{detailError.message}</div>
+          )}
+          {detailLoading && (
+            <div className="mb-3 rounded-lg bg-white/5 p-3 text-sm text-white/80">Carregando cliente...</div>
+          )}
+          <form onSubmit={handleSubmit} className="flex max-h-[70vh] flex-col gap-4">
+            <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Nome do cliente *</label>
+                <Input name="name" value={form.name} onChange={handleFieldChange} required />
+              </div>
 
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Segmento</label>
-              <Input name="segment" value={form.segment} onChange={handleFieldChange} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Tamanho</label>
-              <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
-                <option value="micro">Micro</option>
-                <option value="pequena">Pequena</option>
-                <option value="media">Média</option>
-                <option value="grande">Grande</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Cidade</label>
-              <Input name="city" value={form.city} onChange={handleFieldChange} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Estado</label>
-              <Input name="state" value={form.state} onChange={handleFieldChange} />
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-white/60">Site / redes sociais</label>
-            <Input name="website" value={form.website} onChange={handleFieldChange} />
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Contato principal</label>
-              <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Cargo</label>
-              <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Telefone / WhatsApp</label>
-              <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">E-mail</label>
-              <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Nível de interesse</label>
-              <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
-                <option value="baixo">Baixo</option>
-                <option value="medio">Médio</option>
-                <option value="alto">Alto</option>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-xs text-white/60">Probabilidade de fechamento</label>
-              <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
-                <option value="baixa">Baixa</option>
-                <option value="media">Média</option>
-                <option value="alta">Alta</option>
-              </Select>
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <label className="text-xs text-white/60">Tags</label>
-            <Input
-              name="tags"
-              value={form.tags}
-              onChange={handleFieldChange}
-              placeholder="logística, frota própria, grande conta"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm text-white/80">
-              <input
-                type="checkbox"
-                name="hasCompetitorContract"
-                checked={form.hasCompetitorContract}
-                onChange={handleFieldChange}
-                className="h-4 w-4 rounded border-white/30 bg-transparent"
-              />
-              Possui contrato com concorrente
-            </label>
-            {form.hasCompetitorContract && (
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Concorrente</label>
-                  <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
+                  <label className="text-xs text-white/60">Segmento</label>
+                  <Input name="segment" value={form.segment} onChange={handleFieldChange} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Início do contrato</label>
-                  <Input
-                    name="competitorContractStart"
-                    type="date"
-                    value={form.competitorContractStart}
-                    onChange={handleFieldChange}
-                  />
+                  <label className="text-xs text-white/60">Tamanho</label>
+                  <Select name="companySize" value={form.companySize} onChange={handleFieldChange}>
+                    <option value="micro">Micro</option>
+                    <option value="pequena">Pequena</option>
+                    <option value="media">Média</option>
+                    <option value="grande">Grande</option>
+                  </Select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Término do contrato</label>
-                  <Input
-                    name="competitorContractEnd"
-                    type="date"
-                    value={form.competitorContractEnd}
-                    onChange={handleFieldChange}
-                  />
+                  <label className="text-xs text-white/60">Cidade</label>
+                  <Input name="city" value={form.city} onChange={handleFieldChange} />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Estado</label>
+                  <Input name="state" value={form.state} onChange={handleFieldChange} />
                 </div>
               </div>
-            )}
-          </div>
 
-          <div className="space-y-2">
-            <label className="flex items-center gap-2 text-sm text-white/80">
-              <input
-                type="checkbox"
-                name="inTrial"
-                checked={form.inTrial}
-                onChange={handleFieldChange}
-                className="h-4 w-4 rounded border-white/30 bg-transparent"
-              />
-              Está em teste (trial)
-            </label>
-            {form.inTrial && (
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Site / redes sociais</label>
+                <Input name="website" value={form.website} onChange={handleFieldChange} />
+              </div>
+
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Produto/serviço</label>
-                  <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
+                  <label className="text-xs text-white/60">Contato principal</label>
+                  <Input name="mainContactName" value={form.mainContactName} onChange={handleFieldChange} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Início do teste</label>
-                  <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
+                  <label className="text-xs text-white/60">Cargo</label>
+                  <Input name="mainContactRole" value={form.mainContactRole} onChange={handleFieldChange} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Duração (dias)</label>
-                  <Input
-                    name="trialDurationDays"
-                    type="number"
-                    min="0"
-                    value={form.trialDurationDays}
-                    onChange={handleFieldChange}
-                  />
+                  <label className="text-xs text-white/60">Telefone / WhatsApp</label>
+                  <Input name="mainContactPhone" value={form.mainContactPhone} onChange={handleFieldChange} />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs text-white/60">Término previsto</label>
-                  <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
+                  <label className="text-xs text-white/60">E-mail</label>
+                  <Input name="mainContactEmail" type="email" value={form.mainContactEmail} onChange={handleFieldChange} />
                 </div>
               </div>
-            )}
-          </div>
 
-          <div className="space-y-2">
-            <label className="text-xs text-white/60">Notas internas</label>
-            <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
-          </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Nível de interesse</label>
+                  <Select name="interestLevel" value={form.interestLevel} onChange={handleFieldChange}>
+                    <option value="baixo">Baixo</option>
+                    <option value="medio">Médio</option>
+                    <option value="alto">Alto</option>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs text-white/60">Probabilidade de fechamento</label>
+                  <Select name="closeProbability" value={form.closeProbability} onChange={handleFieldChange}>
+                    <option value="baixa">Baixa</option>
+                    <option value="media">Média</option>
+                    <option value="alta">Alta</option>
+                  </Select>
+                </div>
+              </div>
 
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" type="button" onClick={closeFormModal}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={saving}>
-              {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Tags</label>
+                <Input
+                  name="tags"
+                  value={form.tags}
+                  onChange={handleFieldChange}
+                  placeholder="logística, frota própria, grande conta"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-white/80">
+                  <input
+                    type="checkbox"
+                    name="hasCompetitorContract"
+                    checked={form.hasCompetitorContract}
+                    onChange={handleFieldChange}
+                    className="h-4 w-4 rounded border-white/30 bg-transparent"
+                  />
+                  Possui contrato com concorrente
+                </label>
+                {form.hasCompetitorContract && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Concorrente</label>
+                      <Input name="competitorName" value={form.competitorName} onChange={handleFieldChange} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Início do contrato</label>
+                      <Input
+                        name="competitorContractStart"
+                        type="date"
+                        value={form.competitorContractStart}
+                        onChange={handleFieldChange}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Término do contrato</label>
+                      <Input
+                        name="competitorContractEnd"
+                        type="date"
+                        value={form.competitorContractEnd}
+                        onChange={handleFieldChange}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-sm text-white/80">
+                  <input
+                    type="checkbox"
+                    name="inTrial"
+                    checked={form.inTrial}
+                    onChange={handleFieldChange}
+                    className="h-4 w-4 rounded border-white/30 bg-transparent"
+                  />
+                  Está em teste (trial)
+                </label>
+                {form.inTrial && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Produto/serviço</label>
+                      <Input name="trialProduct" value={form.trialProduct} onChange={handleFieldChange} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Início do teste</label>
+                      <Input name="trialStart" type="date" value={form.trialStart} onChange={handleFieldChange} />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Duração (dias)</label>
+                      <Input
+                        name="trialDurationDays"
+                        type="number"
+                        min="0"
+                        value={form.trialDurationDays}
+                        onChange={handleFieldChange}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label className="text-xs text-white/60">Término previsto</label>
+                      <Input name="trialEnd" type="date" value={form.trialEnd} onChange={handleFieldChange} />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs text-white/60">Notas internas</label>
+                <Input name="notes" value={form.notes} onChange={handleFieldChange} placeholder="Observações gerais" />
+              </div>
+            </div>
+
+            <div className="sticky bottom-0 flex justify-end gap-2 border-t border-white/10 bg-card pt-3">
+              <Button variant="ghost" type="button" onClick={closeFormModal}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? "Salvando..." : selectedId ? "Atualizar" : "Cadastrar"}
+              </Button>
+            </div>
+          </form>
+        </Modal>
     </div>
   );
 }
