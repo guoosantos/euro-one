@@ -8,7 +8,7 @@ import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import useCrmClients from "../lib/hooks/useCrmClients.js";
+import useCrmClients, { logCrmError } from "../lib/hooks/useCrmClients.js";
 import useCrmContacts from "../lib/hooks/useCrmContacts.js";
 
 const defaultForm = {
@@ -50,6 +50,14 @@ const defaultInteraction = {
 
 const DEFAULT_CONTRACT_ALERT_DAYS = 30;
 const DEFAULT_TRIAL_ALERT_DAYS = 7;
+
+function normalise(text) {
+  return (text || "")
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
 function formatDate(value) {
   if (!value) return "—";
@@ -218,16 +226,39 @@ export default function Crm() {
   const filteredClients = useMemo(
     () =>
       clients.filter((client) => {
-        if (searchTerm && !client.name?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+        const name = normalise(client?.name);
+        const contact = normalise(client?.mainContactName || client?.primaryContact?.name);
+        const segment = normalise(client?.segment);
+        const city = normalise(client?.city);
+        const state = normalise(client?.state);
 
-        if (filterInterest && client.interestLevel !== filterInterest) return false;
+        if (searchTerm) {
+          const query = normalise(searchTerm);
+          const matchesText =
+            name.includes(query) ||
+            contact.includes(query) ||
+            segment.includes(query) ||
+            city.includes(query) ||
+            state.includes(query);
+          if (!matchesText) return false;
+        }
 
-        if (filterCloseProbability && client.closeProbability !== filterCloseProbability) return false;
+        if (filterInterest && client?.interestLevel && normalise(client.interestLevel) !== normalise(filterInterest)) {
+          return false;
+        }
+
+        if (
+          filterCloseProbability &&
+          client?.closeProbability &&
+          normalise(client.closeProbability) !== normalise(filterCloseProbability)
+        ) {
+          return false;
+        }
 
         if (filterTag) {
-          const tags = client.tags || [];
-          const match = tags.some((tag) => tag.toLowerCase().includes(filterTag.toLowerCase()));
-          if (!match) return false;
+          const tags = Array.isArray(client?.tags) ? client.tags : [];
+          const hasTag = tags.some((tag) => normalise(tag).includes(normalise(filterTag)));
+          if (!hasTag) return false;
         }
 
         return true;
@@ -270,8 +301,9 @@ export default function Crm() {
       refresh();
       closeFormModal();
     } catch (err) {
-      console.error("Falha ao salvar cliente", err);
-      setDetailError(err instanceof Error ? err : new Error("Falha ao salvar"));
+      logCrmError(err, "saveClient");
+      setDetailError(new Error("Erro ao salvar cliente. Verifique sua conexão ou tente novamente."));
+      return;
     } finally {
       setSaving(false);
     }
@@ -305,7 +337,7 @@ export default function Crm() {
       setSelectedClient((prev) => ({ ...prev, contacts: [...(prev?.contacts || []), created] }));
       setInteractionForm(defaultInteraction);
     } catch (err) {
-      console.error("Falha ao registrar interação", err);
+      logCrmError(err, "createInteraction");
     } finally {
       setInteractionSaving(false);
     }
@@ -332,7 +364,16 @@ export default function Crm() {
             </span>
           }
         >
-          {error && <div className="rounded-lg bg-red-500/20 p-3 text-red-100">{error.message}</div>}
+          {error && (
+            <div className="mb-4 flex flex-col gap-3 rounded-lg bg-red-500/20 p-3 text-red-100">
+              <div>Não foi possível carregar a lista de clientes. Tente novamente mais tarde.</div>
+              <div>
+                <Button variant="outline" size="sm" onClick={refresh}>
+                  Tentar novamente
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="mb-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1">
               <div className="text-xs text-white/60">Buscar por nome</div>
