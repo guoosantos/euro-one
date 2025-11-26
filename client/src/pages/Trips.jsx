@@ -1,10 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import useDevices from "../lib/hooks/useDevices";
 import { useTranslation } from "../lib/i18n.js";
 import useReports from "../lib/hooks/useReports.js";
 import { formatAddress } from "../lib/format-address.js";
 import { formatDateTime, pickCoordinate } from "../lib/monitoring-helpers.js";
+import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import {
+  buildColumnDefaults,
+  loadColumnPreferences,
+  mergeColumnPreferences,
+  reorderColumns,
+  resolveVisibleColumns,
+  saveColumnPreferences,
+} from "../lib/column-preferences.js";
+
+const COLUMN_STORAGE_KEY = "tripsReportColumns";
 
 export default function Trips() {
   const { locale } = useTranslation();
@@ -12,6 +23,7 @@ export default function Trips() {
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const { data, loading, error, generateTripsReport } = useReports();
+  const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
@@ -20,6 +32,8 @@ export default function Trips() {
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [selectedTrip, setSelectedTrip] = useState(null);
+  const [showColumns, setShowColumns] = useState(false);
+  const [draggingColumn, setDraggingColumn] = useState(null);
 
   const tripsRaw = Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : [];
   const trips = useMemo(() => {
@@ -39,6 +53,167 @@ export default function Trips() {
     });
     return map;
   }, [devices]);
+
+  const handleOpenRoute = useCallback(
+    (trip) => {
+      const id = trip?.deviceId ?? deviceId;
+      if (!id || !trip?.startTime || !trip?.endTime) return;
+      const search = new URLSearchParams({ deviceId: String(id), from: trip.startTime, to: trip.endTime });
+      navigate(`/reports/route?${search.toString()}`);
+    },
+    [deviceId, navigate],
+  );
+
+  const columns = useMemo(
+    () => [
+      {
+        key: "vehicle",
+        label: "Veículo",
+        defaultVisible: true,
+        render: (trip) => trip.deviceName || deviceNameById.get(trip.deviceId) || "—",
+      },
+      {
+        key: "startTime",
+        label: "Início",
+        defaultVisible: true,
+        render: (trip) => formatDateTime(parseDate(trip.startTime), locale),
+      },
+      {
+        key: "endTime",
+        label: "Fim",
+        defaultVisible: true,
+        render: (trip) => formatDateTime(parseDate(trip.endTime), locale),
+      },
+      {
+        key: "duration",
+        label: "Duração",
+        defaultVisible: true,
+        render: (trip) => formatDuration(trip.duration),
+      },
+      {
+        key: "distance",
+        label: "Distância",
+        defaultVisible: true,
+        render: (trip) => formatDistance(trip.distance),
+      },
+      {
+        key: "averageSpeed",
+        label: "Vel. média",
+        defaultVisible: true,
+        render: (trip) => formatSpeed(trip.averageSpeed),
+      },
+      {
+        key: "maxSpeed",
+        label: "Vel. máx.",
+        defaultVisible: true,
+        render: (trip) => formatSpeed(trip.maxSpeed),
+      },
+      {
+        key: "startAddress",
+        label: "Local de início",
+        defaultVisible: true,
+        render: (trip) =>
+          formatLocation({
+            address: trip.startAddress,
+            shortAddress: trip.startShortAddress,
+            formattedAddress: trip.startFormattedAddress,
+            lat: trip.startLat,
+            lon: trip.startLon,
+          }),
+      },
+      {
+        key: "endAddress",
+        label: "Local de fim",
+        defaultVisible: true,
+        render: (trip) =>
+          formatLocation({
+            address: trip.endAddress,
+            shortAddress: trip.endShortAddress,
+            formattedAddress: trip.endFormattedAddress,
+            lat: trip.endLat,
+            lon: trip.endLon,
+          }),
+      },
+      {
+        key: "actions",
+        label: "Ações",
+        defaultVisible: true,
+        fixed: true,
+        render: (trip) => (
+          <button
+            type="button"
+            className="rounded-lg border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleOpenRoute(trip);
+            }}
+          >
+            Ver rota
+          </button>
+        ),
+      },
+    ],
+    [deviceNameById, handleOpenRoute, locale],
+  );
+
+  const defaultPreferences = useMemo(() => buildColumnDefaults(columns), [columns]);
+  const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    const saved = preferences?.tripsReportColumns || loadColumnPreferences(COLUMN_STORAGE_KEY, defaultPreferences);
+    setColumnPrefs(mergeColumnPreferences(defaultPreferences, saved));
+  }, [defaultPreferences, loadingPreferences, preferences]);
+
+  useEffect(() => {
+    saveColumnPreferences(COLUMN_STORAGE_KEY, columnPrefs);
+  }, [columnPrefs]);
+
+  const persistColumnPrefs = useCallback(
+    (next) => {
+      saveColumnPreferences(COLUMN_STORAGE_KEY, next);
+      if (!loadingPreferences) {
+        savePreferences({ tripsReportColumns: { visible: next.visible, order: next.order } }).catch((prefError) =>
+          console.warn("Falha ao salvar preferências de colunas", prefError),
+        );
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
+
+  const handleToggleColumn = useCallback(
+    (key) => {
+      const column = columns.find((item) => item.key === key);
+      if (column?.fixed) return;
+      setColumnPrefs((current) => {
+        const isVisible = current.visible?.[key] !== false;
+        const next = { ...current, visible: { ...current.visible, [key]: !isVisible } };
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [columns, persistColumnPrefs],
+  );
+
+  const handleReorderColumn = useCallback(
+    (fromKey, toKey) => {
+      setColumnPrefs((current) => {
+        const next = reorderColumns(current, fromKey, toKey, defaultPreferences);
+        if (!next || next === current) return current;
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [defaultPreferences, persistColumnPrefs],
+  );
+
+  const handleRestoreColumns = useCallback(() => {
+    setColumnPrefs(defaultPreferences);
+    persistColumnPrefs(defaultPreferences);
+  }, [defaultPreferences, persistColumnPrefs]);
+
+  const visibleColumns = useMemo(() => resolveVisibleColumns(columns, columnPrefs), [columns, columnPrefs]);
+  const visibleColumnCount = Math.max(1, visibleColumns.length);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -60,13 +235,6 @@ export default function Trips() {
       setFetching(false);
     }
   }
-
-  const handleOpenRoute = (trip) => {
-    const id = trip?.deviceId ?? deviceId;
-    if (!id || !trip?.startTime || !trip?.endTime) return;
-    const search = new URLSearchParams({ deviceId: String(id), from: trip.startTime, to: trip.endTime });
-    navigate(`/reports/route?${search.toString()}`);
-  };
 
   useEffect(() => {
     setSelectedTrip((current) => {
@@ -151,36 +319,80 @@ export default function Trips() {
             <h3 className="text-lg font-semibold">Viagens</h3>
             <p className="text-xs opacity-70">Cada linha representa uma viagem consolidada.</p>
           </div>
-          <span className="text-xs opacity-60">{trips.length} registros</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs opacity-60">{trips.length} registros</span>
+            <div className="relative">
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:border-white/30"
+                onClick={() => setShowColumns((open) => !open)}
+              >
+                Colunas
+              </button>
+              {showColumns && (
+                <div className="absolute right-0 z-10 mt-2 w-64 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">Organizar colunas</div>
+                  {columns.map((column) => (
+                    <div
+                      key={column.key}
+                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${draggingColumn === column.key ? "bg-white/10" : ""}`}
+                      draggable={!column.fixed}
+                      onDragStart={() => !column.fixed && setDraggingColumn(column.key)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleReorderColumn(draggingColumn, column.key);
+                        setDraggingColumn(null);
+                      }}
+                      onDragEnd={() => setDraggingColumn(null)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
+                        <span className="text-white/70">{column.label}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={columnPrefs.visible?.[column.key] !== false}
+                        disabled={column.fixed}
+                        onChange={() => handleToggleColumn(column.key)}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+                    onClick={handleRestoreColumns}
+                  >
+                    Restaurar padrão
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                <th className="py-2 pr-6">Veículo</th>
-                <th className="py-2 pr-6">Início</th>
-                <th className="py-2 pr-6">Fim</th>
-                <th className="py-2 pr-6">Duração</th>
-                <th className="py-2 pr-6">Distância</th>
-                <th className="py-2 pr-6">Vel. média</th>
-                <th className="py-2 pr-6">Vel. máx.</th>
-                <th className="py-2 pr-6">Local de início</th>
-                <th className="py-2 pr-6">Local de fim</th>
-                <th className="py-2 pr-6">Ações</th>
+                {visibleColumns.map((column) => (
+                  <th key={column.key} className="py-2 pr-6">
+                    {column.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
-                  <td colSpan={10} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleColumnCount} className="py-4 text-center text-sm opacity-60">
                     Processando viagens…
                   </td>
                 </tr>
               )}
               {!loading && !trips.length && (
                 <tr>
-                  <td colSpan={10} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleColumnCount} className="py-4 text-center text-sm opacity-60">
                     {lastGeneratedAt
                       ? "Nenhuma viagem encontrada para o período selecionado."
                       : "Gere um relatório para visualizar as viagens."}
@@ -193,43 +405,11 @@ export default function Trips() {
                   className={`cursor-pointer hover:bg-white/5 ${selectedTrip === trip ? "bg-white/5" : ""}`}
                   onClick={() => setSelectedTrip(trip)}
                 >
-                  <td className="py-2 pr-6 text-white">{trip.deviceName || deviceNameById.get(trip.deviceId) || "—"}</td>
-                  <td className="py-2 pr-6 text-white/80">{formatDateTime(parseDate(trip.startTime), locale)}</td>
-                  <td className="py-2 pr-6 text-white/80">{formatDateTime(parseDate(trip.endTime), locale)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatDuration(trip.duration)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatDistance(trip.distance)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatSpeed(trip.averageSpeed)}</td>
-                  <td className="py-2 pr-6 text-white/70">{formatSpeed(trip.maxSpeed)}</td>
-                  <td className="py-2 pr-6 text-white/70">
-                    {formatLocation({
-                      address: trip.startAddress,
-                      shortAddress: trip.startShortAddress,
-                      formattedAddress: trip.startFormattedAddress,
-                      lat: trip.startLat,
-                      lon: trip.startLon,
-                    })}
-                  </td>
-                  <td className="py-2 pr-6 text-white/70">
-                    {formatLocation({
-                      address: trip.endAddress,
-                      shortAddress: trip.endShortAddress,
-                      formattedAddress: trip.endFormattedAddress,
-                      lat: trip.endLat,
-                      lon: trip.endLon,
-                    })}
-                  </td>
-                  <td className="py-2 pr-6 text-white/80">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/15 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleOpenRoute(trip);
-                      }}
-                    >
-                      Ver rota
-                    </button>
-                  </td>
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} className="py-2 pr-6 text-white/80">
+                      {column.render ? column.render(trip) : column.getValue?.(trip, { locale })}
+                    </td>
+                  ))}
                 </tr>
               ))}
             </tbody>
@@ -338,8 +518,8 @@ function formatSpeed(speed) {
 }
 
 function formatLocation({ address, shortAddress, formattedAddress, lat, lon }) {
-  const preferred = shortAddress || formattedAddress || address;
-  if (preferred) return formatAddress(preferred);
+  const preferred = formatAddress({ address, shortAddress, formattedAddress });
+  if (preferred && preferred !== "—") return preferred;
   const latitude = pickCoordinate([lat]);
   const longitude = pickCoordinate([lon]);
   if (Number.isFinite(latitude) && Number.isFinite(longitude)) {

@@ -83,7 +83,12 @@ router.get("/alerts", (req, res, next) => {
 
 router.get("/clients/:id/contacts", (req, res, next) => {
   try {
-    const contacts = listCrmContacts(req.params.id, { clientId: req.clientId, user: req.user });
+    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
+    const contacts = listCrmContacts(req.params.id, {
+      clientId: req.clientId,
+      user: req.user,
+      createdByUserId,
+    });
     res.json({ contacts });
   } catch (error) {
     next(error);

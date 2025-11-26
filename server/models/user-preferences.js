@@ -34,6 +34,7 @@ export function getUserPreferences(userId) {
     ...record,
     monitoringTableColumns: sanitizeColumns(record.monitoringTableColumns),
     routeReportColumns: sanitizeColumns(record.routeReportColumns),
+    tripsReportColumns: sanitizeColumns(record.tripsReportColumns),
   };
 }
 
@@ -43,6 +44,7 @@ export function saveUserPreferences(userId, updates = {}) {
     userId: String(userId),
     monitoringTableColumns: null,
     routeReportColumns: null,
+    tripsReportColumns: null,
     monitoringDefaultFilters: null,
     createdAt: new Date().toISOString(),
   };
@@ -56,6 +58,9 @@ export function saveUserPreferences(userId, updates = {}) {
     ),
     routeReportColumns: sanitizeColumns(
       typeof updates.routeReportColumns !== "undefined" ? updates.routeReportColumns : existing.routeReportColumns,
+    ),
+    tripsReportColumns: sanitizeColumns(
+      typeof updates.tripsReportColumns !== "undefined" ? updates.tripsReportColumns : existing.tripsReportColumns,
     ),
     monitoringDefaultFilters:
       typeof updates.monitoringDefaultFilters !== "undefined"
@@ -77,6 +82,7 @@ export function resetUserPreferences(userId) {
     userId: String(userId),
     monitoringTableColumns: null,
     routeReportColumns: null,
+    tripsReportColumns: null,
     monitoringDefaultFilters: null,
   };
 }

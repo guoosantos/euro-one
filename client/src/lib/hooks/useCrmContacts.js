@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CoreApi } from "../coreApi.js";
 import { useTranslation } from "../i18n.js";
 
 /** @typedef {import("../../features/crm/types").CrmContact} CrmContact */
 
-export function useCrmContacts(clientId) {
+export function useCrmContacts(clientId, params = null) {
   const { t } = useTranslation();
   const [contacts, setContacts] = useState(/** @type {CrmContact[]} */ ([]));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+
+  const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+  const resolvedParams = useMemo(() => ({ ...(params || {}) }), [paramsKey]);
 
   const load = useCallback(() => {
     if (!clientId) {
@@ -19,7 +22,7 @@ export function useCrmContacts(clientId) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    CoreApi.listCrmContacts(clientId)
+    CoreApi.listCrmContacts(clientId, resolvedParams)
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -37,7 +40,7 @@ export function useCrmContacts(clientId) {
     return () => {
       cancelled = true;
     };
-  }, [clientId, t]);
+  }, [clientId, resolvedParams, paramsKey, t]);
 
   useEffect(() => load(), [load]);
 

@@ -23,9 +23,18 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import Card from "../ui/Card.jsx";
+import {
+  buildColumnDefaults,
+  loadColumnPreferences as loadLocalColumnPreferences,
+  mergeColumnPreferences,
+  reorderColumns,
+  resolveVisibleColumns,
+  saveColumnPreferences as saveLocalColumnPreferences,
+} from "../lib/column-preferences.js";
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
 
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
+const DEFAULT_MAP_ZOOM = 12;
 
 function getStatusBadge(position, t) {
   const status = deriveStatus(position);
@@ -59,29 +68,7 @@ function getStatusBadge(position, t) {
 
 
 
-function loadColumnPreferences(defaults) {
-  try {
-    const saved = localStorage.getItem(COLUMN_STORAGE_KEY);
-    if (!saved) return defaults;
-    const parsed = JSON.parse(saved);
-    return {
-      visible: parsed.visible || defaults.visible,
-      order: parsed.order || defaults.order,
-    };
-  } catch (error) {
-    return defaults;
-  }
-}
-
-function saveColumnPreferences(prefs) {
-  try {
-    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(prefs));
-  } catch (error) {
-    // ignore
-  }
-}
-
-function MapSection({ markers, geofences, selectedMarkerId, t }) {
+function MapSection({ markers, geofences, selectedMarkerId, mapViewport, onViewportChange, t }) {
   if (typeof window === "undefined") {
     return (
       <div className="flex h-[360px] flex-col justify-center gap-2 p-6 text-sm text-white/60">
@@ -96,7 +83,14 @@ function MapSection({ markers, geofences, selectedMarkerId, t }) {
   try {
     return (
       <div className="relative h-[360px]">
-        <MonitoringMap markers={markers} geofences={geofences} focusMarkerId={selectedMarkerId} height={360} />
+        <MonitoringMap
+          markers={markers}
+          geofences={geofences}
+          focusMarkerId={selectedMarkerId}
+          height={360}
+          mapViewport={mapViewport}
+          onViewportChange={onViewportChange}
+        />
         {!hasMarkers ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl text-sm text-white/60">
             <span className="rounded-lg bg-black/50 px-3 py-2 shadow-lg shadow-black/40">
@@ -136,6 +130,7 @@ export default function Monitoring() {
   });
   const [exportColumns, setExportColumns] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
+  const [mapViewport, setMapViewport] = useState(null);
 
   const handleFocusOnMap = useCallback((deviceId) => {
     if (!deviceId) return;
@@ -189,41 +184,35 @@ export default function Monitoring() {
   );
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [actionsColumn, telemetryColumns]);
-  const defaultPreferences = useMemo(
-    () => ({
-      visible: Object.fromEntries(allColumns.map((column) => [column.key, column.defaultVisible !== false])),
-      order: allColumns.map((column) => column.key),
-    }),
-    [allColumns],
-  );
+  const defaultPreferences = useMemo(() => buildColumnDefaults(allColumns), [allColumns]);
 
-  const mergeColumnPrefs = useCallback(
-    (saved) => ({
-      visible: { ...defaultPreferences.visible, ...(saved?.visible || {}) },
-      order: saved?.order?.length ? saved.order : defaultPreferences.order,
-    }),
-    [defaultPreferences],
-  );
+  const mergeColumnPrefs = useCallback((saved) => mergeColumnPreferences(defaultPreferences, saved), [defaultPreferences]);
 
   const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
   const [draggingColumn, setDraggingColumn] = useState(null);
 
   useEffect(() => {
     if (loadingPreferences) return;
-    const saved = preferences?.monitoringTableColumns || loadColumnPreferences(defaultPreferences);
+    const saved = preferences?.monitoringTableColumns || loadLocalColumnPreferences(COLUMN_STORAGE_KEY, defaultPreferences);
     setColumnPrefs(mergeColumnPrefs(saved));
     if (preferences?.monitoringDefaultFilters?.mode) {
       setFilterMode(preferences.monitoringDefaultFilters.mode);
     }
+    if (preferences?.monitoringMapViewport?.center?.length === 2) {
+      setMapViewport({
+        center: preferences.monitoringMapViewport.center,
+        zoom: preferences.monitoringMapViewport.zoom || DEFAULT_MAP_ZOOM,
+      });
+    }
   }, [defaultPreferences, loadingPreferences, mergeColumnPrefs, preferences]);
 
   useEffect(() => {
-    saveColumnPreferences(columnPrefs);
+    saveLocalColumnPreferences(COLUMN_STORAGE_KEY, columnPrefs);
   }, [columnPrefs]);
 
   const persistColumnPrefs = useCallback(
     (next) => {
-      saveColumnPreferences(next);
+      saveLocalColumnPreferences(COLUMN_STORAGE_KEY, next);
       if (!loadingPreferences) {
         savePreferences({ monitoringTableColumns: { visible: next.visible, order: next.order } }).catch((prefError) => {
           console.warn("Falha ao salvar preferências de colunas", prefError);
@@ -235,21 +224,14 @@ export default function Monitoring() {
 
   const handleReorderColumn = useCallback(
     (fromKey, toKey) => {
-      if (!fromKey || !toKey || fromKey === toKey) return;
       setColumnPrefs((current) => {
-        const currentOrder = current.order?.length ? [...current.order] : [...defaultPreferences.order];
-        const fromIndex = currentOrder.indexOf(fromKey);
-        const toIndex = currentOrder.indexOf(toKey);
-        if (fromIndex === -1 || toIndex === -1) return current;
-        const nextOrder = [...currentOrder];
-        const [moved] = nextOrder.splice(fromIndex, 1);
-        nextOrder.splice(toIndex, 0, moved);
-        const next = { ...current, order: nextOrder };
+        const next = reorderColumns(current, fromKey, toKey, defaultPreferences);
+        if (!next || next === current) return current;
         persistColumnPrefs(next);
         return next;
       });
     },
-    [defaultPreferences.order, persistColumnPrefs],
+    [defaultPreferences, persistColumnPrefs],
   );
 
   useEffect(() => {
@@ -261,19 +243,7 @@ export default function Monitoring() {
     }).catch((prefError) => console.warn("Falha ao salvar filtro padrão", prefError));
   }, [filterMode, loadingPreferences, preferences, savePreferences]);
 
-  const visibleColumns = useMemo(() => {
-    const visible = columnPrefs.visible || {};
-    const order = columnPrefs.order || [];
-    const ordered = order
-      .map((key) => allColumns.find((column) => column.key === key))
-      .filter(Boolean)
-      .filter((column) => visible[column.key] !== false);
-    const missing = allColumns.filter((column) => !order.includes(column.key) && visible[column.key] !== false);
-    const combined = [...ordered, ...missing];
-    const movable = combined.filter((column) => column.fixed !== true);
-    const fixed = combined.filter((column) => column.fixed === true);
-    return [...movable, ...fixed];
-  }, [allColumns, columnPrefs]);
+  const visibleColumns = useMemo(() => resolveVisibleColumns(allColumns, columnPrefs), [allColumns, columnPrefs]);
 
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
@@ -343,6 +313,7 @@ export default function Monitoring() {
         lastEvent: telemetryItem?.lastEvent || null,
         lastEventName,
         locale,
+        iconType: telemetryItem?.iconType || telemetryItem?.attributes?.iconType || device?.attributes?.iconType || null,
         onFocus: handleFocusOnMap,
         onReplay: handleReplay,
       };
@@ -374,13 +345,8 @@ export default function Monitoring() {
     return filteredRows
       .map((row) => {
         if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
-        const addressRaw =
-          row.position?.shortAddress ||
-          row.position?.formattedAddress ||
-          row.position?.address ||
-          row.position?.attributes?.address ||
-          row.device?.address;
-        const address = formatAddress(addressRaw) || t("monitoring.noAddress");
+        const address = formatAddress(row.position || row.device || row.vehicle);
+        const displayAddress = address && address !== "—" ? address : t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
         const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), locale);
         const distance = row.position?.totalDistance ?? row.position?.distance;
@@ -398,8 +364,11 @@ export default function Monitoring() {
           lng: row.lng,
           status: row.statusBadge?.status,
           label: row.deviceName,
-          address,
+          plate: row.plate || null,
+          address: displayAddress,
+          iconType: row.iconType || null,
           speedLabel: speed !== null ? `${speed} km/h` : "—",
+          speedValue: speed,
           speedTitle: t("monitoring.popup.speed"),
           statusLabel: row.statusBadge?.label,
           statusTitle: t("monitoring.popup.status"),
@@ -455,6 +424,19 @@ export default function Monitoring() {
     resetPreferences().catch((prefError) => console.warn("Falha ao restaurar preferências", prefError));
     setFilterMode("all");
   }, [defaultPreferences, mergeColumnPrefs, persistColumnPrefs, resetPreferences]);
+
+  const handleViewportChange = useCallback(
+    (viewport) => {
+      if (!viewport?.center || viewport.center.length !== 2) return;
+      setMapViewport(viewport);
+      if (!loadingPreferences) {
+        savePreferences({ monitoringMapViewport: viewport }).catch((prefError) =>
+          console.warn("Falha ao salvar viewport do mapa", prefError),
+        );
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
 
   const handleExport = useCallback(
     async (event) => {
@@ -554,7 +536,14 @@ export default function Monitoring() {
             </header>
 
             <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
-              <MapSection markers={markers} geofences={geofences} selectedMarkerId={selectedDeviceId} t={t} />
+              <MapSection
+                markers={markers}
+                geofences={geofences}
+                selectedMarkerId={selectedDeviceId}
+                mapViewport={mapViewport}
+                onViewportChange={handleViewportChange}
+                t={t}
+              />
             </div>
           </Card>
 

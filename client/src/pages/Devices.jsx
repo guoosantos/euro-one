@@ -11,6 +11,15 @@ function formatDate(value) {
   }
 }
 
+const ICON_TYPES = [
+  { value: "car", label: "Carro" },
+  { value: "motorcycle", label: "Moto" },
+  { value: "truck", label: "Caminhão" },
+  { value: "person", label: "Pessoa" },
+  { value: "tag", label: "Tag / Rastreador pequeno" },
+  { value: "watercraft", label: "Jet / Embarcação" },
+];
+
 function statusBadge(device) {
   if (!device) return "—";
   if (device.statusLabel) return device.statusLabel;
@@ -82,7 +91,7 @@ export default function Devices() {
   const [savingDevice, setSavingDevice] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
 
-  const [deviceForm, setDeviceForm] = useState({ name: "", uniqueId: "", modelId: "" });
+  const [deviceForm, setDeviceForm] = useState({ name: "", uniqueId: "", modelId: "", iconType: "" });
   const [modelForm, setModelForm] = useState({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
 
   async function load() {
@@ -125,10 +134,12 @@ export default function Devices() {
         name: deviceForm.name?.trim() || undefined,
         uniqueId: deviceForm.uniqueId.trim(),
         modelId: deviceForm.modelId || undefined,
+        iconType: deviceForm.iconType || undefined,
+        attributes: deviceForm.iconType ? { iconType: deviceForm.iconType } : undefined,
         clientId: tenantId || user?.clientId,
       });
       await load();
-      setDeviceForm({ name: "", uniqueId: "", modelId: "" });
+      setDeviceForm({ name: "", uniqueId: "", modelId: "", iconType: "" });
       setTab("lista");
     } catch (requestError) {
       alert(requestError?.message || "Falha ao cadastrar equipamento");
@@ -315,6 +326,22 @@ export default function Devices() {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="flex flex-col gap-2 text-sm md:col-span-2">
+            <span className="text-white/70">Tipo de ícone no mapa</span>
+            <select
+              value={deviceForm.iconType}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, iconType: event.target.value }))}
+              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="">— Selecionar —</option>
+              {ICON_TYPES.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="text-xs text-white/50">Use para personalizar o ícone do marcador deste equipamento no mapa.</span>
           </label>
           <div className="md:col-span-2">
             <button

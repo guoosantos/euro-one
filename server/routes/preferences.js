@@ -13,6 +13,7 @@ router.get("/user/preferences", (req, res, next) => {
       userId: req.user.id,
       monitoringTableColumns: null,
       routeReportColumns: null,
+      tripsReportColumns: null,
       monitoringDefaultFilters: null,
     };
     return res.json({ preferences });

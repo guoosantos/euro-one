@@ -154,10 +154,7 @@ export default function Crm() {
   const { section } = useParams();
   const resolvedTab = ["clients", "tags", "interactions", "alerts"].includes(section) ? section : "clients";
   const [viewScope, setViewScope] = useState(hasAdminAccess ? "all" : "mine");
-  const listParams = useMemo(
-    () => (hasAdminAccess && viewScope === "mine" ? { view: "mine" } : null),
-    [hasAdminAccess, viewScope],
-  );
+  const listParams = useMemo(() => (viewScope === "mine" ? { view: "mine" } : null), [viewScope]);
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
@@ -180,8 +177,14 @@ export default function Crm() {
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
-  const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
-    useCrmContacts(selectedId);
+  const contactViewParams = useMemo(() => (viewScope === "mine" ? { view: "mine" } : null), [viewScope]);
+  const {
+    contacts,
+    loading: contactsLoading,
+    error: contactsError,
+    addContact,
+    refresh: refreshContacts,
+  } = useCrmContacts(selectedId, contactViewParams);
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 
@@ -252,7 +255,7 @@ export default function Crm() {
     CoreApi.listCrmAlerts({
       contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
-      view: hasAdminAccess && viewScope === "mine" ? "mine" : undefined,
+      view: viewScope === "mine" ? "mine" : undefined,
     })
       .then((response) => {
         if (cancelled) return;
@@ -275,7 +278,7 @@ export default function Crm() {
     return () => {
       cancelled = true;
     };
-  }, [tenantId, hasAdminAccess, viewScope]);
+  }, [viewScope]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -350,6 +353,13 @@ export default function Crm() {
   useEffect(() => {
     setActiveInteraction(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (selectedId && !clients.some((client) => client.id === selectedId)) {
+      setSelectedId(null);
+      setSelectedClient(null);
+    }
+  }, [clients, selectedId]);
 
   const filteredClients = useMemo(
     () =>
@@ -557,6 +567,7 @@ export default function Crm() {
   ];
 
   function handleTabChange(tabId) {
+    if (tabId === resolvedTab) return;
     if (tabId === "clients") {
       navigate("/crm/clients");
       return;
@@ -888,6 +899,35 @@ export default function Crm() {
               <Button size="sm" variant="ghost" onClick={() => handleTabChange("clients")}>
                 Ir para Clientes
               </Button>
+              {hasAdminAccess && (
+                <div className="ml-auto flex items-center gap-2 text-xs text-white/60">
+                  <span>Ver</span>
+                  <div className="inline-flex rounded-lg bg-white/10 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setViewScope("mine")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                        viewScope === "mine"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                    >
+                      Meus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewScope("all")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                        viewScope === "all"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
             {!selectedId && <div className="text-sm text-white/60">Escolha um cliente para registrar ou revisar interações.</div>}
             {selectedId && (
@@ -1056,9 +1096,38 @@ export default function Crm() {
             title="Alertas de contrato e teste"
             subtitle="Resumo visual de contratos concorrentes e trials"
             actions={
-              <Button size="sm" variant="ghost" onClick={loadAlerts}>
-                Atualizar alertas
-              </Button>
+              <div className="flex items-center gap-2">
+                {hasAdminAccess && (
+                  <div className="flex items-center gap-1 rounded-lg bg-white/10 p-1 text-xs text-white/70">
+                    <span className="px-2">Ver</span>
+                    <button
+                      type="button"
+                      onClick={() => setViewScope("mine")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                        viewScope === "mine"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                    >
+                      Meus
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setViewScope("all")}
+                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
+                        viewScope === "all"
+                          ? "bg-primary text-primary-foreground"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                    >
+                      Todos
+                    </button>
+                  </div>
+                )}
+                <Button size="sm" variant="ghost" onClick={loadAlerts}>
+                  Atualizar alertas
+                </Button>
+              </div>
             }
           >
             {alertsLoading && <div className="text-sm text-white/60">Carregando alertas...</div>}
