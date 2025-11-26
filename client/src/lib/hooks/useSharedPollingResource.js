@@ -81,6 +81,7 @@ async function run(resource, { withLoading = false } = {}) {
     notify(resource);
   }
 
+  let stopPolling = false;
   try {
     const result = resource.fetcher ? await resource.fetcher({ signal: controller.signal }) : null;
     if (controller.signal?.aborted) return;
@@ -92,15 +93,14 @@ async function run(resource, { withLoading = false } = {}) {
     if (controller.signal?.aborted) return;
     resource.failures += 1;
     resource.state.error = error instanceof Error ? error : new Error(error?.message || "Erro desconhecido");
-    if (resource.failures >= maxConsecutiveErrors) {
-      notify(resource);
-      return;
-    }
+    stopPolling = resource.state.error?.permanent || resource.failures >= maxConsecutiveErrors;
   } finally {
     if (!controller.signal?.aborted) {
       resource.state.loading = false;
       notify(resource);
-      schedule(resource);
+      if (!stopPolling) {
+        schedule(resource);
+      }
     }
     resource.running = false;
   }
