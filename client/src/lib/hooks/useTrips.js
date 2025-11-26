@@ -25,7 +25,7 @@ export function useTrips({
   const abortRef = useRef(null);
   const initialLoadRef = useRef(true);
 
-  const shouldFetch = Boolean(enabled && deviceId);
+  const shouldFetch = Boolean(enabled);
 
   const fetchTrips = useCallback(async () => {
     if (!shouldFetch || !mountedRef.current) {
@@ -41,11 +41,11 @@ export function useTrips({
       const now = new Date();
       const defaultFrom = new Date(now.getTime() - 6 * 60 * 60 * 1000);
       const payload = {
-        deviceId,
         from: (from ? new Date(from) : defaultFrom).toISOString(),
         to: (to ? new Date(to) : now).toISOString(),
         type: "all",
       };
+      if (deviceId) payload.deviceId = deviceId;
       if (tenantId) payload.clientId = tenantId;
       const { data: responseData, error: requestError } = await safeApi.post(API_ROUTES.reports.trips, payload, {
         signal: controller.signal,

@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { buildParams } from "./events-helpers.js";
-import { usePollingTask } from "./usePollingTask.js";
+import { useSharedPollingResource } from "./useSharedPollingResource.js";
 
 export function useEvents({
   deviceId,
@@ -20,87 +20,60 @@ export function useEvents({
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const mountedRef = useRef(true);
-  const abortRef = useRef(null);
-  const initialLoadRef = useRef(true);
-
   const resolvedInterval = autoRefreshMs ?? refreshInterval;
 
-  const fetchEvents = useCallback(async () => {
-    if (!enabled || !mountedRef.current) return;
-    setLoading((current) => current || initialLoadRef.current);
-    setError(null);
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const params = buildParams({ deviceId, types, from, to, limit });
-      if (tenantId) params.clientId = tenantId;
+  const cacheKey = useMemo(
+    () =>
+      ["events", tenantId || "global", deviceId || "all", types?.join?.("|") || "all", from || "", to || "", limit]
+        .filter((part) => part !== undefined)
+        .join(":"),
+    [deviceId, from, limit, tenantId, to, types],
+  );
 
-      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.events, {
-        params,
-        signal: controller.signal,
-      });
+  const { data, loading, error, fetchedAt, refresh } = useSharedPollingResource(
+    cacheKey,
+    useCallback(
+      async ({ signal }) => {
+        const params = buildParams({ deviceId, types, from, to, limit });
+        if (tenantId) params.clientId = tenantId;
 
-      if (!mountedRef.current || controller.signal?.aborted) return;
-      if (requestError) {
-        if (safeApi.isAbortError(requestError)) return;
-        console.error("Failed to load events", requestError);
-        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
-        const normalised = new Error(friendly);
-        setError(normalised);
-        setEvents([]);
-        throw normalised;
-      }
+        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.events, {
+          params,
+          signal,
+        });
 
-      const list = Array.isArray(payload)
-        ? payload
-        : Array.isArray(payload?.events)
-        ? payload.events
-        : Array.isArray(payload?.data)
-        ? payload.data
-        : [];
-      setEvents(list.slice(0, limit));
-      setLastUpdated(new Date());
-      setError(null);
-    } finally {
-      if (mountedRef.current && abortRef.current === controller) {
-        setLoading(false);
-      }
-      initialLoadRef.current = false;
-    }
-  }, [deviceId, types, from, to, limit, tenantId, enabled, t]);
+        if (requestError) {
+          if (safeApi.isAbortError(requestError)) throw requestError;
+          const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
+          throw new Error(friendly);
+        }
 
-  usePollingTask(fetchEvents, {
-    enabled,
-    intervalMs: resolvedInterval,
-    maxConsecutiveErrors,
-    pauseWhenHidden,
-    onPermanentFailure: (err) => {
-      if (!err || !mountedRef.current) return;
-      console.error("Events polling halted after consecutive failures", err);
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.events)
+          ? payload.events
+          : Array.isArray(payload?.data)
+          ? payload.data
+          : [];
+        return list.slice(0, limit);
+      },
+      [deviceId, types, from, to, limit, tenantId, t],
+    ),
+    {
+      enabled,
+      intervalMs: resolvedInterval,
+      maxConsecutiveErrors,
+      pauseWhenHidden,
+      backoffFactor: 2,
+      maxIntervalMs: 60_000,
+      initialData: [],
     },
-  });
+  );
 
-  const refresh = useCallback(() => {
-    void fetchEvents();
-  }, [fetchEvents]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      abortRef.current?.abort();
-      mountedRef.current = false;
-    };
-  }, []);
-
+  const events = Array.isArray(data) ? data : [];
   return useMemo(
-    () => ({ events, loading, error, refresh, lastUpdated }),
-    [events, loading, error, refresh, lastUpdated],
+    () => ({ events, loading, error, refresh, lastUpdated: fetchedAt }),
+    [events, loading, error, refresh, fetchedAt],
   );
 }
 

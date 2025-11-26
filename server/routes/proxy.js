@@ -18,6 +18,7 @@ import {
 import { enrichPositionsWithAddresses, formatAddress, resolveShortAddress } from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -75,6 +76,8 @@ const TRIP_CSV_COLUMNS = [
   { key: "endLat", label: "Lat. final" },
   { key: "endLon", label: "Lon. final" },
 ];
+
+const lastPositionCache = createTtlCache(2_500);
 
 function pickTripAddress(trip, prefix) {
   const short = trip?.[`${prefix}ShortAddress`];
@@ -473,12 +476,21 @@ router.get("/positions/last", async (req, res, next) => {
       params.to = to.toISOString();
     }
 
+    const cacheKey = JSON.stringify(params || {});
+    const cached = lastPositionCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const data = await traccarProxy("get", "/positions", { params, asAdmin: true });
     const body = Array.isArray(data)
       ? await enrichPositionsWithAddresses(data)
       : data?.positions && Array.isArray(data.positions)
       ? { ...data, positions: await enrichPositionsWithAddresses(data.positions) }
       : data;
+    if (body) {
+      lastPositionCache.set(cacheKey, body, 2_500);
+    }
     res.json(body);
   } catch (error) {
     next(buildTraccarUnavailableError(error, { url: "/positions", params }));
