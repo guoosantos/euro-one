@@ -138,6 +138,7 @@ async function request({
   timeout = 20_000,
   apiPrefix = true,
   signal,
+  responseType = "json",
 }) {
   const controller = new AbortController();
   const abortReason = new Error("Request timeout");
@@ -190,7 +191,13 @@ async function request({
 
     let payload;
     try {
-      payload = await response.clone().json();
+      if (responseType === "blob") {
+        payload = await response.clone().blob();
+      } else if (responseType === "text") {
+        payload = await response.clone().text();
+      } else {
+        payload = await response.clone().json();
+      }
     } catch (parseError) {
       payload = await response.text();
     }

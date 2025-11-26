@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api from "../lib/api";
+import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices";
+import Loading from "../components/Loading.jsx";
+import ErrorMessage from "../components/ErrorMessage.jsx";
 
 const ALERT_TYPES = [
   { key: "noSeatbelt", label: "Sem cinto" },
@@ -22,15 +24,28 @@ export default function Face() {
   useEffect(() => {
     let cancelled = false;
     let timer;
+    let abortController;
 
     async function fetchAlerts() {
       setLoading(true);
       setError(null);
+      abortController?.abort();
+      abortController = new AbortController();
       try {
-        const response = await api.get(API_ROUTES.media.faceAlerts).catch(() => ({ data: buildStubAlerts(devices) }));
+        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.media.faceAlerts, {
+          signal: abortController.signal,
+          timeout: 15_000,
+        });
+        if (requestError) {
+          if (safeApi.isAbortError(requestError)) return;
+          throw requestError;
+        }
         if (cancelled) return;
-        const payload = response?.data;
-        const list = Array.isArray(payload) ? payload : Array.isArray(payload?.alerts) ? payload.alerts : [];
+        const list = Array.isArray(payload)
+          ? payload
+          : Array.isArray(payload?.alerts)
+          ? payload.alerts
+          : [];
         setAlerts(list);
         setInfoMessage(typeof payload?.message === "string" ? payload.message : "");
       } catch (requestError) {
@@ -51,12 +66,13 @@ export default function Face() {
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      abortController?.abort();
     };
   }, [devices]);
 
   const filteredAlerts = useMemo(() => {
     if (filter === "all") return alerts;
-    return alerts.filter((alert) => alert.type === filter);
+    return alerts.filter((alert) => alert?.type === filter);
   }, [alerts, filter]);
 
   return (
@@ -82,29 +98,34 @@ export default function Face() {
             ))}
           </select>
         </header>
-        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+        {error && <ErrorMessage error={error} fallback="Não foi possível buscar os alertas." />}
         {infoMessage && !error && (
           <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">{infoMessage}</div>
         )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">
+        {loading && <Loading message="Sincronizando alertas…" />}
         {filteredAlerts.map((alert) => (
-          <article key={`${alert.id}-${alert.timestamp}`} className="rounded-2xl border border-border bg-layer p-4">
+          <article key={`${alert.id}-${alert.timestamp || alert.type}`} className="rounded-2xl border border-border bg-layer p-4">
             <header className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold">{alert.driverName ?? "Motorista não identificado"}</div>
-                <div className="text-xs opacity-60">{formatDevice(alert.deviceId, devices)}</div>
+                <div className="text-sm font-semibold">{alert?.driverName ?? "Motorista não identificado"}</div>
+                <div className="text-xs opacity-60">{formatDevice(alert?.deviceId, devices)}</div>
               </div>
-              <span className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(alert.type)}`}>
-                {translateAlert(alert.type)}
+              <span className={`rounded-full px-3 py-1 text-xs font-medium ${badgeClass(alert?.type)}`}>
+                {translateAlert(alert?.type)}
               </span>
             </header>
-            <p className="mt-2 text-xs opacity-60">{new Date(alert.timestamp).toLocaleString()}</p>
-            <p className="mt-3 text-sm opacity-80">{alert.description ?? "Evento registrado pela câmera"}</p>
+            <p className="mt-2 text-xs opacity-60">{formatTimestamp(alert?.timestamp)}</p>
+            <p className="mt-3 text-sm opacity-80">{alert?.description ?? "Evento registrado pela câmera"}</p>
             <div className="mt-3 flex flex-wrap gap-2 text-xs opacity-70">
-              <span className="rounded-full border border-border px-2 py-1">Confiança {Math.round(alert.confidence * 100)}%</span>
-              {alert.duration && <span className="rounded-full border border-border px-2 py-1">{formatDuration(alert.duration)}</span>}
+              <span className="rounded-full border border-border px-2 py-1">
+                Confiança {Math.round((alert?.confidence ?? 0) * 100)}%
+              </span>
+              {alert?.duration && (
+                <span className="rounded-full border border-border px-2 py-1">{formatDuration(alert.duration)}</span>
+              )}
             </div>
           </article>
         ))}
@@ -165,4 +186,11 @@ function formatDuration(seconds) {
   const minutes = Math.floor(value / 60);
   const remainder = Math.round(value % 60);
   return `${minutes}m ${remainder}s`;
+}
+
+function formatTimestamp(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
 }

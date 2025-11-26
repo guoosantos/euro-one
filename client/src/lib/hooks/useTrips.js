@@ -4,6 +4,7 @@ import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { usePollingTask } from "./usePollingTask.js";
+import { ensureHookResult } from "./hook-shape.js";
 
 export function useTrips({
   deviceId,
@@ -57,7 +58,7 @@ export function useTrips({
         const normalised = new Error(friendly);
         setError(normalised);
         setTrips([]);
-        throw normalised;
+        return;
       }
       const items = Array.isArray(responseData)
         ? responseData
@@ -108,7 +109,8 @@ export function useTrips({
     };
   }, [fetchTrips, pollingEnabled, shouldFetch]);
 
-  return { trips, loading, error, fetchedAt, refresh };
+  const data = Array.isArray(trips) ? trips : [];
+  return ensureHookResult({ data, trips: data, loading, error, fetchedAt, refresh }, { defaultData: [] });
 }
 
 export default useTrips;

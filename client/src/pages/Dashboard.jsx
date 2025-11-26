@@ -21,6 +21,8 @@ import { useReports } from "../lib/hooks/useReports";
 import Card from "../ui/Card.jsx";
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
+import Loading from "../components/Loading.jsx";
+import ErrorMessage from "../components/ErrorMessage.jsx";
 
 function toArray(value) {
   if (Array.isArray(value)) return value;
@@ -164,6 +166,11 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-2">
+        {(loadingDevices || loadingEvents) && <Loading message="Atualizando dados da frota..." />}
+        {reportError && <ErrorMessage error={reportError} fallback="Não foi possível gerar o relatório." />}
+      </div>
+
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DashboardStat title="Veículos monitorados" value={loadingDevices ? "…" : devices.length} />
         <DashboardStat

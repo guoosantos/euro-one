@@ -1,16 +1,5 @@
-import { useCallback, useMemo } from "react";
-import safeApi from "../safe-api.js";
-import { API_ROUTES } from "../api-routes.js";
-import { useTranslation } from "../i18n.js";
-import { useTenant } from "../tenant-context.jsx";
-import { useSharedPollingResource } from "./useSharedPollingResource.js";
-
-function normalise(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.positions)) return payload.positions;
-  if (Array.isArray(payload?.data)) return payload.data;
-  return payload ? [payload] : [];
-}
+import { useMemo } from "react";
+import { useLivePositionsContext } from "../../contexts/LivePositionsContext.js";
 
 function dedupeByDevice(positions = []) {
   const latestByDevice = new Map();
@@ -29,15 +18,8 @@ function dedupeByDevice(positions = []) {
     .filter(Boolean);
 }
 
-export function useLivePositions({
-  deviceIds,
-  refreshInterval = 5_000,
-  maxConsecutiveErrors = 3,
-  pauseWhenHidden = true,
-  enabled = true,
-} = {}) {
-  const { tenantId } = useTenant();
-  const { t } = useTranslation();
+export function useLivePositions({ deviceIds, enabled = true } = {}) {
+  const { positions = [], loading, error, refresh, fetchedAt } = useLivePositionsContext();
 
   const ids = useMemo(() => {
     if (!deviceIds) return [];
@@ -45,51 +27,22 @@ export function useLivePositions({
     return [deviceIds];
   }, [deviceIds]);
 
-  const pollingEnabled = enabled && (ids.length > 0 || deviceIds === null || deviceIds === undefined);
+  const filteredPositions = useMemo(() => {
+    const source = Array.isArray(positions) ? positions : [];
+    if (!enabled) return [];
+    if (!ids.length) return dedupeByDevice(source);
+    const idSet = new Set(ids.map((value) => String(value)));
+    return dedupeByDevice(source.filter((pos) => idSet.has(String(pos?.deviceId ?? pos?.device_id))));
+  }, [positions, ids, enabled]);
 
-  const cacheKey = useMemo(() => {
-    const idsKey = ids
-      .map((value) => (value === null || value === undefined ? "null" : String(value)))
-      .sort()
-      .join(",");
-    return `last-positions:${tenantId || "global"}:${idsKey || "all"}`;
-  }, [ids, tenantId]);
-
-  const { data: positions = [], loading, error, fetchedAt, refresh } = useSharedPollingResource(
-    cacheKey,
-    useCallback(
-      async ({ signal }) => {
-        const params = {};
-        if (ids.length) params.deviceId = ids;
-        if (tenantId) params.clientId = tenantId;
-
-        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.lastPositions, {
-          params: Object.keys(params).length ? params : undefined,
-          signal,
-        });
-
-        if (requestError) {
-          if (safeApi.isAbortError(requestError)) throw requestError;
-          const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
-          throw new Error(friendly);
-        }
-        return dedupeByDevice(normalise(payload));
-      },
-      [ids, t, tenantId],
-    ),
-    {
-      enabled: pollingEnabled,
-      intervalMs: refreshInterval,
-      maxConsecutiveErrors,
-      pauseWhenHidden,
-      backoffFactor: 2,
-      maxIntervalMs: 60_000,
-      initialData: [],
-    },
-  );
-
-  const data = Array.isArray(positions) ? positions : [];
-  return { data, positions: data, loading, error, refresh, fetchedAt };
+  return {
+    data: filteredPositions,
+    positions: filteredPositions,
+    loading: loading && enabled,
+    error,
+    refresh,
+    fetchedAt,
+  };
 }
 
 export default useLivePositions;

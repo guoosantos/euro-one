@@ -5,6 +5,7 @@ import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { buildParams } from "./events-helpers.js";
 import { useSharedPollingResource } from "./useSharedPollingResource.js";
+import { useEventsContext } from "../../contexts/EventsContext.js";
 
 export function useEvents({
   deviceId,
@@ -21,6 +22,10 @@ export function useEvents({
   const { tenantId } = useTenant();
   const { t } = useTranslation();
   const resolvedInterval = autoRefreshMs ?? refreshInterval;
+  const { events: cachedEvents, loading: cachedLoading, error: cachedError, fetchedAt, refresh: refreshCached } =
+    useEventsContext();
+
+  const hasFilters = Boolean(deviceId || (types && types.length) || from || to);
 
   const cacheKey = useMemo(
     () =>
@@ -30,7 +35,7 @@ export function useEvents({
     [deviceId, from, limit, tenantId, to, types],
   );
 
-  const { data, loading, error, fetchedAt, refresh } = useSharedPollingResource(
+  const { data, loading, error, fetchedAt: polledAt, refresh } = useSharedPollingResource(
     cacheKey,
     useCallback(
       async ({ signal }) => {
@@ -45,7 +50,14 @@ export function useEvents({
         if (requestError) {
           if (safeApi.isAbortError(requestError)) throw requestError;
           const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
-          throw new Error(friendly);
+          const normalised = new Error(friendly);
+          const status = Number(requestError?.response?.status ?? requestError?.status);
+          if (Number.isFinite(status)) {
+            normalised.status = status;
+            if (status >= 400 && status < 500) normalised.permanent = true;
+          }
+          if (requestError?.permanent) normalised.permanent = true;
+          throw normalised;
         }
 
         const list = Array.isArray(payload)
@@ -60,7 +72,7 @@ export function useEvents({
       [deviceId, types, from, to, limit, tenantId, t],
     ),
     {
-      enabled,
+      enabled: enabled && hasFilters,
       intervalMs: resolvedInterval,
       maxConsecutiveErrors,
       pauseWhenHidden,
@@ -70,10 +82,22 @@ export function useEvents({
     },
   );
 
-  const events = Array.isArray(data) ? data : [];
+  const events = useMemo(() => {
+    if (!hasFilters && enabled) {
+      const source = Array.isArray(cachedEvents) ? cachedEvents : [];
+      return source.slice(0, limit);
+    }
+    return Array.isArray(data) ? data : [];
+  }, [cachedEvents, data, hasFilters, enabled, limit]);
+
+  const combinedLoading = hasFilters ? loading : cachedLoading && enabled;
+  const combinedError = hasFilters ? error : cachedError;
+  const lastUpdated = hasFilters ? polledAt : fetchedAt;
+  const refreshFn = hasFilters ? refresh : refreshCached;
+
   return useMemo(
-    () => ({ events, loading, error, refresh, lastUpdated: fetchedAt }),
-    [events, loading, error, refresh, fetchedAt],
+    () => ({ events, loading: combinedLoading, error: combinedError, refresh: refreshFn, lastUpdated }),
+    [events, combinedLoading, combinedError, refreshFn, lastUpdated],
   );
 }
 
