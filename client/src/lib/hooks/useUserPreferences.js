@@ -10,6 +10,7 @@ const DEFAULT_PREFERENCES = {
   routeReportColumns: null,
   tripsReportColumns: null,
   monitoringDefaultFilters: null,
+  monitoringLayoutVisibility: null,
 };
 
 function normaliseColumns(columns) {
@@ -36,6 +37,10 @@ function normalisePreferences(raw) {
     tripsReportColumns: normaliseColumns(raw.tripsReportColumns),
     monitoringDefaultFilters:
       typeof raw.monitoringDefaultFilters === "object" ? { ...raw.monitoringDefaultFilters } : null,
+    monitoringLayoutVisibility:
+      typeof raw.monitoringLayoutVisibility === "object"
+        ? { ...raw.monitoringLayoutVisibility }
+        : null,
   };
 }
 
