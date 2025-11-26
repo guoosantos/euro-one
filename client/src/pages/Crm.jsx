@@ -153,8 +153,16 @@ export default function Crm() {
   const navigate = useNavigate();
   const { section } = useParams();
   const resolvedTab = ["clients", "tags", "interactions", "alerts"].includes(section) ? section : "clients";
-  const [viewScope, setViewScope] = useState(hasAdminAccess ? "all" : "mine");
-  const listParams = useMemo(() => (viewScope === "mine" ? { view: "mine" } : null), [viewScope]);
+
+  const [clientViewScope, setClientViewScope] = useState(hasAdminAccess ? "all" : "mine");
+  const [alertViewScope, setAlertViewScope] = useState(hasAdminAccess ? "all" : "mine");
+  const [interactionViewScope, setInteractionViewScope] = useState(hasAdminAccess ? "all" : "mine");
+  const listParams = useMemo(() => {
+    if (!hasAdminAccess) return { view: "mine" };
+    if (clientViewScope === "mine") return { view: "mine" };
+    return null;
+  }, [hasAdminAccess, clientViewScope]);
+ main
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
@@ -177,14 +185,15 @@ export default function Crm() {
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
-  const contactViewParams = useMemo(() => (viewScope === "mine" ? { view: "mine" } : null), [viewScope]);
-  const {
-    contacts,
-    loading: contactsLoading,
-    error: contactsError,
-    addContact,
-    refresh: refreshContacts,
-  } = useCrmContacts(selectedId, contactViewParams);
+
+  const contactListParams = useMemo(() => {
+    if (!hasAdminAccess) return { view: "mine" };
+    if (interactionViewScope === "mine") return { view: "mine" };
+    return null;
+  }, [hasAdminAccess, interactionViewScope]);
+  const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
+    useCrmContacts(selectedId, contactListParams);
+ main
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 
@@ -224,6 +233,16 @@ export default function Crm() {
     [],
   );
 
+  const relationshipFilters = useMemo(
+    () => [
+      { value: "", label: "Todos" },
+      { value: "customer", label: relationshipLabel.customer },
+      { value: "supplier", label: relationshipLabel.supplier },
+      { value: "prospection", label: relationshipLabel.prospection },
+    ],
+    [relationshipLabel.customer, relationshipLabel.prospection, relationshipLabel.supplier],
+  );
+
   const relationshipBadgeStyle = useMemo(
     () => ({
       prospection: "bg-amber-500/20 text-amber-100",
@@ -252,10 +271,13 @@ export default function Crm() {
     let cancelled = false;
     setAlertsLoading(true);
     setAlertsError(null);
+    const alertView = !hasAdminAccess ? "mine" : alertViewScope === "mine" ? "mine" : undefined;
     CoreApi.listCrmAlerts({
       contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
-      view: viewScope === "mine" ? "mine" : undefined,
+
+      view: alertView,
+ main
     })
       .then((response) => {
         if (cancelled) return;
@@ -278,7 +300,9 @@ export default function Crm() {
     return () => {
       cancelled = true;
     };
-  }, [viewScope]);
+
+  }, [tenantId, hasAdminAccess, alertViewScope]);
+ main
 
   useEffect(() => {
     if (!selectedId) {
@@ -347,7 +371,10 @@ export default function Crm() {
   }, [navigate, section]);
 
   useEffect(() => {
-    setViewScope(hasAdminAccess ? "all" : "mine");
+    const scope = hasAdminAccess ? "all" : "mine";
+    setClientViewScope(scope);
+    setAlertViewScope(scope);
+    setInteractionViewScope(scope);
   }, [hasAdminAccess]);
 
   useEffect(() => {
@@ -474,7 +501,7 @@ export default function Crm() {
           err?.message?.toLowerCase?.().includes("cnpj"));
 
       if (duplicateCnpjError) {
-        setCnpjError("Já existe um cliente com este CNPJ cadastrado no CRM. Busque na lista antes de cadastrar um novo.");
+        setCnpjError("Já existe um cliente com este CNPJ cadastrado no CRM. Busque na lista antes de criar outro.");
         return;
       }
       logCrmError(err, "saveClient");
@@ -559,12 +586,19 @@ export default function Crm() {
 
   const quickStatusLabel = selectedClient ? selectedClient.name : "Nenhum cliente selecionado";
 
+  const cnpjInputClass = cnpjError ? "border-red-500/60 focus:ring-red-500/30" : "";
+
   const tabs = [
     { id: "clients", label: "Clientes" },
     { id: "tags", label: "Tags" },
     { id: "interactions", label: "Interações" },
     { id: "alerts", label: "Alertas" },
   ];
+
+  const activeTabLabel = useMemo(
+    () => tabs.find((tab) => tab.id === resolvedTab)?.label || "Clientes",
+    [resolvedTab],
+  );
 
   function handleTabChange(tabId) {
     if (tabId === resolvedTab) return;
@@ -597,6 +631,11 @@ export default function Crm() {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      <div className="flex items-center justify-between text-sm text-white/70">
+        <div className="font-semibold text-white">{activeTabLabel}</div>
+        <div className="text-xs uppercase tracking-wide text-white/50">CRM</div>
       </div>
 
       {resolvedTab === "clients" && (
@@ -664,17 +703,27 @@ export default function Crm() {
             </div>
             <div className="space-y-1">
               <div className="text-xs text-white/60">Relação</div>
-              <Select value={filterRelationship} onChange={(event) => setFilterRelationship(event.target.value)}>
-                <option value="">Todas</option>
-                <option value="customer">Cliente</option>
-                <option value="supplier">Fornecedor</option>
-                <option value="prospection">Prospecção</option>
-              </Select>
+              <div className="flex flex-wrap gap-2">
+                {relationshipFilters.map((option) => (
+                  <button
+                    key={option.value || "all"}
+                    type="button"
+                    onClick={() => setFilterRelationship(option.value)}
+                    className={`rounded-full px-3 py-1 text-xs transition ${
+                      filterRelationship === option.value
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-white/5 text-white/70 hover:bg-white/10"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
             {hasAdminAccess && (
               <div className="space-y-1">
                 <div className="text-xs text-white/60">Ver</div>
-                <Select value={viewScope} onChange={(event) => setViewScope(event.target.value)}>
+                <Select value={clientViewScope} onChange={(event) => setClientViewScope(event.target.value)}>
                   <option value="all">Todos os clientes</option>
                   <option value="mine">Somente os meus</option>
                 </Select>
@@ -686,6 +735,7 @@ export default function Crm() {
               <thead className="text-white/50">
                 <tr className="border-b border-white/10 text-left">
                   <th className="py-2 pr-4">Cliente</th>
+                  <th className="py-2 pr-4">CNPJ</th>
                   <th className="py-2 pr-4">Segmento</th>
                   <th className="py-2 pr-4">Local</th>
                   <th className="py-2 pr-4">Relação</th>
@@ -700,14 +750,14 @@ export default function Crm() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={10} className="py-4 text-center text-white/60">
+                    <td colSpan={11} className="py-4 text-center text-white/60">
                       Carregando clientes...
                     </td>
                   </tr>
                 )}
                 {!loading && filteredClients.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="py-4 text-center text-white/60">
+                    <td colSpan={11} className="py-4 text-center text-white/60">
                       Nenhum cliente cadastrado.
                     </td>
                   </tr>
@@ -738,6 +788,7 @@ export default function Crm() {
                           </div>
                         </div>
                       </td>
+                      <td className="py-2 pr-4 text-white/70">{formatCnpj(client.cnpj) || "—"}</td>
                       <td className="py-2 pr-4 text-white/70">{client.segment || "—"}</td>
                       <td className="py-2 pr-4 text-white/70">
                         {[client.city, client.state].filter(Boolean).join("/") || "—"}
@@ -801,6 +852,7 @@ export default function Crm() {
                   <>
                     <div className="text-white/60">{selectedClient.segment || "Segmento não informado"}</div>
                     <div className="text-white/70">Contato: {selectedClient.mainContactName || "—"}</div>
+                    <div className="text-white/70">CNPJ: {formatCnpj(selectedClient.cnpj) || "—"}</div>
                     <div className="text-white/70">Relação: {relationshipLabel[selectedClient.relationshipType] || "Prospecção"}</div>
                     <div className="text-white/70">{buildContractLabel(selectedClient)}</div>
                     <div className="text-white/70">{buildTrialLabel(selectedClient)}</div>
@@ -828,7 +880,7 @@ export default function Crm() {
       )}
 
       {resolvedTab === "tags" && (
-        <div className="grid gap-4 xl:grid-cols-2">
+        <div className="grid gap-4">
           <Card title="Catálogo de tags" subtitle="Organize as etiquetas do CRM">
             {tagsError && (
               <div className="mb-2 rounded-lg bg-red-500/20 p-2 text-xs text-red-100">{tagsError.message}</div>
@@ -899,36 +951,45 @@ export default function Crm() {
               <Button size="sm" variant="ghost" onClick={() => handleTabChange("clients")}>
                 Ir para Clientes
               </Button>
-              {hasAdminAccess && (
-                <div className="ml-auto flex items-center gap-2 text-xs text-white/60">
-                  <span>Ver</span>
-                  <div className="inline-flex rounded-lg bg-white/10 p-1">
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("mine")}
-                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                        viewScope === "mine"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-white/80 hover:bg-white/5"
-                      }`}
-                    >
-                      Meus
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("all")}
-                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                        viewScope === "all"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-white/80 hover:bg-white/5"
-                      }`}
-                    >
-                      Todos
-                    </button>
-                  </div>
-                </div>
+              {hasAdminAccess ? (
+                <Select
+                  value={interactionViewScope}
+                  onChange={(event) => setInteractionViewScope(event.target.value)}
+                  className="w-44"
+                >
+                  <option value="all">Todas as interações</option>
+                  <option value="mine">Minhas interações</option>
+                </Select>
+              ) : (
+                <span className="text-xs text-white/60">Mostrando apenas interações que registrei</span>
+main
               )}
             </div>
+            {selectedClient && (
+              <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/80">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-white">
+                  <div className="font-semibold">{selectedClient.name}</div>
+                  <span
+                    className={`rounded-full px-2 py-1 text-xs ${
+                      relationshipBadgeStyle[selectedClient.relationshipType] || "bg-white/10 text-white"
+                    }`}
+                  >
+                    {relationshipLabel[selectedClient.relationshipType] || "Prospecção"}
+                  </span>
+                </div>
+                <div className="mt-1 text-white/60">CNPJ: {formatCnpj(selectedClient.cnpj) || "—"}</div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {normaliseTagIds(selectedClient.tags).map((tagId) => {
+                    const tag = resolveTagLabel(tagId);
+                    if (!tag) return null;
+                    return <TagBadge key={tagId} label={tag.name} color={tag.color} />;
+                  })}
+                  {normaliseTagIds(selectedClient.tags).length === 0 && (
+                    <span className="text-xs text-white/50">Sem tags</span>
+                  )}
+                </div>
+              </div>
+            )}
             {!selectedId && <div className="text-sm text-white/60">Escolha um cliente para registrar ou revisar interações.</div>}
             {selectedId && (
               <div className="space-y-4">
@@ -1096,33 +1157,20 @@ export default function Crm() {
             title="Alertas de contrato e teste"
             subtitle="Resumo visual de contratos concorrentes e trials"
             actions={
-              <div className="flex items-center gap-2">
-                {hasAdminAccess && (
-                  <div className="flex items-center gap-1 rounded-lg bg-white/10 p-1 text-xs text-white/70">
-                    <span className="px-2">Ver</span>
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("mine")}
-                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                        viewScope === "mine"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-white/80 hover:bg-white/5"
-                      }`}
-                    >
-                      Meus
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewScope("all")}
-                      className={`rounded-md px-3 py-1 text-xs font-medium transition ${
-                        viewScope === "all"
-                          ? "bg-primary text-primary-foreground"
-                          : "text-white/80 hover:bg-white/5"
-                      }`}
-                    >
-                      Todos
-                    </button>
-                  </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {hasAdminAccess ? (
+                  <Select
+                    value={alertViewScope}
+                    onChange={(event) => setAlertViewScope(event.target.value)}
+                    className="w-44"
+                  >
+                    <option value="all">Todos os clientes</option>
+                    <option value="mine">Somente os meus</option>
+                  </Select>
+                ) : (
+                  <span className="text-xs text-white/60">Mostrando apenas meus alertas</span>
+ main
                 )}
                 <Button size="sm" variant="ghost" onClick={loadAlerts}>
                   Atualizar alertas
@@ -1146,6 +1194,9 @@ export default function Crm() {
                   title={`Contratos concorrentes vencendo em até ${DEFAULT_CONTRACT_ALERT_DAYS} dias`}
                   items={alerts.contractAlerts}
                   tone="warning"
+                  typeLabel="Contrato concorrente"
+                  relationshipLabel={relationshipLabel}
+                  relationshipBadgeStyle={relationshipBadgeStyle}
                   renderDescription={(client) =>
                     `Contrato com ${client.competitorName || "concorrente"} termina em ${formatDate(
                       client.competitorContractEnd,
@@ -1156,6 +1207,9 @@ export default function Crm() {
                   title="Contratos concorrentes vencendo hoje / vencidos"
                   items={alerts.contractExpired}
                   tone="danger"
+                  typeLabel="Contrato concorrente"
+                  relationshipLabel={relationshipLabel}
+                  relationshipBadgeStyle={relationshipBadgeStyle}
                   renderDescription={(client) =>
                     `Contrato com ${client.competitorName || "concorrente"} venceu em ${formatDate(
                       client.competitorContractEnd,
@@ -1166,12 +1220,18 @@ export default function Crm() {
                   title={`Testes (trial) terminando em até ${DEFAULT_TRIAL_ALERT_DAYS} dias`}
                   items={alerts.trialAlerts}
                   tone="info"
+                  typeLabel="Teste (trial)"
+                  relationshipLabel={relationshipLabel}
+                  relationshipBadgeStyle={relationshipBadgeStyle}
                   renderDescription={(client) => `Teste termina em ${formatDate(client.trialEnd)}.`}
                 />
                 <AlertGroup
                   title="Testes já encerrados"
                   items={alerts.trialExpired}
                   tone="muted"
+                  typeLabel="Teste (trial)"
+                  relationshipLabel={relationshipLabel}
+                  relationshipBadgeStyle={relationshipBadgeStyle}
                   renderDescription={(client) => `Teste finalizado em ${formatDate(client.trialEnd)}.`}
                 />
               </div>
@@ -1212,6 +1272,7 @@ export default function Crm() {
                 value={form.cnpj}
                 onChange={handleFieldChange}
                 placeholder="00.000.000/0000-00"
+                className={cnpjInputClass}
                 required
               />
               {cnpjError && <div className="text-xs text-red-300">{cnpjError}</div>}
@@ -1441,7 +1502,15 @@ export default function Crm() {
   );
 }
 
-function AlertGroup({ title, items, renderDescription, tone = "info" }) {
+function AlertGroup({
+  title,
+  items,
+  renderDescription,
+  tone = "info",
+  typeLabel,
+  relationshipLabel,
+  relationshipBadgeStyle,
+}) {
   if (!items || items.length === 0) return null;
   const toneStyles = {
     warning: "border-amber-500/40 bg-amber-500/10",
@@ -1457,8 +1526,31 @@ function AlertGroup({ title, items, renderDescription, tone = "info" }) {
       <div className="space-y-2">
         {items.map((client) => (
           <div key={client.id} className={`rounded-lg border p-3 ${toneStyles[tone] || toneStyles.info}`}>
-            <div className="font-semibold text-white">{client.name}</div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="font-semibold text-white">{client.name}</div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                {(client.alertType || typeLabel) && (
+                  <span className="rounded-full bg-white/10 px-2 py-1 text-white/80">
+                    {client.alertType || typeLabel}
+                  </span>
+                )}
+                {relationshipLabel && (
+                  <span
+                    className={`rounded-full px-2 py-1 ${
+                      relationshipBadgeStyle?.[client.relationshipType] || "bg-white/10 text-white"
+                    }`}
+                  >
+                    {relationshipLabel[client.relationshipType] || relationshipLabel.prospection || "Prospecção"}
+                  </span>
+                )}
+              </div>
+            </div>
             <div className="text-white/70">{renderDescription(client)}</div>
+            {relationshipLabel && (
+              <div className="text-xs text-white/60">
+                Relação: {relationshipLabel[client.relationshipType] || relationshipLabel.prospection || "Prospecção"}
+              </div>
+            )}
           </div>
         ))}
       </div>

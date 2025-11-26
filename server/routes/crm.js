@@ -20,8 +20,10 @@ router.use(resolveClientIdMiddleware);
 
 router.get("/clients", (req, res, next) => {
   try {
-    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
-    const clients = listCrmClients({ clientId: req.clientId, user: req.user, createdByUserId });
+    const isAdmin = req.user?.role === "admin";
+    const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
+    const createdByUserId = view === "mine" ? req.user?.id : undefined;
+    const clients = listCrmClients({ clientId: req.clientId, user: req.user, createdByUserId, view });
     res.json({ clients });
   } catch (error) {
     next(error);
@@ -31,7 +33,7 @@ router.get("/clients", (req, res, next) => {
 router.post("/clients", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
-    const client = createCrmClient({ ...req.body, clientId, createdByUserId: req.user?.id });
+    const client = createCrmClient({ ...req.body, clientId }, { user: req.user });
     res.status(201).json({ client });
   } catch (error) {
     next(error);
@@ -66,7 +68,9 @@ router.get("/alerts", (req, res, next) => {
       ? Number(req.query.trialWithinDays)
       : undefined;
 
-    const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
+    const isAdmin = req.user?.role === "admin";
+    const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
+    const createdByUserId = view === "mine" ? req.user?.id : undefined;
 
     const alerts = listCrmClientsWithUpcomingEvents({
       clientId: req.clientId,
@@ -74,6 +78,7 @@ router.get("/alerts", (req, res, next) => {
       trialWithinDays,
       user: req.user,
       createdByUserId,
+      view,
     });
     res.json(alerts);
   } catch (error) {

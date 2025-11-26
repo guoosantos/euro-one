@@ -22,7 +22,11 @@ export function useCrmContacts(clientId, params = null) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    CoreApi.listCrmContacts(clientId, resolvedParams)
+
+
+
+    CoreApi.listCrmContacts(clientId, params || undefined)
+ main
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -40,7 +44,11 @@ export function useCrmContacts(clientId, params = null) {
     return () => {
       cancelled = true;
     };
-  }, [clientId, resolvedParams, paramsKey, t]);
+
+
+
+  }, [clientId, params, t]);
+ main
 
   useEffect(() => load(), [load]);
 
