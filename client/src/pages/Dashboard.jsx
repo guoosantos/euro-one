@@ -87,7 +87,7 @@ function computeDriverRanking(events) {
 
 export default function Dashboard() {
   const { locale, t } = useTranslation();
-  const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices();
+  const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices({ withPositions: true });
   const { events, loading: loadingEvents } = useEvents({ limit: 200, refreshInterval: 60_000 });
   const { generateTripsReport, loading: generatingReport, error: reportError } = useReports();
   const [quickFeedback, setQuickFeedback] = useState(null);

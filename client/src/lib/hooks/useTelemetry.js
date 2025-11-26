@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { usePollingTask } from "./usePollingTask.js";
@@ -11,41 +11,50 @@ function normaliseTelemetry(payload) {
   return [];
 }
 
-export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3 } = {}) {
+export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3, enabled = true } = {}) {
   const { t } = useTranslation();
   const [telemetry, setTelemetry] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
   const initialLoadRef = useRef(true);
+  const abortRef = useRef(null);
 
   const fetchTelemetry = useCallback(
     async (options = {}) => {
+      if (!enabled || !mountedRef.current) return;
       const showLoading = options.withLoading || initialLoadRef.current;
       if (showLoading) setLoading(true);
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
       try {
-        const response = await api.get(API_ROUTES.core.telemetry);
-        if (!mountedRef.current) return;
-        const items = normaliseTelemetry(response?.data);
+        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.core.telemetry, {
+          signal: controller.signal,
+        });
+        if (!mountedRef.current || controller.signal?.aborted) return;
+        if (requestError) {
+          if (safeApi.isAbortError(requestError)) return;
+          const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
+          const normalised = new Error(friendly);
+          setError(normalised);
+          throw normalised;
+        }
+        const items = normaliseTelemetry(payload);
         setTelemetry(Array.isArray(items) ? items : []);
         setError(null);
-      } catch (requestError) {
-        if (!mountedRef.current) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
-        setError(new Error(friendly));
-        throw requestError;
       } finally {
-        if (mountedRef.current && showLoading) {
+        if (mountedRef.current && showLoading && abortRef.current === controller) {
           setLoading(false);
         }
         initialLoadRef.current = false;
       }
     },
-    [t],
+    [enabled, t],
   );
 
   usePollingTask(fetchTelemetry, {
-    enabled: true,
+    enabled,
     intervalMs: refreshInterval,
     maxConsecutiveErrors,
     backoffFactor: 2,
@@ -59,6 +68,7 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
   useEffect(() => {
     mountedRef.current = true;
     return () => {
+      abortRef.current?.abort();
       mountedRef.current = false;
     };
   }, []);

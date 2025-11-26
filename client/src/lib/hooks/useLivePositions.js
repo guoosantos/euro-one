@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
@@ -34,6 +34,7 @@ export function useLivePositions({
   refreshInterval = 5_000,
   maxConsecutiveErrors = 3,
   pauseWhenHidden = true,
+  enabled = true,
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
@@ -43,6 +44,7 @@ export function useLivePositions({
   const [fetchedAt, setFetchedAt] = useState(null);
   const mountedRef = useRef(true);
   const abortRef = useRef(null);
+  const initialLoadRef = useRef(true);
 
   const ids = useMemo(() => {
     if (!deviceIds) return [];
@@ -51,8 +53,9 @@ export function useLivePositions({
   }, [deviceIds]);
 
   const fetchPositions = useCallback(async () => {
+    if (!enabled || !mountedRef.current) return;
     setError(null);
-    setLoading((current) => current || !fetchedAt);
+    setLoading((current) => current || initialLoadRef.current);
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -61,30 +64,35 @@ export function useLivePositions({
       if (ids.length) params.deviceId = ids;
       if (tenantId) params.clientId = tenantId;
 
-      const response = await api.get(API_ROUTES.lastPositions, {
+      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.lastPositions, {
         params: Object.keys(params).length ? params : undefined,
         signal: controller.signal,
       });
 
-      if (!mountedRef.current) return;
-      const merged = dedupeByDevice(normalise(response?.data));
+      if (!mountedRef.current || controller.signal?.aborted) return;
+      if (requestError) {
+        if (safeApi.isAbortError(requestError)) return;
+        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
+        const normalised = new Error(friendly);
+        setError(normalised);
+        throw normalised;
+      }
+      const merged = dedupeByDevice(normalise(payload));
       setPositions(merged);
       setFetchedAt(new Date());
       setError(null);
-    } catch (requestError) {
-      if (controller.signal?.aborted || !mountedRef.current) return;
-      const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
-      setError(new Error(friendly));
-      throw requestError;
     } finally {
       if (abortRef.current === controller && mountedRef.current) {
         setLoading(false);
       }
+      initialLoadRef.current = false;
     }
-  }, [fetchedAt, ids, tenantId, t]);
+  }, [enabled, ids, tenantId, t]);
+
+  const pollingEnabled = enabled && (ids.length > 0 || deviceIds === null || deviceIds === undefined);
 
   usePollingTask(fetchPositions, {
-    enabled: true,
+    enabled: pollingEnabled,
     intervalMs: refreshInterval,
     maxConsecutiveErrors,
     pauseWhenHidden,

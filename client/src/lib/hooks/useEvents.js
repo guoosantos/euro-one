@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
@@ -16,6 +16,7 @@ export function useEvents({
   autoRefreshMs,
   maxConsecutiveErrors = 3,
   pauseWhenHidden = true,
+  enabled = true,
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
@@ -24,18 +25,38 @@ export function useEvents({
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const mountedRef = useRef(true);
+  const abortRef = useRef(null);
+  const initialLoadRef = useRef(true);
 
   const resolvedInterval = autoRefreshMs ?? refreshInterval;
 
   const fetchEvents = useCallback(async () => {
-    setLoading(true);
+    if (!enabled || !mountedRef.current) return;
+    setLoading((current) => current || initialLoadRef.current);
     setError(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const params = buildParams({ deviceId, types, from, to, limit });
       if (tenantId) params.clientId = tenantId;
-      const response = await api.get(API_ROUTES.events, { params });
-      if (!mountedRef.current) return;
-      const payload = response?.data;
+
+      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.events, {
+        params,
+        signal: controller.signal,
+      });
+
+      if (!mountedRef.current || controller.signal?.aborted) return;
+      if (requestError) {
+        if (safeApi.isAbortError(requestError)) return;
+        console.error("Failed to load events", requestError);
+        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
+        const normalised = new Error(friendly);
+        setError(normalised);
+        setEvents([]);
+        throw normalised;
+      }
+
       const list = Array.isArray(payload)
         ? payload
         : Array.isArray(payload?.events)
@@ -46,22 +67,16 @@ export function useEvents({
       setEvents(list.slice(0, limit));
       setLastUpdated(new Date());
       setError(null);
-    } catch (requestError) {
-      if (!mountedRef.current) return;
-      console.error("Failed to load events", requestError);
-      const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadEvents");
-      setError(new Error(friendly));
-      setEvents([]);
-      throw requestError;
     } finally {
-      if (mountedRef.current) {
+      if (mountedRef.current && abortRef.current === controller) {
         setLoading(false);
       }
+      initialLoadRef.current = false;
     }
-  }, [deviceId, types, from, to, limit, tenantId, t]);
+  }, [deviceId, types, from, to, limit, tenantId, enabled, t]);
 
   usePollingTask(fetchEvents, {
-    enabled: true,
+    enabled,
     intervalMs: resolvedInterval,
     maxConsecutiveErrors,
     pauseWhenHidden,
@@ -78,6 +93,7 @@ export function useEvents({
   useEffect(() => {
     mountedRef.current = true;
     return () => {
+      abortRef.current?.abort();
       mountedRef.current = false;
     };
   }, []);
