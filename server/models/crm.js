@@ -210,16 +210,14 @@ persisted.forEach((record) => {
   }
 });
 
-export function listCrmClients({ clientId, user, createdByUserId } = {}) {
+export function listCrmClients({ clientId, user, createdByUserId, view } = {}) {
+  const isAdmin = user?.role === "admin";
+  const shouldFilterByOwner = !isAdmin || view === "mine" || createdByUserId;
+  const ownerId = createdByUserId || (shouldFilterByOwner ? user?.id : undefined);
+
   return Array.from(crmClients.values())
     .filter((record) => (clientId ? String(record.clientId) === String(clientId) : true))
-    .filter((record) =>
-      createdByUserId
-        ? record.createdByUserId === createdByUserId
-        : user?.role === "admin"
-          ? true
-          : record.createdByUserId === user?.id,
-    )
+    .filter((record) => (ownerId ? record.createdByUserId === ownerId : true))
     .map((record) => hydrateRecord(record));
 }
 
@@ -229,11 +227,12 @@ export function listCrmClientsWithUpcomingEvents({
   trialWithinDays = 7,
   user,
   createdByUserId,
+  view,
 } = {}) {
   const contractDays = Number.isFinite(Number(contractWithinDays)) ? Number(contractWithinDays) : 30;
   const trialDays = Number.isFinite(Number(trialWithinDays)) ? Number(trialWithinDays) : 7;
 
-  const clients = listCrmClients({ clientId, user, createdByUserId });
+  const clients = listCrmClients({ clientId, user, createdByUserId, view });
 
   const contractAlerts = contractDays
     ? clients.filter(
