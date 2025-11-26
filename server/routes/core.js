@@ -19,6 +19,7 @@ import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehic
 import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 import { getCachedTraccarResources } from "../services/traccar-sync.js";
 import { enrichPositionsWithAddresses } from "../utils/address.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ function normaliseList(payload, keys = []) {
 }
 
 const telemetryWarnLog = new Map();
+const telemetryCache = createTtlCache(3_000);
 
 function logTelemetryWarning(stage, error, context = {}) {
   const now = Date.now();
@@ -507,6 +509,12 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
 
+    const cacheKey = clientId ? `telemetry:${clientId}` : "telemetry:all";
+    const cached = telemetryCache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
     const devices = listDevices({ clientId });
     const models = listModels({ clientId, includeGlobal: true });
     const chips = listChips({ clientId });
@@ -660,7 +668,9 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       }
     }
 
-    res.json({ telemetry: response });
+    const payload = { telemetry: response };
+    telemetryCache.set(cacheKey, payload, 3_000);
+    res.json(payload);
   } catch (error) {
     next(error);
   }

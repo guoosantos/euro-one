@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo } from "react";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
-import { usePollingTask } from "./usePollingTask.js";
+import { useSharedPollingResource } from "./useSharedPollingResource.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -38,13 +38,6 @@ export function useLivePositions({
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
-  const [positions, setPositions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [fetchedAt, setFetchedAt] = useState(null);
-  const mountedRef = useRef(true);
-  const abortRef = useRef(null);
-  const initialLoadRef = useRef(true);
 
   const ids = useMemo(() => {
     if (!deviceIds) return [];
@@ -52,69 +45,48 @@ export function useLivePositions({
     return [deviceIds];
   }, [deviceIds]);
 
-  const fetchPositions = useCallback(async () => {
-    if (!enabled || !mountedRef.current) return;
-    setError(null);
-    setLoading((current) => current || initialLoadRef.current);
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    try {
-      const params = {};
-      if (ids.length) params.deviceId = ids;
-      if (tenantId) params.clientId = tenantId;
-
-      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.lastPositions, {
-        params: Object.keys(params).length ? params : undefined,
-        signal: controller.signal,
-      });
-
-      if (!mountedRef.current || controller.signal?.aborted) return;
-      if (requestError) {
-        if (safeApi.isAbortError(requestError)) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
-        const normalised = new Error(friendly);
-        setError(normalised);
-        throw normalised;
-      }
-      const merged = dedupeByDevice(normalise(payload));
-      setPositions(merged);
-      setFetchedAt(new Date());
-      setError(null);
-    } finally {
-      if (abortRef.current === controller && mountedRef.current) {
-        setLoading(false);
-      }
-      initialLoadRef.current = false;
-    }
-  }, [enabled, ids, tenantId, t]);
-
   const pollingEnabled = enabled && (ids.length > 0 || deviceIds === null || deviceIds === undefined);
 
-  usePollingTask(fetchPositions, {
-    enabled: pollingEnabled,
-    intervalMs: refreshInterval,
-    maxConsecutiveErrors,
-    pauseWhenHidden,
-    backoffFactor: 2,
-    maxIntervalMs: 60_000,
-    onPermanentFailure: (err) => {
-      if (!err || !mountedRef.current) return;
-      console.error("Live positions polling halted after consecutive failures", err);
+  const cacheKey = useMemo(() => {
+    const idsKey = ids
+      .map((value) => (value === null || value === undefined ? "null" : String(value)))
+      .sort()
+      .join(",");
+    return `last-positions:${tenantId || "global"}:${idsKey || "all"}`;
+  }, [ids, tenantId]);
+
+  const { data: positions = [], loading, error, fetchedAt, refresh } = useSharedPollingResource(
+    cacheKey,
+    useCallback(
+      async ({ signal }) => {
+        const params = {};
+        if (ids.length) params.deviceId = ids;
+        if (tenantId) params.clientId = tenantId;
+
+        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.lastPositions, {
+          params: Object.keys(params).length ? params : undefined,
+          signal,
+        });
+
+        if (requestError) {
+          if (safeApi.isAbortError(requestError)) throw requestError;
+          const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
+          throw new Error(friendly);
+        }
+        return dedupeByDevice(normalise(payload));
+      },
+      [ids, t, tenantId],
+    ),
+    {
+      enabled: pollingEnabled,
+      intervalMs: refreshInterval,
+      maxConsecutiveErrors,
+      pauseWhenHidden,
+      backoffFactor: 2,
+      maxIntervalMs: 60_000,
+      initialData: [],
     },
-  });
-
-  const refresh = useCallback(() => {
-    void fetchPositions();
-  }, [fetchPositions]);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      abortRef.current?.abort();
-      mountedRef.current = false;
-    };
-  }, []);
+  );
 
   const data = Array.isArray(positions) ? positions : [];
   return { data, positions: data, loading, error, refresh, fetchedAt };
