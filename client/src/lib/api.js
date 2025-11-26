@@ -137,9 +137,27 @@ async function request({
   headers = {},
   timeout = 20_000,
   apiPrefix = true,
+  signal,
 }) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
+  const abortReason = new Error("Request timeout");
+  const timer = setTimeout(() => controller.abort(abortReason), timeout);
+
+  const forwardAbort = () => {
+    try {
+      controller.abort(signal?.reason);
+    } catch (_abortError) {
+      controller.abort();
+    }
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      forwardAbort();
+    } else {
+      signal.addEventListener("abort", forwardAbort);
+    }
+  }
 
   const finalUrl = buildUrl(url, params, { apiPrefix });
   const resolvedHeaders = new Headers(headers);
@@ -202,6 +220,10 @@ async function request({
   } catch (error) {
     clearTimeout(timer);
     throw error;
+  } finally {
+    if (signal) {
+      signal.removeEventListener("abort", forwardAbort);
+    }
   }
 }
 

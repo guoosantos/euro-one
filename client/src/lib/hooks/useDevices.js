@@ -50,6 +50,9 @@ export function useDevices() {
   const [error, setError] = useState(null);
   const [reloadKey, setReloadKey] = useState(0);
   const devicesRef = useRef([]);
+  const positionsAbortRef = useRef(null);
+  const devicesAbortRef = useRef(null);
+  const pollingTimerRef = useRef(null);
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
@@ -57,13 +60,21 @@ export function useDevices() {
 
   useEffect(() => {
     let cancelled = false;
-    let intervalId;
+    const clearPollingTimer = () => {
+      if (pollingTimerRef.current) {
+        globalThis.clearTimeout(pollingTimerRef.current);
+        pollingTimerRef.current = null;
+      }
+    };
 
     async function fetchDevices() {
       setLoading(true);
       setError(null);
+      devicesAbortRef.current?.abort();
+      const controller = new AbortController();
+      devicesAbortRef.current = controller;
       try {
-        const response = await api.get(API_ROUTES.core.devices);
+        const response = await api.get(API_ROUTES.core.devices, { signal: controller.signal });
         if (cancelled) return;
         const list = normaliseDeviceList(response?.data);
         const normalisedList = Array.isArray(list)
@@ -77,10 +88,11 @@ export function useDevices() {
         await fetchPositionsForDevices(normalisedList);
       } catch (requestError) {
         if (cancelled) return;
+        if (controller.signal?.aborted) return;
         console.error("Failed to load devices", requestError);
         setError(requestError instanceof Error ? requestError : new Error("Erro ao carregar dispositivos"));
       } finally {
-        if (!cancelled) {
+        if (!cancelled && devicesAbortRef.current === controller) {
           setLoading(false);
         }
       }
@@ -91,12 +103,15 @@ export function useDevices() {
         setPositionsByDeviceId({});
         return;
       }
+      positionsAbortRef.current?.abort();
+      const controller = new AbortController();
+      positionsAbortRef.current = controller;
       const requests = deviceList
         .map((device) => toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id))
         .filter(Boolean)
         .map((deviceId) =>
           api
-            .get(API_ROUTES.lastPositions, { params: { deviceId } })
+            .get(API_ROUTES.lastPositions, { params: { deviceId }, signal: controller.signal })
             .then((response) => ({ deviceId, payload: response?.data }))
             .catch((requestError) => {
               console.warn("Falha ao carregar posição do dispositivo", deviceId, requestError);
@@ -106,6 +121,7 @@ export function useDevices() {
 
       const results = await Promise.all(requests);
       if (cancelled) return;
+      if (controller.signal?.aborted) return;
 
       const hasSuccessfulResponse = results.some(Boolean);
       if (!hasSuccessfulResponse) {
@@ -131,16 +147,24 @@ export function useDevices() {
       });
     }
 
-    fetchDevices();
-    intervalId = globalThis.setInterval(() => {
-      fetchPositionsForDevices();
-    }, 5_000);
+    const schedulePositionsPolling = () => {
+      if (cancelled) return;
+      clearPollingTimer();
+      pollingTimerRef.current = globalThis.setTimeout(() => {
+        void fetchPositionsForDevices();
+        schedulePositionsPolling();
+      }, 5_000);
+    };
+
+    void fetchDevices().then(() => {
+      schedulePositionsPolling();
+    });
 
     return () => {
       cancelled = true;
-      if (intervalId) {
-        globalThis.clearInterval(intervalId);
-      }
+      clearPollingTimer();
+      positionsAbortRef.current?.abort();
+      devicesAbortRef.current?.abort();
     };
   }, [reloadKey]);
 
