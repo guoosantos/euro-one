@@ -4,7 +4,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { getDeviceById, listDevices } from "../models/device.js";
-import { traccarProxy, traccarRequest } from "../services/traccar.js";
+import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import {
   enforceClientGroupInQuery,
   enforceDeviceFilterInBody,
@@ -481,7 +481,7 @@ router.get("/positions/last", async (req, res, next) => {
       : data;
     res.json(body);
   } catch (error) {
-    next(error);
+    next(buildTraccarUnavailableError(error, { url: "/positions", params }));
   }
 });
 

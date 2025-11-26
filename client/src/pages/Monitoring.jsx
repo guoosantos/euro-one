@@ -115,6 +115,7 @@ export default function Monitoring() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
   const { telemetry, loading, error, reload, stats, liveStatus } = useTelemetry();
+  const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const [filterMode, setFilterMode] = useState("all");
   const heatmapEnabled = filterMode === "danger";
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime", enabled: heatmapEnabled });
@@ -269,8 +270,6 @@ export default function Monitoring() {
   }, []);
 
   const visibleColumns = useMemo(() => resolveVisibleColumns(allColumns, columnPrefs), [allColumns, columnPrefs]);
-
-  const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
   const deviceIndex = useMemo(() => {
     const map = new Map();

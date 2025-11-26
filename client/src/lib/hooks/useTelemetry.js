@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
+import { usePollingTask } from "./usePollingTask.js";
 
 function normaliseTelemetry(payload) {
   if (Array.isArray(payload)) return payload;
@@ -17,8 +18,6 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
   const [error, setError] = useState(null);
   const mountedRef = useRef(true);
   const initialLoadRef = useRef(true);
-  const failuresRef = useRef(0);
-  const intervalRef = useRef(null);
 
   const fetchTelemetry = useCallback(
     async (options = {}) => {
@@ -30,15 +29,11 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
         const items = normaliseTelemetry(response?.data);
         setTelemetry(Array.isArray(items) ? items : []);
         setError(null);
-        failuresRef.current = 0;
       } catch (requestError) {
         if (!mountedRef.current) return;
         const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
         setError(new Error(friendly));
-        failuresRef.current += 1;
-        if (failuresRef.current >= maxConsecutiveErrors) {
-          console.warn("Falhas consecutivas ao atualizar telemetria", requestError);
-        }
+        throw requestError;
       } finally {
         if (mountedRef.current && showLoading) {
           setLoading(false);
@@ -46,30 +41,27 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
         initialLoadRef.current = false;
       }
     },
-    [maxConsecutiveErrors, t],
+    [t],
   );
+
+  usePollingTask(fetchTelemetry, {
+    enabled: true,
+    intervalMs: refreshInterval,
+    maxConsecutiveErrors,
+    backoffFactor: 2,
+    maxIntervalMs: 60_000,
+    onPermanentFailure: (err) => {
+      if (!err || !mountedRef.current) return;
+      console.warn("Falhas consecutivas ao atualizar telemetria", err);
+    },
+  });
 
   useEffect(() => {
     mountedRef.current = true;
-
-    fetchTelemetry({ withLoading: true });
-
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-    }
-
-    intervalRef.current = globalThis.setInterval(() => {
-      void fetchTelemetry({ withLoading: false });
-    }, refreshInterval || 5000);
-
     return () => {
       mountedRef.current = false;
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
     };
-  }, [fetchTelemetry, refreshInterval]);
+  }, []);
 
   const reload = useCallback(() => {
     void fetchTelemetry({ withLoading: true });
@@ -95,7 +87,8 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
     [t],
   );
 
-  return { telemetry, loading, error, reload, stats, liveStatus };
+  const data = Array.isArray(telemetry) ? telemetry : [];
+  return { telemetry: data, data, loading, error, reload, stats, liveStatus };
 }
 
 export default useTelemetry;

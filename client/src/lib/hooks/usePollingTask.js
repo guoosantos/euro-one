@@ -13,6 +13,8 @@ export function usePollingTask(
     immediate = true,
     maxConsecutiveErrors = 3,
     pauseWhenHidden = true,
+    backoffFactor = 2,
+    maxIntervalMs = 60_000,
     onError,
     onPermanentFailure,
   } = {},
@@ -31,15 +33,16 @@ export function usePollingTask(
 
   const runRef = useRef(null);
 
-  const schedule = useCallback(() => {
-    if (!enabled || !intervalMs || cancelledRef.current) return;
+  const schedule = useCallback((delay) => {
+    const effectiveDelay = Number.isFinite(delay) ? delay : intervalMs;
+    if (!enabled || !effectiveDelay || cancelledRef.current) return;
     clearTimer();
     timerRef.current = globalThis.setTimeout(() => {
       timerRef.current = null;
       if (runRef.current) {
         void runRef.current();
       }
-    }, intervalMs);
+    }, effectiveDelay);
   }, [clearTimer, enabled, intervalMs]);
 
   const run = useCallback(async () => {
@@ -76,10 +79,11 @@ export function usePollingTask(
     } finally {
       runningRef.current = false;
       if (!cancelledRef.current && enabled && intervalMs) {
-        schedule();
+        const backoff = Math.min(intervalMs * Math.max(1, backoffFactor ** failuresRef.current), maxIntervalMs);
+        schedule(failuresRef.current ? backoff : intervalMs);
       }
     }
-  }, [enabled, intervalMs, maxConsecutiveErrors, onError, onPermanentFailure, pauseWhenHidden, schedule, task]);
+  }, [backoffFactor, enabled, intervalMs, maxConsecutiveErrors, maxIntervalMs, onError, onPermanentFailure, pauseWhenHidden, schedule, task]);
 
   useEffect(() => {
     runRef.current = run;
@@ -100,7 +104,7 @@ export function usePollingTask(
     if (immediate) {
       void run();
     } else if (intervalMs) {
-      schedule();
+      schedule(intervalMs);
     }
 
     return () => {

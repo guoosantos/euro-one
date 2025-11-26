@@ -16,7 +16,7 @@ import {
 } from "../models/device.js";
 import { listChips, createChip, updateChip, getChipById } from "../models/chip.js";
 import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehicle } from "../models/vehicle.js";
-import { traccarProxy } from "../services/traccar.js";
+import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 import { getCachedTraccarResources } from "../services/traccar-sync.js";
 import { enrichPositionsWithAddresses } from "../utils/address.js";
 
@@ -30,6 +30,40 @@ function normaliseList(payload, keys = []) {
     if (Array.isArray(payload?.[key])) return payload[key];
   }
   return [];
+}
+
+const telemetryWarnLog = new Map();
+
+function logTelemetryWarning(stage, error, context = {}) {
+  const now = Date.now();
+  const previous = telemetryWarnLog.get(stage);
+  if (!previous || now - previous > 30_000) {
+    telemetryWarnLog.set(stage, now);
+    console.warn(`[telemetry] failed to load ${stage}`, {
+      message: error?.message || error,
+      status: error?.status || error?.statusCode,
+      details: error?.details,
+      ...context,
+    });
+  }
+}
+
+function sanitizePosition(rawPosition) {
+  if (!rawPosition || typeof rawPosition !== "object") return null;
+  const address = rawPosition.address;
+  const normalizedAddress =
+    address && typeof address === "object" && !Array.isArray(address)
+      ? address
+      : address
+      ? { formatted: String(address) }
+      : {};
+
+  return {
+    ...rawPosition,
+    address: normalizedAddress,
+    formattedAddress: rawPosition.formattedAddress || normalizedAddress.formatted || null,
+    shortAddress: rawPosition.shortAddress || normalizedAddress.short || null,
+  };
 }
 
 function ensureClientExists(clientId) {
@@ -510,7 +544,12 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
         });
         positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
       } catch (positionError) {
-        console.warn("[telemetry] failed to load positions", positionError?.message || positionError);
+        logTelemetryWarning("positions", positionError, { ids: Array.from(positionIds) });
+        throw buildTraccarUnavailableError(positionError, {
+          stage: "positions",
+          url: "/positions",
+          params: { id: Array.from(positionIds) },
+        });
       }
     }
 
@@ -537,7 +576,12 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
         });
         events = normaliseList(eventsResponse, ["events", "data"]);
       } catch (eventError) {
-        console.warn("[telemetry] failed to load events", eventError?.message || eventError);
+        logTelemetryWarning("events", eventError, { deviceIds, from: from.toISOString(), to: now.toISOString() });
+        throw buildTraccarUnavailableError(eventError, {
+          stage: "events",
+          url: "/events",
+          params: { deviceId: deviceIds, from: from.toISOString(), to: now.toISOString() },
+        });
       }
     }
 
@@ -567,7 +611,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
 
       return {
         ...buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
-        position,
+        position: sanitizePosition(position),
         lastEvent,
       };
     });
@@ -596,7 +640,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
           const time = Date.parse(pos.fixTime || pos.serverTime || pos.deviceTime || pos.time || 0);
           const current = latestByDevice.get(deviceId);
           if (!current) {
-            latestByDevice.set(deviceId, { pos, time });
+            latestByDevice.set(deviceId, { pos: sanitizePosition(pos), time });
             return;
           }
           if (Number.isFinite(time) && (!Number.isFinite(current.time) || time > current.time)) {
@@ -612,10 +656,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
           }
         });
       } catch (fallbackError) {
-        console.warn(
-          `[telemetry] fallback position error for devices ${missingPositionDeviceIds.join(",")}:`,
-          fallbackError?.message || fallbackError,
-        );
+        logTelemetryWarning("positions-fallback", fallbackError, { deviceIds: missingPositionDeviceIds });
       }
     }
 

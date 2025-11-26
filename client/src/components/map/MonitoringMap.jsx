@@ -104,20 +104,24 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
   );
 
   useEffect(() => {
+    if (!map) return undefined;
     if (typeof onViewportChange !== "function") return undefined;
 
     const handleMove = () => {
-      const center = map.getCenter();
+      const center = map?.getCenter();
+      if (!center) return;
       onViewportChange({ center: [center.lat, center.lng], zoom: map.getZoom() });
     };
 
     map.on("moveend", handleMove);
     return () => {
-      map.off("moveend", handleMove);
+      map?.off("moveend", handleMove);
     };
   }, [map, onViewportChange]);
 
   useEffect(() => {
+    if (!map) return;
+
     if (focusMarkerId) {
       const targetMarker = markerRefs.current.get(focusMarkerId);
       if (targetMarker) {
@@ -127,6 +131,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
   }, [focusMarkerId]);
 
   useEffect(() => {
+    if (!map) return;
     if (focusMarkerId) {
       const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
       if (target && lastFocusedRef.current !== focusMarkerId) {

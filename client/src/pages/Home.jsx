@@ -73,8 +73,8 @@ export default function Home() {
     return { from: from.toISOString(), to: now.toISOString() };
   }, []);
 
-  const { devices, loading: loadingDevices } = useDevices({ tenantId });
-  const { positions, loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
+  const { data: devices = [], loading: loadingDevices } = useDevices({ tenantId });
+  const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
     tenantId,
     refreshInterval: 60 * 1000,
   });
