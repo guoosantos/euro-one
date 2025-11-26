@@ -119,10 +119,11 @@ export default function Monitoring() {
   const heatmapEnabled = filterMode === "danger";
   const { points: dangerPoints } = useHeatmapEvents({ eventType: "crime", enabled: heatmapEnabled });
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
-  const { preferences, loading: loadingPreferences, savePreferences, resetPreferences } = useUserPreferences();
+  const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [query, setQuery] = useState("");
   const [showColumns, setShowColumns] = useState(false);
+  const [showLayoutMenu, setShowLayoutMenu] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportRange, setExportRange] = useState({
     from: new Date(Date.now() - 6 * 60 * 60 * 1000),
@@ -131,6 +132,11 @@ export default function Monitoring() {
   const [exportColumns, setExportColumns] = useState([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
+  const [layoutVisibility, setLayoutVisibility] = useState({
+    showMap: true,
+    showSummary: true,
+    showTable: true,
+  });
 
   const handleFocusOnMap = useCallback((deviceId) => {
     if (!deviceId) return;
@@ -140,7 +146,9 @@ export default function Monitoring() {
   const handleReplay = useCallback(
     (deviceId) => {
       if (!deviceId) return;
-      navigate(`/trips?deviceId=${encodeURIComponent(deviceId)}`);
+      const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const to = new Date().toISOString();
+      navigate(`/trips?deviceId=${encodeURIComponent(deviceId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     },
     [navigate],
   );
@@ -204,11 +212,24 @@ export default function Monitoring() {
         zoom: preferences.monitoringMapViewport.zoom || DEFAULT_MAP_ZOOM,
       });
     }
+    if (preferences?.monitoringLayoutVisibility) {
+      setLayoutVisibility((current) => ({
+        ...current,
+        ...preferences.monitoringLayoutVisibility,
+      }));
+    }
   }, [defaultPreferences, loadingPreferences, mergeColumnPrefs, preferences]);
 
   useEffect(() => {
     saveLocalColumnPreferences(COLUMN_STORAGE_KEY, columnPrefs);
   }, [columnPrefs]);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    savePreferences({ monitoringLayoutVisibility: layoutVisibility }).catch((prefError) =>
+      console.warn("Falha ao salvar preferências de layout", prefError),
+    );
+  }, [layoutVisibility, loadingPreferences, savePreferences]);
 
   const persistColumnPrefs = useCallback(
     (next) => {
@@ -242,6 +263,10 @@ export default function Monitoring() {
       monitoringDefaultFilters: { ...(preferences?.monitoringDefaultFilters || {}), mode: filterMode },
     }).catch((prefError) => console.warn("Falha ao salvar filtro padrão", prefError));
   }, [filterMode, loadingPreferences, preferences, savePreferences]);
+
+  const handleToggleLayout = useCallback((key) => {
+    setLayoutVisibility((current) => ({ ...current, [key]: !current?.[key] }));
+  }, []);
 
   const visibleColumns = useMemo(() => resolveVisibleColumns(allColumns, columnPrefs), [allColumns, columnPrefs]);
 
@@ -421,9 +446,12 @@ export default function Monitoring() {
     const next = mergeColumnPrefs(defaultPreferences);
     setColumnPrefs(next);
     persistColumnPrefs(next);
-    resetPreferences().catch((prefError) => console.warn("Falha ao restaurar preferências", prefError));
     setFilterMode("all");
-  }, [defaultPreferences, mergeColumnPrefs, persistColumnPrefs, resetPreferences]);
+    savePreferences({
+      monitoringTableColumns: { visible: next.visible, order: next.order },
+      monitoringDefaultFilters: { ...(preferences?.monitoringDefaultFilters || {}), mode: "all" },
+    }).catch((prefError) => console.warn("Falha ao restaurar preferências", prefError));
+  }, [defaultPreferences, mergeColumnPrefs, persistColumnPrefs, preferences?.monitoringDefaultFilters, savePreferences]);
 
   const handleViewportChange = useCallback(
     (viewport) => {
@@ -479,6 +507,10 @@ export default function Monitoring() {
     }
   }, [showExportModal, visibleColumns]);
 
+  const showMap = layoutVisibility.showMap !== false;
+  const showSummary = layoutVisibility.showSummary !== false;
+  const showTable = layoutVisibility.showTable !== false;
+
   return (
     <div className="space-y-6">
       {error && (
@@ -522,185 +554,236 @@ export default function Monitoring() {
             </button>
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <Card className="p-6">
-            <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <div className="text-sm font-medium text-white">{t("monitoring.mapTitle")}</div>
-                <div className="text-xs text-white/50">
-                  {loading
-                    ? t("monitoring.syncing")
-                    : t("monitoring.withPosition", { count: summary.withPosition })}
+        {(showMap || showSummary) && (
+          <div
+            className={`grid grid-cols-1 gap-4 ${
+              showMap && showSummary ? "xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]" : "xl:grid-cols-1"
+            }`}
+          >
+            {showMap && (
+              <Card className="p-6">
+                <header className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="text-sm font-medium text-white">{t("monitoring.mapTitle")}</div>
+                    <div className="text-xs text-white/50">
+                      {loading
+                        ? t("monitoring.syncing")
+                        : t("monitoring.withPosition", { count: summary.withPosition })}
+                    </div>
+                  </div>
+                </header>
+
+                <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
+                  <MapSection
+                    markers={markers}
+                    geofences={geofences}
+                    selectedMarkerId={selectedDeviceId}
+                    mapViewport={mapViewport}
+                    onViewportChange={handleViewportChange}
+                    t={t}
+                  />
                 </div>
-              </div>
-            </header>
+              </Card>
+            )}
 
-            <div className="mt-4 overflow-hidden rounded-xl border border-white/5 bg-white/5">
-              <MapSection
-                markers={markers}
-                geofences={geofences}
-                selectedMarkerId={selectedDeviceId}
-                mapViewport={mapViewport}
-                onViewportChange={handleViewportChange}
-                t={t}
-              />
-            </div>
-          </Card>
-
-          <Card className="space-y-4 p-6">
-            <div>
-              <div className="text-sm font-medium text-white">{t("monitoring.fleetSummary")}</div>
-              <div className="text-xs text-white/50">{t("monitoring.fleetSummarySubtitle")}</div>
-            </div>
-            <dl className="space-y-3 text-sm text-white/80">
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.totalDevices")}</dt>
-                <dd className="text-base font-semibold text-white">{summary.total}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.withValidPosition")}</dt>
-                <dd className="text-base font-semibold text-white">{summary.withPosition}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.onlineNow")}</dt>
-                <dd className="text-base font-semibold text-emerald-200">{summary.online}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.noRecentSignal")}</dt>
-                <dd className="text-base font-semibold text-white/70">{summary.offline}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.moving")}</dt>
-                <dd className="text-base font-semibold text-sky-200">{summary.moving}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.ignitionOnNow")}</dt>
-                <dd className="text-base font-semibold text-amber-200">{summary.ignitionOn}</dd>
-              </div>
-              <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
-                <dt className="text-white/60">{t("monitoring.ignitionOffNow")}</dt>
-                <dd className="text-base font-semibold text-white/70">{summary.ignitionOff}</dd>
-              </div>
-            </dl>
-          </Card>
-        </div>
+            {showSummary && (
+              <Card className="space-y-4 p-6">
+                <div>
+                  <div className="text-sm font-medium text-white">{t("monitoring.fleetSummary")}</div>
+                  <div className="text-xs text-white/50">{t("monitoring.fleetSummarySubtitle")}</div>
+                </div>
+                <dl className="space-y-3 text-sm text-white/80">
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.totalDevices")}</dt>
+                    <dd className="text-base font-semibold text-white">{summary.total}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.withValidPosition")}</dt>
+                    <dd className="text-base font-semibold text-white">{summary.withPosition}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.onlineNow")}</dt>
+                    <dd className="text-base font-semibold text-emerald-200">{summary.online}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.noRecentSignal")}</dt>
+                    <dd className="text-base font-semibold text-white/70">{summary.offline}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.moving")}</dt>
+                    <dd className="text-base font-semibold text-sky-200">{summary.moving}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.ignitionOnNow")}</dt>
+                    <dd className="text-base font-semibold text-amber-200">{summary.ignitionOn}</dd>
+                  </div>
+                  <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                    <dt className="text-white/60">{t("monitoring.ignitionOffNow")}</dt>
+                    <dd className="text-base font-semibold text-white/70">{summary.ignitionOff}</dd>
+                  </div>
+                </dl>
+              </Card>
+            )}
+          </div>
+        )}
       </section>
 
-      <Card className="card" padding={false}>
-        <header className="flex flex-col gap-4 border-b border-white/5 p-6 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="text-sm font-medium text-white">{t("monitoring.tableTitle")}</div>
-            <div className="text-xs text-white/50">
-              {loading
-                ? t("monitoring.updating")
-                : t("monitoring.showingDevices", { count: filteredRows.length })}
+      {showTable ? (
+        <Card className="card" padding={false}>
+          <header className="flex flex-col gap-4 border-b border-white/5 p-6 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="text-sm font-medium text-white">{t("monitoring.tableTitle")}</div>
+              <div className="text-xs text-white/50">
+                {loading
+                  ? t("monitoring.updating")
+                  : t("monitoring.showingDevices", { count: filteredRows.length })}
+              </div>
             </div>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("monitoring.searchPlaceholder")}
-              className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-white placeholder:text-white/40 focus:border-primary/40 focus:outline-none sm:w-64"
-            />
-            <div className="relative">
-              <button type="button" className="btn" onClick={() => setShowColumns((value) => !value)}>
-                {t("monitoring.columnsButton")}
-              </button>
-              {showColumns && (
-                <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
-                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
-                    {t("monitoring.showColumns")}
-                  </div>
-                  {allColumns.map((column) => (
-                    <div
-                      key={column.key}
-                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${
-                        draggingColumn === column.key ? "bg-white/10" : ""
-                      }`}
-                      draggable={!column.fixed}
-                      onDragStart={() => !column.fixed && setDraggingColumn(column.key)}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        handleReorderColumn(draggingColumn, column.key);
-                        setDraggingColumn(null);
-                      }}
-                      onDragEnd={() => setDraggingColumn(null)}
-                    >
-                      <div className="flex items-center gap-2">
-                        {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
-                        <span className="text-white/70">{column.label}</span>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={columnPrefs.visible?.[column.key] !== false}
-                        disabled={column.fixed}
-                        onChange={() => handleToggleColumn(column.key)}
-                      />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("monitoring.searchPlaceholder")}
+                className="h-11 w-full rounded-xl border border-white/10 bg-white/5 px-4 text-sm text-white placeholder:text-white/40 focus:border-primary/40 focus:outline-none sm:w-64"
+              />
+              <div className="relative flex items-center gap-2">
+                <button type="button" className="btn" onClick={() => setShowColumns((value) => !value)}>
+                  {t("monitoring.columnsButton")}
+                </button>
+                <button type="button" className="btn" onClick={() => setShowLayoutMenu((value) => !value)}>
+                  {t("monitoring.layoutButton")}
+                </button>
+                {showColumns && (
+                  <div className="absolute right-0 z-10 mt-2 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                      {t("monitoring.showColumns")}
                     </div>
-                  ))}
-                  <button
-                    type="button"
-                    className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
-                    onClick={handleRestoreColumns}
-                  >
-                    {t("monitoring.restoreDefaults")}
-                  </button>
-                </div>
-              )}
+                    {allColumns.map((column) => (
+                      <div
+                        key={column.key}
+                        className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${
+                          draggingColumn === column.key ? "bg-white/10" : ""
+                        }`}
+                        draggable={!column.fixed}
+                        onDragStart={() => !column.fixed && setDraggingColumn(column.key)}
+                        onDragOver={(event) => event.preventDefault()}
+                        onDrop={(event) => {
+                          event.preventDefault();
+                          handleReorderColumn(draggingColumn, column.key);
+                          setDraggingColumn(null);
+                        }}
+                        onDragEnd={() => setDraggingColumn(null)}
+                      >
+                        <div className="flex items-center gap-2">
+                          {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
+                          <span className="text-white/70">{column.label}</span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={columnPrefs.visible?.[column.key] !== false}
+                          disabled={column.fixed}
+                          onChange={() => handleToggleColumn(column.key)}
+                        />
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+                      onClick={handleRestoreColumns}
+                    >
+                      {t("monitoring.restoreDefaults")}
+                    </button>
+                  </div>
+                )}
+                {showLayoutMenu && (
+                  <div className="absolute right-0 z-20 mt-2 w-64 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
+                    <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">
+                      {t("monitoring.layoutButton")}
+                    </div>
+                    {[
+                      { key: "showMap", label: t("monitoring.showMap") },
+                      { key: "showSummary", label: t("monitoring.showSummary") },
+                      { key: "showTable", label: t("monitoring.showTable") },
+                    ].map((item) => (
+                      <label
+                        key={item.key}
+                        className="flex cursor-pointer items-center justify-between rounded-lg px-2 py-1 hover:bg-white/5"
+                      >
+                        <span className="text-white/70">{item.label}</span>
+                        <input
+                          type="checkbox"
+                          checked={layoutVisibility?.[item.key] !== false}
+                          onChange={() => handleToggleLayout(item.key)}
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </header>
+          </header>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/40">
-              <tr>
-                {visibleColumns.map((column) => (
-                  <th key={column.key} className="px-6 py-3">
-                    {column.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {filteredRows.map((row) => (
-                <tr
-                  key={row.key ?? row.deviceId ?? row.device?.id}
-                  className={`border-b border-white/5 last:border-none ${
-                    selectedDeviceId === row.deviceId ? "bg-white/5" : ""
-                  }`}
-                  onClick={() => setSelectedDeviceId(row.deviceId)}
-                >
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-left text-sm">
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/40">
+                <tr>
                   {visibleColumns.map((column) => (
-                    <td key={column.key} className="px-6 py-3 text-white/80">
-                      {column.render(row)}
-                    </td>
+                    <th key={column.key} className="px-6 py-3">
+                      {column.label}
+                    </th>
                   ))}
                 </tr>
-              ))}
+              </thead>
+              <tbody>
+                {filteredRows.map((row) => (
+                  <tr
+                    key={row.key ?? row.deviceId ?? row.device?.id}
+                    className={`border-b border-white/5 last:border-none ${
+                      selectedDeviceId === row.deviceId ? "bg-white/5" : ""
+                    }`}
+                    onClick={() => setSelectedDeviceId(row.deviceId)}
+                  >
+                    {visibleColumns.map((column) => (
+                      <td key={column.key} className="px-6 py-3 text-white/80">
+                        {column.render(row)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
 
-              {!loading && filteredRows.length === 0 && (
-                <tr>
-                  <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
-                    {t("monitoring.emptyState")}
-                  </td>
-                </tr>
-              )}
+                {!loading && filteredRows.length === 0 && (
+                  <tr>
+                    <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
+                      {t("monitoring.emptyState")}
+                    </td>
+                  </tr>
+                )}
 
-              {loading && (
-                <tr>
-                  <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
-                    {t("monitoring.loadingTelemetry")}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                {loading && (
+                  <tr>
+                    <td colSpan={visibleColumnCount} className="px-6 py-8 text-center text-sm text-white/50">
+                      {t("monitoring.loadingTelemetry")}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
+        <Card className="card" padding={false}>
+          <div className="flex items-center justify-between gap-3 px-6 py-5">
+            <div>
+              <div className="text-sm font-medium text-white">{t("monitoring.tableHiddenTitle")}</div>
+              <div className="text-xs text-white/60">{t("monitoring.tableHiddenSubtitle")}</div>
+            </div>
+            <button type="button" className="btn" onClick={() => handleToggleLayout("showTable")}>
+              {t("monitoring.showTableAgain")}
+            </button>
+          </div>
+        </Card>
+      )}
 
       {showExportModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
