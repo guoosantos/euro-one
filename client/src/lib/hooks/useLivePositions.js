@@ -12,6 +12,23 @@ function normalise(payload) {
   return payload ? [payload] : [];
 }
 
+function dedupeByDevice(positions = []) {
+  const latestByDevice = new Map();
+  positions.forEach((pos) => {
+    const deviceId = pos?.deviceId ?? pos?.device_id ?? pos?.deviceid ?? pos?.deviceID;
+    const key = deviceId != null ? String(deviceId) : null;
+    if (!key) return;
+    const time = Date.parse(pos.fixTime ?? pos.serverTime ?? pos.deviceTime ?? pos.time ?? 0);
+    const current = latestByDevice.get(key);
+    if (!current || (!Number.isNaN(time) && time > current.time)) {
+      latestByDevice.set(key, { pos, time });
+    }
+  });
+  return Array.from(latestByDevice.values())
+    .map((entry) => entry.pos)
+    .filter(Boolean);
+}
+
 export function useLivePositions({
   deviceIds,
   refreshInterval = 5_000,
@@ -40,30 +57,22 @@ export function useLivePositions({
     const controller = new AbortController();
     abortRef.current = controller;
     try {
-      const targets = ids.length ? ids : [null];
-      const requests = targets.map((deviceId) => {
-        const params = deviceId ? { deviceId } : {};
-        if (tenantId) params.clientId = tenantId;
-        return api
-          .get(API_ROUTES.lastPositions, {
-            params: Object.keys(params).length ? params : undefined,
-            signal: controller.signal,
-          })
-          .then((response) => normalise(response?.data))
-          .catch((requestError) => {
-            console.warn("Failed to load live position", deviceId, requestError);
-            return [];
-          });
+      const params = {};
+      if (ids.length) params.deviceId = ids;
+      if (tenantId) params.clientId = tenantId;
+
+      const response = await api.get(API_ROUTES.lastPositions, {
+        params: Object.keys(params).length ? params : undefined,
+        signal: controller.signal,
       });
-      const results = await Promise.all(requests);
+
       if (!mountedRef.current) return;
-      const merged = [].concat(...results).filter(Boolean);
+      const merged = dedupeByDevice(normalise(response?.data));
       setPositions(merged);
       setFetchedAt(new Date());
       setError(null);
     } catch (requestError) {
       if (controller.signal?.aborted || !mountedRef.current) return;
-      if (!mountedRef.current) return;
       const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
       setError(new Error(friendly));
       throw requestError;
@@ -79,6 +88,8 @@ export function useLivePositions({
     intervalMs: refreshInterval,
     maxConsecutiveErrors,
     pauseWhenHidden,
+    backoffFactor: 2,
+    maxIntervalMs: 60_000,
     onPermanentFailure: (err) => {
       if (!err || !mountedRef.current) return;
       console.error("Live positions polling halted after consecutive failures", err);
@@ -97,7 +108,8 @@ export function useLivePositions({
     };
   }, []);
 
-  return { positions, loading, error, refresh, fetchedAt };
+  const data = Array.isArray(positions) ? positions : [];
+  return { data, positions: data, loading, error, refresh, fetchedAt };
 }
 
 export default useLivePositions;

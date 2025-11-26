@@ -14,6 +14,7 @@ export default function Face() {
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const [alerts, setAlerts] = useState([]);
+  const [infoMessage, setInfoMessage] = useState("");
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -31,10 +32,12 @@ export default function Face() {
         const payload = response?.data;
         const list = Array.isArray(payload) ? payload : Array.isArray(payload?.alerts) ? payload.alerts : [];
         setAlerts(list);
+        setInfoMessage(typeof payload?.message === "string" ? payload.message : "");
       } catch (requestError) {
         if (cancelled) return;
         setError(requestError);
         setAlerts(buildStubAlerts(devices));
+        setInfoMessage("Módulo de reconhecimento facial ainda não configurado");
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -80,6 +83,9 @@ export default function Face() {
           </select>
         </header>
         {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+        {infoMessage && !error && (
+          <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">{infoMessage}</div>
+        )}
       </section>
 
       <section className="grid gap-4 lg:grid-cols-2">

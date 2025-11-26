@@ -39,7 +39,9 @@ function abbreviateStreet(value) {
   return [abbreviation, rest.join(" ")].filter(Boolean).join(" ").trim();
 }
 
-function formatFromParts(parts = {}) {
+function formatFromParts(rawParts = {}) {
+  const parts = rawParts && typeof rawParts === "object" ? rawParts : {};
+
   const street = abbreviateStreet(
     parts.street || coalesce(parts.road, parts.streetName, parts.route, parts.logradouro, parts.endereco),
   );

@@ -30,8 +30,8 @@ export function Topbar({ title }) {
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
 
-  const { devices } = useDevices({ tenantId });
-  const { positions } = useLivePositions({ tenantId, refreshInterval: 120 * 1000 });
+  const { data: devices = [] } = useDevices({ tenantId });
+  const { data: positions = [] } = useLivePositions({ tenantId, refreshInterval: 120 * 1000 });
   const { events: recentEvents } = useEvents({ limit: 3, refreshInterval: 120 * 1000 });
 
   const fleetIndex = useMemo(() => {

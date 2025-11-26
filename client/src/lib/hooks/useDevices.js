@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
+import { usePollingTask } from "./usePollingTask.js";
 
 function toDeviceKey(value) {
   if (value === null || value === undefined) return null;
@@ -52,20 +53,85 @@ export function useDevices() {
   const devicesRef = useRef([]);
   const positionsAbortRef = useRef(null);
   const devicesAbortRef = useRef(null);
-  const pollingTimerRef = useRef(null);
+  const mountedRef = useRef(true);
 
   const reload = useCallback(() => {
     setReloadKey((value) => value + 1);
   }, []);
 
+  const fetchPositionsForDevices = useCallback(async () => {
+    const deviceList = devicesRef.current;
+    if (!Array.isArray(deviceList) || deviceList.length === 0) {
+      setPositionsByDeviceId({});
+      return;
+    }
+
+    positionsAbortRef.current?.abort();
+    const controller = new AbortController();
+    positionsAbortRef.current = controller;
+
+    const ids = deviceList
+      .map((device) => toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id))
+      .filter(Boolean);
+
+    if (!ids.length) {
+      setPositionsByDeviceId({});
+      return;
+    }
+
+    try {
+      const response = await api.get(API_ROUTES.lastPositions, {
+        params: { deviceId: ids },
+        signal: controller.signal,
+      });
+
+      if (!mountedRef.current || controller.signal?.aborted) return;
+
+      const positions = normalisePositionResponse(response?.data);
+      const latestByDevice = {};
+
+      positions.forEach((pos) => {
+        const deviceId = toDeviceKey(pos?.deviceId ?? pos?.device_id ?? pos?.deviceID ?? pos?.deviceid);
+        if (!deviceId) return;
+        const time = Date.parse(pos.fixTime ?? pos.serverTime ?? pos.deviceTime ?? pos.time ?? 0);
+        const current = latestByDevice[deviceId];
+        if (!current || (!Number.isNaN(time) && time > current.time)) {
+          latestByDevice[deviceId] = { pos, time };
+        }
+      });
+
+      const next = Object.fromEntries(Object.entries(latestByDevice).map(([key, value]) => [key, value.pos]));
+
+      setPositionsByDeviceId((current) => {
+        if (Object.keys(next).length === 0 && current && Object.keys(current).length > 0) {
+          return current;
+        }
+        return next;
+      });
+      setError(null);
+    } catch (requestError) {
+      if (!mountedRef.current || controller.signal?.aborted) return;
+      const friendly =
+        requestError?.response?.data?.message ||
+        requestError.message ||
+        t("errors.loadPositions") ||
+        "Erro ao carregar posições";
+      setError(new Error(friendly));
+      throw requestError;
+    }
+  }, [t]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      positionsAbortRef.current?.abort();
+      devicesAbortRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    const clearPollingTimer = () => {
-      if (pollingTimerRef.current) {
-        globalThis.clearTimeout(pollingTimerRef.current);
-        pollingTimerRef.current = null;
-      }
-    };
 
     async function fetchDevices() {
       setLoading(true);
@@ -85,7 +151,7 @@ export function useDevices() {
           : [];
         setDevices(normalisedList);
         devicesRef.current = normalisedList;
-        await fetchPositionsForDevices(normalisedList);
+        await fetchPositionsForDevices();
       } catch (requestError) {
         if (cancelled) return;
         if (controller.signal?.aborted) return;
@@ -98,75 +164,28 @@ export function useDevices() {
       }
     }
 
-    async function fetchPositionsForDevices(deviceList = devicesRef.current) {
-      if (!Array.isArray(deviceList) || deviceList.length === 0) {
-        setPositionsByDeviceId({});
-        return;
-      }
-      positionsAbortRef.current?.abort();
-      const controller = new AbortController();
-      positionsAbortRef.current = controller;
-      const requests = deviceList
-        .map((device) => toDeviceKey(device?.deviceId ?? device?.id ?? device?.uniqueId ?? device?.unique_id))
-        .filter(Boolean)
-        .map((deviceId) =>
-          api
-            .get(API_ROUTES.lastPositions, { params: { deviceId }, signal: controller.signal })
-            .then((response) => ({ deviceId, payload: response?.data }))
-            .catch((requestError) => {
-              console.warn("Falha ao carregar posição do dispositivo", deviceId, requestError);
-              return null;
-            }),
-        );
-
-      const results = await Promise.all(requests);
-      if (cancelled) return;
-      if (controller.signal?.aborted) return;
-
-      const hasSuccessfulResponse = results.some(Boolean);
-      if (!hasSuccessfulResponse) {
-        return;
-      }
-
-      const next = {};
-      results
-        .filter(Boolean)
-        .forEach(({ deviceId, payload }) => {
-          const positions = normalisePositionResponse(payload);
-          const position = pickNewestPosition(positions);
-          if (position) {
-            next[deviceId] = position;
-          }
-        });
-
-      setPositionsByDeviceId((current) => {
-        if (Object.keys(next).length === 0 && current && Object.keys(current).length > 0) {
-          return current;
-        }
-        return next;
-      });
-    }
-
-    const schedulePositionsPolling = () => {
-      if (cancelled) return;
-      clearPollingTimer();
-      pollingTimerRef.current = globalThis.setTimeout(() => {
-        void fetchPositionsForDevices();
-        schedulePositionsPolling();
-      }, 5_000);
-    };
-
-    void fetchDevices().then(() => {
-      schedulePositionsPolling();
-    });
+    void fetchDevices();
 
     return () => {
       cancelled = true;
-      clearPollingTimer();
       positionsAbortRef.current?.abort();
       devicesAbortRef.current?.abort();
     };
-  }, [reloadKey]);
+  }, [fetchPositionsForDevices, reloadKey]);
+
+  const pollingEnabled = Array.isArray(devicesRef.current) ? devicesRef.current.length > 0 : false;
+
+  usePollingTask(fetchPositionsForDevices, {
+    enabled: pollingEnabled,
+    intervalMs: 15_000,
+    pauseWhenHidden: true,
+    maxConsecutiveErrors: 3,
+    backoffFactor: 2,
+    maxIntervalMs: 90_000,
+    onError: (pollError) => {
+      console.warn("Posições em tempo real temporariamente indisponíveis", pollError);
+    },
+  });
 
   const stats = useMemo(() => {
     const total = Array.isArray(devices) ? devices.length : 0;
@@ -186,7 +205,8 @@ export function useDevices() {
     [t],
   );
 
-  return { devices, positionsByDeviceId, loading, error, reload, stats, liveStatus };
+  const data = Array.isArray(devices) ? devices : [];
+  return { devices: data, data, positionsByDeviceId, loading, error, reload, stats, liveStatus };
 }
 
 export default useDevices;
