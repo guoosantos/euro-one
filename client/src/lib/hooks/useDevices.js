@@ -43,7 +43,12 @@ export function normalisePositionResponse(payload) {
   return payload ? [payload] : [];
 }
 
-export function useDevices() {
+export function useDevices({
+  withPositions = false,
+  refreshInterval = 15_000,
+  maxConsecutiveErrors = 3,
+  pauseWhenHidden = true,
+} = {}) {
   const { t } = useTranslation();
   const [devices, setDevices] = useState([]);
   const [positionsByDeviceId, setPositionsByDeviceId] = useState({});
@@ -60,6 +65,8 @@ export function useDevices() {
   }, []);
 
   const fetchPositionsForDevices = useCallback(async () => {
+    if (!withPositions) return;
+
     const deviceList = devicesRef.current;
     if (!Array.isArray(deviceList) || deviceList.length === 0) {
       setPositionsByDeviceId({});
@@ -119,7 +126,7 @@ export function useDevices() {
       setError(new Error(friendly));
       throw requestError;
     }
-  }, [t]);
+  }, [t, withPositions]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -151,7 +158,9 @@ export function useDevices() {
           : [];
         setDevices(normalisedList);
         devicesRef.current = normalisedList;
-        await fetchPositionsForDevices();
+        if (withPositions) {
+          await fetchPositionsForDevices();
+        }
       } catch (requestError) {
         if (cancelled) return;
         if (controller.signal?.aborted) return;
@@ -173,13 +182,13 @@ export function useDevices() {
     };
   }, [fetchPositionsForDevices, reloadKey]);
 
-  const pollingEnabled = Array.isArray(devicesRef.current) ? devicesRef.current.length > 0 : false;
+  const pollingEnabled = withPositions && (Array.isArray(devicesRef.current) ? devicesRef.current.length > 0 : false);
 
   usePollingTask(fetchPositionsForDevices, {
     enabled: pollingEnabled,
-    intervalMs: 15_000,
-    pauseWhenHidden: true,
-    maxConsecutiveErrors: 3,
+    intervalMs: refreshInterval,
+    pauseWhenHidden,
+    maxConsecutiveErrors,
     backoffFactor: 2,
     maxIntervalMs: 90_000,
     onError: (pollError) => {

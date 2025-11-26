@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
@@ -13,6 +13,7 @@ export function useTrips({
   refreshInterval,
   maxConsecutiveErrors = 3,
   pauseWhenHidden = true,
+  enabled = true,
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
@@ -21,10 +22,21 @@ export function useTrips({
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(null);
   const mountedRef = useRef(true);
+  const abortRef = useRef(null);
+  const initialLoadRef = useRef(true);
+
+  const shouldFetch = Boolean(enabled && deviceId);
 
   const fetchTrips = useCallback(async () => {
-    setLoading(true);
+    if (!shouldFetch || !mountedRef.current) {
+      setLoading(false);
+      return;
+    }
+    setLoading((current) => current || initialLoadRef.current);
     setError(null);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const now = new Date();
       const defaultFrom = new Date(now.getTime() - 6 * 60 * 60 * 1000);
@@ -35,34 +47,40 @@ export function useTrips({
         type: "all",
       };
       if (tenantId) payload.clientId = tenantId;
-      const response = await api.post(API_ROUTES.reports.trips, payload);
-      if (!mountedRef.current) return;
-      const data = response?.data;
-      const items = Array.isArray(data)
-        ? data
-        : Array.isArray(data?.trips)
-        ? data.trips
-        : Array.isArray(data?.items)
-        ? data.items
+      const { data: responseData, error: requestError } = await safeApi.post(API_ROUTES.reports.trips, payload, {
+        signal: controller.signal,
+      });
+      if (!mountedRef.current || controller.signal?.aborted) return;
+      if (requestError) {
+        if (safeApi.isAbortError(requestError)) return;
+        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadTrips");
+        const normalised = new Error(friendly);
+        setError(normalised);
+        setTrips([]);
+        throw normalised;
+      }
+      const items = Array.isArray(responseData)
+        ? responseData
+        : Array.isArray(responseData?.trips)
+        ? responseData.trips
+        : Array.isArray(responseData?.items)
+        ? responseData.items
         : [];
       setTrips(items.slice(0, limit));
       setFetchedAt(new Date());
       setError(null);
-    } catch (requestError) {
-      if (!mountedRef.current) return;
-      const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadTrips");
-      setError(new Error(friendly));
-      setTrips([]);
-      throw requestError;
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
+      initialLoadRef.current = false;
     }
-  }, [deviceId, from, to, limit, tenantId, t]);
+  }, [shouldFetch, deviceId, from, to, limit, tenantId, t]);
+
+  const pollingEnabled = shouldFetch && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
 
   usePollingTask(fetchTrips, {
-    enabled: true,
+    enabled: pollingEnabled,
     intervalMs: refreshInterval,
     maxConsecutiveErrors,
     pauseWhenHidden,
@@ -81,10 +99,14 @@ export function useTrips({
 
   useEffect(() => {
     mountedRef.current = true;
+    if (shouldFetch && !pollingEnabled) {
+      void fetchTrips();
+    }
     return () => {
       mountedRef.current = false;
+      abortRef.current?.abort();
     };
-  }, []);
+  }, [fetchTrips, pollingEnabled, shouldFetch]);
 
   return { trips, loading, error, fetchedAt, refresh };
 }
