@@ -25,6 +25,7 @@ export function useLivePositions({
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(null);
   const mountedRef = useRef(true);
+  const abortRef = useRef(null);
 
   const ids = useMemo(() => {
     if (!deviceIds) return [];
@@ -33,15 +34,21 @@ export function useLivePositions({
   }, [deviceIds]);
 
   const fetchPositions = useCallback(async () => {
-    setLoading(true);
     setError(null);
+    setLoading((current) => current || !fetchedAt);
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
     try {
       const targets = ids.length ? ids : [null];
       const requests = targets.map((deviceId) => {
         const params = deviceId ? { deviceId } : {};
         if (tenantId) params.clientId = tenantId;
         return api
-          .get(API_ROUTES.lastPositions, { params: Object.keys(params).length ? params : undefined })
+          .get(API_ROUTES.lastPositions, {
+            params: Object.keys(params).length ? params : undefined,
+            signal: controller.signal,
+          })
           .then((response) => normalise(response?.data))
           .catch((requestError) => {
             console.warn("Failed to load live position", deviceId, requestError);
@@ -55,16 +62,17 @@ export function useLivePositions({
       setFetchedAt(new Date());
       setError(null);
     } catch (requestError) {
+      if (controller.signal?.aborted || !mountedRef.current) return;
       if (!mountedRef.current) return;
       const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadPositions");
       setError(new Error(friendly));
       throw requestError;
     } finally {
-      if (mountedRef.current) {
+      if (abortRef.current === controller && mountedRef.current) {
         setLoading(false);
       }
     }
-  }, [ids, tenantId, t]);
+  }, [fetchedAt, ids, tenantId, t]);
 
   usePollingTask(fetchPositions, {
     enabled: true,
@@ -84,6 +92,7 @@ export function useLivePositions({
   useEffect(() => {
     mountedRef.current = true;
     return () => {
+      abortRef.current?.abort();
       mountedRef.current = false;
     };
   }, []);
