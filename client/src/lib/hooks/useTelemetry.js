@@ -23,8 +23,13 @@ export function useTelemetry({ refreshInterval = 5_000, maxConsecutiveErrors = 3
         });
         if (requestError) {
           if (safeApi.isAbortError(requestError)) throw requestError;
+          const status = Number(requestError?.response?.status);
           const friendly = requestError?.response?.data?.message || requestError.message || t("monitoring.loadErrorTitle");
-          throw new Error(friendly);
+          const error = new Error(friendly);
+          if (Number.isFinite(status) && status >= 400 && status < 500) {
+            error.permanent = true;
+          }
+          throw error;
         }
         const items = normaliseTelemetry(payload);
         return Array.isArray(items) ? items : [];

@@ -41,9 +41,13 @@ function logTelemetryWarning(stage, error, context = {}) {
   const previous = telemetryWarnLog.get(stage);
   if (!previous || now - previous > 30_000) {
     telemetryWarnLog.set(stage, now);
+    const responseStatus =
+      error?.response?.status || error?.details?.status || error?.status || error?.statusCode;
     console.warn(`[telemetry] failed to load ${stage}`, {
       message: error?.message || error,
       status: error?.status || error?.statusCode,
+      responseStatus,
+      responseData: error?.response?.data || error?.details?.response,
       details: error?.details,
       ...context,
     });
