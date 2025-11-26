@@ -14,6 +14,8 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
+import Loading from "../components/Loading.jsx";
+import ErrorMessage from "../components/ErrorMessage.jsx";
 
 const COLUMN_STORAGE_KEY = "routeReportColumns";
 
@@ -266,6 +268,12 @@ export default function ReportsRoute() {
 
   return (
     <div className="space-y-6">
+      <div className="flex flex-col gap-2">
+        {(loading || fetching || loadingPreferences) && <Loading message="Carregando rotas..." />}
+        {error && <ErrorMessage error={error} fallback="Não foi possível carregar o relatório de rota." />}
+        {formError && <ErrorMessage error={new Error(formError)} fallback={formError} />}
+      </div>
+
       <section className="card space-y-4">
         <header>
           <h2 className="text-lg font-semibold">Relatório de rota</h2>

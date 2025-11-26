@@ -3,7 +3,7 @@ import { useTranslation } from "../lib/i18n.js";
 import { useNavigate } from "react-router-dom";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
-import api from "../lib/api.js";
+import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { formatAddress } from "../lib/format-address.js";
 import {
@@ -480,11 +480,14 @@ export default function Monitoring() {
         if (exportColumns.length) {
           params.columns = exportColumns.join(",");
         }
-        const response = await api.get(API_ROUTES.positionsExport, {
+        const { data: blobData, error: exportError } = await safeApi.get(API_ROUTES.positionsExport, {
           params,
           responseType: "blob",
         });
-        const blob = new Blob([response.data], { type: "text/csv;charset=utf-8" });
+        if (exportError || !blobData) {
+          throw exportError || new Error("Arquivo vazio");
+        }
+        const blob = new Blob([blobData], { type: "text/csv;charset=utf-8" });
         const url = window.URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
@@ -494,7 +497,7 @@ export default function Monitoring() {
         setShowExportModal(false);
       } catch (exportError) {
         console.error("Falha ao exportar CSV", exportError);
-        alert(t("monitoring.exportError"));
+        alert(exportError?.message || t("monitoring.exportError"));
       }
     },
     [exportColumns, exportRange.from, exportRange.to, filteredRows, t],

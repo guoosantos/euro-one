@@ -33,6 +33,18 @@ function normaliseList(payload, keys = []) {
   return [];
 }
 
+export function filterValidPositionIds(positionIds) {
+  if (!positionIds || (Array.isArray(positionIds) && positionIds.length === 0)) return [];
+  const result = [];
+  for (const raw of Array.from(positionIds)) {
+    if (raw === null || raw === undefined) continue;
+    const id = String(raw);
+    if (!id || id === "0" || id.toLowerCase() === "null" || id.toLowerCase() === "undefined") continue;
+    result.push(id);
+  }
+  return result;
+}
+
 const telemetryWarnLog = new Map();
 const telemetryCache = createTtlCache(3_000);
 
@@ -55,7 +67,9 @@ function logTelemetryWarning(stage, error, context = {}) {
 }
 
 function sanitizePosition(rawPosition) {
-  if (!rawPosition || typeof rawPosition !== "object") return null;
+  if (!rawPosition || typeof rawPosition !== "object") {
+    return { address: {}, formattedAddress: null, shortAddress: null };
+  }
   const address = rawPosition.address;
   const normalizedAddress =
     address && typeof address === "object" && !Array.isArray(address)
@@ -549,19 +563,22 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
 
     let positions = [];
     if (positionIds.size > 0) {
-      try {
-        const positionResponse = await traccarProxy("get", "/positions", {
-          params: { id: Array.from(positionIds) },
-          asAdmin: true,
-        });
-        positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
-      } catch (positionError) {
-        logTelemetryWarning("positions", positionError, { ids: Array.from(positionIds) });
-        throw buildTraccarUnavailableError(positionError, {
-          stage: "positions",
-          url: "/positions",
-          params: { id: Array.from(positionIds) },
-        });
+      const ids = filterValidPositionIds(positionIds);
+      if (ids.length > 0) {
+        try {
+          const positionResponse = await traccarProxy("get", "/positions", {
+            params: { id: ids },
+            asAdmin: true,
+          });
+          positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
+        } catch (positionError) {
+          logTelemetryWarning("positions", positionError, { ids });
+          throw buildTraccarUnavailableError(positionError, {
+            stage: "positions",
+            url: "/positions",
+            params: { id: ids },
+          });
+        }
       }
     }
 

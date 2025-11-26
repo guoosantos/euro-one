@@ -1,11 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  normaliseDeviceList,
-  pickNewestPosition,
-  normalisePositionResponse,
-} from "../src/lib/hooks/useDevices.js";
+import { normaliseDeviceList, pickNewestPosition, normalisePositionResponse } from "../src/lib/hooks/useDevices.helpers.js";
 import { buildParams } from "../src/lib/hooks/events-helpers.js";
 
 describe("useDevices helpers", () => {

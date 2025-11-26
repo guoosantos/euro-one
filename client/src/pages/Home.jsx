@@ -73,22 +73,11 @@ export default function Home() {
     return { from: from.toISOString(), to: now.toISOString() };
   }, []);
 
-  const { data: devices = [], loading: loadingDevices } = useDevices({ tenantId });
-  const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions({
-    tenantId,
-    refreshInterval: 60 * 1000,
-  });
+  const { data: devices = [], loading: loadingDevices } = useDevices();
+  const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
 
-  const { events, loading: loadingEvents, error: eventsError } = useEvents({
-    tenantId,
-    limit: 10,
-    autoRefreshMs: 60 * 1000,
-  });
-  const { trips, loading: loadingTrips, error: tripsError } = useTrips({
-    tenantId,
-    limit: 6,
-    autoRefreshMs: 5 * 60 * 1000,
-  });
+  const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 10 });
+  const { trips, loading: loadingTrips, error: tripsError } = useTrips({ limit: 6 });
   const { tasks } = useTasks({ clientId: tenantId });
 
   const { points, topZones, loading: loadingHeatmap } = useHeatmapEvents({
