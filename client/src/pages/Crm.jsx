@@ -153,6 +153,7 @@ export default function Crm() {
   const navigate = useNavigate();
   const { section } = useParams();
   const resolvedTab = ["clients", "tags", "interactions", "alerts"].includes(section) ? section : "clients";
+
   const [clientViewScope, setClientViewScope] = useState(hasAdminAccess ? "all" : "mine");
   const [alertViewScope, setAlertViewScope] = useState(hasAdminAccess ? "all" : "mine");
   const [interactionViewScope, setInteractionViewScope] = useState(hasAdminAccess ? "all" : "mine");
@@ -161,6 +162,7 @@ export default function Crm() {
     if (clientViewScope === "mine") return { view: "mine" };
     return null;
   }, [hasAdminAccess, clientViewScope]);
+ main
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
@@ -183,6 +185,7 @@ export default function Crm() {
   const [newTagColor, setNewTagColor] = useState("");
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
+
   const contactListParams = useMemo(() => {
     if (!hasAdminAccess) return { view: "mine" };
     if (interactionViewScope === "mine") return { view: "mine" };
@@ -190,6 +193,7 @@ export default function Crm() {
   }, [hasAdminAccess, interactionViewScope]);
   const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
     useCrmContacts(selectedId, contactListParams);
+ main
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 
@@ -271,7 +275,9 @@ export default function Crm() {
     CoreApi.listCrmAlerts({
       contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
+
       view: alertView,
+ main
     })
       .then((response) => {
         if (cancelled) return;
@@ -294,7 +300,9 @@ export default function Crm() {
     return () => {
       cancelled = true;
     };
+
   }, [tenantId, hasAdminAccess, alertViewScope]);
+ main
 
   useEffect(() => {
     if (!selectedId) {
@@ -372,6 +380,13 @@ export default function Crm() {
   useEffect(() => {
     setActiveInteraction(null);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (selectedId && !clients.some((client) => client.id === selectedId)) {
+      setSelectedId(null);
+      setSelectedClient(null);
+    }
+  }, [clients, selectedId]);
 
   const filteredClients = useMemo(
     () =>
@@ -586,6 +601,7 @@ export default function Crm() {
   );
 
   function handleTabChange(tabId) {
+    if (tabId === resolvedTab) return;
     if (tabId === "clients") {
       navigate("/crm/clients");
       return;
@@ -946,6 +962,7 @@ export default function Crm() {
                 </Select>
               ) : (
                 <span className="text-xs text-white/60">Mostrando apenas interações que registrei</span>
+main
               )}
             </div>
             {selectedClient && (
@@ -1140,6 +1157,7 @@ export default function Crm() {
             title="Alertas de contrato e teste"
             subtitle="Resumo visual de contratos concorrentes e trials"
             actions={
+
               <div className="flex flex-wrap items-center gap-2">
                 {hasAdminAccess ? (
                   <Select
@@ -1152,6 +1170,7 @@ export default function Crm() {
                   </Select>
                 ) : (
                   <span className="text-xs text-white/60">Mostrando apenas meus alertas</span>
+ main
                 )}
                 <Button size="sm" variant="ghost" onClick={loadAlerts}>
                   Atualizar alertas

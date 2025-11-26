@@ -379,12 +379,14 @@ export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
   const record = crmClients.get(String(id));
   ensureClientAccessible(record, clientId, user);
   const contacts = Array.isArray(record.contacts) ? record.contacts.map(toContactSnapshot) : [];
+
   if (user?.role === "admin") {
     if (createdByUserId) {
       return contacts.filter((contact) => contact.createdByUserId === createdByUserId);
     }
     return contacts;
   }
+  main
   return contacts.filter((contact) => contact.createdByUserId === user?.id);
 }
 

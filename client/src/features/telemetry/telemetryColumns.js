@@ -139,14 +139,11 @@ export const TELEMETRY_COLUMNS = [
     key: "address",
     labelKey: "monitoring.columns.address",
     defaultVisible: true,
-    getValue: (row) =>
-      formatAddress(
-        row.position?.shortAddress ||
-          row.position?.formattedAddress ||
-          row.position?.address ||
-          row.position?.attributes?.address ||
-          row.device?.address,
-      ) || FALLBACK,
+    getValue: (row) => {
+      const value = formatAddress(row.position || row.device || row.vehicle);
+      if (!value || value === "—") return FALLBACK;
+      return value;
+    },
   },
   {
     key: "accuracy",

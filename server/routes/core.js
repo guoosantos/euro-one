@@ -128,6 +128,8 @@ function buildDeviceResponse(device, context) {
   const model = device.modelId ? modelMap.get(device.modelId) : null;
   const chip = device.chipId ? chipMap.get(device.chipId) : null;
   const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
+  const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
+  const iconType = attributes.iconType || null;
 
   return {
     id: device.id,
@@ -164,6 +166,8 @@ function buildDeviceResponse(device, context) {
     connectionStatusLabel,
     statusLabel,
     lastCommunication,
+    attributes,
+    iconType,
     createdAt: device.createdAt,
     updatedAt: device.updatedAt,
     traccar: traccarDevice
@@ -659,6 +663,7 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const { name, uniqueId, modelId } = req.body || {};
+    const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
     if (!uniqueId) {
       throw createError(400, "uniqueId é obrigatório");
     }
@@ -674,6 +679,9 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
     const attributes = { ...(req.body?.attributes || {}) };
     if (modelId) {
       attributes.modelId = modelId;
+    }
+    if (iconType) {
+      attributes.iconType = iconType;
     }
 
     const traccarPayload = {
@@ -725,6 +733,10 @@ router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, nex
     ensureSameClient(device, clientId, "Equipamento não encontrado");
 
     const payload = { ...req.body };
+    const iconType = payload.iconType || payload.attributes?.iconType || null;
+    if (iconType) {
+      payload.attributes = { ...(payload.attributes || {}), iconType };
+    }
     if (payload.modelId) {
       const model = getModelById(payload.modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {

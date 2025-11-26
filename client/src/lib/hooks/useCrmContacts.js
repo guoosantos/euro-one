@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CoreApi } from "../coreApi.js";
 import { useTranslation } from "../i18n.js";
@@ -11,6 +11,9 @@ export function useCrmContacts(clientId, params = null) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const paramsKey = useMemo(() => JSON.stringify(params || {}), [params]);
+  const resolvedParams = useMemo(() => ({ ...(params || {}) }), [paramsKey]);
+
   const load = useCallback(() => {
     if (!clientId) {
       setContacts([]);
@@ -19,7 +22,11 @@ export function useCrmContacts(clientId, params = null) {
     let cancelled = false;
     setLoading(true);
     setError(null);
+
+
+
     CoreApi.listCrmContacts(clientId, params || undefined)
+ main
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -37,7 +44,11 @@ export function useCrmContacts(clientId, params = null) {
     return () => {
       cancelled = true;
     };
+
+
+
   }, [clientId, params, t]);
+ main
 
   useEffect(() => load(), [load]);
 

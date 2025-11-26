@@ -1,10 +1,21 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import useDevices from "../lib/hooks/useDevices";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useTranslation } from "../lib/i18n.js";
 import { formatAddress } from "../lib/format-address.js";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
+import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import {
+  buildColumnDefaults,
+  loadColumnPreferences,
+  mergeColumnPreferences,
+  reorderColumns,
+  resolveVisibleColumns,
+  saveColumnPreferences,
+} from "../lib/column-preferences.js";
+
+const COLUMN_STORAGE_KEY = "routeReportColumns";
 
 export default function ReportsRoute() {
   const { locale } = useTranslation();
@@ -12,6 +23,7 @@ export default function ReportsRoute() {
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
   const { data, loading, error, generate } = useReportsRoute();
+  const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 16));
@@ -19,6 +31,8 @@ export default function ReportsRoute() {
   const [fetching, setFetching] = useState(false);
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
+  const [showColumns, setShowColumns] = useState(false);
+  const [draggingColumn, setDraggingColumn] = useState(null);
 
   const points = Array.isArray(data?.positions) ? data.positions : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
@@ -121,11 +135,13 @@ export default function ReportsRoute() {
       {
         key: "gpsTime",
         label: "Hora GPS",
+        defaultVisible: true,
         render: (point) => formatDateTime(parseDate(point.fixTime ?? point.deviceTime ?? point.serverTime), locale),
       },
       {
         key: "latitude",
         label: "Latitude",
+        defaultVisible: true,
         render: (point) => {
           const value = pickCoordinate([point.latitude, point.lat, point.lat_deg, point.attributes?.latitude]);
           return Number.isFinite(value) ? value.toFixed(5) : "—";
@@ -134,6 +150,7 @@ export default function ReportsRoute() {
       {
         key: "longitude",
         label: "Longitude",
+        defaultVisible: true,
         render: (point) => {
           const value = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
           return Number.isFinite(value) ? value.toFixed(5) : "—";
@@ -142,6 +159,7 @@ export default function ReportsRoute() {
       {
         key: "speed",
         label: "Velocidade (km/h)",
+        defaultVisible: true,
         render: (point) => {
           const speed = pickSpeed(point);
           return speed !== null ? `${speed} km/h` : "—";
@@ -150,16 +168,80 @@ export default function ReportsRoute() {
       {
         key: "event",
         label: "Evento",
+        defaultVisible: true,
         render: (point) => point.event || point.attributes?.event || point.type || "—",
       },
       {
         key: "address",
         label: "Endereço",
-        render: (point) => formatAddress(point.address || point.formattedAddress || point.attributes?.address) || "—",
+        defaultVisible: true,
+        render: (point) => {
+          const value = formatAddress(point);
+          return value && value !== "—" ? value : "—";
+        },
       },
     ],
     [locale],
   );
+
+  const defaultPreferences = useMemo(() => buildColumnDefaults(tableColumns), [tableColumns]);
+  const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    const saved = preferences?.routeReportColumns || loadColumnPreferences(COLUMN_STORAGE_KEY, defaultPreferences);
+    setColumnPrefs(mergeColumnPreferences(defaultPreferences, saved));
+  }, [defaultPreferences, loadingPreferences, preferences]);
+
+  useEffect(() => {
+    saveColumnPreferences(COLUMN_STORAGE_KEY, columnPrefs);
+  }, [columnPrefs]);
+
+  const persistColumnPrefs = useCallback(
+    (next) => {
+      saveColumnPreferences(COLUMN_STORAGE_KEY, next);
+      if (!loadingPreferences) {
+        savePreferences({ routeReportColumns: { visible: next.visible, order: next.order } }).catch((prefError) =>
+          console.warn("Falha ao salvar preferências de colunas", prefError),
+        );
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
+
+  const handleToggleColumn = useCallback(
+    (key) => {
+      const column = tableColumns.find((item) => item.key === key);
+      if (column?.fixed) return;
+      setColumnPrefs((current) => {
+        const isVisible = current.visible?.[key] !== false;
+        const next = { ...current, visible: { ...current.visible, [key]: !isVisible } };
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [persistColumnPrefs, tableColumns],
+  );
+
+  const handleReorderColumn = useCallback(
+    (fromKey, toKey) => {
+      setColumnPrefs((current) => {
+        const next = reorderColumns(current, fromKey, toKey, defaultPreferences);
+        if (!next || next === current) return current;
+        persistColumnPrefs(next);
+        return next;
+      });
+    },
+    [defaultPreferences, persistColumnPrefs],
+  );
+
+  const handleRestoreColumns = useCallback(() => {
+    setColumnPrefs(defaultPreferences);
+    persistColumnPrefs(defaultPreferences);
+  }, [defaultPreferences, persistColumnPrefs]);
+
+  const visibleColumns = useMemo(() => resolveVisibleColumns(tableColumns, columnPrefs), [columnPrefs, tableColumns]);
+  const visibleColumnCount = Math.max(1, visibleColumns.length);
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -297,16 +379,65 @@ export default function ReportsRoute() {
       )}
 
       <section className="card space-y-4">
-        <header className="flex items-center justify-between">
+        <header className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-semibold">Pontos encontrados</h3>
-          <span className="text-xs opacity-60">{points.length} registros</span>
+          <div className="flex items-center gap-3">
+            <span className="text-xs opacity-60">{points.length} registros</span>
+            <div className="relative">
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-white hover:border-white/30"
+                onClick={() => setShowColumns((open) => !open)}
+              >
+                Colunas
+              </button>
+              {showColumns && (
+                <div className="absolute right-0 z-10 mt-2 w-64 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">Organizar colunas</div>
+                  {tableColumns.map((column) => (
+                    <div
+                      key={column.key}
+                      className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${draggingColumn === column.key ? "bg-white/10" : ""}`}
+                      draggable={!column.fixed}
+                      onDragStart={() => !column.fixed && setDraggingColumn(column.key)}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        handleReorderColumn(draggingColumn, column.key);
+                        setDraggingColumn(null);
+                      }}
+                      onDragEnd={() => setDraggingColumn(null)}
+                    >
+                      <div className="flex items-center gap-2">
+                        {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
+                        <span className="text-white/70">{column.label}</span>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={columnPrefs.visible?.[column.key] !== false}
+                        disabled={column.fixed}
+                        onChange={() => handleToggleColumn(column.key)}
+                      />
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+                    onClick={handleRestoreColumns}
+                  >
+                    Restaurar padrão
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </header>
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                {tableColumns.map((column) => (
+                {visibleColumns.map((column) => (
                   <th key={column.key} className="py-2 pr-6">
                     {column.label}
                   </th>
@@ -316,29 +447,29 @@ export default function ReportsRoute() {
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
-                  <td colSpan={tableColumns.length} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleColumnCount} className="py-4 text-center text-sm opacity-60">
                     Processando rota…
                   </td>
                 </tr>
               )}
               {!loading && !points.length && (
                 <tr>
-                  <td colSpan={tableColumns.length} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleColumnCount} className="py-4 text-center text-sm opacity-60">
                     {lastGeneratedAt
                       ? "Nenhum registro encontrado para o período selecionado."
                       : "Gere um relatório para visualizar os pontos percorridos."}
                   </td>
                 </tr>
               )}
-                {points.map((point) => (
-                  <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
-                    {tableColumns.map((column) => (
-                      <td key={column.key} className="py-2 pr-6 text-white/80">
-                        {column.render ? column.render(point) : column.getValue?.(point, { locale })}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+              {points.map((point) => (
+                <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} className="py-2 pr-6 text-white/80">
+                      {column.render ? column.render(point) : column.getValue?.(point, { locale })}
+                    </td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

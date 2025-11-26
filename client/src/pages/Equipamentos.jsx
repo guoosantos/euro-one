@@ -26,11 +26,20 @@ function ModelosPortas({models}){
   );
 }
 
+const ICON_TYPES = [
+  { value: "car", label: "Carro" },
+  { value: "motorcycle", label: "Moto" },
+  { value: "truck", label: "Caminhão" },
+  { value: "person", label: "Pessoa" },
+  { value: "tag", label: "Tag / Rastreador pequeno" },
+  { value: "watercraft", label: "Jet / Embarcação" },
+];
+
 export default function Equipamentos(){
   const [tab, setTab] = useState(()=> new URLSearchParams(location.search).get("tab") || "lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
-  const [form, setForm] = useState({ name:"", uniqueId:"", modelId:"" });
+  const [form, setForm] = useState({ name:"", uniqueId:"", modelId:"", iconType:"" });
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -50,12 +59,14 @@ export default function Equipamentos(){
       const payload = {
         name: form.name || undefined,
         uniqueId: form.uniqueId,
-        modelId: form.modelId || undefined
+        modelId: form.modelId || undefined,
+        iconType: form.iconType || undefined,
+        attributes: form.iconType ? { iconType: form.iconType } : undefined
       };
       await CoreApi.createDevice(payload);
       const devs = await CoreApi.listDevices();
       setDevices(Array.isArray(devs)?devs:[]);
-      setForm({ name:"", uniqueId:"", modelId:"" });
+      setForm({ name:"", uniqueId:"", modelId:"", iconType:"" });
       setTab("lista");
     } catch(e){ alert(e.message); }
     finally { setBusy(false); }
@@ -93,6 +104,16 @@ export default function Equipamentos(){
               value={form.modelId} onChange={e=>setForm(v=>({...v, modelId:e.target.value}))}>
               <option value="">— selecione —</option>
               {models.map(m => <option key={m.id||m.key} value={m.id||m.key}>{m.name||m.model||m.id}</option>)}
+            </select>
+          </div>
+          <div className="col-span-1">
+            <label className="text-sm opacity-70">Tipo de ícone no mapa</label>
+            <select className="w-full p-2 rounded-lg bg-white/5 border border-white/10"
+              value={form.iconType} onChange={e=>setForm(v=>({...v, iconType:e.target.value}))}>
+              <option value="">— selecione —</option>
+              {ICON_TYPES.map((item) => (
+                <option key={item.value} value={item.value}>{item.label}</option>
+              ))}
             </select>
           </div>
           <div className="col-span-3">
