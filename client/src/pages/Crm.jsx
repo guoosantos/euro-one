@@ -162,7 +162,6 @@ export default function Crm() {
     if (clientViewScope === "mine") return { view: "mine" };
     return null;
   }, [hasAdminAccess, clientViewScope]);
- main
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
@@ -193,7 +192,6 @@ export default function Crm() {
   }, [hasAdminAccess, interactionViewScope]);
   const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
     useCrmContacts(selectedId, contactListParams);
- main
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 
@@ -277,7 +275,6 @@ export default function Crm() {
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
 
       view: alertView,
- main
     })
       .then((response) => {
         if (cancelled) return;
@@ -302,7 +299,6 @@ export default function Crm() {
     };
 
   }, [tenantId, hasAdminAccess, alertViewScope]);
- main
 
   useEffect(() => {
     if (!selectedId) {
@@ -952,20 +948,19 @@ export default function Crm() {
                 Ir para Clientes
               </Button>
               {hasAdminAccess ? (
-                <Select
-                  value={interactionViewScope}
-                  onChange={(event) => setInteractionViewScope(event.target.value)}
-                  className="w-44"
-                >
-                  <option value="all">Todas as interações</option>
-                  <option value="mine">Minhas interações</option>
-                </Select>
-              ) : (
-                <span className="text-xs text-white/60">Mostrando apenas interações que registrei</span>
-main
-              )}
-            </div>
-            {selectedClient && (
+            <Select
+              value={interactionViewScope}
+              onChange={(event) => setInteractionViewScope(event.target.value)}
+              className="w-44"
+            >
+              <option value="all">Todas as interações</option>
+              <option value="mine">Minhas interações</option>
+            </Select>
+          ) : (
+            <span className="text-xs text-white/60">Mostrando apenas interações que registrei</span>
+          )}
+        </div>
+        {selectedClient && (
               <div className="mb-4 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/80">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-white">
                   <div className="font-semibold">{selectedClient.name}</div>
@@ -1160,20 +1155,19 @@ main
 
               <div className="flex flex-wrap items-center gap-2">
                 {hasAdminAccess ? (
-                  <Select
-                    value={alertViewScope}
-                    onChange={(event) => setAlertViewScope(event.target.value)}
-                    className="w-44"
-                  >
-                    <option value="all">Todos os clientes</option>
-                    <option value="mine">Somente os meus</option>
-                  </Select>
-                ) : (
-                  <span className="text-xs text-white/60">Mostrando apenas meus alertas</span>
- main
-                )}
-                <Button size="sm" variant="ghost" onClick={loadAlerts}>
-                  Atualizar alertas
+                <Select
+                  value={alertViewScope}
+                  onChange={(event) => setAlertViewScope(event.target.value)}
+                  className="w-44"
+                >
+                  <option value="all">Todos os clientes</option>
+                  <option value="mine">Somente os meus</option>
+                </Select>
+              ) : (
+                <span className="text-xs text-white/60">Mostrando apenas meus alertas</span>
+              )}
+              <Button size="sm" variant="ghost" onClick={loadAlerts}>
+                Atualizar alertas
                 </Button>
               </div>
             }
