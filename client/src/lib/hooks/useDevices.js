@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { useDevicesContext } from "../../contexts/DevicesContext.js";
-import { useLivePositionsContext } from "../../contexts/LivePositionsContext.js";
+import { useDevicesContext } from "../../contexts/DevicesContext.jsx";
+import { useLivePositionsContext } from "../../contexts/LivePositionsContext.jsx";
 import {
   normaliseDeviceList,
   normalisePositionResponse,

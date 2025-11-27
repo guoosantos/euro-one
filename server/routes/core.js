@@ -47,6 +47,8 @@ export function filterValidPositionIds(positionIds) {
 
 const telemetryWarnLog = new Map();
 const telemetryCache = createTtlCache(3_000);
+const registryCache = createTtlCache(30_000);
+const registryCacheKeys = new Set();
 
 function logTelemetryWarning(stage, error, context = {}) {
   const now = Date.now();
@@ -64,6 +66,24 @@ function logTelemetryWarning(stage, error, context = {}) {
       ...context,
     });
   }
+}
+
+function cacheRegistry(key, value, ttl = 30_000) {
+  registryCacheKeys.add(key);
+  return registryCache.set(key, value, ttl);
+}
+
+function getCachedRegistry(key) {
+  return registryCache.get(key);
+}
+
+function invalidateRegistry(prefix) {
+  Array.from(registryCacheKeys).forEach((key) => {
+    if (!prefix || key.startsWith(prefix)) {
+      registryCache.delete(key);
+      registryCacheKeys.delete(key);
+    }
+  });
 }
 
 function sanitizePosition(rawPosition) {
@@ -162,6 +182,14 @@ function resolveConnection(traccarDevice) {
     connectionStatusLabel: "Offline",
     lastCommunication: lastUpdate,
   };
+}
+
+function buildDeviceCacheKey(clientId) {
+  return clientId ? `devices:${clientId}` : "devices:all";
+}
+
+function invalidateDeviceCache() {
+  invalidateRegistry("devices:");
 }
 
 function buildDeviceResponse(device, context) {
@@ -517,6 +545,7 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
       traccarByUnique,
     });
 
+    invalidateDeviceCache();
     res.status(201).json({ device: response });
   } catch (error) {
     next(error);
@@ -561,24 +590,28 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       }
     });
 
+    const validPositionIds = filterValidPositionIds(Array.from(positionIds));
+    if (validPositionIds.length === 0) {
+      const payload = { telemetry: [] };
+      telemetryCache.set(cacheKey, payload, 3_000);
+      return res.json(payload);
+    }
+
     let positions = [];
-    if (positionIds.size > 0) {
-      const ids = filterValidPositionIds(positionIds);
-      if (ids.length > 0) {
-        try {
-          const positionResponse = await traccarProxy("get", "/positions", {
-            params: { id: ids },
-            asAdmin: true,
-          });
-          positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
-        } catch (positionError) {
-          logTelemetryWarning("positions", positionError, { ids });
-          throw buildTraccarUnavailableError(positionError, {
-            stage: "positions",
-            url: "/positions",
-            params: { id: ids },
-          });
-        }
+    if (validPositionIds.length > 0) {
+      try {
+        const positionResponse = await traccarProxy("get", "/positions", {
+          params: { id: validPositionIds },
+          asAdmin: true,
+        });
+        positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
+      } catch (positionError) {
+        logTelemetryWarning("positions", positionError, { ids: validPositionIds });
+        throw buildTraccarUnavailableError(positionError, {
+          stage: "positions",
+          url: "/positions",
+          params: { id: validPositionIds },
+        });
       }
     }
 
@@ -700,6 +733,11 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
 router.get("/devices", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const cacheKey = buildDeviceCacheKey(clientId);
+    const cached = getCachedRegistry(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const devices = listDevices({ clientId });
     const models = listModels({ clientId, includeGlobal: true });
     const chips = listChips({ clientId });
@@ -725,7 +763,9 @@ router.get("/devices", (req, res, next) => {
     const response = devices.map((device) =>
       buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
     );
-    res.json({ devices: response });
+    const payload = { devices: response };
+    cacheRegistry(cacheKey, payload);
+    res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -788,6 +828,7 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
       traccarByUnique: new Map([[uniqueId, traccarDevice]]),
     });
 
+    invalidateDeviceCache();
     res.status(201).json({ device: response });
   } catch (error) {
     next(error);
@@ -833,6 +874,7 @@ router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, nex
       traccarByUnique,
     });
 
+    invalidateDeviceCache();
     res.json({ device: response });
   } catch (error) {
     next(error);

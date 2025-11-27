@@ -12,11 +12,35 @@ import {
   updateCrmClient,
 } from "../models/crm.js";
 import { createCrmTag, deleteCrmTag, listCrmTags } from "../models/crm-tags.js";
+import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 
 router.use(authenticate);
 router.use(resolveClientIdMiddleware);
+
+const crmCache = createTtlCache(30_000);
+const crmCacheKeys = new Set();
+
+function buildTagCacheKey(clientId) {
+  return `tags:${clientId || "all"}`;
+}
+
+function cacheTags(key, value) {
+  crmCacheKeys.add(key);
+  return crmCache.set(key, value, 30_000);
+}
+
+function getCachedTags(key) {
+  return crmCache.get(key);
+}
+
+function invalidateTagCache() {
+  Array.from(crmCacheKeys).forEach((key) => {
+    crmCache.delete(key);
+    crmCacheKeys.delete(key);
+  });
+}
 
 router.get("/clients", (req, res, next) => {
   try {
@@ -112,8 +136,15 @@ router.post("/clients/:id/contacts", (req, res, next) => {
 
 router.get("/tags", (req, res, next) => {
   try {
+    const cacheKey = buildTagCacheKey(req.clientId);
+    const cached = getCachedTags(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
     const tags = listCrmTags({ clientId: req.clientId });
-    res.json({ tags });
+    const payload = { tags };
+    cacheTags(cacheKey, payload);
+    res.json(payload);
   } catch (error) {
     next(error);
   }
@@ -123,6 +154,7 @@ router.post("/tags", (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
     const tag = createCrmTag({ ...req.body, clientId });
+    invalidateTagCache();
     res.status(201).json({ tag });
   } catch (error) {
     next(error);
@@ -132,6 +164,7 @@ router.post("/tags", (req, res, next) => {
 router.delete("/tags/:id", (req, res, next) => {
   try {
     deleteCrmTag(req.params.id, { clientId: req.clientId });
+    invalidateTagCache();
     res.status(204).send();
   } catch (error) {
     next(error);

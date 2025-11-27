@@ -1,8 +1,8 @@
 import React from "react";
-import { TelemetryProvider } from "./TelemetryContext.js";
-import { LivePositionsProvider } from "./LivePositionsContext.js";
-import { DevicesProvider } from "./DevicesContext.js";
-import { EventsProvider } from "./EventsContext.js";
+import { TelemetryProvider } from "./TelemetryContext.jsx";
+import { LivePositionsProvider } from "./LivePositionsContext.jsx";
+import { DevicesProvider } from "./DevicesContext.jsx";
+import { EventsProvider } from "./EventsContext.jsx";
 
 export function AppDataProviders({ children }) {
   return (
