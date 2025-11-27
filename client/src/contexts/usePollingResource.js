@@ -6,12 +6,14 @@ export function usePollingResource(fetcher, {
   backoffFactor = 2,
   maxInterval = 60_000,
   initialData = null,
+  pauseWhenHidden = true,
 } = {}) {
   const [state, setState] = useState({ data: initialData, loading: Boolean(enabled), error: null, fetchedAt: null });
   const timerRef = useRef(null);
   const abortRef = useRef(null);
   const stoppedRef = useRef(false);
   const intervalRef = useRef(interval);
+  const visibilityRef = useRef(typeof document === "undefined" ? "visible" : document.visibilityState);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -32,6 +34,10 @@ export function usePollingResource(fetcher, {
 
   const run = useCallback(async () => {
     if (!enabled || stoppedRef.current) return;
+    if (pauseWhenHidden && visibilityRef.current === "hidden") {
+      schedule(intervalRef.current);
+      return;
+    }
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -75,6 +81,19 @@ export function usePollingResource(fetcher, {
       abortRef.current?.abort();
     };
   }, [enabled, run, clearTimer, interval]);
+
+  useEffect(() => {
+    if (!pauseWhenHidden || typeof document === "undefined") return undefined;
+    const handleVisibility = () => {
+      visibilityRef.current = document.visibilityState;
+      if (visibilityRef.current === "visible" && !stoppedRef.current && enabled) {
+        clearTimer();
+        void run();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [clearTimer, enabled, pauseWhenHidden, run]);
 
   const refresh = useCallback(() => {
     stoppedRef.current = false;

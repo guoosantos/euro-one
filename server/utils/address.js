@@ -24,6 +24,16 @@ function normalizeCoordinate(value) {
   return Number(number.toFixed(5));
 }
 
+function normalizeAddressPayload(rawAddress) {
+  if (rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)) {
+    return rawAddress;
+  }
+  if (rawAddress) {
+    return { formatted: String(rawAddress) };
+  }
+  return {};
+}
+
 function collapseWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
@@ -171,26 +181,32 @@ async function lookupGeocode(lat, lng) {
 
 export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
-  const address = position.address || position.formattedAddress || position.attributes?.address;
-  const shortAddress = position.shortAddress;
-  if (address || shortAddress) {
-    const formatted = address ? formatAddress(address) : null;
-    return { ...position, formattedAddress: formatted || shortAddress, shortAddress };
+  const rawAddress = position.address || position.formattedAddress || position.attributes?.address;
+  const normalizedAddress = normalizeAddressPayload(rawAddress);
+  const baseFormatted = rawAddress ? formatAddress(rawAddress) : null;
+  const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
+  const shortAddress = position.shortAddress || normalizedAddress.short || null;
+
+  if (baseFormatted || shortAddress) {
+    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || shortAddress, shortAddress };
   }
 
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    return position;
+    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || null, shortAddress: shortAddress || null };
   }
 
   const resolved = await lookupGeocode(lat, lng);
-  if (!resolved) return position;
+  if (!resolved) {
+    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || null, shortAddress: shortAddress || null };
+  }
+  const resolvedAddress = normalizeAddressPayload(resolved.address || resolved.formattedAddress);
   return {
     ...position,
-    address: resolved.address,
-    formattedAddress: resolved.formattedAddress,
-    shortAddress: resolved.shortAddress,
+    address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress,
+    formattedAddress: resolved.formattedAddress || formattedAddress || null,
+    shortAddress: resolved.shortAddress || shortAddress || null,
     addressParts: resolved.parts,
   };
 }

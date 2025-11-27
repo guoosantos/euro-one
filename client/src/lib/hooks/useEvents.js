@@ -5,7 +5,7 @@ import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
 import { buildParams } from "./events-helpers.js";
 import { useSharedPollingResource } from "./useSharedPollingResource.js";
-import { useEventsContext } from "../../contexts/EventsContext.js";
+import { useEventsContext } from "../../contexts/EventsContext.jsx";
 
 export function useEvents({
   deviceId,

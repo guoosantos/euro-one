@@ -57,9 +57,13 @@ async function request(
     const normalised = error instanceof Error ? error : new Error(error?.message || "Erro na requisição");
     if (isAbortError(normalised)) {
       normalised.message = normalised.message || "Tempo de resposta excedido";
+      return { data: null, error: null, status: null, response: null, aborted: true };
     }
     const statusCode = Number(error?.response?.status ?? error?.status);
     if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 500) {
+      normalised.permanent = true;
+    }
+    if (!Number.isFinite(statusCode) && normalised?.message?.includes?.("Failed to fetch")) {
       normalised.permanent = true;
     }
     normalised.response = error?.response;

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useTelemetryContext } from "../../contexts/TelemetryContext.js";
+import { useTelemetryContext } from "../../contexts/TelemetryContext.jsx";
 import { useTranslation } from "../i18n.js";
 
 export function useTelemetry() {

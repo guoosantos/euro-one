@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useLivePositionsContext } from "../../contexts/LivePositionsContext.js";
+import { useLivePositionsContext } from "../../contexts/LivePositionsContext.jsx";
 
 function dedupeByDevice(positions = []) {
   const latestByDevice = new Map();
