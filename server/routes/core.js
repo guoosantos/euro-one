@@ -38,7 +38,7 @@ export function filterValidPositionIds(positionIds) {
   const result = [];
   for (const raw of Array.from(positionIds)) {
     if (raw === null || raw === undefined) continue;
-    const id = String(raw);
+    const id = String(raw).trim();
     if (!id || id === "0" || id.toLowerCase() === "null" || id.toLowerCase() === "undefined") continue;
     result.push(id);
   }
