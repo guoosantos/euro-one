@@ -273,7 +273,7 @@ export default function Crm() {
     CoreApi.listCrmAlerts({
       contractWithinDays: DEFAULT_CONTRACT_ALERT_DAYS,
       trialWithinDays: DEFAULT_TRIAL_ALERT_DAYS,
-
+      clientId: tenantId || undefined,
       view: alertView,
     })
       .then((response) => {
@@ -287,7 +287,8 @@ export default function Crm() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setAlertsError(err instanceof Error ? err : new Error("Falha ao carregar alertas"));
+        logCrmError(err, "listCrmAlerts");
+        setAlertsError(new Error("Não foi possível carregar alertas. Tente novamente em instantes."));
       })
       .finally(() => {
         if (cancelled) return;

@@ -74,13 +74,17 @@ export function usePollingResource(fetcher, {
     intervalRef.current = interval;
     if (enabled) {
       void run();
+    } else {
+      clearTimer();
+      abortRef.current?.abort();
+      setState({ data: initialData, loading: false, error: null, fetchedAt: null });
     }
     return () => {
       stoppedRef.current = true;
       clearTimer();
       abortRef.current?.abort();
     };
-  }, [enabled, run, clearTimer, interval]);
+  }, [enabled, run, clearTimer, interval, initialData]);
 
   useEffect(() => {
     if (!pauseWhenHidden || typeof document === "undefined") return undefined;

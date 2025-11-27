@@ -15,7 +15,7 @@ function normaliseEvents(payload) {
 const EventsContext = createContext({ data: [], events: [], loading: false, error: null, refresh: () => {} });
 
 export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
-  const { tenantId } = useTenant();
+  const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
 
   const state = usePollingResource(
@@ -36,7 +36,7 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
       }
       return normaliseEvents(payload).slice(0, limit);
     },
-    { interval, initialData: [] },
+    { interval, initialData: [], enabled: isAuthenticated },
   );
 
   const value = useMemo(
