@@ -622,10 +622,12 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       }
     });
 
-    const deviceIds = devices
-      .map((device) => device?.traccarId)
-      .filter((value) => value !== null && value !== undefined)
-      .map((value) => String(value));
+    const deviceIds = filterValidPositionIds(
+      devices
+        .map((device) => device?.traccarId)
+        .filter((value) => value !== null && value !== undefined)
+        .map((value) => String(value)),
+    );
 
     let events = [];
     if (deviceIds.length) {
@@ -678,9 +680,11 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       };
     });
 
-    const missingPositionDeviceIds = response
-      .filter((item) => !item.position && item.traccarId)
-      .map((item) => String(item.traccarId));
+    const missingPositionDeviceIds = filterValidPositionIds(
+      response
+        .filter((item) => !item.position && item.traccarId)
+        .map((item) => String(item.traccarId)),
+    );
 
     if (missingPositionDeviceIds.length) {
       const now = new Date();

@@ -15,7 +15,7 @@ function normalise(payload) {
 const LivePositionsContext = createContext({ data: [], positions: [], loading: false, error: null, refresh: () => {} });
 
 export function LivePositionsProvider({ children, interval = 5_000 }) {
-  const { tenantId } = useTenant();
+  const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
 
   const state = usePollingResource(
@@ -36,7 +36,7 @@ export function LivePositionsProvider({ children, interval = 5_000 }) {
       }
       return normalise(payload);
     },
-    { interval, initialData: [] },
+    { interval, initialData: [], enabled: isAuthenticated },
   );
 
   const value = useMemo(

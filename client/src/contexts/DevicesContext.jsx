@@ -2,6 +2,7 @@ import React, { createContext, useContext, useMemo } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTranslation } from "../lib/i18n.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import { usePollingResource } from "./usePollingResource.js";
 
 function normaliseDeviceList(payload) {
@@ -15,10 +16,12 @@ const DevicesContext = createContext({ data: [], devices: [], loading: false, er
 
 export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
+  const { tenantId, isAuthenticated } = useTenant();
 
   const state = usePollingResource(
     async ({ signal }) => {
-      const { data: payload, error } = await safeApi.get(API_ROUTES.core.devices, { signal });
+      const params = tenantId ? { clientId: tenantId } : undefined;
+      const { data: payload, error } = await safeApi.get(API_ROUTES.core.devices, { params, signal });
       if (error) {
         if (safeApi.isAbortError(error)) throw error;
         const status = Number(error?.response?.status ?? error?.status);
@@ -39,7 +42,7 @@ export function DevicesProvider({ children, interval = 60_000 }) {
           }))
         : [];
     },
-    { interval, initialData: [] },
+    { interval, initialData: [], enabled: isAuthenticated },
   );
 
   const value = useMemo(
