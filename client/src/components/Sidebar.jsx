@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { NavLink } from "react-router-dom";
 import {
   BarChart3,
@@ -125,8 +126,8 @@ export default function Sidebar() {
   const businessLinks = [
     { to: "/dashboard", label: "Dashboard", icon: Home },
     { to: "/finance", label: "Financeiro", icon: Banknote },
-    { to: "/clients", label: "Clientes", icon: Users },
-    { to: "/users", label: "Usuários", icon: User },
+    ...(canManageUsers && !isAdmin ? [{ to: "/clients", label: "Clientes", icon: Users }] : []),
+    ...(canManageUsers && !isAdmin ? [{ to: "/users", label: "Usuários", icon: User }] : []),
     { to: "/crm", label: "CRM", icon: NotebookPen },
   ];
 
@@ -157,9 +158,9 @@ export default function Sidebar() {
   ];
 
   const adminLinks = [
-    ...(isAdmin ? [{ to: "/admin/clients", label: "Clientes", icon: Users }] : []),
-    ...(canManageUsers ? [{ to: "/admin/users", label: "Usuários", icon: User }] : []),
-    { to: "/geofences", label: "Cercas", icon: Map },
+    ...(isAdmin ? [{ to: "/clients", label: "Clientes", icon: Users }] : []),
+    ...(isAdmin ? [{ to: "/users", label: "Usuários", icon: User }] : []),
+    ...(canManageUsers ? [{ to: "/geofences", label: "Cercas", icon: Map }] : []),
   ];
 
   const utilityLinks = [
@@ -194,7 +195,13 @@ export default function Sidebar() {
   );
 
   return (
-    <aside className="flex h-full flex-col overflow-hidden bg-[#0f141c]" aria-label="Menu principal">
+    <motion.aside
+      className="flex h-full flex-col overflow-hidden bg-[#0f141c]"
+      aria-label="Menu principal"
+      initial={false}
+      animate={{ width: collapsed ? 82 : 292, boxShadow: collapsed ? "0 12px 28px rgba(0,0,0,0.35)" : "0 18px 42px rgba(0,0,0,0.4)" }}
+      transition={{ type: "spring", stiffness: 240, damping: 28 }}
+    >
       <nav className="flex h-full flex-col gap-3 overflow-y-auto p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
@@ -213,7 +220,7 @@ export default function Sidebar() {
           </button>
         </div>
 
-        <div className="rounded-xl border border-[#1f2430] bg-[#111827] p-3">
+        <div className="rounded-xl border border-[#1f2430] bg-[#111827] p-3 shadow-soft">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div
@@ -246,18 +253,27 @@ export default function Sidebar() {
             )}
           </div>
 
-          {!collapsed && openProfile && (
-            <div className="mt-3 space-y-2 text-sm">
-              <NavLink to="/account" className={nestedLinkClass} style={activeStyle} title="Perfil">
-                <User size={18} />
-                <span>Perfil</span>
-              </NavLink>
-              <NavLink to="/settings" className={nestedLinkClass} style={activeStyle} title="Configurações">
-                <Settings size={18} />
-                <span>Configurações</span>
-              </NavLink>
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {!collapsed && openProfile && (
+              <motion.div
+                key="profile-links"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="mt-3 space-y-2 text-sm overflow-hidden"
+              >
+                <NavLink to="/account" className={nestedLinkClass} style={activeStyle} title="Perfil">
+                  <User size={18} />
+                  <span>Perfil</span>
+                </NavLink>
+                <NavLink to="/settings" className={nestedLinkClass} style={activeStyle} title="Configurações">
+                  <Settings size={18} />
+                  <span>Configurações</span>
+                </NavLink>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {sectionTitle(collapsed, "Negócios")}
@@ -283,7 +299,20 @@ export default function Sidebar() {
         {collapsed ? (
           <div className="flex flex-col gap-2">{quickDeviceLinks.map(renderCompactLink)}</div>
         ) : (
-          openDisp && <div className="ml-3 space-y-2 text-sm">{deviceLinks.map(renderNestedLink)}</div>
+          <AnimatePresence initial={false}>
+            {openDisp && (
+              <motion.div
+                key="device-links"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="ml-3 space-y-2 text-sm overflow-hidden"
+              >
+                {deviceLinks.map(renderNestedLink)}
+              </motion.div>
+            )}
+          </AnimatePresence>
         )}
 
         {sectionTitle(collapsed, "Euro View")}
@@ -315,7 +344,20 @@ export default function Sidebar() {
         {collapsed ? (
           <div className="flex flex-col gap-2">{analyticsLinks.map(renderCompactLink)}</div>
         ) : (
-          openAnalytics && <div className="ml-3 space-y-2 text-sm">{analyticsLinks.map(renderNestedLink)}</div>
+          <AnimatePresence initial={false}>
+            {openAnalytics && (
+              <motion.div
+                key="analytics-links"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="ml-3 space-y-2 text-sm overflow-hidden"
+              >
+                {analyticsLinks.map(renderNestedLink)}
+              </motion.div>
+            )}
+          </AnimatePresence>
         )}
 
         {sectionTitle(collapsed, "Telemetria")}
@@ -324,6 +366,6 @@ export default function Sidebar() {
         {sectionTitle(collapsed, "Admin")}
         {utilityLinks.map(renderNavLink)}
       </nav>
-    </aside>
+    </motion.aside>
   );
 }

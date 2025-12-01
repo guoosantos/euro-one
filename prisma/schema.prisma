@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = env("DATABASE_PROVIDER") ?? "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model StorageCollection {
+  key       String   @id
+  data      Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PipelineStage {
+  id          String   @id @default(uuid())
+  clientId    String?
+  name        String
+  order       Int
+  probability Int?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Deal {
+  id          String   @id @default(uuid())
+  clientId    String?
+  crmClientId String?
+  title       String
+  value       Float    @default(0)
+  probability Int?
+  stageId     String
+  status      String   @default("open")
+  ownerUserId String?
+  expectedCloseDate DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  wonAt       DateTime?
+  lostAt      DateTime?
+}
+
+model Activity {
+  id            String   @id @default(uuid())
+  clientId      String?
+  crmClientId   String?
+  dealId        String?
+  type          String
+  date          DateTime?
+  result        String?
+  notes         String?
+  createdByUserId String?
+  createdAt     DateTime @default(now())
+}
+
+model Reminder {
+  id            String   @id @default(uuid())
+  clientId      String?
+  crmClientId   String?
+  dealId        String?
+  description   String
+  remindAt      DateTime?
+  category      String?
+  status        String   @default("pending")
+  createdByUserId String?
+  createdAt     DateTime @default(now())
+}

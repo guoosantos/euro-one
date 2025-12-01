@@ -64,6 +64,13 @@ export const CoreApi = {
   listCrmTags: (params) => crmHttp(API_ROUTES.crm.tags, { params }),
   createCrmTag: (payload) => crmHttp(API_ROUTES.crm.tags, { method: "POST", payload }),
   deleteCrmTag: (id) => crmHttp(`${API_ROUTES.crm.tags}/${id}`, { method: "DELETE" }),
+  listCrmPipeline: (params) => crmHttp(API_ROUTES.crm.pipeline, { params }),
+  createDeal: (payload) => crmHttp(API_ROUTES.crm.deals, { method: "POST", payload }),
+  moveDealStage: (id, payload) => crmHttp(`${API_ROUTES.crm.deals}/${id}/stage`, { method: "PUT", payload }),
+  listCrmActivities: (params) => crmHttp(API_ROUTES.crm.activities, { params }),
+  createCrmActivity: (payload) => crmHttp(API_ROUTES.crm.activities, { method: "POST", payload }),
+  listCrmReminders: (params) => crmHttp(API_ROUTES.crm.reminders, { params }),
+  createCrmReminder: (payload) => crmHttp(API_ROUTES.crm.reminders, { method: "POST", payload }),
 };
 
 function normaliseDevices(payload) {

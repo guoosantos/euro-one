@@ -138,6 +138,9 @@ export function errorHandler(err, req, res, _next) {
   });
 
   const payload = { message };
+  if (err?.isTraccarError || err?.code === "TRACCAR_UNAVAILABLE") {
+    payload.error = message;
+  }
   if (code) payload.code = code;
 
   const shouldExposeDetails = process.env.NODE_ENV !== "production" || status < 500;

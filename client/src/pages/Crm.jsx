@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { AlertTriangle, Contact2, Eye, FilePlus2, Tag as TagIcon } from "lucide-react";
+import { AlertTriangle, Contact2, Eye, FilePlus2, KanbanSquare, Tag as TagIcon } from "lucide-react";
 
 import Card from "../ui/Card";
 import Input from "../ui/Input";
@@ -12,6 +12,7 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import useCrmClients, { logCrmError } from "../lib/hooks/useCrmClients.js";
 import useCrmContacts from "../lib/hooks/useCrmContacts.js";
 import useCrmTags from "../lib/hooks/useCrmTags.js";
+import useCrmPipeline from "../lib/hooks/useCrmPipeline.js";
 
 const defaultForm = {
   name: "",
@@ -152,17 +153,33 @@ export default function Crm() {
   const { tenantId, hasAdminAccess } = useTenant();
   const navigate = useNavigate();
   const { section } = useParams();
-  const resolvedTab = ["clients", "tags", "interactions", "alerts"].includes(section) ? section : "clients";
+  const resolvedTab = ["clients", "pipeline", "tags", "interactions", "alerts"].includes(section)
+    ? section
+    : "clients";
 
   const [clientViewScope, setClientViewScope] = useState(hasAdminAccess ? "all" : "mine");
   const [alertViewScope, setAlertViewScope] = useState(hasAdminAccess ? "all" : "mine");
   const [interactionViewScope, setInteractionViewScope] = useState(hasAdminAccess ? "all" : "mine");
+  const [pipelineViewScope, setPipelineViewScope] = useState(hasAdminAccess ? "all" : "mine");
   const listParams = useMemo(() => {
     if (!hasAdminAccess) return { view: "mine" };
     if (clientViewScope === "mine") return { view: "mine" };
     return null;
   }, [hasAdminAccess, clientViewScope]);
+  const pipelineParams = useMemo(() => {
+    if (!hasAdminAccess) return { view: "mine" };
+    if (pipelineViewScope === "mine") return { view: "mine" };
+    return null;
+  }, [hasAdminAccess, pipelineViewScope]);
   const { clients, loading, error, refresh, createClient, updateClient } = useCrmClients(listParams);
+  const {
+    stages: pipelineStages,
+    deals: pipelineDeals,
+    loading: pipelineLoading,
+    error: pipelineError,
+    refresh: refreshPipeline,
+    moveDeal: movePipelineDeal,
+  } = useCrmPipeline(pipelineParams);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(defaultForm);
   const [interactionForm, setInteractionForm] = useState(defaultInteraction);
@@ -264,6 +281,21 @@ export default function Crm() {
     () => Object.fromEntries(tagCatalog.map((tag) => [tag.id, tag])),
     [tagCatalog],
   );
+
+  const dealsByStage = useMemo(() => {
+    const bucket = {};
+    pipelineStages.forEach((stage) => {
+      bucket[stage.id] = [];
+    });
+    pipelineDeals.forEach((deal) => {
+      const targetStage = deal.stageId && bucket[deal.stageId] ? deal.stageId : pipelineStages[0]?.id;
+      if (!bucket[targetStage]) {
+        bucket[targetStage] = [];
+      }
+      bucket[targetStage].push(deal);
+    });
+    return bucket;
+  }, [pipelineDeals, pipelineStages]);
 
   const loadAlerts = useCallback(() => {
     let cancelled = false;
@@ -572,6 +604,18 @@ export default function Crm() {
     });
   }
 
+  function handleDealDragStart(event, dealId) {
+    event.dataTransfer.setData("text/plain", dealId);
+  }
+
+  function handleDealDrop(event, stageId) {
+    event.preventDefault();
+    const dealId = event.dataTransfer.getData("text/plain");
+    if (dealId) {
+      movePipelineDeal(dealId, stageId);
+    }
+  }
+
   function resolveTagLabel(tagIdOrName) {
     if (!tagIdOrName) return null;
     return tagsById[tagIdOrName] || null;
@@ -587,6 +631,7 @@ export default function Crm() {
 
   const tabs = [
     { id: "clients", label: "Clientes" },
+    { id: "pipeline", label: "Pipeline" },
     { id: "tags", label: "Tags" },
     { id: "interactions", label: "Interações" },
     { id: "alerts", label: "Alertas" },
@@ -634,6 +679,101 @@ export default function Crm() {
         <div className="font-semibold text-white">{activeTabLabel}</div>
         <div className="text-xs uppercase tracking-wide text-white/50">CRM</div>
       </div>
+
+      {resolvedTab === "pipeline" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-white/80">
+            <div className="flex items-center gap-2">
+              <KanbanSquare size={18} className="text-primary" />
+              <span className="text-white/80">Arraste os leads entre as etapas do funil</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-white/70">
+              <span>Visão:</span>
+              <button
+                className={`rounded-md px-3 py-1 text-xs ${
+                  pipelineViewScope === "mine" ? "bg-primary text-primary-foreground" : "bg-white/10 text-white"
+                }`}
+                onClick={() => setPipelineViewScope("mine")}
+              >
+                Meus
+              </button>
+              {hasAdminAccess && (
+                <button
+                  className={`rounded-md px-3 py-1 text-xs ${
+                    pipelineViewScope === "all" ? "bg-primary text-primary-foreground" : "bg-white/10 text-white"
+                  }`}
+                  onClick={() => setPipelineViewScope("all")}
+                >
+                  Todos
+                </button>
+              )}
+              <button
+                className="rounded-md px-3 py-1 text-xs bg-white/10 text-white hover:bg-white/20"
+                onClick={refreshPipeline}
+              >
+                Atualizar
+              </button>
+            </div>
+          </div>
+
+          {pipelineError && (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">
+              Não foi possível carregar o pipeline. Tente novamente em instantes.
+            </div>
+          )}
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {pipelineStages.map((stage) => (
+              <div
+                key={stage.id}
+                className="rounded-xl border border-white/10 bg-white/5 p-3 backdrop-blur"
+                onDragOver={(event) => event.preventDefault()}
+                onDrop={(event) => handleDealDrop(event, stage.id)}
+              >
+                <div className="mb-2 flex items-center justify-between text-sm font-semibold text-white">
+                  <span>{stage.name}</span>
+                  <span className="text-xs text-white/60">{stage.probability ? `${stage.probability}%` : ""}</span>
+                </div>
+                <div className="space-y-2">
+                  {(dealsByStage[stage.id] || []).map((deal) => (
+                    <div
+                      key={deal.id}
+                      draggable
+                      onDragStart={(event) => handleDealDragStart(event, deal.id)}
+                      className="cursor-grab rounded-lg border border-white/10 bg-white/10 p-3 text-white shadow-sm transition hover:border-primary/40"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-semibold leading-tight">{deal.title || deal.clientName || "Lead"}</div>
+                          <div className="text-xs text-white/70">{deal.clientName || "Lead CRM"}</div>
+                        </div>
+                        {deal.value ? (
+                          <div className="text-xs font-semibold text-emerald-200">
+                            {Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(deal.value)}
+                          </div>
+                        ) : null}
+                      </div>
+                      {deal.crmClientId && (
+                        <button
+                          className="mt-2 text-xs font-semibold text-primary underline-offset-2 hover:underline"
+                          onClick={() => handleSelectClient(deal.crmClientId)}
+                        >
+                          Abrir ficha
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {!pipelineLoading && (dealsByStage[stage.id] || []).length === 0 && (
+                    <div className="rounded-lg border border-dashed border-white/10 p-3 text-center text-xs text-white/50">
+                      Arraste um lead para cá
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {resolvedTab === "clients" && (
         <div className="grid gap-4 xl:grid-cols-3">
