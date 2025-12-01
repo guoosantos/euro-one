@@ -3,6 +3,16 @@ import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
 import { normaliseClientTags } from "./crm-tags.js";
+import {
+  ensureDealForCrmClient,
+  listDeals as listPipelineDeals,
+  mapDealsWithStage,
+  markDealAsWon,
+  scheduleRenewalReminders,
+} from "./crm-pipeline.js";
+import { createClient } from "./client.js";
+import { listDevices, updateDevice } from "./device.js";
+import { traccarAdminRequest } from "../services/traccar.js";
 
 const STORAGE_KEY = "crmClients";
 const crmClients = new Map();
@@ -40,6 +50,19 @@ function normaliseDate(value) {
 function normaliseCnpj(value) {
   if (!value) return "";
   return String(value).replace(/\D/g, "").slice(0, 14);
+}
+
+function normaliseDeviceIds(list) {
+  if (!list) return [];
+  if (Array.isArray(list)) return list.map((item) => String(item)).filter(Boolean);
+  if (typeof list === "string") {
+    return list
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => String(item));
+  }
+  return [];
 }
 
 function normaliseRelationshipType(value) {
@@ -89,6 +112,15 @@ function computeTrialEnd(startDate, durationDays, endDate) {
   return date.toISOString();
 }
 
+function computeContractEnd(startDate, durationDays) {
+  const start = normaliseDate(startDate);
+  const duration = Number(durationDays);
+  if (!start || !Number.isFinite(duration) || duration <= 0) return null;
+  const date = new Date(start);
+  date.setDate(date.getDate() + duration);
+  return date.toISOString();
+}
+
 function normaliseContactType(value) {
   const map = {
     "ligação": "ligacao",
@@ -132,6 +164,96 @@ function ensureClientAccessible(record, clientId, user) {
   if (user && user.role !== "admin" && record.createdByUserId !== user.id) {
     throw createError(403, "Você não tem permissão para acessar este cliente");
   }
+}
+
+async function convertLeadToCustomer(record, { user } = {}) {
+  if (!record || record.relationshipType !== "customer") return record;
+  if (record.convertedClientId) return record;
+
+  const duplicate = Array.from(crmClients.values()).find(
+    (item) => item.id !== record.id && item.cnpj && record.cnpj && item.cnpj === record.cnpj && item.convertedClientId,
+  );
+  if (duplicate) {
+    throw duplicateCnpjError();
+  }
+
+  const newClient = createClient({
+    name: record.name,
+    attributes: {
+      crmId: record.id,
+      cnpj: record.cnpj,
+    },
+  });
+  record.convertedClientId = newClient.id;
+
+  try {
+    const groupResponse = await traccarAdminRequest({
+      method: "POST",
+      url: "/groups",
+      data: {
+        name: record.name,
+        attributes: { crmId: record.id },
+      },
+    });
+    record.traccarGroupId = groupResponse?.data?.id || groupResponse?.id || record.traccarGroupId || null;
+  } catch (error) {
+    record.conversionError = record.conversionError || error?.message || "Falha ao criar grupo no Traccar";
+  }
+
+  try {
+    const generatedPassword = `c${Math.random().toString(36).slice(-10)}`;
+    const traccarUser = await traccarAdminRequest({
+      method: "POST",
+      url: "/users",
+      data: {
+        name: record.name,
+        email:
+          record.mainContactEmail || `${record.name.replace(/\s+/g, ".").toLowerCase()}@cliente.euro.one`,
+        phone: record.mainContactPhone || undefined,
+        password: generatedPassword,
+        readonly: false,
+        administrator: false,
+        attributes: { crmId: record.id },
+      },
+    });
+    record.traccarUserId = traccarUser?.data?.id || traccarUser?.id || record.traccarUserId || null;
+  } catch (error) {
+    record.conversionError = record.conversionError || error?.message || "Falha ao criar usuário no Traccar";
+  }
+
+  const deviceIds = normaliseDeviceIds(record.reservedDeviceIds);
+  if (deviceIds.length) {
+    const tenantDevices = listDevices({ clientId: record.clientId });
+    deviceIds.forEach((deviceId) => {
+      const device = tenantDevices.find((item) => item.id === deviceId);
+      if (!device) return;
+      updateDevice(device.id, { clientId: newClient.id });
+      if (record.traccarGroupId && device.traccarId) {
+        const payload = { id: Number(device.traccarId), groupId: Number(record.traccarGroupId) };
+        try {
+          void traccarAdminRequest({ method: "PUT", url: `/devices/${device.traccarId}`, data: payload });
+        } catch (error) {
+          console.warn("[crm] falha ao mover device no Traccar", error?.message || error);
+        }
+      }
+    });
+  }
+
+  if (record.dealId) {
+    markDealAsWon(record.dealId, { clientId: record.clientId });
+  }
+
+  const contractEnd = computeContractEnd(record.contractStart, record.contractDurationDays);
+  record.contractEnd = contractEnd;
+  scheduleRenewalReminders({
+    clientId: record.clientId,
+    crmClientId: record.id,
+    dealId: record.dealId,
+    contractEnd,
+    user,
+  });
+
+  return record;
 }
 
 function toContactSnapshot(contact = {}) {
@@ -194,6 +316,15 @@ function migrateLegacy(record) {
     notes: record.notes || record.contractNotes || record.observations || "",
     relationshipType: normaliseRelationshipType(record.relationshipType),
     createdByUserId: record.createdByUserId || null,
+    dealId: record.dealId || null,
+    convertedClientId: record.convertedClientId || null,
+    traccarGroupId: record.traccarGroupId || null,
+    traccarUserId: record.traccarUserId || null,
+    reservedDeviceIds: normaliseDeviceIds(record.reservedDeviceIds),
+    contractStart: normaliseDate(record.contractStart),
+    contractDurationDays: Number(record.contractDurationDays) || null,
+    contractEnd: normaliseDate(record.contractEnd),
+    conversionError: record.conversionError || null,
     contacts,
     createdAt: record.createdAt || new Date().toISOString(),
     updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
@@ -218,7 +349,24 @@ export function listCrmClients({ clientId, user, createdByUserId, view } = {}) {
   return Array.from(crmClients.values())
     .filter((record) => (clientId ? String(record.clientId) === String(clientId) : true))
     .filter((record) => (ownerId ? record.createdByUserId === ownerId : true))
-    .map((record) => hydrateRecord(record));
+    .map((record) => {
+      if (!record.dealId) {
+        try {
+          const deal = ensureDealForCrmClient(record, { clientId: record.clientId, user });
+          record.dealId = deal?.id || record.dealId;
+          persistClient(record);
+        } catch (error) {
+          console.warn("[crm] falha ao garantir negócio do pipeline", error?.message || error);
+        }
+      }
+
+      const hydrated = hydrateRecord(record);
+      const dealsForClient = mapDealsWithStage(
+        listPipelineDeals({ clientId: record.clientId, user, view: shouldFilterByOwner ? "mine" : view }),
+      );
+      const deal = dealsForClient.find((item) => item.crmClientId === record.id) || null;
+      return { ...hydrated, deal };
+    });
 }
 
 export function listCrmClientsWithUpcomingEvents({
@@ -264,7 +412,19 @@ export function listCrmClientsWithUpcomingEvents({
 export function getCrmClient(id, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
   ensureClientAccessible(record, clientId, user);
-  return hydrateRecord(record);
+  if (!record.dealId) {
+    try {
+      const deal = ensureDealForCrmClient(record, { clientId: record.clientId, user });
+      record.dealId = deal?.id || record.dealId;
+      persistClient(record);
+    } catch (error) {
+      console.warn("[crm] falha ao garantir negócio do pipeline", error?.message || error);
+    }
+  }
+  const hydrated = hydrateRecord(record);
+  const dealsForClient = mapDealsWithStage(listPipelineDeals({ clientId: record.clientId, user }));
+  const deal = dealsForClient.find((item) => item.crmClientId === record.id) || null;
+  return { ...hydrated, deal };
 }
 
 export function createCrmClient(payload, { user } = {}) {
@@ -312,16 +472,32 @@ export function createCrmClient(payload, { user } = {}) {
     notes: normaliseString(payload?.notes),
     relationshipType: normaliseRelationshipType(payload?.relationshipType),
     createdByUserId: user?.id || payload?.createdByUserId || null,
+    reservedDeviceIds: normaliseDeviceIds(payload?.reservedDeviceIds),
+    contractStart: normaliseDate(payload?.contractStart),
+    contractDurationDays: Number(payload?.contractDurationDays) || null,
+    contractEnd: computeContractEnd(payload?.contractStart, payload?.contractDurationDays),
+    convertedClientId: null,
+    traccarGroupId: null,
+    traccarUserId: null,
+    conversionError: null,
+    dealId: null,
     contacts: [],
     createdAt: now,
     updatedAt: now,
   };
+  try {
+    const deal = ensureDealForCrmClient(record, { clientId, user });
+    record.dealId = deal?.id || null;
+  } catch (error) {
+    console.warn("[crm] falha ao sincronizar lead com pipeline", error?.message || error);
+  }
   return persistClient(record);
 }
 
-export function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
+export async function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
   const record = crmClients.get(String(id));
   ensureClientAccessible(record, clientId, user);
+  const previousRelationship = record.relationshipType;
 
   if (updates.cnpj !== undefined) {
     const nextCnpj = normaliseCnpj(updates.cnpj);
@@ -371,8 +547,28 @@ export function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
   if (updates.notes !== undefined) record.notes = normaliseString(updates.notes);
   if (updates.relationshipType !== undefined) record.relationshipType = normaliseRelationshipType(updates.relationshipType);
 
+  if (updates.reservedDeviceIds !== undefined) record.reservedDeviceIds = normaliseDeviceIds(updates.reservedDeviceIds);
+  if (updates.contractStart !== undefined) record.contractStart = normaliseDate(updates.contractStart);
+  if (updates.contractDurationDays !== undefined)
+    record.contractDurationDays = Number(updates.contractDurationDays) || null;
+  record.contractEnd = computeContractEnd(record.contractStart, record.contractDurationDays);
+
   record.updatedAt = new Date().toISOString();
-  return persistClient(record);
+  persistClient(record);
+
+  if (previousRelationship !== "customer" && record.relationshipType === "customer") {
+    try {
+      await convertLeadToCustomer(record, { user });
+      record.updatedAt = new Date().toISOString();
+      persistClient(record);
+    } catch (error) {
+      record.conversionError = error?.message || error;
+      persistClient(record);
+      throw error;
+    }
+  }
+
+  return hydrateRecord(record);
 }
 
 export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
@@ -386,7 +582,6 @@ export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
     }
     return contacts;
   }
-  main
   return contacts.filter((contact) => contact.createdByUserId === user?.id);
 }
 

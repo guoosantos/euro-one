@@ -8,12 +8,18 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+:root {
+  color-scheme: dark;
+  --mesh-gradient: radial-gradient(circle at 20% 20%, rgba(80, 141, 255, 0.18), transparent 28%),
+    radial-gradient(circle at 80% 0%, rgba(124, 58, 237, 0.16), transparent 32%),
+    radial-gradient(circle at 10% 70%, rgba(14, 165, 233, 0.18), transparent 30%),
+    radial-gradient(circle at 90% 60%, rgba(16, 185, 129, 0.12), transparent 36%);
+}
 :root[data-theme='dark'] {
   --bg: #070a11;
   --surface: #0b0f17;
   --layer: #101624;
-  --card: rgba(15, 23, 42, 0.9);
+  --card: rgba(15, 23, 42, 0.78);
   --text: #f8fafc;
   --sub: rgba(226, 232, 240, 0.6);
   --stroke: rgba(148, 163, 184, 0.12);
@@ -26,7 +32,7 @@
   --bg: #f7fafc;
   --surface: #ffffff;
   --layer: #f1f5f9;
-  --card: rgba(255, 255, 255, 0.95);
+  --card: rgba(255, 255, 255, 0.9);
   --text: #0f172a;
   --sub: rgba(15, 23, 42, 0.6);
   --stroke: rgba(100, 116, 139, 0.18);
@@ -44,12 +50,16 @@ body.light {
 }
 * { box-sizing: border-box; }
 html { font-family: theme('fontFamily.sans'); }
-body { @apply bg-bg text-text transition-colors duration-300; }
+body {
+  @apply bg-bg text-text transition-colors duration-300;
+  background-image: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.85)), var(--mesh-gradient);
+  background-attachment: fixed;
+}
 
 .bg-bg { background-color: var(--bg); }
 .bg-surface { background-color: var(--surface); }
 .bg-layer { background-color: var(--layer); }
-.bg-card { background-color: var(--card); backdrop-filter: blur(12px); }
+.bg-card { background-color: var(--card); backdrop-filter: blur(16px); }
 .bg-primary { background-color: var(--primary); }
 .text-text { color: var(--text); }
 .text-sub { color: var(--sub); }
@@ -60,7 +70,24 @@ body { @apply bg-bg text-text transition-colors duration-300; }
 .bg-primary\/90 { background-color: color-mix(in srgb, var(--primary) 90%, transparent); }
 
 
-.card { @apply bg-card rounded-2xl border border-stroke p-5 shadow-soft; }
+.glass-panel {
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+  box-shadow: theme('boxShadow.glass');
+  border: 1px solid color-mix(in srgb, var(--accent-color, var(--primary)) 8%, var(--border));
+  backdrop-filter: blur(16px);
+}
+
+.card {
+  @apply bg-card rounded-2xl border border-stroke p-5 shadow-soft;
+  @apply backdrop-blur-md;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
+  box-shadow: theme('boxShadow.glass');
+  border: 1px solid color-mix(in srgb, var(--accent-color, var(--primary)) 8%, var(--border));
+}
+.card.dense { @apply p-4; }
+.glass-badge { @apply inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-xs text-white shadow-glow backdrop-blur-md; }
+.glass-badge .dot { @apply h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.12)]; }
+.glass { @apply rounded-2xl border border-white/10 bg-card/60 backdrop-blur-md shadow-glow; }
 .muted { @apply text-sub; }
 .btn { @apply inline-flex items-center gap-2 rounded-xl border border-stroke px-3 py-2 hover:bg-stroke/40 transition; }
 .btn-primary {

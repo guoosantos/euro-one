@@ -1,219 +1,303 @@
 import React, { useEffect, useMemo, useState } from "react";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes";
+import { useTenant } from "../lib/tenant-context";
 
-const STORAGE_KEY = "euro-one.users.visible-columns";
-const allColumns = [
-  { key: "name", label: "Nome" },
-  { key: "email", label: "E-mail" },
-  { key: "role", label: "Perfil" },
-  { key: "clientId", label: "Cliente" },
-];
+const defaultUserForm = {
+  name: "",
+  email: "",
+  password: "",
+  role: "user",
+  clientId: "",
+};
 
-function loadVisibleColumns() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    }
-  } catch (error) {
-    console.warn("Falha ao carregar preferências de colunas", error);
-  }
-  return allColumns.map((column) => column.key);
-}
-
-function persistVisibleColumns(columns) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
-  } catch (error) {
-    console.warn("Falha ao salvar colunas", error);
-  }
-}
+const roleLabels = {
+  admin: "Administrador",
+  manager: "Gestor",
+  user: "Operador",
+  driver: "Motorista",
+  viewer: "Visualizador",
+};
 
 export default function Users() {
+  const { role, tenants, tenantId, tenant, user } = useTenant();
   const [users, setUsers] = useState([]);
-  const [form, setForm] = useState({ role: "user" });
-  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [visibleColumns, setVisibleColumns] = useState(loadVisibleColumns());
+  const [form, setForm] = useState(defaultUserForm);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [message, setMessage] = useState(null);
 
-  const activeColumns = useMemo(
-    () => allColumns.filter((column) => visibleColumns.includes(column.key)),
-    [visibleColumns],
-  );
+  const managedTenants = useMemo(() => {
+    if (role === "admin") {
+      return tenants;
+    }
+    if (tenant) {
+      return [tenant];
+    }
+    if (user) {
+      return [
+        {
+          id: user.id,
+          name: user.attributes?.companyName || user.name || "Minha frota",
+        },
+      ];
+    }
+    return tenants;
+  }, [role, tenants, tenant, user]);
+
+  const selectedTenantId = form.clientId || tenantId || managedTenants[0]?.id || "";
+  const allowedRoles = role === "admin" ? Object.keys(roleLabels) : ["user", "driver", "viewer"];
+  const isManager = role === "manager";
 
   useEffect(() => {
-    persistVisibleColumns(visibleColumns);
-  }, [visibleColumns]);
+    if (!selectedTenantId && managedTenants.length) {
+      setForm((prev) => ({ ...prev, clientId: managedTenants[0].id }));
+    }
+  }, [managedTenants, selectedTenantId]);
 
   useEffect(() => {
-    api
-      .get(API_ROUTES.users)
-      .then((response) => setUsers(response?.data?.users || []))
-      .catch((err) => setError(err));
-  }, []);
+    if (selectedTenantId && (role === "admin" || role === "manager")) {
+      loadUsers(selectedTenantId);
+    }
+  }, [selectedTenantId, role]);
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  async function loadUsers(clientId) {
+    setLoading(true);
     setError(null);
     try {
-      if (editingId) {
-        const response = await api.put(`${API_ROUTES.users}/${editingId}`, form);
-        setUsers((list) => list.map((user) => (user.id === editingId ? response.data.user : user)));
-      } else {
-        const response = await api.post(API_ROUTES.users, form);
-        setUsers((list) => [...list, response.data.user]);
-      }
-      setForm({ role: "user" });
-      setEditingId(null);
-    } catch (err) {
-      setError(err);
+      const params = role === "admin" || isManager ? { clientId } : {};
+      const response = await api.get(API_ROUTES.users, { params });
+      const list = response?.data?.users || response?.data || [];
+      setUsers(Array.isArray(list) ? list : []);
+    } catch (loadError) {
+      console.error("Falha ao carregar usuários", loadError);
+      setError(loadError);
+      setUsers([]);
+    } finally {
+      setLoading(false);
     }
-  };
+  }
 
-  const startEdit = (user) => {
-    setEditingId(user.id);
-    setForm({ name: user.name, email: user.email, role: user.role, clientId: user.clientId });
-  };
+  async function handleSubmit(event) {
+    event.preventDefault();
+    if (role !== "admin" && role !== "manager") return;
+    setSaving(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const safeRole = allowedRoles.includes(form.role) ? form.role : "user";
+      const payload = { ...form, role: safeRole, clientId: selectedTenantId };
+      if (!payload.password) {
+        delete payload.password;
+      }
+      if (editingId) {
+        await api.put(`/users/${editingId}`, payload);
+        setMessage("Usuário atualizado");
+      } else {
+        await api.post(API_ROUTES.users, payload);
+        setMessage("Usuário criado");
+      }
+      setForm({ ...defaultUserForm, clientId: selectedTenantId });
+      setEditingId(null);
+      await loadUsers(selectedTenantId);
+    } catch (submitError) {
+      console.error("Falha ao salvar usuário", submitError);
+      setError(submitError);
+    } finally {
+      setSaving(false);
+    }
+  }
 
-  const remove = async (id) => {
-    if (!window.confirm("Deseja remover este usuário?")) return;
-    await api.delete(`${API_ROUTES.users}/${id}`);
-    setUsers((list) => list.filter((user) => user.id !== id));
-  };
+  function handleEdit(entry) {
+    const safeRole = allowedRoles.includes(entry.role) ? entry.role : "user";
+    setEditingId(entry.id);
+    setForm({
+      name: entry.name,
+      email: entry.email,
+      password: "",
+      role: safeRole,
+      clientId: selectedTenantId,
+    });
+  }
+
+  async function handleDelete(entry) {
+    if (!window.confirm(`Remover usuário ${entry.name}?`)) return;
+    try {
+      await api.delete(`/users/${entry.id}`);
+      setMessage("Usuário removido");
+      await loadUsers(selectedTenantId);
+    } catch (deleteError) {
+      console.error("Falha ao remover usuário", deleteError);
+      setError(deleteError);
+    }
+  }
+
+  if (role !== "admin" && role !== "manager") {
+    return (
+      <div className="card">
+        <h2 className="text-lg font-semibold">Acesso restrito</h2>
+        <p className="mt-2 text-sm opacity-70">Somente administradores ou gestores podem gerenciar usuários.</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 text-white/80">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Usuários e perfis</h1>
-      </div>
+    <div className="space-y-6">
+      <section className="card space-y-4">
+        <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-xl font-semibold">Usuários</h1>
+            <p className="text-xs opacity-70">
+              Cadastre operadores, motoristas ou gestores vinculados ao cliente selecionado.
+            </p>
+          </div>
+          <select
+            value={selectedTenantId}
+            onChange={(event) => {
+              const nextId = event.target.value;
+              setForm((prev) => ({ ...prev, clientId: nextId }));
+              loadUsers(nextId);
+            }}
+            className="w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm md:w-72"
+            disabled={role !== "admin"}
+          >
+            {managedTenants.map((tenantOption) => (
+              <option key={tenantOption.id} value={tenantOption.id}>
+                {tenantOption.name}
+              </option>
+            ))}
+          </select>
+        </header>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
         <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
-          <label className="flex flex-col gap-1 text-sm">
-            Nome
+          <label className="text-sm">
+            <span className="block text-xs uppercase tracking-wide opacity-60">Nome</span>
             <input
+              type="text"
+              value={form.name}
               required
-              value={form.name || ""}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 p-2 text-white"
+              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            E-mail
+
+          <label className="text-sm">
+            <span className="block text-xs uppercase tracking-wide opacity-60">E-mail</span>
             <input
-              required
               type="email"
-              value={form.email || ""}
-              onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 p-2 text-white"
+              value={form.email}
+              required
+              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
             />
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Perfil
+
+          <label className="text-sm">
+            <span className="block text-xs uppercase tracking-wide opacity-60">Senha</span>
+            <input
+              type="password"
+              value={form.password}
+              required={!editingId}
+              placeholder={editingId ? "Deixe em branco para manter" : "Senha temporária"}
+              onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <label className="text-sm">
+            <span className="block text-xs uppercase tracking-wide opacity-60">Perfil</span>
             <select
-              value={form.role || "user"}
-              onChange={(e) => setForm((prev) => ({ ...prev, role: e.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 p-2 text-white"
+              value={allowedRoles.includes(form.role) ? form.role : "user"}
+              onChange={(event) => setForm((prev) => ({ ...prev, role: event.target.value }))}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
-              <option value="admin">Admin</option>
-              <option value="manager">Manager</option>
-              <option value="user">Viewer</option>
+              {allowedRoles.map((value) => (
+                <option key={value} value={value}>
+                  {roleLabels[value]}
+                </option>
+              ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Client ID
-            <input
-              value={form.clientId || ""}
-              onChange={(e) => setForm((prev) => ({ ...prev, clientId: e.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 p-2 text-white"
-            />
-          </label>
-          <div className="md:col-span-2 flex items-center gap-3">
-            <button type="submit" className="rounded-lg bg-blue-600 px-4 py-2 text-white shadow">
-              {editingId ? "Salvar" : "Adicionar"}
+
+          <div className="md:col-span-2 flex items-center justify-end gap-3">
+            {error && <span className="text-sm text-red-300">{error?.response?.data?.message || error.message}</span>}
+            {message && <span className="text-sm text-emerald-300">{message}</span>}
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+            >
+              {saving ? "Salvando…" : editingId ? "Atualizar usuário" : "Adicionar usuário"}
             </button>
-            {editingId && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId(null);
-                  setForm({ role: "user" });
-                }}
-                className="text-sm text-white/70 underline"
-              >
-                Cancelar edição
-              </button>
-            )}
-            {error && <span className="text-sm text-red-300">{error.message}</span>}
           </div>
         </form>
-      </div>
+      </section>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-        <div className="mb-3 text-sm font-semibold text-white">Colunas visíveis</div>
-        <div className="flex flex-wrap gap-3 text-sm">
-          {allColumns.map((column) => (
-            <label key={column.key} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={visibleColumns.includes(column.key)}
-                onChange={(e) => {
-                  const next = e.target.checked
-                    ? [...visibleColumns, column.key]
-                    : visibleColumns.filter((item) => item !== column.key);
-                  setVisibleColumns(next);
-                }}
-              />
-              {column.label}
-            </label>
-          ))}
-        </div>
-      </div>
+      <section className="card">
+        <header className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Usuários vinculados</h2>
+          <button
+            type="button"
+            onClick={() => loadUsers(selectedTenantId)}
+            className="rounded-lg border border-border px-3 py-2 text-xs hover:bg-white/5"
+          >
+            Recarregar
+          </button>
+        </header>
 
-      <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/5">
-        <table className="min-w-full text-sm">
-          <thead className="bg-white/10 text-left text-xs uppercase text-white/60">
-            <tr>
-              {activeColumns.map((column) => (
-                <th key={column.key} className="px-4 py-3">
-                  {column.label}
-                </th>
-              ))}
-              <th className="px-4 py-3">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {users.map((user) => (
-              <tr key={user.id} className="hover:bg-white/5">
-                {activeColumns.map((column) => (
-                  <td key={column.key} className="px-4 py-2 text-white/80">
-                    {user[column.key] ?? "-"}
-                  </td>
+        {loading ? (
+          <p className="text-sm opacity-70">Carregando usuários…</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="text-left text-xs uppercase tracking-wide opacity-60">
+                <tr>
+                  <th className="py-2 pr-4">Nome</th>
+                  <th className="py-2 pr-4">E-mail</th>
+                  <th className="py-2 pr-4">Perfil</th>
+                  <th className="py-2 pr-4 text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border/40">
+                {users.map((entry) => (
+                  <tr key={entry.id} className="hover:bg-white/5">
+                    <td className="py-2 pr-4 text-white">{entry.name}</td>
+                    <td className="py-2 pr-4 text-white/70">{entry.email}</td>
+                    <td className="py-2 pr-4 text-white/70">{roleLabels[entry.role] || entry.role || "—"}</td>
+                    <td className="py-2 pr-4 text-right">
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleEdit(entry)}
+                          className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-white/5"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(entry)}
+                          className="rounded-lg border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 ))}
-                <td className="px-4 py-2">
-                  <div className="flex gap-2 text-xs">
-                    <button className="text-blue-300 underline" onClick={() => startEdit(user)}>
-                      Editar
-                    </button>
-                    <button className="text-red-300 underline" onClick={() => remove(user.id)}>
-                      Excluir
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {!users.length && (
-              <tr>
-                <td className="px-4 py-3 text-white/60" colSpan={activeColumns.length + 1}>
-                  Nenhum usuário cadastrado.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                {!users.length && (
+                  <tr>
+                    <td colSpan={4} className="py-4 text-center text-sm opacity-70">
+                      Nenhum usuário cadastrado para este cliente.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

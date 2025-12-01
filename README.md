@@ -89,8 +89,20 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - **Vídeo e visão computacional**: player HLS/RTSP com streams configuradas nos atributos dos dispositivos, módulo de reconhecimento facial e alertas de fadiga.
 - **Temas e i18n**: tema claro/escuro e tradução pt-BR/en-US (Topbar > ícone de idioma).
 
+## Destaques em relação aos concorrentes
+
+- **UX fluida e responsiva**: interface React + Tailwind com microinterações (Framer Motion), experiência mobile-first e componentes shadcn padronizados, superando UIs legadas e engessadas.
+- **Integração total com rastreadores**: sincronização contínua com Traccar (API e banco), telemetria em tempo real e comandos diretos, mantendo WebSocket `/ws/live` e pipelines de retry/log para estabilidade.
+- **Gestão unificada**: um único painel multi-tenant para clientes, usuários, contratos e dispositivos, evitando a fragmentação típica de ERPs genéricos; admins e managers operam com filtros e permissões consistentes.
+- **CRM nativo automatizado**: pipeline Kanban de vendas, deals ligados a clientes, lembretes e atividades integrados; conversão de leads cria cliente, usuário/grupo no Traccar e vincula dispositivos automaticamente.
+- **Segurança e confiabilidade**: controle de acesso por papel/tenant, respostas de erro padronizadas e políticas claras de conexão com o Traccar (timeouts, retries, cache), reduzindo quedas e inconsistências.
+
 ## Fase 5 — testes finais e deploy
 
 - Consulte `docs/fase5-checklist.md` para o checklist de aceite funcional, otimizações e passos de deploy.
 - Antes de publicar, rode `npm run build` na raiz para validar o pacote front-end e garanta que o backend sobe com `NODE_ENV=production` e variáveis (`VITE_API_BASE_URL`, `PORT`, `TRACCAR_BASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`) configuradas no host escolhido (Vercel/Render/Railway).
 - Registre no checklist as URLs públicas e quaisquer etapas manuais de provisionamento realizadas.
+
+## Plano técnico de execução
+
+O detalhamento das quatro fases concluídas (migração Prisma, unificação de menus/RBAC, modernização de UI e CRM 2.0) está documentado em `docs/plano-tecnico-execucao.md`, incluindo a ordem recomendada para preparar ambientes (migrate, seed, migração do storage e subida dos serviços).

@@ -15,14 +15,25 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AnimatePresence, motion } from "framer-motion";
+import { Responsive, WidthProvider } from "react-grid-layout";
+import { MoveRight, Sparkles } from "lucide-react";
 import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useReports } from "../lib/hooks/useReports";
 import Card from "../ui/Card.jsx";
+import { Badge } from "../ui/shadcn/badge.jsx";
+import { Button } from "../ui/shadcn/button.jsx";
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
+
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
+
+const ResponsiveGridLayout = WidthProvider(Responsive);
+const LAYOUT_STORAGE_KEY = "dashboard-grid-layout-v1";
 
 function toArray(value) {
   if (Array.isArray(value)) return value;
@@ -87,12 +98,68 @@ function computeDriverRanking(events) {
     .slice(0, 5);
 }
 
+const baseLayout = [
+  { i: "stat-vehicles", x: 0, y: 0, w: 3, h: 2 },
+  { i: "stat-distance", x: 3, y: 0, w: 3, h: 2 },
+  { i: "stat-speed", x: 6, y: 0, w: 3, h: 2 },
+  { i: "stat-engine", x: 9, y: 0, w: 3, h: 2 },
+  { i: "chart-telemetry", x: 0, y: 2, w: 8, h: 6 },
+  { i: "chart-events", x: 8, y: 2, w: 4, h: 6 },
+  { i: "chart-ranking", x: 0, y: 8, w: 6, h: 6 },
+  { i: "chart-fuel", x: 6, y: 8, w: 6, h: 6 },
+  { i: "panel-quick-report", x: 0, y: 14, w: 12, h: 3 },
+];
+
+function clampLayout(cols) {
+  return baseLayout.map((item) => {
+    const width = Math.min(item.w, cols);
+    return {
+      ...item,
+      w: width,
+      x: Math.min(item.x, Math.max(cols - width, 0)),
+    };
+  });
+}
+
+const defaultLayouts = {
+  lg: baseLayout,
+  md: clampLayout(10),
+  sm: clampLayout(8),
+  xs: clampLayout(6),
+  xxs: clampLayout(2),
+};
+
+function loadLayouts() {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    return stored ? JSON.parse(stored) : null;
+  } catch (error) {
+    console.warn("Não foi possível restaurar o layout do dashboard", error);
+    return null;
+  }
+}
+
+function saveLayouts(layouts) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+  } catch (error) {
+    console.warn("Não foi possível salvar o layout do dashboard", error);
+  }
+}
+
+function cloneLayouts(layouts) {
+  return JSON.parse(JSON.stringify(layouts));
+}
+
 export default function Dashboard() {
   const { locale, t } = useTranslation();
   const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices({ withPositions: true });
   const { events, loading: loadingEvents } = useEvents({ limit: 200, refreshInterval: 60_000 });
   const { generateTripsReport, loading: generatingReport, error: reportError } = useReports();
   const [quickFeedback, setQuickFeedback] = useState(null);
+  const [layouts, setLayouts] = useState(() => cloneLayouts(loadLayouts() || defaultLayouts));
 
   const positions = useMemo(() => positionsByDeviceId ?? {}, [positionsByDeviceId]);
 
@@ -164,58 +231,96 @@ export default function Dashboard() {
     }
   }, [devices, generateTripsReport]);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-2">
-        {(loadingDevices || loadingEvents) && <Loading message="Atualizando dados da frota..." />}
-        {reportError && <ErrorMessage error={reportError} fallback="Não foi possível gerar o relatório." />}
-      </div>
+  const handleLayoutChange = (_current, updatedLayouts) => {
+    const snapshot = cloneLayouts(updatedLayouts);
+    setLayouts(snapshot);
+    saveLayouts(snapshot);
+  };
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardStat title="Veículos monitorados" value={loadingDevices ? "…" : devices.length} />
-        <DashboardStat
-          title="Distância acumulada"
-          value={`${summary.totalDistance.toFixed(1)} km`}
-          hint="Somatório da métrica totalDistance reportada pelos rastreadores"
-        />
-        <DashboardStat title="Velocidade média" value={`${summary.avgSpeed} km/h`} />
-        <DashboardStat title="Motor ligado" value={`${summary.engineTotal} h`} hint="Horas acumuladas de ignição" />
-      </section>
+  const resetLayout = () => {
+    const fallback = cloneLayouts(defaultLayouts);
+    setLayouts(fallback);
+    saveLayouts(fallback);
+  };
 
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <Card
-          className="xl:col-span-2"
-          title="Telemetria da frota"
-          subtitle="Velocidade média, distância e horas de motor por veículo"
-        >
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={summary.speedDistribution}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
-              <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-              <YAxis stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
-              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
-              <Legend />
-              <Line type="monotone" dataKey="velocidade" stroke="#38bdf8" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="distancia" stroke="#22c55e" strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="motor" stroke="#f97316" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </Card>
-
-        <Card title="Eventos por tipo" subtitle="Atualização contínua a cada minuto">
-          <ResponsiveContainer width="100%" height={320}>
-            <PieChart>
-              <Pie data={eventChartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} fill="#6366f1" label />
-              <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
-            </PieChart>
-          </ResponsiveContainer>
-        </Card>
-      </section>
-
-        <section className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <Card title="Ranking de motoristas" subtitle="Pontuação baseada em eventos de condução">
-            <ResponsiveContainer width="100%" height={320}>
-              <BarChart data={summary.drivers}>
+  const gridItems = useMemo(
+    () => [
+      {
+        key: "stat-vehicles",
+        node: (
+          <DashboardStat
+            title="Veículos monitorados"
+            value={loadingDevices ? "…" : devices.length}
+            hint="Conexões ativas com o Traccar"
+          />
+        ),
+      },
+      {
+        key: "stat-distance",
+        node: (
+          <DashboardStat
+            title="Distância acumulada"
+            value={`${summary.totalDistance.toFixed(1)} km`}
+            hint="Somatório da métrica totalDistance reportada"
+          />
+        ),
+      },
+      {
+        key: "stat-speed",
+        node: <DashboardStat title="Velocidade média" value={`${summary.avgSpeed} km/h`} hint="Últimos pontos recebidos" />,
+      },
+      {
+        key: "stat-engine",
+        node: <DashboardStat title="Motor ligado" value={`${summary.engineTotal} h`} hint="Horas acumuladas de ignição" />,
+      },
+      {
+        key: "chart-telemetry",
+        node: (
+          <Card
+            title="Telemetria da frota"
+            subtitle="Arraste para reposicionar ou ampliar o gráfico"
+            contentClassName="h-full"
+            headerClassName="drag-handle"
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={summary.speedDistribution} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
+                <XAxis dataKey="name" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
+                <YAxis stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
+                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+                <Legend />
+                <Line type="monotone" dataKey="velocidade" stroke="#38bdf8" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="distancia" stroke="#22c55e" strokeWidth={2} dot={false} />
+                <Line type="monotone" dataKey="motor" stroke="#f97316" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </Card>
+        ),
+      },
+      {
+        key: "chart-events",
+        node: (
+          <Card
+            title="Eventos por tipo"
+            subtitle="Atualização contínua a cada minuto"
+            contentClassName="h-full"
+            headerClassName="drag-handle"
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie data={eventChartData} dataKey="value" nameKey="name" innerRadius={60} outerRadius={100} fill="#6366f1" label />
+                <Tooltip contentStyle={{ background: "#0f172a", border: "1px solid rgba(148,163,184,0.2)" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </Card>
+        ),
+      },
+      {
+        key: "chart-ranking",
+        node: (
+          <Card title="Ranking de motoristas" subtitle="Pontuação baseada em eventos de condução" contentClassName="h-full" headerClassName="drag-handle">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={summary.drivers} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.15)" />
                 <XAxis dataKey="driver" stroke="rgba(148,163,184,0.7)" tick={{ fontSize: 12 }} />
                 <YAxis stroke="rgba(148,163,184,0.7)" />
@@ -226,10 +331,14 @@ export default function Dashboard() {
               </BarChart>
             </ResponsiveContainer>
           </Card>
-
-          <Card title="Consumo CAN" subtitle="Nível de combustível e rotações por minuto">
-            <ResponsiveContainer width="100%" height={320}>
-              <AreaChart data={summary.fuelSeries}>
+        ),
+      },
+      {
+        key: "chart-fuel",
+        node: (
+          <Card title="Consumo CAN" subtitle="Nível de combustível e rotações por minuto" contentClassName="h-full" headerClassName="drag-handle">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={summary.fuelSeries} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorFuel" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#facc15" stopOpacity={0.8} />
@@ -246,42 +355,104 @@ export default function Dashboard() {
               </AreaChart>
             </ResponsiveContainer>
           </Card>
-        </section>
+        ),
+      },
+      {
+        key: "panel-quick-report",
+        node: (
+          <Card
+            title="Relatório rápido de viagens"
+            subtitle="Salva no histórico e pode ser exportado em CSV"
+            headerClassName="drag-handle"
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-2">
+                <p className="text-sm opacity-80">Dispare rapidamente um relatório das últimas 24h do primeiro veículo listado.</p>
+                <div className="flex flex-wrap items-center gap-3 text-xs text-white/70">
+                  <Badge variant="muted" className="glass-badge">
+                    <span className="dot" /> Atualização ao vivo
+                  </Badge>
+                  <span className="flex items-center gap-2">Arraste qualquer cartão para reorganizar <MoveRight size={14} /></span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Button variant="ghost" size="sm" onClick={resetLayout} className="border border-white/10">
+                  Redefinir layout
+                </Button>
+                <Button onClick={handleQuickReport} disabled={generatingReport}>
+                  {generatingReport ? "Gerando…" : "Gerar últimas 24h"}
+                </Button>
+              </div>
+            </div>
+            {reportError && (
+              <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                {reportError.message}
+              </div>
+            )}
+            <AnimatePresence>
+              {quickFeedback && (
+                <motion.div
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2 }}
+                  className={`mt-3 rounded-lg border p-3 text-sm ${
+                    quickFeedback.type === "success"
+                      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                      : "border-red-500/30 bg-red-500/10 text-red-200"
+                  }`}
+                >
+                  {quickFeedback.message}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </Card>
+        ),
+      },
+    ],
+    [devices.length, generatingReport, handleQuickReport, loadingDevices, reportError, summary, quickFeedback],
+  );
 
-        <Card
-          title="Relatório rápido de viagens"
-          subtitle="Dispare um relatório de viagens diretamente do dashboard"
-          actions={
-            <button
-              type="button"
-              onClick={handleQuickReport}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow hover:bg-primary/90 disabled:opacity-60"
-              disabled={generatingReport}
-            >
-              {generatingReport ? "Gerando…" : "Gerar últimas 24h"}
-            </button>
-          }
-        >
-          <p className="text-sm opacity-70">
-            O relatório será salvo no histórico e pode ser exportado em CSV na página de relatórios.
-          </p>
-          {reportError && (
-            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-              {reportError.message}
-            </div>
-          )}
-          {quickFeedback && (
-            <div
-              className={`mt-3 rounded-lg border p-3 text-sm ${
-                quickFeedback.type === "success"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                  : "border-red-500/30 bg-red-500/10 text-red-200"
-              }`}
-            >
-              {quickFeedback.message}
-            </div>
-          )}
-        </Card>
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-xs uppercase tracking-[0.2em] text-white/60">Dashboard dinâmico</p>
+          <h1 className="text-2xl font-semibold text-white">Operação ao vivo</h1>
+        </div>
+        <Badge variant="muted" className="glass-badge">
+          <Sparkles size={14} /> Novo visual com animações suaves
+        </Badge>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        {(loadingDevices || loadingEvents) && <Loading message="Atualizando dados da frota..." />}
+        {reportError && <ErrorMessage error={reportError} fallback="Não foi possível gerar o relatório." />}
+      </div>
+
+      <ResponsiveGridLayout
+        className="layout"
+        layouts={layouts}
+        breakpoints={{ lg: 1280, md: 1060, sm: 880, xs: 640, xxs: 0 }}
+        cols={{ lg: 12, md: 10, sm: 8, xs: 6, xxs: 2 }}
+        rowHeight={82}
+        margin={[16, 16]}
+        onLayoutChange={handleLayoutChange}
+        draggableHandle=".drag-handle"
+        compactType="vertical"
+      >
+        {gridItems.map((item) => (
+          <motion.div
+            key={item.key}
+            className="h-full"
+            layout
+            transition={{ type: "spring", stiffness: 140, damping: 20 }}
+            whileHover={{ scale: 1.01 }}
+          >
+            {item.node}
+          </motion.div>
+        ))}
+      </ResponsiveGridLayout>
 
       {loadingEvents && <div className="text-xs opacity-60">Sincronizando eventos em tempo real…</div>}
     </div>
@@ -290,10 +461,18 @@ export default function Dashboard() {
 
 function DashboardStat({ title, value, hint }) {
   return (
-    <Card className="space-y-2">
-      <div className="text-xs uppercase tracking-wider opacity-60">{title}</div>
-      <div className="text-2xl font-semibold">{value}</div>
-      {hint && <div className="text-xs opacity-60">{hint}</div>}
+    <Card className="h-full" contentClassName="flex h-full flex-col justify-between gap-3" headerClassName="drag-handle">
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="text-xs uppercase tracking-wider opacity-70">{title}</div>
+          <div className="text-3xl font-semibold">{value}</div>
+        </div>
+        <Badge variant="muted" className="glass-badge">
+          <span className="dot" />
+          Ao vivo
+        </Badge>
+      </div>
+      {hint && <div className="text-xs opacity-70">{hint}</div>}
     </Card>
   );
 }

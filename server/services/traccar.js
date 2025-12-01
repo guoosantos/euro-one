@@ -37,18 +37,14 @@ async function httpRequest({
   params,
   data,
   headers = {},
-  timeout = 20_000,
+  timeout = 5_000,
+  retries = 0,
+  retryDelay = 500,
+  backoffFactor = 2,
 }) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
-
   const finalUrl = buildUrl(baseURL, url, params);
   const resolvedHeaders = new Headers({ Accept: "application/json", ...headers });
-  const init = {
-    method: method.toUpperCase(),
-    headers: resolvedHeaders,
-    signal: controller.signal,
-  };
+  const init = { method: method.toUpperCase(), headers: resolvedHeaders };
 
   if (data !== undefined && data !== null) {
     if (data instanceof URLSearchParams || typeof data === "string") {
@@ -66,51 +62,96 @@ async function httpRequest({
     }
   }
 
-  try {
-    const response = await fetch(finalUrl, init);
-    clearTimeout(timer);
+  let attempt = 0;
+  let delay = retryDelay;
+  let lastError;
 
-    let payload;
+  const shouldRetry = (error) => {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    if (status === 401 || status === 403) return false;
+    if (error?.name === "AbortError") return false;
+    if (status >= 500 && status < 600) return true;
+    const code = error?.code;
+    return ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT"].includes(code);
+  };
+
+  while (attempt <= retries) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
     try {
-      payload = await response.clone().json();
-    } catch (_parseError) {
-      payload = await response.text();
+      const response = await fetch(finalUrl, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+
+      let payload;
+      try {
+        payload = await response.clone().json();
+      } catch (_parseError) {
+        payload = await response.text();
+      }
+
+      const rawHeaders =
+        typeof response.headers.raw === "function"
+          ? response.headers.raw()
+          : Object.fromEntries(response.headers.entries());
+
+      const normalisedResponse = {
+        status: response.status,
+        statusText: response.statusText,
+        headers: rawHeaders,
+        data: payload,
+      };
+
+      if (!response.ok) {
+        const message =
+          payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
+        const error = createError(response.status || 500, message);
+        error.response = normalisedResponse;
+        throw buildTraccarUnavailableError(error, {
+          url: finalUrl,
+          method: init.method,
+          response: payload,
+          attempt: attempt + 1,
+        });
+      }
+
+      return normalisedResponse;
+    } catch (error) {
+      clearTimeout(timer);
+      lastError =
+        error?.isTraccarError || error?.code === "TRACCAR_UNAVAILABLE"
+          ? error
+          : buildTraccarUnavailableError(error, {
+              url: finalUrl,
+              method: init.method,
+              attempt: attempt + 1,
+            });
+
+      const retryable = shouldRetry(lastError) && attempt < retries;
+      if (!retryable) {
+        throw lastError;
+      }
+
+      console.warn("[traccar] retrying request", {
+        url: finalUrl,
+        method: init.method,
+        attempt: attempt + 1,
+        maxAttempts: retries + 1,
+        status: lastError?.status || lastError?.statusCode || lastError?.response?.status,
+        code: lastError?.code,
+        message: lastError?.message || lastError,
+      });
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      delay = Math.min(delay * backoffFactor, timeout);
+      attempt += 1;
     }
-
-    const rawHeaders =
-      typeof response.headers.raw === "function"
-        ? response.headers.raw()
-        : Object.fromEntries(response.headers.entries());
-
-    const normalisedResponse = {
-      status: response.status,
-      statusText: response.statusText,
-      headers: rawHeaders,
-      data: payload,
-    };
-
-    if (!response.ok) {
-      const message =
-        payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
-      const error = createError(response.status || 500, message);
-      error.response = normalisedResponse;
-      throw buildTraccarUnavailableError(error, { url: finalUrl, method: init.method, response: payload });
-    }
-
-    return normalisedResponse;
-  } catch (error) {
-    clearTimeout(timer);
-    if (error?.isTraccarError || error?.code === "TRACCAR_UNAVAILABLE") {
-      throw error;
-    }
-
-    throw buildTraccarUnavailableError(error, { url: finalUrl, method: init.method });
   }
+
+  throw lastError || createError(503, TRACCAR_UNAVAILABLE_MESSAGE);
 }
 
 export function buildTraccarUnavailableError(reason, context = {}) {
   const statusFromReason = Number(reason?.status || reason?.statusCode || reason?.response?.status);
-  const status = Number.isFinite(statusFromReason) && statusFromReason >= 400 ? statusFromReason : 502;
+  const status = Number.isFinite(statusFromReason) && statusFromReason >= 400 ? statusFromReason : 503;
 
   const error = createError(status, TRACCAR_UNAVAILABLE_MESSAGE);
   error.code = "TRACCAR_UNAVAILABLE";
@@ -263,6 +304,7 @@ export async function traccarRequest(options, context, { asAdmin = false } = {})
     baseURL: BASE_URL,
     ...options,
     headers,
+    retries: options?.retries ?? 2,
   });
 }
 

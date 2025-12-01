@@ -31,8 +31,6 @@ import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
-import AdminClients from "./pages/AdminClients";
-import ClientUsers from "./pages/ClientUsers";
 import Clients from "./pages/Clients";
 import Users from "./pages/Users";
 import Groups from "./pages/Groups";
@@ -91,8 +89,6 @@ export const routeConfig = [
   { path: "/account", element: Account, title: "Conta" },
   { path: "/settings", element: Settings, title: "Configurações" },
   { path: "/notifications", element: Notifications, title: "Notificações" },
-  { path: "/admin/clients", element: AdminClients, title: "Clientes" },
-  { path: "/admin/users", element: ClientUsers, title: "Usuários" },
   { path: "/clients", element: Clients, title: "Clientes" },
   { path: "/users", element: Users, title: "Usuários" },
   { path: "/crm", element: Crm, title: "CRM" },
