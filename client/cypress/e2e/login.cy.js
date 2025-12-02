@@ -49,7 +49,7 @@ describe("Fluxos principais", () => {
       body: { clients: [] },
     }).as("clientsEmpty");
 
-    cy.visit("/admin/clients");
+    cy.visit("/clients");
     cy.wait("@clientsEmpty");
 
     cy.intercept("POST", "/api/clients", {

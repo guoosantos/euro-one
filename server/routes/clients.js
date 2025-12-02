@@ -10,9 +10,9 @@ const router = express.Router();
 
 router.use(authenticate);
 
-router.get("/clients", requireRole("manager", "admin"), (req, res, next) => {
+router.get("/clients", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const allClients = listClients();
+    const allClients = await listClients();
     if (req.user.role === "admin") {
       return res.json({ clients: allClients });
     }
@@ -20,20 +20,20 @@ router.get("/clients", requireRole("manager", "admin"), (req, res, next) => {
     if (!clientId) {
       return res.json({ clients: [] });
     }
-    const client = getClientById(clientId);
+    const client = await getClientById(clientId);
     return res.json({ clients: client ? [client] : [] });
   } catch (error) {
     return next(error);
   }
 });
 
-router.post("/clients", requireRole("admin"), (req, res, next) => {
+router.post("/clients", requireRole("admin"), async (req, res, next) => {
   try {
     const { name, deviceLimit, userLimit, attributes = {} } = req.body || {};
     if (!name) {
       throw createError(400, "Nome é obrigatório");
     }
-    const client = createClient({
+    const client = await createClient({
       name,
       deviceLimit,
       userLimit,
@@ -45,13 +45,13 @@ router.post("/clients", requireRole("admin"), (req, res, next) => {
   }
 });
 
-router.put("/clients/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.put("/clients/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { id } = req.params;
     if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
       throw createError(403, "Permissão insuficiente para atualizar este cliente");
     }
-    const client = updateClient(id, req.body || {});
+    const client = await updateClient(id, req.body || {});
     return res.json({ client });
   } catch (error) {
     return next(error);

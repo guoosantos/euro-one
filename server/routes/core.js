@@ -12,6 +12,7 @@ import * as vehicleModel from "../models/vehicle.js";
 import * as traccarService from "../services/traccar.js";
 import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
+import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 
@@ -46,6 +47,7 @@ const defaultDeps = {
   buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
   fetchLatestPositions: traccarDbService.fetchLatestPositions,
   isTraccarDbConfigured: traccarDbService.isTraccarDbConfigured,
+  ensureTraccarRegistryConsistency,
   getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
   enrichPositionsWithAddresses: addressUtils.enrichPositionsWithAddresses,
 };
@@ -589,6 +591,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
+    await deps.ensureTraccarRegistryConsistency();
+
     const cacheKey = clientId ? `telemetry:${clientId}` : "telemetry:all";
     const cached = telemetryCache.get(cacheKey);
     if (cached) {
@@ -801,9 +805,10 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   }
 });
 
-router.get("/devices", (req, res, next) => {
+router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    await deps.ensureTraccarRegistryConsistency();
     const cacheKey = buildDeviceCacheKey(clientId);
     const cached = getCachedRegistry(cacheKey);
     if (cached) {
@@ -1149,6 +1154,7 @@ export function __setCoreRouteMocks(overrides = {}) {
 export function __resetCoreRouteMocks() {
   Object.assign(deps, defaultDeps);
   telemetryCache.clear();
+  eventsCache.clear();
   telemetryWarnLog.clear();
   registryCacheKeys.forEach((key) => registryCache.delete(key));
   registryCacheKeys.clear();

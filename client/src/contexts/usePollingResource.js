@@ -7,12 +7,14 @@ export function usePollingResource(fetcher, {
   maxInterval = 60_000,
   initialData = null,
   pauseWhenHidden = true,
+  minInterval = interval,
 } = {}) {
   const [state, setState] = useState({ data: initialData, loading: Boolean(enabled), error: null, fetchedAt: null });
   const timerRef = useRef(null);
   const abortRef = useRef(null);
   const stoppedRef = useRef(false);
   const intervalRef = useRef(interval);
+  const lastRunRef = useRef(0);
   const visibilityRef = useRef(typeof document === "undefined" ? "visible" : document.visibilityState);
 
   const clearTimer = useCallback(() => {
@@ -34,6 +36,11 @@ export function usePollingResource(fetcher, {
 
   const run = useCallback(async () => {
     if (!enabled || stoppedRef.current) return;
+    const now = Date.now();
+    if (lastRunRef.current && now - lastRunRef.current < minInterval) {
+      schedule(minInterval - (now - lastRunRef.current));
+      return;
+    }
     if (pauseWhenHidden && visibilityRef.current === "hidden") {
       schedule(intervalRef.current);
       return;
@@ -47,6 +54,7 @@ export function usePollingResource(fetcher, {
       const result = await fetcher({ signal: controller.signal });
       if (controller.signal.aborted) return;
       intervalRef.current = interval;
+      lastRunRef.current = Date.now();
       setState({ data: result ?? initialData, loading: false, error: null, fetchedAt: new Date() });
       schedule(intervalRef.current);
     } catch (error) {
@@ -58,6 +66,7 @@ export function usePollingResource(fetcher, {
       } else {
         intervalRef.current = Math.min(intervalRef.current * backoffFactor, maxInterval);
       }
+      lastRunRef.current = Date.now();
       setState((prev) => ({
         ...prev,
         loading: false,
@@ -67,11 +76,12 @@ export function usePollingResource(fetcher, {
         schedule(intervalRef.current);
       }
     }
-  }, [enabled, fetcher, initialData, interval, backoffFactor, maxInterval, schedule]);
+  }, [enabled, fetcher, initialData, interval, backoffFactor, maxInterval, minInterval, pauseWhenHidden, schedule]);
 
   useEffect(() => {
     stoppedRef.current = false;
     intervalRef.current = interval;
+    lastRunRef.current = 0;
     if (enabled) {
       void run();
     } else {
@@ -102,6 +112,7 @@ export function usePollingResource(fetcher, {
   const refresh = useCallback(() => {
     stoppedRef.current = false;
     intervalRef.current = interval;
+    lastRunRef.current = 0;
     clearTimer();
     void run();
   }, [clearTimer, interval, run]);

@@ -5,7 +5,15 @@ try {
   console.warn("[prisma] pacote @prisma/client indisponível, usando stub em memória");
 }
 
-const prisma = PrismaClient ? new PrismaClient() : null;
+let prisma = null;
+if (PrismaClient) {
+  try {
+    prisma = new PrismaClient();
+  } catch (error) {
+    console.warn("[prisma] falha ao inicializar PrismaClient", error?.message || error);
+    prisma = null;
+  }
+}
 
 export function getPrisma() {
   if (!prisma) {

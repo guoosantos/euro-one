@@ -56,6 +56,38 @@ body {
   background-attachment: fixed;
 }
 
+.app-shell {
+  @apply min-h-screen bg-gradient-to-b from-[#0a0f1a] via-[#0b1220] to-[#0f172a] text-text;
+  background-image: var(--mesh-gradient), radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.04), transparent 48%);
+}
+
+.surface-veil {
+  background: linear-gradient(120deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid color-mix(in srgb, var(--accent-color, var(--primary)) 10%, var(--border));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+}
+
+.dashboard-hero {
+  @apply relative overflow-hidden rounded-2xl border border-white/10 px-5 py-4 text-white shadow-glass;
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.08), rgba(99, 102, 241, 0.08)), var(--mesh-gradient);
+}
+
+.dashboard-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.18), transparent 40%),
+    radial-gradient(circle at 80% 0%, rgba(16, 185, 129, 0.16), transparent 40%);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.dashboard-hero-content {
+  position: relative;
+  z-index: 1;
+}
+
 .bg-bg { background-color: var(--bg); }
 .bg-surface { background-color: var(--surface); }
 .bg-layer { background-color: var(--layer); }

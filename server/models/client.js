@@ -1,45 +1,29 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
-import { loadCollection, saveCollection } from "../services/storage.js";
-
-const STORAGE_KEY = "clients";
-const clients = new Map();
-
-function syncStorage() {
-  saveCollection(STORAGE_KEY, Array.from(clients.values()));
-}
+import prisma from "../services/prisma.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function persistClient(record, { skipSync = false } = {}) {
-  clients.set(record.id, record);
-  if (!skipSync) {
-    syncStorage();
-  }
-  return record;
+function clone(record) {
+  if (!record) return null;
+  return { ...record };
 }
 
-const persistedClients = loadCollection(STORAGE_KEY, []);
-persistedClients.forEach((record) => {
-  if (record?.id) {
-    persistClient({ ...record }, { skipSync: true });
-  }
-});
-
-export function listClients() {
-  return Array.from(clients.values()).map((client) => ({ ...client }));
+export async function listClients() {
+  const clients = await prisma.client.findMany({ orderBy: { createdAt: "desc" } });
+  return clients.map(clone);
 }
 
-export function getClientById(id) {
-  const record = clients.get(String(id));
-  return record ? { ...record } : null;
+export async function getClientById(id) {
+  const record = await prisma.client.findUnique({ where: { id: String(id) } });
+  return clone(record);
 }
 
-export function createClient({
+export async function createClient({
   name,
   deviceLimit = 100,
   userLimit = 50,
@@ -49,48 +33,55 @@ export function createClient({
     throw createError(400, "Nome é obrigatório");
   }
   const id = randomUUID();
-  const now = new Date().toISOString();
-  const record = {
-    id,
-    name,
-    deviceLimit: toNumber(deviceLimit, 0),
-    userLimit: toNumber(userLimit, 0),
-    attributes,
-    createdAt: now,
-    updatedAt: now,
-  };
-  persistClient(record);
-  return { ...record };
+  const record = await prisma.client.create({
+    data: {
+      id,
+      name,
+      deviceLimit: toNumber(deviceLimit, 0),
+      userLimit: toNumber(userLimit, 0),
+      attributes,
+    },
+  });
+  return clone(record);
 }
 
-export function updateClient(id, updates = {}) {
-  const record = clients.get(String(id));
+export async function updateClient(id, updates = {}) {
+  const record = await prisma.client.findUnique({ where: { id: String(id) } });
   if (!record) {
     throw createError(404, "Cliente não encontrado");
   }
+  const payload = {};
   if (updates.name) {
-    record.name = updates.name;
+    payload.name = updates.name;
   }
   if (Object.prototype.hasOwnProperty.call(updates, "deviceLimit")) {
-    record.deviceLimit = toNumber(updates.deviceLimit, record.deviceLimit);
+    payload.deviceLimit = toNumber(updates.deviceLimit, record.deviceLimit);
   }
   if (Object.prototype.hasOwnProperty.call(updates, "userLimit")) {
-    record.userLimit = toNumber(updates.userLimit, record.userLimit);
+    payload.userLimit = toNumber(updates.userLimit, record.userLimit);
   }
   if (updates.attributes) {
-    record.attributes = { ...record.attributes, ...updates.attributes };
+    payload.attributes = updates.attributes;
   }
-  record.updatedAt = new Date().toISOString();
-  persistClient(record);
-  return { ...record };
+  const nextRecord = await prisma.client.update({
+    where: { id: String(id) },
+    data: { ...payload, updatedAt: new Date() },
+  });
+  return clone(nextRecord);
 }
 
-export function deleteClient(id) {
-  const record = clients.get(String(id));
+export async function deleteClient(id) {
+  const record = await prisma.client.delete({ where: { id: String(id) } }).catch(() => null);
   if (!record) {
     throw createError(404, "Cliente não encontrado");
   }
-  clients.delete(String(id));
-  syncStorage();
-  return { ...record };
+  return clone(record);
 }
+
+export default {
+  listClients,
+  getClientById,
+  createClient,
+  updateClient,
+  deleteClient,
+};
