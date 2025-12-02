@@ -2,32 +2,24 @@ import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
 import { resolveClientId, resolveClientIdMiddleware } from "../middleware/client.js";
-import {
-  addCrmContact,
-  createCrmClient,
-  getCrmClient,
-  listCrmClients,
-  listCrmClientsWithUpcomingEvents,
-  listCrmContacts,
-  updateCrmClient,
-} from "../models/crm.js";
-import {
-  createActivity,
-  createDeal,
-  createReminder,
-  listActivities,
-  listDeals,
-  listPipelineStages,
-  listReminders,
-  moveDealToStage,
-} from "../models/crm-pipeline.js";
-import { createCrmTag, deleteCrmTag, listCrmTags } from "../models/crm-tags.js";
+import * as crmModel from "../models/crm.js";
+import * as crmPipelineModel from "../models/crm-pipeline.js";
+import * as crmTagsModel from "../models/crm-tags.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 
-router.use(authenticate);
-router.use(resolveClientIdMiddleware);
+const deps = {
+  authenticate,
+  resolveClientId,
+  resolveClientIdMiddleware,
+  ...crmModel,
+  ...crmPipelineModel,
+  ...crmTagsModel,
+};
+
+router.use((req, res, next) => deps.authenticate(req, res, next));
+router.use((req, res, next) => deps.resolveClientIdMiddleware(req, res, next));
 
 const crmCache = createTtlCache(30_000);
 const crmCacheKeys = new Set();
@@ -57,7 +49,12 @@ router.get("/clients", async (req, res, next) => {
     const isAdmin = req.user?.role === "admin";
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
     const createdByUserId = view === "mine" ? req.user?.id : undefined;
-    const clients = await listCrmClients({ clientId: req.clientId, user: req.user, createdByUserId, view });
+    const clients = await deps.listCrmClients({
+      clientId: req.clientId,
+      user: req.user,
+      createdByUserId,
+      view,
+    });
     res.json({ clients });
   } catch (error) {
     next(error);
@@ -66,8 +63,8 @@ router.get("/clients", async (req, res, next) => {
 
 router.post("/clients", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
-    const client = await createCrmClient({ ...req.body, clientId }, { user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const client = await deps.createCrmClient({ ...req.body, clientId }, { user: req.user });
     res.status(201).json({ client });
   } catch (error) {
     next(error);
@@ -76,7 +73,7 @@ router.post("/clients", async (req, res, next) => {
 
 router.get("/clients/:id", async (req, res, next) => {
   try {
-    const client = await getCrmClient(req.params.id, { clientId: req.clientId, user: req.user });
+    const client = await deps.getCrmClient(req.params.id, { clientId: req.clientId, user: req.user });
     res.json({ client });
   } catch (error) {
     next(error);
@@ -85,8 +82,8 @@ router.get("/clients/:id", async (req, res, next) => {
 
 router.put("/clients/:id", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const client = await updateCrmClient(req.params.id, req.body, { clientId, user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const client = await deps.updateCrmClient(req.params.id, req.body, { clientId, user: req.user });
     res.json({ client });
   } catch (error) {
     next(error);
@@ -106,7 +103,7 @@ router.get("/alerts", (req, res, next) => {
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
     const createdByUserId = view === "mine" ? req.user?.id : undefined;
 
-    const alerts = listCrmClientsWithUpcomingEvents({
+    const alerts = deps.listCrmClientsWithUpcomingEvents({
       clientId: req.clientId,
       contractWithinDays,
       trialWithinDays,
@@ -124,9 +121,9 @@ router.get("/pipeline", async (req, res, next) => {
   try {
     const isAdmin = req.user?.role === "admin";
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
-    const stages = listPipelineStages({ clientId: req.clientId });
-    const deals = listDeals({ clientId: req.clientId, user: req.user, view });
-    const clients = listCrmClients({ clientId: req.clientId, user: req.user, view });
+    const stages = await deps.listPipelineStages({ clientId: req.clientId });
+    const deals = await deps.listDeals({ clientId: req.clientId, user: req.user, view });
+    const clients = await deps.listCrmClients({ clientId: req.clientId, user: req.user, view });
     const clientNameById = new Map(clients.map((item) => [item.id, item.name]));
     const decoratedDeals = deals.map((deal) => ({
       ...deal,
@@ -140,8 +137,8 @@ router.get("/pipeline", async (req, res, next) => {
 
 router.post("/deals", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const deal = createDeal({ ...req.body, clientId }, { clientId, user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const deal = await deps.createDeal({ ...req.body, clientId }, { clientId, user: req.user });
     res.status(201).json({ deal });
   } catch (error) {
     next(error);
@@ -150,8 +147,11 @@ router.post("/deals", async (req, res, next) => {
 
 router.put("/deals/:id/stage", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const deal = moveDealToStage(req.params.id, req.body?.stageId, { clientId });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const deal = await deps.moveDealToStage(req.params.id, req.body?.stageId, {
+      clientId,
+      onWon: (wonDeal) => deps.handleDealWon(wonDeal, { user: req.user }),
+    });
     res.json({ deal });
   } catch (error) {
     next(error);
@@ -162,7 +162,7 @@ router.get("/activities", async (req, res, next) => {
   try {
     const isAdmin = req.user?.role === "admin";
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
-    const activities = listActivities({ clientId: req.clientId, user: req.user, view });
+    const activities = await deps.listActivities({ clientId: req.clientId, user: req.user, view });
     res.json({ activities });
   } catch (error) {
     next(error);
@@ -171,8 +171,8 @@ router.get("/activities", async (req, res, next) => {
 
 router.post("/activities", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const activity = createActivity(req.body, { clientId, user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const activity = await deps.createActivity(req.body, { clientId, user: req.user });
     res.status(201).json({ activity });
   } catch (error) {
     next(error);
@@ -183,7 +183,7 @@ router.get("/reminders", async (req, res, next) => {
   try {
     const isAdmin = req.user?.role === "admin";
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
-    const reminders = listReminders({ clientId: req.clientId, user: req.user, view });
+    const reminders = await deps.listReminders({ clientId: req.clientId, user: req.user, view });
     res.json({ reminders });
   } catch (error) {
     next(error);
@@ -192,8 +192,8 @@ router.get("/reminders", async (req, res, next) => {
 
 router.post("/reminders", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const reminder = createReminder(req.body, { clientId, user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const reminder = await deps.createReminder(req.body, { clientId, user: req.user });
     res.status(201).json({ reminder });
   } catch (error) {
     next(error);
@@ -203,7 +203,7 @@ router.post("/reminders", async (req, res, next) => {
 router.get("/clients/:id/contacts", (req, res, next) => {
   try {
     const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
-    const contacts = listCrmContacts(req.params.id, {
+    const contacts = deps.listCrmContacts(req.params.id, {
       clientId: req.clientId,
       user: req.user,
       createdByUserId,
@@ -216,8 +216,8 @@ router.get("/clients/:id/contacts", (req, res, next) => {
 
 router.post("/clients/:id/contacts", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const contact = addCrmContact(req.params.id, req.body, { clientId, user: req.user });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const contact = deps.addCrmContact(req.params.id, req.body, { clientId, user: req.user });
     res.status(201).json({ contact });
   } catch (error) {
     next(error);
@@ -231,7 +231,7 @@ router.get("/tags", (req, res, next) => {
     if (cached) {
       return res.json(cached);
     }
-    const tags = listCrmTags({ clientId: req.clientId });
+    const tags = deps.listCrmTags({ clientId: req.clientId });
     const payload = { tags };
     cacheTags(cacheKey, payload);
     res.json(payload);
@@ -242,8 +242,8 @@ router.get("/tags", (req, res, next) => {
 
 router.post("/tags", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const tag = createCrmTag({ ...req.body, clientId });
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
+    const tag = deps.createCrmTag({ ...req.body, clientId });
     invalidateTagCache();
     res.status(201).json({ tag });
   } catch (error) {
@@ -253,12 +253,27 @@ router.post("/tags", (req, res, next) => {
 
 router.delete("/tags/:id", (req, res, next) => {
   try {
-    deleteCrmTag(req.params.id, { clientId: req.clientId });
+    deps.deleteCrmTag(req.params.id, { clientId: req.clientId });
     invalidateTagCache();
     res.status(204).send();
   } catch (error) {
     next(error);
   }
 });
+
+export function __setCrmRouteMocks(overrides = {}) {
+  Object.assign(deps, overrides);
+}
+
+export function __resetCrmRouteMocks() {
+  Object.assign(deps, {
+    authenticate,
+    resolveClientId,
+    resolveClientIdMiddleware,
+    ...crmModel,
+    ...crmPipelineModel,
+    ...crmTagsModel,
+  });
+}
 
 export default router;

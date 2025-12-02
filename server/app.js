@@ -19,6 +19,7 @@ import exportRoutes from "./routes/export.js";
 import preferencesRoutes from "./routes/preferences.js";
 import mediaRoutes from "./routes/media.js";
 import crmRoutes from "./routes/crm.js";
+import traccarDbRoutes from "./routes/traccar-db.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -80,6 +81,7 @@ app.use("/api", analyticsRoutes);
 app.use("/api", exportRoutes);
 app.use("/api", preferencesRoutes);
 app.use("/api", mediaRoutes);
+app.use("/api", traccarDbRoutes);
 
 app.use((req, _res, next) => {
   next(createError(404, `Rota não encontrada: ${req.method} ${req.originalUrl}`));

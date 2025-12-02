@@ -14,6 +14,60 @@ model StorageCollection {
   updatedAt DateTime @updatedAt
 }
 
+model CrmClient {
+  id                    String   @id @default(uuid())
+  clientId              String
+  cnpj                  String?
+  name                  String
+  segment               String?
+  companySize           String?
+  city                  String?
+  state                 String?
+  website               String?
+  mainContactName       String?
+  mainContactRole       String?
+  mainContactPhone      String?
+  mainContactEmail      String?
+  interestLevel         String?
+  closeProbability      String?
+  tags                  Json?
+  hasCompetitorContract Boolean  @default(false)
+  competitorName        String?
+  competitorContractStart DateTime?
+  competitorContractEnd DateTime?
+  inTrial               Boolean  @default(false)
+  trialProduct          String?
+  trialStart            DateTime?
+  trialDurationDays     Int?
+  trialEnd              DateTime?
+  notes                 String?
+  relationshipType      String?
+  createdByUserId       String?
+  reservedDeviceIds     Json?
+  contractStart         DateTime?
+  contractDurationDays  Int?
+  contractEnd           DateTime?
+  convertedClientId     String?
+  traccarGroupId        String?
+  traccarGroupName      String?
+  traccarUserId         String?
+  conversionError       String?
+  dealId                String?
+  contacts              Json?
+  soldDeviceIds         Json?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+model CrmTag {
+  id        String   @id @default(uuid())
+  clientId  String
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model PipelineStage {
   id          String   @id @default(uuid())
   clientId    String?
@@ -22,6 +76,8 @@ model PipelineStage {
   probability Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  deals Deal[]
 }
 
 model Deal {
@@ -39,6 +95,9 @@ model Deal {
   updatedAt   DateTime @updatedAt
   wonAt       DateTime?
   lostAt      DateTime?
+  soldDeviceIds Json?
+
+  stage PipelineStage @relation(fields: [stageId], references: [id])
 }
 
 model Activity {
@@ -65,4 +124,37 @@ model Reminder {
   status        String   @default("pending")
   createdByUserId String?
   createdAt     DateTime @default(now())
+}
+
+model Task {
+  id                String   @id @default(uuid())
+  clientId          String
+  vehicleId         String?
+  driverId          String?
+  address           String?
+  geoFenceId        String?
+  geofenceRadius    Int?
+  latitude          Float?
+  longitude         Float?
+  startTimeExpected DateTime?
+  endTimeExpected   DateTime?
+  arrivalTime       DateTime?
+  serviceStartTime  DateTime?
+  serviceEndTime    DateTime?
+  checklistCompleted Boolean  @default(false)
+  type              String
+  status            String
+  attachments       Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model TaskTemplate {
+  id          String   @id @default(uuid())
+  clientId    String
+  name        String
+  description String?
+  payload     Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

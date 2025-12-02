@@ -2,21 +2,14 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-let PrismaClient = null;
-try {
-  // carregado de forma preguiçosa para permitir fallback em ambientes sem Prisma
-  ({ PrismaClient } = await import("@prisma/client"));
-} catch (error) {
-  console.warn("[storage] Prisma não disponível, habilitando fallback em arquivo", error?.message || error);
-}
+import prisma from "./prisma.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = path.resolve(__dirname, "../data");
 const DATA_FILE = path.join(DATA_DIR, "storage.json");
 const SHOULD_PERSIST = process.env.NODE_ENV !== "test";
 
-const hasDatabase = Boolean(process.env.DATABASE_URL && PrismaClient);
-const prisma = hasDatabase ? new PrismaClient() : null;
+const hasDatabase = Boolean(process.env.DATABASE_URL && prisma);
 
 let snapshot = null;
 let flushTimer = null;

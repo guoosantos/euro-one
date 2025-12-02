@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTranslation } from "../lib/i18n.js";
@@ -18,9 +18,10 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
   const { t } = useTranslation();
   const { tenantId, isAuthenticated } = useTenant();
 
-  const state = usePollingResource(
+  const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
+
+  const fetchTelemetry = useCallback(
     async ({ signal }) => {
-      const params = tenantId ? { clientId: tenantId } : undefined;
       const { data: payload, error } = await safeApi.get(API_ROUTES.core.telemetry, { params, signal });
       if (error) {
         if (safeApi.isAbortError(error)) throw error;
@@ -36,6 +37,11 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
       }
       return normaliseTelemetry(payload);
     },
+    [params, t],
+  );
+
+  const state = usePollingResource(
+    fetchTelemetry,
     { interval, initialData: [], enabled: isAuthenticated },
   );
 

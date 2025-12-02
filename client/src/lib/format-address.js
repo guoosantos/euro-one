@@ -90,7 +90,18 @@ function formatAddressString(rawAddress) {
   const normalizedCep = normalizeCep(cep);
 
   const main = withoutCep.slice(0, 2).join(", ");
-  const tail = withoutCep.slice(2).slice(-2).join(" - ");
+  const tailParts = withoutCep.slice(2);
+  let tail = tailParts.join(" - ");
+
+  if (tailParts.length > 2) {
+    if (tailParts.length === 3 && tailParts[1]?.length === 2) {
+      tail = [tailParts[1], tailParts[2]].filter(Boolean).join(" - ");
+    } else {
+      const head = tailParts.slice(0, -1).join(", ");
+      tail = [head, tailParts.at(-1)].filter(Boolean).join(" - ");
+    }
+  }
+
   const compact = [main || withoutCep[0], tail].filter(Boolean).join(" - ");
   const withCep = [compact || cleaned, normalizedCep].filter(Boolean).join(" - ");
   return collapseWhitespace(withCep || cleaned);
@@ -100,8 +111,7 @@ export function formatAddress(rawAddress) {
   const normalized = normalizeInput(rawAddress);
   if (!normalized) return "—";
 
-  const preferred =
-    formatFromParts(normalized.parts) || normalized.shortAddress || normalized.formattedAddress || normalized.address;
+  const preferred = formatFromParts(normalized.parts) || normalized.shortAddress || normalized.formattedAddress;
   const formatted = collapseWhitespace(preferred || formatAddressString(normalized.address || ""));
   return formatted || "—";
 }

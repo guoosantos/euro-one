@@ -16,6 +16,8 @@ import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import { formatAddress } from "../lib/format-address.js";
 import Card from "../ui/Card.jsx";
+import DataState from "../ui/DataState.jsx";
+import TableStateRow from "../components/TableStateRow.jsx";
 
 const FALLBACK_ANALYTICS = [
   { month: "Jan", distance: 0, alerts: 0, deliveriesOnTime: 100 },
@@ -185,25 +187,19 @@ export default function Home() {
               </thead>
               <tbody>
                 {loadingEvents && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-white/40">
-                      {t("home.loadingEvents")}
-                    </td>
-                  </tr>
+                  <TableStateRow colSpan={5} state="loading" tone="muted" title={t("home.loadingEvents")} />
                 )}
                 {!loadingEvents && eventsError && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-red-200/80">
-                      {t("home.eventsError")}
-                    </td>
-                  </tr>
+                  <TableStateRow
+                    colSpan={5}
+                    state="error"
+                    tone="error"
+                    title={t("home.eventsError")}
+                    description={t("home.inAlertHint")}
+                  />
                 )}
                 {!loadingEvents && !eventsError && events.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-4 text-center text-white/40">
-                      {t("home.noRecentEvents")}
-                    </td>
-                  </tr>
+                  <TableStateRow colSpan={5} state="empty" tone="muted" title={t("home.noRecentEvents")} />
                 )}
                 {events.map((event) => {
                   const vehicle = resolveVehicle(event, vehicleIndex);
@@ -235,27 +231,34 @@ export default function Home() {
         <Card
           title={t("home.vehiclesOnRoute")}
           subtitle={t("home.liveTelemetry")}
-          actions={
-            <Link to="/monitoring" className="text-xs font-semibold text-primary">
-              {t("home.openMonitoring")}
-            </Link>
-          }
-        >
-          <ul className="space-y-3 text-sm text-white/80">
-            {onlineVehicles.length === 0 && <li className="text-white/50">{t("home.noVehiclesMoving")}</li>}
-            {onlineVehicles.map((vehicle) => (
-              <li key={vehicle.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <div className="font-medium">{vehicle.name}</div>
-                  <span className="text-xs text-white/40">{formatSpeed(vehicle.speed)}</span>
-                </div>
-                <div className="mt-1 text-xs text-white/50">{formatAddress(vehicle.address) || t("home.locationUnavailable")}</div>
-                <div className="mt-1 text-xs text-white/40">
-                  {t("home.updatedRelative", { time: formatRelativeTime(vehicle.lastUpdate) })}
-                </div>
-              </li>
-            ))}
-          </ul>
+        actions={
+          <Link to="/monitoring" className="text-xs font-semibold text-primary">
+            {t("home.openMonitoring")}
+          </Link>
+        }
+      >
+          {loadingPositions && (
+            <DataState state="loading" tone="muted" title={t("monitoring.loadingTelemetry")} />
+          )}
+          {!loadingPositions && onlineVehicles.length === 0 && (
+            <DataState state="empty" tone="muted" title={t("home.noVehiclesMoving")} />
+          )}
+          {!loadingPositions && onlineVehicles.length > 0 && (
+            <ul className="space-y-3 text-sm text-white/80">
+              {onlineVehicles.map((vehicle) => (
+                <li key={vehicle.id} className="rounded-xl border border-white/10 bg-white/5 p-3 transition hover:border-primary/40">
+                  <div className="flex items-center justify-between">
+                    <div className="font-medium">{vehicle.name}</div>
+                    <span className="text-xs text-white/40">{formatSpeed(vehicle.speed)}</span>
+                  </div>
+                  <div className="mt-1 text-xs text-white/50">{formatAddress(vehicle.address) || t("home.locationUnavailable")}</div>
+                  <div className="mt-1 text-xs text-white/40">
+                    {t("home.updatedRelative", { time: formatRelativeTime(vehicle.lastUpdate) })}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
           <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-white/70">
             <div className="rounded-lg bg-white/5 p-2">
               <div className="text-white/50">{t("home.collecting")}</div>
@@ -301,25 +304,18 @@ export default function Home() {
               </thead>
               <tbody>
                 {loadingTrips && (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-center text-white/40">
-                      {t("home.loadingTrips")}
-                    </td>
-                  </tr>
+                  <TableStateRow colSpan={6} state="loading" tone="muted" title={t("home.loadingTrips")} />
                 )}
                 {!loadingTrips && tripsError && (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-center text-red-200/80">
-                      {t("home.tripsError")}
-                    </td>
-                  </tr>
+                  <TableStateRow
+                    colSpan={6}
+                    state="error"
+                    tone="error"
+                    title={t("home.tripsError")}
+                  />
                 )}
                 {!loadingTrips && !tripsError && trips.length === 0 && (
-                  <tr>
-                    <td colSpan={6} className="py-4 text-center text-white/40">
-                      {t("home.noTrips")}
-                    </td>
-                  </tr>
+                  <TableStateRow colSpan={6} state="empty" tone="muted" title={t("home.noTrips")} />
                 )}
                 {trips.map((trip) => {
                   const vehicle = resolveVehicle(trip, vehicleIndex);
@@ -351,45 +347,55 @@ export default function Home() {
         <Card
           title={t("home.analyticsHeatmapCard")}
           subtitle={t("home.last24h")}
-          actions={
-            <Link to="/analytics/events" className="text-xs font-semibold text-primary">
-              {t("home.viewFullAnalysis")}
-            </Link>
-          }
-        >
-          <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
-            <MapContainer
-              center={heatmapCenter}
-              zoom={points.length ? 10 : 4}
-              style={{ height: 220 }}
-              scrollWheelZoom={false}
-              dragging={!loadingHeatmap}
-              className="h-56"
-            >
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <HeatCircles points={points} />
-            </MapContainer>
-          </div>
-          <div className="space-y-2 text-xs text-white/80">
-            <div className="text-white/50">{t("home.topRegions")}</div>
-            {topZones.slice(0, 5).map((zone, index) => (
-              <div key={`${zone.lat}-${zone.lng}`} className="flex items-center justify-between rounded-lg bg-white/5 p-2">
-                <div>
-                  <div className="text-sm font-semibold text-white">#{index + 1}</div>
-                  <div className="text-xs text-white/60">
-                    {zone.name || `${zone.lat.toFixed(4)}, ${zone.lng.toFixed(4)}`}
-                  </div>
-                </div>
-                <span className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-200">
-                  {zone.count} {t("home.events")}
-                </span>
+        actions={
+          <Link to="/analytics/events" className="text-xs font-semibold text-primary">
+            {t("home.viewFullAnalysis")}
+          </Link>
+        }
+      >
+          {loadingHeatmap && <DataState state="loading" tone="muted" title={t("home.loadingEvents")} />}
+          {!loadingHeatmap && points.length === 0 && (
+            <DataState state="empty" tone="muted" title={t("home.noHeatmapData")} />
+          )}
+          {!loadingHeatmap && points.length > 0 && (
+            <>
+              <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                <MapContainer
+                  center={heatmapCenter}
+                  zoom={points.length ? 10 : 4}
+                  style={{ height: 220 }}
+                  scrollWheelZoom={false}
+                  dragging={!loadingHeatmap}
+                  className="h-56"
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <HeatCircles points={points} />
+                </MapContainer>
               </div>
-            ))}
-            {topZones.length === 0 && <div className="text-white/50">{t("home.noHeatmapData")}</div>}
-          </div>
+              <div className="space-y-2 text-xs text-white/80">
+                <div className="text-white/50">{t("home.topRegions")}</div>
+                {topZones.slice(0, 5).map((zone, index) => (
+                  <div key={`${zone.lat}-${zone.lng}`} className="flex items-center justify-between rounded-lg bg-white/5 p-2">
+                    <div>
+                      <div className="text-sm font-semibold text-white">#{index + 1}</div>
+                      <div className="text-xs text-white/60">
+                        {zone.name || `${zone.lat.toFixed(4)}, ${zone.lng.toFixed(4)}`}
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-200">
+                      {zone.count} {t("home.events")}
+                    </span>
+                  </div>
+                ))}
+                {topZones.length === 0 && (
+                  <DataState state="partial" tone="muted" title={t("home.noHeatmapData")} compact />
+                )}
+              </div>
+            </>
+          )}
         </Card>
       </section>
 
@@ -466,6 +472,17 @@ export default function Home() {
         actions={<span className="text-xs text-white/60">{t("home.tripsBased", { count: trips.length })}</span>}
       >
         <AnalyticsChart data={analyticsData.length ? analyticsData : FALLBACK_ANALYTICS} />
+        {!loadingTrips && trips.length === 0 && (
+          <div className="mt-4">
+            <DataState
+              state="partial"
+              tone="muted"
+              title={t("home.noTrips")}
+              description={t("home.analyticsDescription")}
+              compact
+            />
+          </div>
+        )}
       </Card>
 
       {showCommunicationModal && (
@@ -515,7 +532,11 @@ function StatCard({ title, value, hint, variant = "default", onClick, action }) 
   };
 
   return (
-    <div className={`rounded-2xl p-4 ${palette[variant]}`} onClick={onClick} role={onClick ? "button" : undefined}>
+    <div
+      className={`rounded-2xl p-4 transition duration-200 hover:-translate-y-0.5 hover:border-primary/40 ${palette[variant]}`}
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+    >
       <div className="flex items-center justify-between">
         <div>
           <div className="text-xs text-white/50">{title}</div>

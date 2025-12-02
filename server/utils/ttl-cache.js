@@ -21,7 +21,11 @@ export function createTtlCache(defaultTtlMs = 5_000) {
     store.delete(key);
   }
 
-  return { get, set, delete: del };
+  function clear() {
+    store.clear();
+  }
+
+  return { get, set, delete: del, clear };
 }
 
 export default createTtlCache;

@@ -1,49 +1,32 @@
 import createError from "http-errors";
-import { randomUUID } from "crypto";
 
-import { loadCollection, saveCollection } from "../services/storage.js";
-
-const STORAGE_KEY = "crmTags";
-const crmTags = new Map();
-
-function syncStorage() {
-  saveCollection(STORAGE_KEY, Array.from(crmTags.values()));
-}
+import prisma from "../services/prisma.js";
 
 function normaliseName(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function loadInitialState() {
-  const persisted = loadCollection(STORAGE_KEY, []);
-  persisted.forEach((tag) => {
-    if (tag?.id) {
-      crmTags.set(String(tag.id), { ...tag });
-    }
+export async function listCrmTags({ clientId } = {}) {
+  return prisma.crmTag.findMany({
+    where: clientId ? { clientId: String(clientId) } : undefined,
+    orderBy: { name: "asc" },
   });
 }
 
-loadInitialState();
-
-export function listCrmTags({ clientId } = {}) {
-  return Array.from(crmTags.values()).filter((tag) =>
-    clientId ? String(tag.clientId) === String(clientId) : true,
-  );
+export async function findCrmTagById(id) {
+  if (!id) return null;
+  return prisma.crmTag.findUnique({ where: { id: String(id) } });
 }
 
-export function findCrmTagById(id) {
-  return crmTags.get(String(id)) || null;
-}
-
-function findCrmTagByName(name, { clientId } = {}) {
+async function findCrmTagByName(name, { clientId } = {}) {
   if (!name) return null;
   const normalised = name.trim().toLowerCase();
-  return (
-    listCrmTags({ clientId }).find((tag) => tag.name?.trim().toLowerCase() === normalised) || null
-  );
+  return prisma.crmTag.findFirst({
+    where: { clientId: clientId ? String(clientId) : undefined, name: { equals: normalised, mode: "insensitive" } },
+  });
 }
 
-export function createCrmTag({ clientId, name, color }) {
+export async function createCrmTag({ clientId, name, color }) {
   const cleanName = normaliseName(name);
   if (!cleanName) {
     throw createError(400, "Nome da tag é obrigatório");
@@ -52,37 +35,34 @@ export function createCrmTag({ clientId, name, color }) {
     throw createError(400, "clientId é obrigatório");
   }
 
-  const existing = findCrmTagByName(cleanName, { clientId });
+  const existing = await findCrmTagByName(cleanName, { clientId });
   if (existing) return existing;
 
-  const now = new Date().toISOString();
-  const record = {
-    id: randomUUID(),
-    clientId: String(clientId),
-    name: cleanName,
-    color: color || null,
-    createdAt: now,
-    updatedAt: now,
-  };
-  crmTags.set(record.id, record);
-  syncStorage();
-  return record;
+  const now = new Date();
+  return prisma.crmTag.create({
+    data: {
+      clientId: String(clientId),
+      name: cleanName,
+      color: color || null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
 }
 
-export function deleteCrmTag(id, { clientId } = {}) {
-  const existing = crmTags.get(String(id));
+export async function deleteCrmTag(id, { clientId } = {}) {
+  const existing = await prisma.crmTag.findUnique({ where: { id: String(id) } });
   if (!existing) {
     throw createError(404, "Tag não encontrada");
   }
   if (clientId && String(existing.clientId) !== String(clientId)) {
     throw createError(403, "Tag não pertence ao cliente informado");
   }
-  crmTags.delete(existing.id);
-  syncStorage();
+  await prisma.crmTag.delete({ where: { id: existing.id } });
   return true;
 }
 
-export function normaliseClientTags(tags, { clientId } = {}) {
+export async function normaliseClientTags(tags, { clientId } = {}) {
   if (!clientId) return [];
   const result = new Set();
   const queue = Array.isArray(tags)
@@ -94,37 +74,39 @@ export function normaliseClientTags(tags, { clientId } = {}) {
           .filter(Boolean)
       : [];
 
-  queue.forEach((tag) => {
-    if (!tag) return;
+  for (const tag of queue) {
+    if (!tag) continue;
     if (typeof tag === "string") {
-      const byId = findCrmTagById(tag);
+      const byId = await findCrmTagById(tag);
       if (byId && String(byId.clientId) === String(clientId)) {
         result.add(byId.id);
-        return;
+        continue;
       }
-      const created = createCrmTag({ clientId, name: tag });
+      const created = await createCrmTag({ clientId, name: tag });
       result.add(created.id);
-      return;
+      continue;
     }
     if (tag?.id) {
-      const byId = findCrmTagById(tag.id);
+      const byId = await findCrmTagById(tag.id);
       if (byId && String(byId.clientId) === String(clientId)) {
         result.add(byId.id);
-        return;
+        continue;
       }
       if (tag.name) {
-        const created = createCrmTag({ clientId, name: tag.name, color: tag.color });
+        const created = await createCrmTag({ clientId, name: tag.name, color: tag.color });
         result.add(created.id);
       }
     }
-  });
+  }
 
   return Array.from(result);
 }
 
-export function resolveTagNames(tagIds, { clientId } = {}) {
-  const catalog = listCrmTags({ clientId });
-  return (tagIds || []).map((id) => catalog.find((tag) => tag.id === id) || null).filter(Boolean);
+export async function resolveTagNames(tagIds, { clientId } = {}) {
+  if (!tagIds?.length) return [];
+  const catalog = await listCrmTags({ clientId });
+  const map = new Map(catalog.map((tag) => [tag.id, tag]));
+  return (tagIds || []).map((id) => map.get(id) || null).filter(Boolean);
 }
 
 export default {
