@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -18,9 +18,10 @@ export function LivePositionsProvider({ children, interval = 5_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
 
-  const state = usePollingResource(
+  const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
+
+  const fetchPositions = useCallback(
     async ({ signal }) => {
-      const params = tenantId ? { clientId: tenantId } : undefined;
       const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, { params, signal });
       if (error) {
         if (safeApi.isAbortError(error)) throw error;
@@ -36,6 +37,11 @@ export function LivePositionsProvider({ children, interval = 5_000 }) {
       }
       return normalise(payload);
     },
+    [params, t],
+  );
+
+  const state = usePollingResource(
+    fetchPositions,
     { interval, initialData: [], enabled: isAuthenticated },
   );
 

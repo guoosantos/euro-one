@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import { CoreApi } from "../lib/coreApi.js";
 import { formatDate } from "../lib/fleet-utils.js";
 
@@ -9,6 +10,7 @@ export default function TaskDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { t } = useTranslation();
+  const { tenantId } = useTenant();
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -16,7 +18,7 @@ export default function TaskDetails() {
 
   useEffect(() => {
     let cancelled = false;
-    CoreApi.listTasks({ id })
+    CoreApi.listTasks({ id, clientId: tenantId })
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.tasks) ? data.tasks : [];
@@ -32,7 +34,7 @@ export default function TaskDetails() {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [id, tenantId]);
 
   const updateStatus = async (status) => {
     setUpdating(true);

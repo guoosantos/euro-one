@@ -119,6 +119,9 @@ export function updateDevice(id, updates = {}) {
   if (Object.prototype.hasOwnProperty.call(updates, "modelId")) {
     record.modelId = updates.modelId ? String(updates.modelId) : null;
   }
+  if (Object.prototype.hasOwnProperty.call(updates, "clientId")) {
+    record.clientId = updates.clientId ? String(updates.clientId) : record.clientId;
+  }
   if (Object.prototype.hasOwnProperty.call(updates, "traccarId")) {
     if (record.traccarId && record.traccarId !== updates.traccarId) {
       byTraccarId.delete(String(record.traccarId));

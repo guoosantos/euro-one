@@ -1,25 +1,18 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
-import { loadCollection, saveCollection } from "../services/storage.js";
-import { normaliseClientTags } from "./crm-tags.js";
 import {
   ensureDealForCrmClient,
-  listDeals as listPipelineDeals,
   mapDealsWithStage,
   markDealAsWon,
   scheduleRenewalReminders,
+  scheduleRenewalTasks,
 } from "./crm-pipeline.js";
-import { createClient } from "./client.js";
+import { createClient, updateClient } from "./client.js";
 import { listDevices, updateDevice } from "./device.js";
+import { normaliseClientTags, resolveTagNames } from "./crm-tags.js";
+import prisma from "../services/prisma.js";
 import { traccarAdminRequest } from "../services/traccar.js";
-
-const STORAGE_KEY = "crmClients";
-const crmClients = new Map();
-
-function syncStorage() {
-  saveCollection(STORAGE_KEY, Array.from(crmClients.values()));
-}
 
 function normaliseBoolean(value) {
   if (typeof value === "boolean") return value;
@@ -30,14 +23,13 @@ function normaliseBoolean(value) {
   return Boolean(value);
 }
 
-function normaliseTags(tags, { clientId } = {}) {
-  if (!clientId) return [];
-  const resolved = normaliseClientTags(tags, { clientId });
-  return resolved.slice(0, 30);
-}
-
 function normaliseString(value) {
   return typeof value === "string" ? value.trim() : value ?? "";
+}
+
+function normaliseTraccarGroupName(value, fallback) {
+  const name = normaliseString(value);
+  return name || fallback || null;
 }
 
 function normaliseDate(value) {
@@ -89,15 +81,14 @@ function duplicateCnpjError() {
   return error;
 }
 
-function findDuplicateCnpj({ clientId, cnpj, ignoreId } = {}) {
+async function findDuplicateCnpj({ clientId, cnpj, ignoreId } = {}) {
   if (!clientId || !cnpj) return null;
-
-  const clientKey = String(clientId);
-  return Array.from(crmClients.values()).find((record) => {
-    if (ignoreId && record.id === ignoreId) return false;
-    const sameTenant = String(record.clientId) === clientKey;
-    const hasCnpj = Boolean(record.cnpj);
-    return sameTenant && hasCnpj && record.cnpj === cnpj;
+  return prisma.crmClient.findFirst({
+    where: {
+      clientId: String(clientId),
+      cnpj,
+      NOT: ignoreId ? { id: ignoreId } : undefined,
+    },
   });
 }
 
@@ -154,6 +145,25 @@ function isDatePastOrToday(dateValue) {
   return date <= now;
 }
 
+function toDomain(record) {
+  if (!record) return null;
+  return {
+    ...record,
+    tags: Array.isArray(record.tags) ? record.tags : record.tags ? record.tags : [],
+    reservedDeviceIds: Array.isArray(record.reservedDeviceIds)
+      ? record.reservedDeviceIds
+      : record.reservedDeviceIds
+        ? record.reservedDeviceIds
+        : [],
+    soldDeviceIds: Array.isArray(record.soldDeviceIds)
+      ? record.soldDeviceIds
+      : record.soldDeviceIds
+        ? record.soldDeviceIds
+        : [],
+    contacts: Array.isArray(record.contacts) ? record.contacts : record.contacts ? record.contacts : [],
+  };
+}
+
 function ensureClientAccessible(record, clientId, user) {
   if (!record) {
     throw createError(404, "Cliente CRM não encontrado");
@@ -161,18 +171,25 @@ function ensureClientAccessible(record, clientId, user) {
   if (clientId && String(record.clientId) !== String(clientId)) {
     throw createError(403, "Registro não pertence ao cliente informado");
   }
-  if (user && user.role !== "admin" && record.createdByUserId !== user.id) {
+  if (user && user.role !== "admin" && record.createdByUserId && record.createdByUserId !== user.id) {
     throw createError(403, "Você não tem permissão para acessar este cliente");
   }
+}
+
+function toContactSnapshot(contact = {}) {
+  return {
+    ...contact,
+    clientId: contact.clientId,
+  };
 }
 
 async function convertLeadToCustomer(record, { user } = {}) {
   if (!record || record.relationshipType !== "customer") return record;
   if (record.convertedClientId) return record;
 
-  const duplicate = Array.from(crmClients.values()).find(
-    (item) => item.id !== record.id && item.cnpj && record.cnpj && item.cnpj === record.cnpj && item.convertedClientId,
-  );
+  const duplicate = await prisma.crmClient.findFirst({
+    where: { id: { not: record.id }, cnpj: record.cnpj, convertedClientId: { not: null } },
+  });
   if (duplicate) {
     throw duplicateCnpjError();
   }
@@ -184,20 +201,25 @@ async function convertLeadToCustomer(record, { user } = {}) {
       cnpj: record.cnpj,
     },
   });
-  record.convertedClientId = newClient.id;
+
+  let traccarGroupId = record.traccarGroupId;
+  let traccarGroupName = record.traccarGroupName || record.name;
+  let traccarUserId = record.traccarUserId;
+  let conversionError = record.conversionError;
 
   try {
-    const groupResponse = await traccarAdminRequest({
-      method: "POST",
-      url: "/groups",
-      data: {
-        name: record.name,
-        attributes: { crmId: record.id },
-      },
+    const group = await ensureCrmTraccarGroup({
+      desiredName: record.name,
+      crmClientId: record.id,
+      tenantClientId: newClient.id,
     });
-    record.traccarGroupId = groupResponse?.data?.id || groupResponse?.id || record.traccarGroupId || null;
+    traccarGroupId = group?.id || traccarGroupId || null;
+    traccarGroupName = group?.name || traccarGroupName;
+    if (group?.id) {
+      updateClient(newClient.id, { attributes: { ...newClient.attributes, traccarGroupId: group.id, traccarGroupName } });
+    }
   } catch (error) {
-    record.conversionError = record.conversionError || error?.message || "Falha ao criar grupo no Traccar";
+    conversionError = conversionError || error?.message || "Falha ao criar grupo no Traccar";
   }
 
   try {
@@ -207,8 +229,7 @@ async function convertLeadToCustomer(record, { user } = {}) {
       url: "/users",
       data: {
         name: record.name,
-        email:
-          record.mainContactEmail || `${record.name.replace(/\s+/g, ".").toLowerCase()}@cliente.euro.one`,
+        email: record.mainContactEmail || `${record.name.replace(/\s+/g, ".").toLowerCase()}@cliente.euro.one`,
         phone: record.mainContactPhone || undefined,
         password: generatedPassword,
         readonly: false,
@@ -216,9 +237,9 @@ async function convertLeadToCustomer(record, { user } = {}) {
         attributes: { crmId: record.id },
       },
     });
-    record.traccarUserId = traccarUser?.data?.id || traccarUser?.id || record.traccarUserId || null;
+    traccarUserId = traccarUser?.data?.id || traccarUser?.id || traccarUserId || null;
   } catch (error) {
-    record.conversionError = record.conversionError || error?.message || "Falha ao criar usuário no Traccar";
+    conversionError = conversionError || error?.message || "Falha ao criar usuário no Traccar";
   }
 
   const deviceIds = normaliseDeviceIds(record.reservedDeviceIds);
@@ -228,8 +249,8 @@ async function convertLeadToCustomer(record, { user } = {}) {
       const device = tenantDevices.find((item) => item.id === deviceId);
       if (!device) return;
       updateDevice(device.id, { clientId: newClient.id });
-      if (record.traccarGroupId && device.traccarId) {
-        const payload = { id: Number(device.traccarId), groupId: Number(record.traccarGroupId) };
+      if (traccarGroupId && device.traccarId) {
+        const payload = { id: Number(device.traccarId), groupId: Number(traccarGroupId) };
         try {
           void traccarAdminRequest({ method: "PUT", url: `/devices/${device.traccarId}`, data: payload });
         } catch (error) {
@@ -240,136 +261,85 @@ async function convertLeadToCustomer(record, { user } = {}) {
   }
 
   if (record.dealId) {
-    markDealAsWon(record.dealId, { clientId: record.clientId });
+    await markDealAsWon(record.dealId, {
+      clientId: record.clientId,
+      onWon: (deal) => handleDealWon(deal, { user }),
+    });
   }
 
   const contractEnd = computeContractEnd(record.contractStart, record.contractDurationDays);
-  record.contractEnd = contractEnd;
-  scheduleRenewalReminders({
+  const updated = await prisma.crmClient.update({
+    where: { id: record.id },
+    data: {
+      convertedClientId: newClient.id,
+      traccarGroupId,
+      traccarGroupName,
+      traccarUserId,
+      conversionError,
+      contractEnd,
+    },
+  });
+
+  await scheduleRenewalReminders({
     clientId: record.clientId,
     crmClientId: record.id,
     dealId: record.dealId,
     contractEnd,
     user,
   });
-
-  return record;
-}
-
-function toContactSnapshot(contact = {}) {
-  return {
-    ...contact,
-    clientId: contact.clientId,
-  };
-}
-
-function hydrateRecord(record) {
-  return { ...record, contacts: Array.isArray(record.contacts) ? [...record.contacts] : [] };
-}
-
-function persistClient(record, { skipSync = false } = {}) {
-  const prepared = { ...record, contacts: Array.isArray(record.contacts) ? record.contacts : [] };
-  crmClients.set(prepared.id, prepared);
-  if (!skipSync) {
-    syncStorage();
-  }
-  return hydrateRecord(prepared);
-}
-
-function migrateLegacy(record) {
-  if (!record) return null;
-  const contacts = Array.isArray(record.interactions)
-    ? record.interactions.map((item) => ({
-        ...item,
-        clientId: record.clientId,
-        type: normaliseContactType(item.type),
-      }))
-    : Array.isArray(record.contacts)
-      ? record.contacts
-      : [];
-  return {
-    id: record.id,
+  await scheduleRenewalTasks({
     clientId: record.clientId,
-    cnpj: normaliseCnpj(record.cnpj) || null,
-    name: record.name,
-    segment: record.segment,
-    companySize: record.companySize === "médio" ? "media" : record.companySize,
-    city: record.city,
-    state: record.state,
-    website: record.website,
-    mainContactName: record.primaryContact?.name || record.mainContactName,
-    mainContactRole: record.primaryContact?.role || record.mainContactRole,
-    mainContactPhone: record.primaryContact?.phone || record.mainContactPhone,
-    mainContactEmail: record.primaryContact?.email || record.mainContactEmail,
-    interestLevel: record.interestLevel === "médio" ? "medio" : record.interestLevel,
-    closeProbability: record.closeProbability === "média" ? "media" : record.closeProbability,
-    tags: normaliseTags(record.tags, { clientId: record.clientId }),
-    hasCompetitorContract: record.hasCompetitorContract,
-    competitorName: record.competitorName,
-    competitorContractStart: record.contractStart || record.competitorContractStart,
-    competitorContractEnd: record.contractEnd || record.competitorContractEnd,
-    inTrial: record.inTrial || record.trial?.active || false,
-    trialProduct: record.trial?.product || record.trialProduct,
-    trialStart: record.trial?.startDate || record.trialStart,
-    trialDurationDays: record.trial?.durationDays ?? record.trialDurationDays ?? null,
-    trialEnd: record.trial?.endDate || record.trialEnd,
-    notes: record.notes || record.contractNotes || record.observations || "",
-    relationshipType: normaliseRelationshipType(record.relationshipType),
-    createdByUserId: record.createdByUserId || null,
-    dealId: record.dealId || null,
-    convertedClientId: record.convertedClientId || null,
-    traccarGroupId: record.traccarGroupId || null,
-    traccarUserId: record.traccarUserId || null,
-    reservedDeviceIds: normaliseDeviceIds(record.reservedDeviceIds),
-    contractStart: normaliseDate(record.contractStart),
-    contractDurationDays: Number(record.contractDurationDays) || null,
-    contractEnd: normaliseDate(record.contractEnd),
-    conversionError: record.conversionError || null,
-    contacts,
-    createdAt: record.createdAt || new Date().toISOString(),
-    updatedAt: record.updatedAt || record.createdAt || new Date().toISOString(),
-  };
+    crmClientId: record.id,
+    dealId: record.dealId,
+    contractEnd,
+  });
+
+  return toDomain(updated);
 }
 
-const persisted = loadCollection(STORAGE_KEY, []);
-persisted.forEach((record) => {
-  if (record?.id) {
-    const migrated = migrateLegacy(record);
-    if (migrated) {
-      persistClient(migrated, { skipSync: true });
-    }
-  }
-});
+function hydrateContacts(record) {
+  return Array.isArray(record.contacts) ? record.contacts : [];
+}
 
-export function listCrmClients({ clientId, user, createdByUserId, view } = {}) {
+function mapDealsByClient(deals) {
+  const map = new Map();
+  deals.forEach((deal) => {
+    if (deal.crmClientId) {
+      map.set(deal.crmClientId, deal);
+    }
+  });
+  return map;
+}
+
+export async function listCrmClients({ clientId, user, createdByUserId, view } = {}) {
   const isAdmin = user?.role === "admin";
   const shouldFilterByOwner = !isAdmin || view === "mine" || createdByUserId;
   const ownerId = createdByUserId || (shouldFilterByOwner ? user?.id : undefined);
 
-  return Array.from(crmClients.values())
-    .filter((record) => (clientId ? String(record.clientId) === String(clientId) : true))
-    .filter((record) => (ownerId ? record.createdByUserId === ownerId : true))
-    .map((record) => {
-      if (!record.dealId) {
-        try {
-          const deal = ensureDealForCrmClient(record, { clientId: record.clientId, user });
-          record.dealId = deal?.id || record.dealId;
-          persistClient(record);
-        } catch (error) {
-          console.warn("[crm] falha ao garantir negócio do pipeline", error?.message || error);
-        }
-      }
+  const clients = await prisma.crmClient.findMany({
+    where: {
+      clientId: clientId ? String(clientId) : undefined,
+      createdByUserId: ownerId || undefined,
+    },
+    orderBy: { createdAt: "desc" },
+  });
 
-      const hydrated = hydrateRecord(record);
-      const dealsForClient = mapDealsWithStage(
-        listPipelineDeals({ clientId: record.clientId, user, view: shouldFilterByOwner ? "mine" : view }),
-      );
-      const deal = dealsForClient.find((item) => item.crmClientId === record.id) || null;
-      return { ...hydrated, deal };
-    });
+  const deals = await prisma.deal.findMany({
+    where: { crmClientId: { in: clients.map((item) => item.id) } },
+    include: { stage: true },
+  });
+  const dealsByClient = mapDealsByClient(deals);
+
+  return Promise.all(
+    clients.map(async (record) => {
+      const deal = dealsByClient.get(record.id);
+      const domain = toDomain(record);
+      return { ...domain, deal: deal ? mapDealsWithStage([deal])[0] : null };
+    }),
+  );
 }
 
-export function listCrmClientsWithUpcomingEvents({
+export async function listCrmClientsWithUpcomingEvents({
   clientId,
   contractWithinDays = 30,
   trialWithinDays = 7,
@@ -380,7 +350,7 @@ export function listCrmClientsWithUpcomingEvents({
   const contractDays = Number.isFinite(Number(contractWithinDays)) ? Number(contractWithinDays) : 30;
   const trialDays = Number.isFinite(Number(trialWithinDays)) ? Number(trialWithinDays) : 7;
 
-  const clients = listCrmClients({ clientId, user, createdByUserId, view });
+  const clients = await listCrmClients({ clientId, user, createdByUserId, view });
 
   const contractAlerts = contractDays
     ? clients.filter(
@@ -409,25 +379,14 @@ export function listCrmClientsWithUpcomingEvents({
   return { contractAlerts, contractExpired, trialAlerts, trialExpired };
 }
 
-export function getCrmClient(id, { clientId, user } = {}) {
-  const record = crmClients.get(String(id));
+export async function getCrmClient(id, { clientId, user } = {}) {
+  const record = await prisma.crmClient.findUnique({ where: { id: String(id) } });
   ensureClientAccessible(record, clientId, user);
-  if (!record.dealId) {
-    try {
-      const deal = ensureDealForCrmClient(record, { clientId: record.clientId, user });
-      record.dealId = deal?.id || record.dealId;
-      persistClient(record);
-    } catch (error) {
-      console.warn("[crm] falha ao garantir negócio do pipeline", error?.message || error);
-    }
-  }
-  const hydrated = hydrateRecord(record);
-  const dealsForClient = mapDealsWithStage(listPipelineDeals({ clientId: record.clientId, user }));
-  const deal = dealsForClient.find((item) => item.crmClientId === record.id) || null;
-  return { ...hydrated, deal };
+  const deal = await prisma.deal.findFirst({ where: { crmClientId: record.id }, include: { stage: true } });
+  return { ...toDomain(record), deal: deal ? mapDealsWithStage([deal])[0] : null };
 }
 
-export function createCrmClient(payload, { user } = {}) {
+export async function createCrmClient(payload, { user } = {}) {
   const name = normaliseString(payload?.name || payload?.companyName);
   if (!name) {
     throw createError(400, "Nome do cliente é obrigatório");
@@ -438,143 +397,166 @@ export function createCrmClient(payload, { user } = {}) {
   }
   const cnpjValue = normaliseCnpj(payload?.cnpj) || null;
 
-  if (findDuplicateCnpj({ clientId, cnpj: cnpjValue })) {
+  if (await findDuplicateCnpj({ clientId, cnpj: cnpjValue })) {
     throw duplicateCnpjError();
   }
 
-  const now = new Date().toISOString();
-  const record = {
-    id: randomUUID(),
-    clientId,
-    cnpj: cnpjValue,
-    name,
-    segment: normaliseString(payload?.segment),
-    companySize: normaliseString(payload?.companySize || "media"),
-    city: normaliseString(payload?.city),
-    state: normaliseString(payload?.state),
-    website: normaliseString(payload?.website),
-    mainContactName: normaliseString(payload?.mainContactName),
-    mainContactRole: normaliseString(payload?.mainContactRole),
-    mainContactPhone: normaliseString(payload?.mainContactPhone),
-    mainContactEmail: normaliseString(payload?.mainContactEmail),
-    interestLevel: payload?.interestLevel || "medio",
-    closeProbability: payload?.closeProbability || "media",
-    tags: normaliseTags(payload?.tags, { clientId }),
-    hasCompetitorContract: normaliseBoolean(payload?.hasCompetitorContract),
-    competitorName: normaliseString(payload?.competitorName),
-    competitorContractStart: normaliseDate(payload?.competitorContractStart),
-    competitorContractEnd: normaliseDate(payload?.competitorContractEnd),
-    inTrial: normaliseBoolean(payload?.inTrial),
-    trialProduct: normaliseString(payload?.trialProduct),
-    trialStart: normaliseDate(payload?.trialStart),
-    trialDurationDays: Number(payload?.trialDurationDays) || null,
-    trialEnd: computeTrialEnd(payload?.trialStart, payload?.trialDurationDays, payload?.trialEnd),
-    notes: normaliseString(payload?.notes),
-    relationshipType: normaliseRelationshipType(payload?.relationshipType),
-    createdByUserId: user?.id || payload?.createdByUserId || null,
-    reservedDeviceIds: normaliseDeviceIds(payload?.reservedDeviceIds),
-    contractStart: normaliseDate(payload?.contractStart),
-    contractDurationDays: Number(payload?.contractDurationDays) || null,
-    contractEnd: computeContractEnd(payload?.contractStart, payload?.contractDurationDays),
-    convertedClientId: null,
-    traccarGroupId: null,
-    traccarUserId: null,
-    conversionError: null,
-    dealId: null,
-    contacts: [],
-    createdAt: now,
-    updatedAt: now,
-  };
+  const tags = await normaliseClientTags(payload?.tags, { clientId });
+  const now = new Date();
+  const record = await prisma.crmClient.create({
+    data: {
+      id: randomUUID(),
+      clientId,
+      cnpj: cnpjValue,
+      name,
+      segment: normaliseString(payload?.segment),
+      companySize: normaliseString(payload?.companySize || "media"),
+      city: normaliseString(payload?.city),
+      state: normaliseString(payload?.state),
+      website: normaliseString(payload?.website),
+      mainContactName: normaliseString(payload?.mainContactName),
+      mainContactRole: normaliseString(payload?.mainContactRole),
+      mainContactPhone: normaliseString(payload?.mainContactPhone),
+      mainContactEmail: normaliseString(payload?.mainContactEmail),
+      interestLevel: payload?.interestLevel || "medio",
+      closeProbability: payload?.closeProbability || "media",
+      tags,
+      hasCompetitorContract: normaliseBoolean(payload?.hasCompetitorContract),
+      competitorName: normaliseString(payload?.competitorName),
+      competitorContractStart: normaliseDate(payload?.competitorContractStart),
+      competitorContractEnd: normaliseDate(payload?.competitorContractEnd),
+      inTrial: normaliseBoolean(payload?.inTrial),
+      trialProduct: normaliseString(payload?.trialProduct),
+      trialStart: normaliseDate(payload?.trialStart),
+      trialDurationDays: Number(payload?.trialDurationDays) || null,
+      trialEnd: computeTrialEnd(payload?.trialStart, payload?.trialDurationDays, payload?.trialEnd),
+      notes: normaliseString(payload?.notes),
+      relationshipType: normaliseRelationshipType(payload?.relationshipType),
+      createdByUserId: user?.id || payload?.createdByUserId || null,
+      reservedDeviceIds: normaliseDeviceIds(payload?.reservedDeviceIds),
+      contractStart: normaliseDate(payload?.contractStart),
+      contractDurationDays: Number(payload?.contractDurationDays) || null,
+      contractEnd: computeContractEnd(payload?.contractStart, payload?.contractDurationDays),
+      convertedClientId: null,
+      traccarGroupId: null,
+      traccarGroupName: null,
+      traccarUserId: null,
+      conversionError: null,
+      dealId: null,
+      contacts: [],
+      soldDeviceIds: [],
+      createdAt: now,
+      updatedAt: now,
+    },
+  });
+
+  let dealId = null;
   try {
-    const deal = ensureDealForCrmClient(record, { clientId, user });
-    record.dealId = deal?.id || null;
+    const deal = await ensureDealForCrmClient(record, { clientId, user });
+    dealId = deal?.id || null;
   } catch (error) {
     console.warn("[crm] falha ao sincronizar lead com pipeline", error?.message || error);
   }
-  return persistClient(record);
+
+  const updated = await prisma.crmClient.update({ where: { id: record.id }, data: { dealId } });
+  return toDomain(updated);
 }
 
 export async function updateCrmClient(id, updates = {}, { clientId, user } = {}) {
-  const record = crmClients.get(String(id));
+  const record = await prisma.crmClient.findUnique({ where: { id: String(id) } });
   ensureClientAccessible(record, clientId, user);
   const previousRelationship = record.relationshipType;
+  const previousContractEnd = record.contractEnd ? record.contractEnd.toISOString() : null;
+
+  const data = {};
 
   if (updates.cnpj !== undefined) {
     const nextCnpj = normaliseCnpj(updates.cnpj);
     const nextValue = nextCnpj || null;
     if (nextValue) {
-      const duplicated = findDuplicateCnpj({ clientId: record.clientId, cnpj: nextValue, ignoreId: record.id });
+      const duplicated = await findDuplicateCnpj({ clientId: record.clientId, cnpj: nextValue, ignoreId: record.id });
       if (duplicated) {
         throw duplicateCnpjError();
       }
     }
-    record.cnpj = nextValue;
+    data.cnpj = nextValue;
   }
 
-  if (updates.name !== undefined) record.name = normaliseString(updates.name);
-  if (updates.segment !== undefined) record.segment = normaliseString(updates.segment);
-  if (updates.companySize !== undefined) record.companySize = normaliseString(updates.companySize);
-  if (updates.city !== undefined) record.city = normaliseString(updates.city);
-  if (updates.state !== undefined) record.state = normaliseString(updates.state);
-  if (updates.website !== undefined) record.website = normaliseString(updates.website);
+  if (updates.name !== undefined) data.name = normaliseString(updates.name);
+  if (updates.segment !== undefined) data.segment = normaliseString(updates.segment);
+  if (updates.companySize !== undefined) data.companySize = normaliseString(updates.companySize);
+  if (updates.city !== undefined) data.city = normaliseString(updates.city);
+  if (updates.state !== undefined) data.state = normaliseString(updates.state);
+  if (updates.website !== undefined) data.website = normaliseString(updates.website);
 
-  if (updates.mainContactName !== undefined) record.mainContactName = normaliseString(updates.mainContactName);
-  if (updates.mainContactRole !== undefined) record.mainContactRole = normaliseString(updates.mainContactRole);
-  if (updates.mainContactPhone !== undefined) record.mainContactPhone = normaliseString(updates.mainContactPhone);
-  if (updates.mainContactEmail !== undefined) record.mainContactEmail = normaliseString(updates.mainContactEmail);
+  if (updates.mainContactName !== undefined) data.mainContactName = normaliseString(updates.mainContactName);
+  if (updates.mainContactRole !== undefined) data.mainContactRole = normaliseString(updates.mainContactRole);
+  if (updates.mainContactPhone !== undefined) data.mainContactPhone = normaliseString(updates.mainContactPhone);
+  if (updates.mainContactEmail !== undefined) data.mainContactEmail = normaliseString(updates.mainContactEmail);
 
-  if (updates.interestLevel !== undefined) record.interestLevel = updates.interestLevel;
-  if (updates.closeProbability !== undefined) record.closeProbability = updates.closeProbability;
-  if (updates.tags !== undefined) record.tags = normaliseTags(updates.tags, { clientId: record.clientId });
+  if (updates.interestLevel !== undefined) data.interestLevel = updates.interestLevel;
+  if (updates.closeProbability !== undefined) data.closeProbability = updates.closeProbability;
+  if (updates.tags !== undefined) data.tags = await normaliseClientTags(updates.tags, { clientId: record.clientId });
 
-  if (updates.hasCompetitorContract !== undefined) record.hasCompetitorContract = normaliseBoolean(updates.hasCompetitorContract);
-  if (updates.competitorName !== undefined) record.competitorName = normaliseString(updates.competitorName);
+  if (updates.hasCompetitorContract !== undefined) data.hasCompetitorContract = normaliseBoolean(updates.hasCompetitorContract);
+  if (updates.competitorName !== undefined) data.competitorName = normaliseString(updates.competitorName);
   if (updates.competitorContractStart !== undefined)
-    record.competitorContractStart = normaliseDate(updates.competitorContractStart);
-  if (updates.competitorContractEnd !== undefined) record.competitorContractEnd = normaliseDate(updates.competitorContractEnd);
+    data.competitorContractStart = normaliseDate(updates.competitorContractStart);
+  if (updates.competitorContractEnd !== undefined) data.competitorContractEnd = normaliseDate(updates.competitorContractEnd);
 
-  if (updates.inTrial !== undefined) record.inTrial = normaliseBoolean(updates.inTrial);
-  if (updates.trialProduct !== undefined) record.trialProduct = normaliseString(updates.trialProduct);
-  if (updates.trialStart !== undefined) record.trialStart = normaliseDate(updates.trialStart);
-  if (updates.trialDurationDays !== undefined) record.trialDurationDays = Number(updates.trialDurationDays) || null;
+  if (updates.inTrial !== undefined) data.inTrial = normaliseBoolean(updates.inTrial);
+  if (updates.trialProduct !== undefined) data.trialProduct = normaliseString(updates.trialProduct);
+  if (updates.trialStart !== undefined) data.trialStart = normaliseDate(updates.trialStart);
+  if (updates.trialDurationDays !== undefined) data.trialDurationDays = Number(updates.trialDurationDays) || null;
   if (updates.trialEnd !== undefined)
-    record.trialEnd = computeTrialEnd(
-      updates.trialStart ?? record.trialStart,
-      updates.trialDurationDays ?? record.trialDurationDays,
-      updates.trialEnd,
-    );
+    data.trialEnd = computeTrialEnd(updates.trialStart ?? record.trialStart, updates.trialDurationDays ?? record.trialDurationDays, updates.trialEnd);
 
-  if (updates.notes !== undefined) record.notes = normaliseString(updates.notes);
-  if (updates.relationshipType !== undefined) record.relationshipType = normaliseRelationshipType(updates.relationshipType);
+  if (updates.notes !== undefined) data.notes = normaliseString(updates.notes);
+  if (updates.relationshipType !== undefined) data.relationshipType = normaliseRelationshipType(updates.relationshipType);
+  if (updates.soldDeviceIds !== undefined) data.soldDeviceIds = normaliseDeviceIds(updates.soldDeviceIds);
 
-  if (updates.reservedDeviceIds !== undefined) record.reservedDeviceIds = normaliseDeviceIds(updates.reservedDeviceIds);
-  if (updates.contractStart !== undefined) record.contractStart = normaliseDate(updates.contractStart);
-  if (updates.contractDurationDays !== undefined)
-    record.contractDurationDays = Number(updates.contractDurationDays) || null;
-  record.contractEnd = computeContractEnd(record.contractStart, record.contractDurationDays);
+  if (updates.reservedDeviceIds !== undefined) data.reservedDeviceIds = normaliseDeviceIds(updates.reservedDeviceIds);
+  if (updates.contractStart !== undefined) data.contractStart = normaliseDate(updates.contractStart);
+  if (updates.contractDurationDays !== undefined) data.contractDurationDays = Number(updates.contractDurationDays) || null;
+  data.contractEnd = computeContractEnd(data.contractStart ?? record.contractStart, data.contractDurationDays ?? record.contractDurationDays);
 
-  record.updatedAt = new Date().toISOString();
-  persistClient(record);
+  data.updatedAt = new Date();
 
-  if (previousRelationship !== "customer" && record.relationshipType === "customer") {
+  const updated = await prisma.crmClient.update({ where: { id: record.id }, data });
+
+  const currentContractEnd = updated.contractEnd ? updated.contractEnd.toISOString() : null;
+  if (currentContractEnd !== previousContractEnd) {
+    await scheduleRenewalReminders({
+      clientId: updated.clientId,
+      crmClientId: updated.id,
+      dealId: updated.dealId,
+      contractEnd: updated.contractEnd,
+      user,
+    });
+    await scheduleRenewalTasks({
+      clientId: updated.clientId,
+      crmClientId: updated.id,
+      dealId: updated.dealId,
+      contractEnd: updated.contractEnd,
+    });
+  }
+
+  if (previousRelationship !== "customer" && updated.relationshipType === "customer") {
     try {
-      await convertLeadToCustomer(record, { user });
-      record.updatedAt = new Date().toISOString();
-      persistClient(record);
+      return await convertLeadToCustomer(toDomain(updated), { user });
     } catch (error) {
-      record.conversionError = error?.message || error;
-      persistClient(record);
+      await prisma.crmClient.update({ where: { id: record.id }, data: { conversionError: error?.message || String(error) } });
       throw error;
     }
   }
 
-  return hydrateRecord(record);
+  return toDomain(updated);
 }
 
-export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
-  const record = crmClients.get(String(id));
+export async function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
+  const record = await prisma.crmClient.findUnique({ where: { id: String(id) } });
   ensureClientAccessible(record, clientId, user);
-  const contacts = Array.isArray(record.contacts) ? record.contacts.map(toContactSnapshot) : [];
+  const contacts = hydrateContacts(record).map(toContactSnapshot);
 
   if (user?.role === "admin") {
     if (createdByUserId) {
@@ -585,8 +567,8 @@ export function listCrmContacts(id, { clientId, user, createdByUserId } = {}) {
   return contacts.filter((contact) => contact.createdByUserId === user?.id);
 }
 
-export function addCrmContact(id, payload = {}, { clientId, user } = {}) {
-  const record = crmClients.get(String(id));
+export async function addCrmContact(id, payload = {}, { clientId, user } = {}) {
+  const record = await prisma.crmClient.findUnique({ where: { id: String(id) } });
   ensureClientAccessible(record, clientId, user);
 
   const contact = {
@@ -604,8 +586,107 @@ export function addCrmContact(id, payload = {}, { clientId, user } = {}) {
     createdAt: new Date().toISOString(),
   };
 
-  record.contacts = [...(record.contacts || []), contact];
-  record.updatedAt = new Date().toISOString();
-  persistClient(record);
+  const contacts = [...hydrateContacts(record), contact];
+  await prisma.crmClient.update({ where: { id: record.id }, data: { contacts, updatedAt: new Date() } });
   return { ...contact };
 }
+
+export async function decorateWithTags(crmClient, { clientId } = {}) {
+  if (!crmClient) return null;
+  const tags = await resolveTagNames(crmClient.tags, { clientId: clientId || crmClient.clientId });
+  return { ...crmClient, tagDetails: tags };
+}
+
+async function ensureCrmTraccarGroup({ desiredName, crmClientId, tenantClientId }) {
+  const name = normaliseTraccarGroupName(desiredName, `Cliente ${crmClientId}`);
+  try {
+    const groupResponse = await traccarAdminRequest({
+      method: "POST",
+      url: "/groups",
+      data: {
+        name,
+        attributes: { crmId: crmClientId, tenantClientId },
+      },
+    });
+    return { id: groupResponse?.data?.id || groupResponse?.id || null, name };
+  } catch (error) {
+    if (error?.status === 409) {
+      try {
+        const groups = await traccarAdminRequest({ method: "GET", url: "/groups", params: { all: true } });
+        const list = Array.isArray(groups?.data) ? groups.data : groups;
+        const match = Array.isArray(list) ? list.find((item) => item?.name === name) : null;
+        if (match?.id) {
+          return { id: match.id, name };
+        }
+      } catch (searchError) {
+        console.warn("[crm] falha ao localizar grupo existente no Traccar", searchError?.message || searchError);
+      }
+    }
+    throw error;
+  }
+}
+
+export async function handleDealWon(deal, { user } = {}) {
+  if (!deal?.crmClientId) return deal;
+  const crmClient = await prisma.crmClient.findUnique({ where: { id: deal.crmClientId } });
+  if (!crmClient) return deal;
+
+  const deviceIds = normaliseDeviceIds(crmClient.reservedDeviceIds);
+  const clientDevices = listDevices({ clientId: crmClient.clientId });
+  const linkedDevices = [];
+
+  for (const deviceId of deviceIds) {
+    const device = clientDevices.find((item) => item.id === deviceId);
+    if (!device) continue;
+    updateDevice(device.id, { clientId: crmClient.convertedClientId || crmClient.clientId });
+    linkedDevices.push(device.id);
+
+    if (crmClient.traccarGroupId && device.traccarId) {
+      try {
+        await traccarAdminRequest({
+          method: "PUT",
+          url: `/devices/${device.traccarId}`,
+          data: { id: Number(device.traccarId), groupId: Number(crmClient.traccarGroupId) },
+        });
+      } catch (error) {
+        console.warn("[crm] falha ao vincular device ao grupo Traccar", error?.message || error);
+      }
+    }
+  }
+
+  if (linkedDevices.length) {
+    await prisma.crmClient.update({ where: { id: crmClient.id }, data: { soldDeviceIds: linkedDevices } });
+    await prisma.deal.update({ where: { id: deal.id }, data: { soldDeviceIds: linkedDevices } });
+  }
+
+  const contractEnd = crmClient.contractEnd || computeContractEnd(crmClient.contractStart, crmClient.contractDurationDays);
+  if (contractEnd) {
+    await scheduleRenewalReminders({
+      clientId: crmClient.clientId,
+      crmClientId: crmClient.id,
+      dealId: deal.id,
+      contractEnd,
+      user,
+    });
+    await scheduleRenewalTasks({
+      clientId: crmClient.clientId,
+      crmClientId: crmClient.id,
+      dealId: deal.id,
+      contractEnd,
+    });
+  }
+
+  return deal;
+}
+
+export default {
+  listCrmClients,
+  listCrmClientsWithUpcomingEvents,
+  getCrmClient,
+  createCrmClient,
+  updateCrmClient,
+  listCrmContacts,
+  addCrmContact,
+  decorateWithTags,
+  handleDealWon,
+};

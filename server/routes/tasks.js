@@ -33,12 +33,12 @@ async function createGeofenceForTask(task) {
 router.post("/tasks", resolveClientIdMiddleware, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
-    const task = createTask({ ...req.body, clientId });
+    const task = await createTask({ ...req.body, clientId });
     let geofence = null;
     try {
       geofence = await createGeofenceForTask(task);
       if (geofence?.id) {
-        const updated = updateTask(task.id, { geoFenceId: geofence.id });
+        const updated = await updateTask(task.id, { geoFenceId: geofence.id });
         return res.status(201).json({ task: updated, geofence });
       }
     } catch (geoError) {
@@ -50,10 +50,10 @@ router.post("/tasks", resolveClientIdMiddleware, async (req, res, next) => {
   }
 });
 
-router.get("/tasks", resolveClientIdMiddleware, (req, res, next) => {
+router.get("/tasks", resolveClientIdMiddleware, async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId);
-    const tasks = listTasks({ ...req.query, clientId });
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const tasks = await listTasks({ ...req.query, clientId });
     res.json({ tasks });
   } catch (error) {
     next(error);
@@ -63,17 +63,17 @@ router.get("/tasks", resolveClientIdMiddleware, (req, res, next) => {
 router.put("/tasks/:id", resolveClientIdMiddleware, async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId);
-    const task = getTaskById(req.params.id);
+    const task = await getTaskById(req.params.id);
     if (clientId && task && String(task.clientId) !== String(clientId)) {
       return res.status(403).json({ message: "Task não pertence a este cliente" });
     }
     const updates = { ...req.body, clientId: task?.clientId || clientId };
-    const updated = updateTask(req.params.id, updates);
+    const updated = await updateTask(req.params.id, updates);
     if (!task?.geoFenceId && (updates.latitude || updates.longitude)) {
       try {
         const geofence = await createGeofenceForTask({ ...task, ...updates });
         if (geofence?.id) {
-          const withGeo = updateTask(req.params.id, { geoFenceId: geofence.id });
+          const withGeo = await updateTask(req.params.id, { geoFenceId: geofence.id });
           return res.json({ task: withGeo, geofence });
         }
       } catch (geoError) {

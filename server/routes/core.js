@@ -2,28 +2,60 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
-import { resolveClientId } from "../middleware/client.js";
-import { getClientById, updateClient } from "../models/client.js";
-import { listModels, createModel, getModelById } from "../models/model.js";
-import {
-  listDevices,
-  createDevice,
-  updateDevice,
-  getDeviceById,
-  findDeviceByUniqueId,
-  findDeviceByTraccarId,
-} from "../models/device.js";
-import { listChips, createChip, updateChip, getChipById } from "../models/chip.js";
-import { listVehicles, createVehicle, updateVehicle, getVehicleById, deleteVehicle } from "../models/vehicle.js";
-import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
-import { getCachedTraccarResources } from "../services/traccar-sync.js";
-import { enrichPositionsWithAddresses } from "../utils/address.js";
+import * as clientMiddleware from "../middleware/client.js";
+import resolveClientIdMiddleware from "../middleware/resolve-client.js";
+import * as clientModel from "../models/client.js";
+import * as modelModel from "../models/model.js";
+import * as deviceModel from "../models/device.js";
+import * as chipModel from "../models/chip.js";
+import * as vehicleModel from "../models/vehicle.js";
+import * as traccarService from "../services/traccar.js";
+import * as traccarDbService from "../services/traccar-db.js";
+import * as traccarSyncService from "../services/traccar-sync.js";
+import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 
-router.use(authenticate);
+const defaultDeps = {
+  authenticate,
+  requireRole,
+  resolveClientId: clientMiddleware.resolveClientId,
+  resolveClientIdMiddleware,
+  getClientById: clientModel.getClientById,
+  updateClient: clientModel.updateClient,
+  listModels: modelModel.listModels,
+  createModel: modelModel.createModel,
+  getModelById: modelModel.getModelById,
+  listDevices: deviceModel.listDevices,
+  createDevice: deviceModel.createDevice,
+  updateDevice: deviceModel.updateDevice,
+  getDeviceById: deviceModel.getDeviceById,
+  findDeviceByUniqueId: deviceModel.findDeviceByUniqueId,
+  findDeviceByTraccarId: deviceModel.findDeviceByTraccarId,
+  listChips: chipModel.listChips,
+  createChip: chipModel.createChip,
+  updateChip: chipModel.updateChip,
+  getChipById: chipModel.getChipById,
+  listVehicles: vehicleModel.listVehicles,
+  createVehicle: vehicleModel.createVehicle,
+  updateVehicle: vehicleModel.updateVehicle,
+  getVehicleById: vehicleModel.getVehicleById,
+  deleteVehicle: vehicleModel.deleteVehicle,
+  traccarProxy: traccarService.traccarProxy,
+  buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
+  fetchLatestPositions: traccarDbService.fetchLatestPositions,
+  isTraccarDbConfigured: traccarDbService.isTraccarDbConfigured,
+  getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
+  enrichPositionsWithAddresses: addressUtils.enrichPositionsWithAddresses,
+};
+
+const deps = { ...defaultDeps };
+
+const resolveClientMiddleware = (req, res, next) => deps.resolveClientIdMiddleware(req, res, next);
+
+router.use((req, res, next) => deps.authenticate(req, res, next));
+router.use(resolveClientMiddleware);
 
 function normaliseList(payload, keys = []) {
   if (Array.isArray(payload)) return payload;
@@ -107,7 +139,7 @@ function sanitizePosition(rawPosition) {
 }
 
 function ensureClientExists(clientId) {
-  const client = getClientById(clientId);
+  const client = deps.getClientById(clientId);
   if (!client) {
     throw createError(404, "Cliente não encontrado");
   }
@@ -122,19 +154,19 @@ async function ensureClientTraccarGroup(clientId) {
   }
   const desiredName = attrs.traccarGroupName || client.name || `Cliente ${clientId}`;
   try {
-    const group = await traccarProxy("post", "/groups", { data: { name: desiredName }, asAdmin: true });
-    updateClient(clientId, { attributes: { ...attrs, traccarGroupId: group.id } });
+    const group = await deps.traccarProxy("post", "/groups", { data: { name: desiredName }, asAdmin: true });
+    deps.updateClient(clientId, { attributes: { ...attrs, traccarGroupId: group.id } });
     return group.id;
   } catch (error) {
     if (error.status === 409) {
-      const groups = await traccarProxy("get", "/groups", { params: { all: true }, asAdmin: true });
+      const groups = await deps.traccarProxy("get", "/groups", { params: { all: true }, asAdmin: true });
       const match = Array.isArray(groups)
         ? groups.find((item) => item?.name === desiredName)
         : Array.isArray(groups?.groups)
         ? groups.groups.find((item) => item?.name === desiredName)
         : null;
       if (match?.id) {
-        updateClient(clientId, { attributes: { ...attrs, traccarGroupId: match.id } });
+        deps.updateClient(clientId, { attributes: { ...attrs, traccarGroupId: match.id } });
         return match.id;
       }
     }
@@ -306,15 +338,15 @@ function ensureSameClient(resource, clientId, message) {
 }
 
 function linkChipToDevice(clientId, chipId, deviceId) {
-  const chip = getChipById(chipId);
+  const chip = deps.getChipById(chipId);
   ensureSameClient(chip, clientId, "Chip não encontrado");
-  const device = getDeviceById(deviceId);
+  const device = deps.getDeviceById(deviceId);
   ensureSameClient(device, clientId, "Equipamento não encontrado");
 
   if (device.chipId && device.chipId !== chip.id) {
-    const previousChip = getChipById(device.chipId);
+    const previousChip = deps.getChipById(device.chipId);
     if (previousChip && String(previousChip.clientId) === String(clientId)) {
-      updateChip(previousChip.id, {
+      deps.updateChip(previousChip.id, {
         deviceId: null,
         status: previousChip.status === "Vinculado" ? "Disponível" : previousChip.status,
       });
@@ -322,83 +354,83 @@ function linkChipToDevice(clientId, chipId, deviceId) {
   }
 
   if (chip.deviceId && chip.deviceId !== device.id) {
-    const previousDevice = getDeviceById(chip.deviceId);
+    const previousDevice = deps.getDeviceById(chip.deviceId);
     if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
-      updateDevice(previousDevice.id, { chipId: null });
+      deps.updateDevice(previousDevice.id, { chipId: null });
     }
   }
 
-  updateChip(chip.id, {
+  deps.updateChip(chip.id, {
     deviceId: device.id,
     status: chip.status && chip.status.length ? chip.status : "Vinculado",
   });
-  updateDevice(device.id, { chipId: chip.id });
+  deps.updateDevice(device.id, { chipId: chip.id });
 }
 
 function detachChip(clientId, chipId) {
-  const chip = getChipById(chipId);
+  const chip = deps.getChipById(chipId);
   ensureSameClient(chip, clientId, "Chip não encontrado");
   if (chip.deviceId) {
-    const device = getDeviceById(chip.deviceId);
+    const device = deps.getDeviceById(chip.deviceId);
     if (device && String(device.clientId) === String(clientId)) {
-      updateDevice(device.id, { chipId: null });
+      deps.updateDevice(device.id, { chipId: null });
     }
   }
-  updateChip(chip.id, {
+  deps.updateChip(chip.id, {
     deviceId: null,
     status: chip.status === "Vinculado" ? "Disponível" : chip.status,
   });
 }
 
 function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
-  const vehicle = getVehicleById(vehicleId);
+  const vehicle = deps.getVehicleById(vehicleId);
   ensureSameClient(vehicle, clientId, "Veículo não encontrado");
-  const device = getDeviceById(deviceId);
+  const device = deps.getDeviceById(deviceId);
   ensureSameClient(device, clientId, "Equipamento não encontrado");
 
   if (vehicle.deviceId && vehicle.deviceId !== device.id) {
-    const previousDevice = getDeviceById(vehicle.deviceId);
+    const previousDevice = deps.getDeviceById(vehicle.deviceId);
     if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
-      updateDevice(previousDevice.id, { vehicleId: null });
+      deps.updateDevice(previousDevice.id, { vehicleId: null });
     }
   }
 
   if (device.vehicleId && device.vehicleId !== vehicle.id) {
-    const previousVehicle = getVehicleById(device.vehicleId);
+    const previousVehicle = deps.getVehicleById(device.vehicleId);
     if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
-      updateVehicle(previousVehicle.id, { deviceId: null });
+      deps.updateVehicle(previousVehicle.id, { deviceId: null });
     }
   }
 
-  updateVehicle(vehicle.id, { deviceId: device.id });
-  updateDevice(device.id, { vehicleId: vehicle.id });
+  deps.updateVehicle(vehicle.id, { deviceId: device.id });
+  deps.updateDevice(device.id, { vehicleId: vehicle.id });
 }
 
 function detachVehicle(clientId, vehicleId) {
-  const vehicle = getVehicleById(vehicleId);
+  const vehicle = deps.getVehicleById(vehicleId);
   ensureSameClient(vehicle, clientId, "Veículo não encontrado");
   if (vehicle.deviceId) {
-    const device = getDeviceById(vehicle.deviceId);
+    const device = deps.getDeviceById(vehicle.deviceId);
     if (device && String(device.clientId) === String(clientId)) {
-      updateDevice(device.id, { vehicleId: null });
+      deps.updateDevice(device.id, { vehicleId: null });
     }
   }
-  updateVehicle(vehicle.id, { deviceId: null });
+  deps.updateVehicle(vehicle.id, { deviceId: null });
 }
 
 router.get("/models", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query.clientId, { required: false });
-    const models = listModels({ clientId, includeGlobal: true });
+    const clientId = deps.resolveClientId(req, req.query.clientId, { required: false });
+    const models = deps.listModels({ clientId, includeGlobal: true });
     res.json({ models });
   } catch (error) {
     next(error);
   }
 });
 
-router.post("/models", requireRole("manager", "admin"), (req, res, next) => {
+router.post("/models", deps.requireRole("manager", "admin"), (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: req.user.role !== "admin" });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: req.user.role !== "admin" });
     const payload = {
       name: req.body?.name,
       brand: req.body?.brand,
@@ -407,23 +439,23 @@ router.post("/models", requireRole("manager", "admin"), (req, res, next) => {
       ports: Array.isArray(req.body?.ports) ? req.body.ports : [],
       clientId: clientId ?? null,
     };
-    const model = createModel(payload);
+    const model = deps.createModel(payload);
     res.status(201).json({ model });
   } catch (error) {
     next(error);
   }
 });
 
-router.get("/devices/import", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
+router.get("/devices/import", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
-    const knownDevices = listDevices({});
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const knownDevices = deps.listDevices({});
     const knownUniqueIds = new Set(
       knownDevices
         .map((device) => (device?.uniqueId ? String(device.uniqueId).toLowerCase() : null))
         .filter(Boolean),
     );
-    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const list = traccarDevices
       .filter((device) => device?.uniqueId && !knownUniqueIds.has(String(device.uniqueId).toLowerCase()))
       .map((device) => ({
@@ -442,30 +474,30 @@ router.get("/devices/import", requireRole("manager", "admin"), resolveClientIdMi
   }
 });
 
-router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdMiddleware, async (req, res, next) => {
+router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { traccarId, uniqueId, modelId, name } = req.body || {};
     if (!traccarId && !uniqueId) {
       throw createError(400, "Informe traccarId ou uniqueId");
     }
 
-    if (uniqueId && findDeviceByUniqueId(uniqueId)) {
+    if (uniqueId && deps.findDeviceByUniqueId(uniqueId)) {
       throw createError(409, "Já existe um equipamento com este identificador");
     }
 
-    if (traccarId && findDeviceByTraccarId(traccarId)) {
+    if (traccarId && deps.findDeviceByTraccarId(traccarId)) {
       throw createError(409, "Este dispositivo já foi importado");
     }
 
     if (modelId) {
-      const model = getModelById(modelId);
+      const model = deps.getModelById(modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
         throw createError(404, "Modelo informado não pertence a este cliente");
       }
     }
 
-    const cachedDevices = getCachedTraccarResources("devices");
+    const cachedDevices = deps.getCachedTraccarResources("devices");
     let traccarDevice = cachedDevices.find((device) => {
       if (traccarId && String(device?.id) === String(traccarId)) {
         return true;
@@ -478,14 +510,14 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
 
     if (!traccarDevice && traccarId) {
       try {
-        traccarDevice = await traccarProxy("get", `/devices/${traccarId}`, { asAdmin: true });
+        traccarDevice = await deps.traccarProxy("get", `/devices/${traccarId}`, { asAdmin: true });
       } catch (_error) {
         // ignora para tentar por uniqueId abaixo
       }
     }
 
     if (!traccarDevice && uniqueId) {
-      const response = await traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
+      const response = await deps.traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
       const list = Array.isArray(response)
         ? response
         : Array.isArray(response?.devices)
@@ -511,7 +543,7 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
     const requiresUpdate =
       (groupId && String(traccarDevice.groupId) !== String(groupId)) || attributesChanged;
     if (requiresUpdate) {
-      traccarDevice = await traccarProxy("put", `/devices/${traccarDevice.id}`, {
+      traccarDevice = await deps.traccarProxy("put", `/devices/${traccarDevice.id}`, {
         data: {
           id: traccarDevice.id,
           name: traccarDevice.name,
@@ -523,7 +555,7 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
       });
     }
 
-    const device = createDevice({
+    const device = deps.createDevice({
       clientId,
       name: name || traccarDevice.name || traccarDevice.uniqueId,
       uniqueId: traccarDevice.uniqueId,
@@ -532,9 +564,9 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
       attributes: { importedFrom: "traccar" },
     });
 
-    const models = listModels({ clientId, includeGlobal: true });
-    const chips = listChips({ clientId });
-    const vehicles = listVehicles({ clientId });
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
     const traccarById = new Map([[String(traccarDevice.id), traccarDevice]]);
     const traccarByUnique = new Map([[String(traccarDevice.uniqueId), traccarDevice]]);
     const response = buildDeviceResponse(device, {
@@ -552,9 +584,9 @@ router.post("/devices/import", requireRole("manager", "admin"), resolveClientIdM
   }
 });
 
-router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
+router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
     const cacheKey = clientId ? `telemetry:${clientId}` : "telemetry:all";
     const cached = telemetryCache.get(cacheKey);
@@ -562,16 +594,16 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       return res.json(cached);
     }
 
-    const devices = listDevices({ clientId });
-    const models = listModels({ clientId, includeGlobal: true });
-    const chips = listChips({ clientId });
-    const vehicles = listVehicles({ clientId });
+    const devices = deps.listDevices({ clientId });
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
 
     const modelMap = new Map(models.map((item) => [item.id, item]));
     const chipMap = new Map(chips.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
 
-    const traccarDevicesRaw = await traccarProxy("get", "/devices", { params: { all: true }, asAdmin: true });
+    const traccarDevicesRaw = await deps.traccarProxy("get", "/devices", { params: { all: true }, asAdmin: true });
     const traccarDevices = normaliseList(traccarDevicesRaw, ["devices", "data"]);
     const traccarById = new Map();
     const traccarByUnique = new Map();
@@ -600,14 +632,14 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
     let positions = [];
     if (validPositionIds.length > 0) {
       try {
-        const positionResponse = await traccarProxy("get", "/positions", {
+        const positionResponse = await deps.traccarProxy("get", "/positions", {
           params: { id: validPositionIds },
           asAdmin: true,
         });
-        positions = await enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
+        positions = await deps.enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
       } catch (positionError) {
         logTelemetryWarning("positions", positionError, { ids: validPositionIds });
-        throw buildTraccarUnavailableError(positionError, {
+        throw deps.buildTraccarUnavailableError(positionError, {
           stage: "positions",
           url: "/positions",
           params: { id: validPositionIds },
@@ -629,23 +661,20 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
         .map((value) => String(value)),
     );
 
+    const warnings = [];
     let events = [];
     if (deviceIds.length) {
       const now = new Date();
       const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       try {
-        const eventsResponse = await traccarProxy("get", "/events", {
+        const eventsResponse = await deps.traccarProxy("get", "/events", {
           params: { deviceId: deviceIds, from: from.toISOString(), to: now.toISOString() },
           asAdmin: true,
         });
         events = normaliseList(eventsResponse, ["events", "data"]);
       } catch (eventError) {
         logTelemetryWarning("events", eventError, { deviceIds, from: from.toISOString(), to: now.toISOString() });
-        throw buildTraccarUnavailableError(eventError, {
-          stage: "events",
-          url: "/events",
-          params: { deviceId: deviceIds, from: from.toISOString(), to: now.toISOString() },
-        });
+        warnings.push({ stage: "events", message: "Falha ao carregar eventos recentes" });
       }
     }
 
@@ -664,7 +693,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       }
     });
 
-    const response = devices.map((device) => {
+    let response = devices.map((device) => {
       const traccarDevice =
         (device.traccarId && traccarById.get(String(device.traccarId))) ||
         traccarByUnique.get(String(device.uniqueId));
@@ -680,22 +709,49 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       };
     });
 
-    const missingPositionDeviceIds = filterValidPositionIds(
+    let missingPositionDeviceIds = filterValidPositionIds(
       response
         .filter((item) => !item.position && item.traccarId)
         .map((item) => String(item.traccarId)),
     );
+
+    if (missingPositionDeviceIds.length && deps.isTraccarDbConfigured()) {
+      try {
+        const dbPositions = await deps.fetchLatestPositions(missingPositionDeviceIds);
+        const latestByDevice = new Map();
+
+        dbPositions.forEach((pos) => {
+          if (!pos?.deviceId) return;
+          latestByDevice.set(String(pos.deviceId), sanitizePosition(pos));
+        });
+
+        response = response.map((item) => {
+          if (item.position || !item.traccarId) return item;
+          const fallback = latestByDevice.get(String(item.traccarId));
+          if (!fallback) return item;
+          return { ...item, position: fallback };
+        });
+
+        missingPositionDeviceIds = filterValidPositionIds(
+          response
+            .filter((item) => !item.position && item.traccarId)
+            .map((item) => String(item.traccarId)),
+        );
+      } catch (dbFallbackError) {
+        logTelemetryWarning("positions-db", dbFallbackError, { deviceIds: missingPositionDeviceIds });
+      }
+    }
 
     if (missingPositionDeviceIds.length) {
       const now = new Date();
       const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
       try {
-        const fallbackPositionsResponse = await traccarProxy("get", "/positions", {
+        const fallbackPositionsResponse = await deps.traccarProxy("get", "/positions", {
           params: { deviceId: missingPositionDeviceIds, from: from.toISOString(), to: now.toISOString() },
           asAdmin: true,
         });
-        const fallbackPositions = await enrichPositionsWithAddresses(
+        const fallbackPositions = await deps.enrichPositionsWithAddresses(
           normaliseList(fallbackPositionsResponse, ["positions", "data"]),
         );
         const latestByDevice = new Map();
@@ -726,7 +782,7 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
       }
     }
 
-    const payload = { telemetry: response };
+    const payload = { telemetry: response, warnings };
     telemetryCache.set(cacheKey, payload, 3_000);
     res.json(payload);
   } catch (error) {
@@ -736,22 +792,22 @@ router.get("/telemetry", resolveClientIdMiddleware, async (req, res, next) => {
 
 router.get("/devices", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const cacheKey = buildDeviceCacheKey(clientId);
     const cached = getCachedRegistry(cacheKey);
     if (cached) {
       return res.json(cached);
     }
-    const devices = listDevices({ clientId });
-    const models = listModels({ clientId, includeGlobal: true });
-    const chips = listChips({ clientId });
-    const vehicles = listVehicles({ clientId });
+    const devices = deps.listDevices({ clientId });
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
 
     const modelMap = new Map(models.map((item) => [item.id, item]));
     const chipMap = new Map(chips.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
 
-    const traccarDevices = getCachedTraccarResources("devices");
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map();
     const traccarByUnique = new Map();
     traccarDevices.forEach((item) => {
@@ -775,9 +831,9 @@ router.get("/devices", (req, res, next) => {
   }
 });
 
-router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddleware, async (req, res, next) => {
+router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { name, uniqueId, modelId } = req.body || {};
     const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
     if (!uniqueId) {
@@ -785,7 +841,7 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
     }
 
     if (modelId) {
-      const model = getModelById(modelId);
+      const model = deps.getModelById(modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
         throw createError(404, "Modelo informado não pertence a este cliente");
       }
@@ -806,9 +862,9 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
       groupId,
       attributes,
     };
-    const traccarDevice = await traccarProxy("post", "/devices", { data: traccarPayload, asAdmin: true });
+    const traccarDevice = await deps.traccarProxy("post", "/devices", { data: traccarPayload, asAdmin: true });
 
-    const device = createDevice({
+    const device = deps.createDevice({
       clientId,
       name,
       uniqueId,
@@ -817,9 +873,9 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
       attributes,
     });
 
-    const models = listModels({ clientId, includeGlobal: true });
-    const chips = listChips({ clientId });
-    const vehicles = listVehicles({ clientId });
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
     const traccarById = new Map();
     if (traccarDevice?.id) {
       traccarById.set(String(traccarDevice.id), traccarDevice);
@@ -839,14 +895,14 @@ router.post("/devices", requireRole("manager", "admin"), resolveClientIdMiddlewa
   }
 });
 
-router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const device = getDeviceById(id);
+    const device = deps.getDeviceById(id);
     if (!device) {
       throw createError(404, "Equipamento não encontrado");
     }
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(device, clientId, "Equipamento não encontrado");
 
     const payload = { ...req.body };
@@ -855,18 +911,18 @@ router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, nex
       payload.attributes = { ...(payload.attributes || {}), iconType };
     }
     if (payload.modelId) {
-      const model = getModelById(payload.modelId);
+      const model = deps.getModelById(payload.modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
         throw createError(404, "Modelo informado não pertence a este cliente");
       }
     }
 
-    const updated = updateDevice(id, payload);
+    const updated = deps.updateDevice(id, payload);
 
-    const models = listModels({ clientId, includeGlobal: true });
-    const chips = listChips({ clientId });
-    const vehicles = listVehicles({ clientId });
-    const traccarDevices = getCachedTraccarResources("devices");
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const traccarByUnique = new Map(traccarDevices.map((item) => [String(item.uniqueId), item]));
 
@@ -887,10 +943,10 @@ router.put("/devices/:id", requireRole("manager", "admin"), async (req, res, nex
 
 router.get("/chips", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const chips = listChips({ clientId });
-    const devices = listDevices({ clientId });
-    const vehicles = listVehicles({ clientId });
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const chips = deps.listChips({ clientId });
+    const devices = deps.listDevices({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
 
@@ -901,11 +957,11 @@ router.get("/chips", (req, res, next) => {
   }
 });
 
-router.post("/chips", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
+router.post("/chips", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { iccid, phone, carrier, status, apn, apnUser, apnPass, notes, provider, deviceId } = req.body || {};
-    const chip = createChip({
+    const chip = deps.createChip({
       clientId,
       iccid,
       phone,
@@ -922,9 +978,9 @@ router.post("/chips", requireRole("manager", "admin"), resolveClientIdMiddleware
       linkChipToDevice(clientId, chip.id, deviceId);
     }
 
-    const devices = listDevices({ clientId });
-    const vehicles = listVehicles({ clientId });
-    const storedChip = getChipById(chip.id);
+    const devices = deps.listDevices({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
+    const storedChip = deps.getChipById(chip.id);
     const response = buildChipResponse(storedChip, {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
@@ -935,14 +991,14 @@ router.post("/chips", requireRole("manager", "admin"), resolveClientIdMiddleware
   }
 });
 
-router.put("/chips/:id", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
+router.put("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
-    const chip = getChipById(id);
+    const chip = deps.getChipById(id);
     if (!chip) {
       throw createError(404, "Chip não encontrado");
     }
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(chip, clientId, "Chip não encontrado");
 
     const payload = { ...req.body };
@@ -950,7 +1006,7 @@ router.put("/chips/:id", requireRole("manager", "admin"), resolveClientIdMiddlew
       payload.deviceId = null;
     }
 
-    const updated = updateChip(id, payload);
+    const updated = deps.updateChip(id, payload);
 
     if (payload.deviceId) {
       linkChipToDevice(clientId, updated.id, payload.deviceId);
@@ -958,9 +1014,9 @@ router.put("/chips/:id", requireRole("manager", "admin"), resolveClientIdMiddlew
       detachChip(clientId, updated.id);
     }
 
-    const devices = listDevices({ clientId });
-    const vehicles = listVehicles({ clientId });
-    const response = buildChipResponse(getChipById(updated.id), {
+    const devices = deps.listDevices({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
+    const response = buildChipResponse(deps.getChipById(updated.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
     });
@@ -973,10 +1029,10 @@ router.put("/chips/:id", requireRole("manager", "admin"), resolveClientIdMiddlew
 
 router.get("/vehicles", (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const vehicles = listVehicles({ clientId });
-    const devices = listDevices({ clientId });
-    const traccarDevices = getCachedTraccarResources("devices");
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = deps.listVehicles({ clientId });
+    const devices = deps.listDevices({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
 
@@ -987,11 +1043,11 @@ router.get("/vehicles", (req, res, next) => {
   }
 });
 
-router.post("/vehicles", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
+router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { name, plate, driver, group, type, status, notes, deviceId } = req.body || {};
-    const vehicle = createVehicle({
+    const vehicle = deps.createVehicle({
       clientId,
       name,
       plate,
@@ -1006,10 +1062,10 @@ router.post("/vehicles", requireRole("manager", "admin"), resolveClientIdMiddlew
       linkDeviceToVehicle(clientId, vehicle.id, deviceId);
     }
 
-    const devices = listDevices({ clientId });
-    const traccarDevices = getCachedTraccarResources("devices");
+    const devices = deps.listDevices({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
-    const response = buildVehicleResponse(getVehicleById(vehicle.id), {
+    const response = buildVehicleResponse(deps.getVehicleById(vehicle.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
     });
@@ -1019,14 +1075,14 @@ router.post("/vehicles", requireRole("manager", "admin"), resolveClientIdMiddlew
   }
 });
 
-router.put("/vehicles/:id", requireRole("manager", "admin"), resolveClientIdMiddleware, (req, res, next) => {
+router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const { id } = req.params;
-    const vehicle = getVehicleById(id);
+    const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(vehicle, clientId, "Veículo não encontrado");
 
     const payload = { ...req.body };
@@ -1034,7 +1090,7 @@ router.put("/vehicles/:id", requireRole("manager", "admin"), resolveClientIdMidd
       payload.deviceId = null;
     }
 
-    const updated = updateVehicle(id, payload);
+    const updated = deps.updateVehicle(id, payload);
 
     if (payload.deviceId) {
       linkDeviceToVehicle(clientId, updated.id, payload.deviceId);
@@ -1042,10 +1098,10 @@ router.put("/vehicles/:id", requireRole("manager", "admin"), resolveClientIdMidd
       detachVehicle(clientId, updated.id);
     }
 
-    const devices = listDevices({ clientId });
-    const traccarDevices = getCachedTraccarResources("devices");
+    const devices = deps.listDevices({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
-    const response = buildVehicleResponse(getVehicleById(updated.id), {
+    const response = buildVehicleResponse(deps.getVehicleById(updated.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
     });
@@ -1056,23 +1112,35 @@ router.put("/vehicles/:id", requireRole("manager", "admin"), resolveClientIdMidd
   }
 });
 
-router.delete("/vehicles/:id", requireRole("manager", "admin"), (req, res, next) => {
+router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, next) => {
   try {
     const { id } = req.params;
-    const vehicle = getVehicleById(id);
+    const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
-    const clientId = resolveClientId(req, req.body?.clientId, { required: true });
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     ensureSameClient(vehicle, clientId, "Veículo não encontrado");
     if (vehicle.deviceId) {
       detachVehicle(clientId, id);
     }
-    deleteVehicle(id);
+    deps.deleteVehicle(id);
     res.status(204).send();
   } catch (error) {
     next(error);
   }
 });
+
+export function __setCoreRouteMocks(overrides = {}) {
+  Object.assign(deps, overrides);
+}
+
+export function __resetCoreRouteMocks() {
+  Object.assign(deps, defaultDeps);
+  telemetryCache.clear();
+  telemetryWarnLog.clear();
+  registryCacheKeys.forEach((key) => registryCache.delete(key));
+  registryCacheKeys.clear();
+}
 
 export default router;

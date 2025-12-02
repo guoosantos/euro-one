@@ -35,6 +35,8 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
    - `TRACCAR_BASE_URL`: URL do servidor Traccar acessível pelo backend.
    - `TRACCAR_ADMIN_USER` / `TRACCAR_ADMIN_PASSWORD` ou `TRACCAR_ADMIN_TOKEN`: credenciais administrativas do Traccar.
    - `TRACCAR_SYNC_INTERVAL_MS`: intervalo (ms) entre sincronizações automáticas de devices/grupos/geofences.
+   - `TRACCAR_DB_CLIENT`, `TRACCAR_DB_HOST`, `TRACCAR_DB_PORT`, `TRACCAR_DB_USER`, `TRACCAR_DB_PASSWORD`, `TRACCAR_DB_NAME`: conexão
+     somente leitura com o banco do Traccar (MySQL/Postgres) para relatórios e telemetria de fallback.
    - `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend.
    - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
 
