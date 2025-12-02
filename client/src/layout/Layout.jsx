@@ -38,7 +38,7 @@ export default function Layout({ children, title, hideTitle = false }) {
     : undefined;
 
   return (
-    <div className="flex min-h-screen bg-bg text-text" style={rootStyle}>
+    <div className="app-shell flex min-h-screen text-text" style={rootStyle}>
       {sidebarOpen && (
         <button
           type="button"

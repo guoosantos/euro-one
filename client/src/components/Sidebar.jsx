@@ -96,6 +96,9 @@ export default function Sidebar() {
   const labelVisibilityClass = collapsed ? "sr-only" : "flex-1 truncate";
   const navLabelProps = (label) => ({ title: label, ...(collapsed ? { "aria-label": label } : {}) });
 
+  const clientLink = { to: "/clients", label: "Clientes", icon: Users };
+  const userLink = { to: "/users", label: "Usuários", icon: User };
+
   const primaryLinks = [
     { to: "/home", label: "Home", icon: Home },
     { to: "/monitoring", label: "Monitoramento", icon: MapPinned },
@@ -126,8 +129,7 @@ export default function Sidebar() {
   const businessLinks = [
     { to: "/dashboard", label: "Dashboard", icon: Home },
     { to: "/finance", label: "Financeiro", icon: Banknote },
-    ...(canManageUsers && !isAdmin ? [{ to: "/clients", label: "Clientes", icon: Users }] : []),
-    ...(canManageUsers && !isAdmin ? [{ to: "/users", label: "Usuários", icon: User }] : []),
+    ...(canManageUsers && !isAdmin ? [clientLink, userLink] : []),
     { to: "/crm", label: "CRM", icon: NotebookPen },
   ];
 
@@ -158,9 +160,8 @@ export default function Sidebar() {
   ];
 
   const adminLinks = [
-    ...(isAdmin ? [{ to: "/clients", label: "Clientes", icon: Users }] : []),
-    ...(isAdmin ? [{ to: "/users", label: "Usuários", icon: User }] : []),
     ...(canManageUsers ? [{ to: "/geofences", label: "Cercas", icon: Map }] : []),
+    ...(isAdmin ? [clientLink, userLink] : []),
   ];
 
   const utilityLinks = [

@@ -25,18 +25,18 @@ function ensureClientAccess(sessionUser, clientId) {
   }
 }
 
-router.get("/users", (req, res, next) => {
+router.get("/users", async (req, res, next) => {
   try {
     if (req.user.role === "admin") {
       const { clientId } = req.query;
       const filterClientId = clientId === "" || typeof clientId === "undefined" ? undefined : clientId;
-      const users = listUsers({ clientId: filterClientId });
+      const users = await listUsers({ clientId: filterClientId });
       return res.json({ users });
     }
     if (!req.user.clientId) {
       return res.json({ users: [] });
     }
-    const users = listUsers({ clientId: req.user.clientId });
+    const users = await listUsers({ clientId: req.user.clientId });
     return res.json({ users });
   } catch (error) {
     return next(error);
@@ -84,7 +84,7 @@ router.post("/users", async (req, res, next) => {
 router.put("/users/:id", async (req, res, next) => {
   try {
     const { id } = req.params;
-    const existing = getUserById(id, { includeSensitive: true });
+    const existing = await getUserById(id, { includeSensitive: true });
     if (!existing) {
       throw createError(404, "Usuário não encontrado");
     }

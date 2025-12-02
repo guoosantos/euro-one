@@ -6,6 +6,7 @@ import { buildTraccarUnavailableError } from "./traccar.js";
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
 const EVENT_TABLE = "tc_events";
+const DEVICE_TABLE = "tc_devices";
 
 let dbPool = null;
 let testOverrides = null;
@@ -360,6 +361,23 @@ export async function fetchEvents(deviceId, from, to, limit = 50) {
     positionId: row.positionid ?? row.positionId ?? null,
     geofenceId: row.geofenceid ?? row.geofenceId ?? null,
     attributes: parseJson(row.attributes),
+  }));
+}
+
+export async function fetchDevicesMetadata() {
+  const sql = `
+    SELECT id, uniqueid, name, lastupdate, disabled, status
+    FROM ${DEVICE_TABLE}
+  `;
+
+  const rows = await queryTraccarDb(sql);
+  return rows.map((row) => ({
+    id: row.id,
+    uniqueId: row.uniqueid ?? row.uniqueId ?? null,
+    name: row.name ?? null,
+    lastUpdate: normaliseDate(row.lastupdate ?? row.lastUpdate),
+    disabled: Boolean(row.disabled),
+    status: row.status || null,
   }));
 }
 

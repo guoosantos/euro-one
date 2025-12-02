@@ -194,7 +194,7 @@ async function convertLeadToCustomer(record, { user } = {}) {
     throw duplicateCnpjError();
   }
 
-  const newClient = createClient({
+  const newClient = await createClient({
     name: record.name,
     attributes: {
       crmId: record.id,
@@ -216,7 +216,9 @@ async function convertLeadToCustomer(record, { user } = {}) {
     traccarGroupId = group?.id || traccarGroupId || null;
     traccarGroupName = group?.name || traccarGroupName;
     if (group?.id) {
-      updateClient(newClient.id, { attributes: { ...newClient.attributes, traccarGroupId: group.id, traccarGroupName } });
+      await updateClient(newClient.id, {
+        attributes: { ...newClient.attributes, traccarGroupId: group.id, traccarGroupName },
+      });
     }
   } catch (error) {
     conversionError = conversionError || error?.message || "Falha ao criar grupo no Traccar";

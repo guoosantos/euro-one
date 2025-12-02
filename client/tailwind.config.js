@@ -29,6 +29,20 @@ export default {
       backdropBlur: {
         xs: '6px',
         md: '12px'
+      },
+      keyframes: {
+        'fade-in': {
+          '0%': { opacity: 0, transform: 'translateY(6px)' },
+          '100%': { opacity: 1, transform: 'translateY(0)' }
+        },
+        'pulse-soft': {
+          '0%, 100%': { opacity: 0.55 },
+          '50%': { opacity: 1 }
+        }
+      },
+      animation: {
+        'fade-in': 'fade-in 240ms ease-out',
+        'pulse-soft': 'pulse-soft 2.4s ease-in-out infinite'
       }
     }
   },

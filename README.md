@@ -102,6 +102,7 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 ## Fase 5 — testes finais e deploy
 
 - Consulte `docs/fase5-checklist.md` para o checklist de aceite funcional, otimizações e passos de deploy.
+- Para validar rastreadores e CRM ponta a ponta, siga o roteiro rápido em `docs/smoke-tests-traccar.md` (migrations, seeds, cadastro de tenants/usuários, associação de devices e conversão de leads).
 - Antes de publicar, rode `npm run build` na raiz para validar o pacote front-end e garanta que o backend sobe com `NODE_ENV=production` e variáveis (`VITE_API_BASE_URL`, `PORT`, `TRACCAR_BASE_URL`, `JWT_SECRET`, `ALLOWED_ORIGINS`) configuradas no host escolhido (Vercel/Render/Railway).
 - Registre no checklist as URLs públicas e quaisquer etapas manuais de provisionamento realizadas.
 

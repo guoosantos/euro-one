@@ -30,6 +30,26 @@ function buildUrl(base, path, params) {
   return url.toString();
 }
 
+function resolveStatus(error) {
+  const status = Number(
+    error?.status || error?.statusCode || error?.response?.status || error?.details?.status,
+  );
+  return Number.isFinite(status) ? status : null;
+}
+
+function logTraccarAttempt({ method, url, attempt, maxAttempts, error }) {
+  const status = resolveStatus(error);
+  console.warn("[traccar] falha na requisição", {
+    method,
+    url,
+    attempt,
+    maxAttempts,
+    status,
+    code: error?.code,
+    message: error?.message || error,
+  });
+}
+
 async function httpRequest({
   baseURL = "",
   method = "GET",
@@ -65,6 +85,7 @@ async function httpRequest({
   let attempt = 0;
   let delay = retryDelay;
   let lastError;
+  const maxAttempts = retries + 1;
 
   const shouldRetry = (error) => {
     const status = Number(error?.status || error?.statusCode || error?.response?.status);
@@ -75,9 +96,13 @@ async function httpRequest({
     return ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT"].includes(code);
   };
 
-  while (attempt <= retries) {
+  while (attempt < maxAttempts) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error("Request timeout")), timeout);
+    const timer = setTimeout(() => {
+      const timeoutError = new Error("Request timeout");
+      timeoutError.code = "ETIMEDOUT";
+      controller.abort(timeoutError);
+    }, timeout);
     try {
       const response = await fetch(finalUrl, { ...init, signal: controller.signal });
       clearTimeout(timer);
@@ -111,6 +136,7 @@ async function httpRequest({
           method: init.method,
           response: payload,
           attempt: attempt + 1,
+          maxAttempts,
         });
       }
 
@@ -124,22 +150,15 @@ async function httpRequest({
               url: finalUrl,
               method: init.method,
               attempt: attempt + 1,
+              maxAttempts,
             });
 
-      const retryable = shouldRetry(lastError) && attempt < retries;
-      if (!retryable) {
-        throw lastError;
+      logTraccarAttempt({ method: init.method, url: finalUrl, attempt: attempt + 1, maxAttempts, error: lastError });
+
+      if (attempt + 1 >= maxAttempts || !shouldRetry(lastError)) {
+        break;
       }
 
-      console.warn("[traccar] retrying request", {
-        url: finalUrl,
-        method: init.method,
-        attempt: attempt + 1,
-        maxAttempts: retries + 1,
-        status: lastError?.status || lastError?.statusCode || lastError?.response?.status,
-        code: lastError?.code,
-        message: lastError?.message || lastError,
-      });
       await new Promise((resolve) => setTimeout(resolve, delay));
       delay = Math.min(delay * backoffFactor, timeout);
       attempt += 1;
@@ -153,7 +172,9 @@ export function buildTraccarUnavailableError(reason, context = {}) {
   const statusFromReason = Number(reason?.status || reason?.statusCode || reason?.response?.status);
   const status = Number.isFinite(statusFromReason) && statusFromReason >= 400 ? statusFromReason : 503;
 
-  const error = createError(status, TRACCAR_UNAVAILABLE_MESSAGE);
+  const statusLabel = context?.status || statusFromReason || reason?.code;
+  const messageSuffix = statusLabel ? ` (${statusLabel})` : "";
+  const error = createError(status, `${TRACCAR_UNAVAILABLE_MESSAGE}${messageSuffix}`);
   error.code = "TRACCAR_UNAVAILABLE";
   error.isTraccarError = true;
   error.details = {

@@ -12,6 +12,8 @@ const ALERT_TYPES = [
   { key: "phone", label: "Uso de celular" },
 ];
 
+const FACE_ALERTS_ENABLED = import.meta.env.VITE_ENABLE_FACE_ALERTS === "true";
+
 export default function Face() {
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
@@ -22,6 +24,14 @@ export default function Face() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!FACE_ALERTS_ENABLED) {
+      setAlerts(buildStubAlerts(devices));
+      setInfoMessage("Módulo de reconhecimento facial desativado neste ambiente.");
+      setError(null);
+      setLoading(false);
+      return undefined;
+    }
+
     let cancelled = false;
     let timer;
     let abortController;

@@ -9,7 +9,7 @@ const DATA_DIR = path.resolve(__dirname, "../data");
 const DATA_FILE = path.join(DATA_DIR, "storage.json");
 const SHOULD_PERSIST = process.env.NODE_ENV !== "test";
 
-const hasDatabase = Boolean(process.env.DATABASE_URL && prisma);
+const hasDatabase = false;
 
 let snapshot = null;
 let flushTimer = null;
@@ -31,7 +31,7 @@ function cloneValue(value) {
 }
 
 async function loadSnapshotFromDatabase() {
-  if (!prisma) return null;
+  if (!prisma?.storageCollection) return null;
   try {
     const collections = await prisma.storageCollection.findMany();
     const store = {};

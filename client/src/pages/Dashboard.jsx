@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -28,6 +28,7 @@ import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -129,10 +130,10 @@ const defaultLayouts = {
   xxs: clampLayout(2),
 };
 
-function loadLayouts() {
+function loadLayouts(storageKey) {
   if (typeof window === "undefined") return null;
   try {
-    const stored = localStorage.getItem(LAYOUT_STORAGE_KEY);
+    const stored = localStorage.getItem(storageKey || LAYOUT_STORAGE_KEY);
     return stored ? JSON.parse(stored) : null;
   } catch (error) {
     console.warn("Não foi possível restaurar o layout do dashboard", error);
@@ -140,10 +141,10 @@ function loadLayouts() {
   }
 }
 
-function saveLayouts(layouts) {
+function saveLayouts(storageKey, layouts) {
   if (typeof window === "undefined") return;
   try {
-    localStorage.setItem(LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
+    localStorage.setItem(storageKey || LAYOUT_STORAGE_KEY, JSON.stringify(layouts));
   } catch (error) {
     console.warn("Não foi possível salvar o layout do dashboard", error);
   }
@@ -158,8 +159,13 @@ export default function Dashboard() {
   const { devices, positionsByDeviceId, loading: loadingDevices } = useDevices({ withPositions: true });
   const { events, loading: loadingEvents } = useEvents({ limit: 200, refreshInterval: 60_000 });
   const { generateTripsReport, loading: generatingReport, error: reportError } = useReports();
+  const { user, tenant } = useTenant();
+  const layoutKey = useMemo(
+    () => `${LAYOUT_STORAGE_KEY}-${tenant?.id ?? "global"}-${user?.id ?? "anon"}`,
+    [tenant?.id, user?.id],
+  );
   const [quickFeedback, setQuickFeedback] = useState(null);
-  const [layouts, setLayouts] = useState(() => cloneLayouts(loadLayouts() || defaultLayouts));
+  const [layouts, setLayouts] = useState(() => cloneLayouts(loadLayouts(layoutKey) || defaultLayouts));
 
   const positions = useMemo(() => positionsByDeviceId ?? {}, [positionsByDeviceId]);
 
@@ -234,14 +240,23 @@ export default function Dashboard() {
   const handleLayoutChange = (_current, updatedLayouts) => {
     const snapshot = cloneLayouts(updatedLayouts);
     setLayouts(snapshot);
-    saveLayouts(snapshot);
+    saveLayouts(layoutKey, snapshot);
   };
 
   const resetLayout = () => {
     const fallback = cloneLayouts(defaultLayouts);
     setLayouts(fallback);
-    saveLayouts(fallback);
+    saveLayouts(layoutKey, fallback);
   };
+
+  const refreshLayoutForProfile = useCallback(() => {
+    const restored = cloneLayouts(loadLayouts(layoutKey) || defaultLayouts);
+    setLayouts(restored);
+  }, [layoutKey]);
+
+  useEffect(() => {
+    refreshLayoutForProfile();
+  }, [refreshLayoutForProfile]);
 
   const gridItems = useMemo(
     () => [
@@ -415,14 +430,25 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-white/60">Dashboard dinâmico</p>
-          <h1 className="text-2xl font-semibold text-white">Operação ao vivo</h1>
+      <div className="dashboard-hero">
+        <div className="dashboard-hero-content flex flex-wrap items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.2em] text-white/70">Dashboard dinâmico</p>
+            <h1 className="text-2xl font-semibold text-white">Operação ao vivo</h1>
+            <p className="text-sm text-white/70">
+              Arraste, redimensione e salve sua visão. Preferências ficam atreladas ao seu perfil e tenant.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="muted" className="glass-badge">
+              <Sparkles size={14} />
+              Novo visual com animações suaves
+            </Badge>
+            <Badge variant="muted" className="glass-badge animate-pulse-soft">
+              <span className="dot" /> Layout salvo
+            </Badge>
+          </div>
         </div>
-        <Badge variant="muted" className="glass-badge">
-          <Sparkles size={14} /> Novo visual com animações suaves
-        </Badge>
       </div>
 
       <div className="flex flex-col gap-2">
@@ -439,6 +465,7 @@ export default function Dashboard() {
         margin={[16, 16]}
         onLayoutChange={handleLayoutChange}
         draggableHandle=".drag-handle"
+        resizeHandles={["se", "e", "s"]}
         compactType="vertical"
       >
         {gridItems.map((item) => (
