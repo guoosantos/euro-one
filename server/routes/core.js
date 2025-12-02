@@ -79,6 +79,7 @@ export function filterValidPositionIds(positionIds) {
 
 const telemetryWarnLog = new Map();
 const telemetryCache = createTtlCache(3_000);
+const eventsCache = createTtlCache(15_000);
 const registryCache = createTtlCache(30_000);
 const registryCacheKeys = new Set();
 
@@ -664,6 +665,14 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const warnings = [];
     let events = [];
     if (deviceIds.length) {
+      const eventsCacheKey = `telemetry-events:${deviceIds.sort().join(",")}`;
+      const cachedEvents = eventsCache.get(eventsCacheKey);
+      if (cachedEvents) {
+        events = cachedEvents;
+      }
+    }
+
+    if (deviceIds.length && events.length === 0) {
       const now = new Date();
       const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
       try {
@@ -672,6 +681,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
           asAdmin: true,
         });
         events = normaliseList(eventsResponse, ["events", "data"]);
+        const eventsCacheKey = `telemetry-events:${deviceIds.sort().join(",")}`;
+        eventsCache.set(eventsCacheKey, events, 15_000);
       } catch (eventError) {
         logTelemetryWarning("events", eventError, { deviceIds, from: from.toISOString(), to: now.toISOString() });
         warnings.push({ stage: "events", message: "Falha ao carregar eventos recentes" });
