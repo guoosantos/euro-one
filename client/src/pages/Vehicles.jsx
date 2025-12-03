@@ -43,11 +43,17 @@ export default function Vehicles() {
     deviceId: "",
   });
 
+  const resolvedClientId = tenantId || user?.clientId || null;
+
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const [vehicleList, deviceList] = await Promise.all([CoreApi.listVehicles(), CoreApi.listDevices()]);
+      const clientParams = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+      const [vehicleList, deviceList] = await Promise.all([
+        CoreApi.listVehicles(clientParams),
+        CoreApi.listDevices(clientParams),
+      ]);
       setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
     } catch (requestError) {
@@ -58,8 +64,10 @@ export default function Vehicles() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (resolvedClientId || user) {
+      load();
+    }
+  }, [resolvedClientId, user]);
 
   const filteredVehicles = useMemo(() => {
     if (!query.trim()) return vehicles;

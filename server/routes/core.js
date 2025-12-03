@@ -9,6 +9,7 @@ import * as modelModel from "../models/model.js";
 import * as deviceModel from "../models/device.js";
 import * as chipModel from "../models/chip.js";
 import * as vehicleModel from "../models/vehicle.js";
+import * as stockModel from "../models/stock-item.js";
 import * as traccarService from "../services/traccar.js";
 import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
@@ -34,15 +35,22 @@ const defaultDeps = {
   getDeviceById: deviceModel.getDeviceById,
   findDeviceByUniqueId: deviceModel.findDeviceByUniqueId,
   findDeviceByTraccarId: deviceModel.findDeviceByTraccarId,
+  deleteDevice: deviceModel.deleteDevice,
   listChips: chipModel.listChips,
   createChip: chipModel.createChip,
   updateChip: chipModel.updateChip,
   getChipById: chipModel.getChipById,
+  deleteChip: chipModel.deleteChip,
   listVehicles: vehicleModel.listVehicles,
   createVehicle: vehicleModel.createVehicle,
   updateVehicle: vehicleModel.updateVehicle,
   getVehicleById: vehicleModel.getVehicleById,
   deleteVehicle: vehicleModel.deleteVehicle,
+  listStockItems: stockModel.listStockItems,
+  createStockItem: stockModel.createStockItem,
+  updateStockItem: stockModel.updateStockItem,
+  getStockItemById: stockModel.getStockItemById,
+  deleteStockItem: stockModel.deleteStockItem,
   traccarProxy: traccarService.traccarProxy,
   buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
   fetchLatestPositions: traccarDbService.fetchLatestPositions,
@@ -957,6 +965,39 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
   }
 });
 
+router.delete("/devices/:id", deps.requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const device = deps.getDeviceById(id);
+    if (!device) {
+      throw createError(404, "Equipamento não encontrado");
+    }
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: true });
+    ensureSameClient(device, clientId, "Equipamento não encontrado");
+
+    if (device.traccarId) {
+      try {
+        await deps.traccarProxy("delete", `/devices/${device.traccarId}`, { asAdmin: true });
+      } catch (traccarError) {
+        console.warn("[devices] falha ao remover no Traccar", traccarError?.message || traccarError);
+      }
+    }
+
+    if (device.chipId) {
+      detachChip(clientId, device.chipId);
+    }
+    if (device.vehicleId) {
+      detachVehicle(clientId, device.vehicleId);
+    }
+
+    deps.deleteDevice(id);
+    invalidateDeviceCache();
+    res.status(204).end();
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/chips", (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
@@ -1038,6 +1079,28 @@ router.put("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMidd
     });
 
     res.json({ chip: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const chip = deps.getChipById(id);
+    if (!chip) {
+      throw createError(404, "Chip não encontrado");
+    }
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: true });
+    ensureSameClient(chip, clientId, "Chip não encontrado");
+
+    if (chip.deviceId) {
+      detachChip(clientId, chip.id);
+    }
+
+    deps.deleteChip(id);
+    invalidateDeviceCache();
+    res.status(204).end();
   } catch (error) {
     next(error);
   }
@@ -1142,6 +1205,60 @@ router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, 
     }
     deps.deleteVehicle(id);
     res.status(204).send();
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/stock", (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const items = deps.listStockItems({ clientId });
+    res.json({ items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/stock", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const { type, name, quantity, notes, status } = req.body || {};
+    const item = deps.createStockItem({ clientId, type, name, quantity, notes, status });
+    res.status(201).json({ item });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/stock/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const item = deps.getStockItemById(id);
+    if (!item) {
+      throw createError(404, "Item não encontrado");
+    }
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    ensureSameClient(item, clientId, "Item não encontrado");
+    const { type, name, quantity, notes, status } = req.body || {};
+    const updated = deps.updateStockItem(id, { type, name, quantity, notes, status });
+    res.json({ item: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/stock/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const item = deps.getStockItemById(id);
+    if (!item) {
+      throw createError(404, "Item não encontrado");
+    }
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: true });
+    ensureSameClient(item, clientId, "Item não encontrado");
+    deps.deleteStockItem(id);
+    res.status(204).end();
   } catch (error) {
     next(error);
   }

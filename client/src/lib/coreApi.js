@@ -31,6 +31,7 @@ export const CoreApi = {
   },
   createDevice: (payload) => http("devices", { method: "POST", payload }),
   updateDevice: (id, payload) => http(`devices/${id}`, { method: "PUT", payload }),
+  deleteDevice: (id, params) => http(`devices/${id}`, { method: "DELETE", params }),
   listImportableDevices: async (params) => {
     const data = await http("devices/import", { params });
     return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
@@ -42,6 +43,7 @@ export const CoreApi = {
   },
   createChip: (payload) => http("chips", { method: "POST", payload }),
   updateChip: (id, payload) => http(`chips/${id}`, { method: "PUT", payload }),
+  deleteChip: (id, params) => http(`chips/${id}`, { method: "DELETE", params }),
   listVehicles: async (params) => {
     const data = await http("vehicles", { params });
     return Array.isArray(data?.vehicles) ? data.vehicles : normaliseDevices(data);
@@ -49,6 +51,10 @@ export const CoreApi = {
   createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
   updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
   deleteVehicle: (id, payload) => http(`vehicles/${id}`, { method: "DELETE", payload }),
+  listStockItems: (params) => http("stock", { params }).then((data) => data?.items || []),
+  createStockItem: (payload) => http("stock", { method: "POST", payload }),
+  updateStockItem: (id, payload) => http(`stock/${id}`, { method: "PUT", payload }),
+  deleteStockItem: (id, params) => http(`stock/${id}`, { method: "DELETE", params }),
   // tasks
   listTasks: (params) => http("tasks", { params }),
   createTask: (payload) => http("tasks", { method: "POST", payload }),
