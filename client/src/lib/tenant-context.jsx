@@ -77,14 +77,15 @@ export function TenantProvider({ children }) {
         const response = await api.get(API_ROUTES.session);
         if (cancelled) return;
         const payload = response?.data || {};
-        const nextUser = payload.user || payload || null;
+        const resolvedClientId = payload.clientId || payload.client?.id || payload.user?.clientId || null;
+        const nextUser = payload.user ? { ...payload.user, clientId: payload.user.clientId ?? resolvedClientId } : payload || null;
         setUser(nextUser);
         if (nextUser) {
-          const responseTenant = payload.client?.id || payload.clientId || null;
-          const suggestedTenant =
-            responseTenant || nextUser.clientId || tenantId || (payload.clients?.[0]?.id ?? null);
-          setTenantId((prev) => prev ?? suggestedTenant ?? null);
-        }
+        const responseTenant = payload.client?.id || payload.clientId || resolvedClientId || null;
+        const suggestedTenant =
+          responseTenant || nextUser.clientId || tenantId || (payload.clients?.[0]?.id ?? null);
+        setTenantId((prev) => prev ?? suggestedTenant ?? null);
+      }
         setStoredSession({ token, user: nextUser });
         const resolvedClients = normaliseClients(payload.clients || payload.client ? payload : null, nextUser);
         setTenants(resolvedClients);
@@ -170,17 +171,18 @@ export function TenantProvider({ children }) {
       const response = await api.post(API_ROUTES.login, payload);
       const responseUser = response?.data?.user || { login: username };
       const responseClient = response?.data?.client;
+      const responseClientId = response?.data?.clientId || responseClient?.id || responseUser?.clientId;
       const responseClients = response?.data?.clients;
       const responseToken = response?.data?.token;
       if (!responseToken) {
         throw new Error("Token de sessão não retornado");
       }
-      const nextUser = { ...responseUser, clientId: responseUser.clientId ?? responseClient?.id };
+      const nextUser = { ...responseUser, clientId: responseUser.clientId ?? responseClientId ?? responseClient?.id };
       const nextTenants = normaliseClients(
         responseClients || responseClient ? { clients: responseClients, client: responseClient } : null,
         nextUser,
       );
-      const resolvedTenantId = responseClient?.id || nextUser.clientId || nextTenants[0]?.id || null;
+      const resolvedTenantId = responseClient?.id || responseClientId || nextUser.clientId || nextTenants[0]?.id || null;
 
       setToken(responseToken);
       setUser(nextUser);
@@ -215,8 +217,15 @@ export function TenantProvider({ children }) {
       const list = normaliseClients(null, user);
       setTenants(list);
       setTenantId((prev) => prev ?? user.clientId ?? list[0]?.id ?? null);
+      return;
     }
-  }, [user]);
+
+    setTenantId((prev) => {
+      if (prev) return prev;
+      if (tenants.length === 1) return tenants[0].id;
+      return prev;
+    });
+  }, [user, tenants]);
 
   const value = useMemo(() => {
     const tenant = tenants.find((item) => item.id === tenantId) ?? tenants[0] ?? null;
