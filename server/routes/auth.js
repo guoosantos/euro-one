@@ -1,5 +1,6 @@
 import express from "express";
 import createError from "http-errors";
+import { randomUUID } from "crypto";
 
 import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
@@ -15,19 +16,21 @@ router.post("/login", async (req, res, next) => {
     const user = await verifyUserCredentials(userLogin, password);
     const sanitizedUser = sanitizeUser(user);
     const sessionPayload = await buildSessionPayload(user.id, sanitizedUser.role);
+    const sessionUser = sessionPayload.user || sanitizedUser;
     const tokenPayload = {
-      id: sanitizedUser.id,
-      role: sanitizedUser.role,
-      clientId: sessionPayload?.client?.id ?? sanitizedUser.clientId ?? null,
-      name: sanitizedUser.name,
-      email: sanitizedUser.email,
-      username: sanitizedUser.username ?? null,
+      id: sessionUser.id,
+      role: sessionUser.role,
+      clientId: sessionPayload?.client?.id ?? sessionUser.clientId ?? null,
+      name: sessionUser.name,
+      email: sessionUser.email,
+      username: sessionUser.username ?? null,
     };
     const token = signSession(tokenPayload);
     return res.json({
       token,
-      user: { ...sanitizedUser, clientId: tokenPayload.clientId },
+      user: { ...sessionUser, clientId: tokenPayload.clientId },
       client: sessionPayload.client,
+      clientId: tokenPayload.clientId,
       clients: sessionPayload.clients,
     });
   } catch (error) {
@@ -56,12 +59,25 @@ async function buildSessionPayload(userId, roleHint = null) {
       ? [user.client]
       : [];
 
-  const preferredId = preference?.clientId || user.clientId || null;
+  const preferredId = preference?.clientId || user.clientId || availableClients[0]?.id || null;
   const resolvedClient = availableClients.find((item) => String(item.id) === String(preferredId))
     || availableClients[0]
     || null;
 
-  return { user, client: resolvedClient, clients: availableClients };
+  if (!preference && resolvedClient) {
+    await prisma.userPreference
+      .upsert({
+        where: { userId: user.id },
+        update: { clientId: resolvedClient.id, updatedAt: new Date() },
+        create: { id: randomUUID(), userId: user.id, clientId: resolvedClient.id },
+      })
+      .catch(() => null);
+  }
+
+  const resolved = resolvedClient ? { ...resolvedClient } : null;
+  const userWithClient = { ...user, clientId: user.clientId ?? resolved?.id ?? null };
+
+  return { user: userWithClient, client: resolved, clientId: userWithClient.clientId, clients: availableClients };
 }
 
 router.get("/session", authenticate, async (req, res, next) => {

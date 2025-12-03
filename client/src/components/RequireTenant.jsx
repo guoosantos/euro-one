@@ -1,12 +1,18 @@
-import React from "react";
+import React, { useEffect } from "react";
 
 import { useTenant } from "../lib/tenant-context.jsx";
 
 export function RequireTenant({ children }) {
-  const { tenantId, tenants, role, loading, initialising } = useTenant();
+  const { tenantId, tenants, role, loading, initialising, setTenantId } = useTenant();
   const hasTenant = Boolean(tenantId);
   const hasOptions = tenants?.length > 0;
   const canProceed = hasTenant || (role === "admin" && !hasOptions);
+
+  useEffect(() => {
+    if (!tenantId && tenants?.length) {
+      setTenantId(tenants[0].id);
+    }
+  }, [tenantId, tenants, setTenantId]);
 
   if (loading || initialising) {
     return (

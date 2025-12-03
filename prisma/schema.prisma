@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = env("DATABASE_PROVIDER") ?? "postgresql"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -48,6 +48,9 @@ model Model {
   name       String
   brand      String?
   chipset    String?
+  protocol   String?
+  connectivity String?
+  ports      Json?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
@@ -70,8 +73,8 @@ model Device {
 
   client  Client @relation(fields: [clientId], references: [id])
   model   Model? @relation(fields: [modelId], references: [id])
-  chip    Chip?  @relation(fields: [chipId], references: [id])
-  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+  chip    Chip?  @relation(fields: [chipId], references: [id], onDelete: SetNull)
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
 }
 
 model Chip {
@@ -92,6 +95,8 @@ model Chip {
 
   client Client @relation(fields: [clientId], references: [id])
   device Device? @relation(fields: [deviceId], references: [id])
+
+  @@unique([deviceId])
 }
 
 model Vehicle {
@@ -110,6 +115,8 @@ model Vehicle {
 
   client Client @relation(fields: [clientId], references: [id])
   device Device? @relation(fields: [deviceId], references: [id])
+
+  @@unique([deviceId])
 }
 
 model Group {
