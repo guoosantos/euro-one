@@ -17,25 +17,32 @@ import { API_ROUTES } from "./api-routes.js";
 const TenantContext = createContext(null);
 
 function normaliseClients(payload, currentUser) {
-  if (!payload) {
-    if (currentUser?.role === "manager" || currentUser?.role === "user" || currentUser?.role === "driver") {
-      return [
-        {
-          id: currentUser.id,
-          name: currentUser.attributes?.companyName || currentUser.name || "Minha empresa",
-          segment: currentUser.attributes?.segment || "Operação",
-        },
-      ];
-    }
-    return [];
-  }
-  const list = Array.isArray(payload?.clients)
+  let list = Array.isArray(payload?.clients)
     ? payload.clients
     : Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : [];
+      ? payload
+      : Array.isArray(payload?.data)
+        ? payload.data
+        : payload?.client
+          ? [payload.client]
+          : [];
+
+  if (!list.length && currentUser?.client) {
+    list = [currentUser.client];
+  }
+
+  if (!list.length && currentUser?.clientId && currentUser?.role !== "admin") {
+    list = [
+      {
+        id: currentUser.clientId,
+        name: currentUser.attributes?.companyName || currentUser.name || "Meu cliente",
+        segment: currentUser.attributes?.segment || "Operação",
+        deviceLimit: currentUser.attributes?.deviceLimit,
+        userLimit: currentUser.attributes?.userLimit,
+      },
+    ];
+  }
+
   return list.map((client) => ({
     id: client.id,
     name: client.companyName || client.name,
@@ -48,7 +55,7 @@ function normaliseClients(payload, currentUser) {
 export function TenantProvider({ children }) {
   const stored = useMemo(() => getStoredSession(), []);
 
-  const [tenantId, setTenantId] = useState(stored?.user?.tenantId ?? null);
+  const [tenantId, setTenantId] = useState(stored?.user?.tenantId ?? stored?.user?.clientId ?? null);
   const [user, setUser] = useState(stored?.user ?? null);
   const [token, setToken] = useState(stored?.token ?? null);
   const [tenants, setTenants] = useState([]);
@@ -69,17 +76,20 @@ export function TenantProvider({ children }) {
       try {
         const response = await api.get(API_ROUTES.session);
         if (cancelled) return;
-        const nextUser = response?.data?.user || response?.data || null;
+        const payload = response?.data || {};
+        const nextUser = payload.user || payload || null;
         setUser(nextUser);
         if (nextUser) {
-          const suggestedTenant = nextUser.role === "admin" ? tenantId : nextUser.id;
+          const responseTenant = payload.client?.id || payload.clientId || null;
+          const suggestedTenant =
+            responseTenant || nextUser.clientId || tenantId || (payload.clients?.[0]?.id ?? null);
           setTenantId((prev) => prev ?? suggestedTenant ?? null);
         }
         setStoredSession({ token, user: nextUser });
-        if (nextUser?.role === "admin") {
-          await refreshClientsInternal(nextUser);
-        } else {
-          setTenants(normaliseClients(null, nextUser));
+        const resolvedClients = normaliseClients(payload.clients || payload.client ? payload : null, nextUser);
+        setTenants(resolvedClients);
+        if (!tenantId && resolvedClients.length === 1) {
+          setTenantId(resolvedClients[0].id);
         }
       } catch (sessionError) {
         if (cancelled) return;
@@ -140,7 +150,7 @@ export function TenantProvider({ children }) {
     if (user.role !== "admin") {
       const list = normaliseClients(null, user);
       setTenants(list);
-      setTenantId((prev) => prev ?? list[0]?.id ?? user.id ?? null);
+      setTenantId((prev) => prev ?? list[0]?.id ?? user.clientId ?? user.id ?? null);
       return list;
     }
     const response = await api.get(API_ROUTES.clients);
@@ -159,20 +169,24 @@ export function TenantProvider({ children }) {
       const payload = { email: username, password, remember };
       const response = await api.post(API_ROUTES.login, payload);
       const responseUser = response?.data?.user || { login: username };
+      const responseClient = response?.data?.client;
+      const responseClients = response?.data?.clients;
       const responseToken = response?.data?.token;
       if (!responseToken) {
         throw new Error("Token de sessão não retornado");
       }
+      const nextUser = { ...responseUser, clientId: responseUser.clientId ?? responseClient?.id };
+      const nextTenants = normaliseClients(
+        responseClients || responseClient ? { clients: responseClients, client: responseClient } : null,
+        nextUser,
+      );
+      const resolvedTenantId = responseClient?.id || nextUser.clientId || nextTenants[0]?.id || null;
+
       setToken(responseToken);
-      setUser(responseUser);
-      setStoredSession({ token: responseToken, user: responseUser });
-      if (responseUser?.role === "admin") {
-        await refreshClients();
-      } else {
-        const list = normaliseClients(null, responseUser);
-        setTenants(list);
-        setTenantId(responseUser.id ?? list[0]?.id ?? null);
-      }
+      setUser(nextUser);
+      setStoredSession({ token: responseToken, user: nextUser });
+      setTenants(nextTenants);
+      setTenantId(resolvedTenantId);
       return responseUser;
     } catch (loginError) {
       setError(loginError);
@@ -200,7 +214,7 @@ export function TenantProvider({ children }) {
     if (user.role !== "admin") {
       const list = normaliseClients(null, user);
       setTenants(list);
-      setTenantId((prev) => prev ?? user.id ?? list[0]?.id ?? null);
+      setTenantId((prev) => prev ?? user.clientId ?? list[0]?.id ?? null);
     }
   }, [user]);
 

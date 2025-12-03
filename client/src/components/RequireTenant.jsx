@@ -5,7 +5,8 @@ import { useTenant } from "../lib/tenant-context.jsx";
 export function RequireTenant({ children }) {
   const { tenantId, tenants, role, loading, initialising } = useTenant();
   const hasTenant = Boolean(tenantId);
-  const canProceed = hasTenant || role === "admin";
+  const hasOptions = tenants?.length > 0;
+  const canProceed = hasTenant || (role === "admin" && !hasOptions);
 
   if (loading || initialising) {
     return (
