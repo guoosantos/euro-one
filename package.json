@@ -17,6 +17,9 @@
     "dev:server": "npm run dev --workspace server",
     "start:server": "npm run start --workspace server"
   },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "devDependencies": {
     "eslint": "^8.57.1",
     "eslint-config-prettier": "^9.1.0",

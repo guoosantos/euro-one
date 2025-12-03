@@ -4,7 +4,7 @@ import createError from "http-errors";
 import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
-import { listDevices } from "../models/device.js";
+import { findDeviceByTraccarIdInDb, listDevices } from "../models/device.js";
 import { fetchEvents, fetchTripsByDevice, isTraccarDbConfigured } from "../services/traccar-db.js";
 import { buildTraccarUnavailableError } from "../services/traccar.js";
 
@@ -20,13 +20,15 @@ function ensureDbReady() {
   }
 }
 
-function ensureDeviceAllowed(deviceId, clientId) {
+async function ensureDeviceAllowed(deviceId, clientId) {
   const devices = listDevices({ clientId });
   const match = devices.find((item) => item.traccarId && String(item.traccarId) === String(deviceId));
-  if (!match) {
-    throw createError(404, "Dispositivo não encontrado para este cliente");
-  }
-  return match;
+  if (match) return match;
+
+  const dbRecord = await findDeviceByTraccarIdInDb(deviceId, { clientId });
+  if (dbRecord) return dbRecord;
+
+  throw createError(404, "Dispositivo não encontrado para este cliente");
 }
 
 function parseDate(value, label) {
@@ -47,7 +49,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       throw createError(400, "deviceId é obrigatório");
     }
 
-    ensureDeviceAllowed(deviceId, clientId);
+    await ensureDeviceAllowed(deviceId, clientId);
 
     const from = parseDate(req.query.from, "from");
     const to = parseDate(req.query.to, "to");
@@ -71,7 +73,7 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       throw createError(400, "deviceId é obrigatório");
     }
 
-    ensureDeviceAllowed(deviceId, clientId);
+    await ensureDeviceAllowed(deviceId, clientId);
 
     const from = parseDate(req.query.from, "from");
     const to = parseDate(req.query.to, "to");

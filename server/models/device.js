@@ -2,6 +2,7 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
+import prisma from "../services/prisma.js";
 
 const STORAGE_KEY = "devices";
 const devices = new Map();
@@ -172,6 +173,23 @@ export function clearDeviceVehicle(deviceId) {
   return persist(record);
 }
 
+export async function findDeviceByTraccarIdInDb(traccarId, { clientId } = {}) {
+  if (traccarId === null || traccarId === undefined) return null;
+  return prisma.device.findFirst({
+    where: {
+      traccarId: String(traccarId),
+      ...(clientId ? { clientId: String(clientId) } : {}),
+    },
+  });
+}
+
+export async function listDevicesFromDb({ clientId } = {}) {
+  return prisma.device.findMany({
+    where: clientId ? { clientId: String(clientId) } : undefined,
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export default {
   listDevices,
   getDeviceById,
@@ -182,4 +200,6 @@ export default {
   deleteDevice,
   clearDeviceChip,
   clearDeviceVehicle,
+  findDeviceByTraccarIdInDb,
+  listDevicesFromDb,
 };
