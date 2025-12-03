@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Plus, RefreshCw, Trash2 } from "lucide-react";
 
 import PageHeader from "../ui/PageHeader";
 import Input from "../ui/Input";
@@ -23,10 +24,13 @@ export default function Chips() {
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [carrierFilter, setCarrierFilter] = useState("todos");
+
+  const resolvedClientId = tenantId || user?.clientId || null;
 
   const [form, setForm] = useState({
     iccid: "",
@@ -45,7 +49,11 @@ export default function Chips() {
     setLoading(true);
     setError(null);
     try {
-      const [chipList, deviceList] = await Promise.all([CoreApi.listChips(), CoreApi.listDevices()]);
+      const clientParams = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+      const [chipList, deviceList] = await Promise.all([
+        CoreApi.listChips(clientParams),
+        CoreApi.listDevices(clientParams),
+      ]);
       setChips(Array.isArray(chipList) ? chipList : []);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
     } catch (requestError) {
@@ -56,8 +64,10 @@ export default function Chips() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    if (resolvedClientId || user) {
+      load();
+    }
+  }, [resolvedClientId, user]);
 
   const statusOptions = useMemo(() => {
     const set = new Set();
@@ -94,7 +104,23 @@ export default function Chips() {
     });
   }, [chips, query, statusFilter, carrierFilter]);
 
-  const availableDevices = useMemo(() => devices.filter((device) => !device.chipId), [devices]);
+  const availableDevices = useMemo(() => devices.filter((device) => !device.chipId || device.chipId === editingId), [devices, editingId]);
+
+  function resetForm() {
+    setEditingId(null);
+    setForm({
+      iccid: "",
+      phone: "",
+      carrier: "",
+      status: "Disponível",
+      provider: "",
+      apn: "",
+      apnUser: "",
+      apnPass: "",
+      notes: "",
+      deviceId: "",
+    });
+  }
 
   async function handleSave(event) {
     event.preventDefault();
@@ -104,7 +130,7 @@ export default function Chips() {
     }
     setSaving(true);
     try {
-      await CoreApi.createChip({
+      const payload = {
         iccid: form.iccid.trim(),
         phone: form.phone.trim(),
         carrier: form.carrier.trim() || undefined,
@@ -116,34 +142,66 @@ export default function Chips() {
         notes: form.notes.trim() || undefined,
         deviceId: form.deviceId || undefined,
         clientId: tenantId || user?.clientId,
-      });
+      };
+      if (editingId) {
+        await CoreApi.updateChip(editingId, payload);
+      } else {
+        await CoreApi.createChip(payload);
+      }
       setOpen(false);
-      setForm({
-        iccid: "",
-        phone: "",
-        carrier: "",
-        status: "Disponível",
-        provider: "",
-        apn: "",
-        apnUser: "",
-        apnPass: "",
-        notes: "",
-        deviceId: "",
-      });
+      resetForm();
       await load();
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Falha ao cadastrar chip"));
-      alert(requestError?.message || "Falha ao cadastrar chip");
+      setError(requestError instanceof Error ? requestError : new Error("Falha ao salvar chip"));
+      alert(requestError?.message || "Falha ao salvar chip");
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDelete(id) {
+    if (!id) return;
+    if (!window.confirm("Remover este chip?")) return;
+    try {
+      await CoreApi.deleteChip(id, { clientId: tenantId || user?.clientId });
+      await load();
+    } catch (requestError) {
+      alert(requestError?.message || "Não foi possível remover o chip");
+    }
+  }
+
+  function openEdit(chip) {
+    setEditingId(chip.id);
+    setForm({
+      iccid: chip.iccid || "",
+      phone: chip.phone || "",
+      carrier: chip.carrier || "",
+      status: chip.status || "",
+      provider: chip.provider || "",
+      apn: chip.apn || "",
+      apnUser: chip.apnUser || "",
+      apnPass: chip.apnPass || "",
+      notes: chip.notes || "",
+      deviceId: chip.deviceId || "",
+    });
+    setOpen(true);
   }
 
   return (
     <div className="space-y-5">
       <PageHeader
         title="Chips"
-        right={<Button onClick={() => setOpen(true)}>+ Novo chip</Button>}
+        description="Controle de chips vinculados aos equipamentos do tenant."
+        right={
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={load} icon={RefreshCw}>
+              Atualizar
+            </Button>
+            <Button onClick={() => setOpen(true)} icon={Plus}>
+              Novo chip
+            </Button>
+          </div>
+        }
       />
 
       {error && (
@@ -190,19 +248,20 @@ export default function Chips() {
                 <th className="px-4 py-3 text-left">Operadora</th>
                 <th className="px-4 py-3 text-left">Status</th>
                 <th className="px-4 py-3 text-left">Equipamento</th>
+                <th className="px-4 py-3 text-left">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={6} className="px-4 py-6 text-center text-white/60">
                     Carregando chips…
                   </td>
                 </tr>
               )}
               {!loading && filteredChips.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={6} className="px-4 py-6 text-center text-white/60">
                     Nenhum chip encontrado.
                   </td>
                 </tr>
@@ -215,6 +274,14 @@ export default function Chips() {
                     <td className="px-4 py-3">{chip.carrier || "—"}</td>
                     <td className="px-4 py-3">{formatStatus(chip.status)}</td>
                     <td className="px-4 py-3">{chip.device?.name || chip.device?.uniqueId || "—"}</td>
+                    <td className="px-4 py-3 space-x-2 whitespace-nowrap">
+                      <Button size="sm" variant="ghost" onClick={() => openEdit(chip)}>
+                        Editar
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => handleDelete(chip.id)} icon={Trash2}>
+                        Remover
+                      </Button>
+                    </td>
                   </tr>
                 ))}
             </tbody>
@@ -222,7 +289,7 @@ export default function Chips() {
         </div>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Novo chip" width="max-w-3xl">
+      <Modal open={open} onClose={() => setOpen(false)} title={editingId ? "Editar chip" : "Novo chip"} width="max-w-3xl">
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
             <Input
@@ -287,7 +354,7 @@ export default function Chips() {
               Cancelar
             </Button>
             <Button type="submit" disabled={saving}>
-              {saving ? "Salvando…" : "Salvar"}
+              {saving ? "Salvando…" : editingId ? "Atualizar" : "Salvar"}
             </Button>
           </div>
         </form>

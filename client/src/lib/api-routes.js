@@ -42,6 +42,7 @@ export const API_ROUTES = {
     chips: "core/chips",
     vehicles: "core/vehicles",
     telemetry: "core/telemetry",
+    stock: "core/stock",
   },
   crm: {
     base: "crm",
