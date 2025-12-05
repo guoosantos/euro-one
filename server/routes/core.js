@@ -813,6 +813,21 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   }
 });
 
+/**
+ * NOVA ROTA: /api/core/tasks
+ * Por enquanto devolve uma lista vazia de tarefas, apenas para estabilizar o front.
+ * Se no futuro você quiser implementar tasks de verdade, é só trocar essa implementação.
+ */
+router.get("/tasks", async (req, res, next) => {
+  try {
+    // Se quiser usar clientId no futuro:
+    // const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    res.json({ tasks: [] });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
