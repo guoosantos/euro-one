@@ -90,7 +90,7 @@ router.put("/clients/:id", async (req, res, next) => {
   }
 });
 
-router.get("/alerts", (req, res, next) => {
+router.get("/alerts", async (req, res, next) => {
   try {
     const contractWithinDays = Number.isFinite(Number(req.query.contractWithinDays))
       ? Number(req.query.contractWithinDays)
@@ -103,7 +103,7 @@ router.get("/alerts", (req, res, next) => {
     const view = !isAdmin || req.query.view === "mine" ? "mine" : "all";
     const createdByUserId = view === "mine" ? req.user?.id : undefined;
 
-    const alerts = deps.listCrmClientsWithUpcomingEvents({
+    const alerts = await deps.listCrmClientsWithUpcomingEvents({
       clientId: req.clientId,
       contractWithinDays,
       trialWithinDays,
@@ -200,10 +200,10 @@ router.post("/reminders", async (req, res, next) => {
   }
 });
 
-router.get("/clients/:id/contacts", (req, res, next) => {
+router.get("/clients/:id/contacts", async (req, res, next) => {
   try {
     const createdByUserId = req.query.view === "mine" ? req.user?.id : undefined;
-    const contacts = deps.listCrmContacts(req.params.id, {
+    const contacts = await deps.listCrmContacts(req.params.id, {
       clientId: req.clientId,
       user: req.user,
       createdByUserId,
@@ -214,25 +214,27 @@ router.get("/clients/:id/contacts", (req, res, next) => {
   }
 });
 
-router.post("/clients/:id/contacts", (req, res, next) => {
+router.post("/clients/:id/contacts", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const contact = deps.addCrmContact(req.params.id, req.body, { clientId, user: req.user });
+    const contact = await deps.addCrmContact(req.params.id, req.body, { clientId, user: req.user });
     res.status(201).json({ contact });
   } catch (error) {
     next(error);
   }
 });
 
-router.get("/tags", (req, res, next) => {
+router.get("/tags", async (req, res, next) => {
   try {
     const cacheKey = buildTagCacheKey(req.clientId);
     const cached = getCachedTags(cacheKey);
     if (cached) {
       return res.json(cached);
     }
-    const tags = deps.listCrmTags({ clientId: req.clientId });
+
+    const tags = await deps.listCrmTags({ clientId: req.clientId });
     const payload = { tags };
+
     cacheTags(cacheKey, payload);
     res.json(payload);
   } catch (error) {
@@ -240,10 +242,10 @@ router.get("/tags", (req, res, next) => {
   }
 });
 
-router.post("/tags", (req, res, next) => {
+router.post("/tags", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.clientId, { required: false });
-    const tag = deps.createCrmTag({ ...req.body, clientId });
+    const tag = await deps.createCrmTag({ ...req.body, clientId });
     invalidateTagCache();
     res.status(201).json({ tag });
   } catch (error) {
@@ -251,9 +253,9 @@ router.post("/tags", (req, res, next) => {
   }
 });
 
-router.delete("/tags/:id", (req, res, next) => {
+router.delete("/tags/:id", async (req, res, next) => {
   try {
-    deps.deleteCrmTag(req.params.id, { clientId: req.clientId });
+    await deps.deleteCrmTag(req.params.id, { clientId: req.clientId });
     invalidateTagCache();
     res.status(204).send();
   } catch (error) {
