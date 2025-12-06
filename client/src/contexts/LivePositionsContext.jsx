@@ -3,7 +3,7 @@ import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
-import { usePollingResource } from "./usePollingResource.js";
+import { usePolling } from "../lib/hooks/usePolling.js";
 
 function normalise(payload) {
   if (Array.isArray(payload)) return payload;
@@ -20,41 +20,38 @@ export function LivePositionsProvider({ children, interval = 5_000 }) {
 
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
 
-  const fetchPositions = useCallback(
-    async ({ signal }) => {
-      const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, { params, signal });
-      if (error) {
-        if (safeApi.isAbortError(error)) throw error;
-        const status = Number(error?.response?.status ?? error?.status);
-        const friendly = error?.response?.data?.message || error.message || t("errors.loadPositions");
-        const normalised = new Error(friendly);
-        if (Number.isFinite(status)) {
-          normalised.status = status;
-          if (status >= 400 && status < 500) normalised.permanent = true;
-        }
-        if (error?.permanent) normalised.permanent = true;
-        throw normalised;
+  const fetchPositions = useCallback(async () => {
+    const { data: payload, error } = await safeApi.get(API_ROUTES.lastPositions, { params });
+    if (error) {
+      const status = Number(error?.response?.status ?? error?.status);
+      const friendly = error?.response?.data?.message || error.message || t("errors.loadPositions");
+      const normalised = new Error(friendly);
+      if (Number.isFinite(status)) {
+        normalised.status = status;
+        if (status >= 400 && status < 500) normalised.permanent = true;
       }
-      return normalise(payload);
-    },
-    [params, t],
-  );
+      if (error?.permanent) normalised.permanent = true;
+      throw normalised;
+    }
+    return normalise(payload);
+  }, [params, t]);
 
-  const state = usePollingResource(
-    fetchPositions,
-    { interval, initialData: [], enabled: isAuthenticated },
-  );
+  const { data, loading, error, lastUpdated, refresh } = usePolling({
+    fetchFn: fetchPositions,
+    intervalMs: interval,
+    enabled: isAuthenticated,
+  });
 
   const value = useMemo(
     () => ({
-      data: Array.isArray(state.data) ? state.data : [],
-      positions: Array.isArray(state.data) ? state.data : [],
-      loading: state.loading,
-      error: state.error,
-      refresh: state.refresh,
-      fetchedAt: state.fetchedAt,
+      data: Array.isArray(data) ? data : [],
+      positions: Array.isArray(data) ? data : [],
+      loading,
+      error,
+      refresh,
+      fetchedAt: lastUpdated,
     }),
-    [state.data, state.loading, state.error, state.refresh, state.fetchedAt],
+    [data, error, lastUpdated, loading, refresh],
   );
 
   return <LivePositionsContext.Provider value={value}>{children}</LivePositionsContext.Provider>;
