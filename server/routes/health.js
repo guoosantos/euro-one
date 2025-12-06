@@ -1,7 +1,8 @@
 import express from "express";
 
-import { getTraccarHealth } from "../services/traccar.js";
+import { getTraccarApiHealth } from "../services/traccar.js";
 import { getTraccarSyncState } from "../services/traccar-sync.js";
+import { getTraccarDbHealth } from "../services/traccar-db.js";
 
 const router = express.Router();
 
@@ -10,16 +11,17 @@ router.get("/", (_req, res) => {
 });
 
 router.get("/traccar", async (_req, res) => {
-  const health = await getTraccarHealth();
+  const [traccarDb, traccarApi] = await Promise.all([getTraccarDbHealth(), getTraccarApiHealth()]);
   const sync = getTraccarSyncState();
 
   const payload = {
-    ...health,
+    traccarDb,
+    traccarApi,
     sync,
   };
 
-  if (health.status === "error") {
-    const statusCode = Number(health.code) || 503;
+  if (!traccarDb.ok || !traccarApi.ok) {
+    const statusCode = Number(traccarDb.code || traccarApi.code) || 503;
     return res.status(statusCode).json(payload);
   }
 

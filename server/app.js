@@ -66,6 +66,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 app.use("/health", healthRoutes);
+app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
 app.use("/api", proxyRoutes);

@@ -102,6 +102,24 @@ function buildPlaceholders(values, startIndex = 1) {
   return values.map((_, index) => dialect.placeholder(index + startIndex)).join(", ");
 }
 
+export async function getTraccarDbHealth() {
+  if (!isTraccarDbConfigured()) {
+    return { ok: false, code: 503, message: "Banco do Traccar não configurado" };
+  }
+
+  try {
+    await queryTraccarDb("SELECT 1");
+    return { ok: true, message: "Banco do Traccar acessível." };
+  } catch (error) {
+    const code = error?.status || error?.statusCode || error?.code || 503;
+    return {
+      ok: false,
+      code,
+      message: error?.message || TRACCAR_UNAVAILABLE_MESSAGE,
+    };
+  }
+}
+
 export async function queryTraccarDb(sql, params = []) {
   try {
     const pool = await getPool();

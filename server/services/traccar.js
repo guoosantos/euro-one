@@ -485,7 +485,7 @@ export async function initializeTraccarAdminSession() {
   }
 }
 
-export async function getTraccarHealth() {
+export async function getTraccarApiHealth() {
   const authStrategy = describeAdminAuth();
   const sessionActive = Boolean(getAdminSessionCookie());
 
@@ -496,7 +496,8 @@ export async function getTraccarHealth() {
 
   if (response?.ok) {
     return {
-      status: "ok",
+      ok: true,
+      message: "API HTTP do Traccar acessível.",
       authStrategy,
       sessionActive,
       server: response.data,
@@ -504,12 +505,16 @@ export async function getTraccarHealth() {
   }
 
   return {
-    status: "error",
+    ok: false,
     authStrategy,
     sessionActive,
     message: response?.error?.message || "Falha ao consultar servidor do Traccar",
     code: response?.error?.code || 503,
   };
+}
+
+export async function getTraccarHealth() {
+  return getTraccarApiHealth();
 }
 
 // Funções utilitárias específicas
