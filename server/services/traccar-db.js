@@ -1,6 +1,9 @@
 // Este módulo é a FONTE PRINCIPAL de telemetria do Traccar no Euro One.
 // Utilize as funções abaixo para ler posições, eventos e viagens diretamente do banco do Traccar.
 // A API HTTP do Traccar fica reservada para comandos e operações administrativas.
+//
+// Arquitetura C: todos os dados de telemetria/devices/eventos devem sair daqui (banco do Traccar),
+// deixando a API HTTP do Traccar apenas para comandos e tarefas administrativas.
 import createError from "http-errors";
 
 import { config } from "../config.js";
@@ -147,7 +150,7 @@ function normalisePositionRow(row) {
     longitude: Number(row.longitude ?? 0),
     speed: Number(row.speed ?? 0),
     course: Number(row.course ?? 0),
-    address: row.address ? String(row.address) : "",
+    address: row.address ? String(row.address) : "Endereço não disponível",
     attributes,
   };
 }
@@ -341,7 +344,7 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
     ORDER BY latest.fixtime DESC
   `;
 
-  const rows = await queryTraccarDb(sql, params);
+  const rows = (await queryTraccarDb(sql, params)) || [];
   return rows
     .map(normalisePositionRow)
     .filter((position) => position && position.deviceId !== null && position.fixTime);
@@ -378,7 +381,7 @@ export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
     LIMIT ${Number(limit) || 50}
   `;
 
-  const rows = await queryTraccarDb(sql, params);
+  const rows = (await queryTraccarDb(sql, params)) || [];
   return rows.map((row) => ({
     id: row.id,
     type: row.type,
@@ -397,7 +400,7 @@ export async function fetchDevicesMetadata() {
     FROM ${DEVICE_TABLE}
   `;
 
-  const rows = await queryTraccarDb(sql);
+  const rows = (await queryTraccarDb(sql)) || [];
   return rows.map((row) => ({
     id: row.id,
     uniqueId: row.uniqueid ?? row.uniqueId ?? null,
