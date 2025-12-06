@@ -5,7 +5,7 @@ import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
 import { findDeviceByTraccarIdInDb, listDevices } from "../models/device.js";
-import { fetchEvents, fetchTripsByDevice, isTraccarDbConfigured } from "../services/traccar-db.js";
+import { fetchEvents, fetchTrips, isTraccarDbConfigured } from "../services/traccar-db.js";
 import { buildTraccarUnavailableError } from "../services/traccar.js";
 
 const router = express.Router();
@@ -57,7 +57,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       throw createError(400, "Período obrigatório: from e to");
     }
 
-    const trips = await fetchTripsByDevice(deviceId, from, to);
+    const trips = await fetchTrips(deviceId, from, to);
     res.json({ deviceId, from, to, trips });
   } catch (error) {
     next(error);
@@ -79,7 +79,7 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
     const to = parseDate(req.query.to, "to");
     const limit = Number(req.query.limit) || 50;
 
-    const events = await fetchEvents(deviceId, from, to, limit);
+    const events = await fetchEvents([deviceId], from, to, limit);
     res.json({ deviceId, from, to, events });
   } catch (error) {
     next(error);

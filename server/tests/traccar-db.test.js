@@ -6,7 +6,7 @@ import {
   __setTraccarDbTestOverrides,
   fetchEvents,
   fetchLatestPositions,
-  fetchTripsByDevice,
+  fetchTrips,
 } from "../services/traccar-db.js";
 
 const defaultEnv = { ...process.env };
@@ -60,7 +60,7 @@ describe("traccar-db", () => {
       },
     });
 
-    const trips = await fetchTripsByDevice("10", "2024-01-01", "2024-01-02");
+    const trips = await fetchTrips("10", "2024-01-01", "2024-01-02");
 
     assert.equal(trips.length, 1);
     assert.equal(trips[0].distanceKm > 1.9, true);
@@ -118,7 +118,7 @@ describe("traccar-db", () => {
       },
     });
 
-    const events = await fetchEvents(44, "2024-02-01", "2024-02-02", 10);
+    const events = await fetchEvents([44], "2024-02-01", "2024-02-02", 10);
 
     assert.equal(events.length, 1);
     assert.equal(events[0].deviceId, 44);
