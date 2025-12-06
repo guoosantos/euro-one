@@ -1,3 +1,6 @@
+// Este módulo é a FONTE PRINCIPAL de telemetria do Traccar no Euro One.
+// Utilize as funções abaixo para ler posições, eventos e viagens diretamente do banco do Traccar.
+// A API HTTP do Traccar fica reservada para comandos e operações administrativas.
 import createError from "http-errors";
 
 import { config } from "../config.js";
@@ -93,10 +96,10 @@ async function getPool() {
   }
 }
 
-function buildPlaceholders(values) {
+function buildPlaceholders(values, startIndex = 1) {
   const dialect = resolveDialect();
   if (!dialect) return values.map(() => "?").join(", ");
-  return values.map((_, index) => dialect.placeholder(index + 1)).join(", ");
+  return values.map((_, index) => dialect.placeholder(index + startIndex)).join(", ");
 }
 
 export async function queryTraccarDb(sql, params = []) {
@@ -134,10 +137,6 @@ function normaliseDate(raw) {
 function normalisePositionRow(row) {
   if (!row) return null;
   const attributes = parseJson(row.attributes);
-  const address =
-    !row.address || typeof row.address === "object"
-      ? row.address || {}
-      : { formatted: String(row.address) };
   return {
     id: row.id ?? row.positionid ?? null,
     deviceId: row.deviceid ?? row.deviceId ?? null,
@@ -148,7 +147,7 @@ function normalisePositionRow(row) {
     longitude: Number(row.longitude ?? 0),
     speed: Number(row.speed ?? 0),
     course: Number(row.course ?? 0),
-    address,
+    address: row.address ? String(row.address) : "",
     attributes,
   };
 }
@@ -275,7 +274,7 @@ function buildTripsFromPositions(positions) {
   return trips;
 }
 
-export async function fetchTripsByDevice(deviceId, from, to) {
+export async function fetchTrips(deviceId, from, to) {
   if (!deviceId || !from || !to) {
     throw createError(400, "Parâmetros obrigatórios: deviceId, from, to");
   }
@@ -297,7 +296,58 @@ export async function fetchTripsByDevice(deviceId, from, to) {
   return buildTripsFromPositions(rows);
 }
 
-export async function fetchLatestPositions(deviceIds) {
+export async function fetchLatestPositions(deviceIds = [], clientId = null) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length && !clientId) return [];
+
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const conditions = [];
+  const params = [];
+  if (filtered.length) {
+    conditions.push(`d.id IN (${buildPlaceholders(filtered, params.length + 1)})`);
+    params.push(...filtered);
+  }
+  if (clientId) {
+    conditions.push(`d.groupid = ${dialect.placeholder(params.length + 1)}`);
+    params.push(clientId);
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const sql = `
+    SELECT
+      latest.id,
+      latest.deviceid,
+      latest.servertime,
+      latest.devicetime,
+      latest.fixtime,
+      latest.latitude,
+      latest.longitude,
+      latest.speed,
+      latest.course,
+      latest.address,
+      latest.attributes
+    FROM (
+      SELECT
+        p.*, ROW_NUMBER() OVER (PARTITION BY p.deviceid ORDER BY p.fixtime DESC) AS row_num
+      FROM ${POSITION_TABLE} p
+      INNER JOIN ${DEVICE_TABLE} d ON d.id = p.deviceid
+      ${whereClause}
+    ) latest
+    WHERE latest.row_num = 1
+    ORDER BY latest.fixtime DESC
+  `;
+
+  const rows = await queryTraccarDb(sql, params);
+  return rows
+    .map(normalisePositionRow)
+    .filter((position) => position && position.deviceId !== null && position.fixTime);
+}
+
+export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
@@ -306,34 +356,11 @@ export async function fetchLatestPositions(deviceIds) {
     throw createError(500, "Cliente do banco do Traccar não suportado");
   }
 
+  const params = [];
   const placeholders = buildPlaceholders(filtered);
-  const sql = `
-    SELECT p.*
-    FROM ${POSITION_TABLE} p
-    INNER JOIN (
-      SELECT deviceid, MAX(fixtime) as maxFixTime
-      FROM ${POSITION_TABLE}
-      WHERE deviceid IN (${placeholders})
-      GROUP BY deviceid
-    ) latest ON latest.deviceid = p.deviceid AND latest.maxFixTime = p.fixtime
-  `;
+  const conditions = [`deviceid IN (${placeholders})`];
+  params.push(...filtered);
 
-  const rows = await queryTraccarDb(sql, filtered);
-  return rows.map(normalisePositionRow);
-}
-
-export async function fetchEvents(deviceId, from, to, limit = 50) {
-  if (!deviceId) {
-    throw createError(400, "Parâmetro obrigatório: deviceId");
-  }
-
-  const dialect = resolveDialect();
-  if (!dialect) {
-    throw createError(500, "Cliente do banco do Traccar não suportado");
-  }
-
-  const conditions = [`deviceid = ${dialect.placeholder(1)}`];
-  const params = [deviceId];
   if (from) {
     conditions.push(`eventtime >= ${dialect.placeholder(params.length + 1)}`);
     params.push(from);
