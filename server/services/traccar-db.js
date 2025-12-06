@@ -350,6 +350,40 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
     .filter((position) => position && position.deviceId !== null && position.fixTime);
 }
 
+export async function fetchPositions(deviceIds = [], from, to, { limit = null } = {}) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length) return [];
+
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const params = [];
+  const conditions = [`deviceid IN (${buildPlaceholders(filtered)})`];
+  params.push(...filtered);
+
+  if (from) {
+    conditions.push(`fixtime >= ${dialect.placeholder(params.length + 1)}`);
+    params.push(from);
+  }
+  if (to) {
+    conditions.push(`fixtime <= ${dialect.placeholder(params.length + 1)}`);
+    params.push(to);
+  }
+
+  const sql = `
+    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, attributes
+    FROM ${POSITION_TABLE}
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY fixtime ASC
+    ${limit ? `LIMIT ${Number(limit)}` : ""}
+  `;
+
+  const rows = await queryTraccarDb(sql, params);
+  return rows.map(normalisePositionRow).filter((position) => position && position.deviceId !== null && position.fixTime);
+}
+
 export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];

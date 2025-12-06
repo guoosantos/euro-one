@@ -6,7 +6,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
-import { fetchDevicesMetadata, fetchLatestPositions } from "../services/traccar-db.js";
+import { fetchDevicesMetadata, fetchEvents, fetchLatestPositions, fetchPositions, fetchTrips } from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
   enforceDeviceFilterInBody,
@@ -97,6 +97,13 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
   });
 }
 
+function respondDeviceNotFound(res) {
+  return res.status(404).json({
+    data: null,
+    error: { message: "Dispositivo não encontrado para este cliente.", code: "DEVICE_NOT_FOUND" },
+  });
+}
+
 function normalisePosition(position) {
   if (!position) return null;
   return {
@@ -122,6 +129,40 @@ function parseDeviceIds(raw) {
   return values
     .map((value) => String(value).trim())
     .filter(Boolean);
+}
+
+function parseDateOrThrow(value, label) {
+  if (!value) {
+    throw createError(400, `${label} é obrigatório`);
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw createError(400, `Data inválida em ${label}`);
+  }
+  return parsed.toISOString();
+}
+
+function resolveDeviceIdsToQuery(req) {
+  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+  const devices = listDevices({ clientId });
+  const allowedDeviceIds = devices
+    .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+    .filter(Boolean);
+
+  const filteredDeviceIds = parseDeviceIds(req.query?.deviceId || req.query?.deviceIds);
+  if (filteredDeviceIds.some((value) => !/^\d+$/.test(value))) {
+    throw createError(400, "Parâmetros inválidos.");
+  }
+
+  const deviceIdsToQuery = filteredDeviceIds.length
+    ? filteredDeviceIds.filter((id) => allowedDeviceIds.includes(id))
+    : allowedDeviceIds;
+
+  if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
+    throw createError(404, "Dispositivo não encontrado para este cliente.");
+  }
+
+  return { clientId, deviceIdsToQuery };
 }
 
 function pickTripAddress(trip, prefix) {
@@ -383,6 +424,35 @@ async function proxyTraccarReport(req, res, next, path) {
   return proxyTraccarReportWithParams(req, res, next, path, { ...(req.query || {}) });
 }
 
+async function handleEventsReport(req, res, next) {
+  const accept = pickAccept(String(req.query?.format || ""));
+  const wantsBinary = accept !== "application/json";
+  if (wantsBinary) {
+    // Exportações pesadas continuam usando a API HTTP do Traccar; leitura online usa o banco (traccarDb).
+    return proxyTraccarReport(req, res, next || (() => {}), "/reports/events");
+  }
+
+  try {
+    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const from = parseDateOrThrow(req.query?.from, "from");
+    const to = parseDateOrThrow(req.query?.to, "to");
+    const limit = req.query?.limit ? Number(req.query.limit) : 50;
+
+    const events = await fetchEvents(deviceIdsToQuery, from, to, limit);
+    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events };
+
+    return res.status(200).json({ data, error: null });
+  } catch (error) {
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+    if (error?.status === 404) {
+      return respondDeviceNotFound(res);
+    }
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+}
+
 /**
  * === Helpers /users ===
  */
@@ -406,27 +476,7 @@ function isTraccarUserRequest(req) {
 
 router.get("/telemetry", async (req, res) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const devices = listDevices({ clientId });
-    const allowedDeviceIds = devices
-      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-      .filter(Boolean);
-
-    const filteredDeviceIds = parseDeviceIds(req.query?.deviceId || req.query?.deviceIds);
-    if (filteredDeviceIds.some((value) => !/^\d+$/.test(value))) {
-      return respondBadRequest(res);
-    }
-
-    const deviceIdsToQuery = filteredDeviceIds.length
-      ? filteredDeviceIds.filter((id) => allowedDeviceIds.includes(id))
-      : allowedDeviceIds;
-
-    if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
-      return res.status(404).json({
-        data: [],
-        error: { message: "Dispositivo não encontrado para este cliente." },
-      });
-    }
+    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
 
     const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
@@ -435,6 +485,10 @@ router.get("/telemetry", async (req, res) => {
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    if (error?.status === 404) {
+      return respondDeviceNotFound(res);
     }
 
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
@@ -511,59 +565,31 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 
 router.get("/positions", async (req, res, next) => {
   try {
-    const params = { ...(req.query || {}) };
+    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
 
-    enforceDeviceFilterInQuery(req, params);
+    const rawFrom = req.query?.from;
+    const rawTo = req.query?.to;
+    const hasDeviceFilter = req.query?.deviceId !== undefined || req.query?.deviceIds !== undefined;
+    const shouldApplyRange = hasDeviceFilter || rawFrom || rawTo;
 
-    const hasDeviceId =
-      extractDeviceIds(params).length ||
-      params.deviceId !== undefined ||
-      params.deviceIds !== undefined;
+    const from = shouldApplyRange
+      ? parseDateOrThrow(rawFrom || new Date(Date.now() - 24 * 60 * 60 * 1000), "from")
+      : null;
+    const to = shouldApplyRange ? parseDateOrThrow(rawTo || new Date(), "to") : null;
+    const limit = req.query?.limit ? Number(req.query.limit) : null;
 
-    if (hasDeviceId && (!params.from || !params.to)) {
-      const now = new Date();
-      const to = params.to ? new Date(params.to) : now;
-      const from = params.from ? new Date(params.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
-      params.from = from.toISOString();
-      params.to = to.toISOString();
-    }
+    const positions = await fetchPositions(deviceIdsToQuery, from, to, { limit });
+    const data = await enrichPositionsWithAddresses(positions);
 
-    const accept = pickAccept(String(params.format || ""));
-    const wantsBinary = accept !== "application/json";
-
-    const search = new URLSearchParams();
-    const ids = extractDeviceIds(params);
-    if (ids.length) ids.forEach((id) => search.append("deviceId", String(id)));
-    appendRepeat(search, "id", params.id);
-    if (params.from) search.set("from", toIsoOrNull(params.from));
-    if (params.to) search.set("to", toIsoOrNull(params.to));
-
-    const url = `/positions?${search.toString()}`;
-
-    const response = await traccarRequest(
-      {
-        method: "get",
-        url,
-        responseType: wantsBinary ? "arraybuffer" : "json",
-        headers: { Accept: accept },
-      },
-      null,
-      { asAdmin: true },
-    );
-
-    if (wantsBinary) {
-      res.setHeader("Content-Type", accept);
-      res.send(Buffer.from(response.data));
-    } else {
-      const body = Array.isArray(response.data)
-        ? await enrichPositionsWithAddresses(response.data)
-        : response.data?.positions && Array.isArray(response.data.positions)
-        ? { ...response.data, positions: await enrichPositionsWithAddresses(response.data.positions) }
-        : response.data;
-      res.json(body);
-    }
+    return res.status(200).json({ data, error: null });
   } catch (error) {
-    next(error);
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+    if (error?.status === 404) {
+      return respondDeviceNotFound(res);
+    }
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
 });
 
@@ -581,19 +607,9 @@ router.get("/positions/last", async (req, res) => {
   }
 
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-    const devices = listDevices({ clientId });
-    const allowedDeviceIds = devices
-      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-      .filter(Boolean);
-
-    const deviceIdsToQuery = requestedIds.length ? requestedIds : allowedDeviceIds;
-
+    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
     if (requestedIds.length && !deviceIdsToQuery.length) {
-      return res.status(404).json({
-        data: [],
-        error: { message: "Dispositivo não encontrado para este cliente." },
-      });
+      return respondDeviceNotFound(res);
     }
 
     const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
@@ -605,6 +621,10 @@ router.get("/positions/last", async (req, res) => {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
     }
 
+    if (error?.status === 404) {
+      return respondDeviceNotFound(res);
+    }
+
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
 });
@@ -614,7 +634,7 @@ router.get("/positions/last", async (req, res) => {
  */
 
 router.all("/events", (req, res, next) =>
-  proxyTraccarReport(req, res, next, "/reports/events"),
+  handleEventsReport(req, res, next),
 );
 
 /**
@@ -759,8 +779,47 @@ router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res,
 router.get("/reports/route",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
 router.get("/reports/summary", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/summary"));
 router.get("/reports/stops",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/stops"));
-router.get("/reports/trips",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/trips"));
-router.get("/reports/events",  (req, res, next) => proxyTraccarReport(req, res, next, "/reports/events"));
+router.get("/reports/trips", async (req, res) => {
+  const accept = pickAccept(String(req.query?.format || ""));
+  const wantsBinary = accept !== "application/json";
+  if (wantsBinary) {
+    // Exportações pesadas continuam usando a API HTTP do Traccar; leitura online usa o banco (traccarDb).
+    return proxyTraccarReport(req, res, () => {}, "/reports/trips");
+  }
+
+  try {
+    const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const from = parseDateOrThrow(req.query?.from, "from");
+    const to = parseDateOrThrow(req.query?.to, "to");
+
+    const tripsPerDevice = await Promise.all(
+      deviceIdsToQuery.map(async (deviceId) => {
+        const trips = await fetchTrips(deviceId, from, to);
+        return trips.map((trip) => ({ ...trip, deviceId }));
+      }),
+    );
+
+    const data = {
+      clientId: clientId || null,
+      deviceIds: deviceIdsToQuery,
+      from,
+      to,
+      trips: tripsPerDevice.flat(),
+    };
+
+    return res.status(200).json({ data, error: null });
+  } catch (error) {
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+    if (error?.status === 404) {
+      return respondDeviceNotFound(res);
+    }
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+});
+
+router.get("/reports/events", (req, res, next) => handleEventsReport(req, res, next));
 
 /**
  * === Notifications ===
