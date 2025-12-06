@@ -5,7 +5,7 @@ import { config } from "../config.js";
 const TRACCAR_UNAVAILABLE_MESSAGE = "Não foi possível consultar o Traccar";
 
 // Garante que nunca termina com / e sempre aponta para /api
-const BASE_URL = `${config.traccar.baseUrl.replace(/\/$/, "")}/api`;
+const BASE_URL = `${(process.env.TRACCAR_BASE_URL || config.traccar.baseUrl || "").replace(/\/$/, "")}/api`;
 
 /**
  * Constrói a URL final SEM perder o "/api"
@@ -50,19 +50,21 @@ function logTraccarAttempt({ method, url, attempt, maxAttempts, error }) {
   });
 }
 
-async function httpRequest({
-  baseURL = "",
-  method = "GET",
-  url,
-  params,
-  data,
-  headers = {},
-  timeout = 5_000,
-  retries = 0,
-  retryDelay = 500,
-  backoffFactor = 2,
-}) {
-  const finalUrl = buildUrl(baseURL, url, params);
+function buildErrorResult({ message, code, cause }) {
+  return { ok: false, error: { message, code, cause } };
+}
+
+async function requestTraccar(path, options = {}) {
+  const {
+    method = "GET",
+    params,
+    data,
+    headers = {},
+    responseType = "json",
+    timeout = 5_000,
+  } = options;
+
+  const url = buildUrl(BASE_URL, path, params);
   const resolvedHeaders = new Headers({ Accept: "application/json", ...headers });
   const init = { method: method.toUpperCase(), headers: resolvedHeaders };
 
@@ -83,89 +85,90 @@ async function httpRequest({
   }
 
   let attempt = 0;
-  let delay = retryDelay;
-  let lastError;
-  const maxAttempts = retries + 1;
-
-  const shouldRetry = (error) => {
-    const status = Number(error?.status || error?.statusCode || error?.response?.status);
-    if (status === 401 || status === 403) return false;
-    if (error?.name === "AbortError") return false;
-    if (status >= 500 && status < 600) return true;
-    const code = error?.code;
-    return ["ECONNREFUSED", "ECONNRESET", "ENOTFOUND", "EAI_AGAIN", "ETIMEDOUT"].includes(code);
-  };
+  const maxAttempts = 3; // 1 tentativa inicial + 2 retries
+  const transientStatus = [502, 503, 504];
+  const transientCodes = ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED"];
 
   while (attempt < maxAttempts) {
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      const timeoutError = new Error("Request timeout");
-      timeoutError.code = "ETIMEDOUT";
-      controller.abort(timeoutError);
+      controller.abort(new Error("Request timeout"));
     }, timeout);
-    try {
-      const response = await fetch(finalUrl, { ...init, signal: controller.signal });
-      clearTimeout(timer);
 
-      let payload;
-      try {
-        payload = await response.clone().json();
-      } catch (_parseError) {
-        payload = await response.text();
-      }
+    try {
+      const response = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
 
       const rawHeaders =
         typeof response.headers.raw === "function"
           ? response.headers.raw()
           : Object.fromEntries(response.headers.entries());
 
-      const normalisedResponse = {
-        status: response.status,
-        statusText: response.statusText,
-        headers: rawHeaders,
-        data: payload,
-      };
-
-      if (!response.ok) {
-        const message =
-          payload?.message || payload?.cause || response.statusText || "Falha ao comunicar com o Traccar";
-        const error = createError(response.status || 500, message);
-        error.response = normalisedResponse;
-        throw buildTraccarUnavailableError(error, {
-          url: finalUrl,
-          method: init.method,
-          response: payload,
-          attempt: attempt + 1,
-          maxAttempts,
-        });
+      let payload;
+      try {
+        if (responseType === "arraybuffer") {
+          payload = await response.arrayBuffer();
+        } else {
+          payload = await response.clone().json();
+        }
+      } catch (_parseError) {
+        payload = await response.text();
       }
 
-      return normalisedResponse;
+      if (response.ok) {
+        return { ok: true, status: response.status, headers: rawHeaders, data: payload };
+      }
+
+      const errorMessage =
+        response.status === 504
+          ? "Tempo de resposta do Traccar excedido."
+          : response.status >= 500
+          ? "Não foi possível conectar ao servidor Traccar."
+          : "Erro inesperado ao consultar o Traccar.";
+
+      const errorResult = buildErrorResult({
+        message: errorMessage,
+        code: response.status,
+        cause: payload?.message || payload?.cause || response.statusText,
+      });
+
+      if (transientStatus.includes(response.status) && attempt + 1 < maxAttempts) {
+        logTraccarAttempt({ method: init.method, url, attempt: attempt + 1, maxAttempts, error: errorResult });
+        const backoff = attempt === 0 ? 500 : 1500;
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        attempt += 1;
+        continue;
+      }
+
+      return errorResult;
     } catch (error) {
       clearTimeout(timer);
-      lastError =
-        error?.isTraccarError || error?.code === "TRACCAR_UNAVAILABLE"
-          ? error
-          : buildTraccarUnavailableError(error, {
-              url: finalUrl,
-              method: init.method,
-              attempt: attempt + 1,
-              maxAttempts,
-            });
+      const causeCode = error?.code || (error?.name === "AbortError" ? "ETIMEDOUT" : undefined);
+      const isTimeout = causeCode === "ETIMEDOUT" || error?.name === "AbortError";
+      const transient = isTimeout || transientCodes.includes(causeCode);
 
-      logTraccarAttempt({ method: init.method, url: finalUrl, attempt: attempt + 1, maxAttempts, error: lastError });
+      const errorResult = buildErrorResult({
+        message: isTimeout
+          ? "Tempo de resposta do Traccar excedido."
+          : "Não foi possível conectar ao servidor Traccar.",
+        code: causeCode,
+        cause: error?.message || error?.toString(),
+      });
 
-      if (attempt + 1 >= maxAttempts || !shouldRetry(lastError)) {
-        break;
+      logTraccarAttempt({ method: init.method, url, attempt: attempt + 1, maxAttempts, error: errorResult });
+
+      if (transient && attempt + 1 < maxAttempts) {
+        const backoff = attempt === 0 ? 500 : 1500;
+        await new Promise((resolve) => setTimeout(resolve, backoff));
+        attempt += 1;
+        continue;
       }
 
-      await new Promise((resolve) => setTimeout(resolve, delay));
-      delay = Math.min(delay * backoffFactor, timeout);
-      attempt += 1;
+      return errorResult;
     }
   }
 
-  throw lastError || createError(503, TRACCAR_UNAVAILABLE_MESSAGE);
+  return buildErrorResult({ message: "Erro inesperado ao consultar o Traccar." });
 }
 
 export function buildTraccarUnavailableError(reason, context = {}) {
@@ -321,12 +324,7 @@ export async function traccarRequest(options, context, { asAdmin = false } = {})
     ...(options?.headers || {}),
   };
 
-  return httpRequest({
-    baseURL: BASE_URL,
-    ...options,
-    headers,
-    retries: options?.retries ?? 2,
-  });
+  return requestTraccar(options.url, { ...options, headers });
 }
 
 /**
@@ -362,24 +360,19 @@ export function describeAdminAuth() {
   return "unknown";
 }
 
-/**
- * Login explícito no Traccar via /api/session.
- * Útil se você quiser autenticar um usuário com sessão própria,
- * além do admin. NÃO é necessário para o admin funcionar,
- * porque usamos Basic Auth diretamente.
- */
 export async function loginTraccar(email, password) {
-  const response = await httpRequest({
+  const response = await requestTraccar("/session", {
     method: "POST",
-    baseURL: BASE_URL,
-    url: "/session",
     data: new URLSearchParams({ email, password }),
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
   });
 
-  // Normaliza o header Set-Cookie (pode vir string ou array)
+  if (!response.ok) {
+    return response;
+  }
+
   const rawSetCookie = response.headers?.["set-cookie"];
 
   const cookies = Array.isArray(rawSetCookie)
@@ -388,13 +381,12 @@ export async function loginTraccar(email, password) {
     ? [rawSetCookie]
     : [];
 
-  const sessionCookie = cookies
-    .map((item) => String(item).split(";")[0])
-    .find((item) => item.startsWith("JSESSIONID="));
+  const sessionCookie = cookies.map((item) => String(item).split(";")[0]).find((item) => item.startsWith("JSESSIONID="));
 
   const sessionId = sessionCookie ? sessionCookie.split("=")[1] : null;
 
   return {
+    ok: true,
     user: response.data,
     session: sessionId,
     token: null, // aqui estamos usando cookie de sessão, não bearer
@@ -404,11 +396,7 @@ export async function loginTraccar(email, password) {
 /**
  * Proxy genérico para repassar chamadas ao Traccar e devolver apenas o data.
  */
-export async function traccarProxy(
-  method,
-  url,
-  { context, params, data, asAdmin = false } = {},
-) {
+export async function traccarProxy(method, url, { context, params, data, asAdmin = false } = {}) {
   const response = await traccarRequest(
     {
       method,
@@ -420,7 +408,11 @@ export async function traccarProxy(
     { asAdmin },
   );
 
-  return response.data;
+  if (response?.ok) {
+    return response.data;
+  }
+
+  return response;
 }
 
 /**
@@ -440,21 +432,25 @@ export async function initializeTraccarAdminSession() {
     try {
       storeAdminSession(null);
       const auth = await loginTraccar(adminUser, adminPassword);
-      storeAdminToken(auth);
+      if (auth?.ok) {
+        storeAdminToken(auth);
 
-      if (auth.session) {
-        console.log("Sessão administrativa do Traccar criada (JSESSIONID capturado).");
-      } else {
-        console.warn("Login administrativo efetuado, mas JSESSIONID não encontrado na resposta.");
+        if (auth.session) {
+          console.log("Sessão administrativa do Traccar criada (JSESSIONID capturado).");
+        } else {
+          console.warn("Login administrativo efetuado, mas JSESSIONID não encontrado na resposta.");
+        }
+
+        const ping = await traccarAdminRequest({
+          method: "GET",
+          url: "/server",
+        });
+
+        if (ping?.ok) {
+          console.log("Conectado ao Traccar como administrador usando sessão dedicada.");
+          return;
+        }
       }
-
-      await traccarAdminRequest({
-        method: "GET",
-        url: "/server",
-      });
-
-      console.log("Conectado ao Traccar como administrador usando sessão dedicada.");
-      return;
     } catch (error) {
       console.warn(
         "Falha ao autenticar no Traccar via sessão administrativa",
@@ -465,12 +461,21 @@ export async function initializeTraccarAdminSession() {
   }
 
   try {
-    await traccarAdminRequest({
+    const check = await traccarAdminRequest({
       method: "GET",
       url: "/server",
     });
 
-    console.log("Conectado ao Traccar como administrador usando credenciais configuradas.");
+    if (check?.ok) {
+      console.log("Conectado ao Traccar como administrador usando credenciais configuradas.");
+      return;
+    }
+
+    console.warn(
+      "Falha ao autenticar no Traccar como administrador",
+      check?.error?.code || check?.error?.message,
+      check?.error?.message,
+    );
   } catch (error) {
     console.warn(
       "Falha ao autenticar no Traccar como administrador",
@@ -484,25 +489,50 @@ export async function getTraccarHealth() {
   const authStrategy = describeAdminAuth();
   const sessionActive = Boolean(getAdminSessionCookie());
 
-  try {
-    const response = await traccarAdminRequest({
-      method: "GET",
-      url: "/server",
-    });
+  const response = await traccarAdminRequest({
+    method: "GET",
+    url: "/server",
+  });
 
+  if (response?.ok) {
     return {
       status: "ok",
       authStrategy,
       sessionActive,
       server: response.data,
     };
-  } catch (error) {
-    return {
-      status: "error",
-      authStrategy,
-      sessionActive,
-      message: error?.message || "Falha ao consultar servidor do Traccar",
-      code: error?.status || error?.statusCode || 503,
-    };
   }
+
+  return {
+    status: "error",
+    authStrategy,
+    sessionActive,
+    message: response?.error?.message || "Falha ao consultar servidor do Traccar",
+    code: response?.error?.code || 503,
+  };
 }
+
+// Funções utilitárias específicas
+export async function getDevices(context, options = {}) {
+  const response = await traccarRequest({ method: "GET", url: "/devices", params: options?.params }, context);
+  return response?.ok ? { ok: true, devices: response.data } : response;
+}
+
+export async function getLastPositions(context, deviceIds) {
+  const params = {};
+  if (Array.isArray(deviceIds) && deviceIds.length > 0) {
+    params.deviceId = deviceIds;
+  }
+  const response = await traccarRequest({ method: "GET", url: "/positions/last", params }, context);
+  return response?.ok ? { ok: true, positions: response.data } : response;
+}
+
+export async function getEvents(context, params) {
+  const response = await traccarRequest({ method: "GET", url: "/events", params }, context);
+  return response?.ok ? { ok: true, events: response.data } : response;
+}
+
+export async function getServerHealth() {
+  return getTraccarHealth();
+}
+
