@@ -368,9 +368,13 @@ export default function Monitoring() {
   const markers = useMemo(() => {
     return filteredRows
       .map((row) => {
+        if (!row?.position) {
+          return null;
+        }
+
         if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
-        const address = formatAddress(row.position || row.device || row.vehicle);
-        const displayAddress = address && address !== "—" ? address : t("monitoring.noAddress");
+        const addressText = row.position?.address || formatAddress(row.position || row.device || row.vehicle);
+        const displayAddress = addressText && addressText !== "—" ? addressText : t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
         const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), locale);
         const distance = row.position?.totalDistance ?? row.position?.distance;
@@ -512,6 +516,13 @@ export default function Monitoring() {
   const showMap = layoutVisibility.showMap !== false;
   const showSummary = layoutVisibility.showSummary !== false;
   const showTable = layoutVisibility.showTable !== false;
+  const noPositionText = (() => {
+    const label = t("monitoring.noPositionData");
+    if (!label || label === "monitoring.noPositionData") {
+      return "Sem dados de posição";
+    }
+    return label;
+  })();
 
   return (
     <div className="space-y-6">
@@ -738,21 +749,38 @@ export default function Monitoring() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
-                  <tr
-                    key={row.key ?? row.deviceId ?? row.device?.id}
-                    className={`border-b border-white/5 last:border-none ${
-                      selectedDeviceId === row.deviceId ? "bg-white/5" : ""
-                    }`}
-                    onClick={() => setSelectedDeviceId(row.deviceId)}
-                  >
-                    {visibleColumns.map((column) => (
-                      <td key={column.key} className="px-6 py-3 text-white/80">
-                        {column.render(row)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {filteredRows.map((row, index) => {
+                  const hasPosition = Boolean(row?.position);
+                  const rowKey =
+                    row.key ?? row.deviceId ?? row.device?.id ?? row.device?.uniqueId ?? row.deviceName ?? row.plate;
+                  const fallbackKey = rowKey ?? `row-${index}`;
+
+                  if (!hasPosition) {
+                    return (
+                      <tr key={fallbackKey} className="border-b border-white/5 last:border-none">
+                        <td colSpan={visibleColumnCount} className="px-6 py-4 text-sm text-white/60">
+                          {noPositionText}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  return (
+                    <tr
+                      key={fallbackKey}
+                      className={`border-b border-white/5 last:border-none ${
+                        selectedDeviceId === row.deviceId ? "bg-white/5" : ""
+                      }`}
+                      onClick={() => setSelectedDeviceId(row.deviceId)}
+                    >
+                      {visibleColumns.map((column) => (
+                        <td key={column.key} className="px-6 py-3 text-white/80">
+                          {column.render(row)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
 
                 {!loading && filteredRows.length === 0 && (
                   <tr>
