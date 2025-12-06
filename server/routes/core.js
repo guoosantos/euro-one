@@ -54,6 +54,7 @@ const defaultDeps = {
   traccarProxy: traccarService.traccarProxy,
   buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
   fetchLatestPositions: traccarDbService.fetchLatestPositions,
+  fetchDevicesMetadata: traccarDbService.fetchDevicesMetadata,
   isTraccarDbConfigured: traccarDbService.isTraccarDbConfigured,
   ensureTraccarRegistryConsistency,
   getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
@@ -93,6 +94,25 @@ const eventsCache = createTtlCache(15_000);
 const registryCache = createTtlCache(30_000);
 const registryCacheKeys = new Set();
 
+// Estas rotas usam o banco do Traccar como fonte principal de dados (cenário C).
+// A API HTTP do Traccar é usada apenas em endpoints específicos (ex.: comandos para o rastreador), não nesta rota.
+
+const TELEMETRY_UNAVAILABLE_PAYLOAD = {
+  data: null,
+  error: {
+    message: "Serviço de telemetria indisponível no momento. Tente novamente em instantes.",
+    code: "TRACCAR_DB_ERROR",
+  },
+};
+
+const TRACCAR_DB_UNAVAILABLE = {
+  data: null,
+  error: {
+    message: "Serviço de dados do Traccar indisponível no momento. Tente novamente em instantes.",
+    code: "TRACCAR_DB_ERROR",
+  },
+};
+
 function logTelemetryWarning(stage, error, context = {}) {
   const now = Date.now();
   const previous = telemetryWarnLog.get(stage);
@@ -118,6 +138,26 @@ function cacheRegistry(key, value, ttl = 30_000) {
 
 function getCachedRegistry(key) {
   return registryCache.get(key);
+}
+
+function respondBadRequest(res, message = "Parâmetros inválidos.") {
+  return res.status(400).json({
+    data: null,
+    error: { message, code: "BAD_REQUEST" },
+  });
+}
+
+function normaliseTelemetryPosition(position) {
+  if (!position) return null;
+  return {
+    deviceId: position.deviceId != null ? String(position.deviceId) : null,
+    latitude: position.latitude ?? null,
+    longitude: position.longitude ?? null,
+    speed: position.speed ?? null,
+    course: position.course ?? null,
+    timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
+    address: position.address || "Endereço não disponível",
+  };
 }
 
 function invalidateRegistry(prefix) {
@@ -598,260 +638,81 @@ router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClie
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-
-    await deps.ensureTraccarRegistryConsistency();
-
-    const cacheKey = clientId ? `telemetry:${clientId}` : "telemetry:all";
-    const cached = telemetryCache.get(cacheKey);
-    if (cached) {
-      return res.json(cached);
-    }
-
     const devices = deps.listDevices({ clientId });
-    const models = deps.listModels({ clientId, includeGlobal: true });
-    const chips = deps.listChips({ clientId });
-    const vehicles = deps.listVehicles({ clientId });
+    const allowedDeviceIds = devices
+      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+      .filter(Boolean);
 
-    const modelMap = new Map(models.map((item) => [item.id, item]));
-    const chipMap = new Map(chips.map((item) => [item.id, item]));
-    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+    const rawDeviceIds = req.query?.deviceId || req.query?.deviceIds;
+    const requestedDeviceIds = Array.isArray(rawDeviceIds)
+      ? rawDeviceIds
+      : typeof rawDeviceIds === "string"
+      ? rawDeviceIds.split(",")
+      : [];
 
-    const traccarDevicesRaw = await deps.traccarProxy("get", "/devices", { params: { all: true }, asAdmin: true });
-    const traccarDevices = normaliseList(traccarDevicesRaw, ["devices", "data"]);
-    const traccarById = new Map();
-    const traccarByUnique = new Map();
-    const positionIds = new Set();
+    const filteredDeviceIds = requestedDeviceIds
+      .map((value) => String(value).trim())
+      .filter(Boolean);
 
-    traccarDevices.forEach((item) => {
-      if (!item) return;
-      if (item.id !== undefined && item.id !== null) {
-        traccarById.set(String(item.id), item);
-      }
-      if (item.uniqueId) {
-        traccarByUnique.set(String(item.uniqueId), item);
-      }
-      if (item.positionId !== undefined && item.positionId !== null) {
-        positionIds.add(String(item.positionId));
-      }
-    });
-
-    const validPositionIds = filterValidPositionIds(Array.from(positionIds));
-    if (validPositionIds.length === 0) {
-      const payload = { telemetry: [] };
-      telemetryCache.set(cacheKey, payload, 3_000);
-      return res.json(payload);
+    if (filteredDeviceIds.some((value) => !/^\d+$/.test(value))) {
+      return respondBadRequest(res);
     }
 
-    let positions = [];
-    if (validPositionIds.length > 0) {
-      try {
-        const positionResponse = await deps.traccarProxy("get", "/positions", {
-          params: { id: validPositionIds },
-          asAdmin: true,
-        });
-        positions = await deps.enrichPositionsWithAddresses(normaliseList(positionResponse, ["positions", "data"]));
-      } catch (positionError) {
-        logTelemetryWarning("positions", positionError, { ids: validPositionIds });
-        throw deps.buildTraccarUnavailableError(positionError, {
-          stage: "positions",
-          url: "/positions",
-          params: { id: validPositionIds },
-        });
-      }
+    const deviceIdsToQuery = filteredDeviceIds.length
+      ? filteredDeviceIds.filter((id) => allowedDeviceIds.includes(id))
+      : allowedDeviceIds;
+
+    if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
+      return res.status(404).json({
+        data: [],
+        error: { message: "Dispositivo não encontrado para este cliente." },
+      });
     }
 
-    const positionById = new Map();
-    positions.forEach((pos) => {
-      if (pos?.id !== undefined && pos?.id !== null) {
-        positionById.set(String(pos.id), pos);
-      }
-    });
+    const positions = await deps.fetchLatestPositions(deviceIdsToQuery, clientId);
+    const data = positions.map((position) => normaliseTelemetryPosition(position)).filter(Boolean);
 
-    const deviceIds = filterValidPositionIds(
-      devices
-        .map((device) => device?.traccarId)
-        .filter((value) => value !== null && value !== undefined)
-        .map((value) => String(value)),
-    );
-
-    const warnings = [];
-    let events = [];
-    if (deviceIds.length) {
-      const eventsCacheKey = `telemetry-events:${deviceIds.sort().join(",")}`;
-      const cachedEvents = eventsCache.get(eventsCacheKey);
-      if (cachedEvents) {
-        events = cachedEvents;
-      }
-    }
-
-    if (deviceIds.length && events.length === 0) {
-      const now = new Date();
-      const from = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      try {
-        const eventsResponse = await deps.traccarProxy("get", "/events", {
-          params: { deviceId: deviceIds, from: from.toISOString(), to: now.toISOString() },
-          asAdmin: true,
-        });
-        events = normaliseList(eventsResponse, ["events", "data"]);
-        const eventsCacheKey = `telemetry-events:${deviceIds.sort().join(",")}`;
-        eventsCache.set(eventsCacheKey, events, 15_000);
-      } catch (eventError) {
-        logTelemetryWarning("events", eventError, { deviceIds, from: from.toISOString(), to: now.toISOString() });
-        warnings.push({ stage: "events", message: "Falha ao carregar eventos recentes" });
-      }
-    }
-
-    const lastEventByDevice = new Map();
-    events.forEach((event) => {
-      if (!event || event.deviceId === undefined || event.deviceId === null) return;
-      const deviceId = String(event.deviceId);
-      const time = Date.parse(event.eventTime || event.serverTime || event.deviceTime || event.time || 0);
-      const current = lastEventByDevice.get(deviceId);
-      if (!current) {
-        lastEventByDevice.set(deviceId, { event, time });
-        return;
-      }
-      if (Number.isFinite(time) && (!Number.isFinite(current.time) || time > current.time)) {
-        lastEventByDevice.set(deviceId, { event, time });
-      }
-    });
-
-    let response = devices.map((device) => {
-      const traccarDevice =
-        (device.traccarId && traccarById.get(String(device.traccarId))) ||
-        traccarByUnique.get(String(device.uniqueId));
-      const position = traccarDevice?.positionId
-        ? positionById.get(String(traccarDevice.positionId)) || null
-        : null;
-      const lastEvent = traccarDevice?.id ? lastEventByDevice.get(String(traccarDevice.id))?.event || null : null;
-
-      return {
-        ...buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
-        position: sanitizePosition(position),
-        lastEvent,
-      };
-    });
-
-    let missingPositionDeviceIds = filterValidPositionIds(
-      response
-        .filter((item) => !item.position && item.traccarId)
-        .map((item) => String(item.traccarId)),
-    );
-
-    if (missingPositionDeviceIds.length && deps.isTraccarDbConfigured()) {
-      try {
-        const dbPositions = await deps.fetchLatestPositions(missingPositionDeviceIds);
-        const latestByDevice = new Map();
-
-        dbPositions.forEach((pos) => {
-          if (!pos?.deviceId) return;
-          latestByDevice.set(String(pos.deviceId), sanitizePosition(pos));
-        });
-
-        response = response.map((item) => {
-          if (item.position || !item.traccarId) return item;
-          const fallback = latestByDevice.get(String(item.traccarId));
-          if (!fallback) return item;
-          return { ...item, position: fallback };
-        });
-
-        missingPositionDeviceIds = filterValidPositionIds(
-          response
-            .filter((item) => !item.position && item.traccarId)
-            .map((item) => String(item.traccarId)),
-        );
-      } catch (dbFallbackError) {
-        logTelemetryWarning("positions-db", dbFallbackError, { deviceIds: missingPositionDeviceIds });
-      }
-    }
-
-    if (missingPositionDeviceIds.length) {
-      const now = new Date();
-      const from = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-
-      try {
-        const fallbackPositionsResponse = await deps.traccarProxy("get", "/positions", {
-          params: { deviceId: missingPositionDeviceIds, from: from.toISOString(), to: now.toISOString() },
-          asAdmin: true,
-        });
-        const fallbackPositions = await deps.enrichPositionsWithAddresses(
-          normaliseList(fallbackPositionsResponse, ["positions", "data"]),
-        );
-        const latestByDevice = new Map();
-
-        fallbackPositions.forEach((pos) => {
-          if (pos?.deviceId === undefined || pos?.deviceId === null) return;
-          const deviceId = String(pos.deviceId);
-          const time = Date.parse(pos.fixTime || pos.serverTime || pos.deviceTime || pos.time || 0);
-          const current = latestByDevice.get(deviceId);
-          if (!current) {
-            latestByDevice.set(deviceId, { pos: sanitizePosition(pos), time });
-            return;
-          }
-          if (Number.isFinite(time) && (!Number.isFinite(current.time) || time > current.time)) {
-            latestByDevice.set(deviceId, { pos, time });
-          }
-        });
-
-        response.forEach((item, index) => {
-          if (item.position || !item.traccarId) return;
-          const fallback = latestByDevice.get(String(item.traccarId));
-          if (fallback?.pos) {
-            response[index] = { ...item, position: fallback.pos };
-          }
-        });
-      } catch (fallbackError) {
-        logTelemetryWarning("positions-fallback", fallbackError, { deviceIds: missingPositionDeviceIds });
-      }
-    }
-
-    const payload = { telemetry: response, warnings };
-    telemetryCache.set(cacheKey, payload, 3_000);
-    res.json(payload);
+    return res.status(200).json({ data, error: null });
   } catch (error) {
-    next(error);
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    logTelemetryWarning("positions-db", error);
+    return res.status(503).json(TELEMETRY_UNAVAILABLE_PAYLOAD);
   }
 });
 
 router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-    await deps.ensureTraccarRegistryConsistency();
-    const cacheKey = buildDeviceCacheKey(clientId);
-    const cached = getCachedRegistry(cacheKey);
-    if (cached) {
-      return res.json(cached);
-    }
     const devices = deps.listDevices({ clientId });
-    const models = deps.listModels({ clientId, includeGlobal: true });
-    const chips = deps.listChips({ clientId });
-    const vehicles = deps.listVehicles({ clientId });
+    const metadata = await deps.fetchDevicesMetadata();
 
-    const modelMap = new Map(models.map((item) => [item.id, item]));
-    const chipMap = new Map(chips.map((item) => [item.id, item]));
-    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+    const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
+    const traccarByUniqueId = new Map(metadata.map((item) => [String(item.uniqueId || ""), item]));
 
-    const traccarDevices = deps.getCachedTraccarResources("devices");
-    const traccarById = new Map();
-    const traccarByUnique = new Map();
-    traccarDevices.forEach((item) => {
-      if (!item) return;
-      if (item.id !== undefined && item.id !== null) {
-        traccarById.set(String(item.id), item);
-      }
-      if (item.uniqueId) {
-        traccarByUnique.set(String(item.uniqueId), item);
-      }
+    const response = devices.map((device) => {
+      const metadataMatch =
+        (device.traccarId && traccarById.get(String(device.traccarId))) ||
+        (device.uniqueId && traccarByUniqueId.get(String(device.uniqueId)));
+
+      return {
+        id: device.traccarId ? String(device.traccarId) : String(device.id),
+        name: metadataMatch?.name || device.name || device.uniqueId || String(device.id),
+        uniqueId: metadataMatch?.uniqueId || device.uniqueId || null,
+        status: metadataMatch?.status || null,
+        lastUpdate: metadataMatch?.lastUpdate || null,
+      };
     });
 
-    const response = devices.map((device) =>
-      buildDeviceResponse(device, { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique }),
-    );
-    const payload = { devices: response };
-    cacheRegistry(cacheKey, payload);
-    res.json(payload);
+    return res.status(200).json({ data: response, error: null });
   } catch (error) {
-    next(error);
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    return res.status(503).json(TRACCAR_DB_UNAVAILABLE);
   }
 });
 

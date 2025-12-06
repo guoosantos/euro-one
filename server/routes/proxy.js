@@ -3,8 +3,10 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
+import { fetchDevicesMetadata, fetchLatestPositions } from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
   enforceDeviceFilterInBody,
@@ -77,7 +79,50 @@ const TRIP_CSV_COLUMNS = [
   { key: "endLon", label: "Lon. final" },
 ];
 
-const lastPositionCache = createTtlCache(2_500);
+// Estas rotas usam o banco do Traccar como fonte principal de dados (cenário C).
+// A API HTTP do Traccar é usada apenas em endpoints específicos (ex.: comandos para o rastreador), não nestas rotas.
+
+const TRACCAR_DB_ERROR_PAYLOAD = {
+  data: null,
+  error: {
+    message: "Serviço de telemetria indisponível no momento. Tente novamente em instantes.",
+    code: "TRACCAR_DB_ERROR",
+  },
+};
+
+function respondBadRequest(res, message = "Parâmetros inválidos.") {
+  return res.status(400).json({
+    data: null,
+    error: { message, code: "BAD_REQUEST" },
+  });
+}
+
+function normalisePosition(position) {
+  if (!position) return null;
+  return {
+    deviceId: position.deviceId != null ? String(position.deviceId) : null,
+    latitude: position.latitude ?? null,
+    longitude: position.longitude ?? null,
+    speed: position.speed ?? null,
+    course: position.course ?? null,
+    timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
+    address: position.address || "Endereço não disponível",
+  };
+}
+
+function parseDeviceIds(raw) {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+    ? raw.split(",")
+    : raw != null
+    ? [raw]
+    : [];
+
+  return values
+    .map((value) => String(value).trim())
+    .filter(Boolean);
+}
 
 function pickTripAddress(trip, prefix) {
   const short = trip?.[`${prefix}ShortAddress`];
@@ -356,15 +401,80 @@ function isTraccarUserRequest(req) {
 }
 
 /**
+ * === Telemetria (banco do Traccar) ===
+ */
+
+router.get("/telemetry", async (req, res) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const devices = listDevices({ clientId });
+    const allowedDeviceIds = devices
+      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+      .filter(Boolean);
+
+    const filteredDeviceIds = parseDeviceIds(req.query?.deviceId || req.query?.deviceIds);
+    if (filteredDeviceIds.some((value) => !/^\d+$/.test(value))) {
+      return respondBadRequest(res);
+    }
+
+    const deviceIdsToQuery = filteredDeviceIds.length
+      ? filteredDeviceIds.filter((id) => allowedDeviceIds.includes(id))
+      : allowedDeviceIds;
+
+    if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
+      return res.status(404).json({
+        data: [],
+        error: { message: "Dispositivo não encontrado para este cliente." },
+      });
+    }
+
+    const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
+    const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
+
+    return res.status(200).json({ data, error: null });
+  } catch (error) {
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+});
+
+/**
  * === Devices ===
  */
 
 router.get("/devices", async (req, res, next) => {
   try {
-    const data = await traccarProxy("get", "/devices", { params: req.query, asAdmin: true });
-    res.json(data);
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const devices = listDevices({ clientId });
+    const metadata = await fetchDevicesMetadata();
+
+    const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
+    const traccarByUniqueId = new Map(metadata.map((item) => [String(item.uniqueId || ""), item]));
+
+    const data = devices.map((device) => {
+      const metadataMatch =
+        (device.traccarId && traccarById.get(String(device.traccarId))) ||
+        (device.uniqueId && traccarByUniqueId.get(String(device.uniqueId)));
+
+      return {
+        id: device.traccarId ? String(device.traccarId) : String(device.id),
+        name: metadataMatch?.name || device.name || device.uniqueId || String(device.id),
+        uniqueId: metadataMatch?.uniqueId || device.uniqueId || null,
+        status: metadataMatch?.status || null,
+        lastUpdate: metadataMatch?.lastUpdate || null,
+      };
+    });
+
+    return res.status(200).json({ data, error: null });
   } catch (error) {
-    next(error);
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
 });
 
@@ -458,42 +568,44 @@ router.get("/positions", async (req, res, next) => {
 });
 
 // /positions/last (compat)
-router.get("/positions/last", async (req, res, next) => {
+router.get("/positions/last", async (req, res) => {
+  const rawDeviceId = req.query?.deviceId ?? req.query?.deviceIds;
+  const requestedIds = parseDeviceIds(rawDeviceId);
+
+  if (requestedIds.length > 1) {
+    return respondBadRequest(res, "Parâmetros inválidos.");
+  }
+
+  if (requestedIds.some((value) => !/^\d+$/.test(value))) {
+    return respondBadRequest(res);
+  }
+
   try {
-    const params = { ...(req.query || {}) };
-    enforceDeviceFilterInQuery(req, params);
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const devices = listDevices({ clientId });
+    const allowedDeviceIds = devices
+      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+      .filter(Boolean);
 
-    const hasDeviceId =
-      extractDeviceIds(params).length ||
-      params.deviceId !== undefined ||
-      params.deviceIds !== undefined;
+    const deviceIdsToQuery = requestedIds.length ? requestedIds : allowedDeviceIds;
 
-    if (hasDeviceId && (!params.from || !params.to)) {
-      const now = new Date();
-      const to = params.to ? new Date(params.to) : now;
-      const from = params.from ? new Date(params.from) : new Date(to.getTime() - 24 * 60 * 60 * 1000);
-      params.from = from.toISOString();
-      params.to = to.toISOString();
+    if (requestedIds.length && !deviceIdsToQuery.length) {
+      return res.status(404).json({
+        data: [],
+        error: { message: "Dispositivo não encontrado para este cliente." },
+      });
     }
 
-    const cacheKey = JSON.stringify(params || {});
-    const cached = lastPositionCache.get(cacheKey);
-    if (cached) {
-      return res.json(cached);
-    }
+    const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
+    const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
-    const data = await traccarProxy("get", "/positions", { params, asAdmin: true });
-    const body = Array.isArray(data)
-      ? await enrichPositionsWithAddresses(data)
-      : data?.positions && Array.isArray(data.positions)
-      ? { ...data, positions: await enrichPositionsWithAddresses(data.positions) }
-      : data;
-    if (body) {
-      lastPositionCache.set(cacheKey, body, 2_500);
-    }
-    res.json(body);
+    return res.status(200).json({ data, error: null });
   } catch (error) {
-    next(buildTraccarUnavailableError(error, { url: "/positions", params }));
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
 });
 
