@@ -7,7 +7,10 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/media/face/alerts", (_req, res) => {
-  res.json({ alerts: [], message: "Módulo de reconhecimento facial desativado." });
+  res.status(200).json({
+    alerts: [],
+    message: "Módulo de reconhecimento facial desativado no momento.",
+  });
 });
 
 export default router;
