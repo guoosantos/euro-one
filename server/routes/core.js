@@ -664,15 +664,52 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
     if (filteredDeviceIds.length && deviceIdsToQuery.length === 0) {
       return res.status(404).json({
-        data: [],
-        error: { message: "Dispositivo não encontrado para este cliente." },
+        data: null,
+        error: { message: "Dispositivo não encontrado para este cliente.", code: "NOT_FOUND" },
       });
     }
 
-    const positions = await deps.fetchLatestPositions(deviceIdsToQuery, clientId);
-    const data = positions.map((position) => normaliseTelemetryPosition(position)).filter(Boolean);
+    const [positions, metadata] = await Promise.all([
+      deps.fetchLatestPositions(deviceIdsToQuery, clientId),
+      deps.fetchDevicesMetadata(),
+    ]);
 
-    return res.status(200).json({ data, error: null });
+    const metadataById = new Map(metadata.map((item) => [String(item.id), item]));
+    const devicesByTraccarId = new Map(
+      devices
+        .filter((device) => device?.traccarId != null)
+        .map((device) => [String(device.traccarId), device]),
+    );
+
+    const telemetry = positions
+      .map((position) => {
+        const normalisedPosition = normaliseTelemetryPosition(position);
+        if (!normalisedPosition) return null;
+
+        const deviceId = normalisedPosition.deviceId ? String(normalisedPosition.deviceId) : null;
+        const deviceMetadata = deviceId ? metadataById.get(deviceId) : null;
+        const deviceMatch = deviceId ? devicesByTraccarId.get(deviceId) : null;
+
+        const device = {
+          id: deviceId,
+          name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || deviceId,
+          uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
+          status: deviceMetadata?.status || "unknown",
+          lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition.timestamp || null,
+        };
+
+        return { device, position: normalisedPosition, lastEvent: null };
+      })
+      .filter(Boolean);
+
+    const warnings = telemetry.length
+      ? []
+      : ["Nenhuma posição encontrada para os dispositivos deste cliente."];
+
+    return res.status(200).json({
+      data: { telemetry, warnings },
+      error: null,
+    });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
