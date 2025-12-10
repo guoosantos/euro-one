@@ -81,6 +81,11 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
   const { t } = useTranslation();
   const { tenantId, isAuthenticated } = useTenant();
 
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);
 
   const [telemetry, setTelemetry] = useState([]);
@@ -208,7 +213,8 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
           setError(null);
           setLoading(false);
         } else if (message?.type === "error") {
-          const liveError = new Error(message?.data?.message || t("monitoring.loadErrorTitle"));
+          const translate = (key) => (tRef.current ? tRef.current(key) : key);
+          const liveError = new Error(message?.data?.message || translate("monitoring.loadErrorTitle"));
           setError(liveError);
           setLiveStatus({ mode: "polling", connected: false });
           setLoading(true);
@@ -229,7 +235,8 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
     };
 
     socket.onerror = (event) => {
-      const liveError = new Error(t("monitoring.loadErrorTitle"));
+      const translate = (key) => (tRef.current ? tRef.current(key) : key);
+      const liveError = new Error(translate("monitoring.loadErrorTitle"));
       fallbackToPolling(liveError);
     };
 
@@ -250,7 +257,7 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
         // ignore
       }
     };
-  }, [isAuthenticated, params, t]);
+  }, [isAuthenticated, params]);
 
   const value = useMemo(
     () => ({
