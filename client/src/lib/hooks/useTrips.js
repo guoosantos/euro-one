@@ -64,6 +64,9 @@ export function useTrips({
         const normalised = new Error(friendly);
         setError(normalised);
         setTrips([]);
+        if (requestError?.permanent) {
+          throw normalised;
+        }
         return;
       }
       const payloadData = responseData?.data ?? responseData;
@@ -104,7 +107,7 @@ export function useTrips({
 
   const refresh = useMemo(
     () => () => {
-      void fetchTrips();
+      void fetchTrips().catch(() => {});
     },
     [fetchTrips],
   );
@@ -112,7 +115,7 @@ export function useTrips({
   useEffect(() => {
     mountedRef.current = true;
     if (shouldFetch && !pollingEnabled) {
-      void fetchTrips();
+      void fetchTrips().catch(() => {});
     }
     return () => {
       mountedRef.current = false;
