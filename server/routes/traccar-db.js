@@ -4,7 +4,7 @@ import createError from "http-errors";
 import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
-import { findDeviceByTraccarIdInDb, listDevices } from "../models/device.js";
+import { findDeviceByTraccarIdInDb, listDevices, listDevicesFromDb } from "../models/device.js";
 import { fetchEvents, fetchPositions, fetchTrips, isTraccarDbConfigured } from "../services/traccar-db.js";
 import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 
@@ -255,10 +255,19 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       .filter(Boolean)
       .filter((value) => /^\d+$/.test(value));
 
-    const allowedDevices = listDevices({ clientId });
-    const allowedIds = allowedDevices
-      .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-      .filter(Boolean);
+    const storedDevices = listDevices({ clientId });
+    const persistedDevices = await listDevicesFromDb({ clientId });
+
+    const allowedDevices = [...storedDevices, ...persistedDevices].reduce((list, device) => {
+      if (!device?.traccarId) return list;
+      const traccarId = String(device.traccarId);
+      if (!list.some((item) => String(item.traccarId) === traccarId)) {
+        list.push(device);
+      }
+      return list;
+    }, []);
+
+    const allowedIds = allowedDevices.map((device) => String(device.traccarId));
 
     const deviceIdsToQuery = deviceIds.length ? deviceIds.filter((id) => allowedIds.includes(id)) : allowedIds;
 

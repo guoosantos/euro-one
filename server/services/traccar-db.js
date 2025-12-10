@@ -383,6 +383,7 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
 }
 
 
+
 async function fetchLatestPositionsFromApi(deviceIds = []) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
@@ -405,6 +406,7 @@ async function fetchLatestPositionsFromApi(deviceIds = []) {
 
 export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null) {
 
+
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   let lastError = null;
 
@@ -420,7 +422,9 @@ export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId 
 
   try {
 
+
     return await fetchLatestPositionsFromApi(filtered);
+
 
   } catch (fallbackError) {
     if (lastError) {

@@ -733,7 +733,9 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const to = now.toISOString();
 
 
+
     let latestPositions = await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+
 
 
     if ((!latestPositions || latestPositions.length === 0) && typeof deps.traccarProxy === "function") {

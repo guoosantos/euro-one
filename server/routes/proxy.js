@@ -490,7 +490,9 @@ router.get("/telemetry", async (req, res) => {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
 
 
+
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+
 
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
@@ -626,7 +628,9 @@ router.get("/positions/last", async (req, res) => {
     }
 
 
+
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+
 
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
