@@ -15,9 +15,9 @@ export const API_ROUTES = {
   positionsExport: "positions/export",
   reports: {
     trips: "traccar/reports/trips",
-    stops: "reports/stops",
-    summary: "reports/summary",
-    route: "reports/route",
+    stops: "traccar/reports/stops",
+    summary: "traccar/reports/summary",
+    route: "traccar/reports/route",
   },
   commands: "commands",
   notifications: "notifications",
@@ -61,6 +61,9 @@ export const API_ROUTES = {
     events: "traccar/events",
     reports: {
       trips: "traccar/reports/trips",
+      route: "traccar/reports/route",
+      stops: "traccar/reports/stops",
+      summary: "traccar/reports/summary",
     },
   },
 };

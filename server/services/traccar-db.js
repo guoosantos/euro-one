@@ -168,6 +168,11 @@ function normalisePositionRow(row) {
     longitude: Number(row.longitude ?? 0),
     speed: Number(row.speed ?? 0),
     course: Number(row.course ?? 0),
+    altitude: Number(row.altitude ?? 0),
+    accuracy: row.accuracy != null ? Number(row.accuracy) : null,
+    valid: row.valid != null ? Boolean(row.valid) : null,
+    protocol: row.protocol ?? null,
+    network: parseJson(row.network),
     address: row.address ? String(row.address) : "Endereço não disponível",
     attributes,
   };
@@ -353,6 +358,11 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
       latest.longitude,
       latest.speed,
       latest.course,
+      latest.altitude,
+      latest.accuracy,
+      latest.valid,
+      latest.protocol,
+      latest.network,
       latest.address,
       latest.attributes
     FROM (
@@ -395,7 +405,23 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null } 
   }
 
   const sql = `
-    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, attributes
+    SELECT
+      id,
+      deviceid,
+      servertime,
+      devicetime,
+      fixtime,
+      latitude,
+      longitude,
+      speed,
+      course,
+      altitude,
+      accuracy,
+      valid,
+      protocol,
+      network,
+      address,
+      attributes
     FROM ${POSITION_TABLE}
     WHERE ${conditions.join(" AND ")}
     ORDER BY fixtime ASC

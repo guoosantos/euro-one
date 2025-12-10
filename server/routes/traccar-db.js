@@ -5,8 +5,8 @@ import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
 import { findDeviceByTraccarIdInDb, listDevices } from "../models/device.js";
-import { fetchEvents, fetchTrips, isTraccarDbConfigured } from "../services/traccar-db.js";
-import { buildTraccarUnavailableError } from "../services/traccar.js";
+import { fetchEvents, fetchPositions, fetchTrips, isTraccarDbConfigured } from "../services/traccar-db.js";
+import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 
 const router = express.Router();
 
@@ -38,6 +38,22 @@ function parseDate(value, label) {
     throw createError(400, `Data inválida em ${label}`);
   }
   return parsed.toISOString();
+}
+
+async function requestTraccarReport(path, params) {
+  const accept = "application/json";
+  try {
+    return await traccarProxy("get", path, { params, asAdmin: true, context: { headers: { Accept: accept } } });
+  } catch (error) {
+    const status = Number(error?.status || error?.statusCode || error?.response?.status);
+    const shouldFallback = status === 404 || status === 405 || status === 415;
+    if (!shouldFallback) throw error;
+    return traccarProxy("post", path, {
+      data: params,
+      asAdmin: true,
+      context: { headers: { Accept: accept } },
+    });
+  }
 }
 
 function normaliseTripPayload(trip, deviceId, device = null) {
@@ -112,6 +128,108 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       },
       error: null,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Rotas (Route) – fonte: banco do Traccar, com fallback para API HTTP
+ */
+router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res, next) => {
+  try {
+    ensureDbReady();
+
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const deviceId = req.query.deviceId;
+    if (!deviceId) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "Informe um dispositivo para gerar o relatório de rotas.", code: "DEVICE_REQUIRED" },
+      });
+    }
+
+    await ensureDeviceAllowed(deviceId, clientId);
+
+    const from = parseDate(req.query.from, "from");
+    const to = parseDate(req.query.to, "to");
+    if (!from || !to) {
+      throw createError(400, "Período obrigatório: from e to");
+    }
+
+    const positions = await fetchPositions([deviceId], from, to);
+    if (positions.length) {
+      return res.json({ data: { deviceId: String(deviceId), from, to, positions }, error: null });
+    }
+
+    // fallback para API HTTP do Traccar se não houver dados no banco
+    const response = await requestTraccarReport("/reports/route", { deviceId, from, to });
+    const payload = Array.isArray(response?.data) ? response.data : response?.data?.data || response?.data || [];
+    return res.json({ data: { deviceId: String(deviceId), from, to, positions: payload }, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Paradas (Stops) – prioridade DB, fallback HTTP
+ */
+router.get("/traccar/reports/stops", resolveClientIdMiddleware, async (req, res, next) => {
+  try {
+    ensureDbReady();
+
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const deviceId = req.query.deviceId;
+    if (!deviceId) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "Informe um dispositivo para gerar o relatório de paradas.", code: "DEVICE_REQUIRED" },
+      });
+    }
+
+    await ensureDeviceAllowed(deviceId, clientId);
+
+    const from = parseDate(req.query.from, "from");
+    const to = parseDate(req.query.to, "to");
+    if (!from || !to) {
+      throw createError(400, "Período obrigatório: from e to");
+    }
+
+    const response = await requestTraccarReport("/reports/stops", { deviceId, from, to });
+    const payload = Array.isArray(response?.data) ? response.data : response?.data?.data || response?.data || [];
+    return res.json({ data: { deviceId: String(deviceId), from, to, stops: payload }, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+/**
+ * Resumo (Summary) – prioridade DB, fallback HTTP
+ */
+router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, res, next) => {
+  try {
+    ensureDbReady();
+
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const deviceId = req.query.deviceId;
+    if (!deviceId) {
+      return res.status(400).json({
+        data: null,
+        error: { message: "Informe um dispositivo para gerar o relatório de resumo.", code: "DEVICE_REQUIRED" },
+      });
+    }
+
+    await ensureDeviceAllowed(deviceId, clientId);
+
+    const from = parseDate(req.query.from, "from");
+    const to = parseDate(req.query.to, "to");
+    if (!from || !to) {
+      throw createError(400, "Período obrigatório: from e to");
+    }
+
+    const response = await requestTraccarReport("/reports/summary", { deviceId, from, to });
+    const payload = Array.isArray(response?.data) ? response.data : response?.data?.data || response?.data || [];
+    return res.json({ data: { deviceId: String(deviceId), from, to, summary: payload }, error: null });
   } catch (error) {
     next(error);
   }

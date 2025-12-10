@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import api from "../api.js";
+
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { readCachedReport, writeCachedReport } from "./reportStorage.js";
 
@@ -15,8 +16,10 @@ export const normalizeStops = (payload) => {
 
   const stops = Array.isArray(base.stops)
     ? base.stops
-    : Array.isArray(base.data)
-      ? base.data
+    : Array.isArray(base.data?.stops)
+      ? base.data.stops
+      : Array.isArray(base.data)
+        ? base.data
       : [];
 
   return { ...base, stops: stops.filter(Boolean) };
@@ -43,9 +46,12 @@ export function useReportsStops() {
     setLoading(true);
     setError(null);
     try {
-      const response = await api.get(API_ROUTES.reports.stops, { params });
+      const { data: response, error: requestError } = await safeApi.get(API_ROUTES.traccar.reports.stops, { params });
+      if (requestError) {
+        throw requestError;
+      }
       const enriched = {
-        ...normalizeStops(response?.data),
+        ...normalizeStops(response?.data ?? response),
         __meta: { generatedAt: new Date().toISOString(), params },
       };
       persistData(enriched);
