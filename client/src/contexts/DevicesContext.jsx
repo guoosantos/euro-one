@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTranslation } from "../lib/i18n.js";
@@ -18,29 +18,31 @@ export function DevicesProvider({ children, interval = 60_000 }) {
   const { t } = useTranslation();
   const { tenantId, isAuthenticated } = useTenant();
 
-  const { data, loading, error, lastUpdated, refresh } = usePolling({
-    fetchFn: async () => {
-      const params = tenantId ? { clientId: tenantId } : undefined;
-      const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, { params });
-      if (apiError) {
-        const status = Number(apiError?.response?.status ?? apiError?.status);
-        const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadDevices");
-        const normalised = new Error(friendly);
-        if (Number.isFinite(status)) {
-          normalised.status = status;
-          if (status >= 400 && status < 500) normalised.permanent = true;
-        }
-        if (apiError?.permanent) normalised.permanent = true;
-        throw normalised;
+  const fetchDevices = useCallback(async () => {
+    const params = tenantId ? { clientId: tenantId } : undefined;
+    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.core.devices, { params });
+    if (apiError) {
+      const status = Number(apiError?.response?.status ?? apiError?.status);
+      const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadDevices");
+      const normalised = new Error(friendly);
+      if (Number.isFinite(status)) {
+        normalised.status = status;
+        if (status >= 400 && status < 500) normalised.permanent = true;
       }
-      const list = normaliseDeviceList(payload);
-      return Array.isArray(list)
-        ? list.map((device) => ({
-            ...device,
-            deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
-          }))
-        : [];
-    },
+      if (apiError?.permanent) normalised.permanent = true;
+      throw normalised;
+    }
+    const list = normaliseDeviceList(payload);
+    return Array.isArray(list)
+      ? list.map((device) => ({
+          ...device,
+          deviceId: device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId ?? null,
+        }))
+      : [];
+  }, [t, tenantId]);
+
+  const { data, loading, error, lastUpdated, refresh } = usePolling({
+    fetchFn: fetchDevices,
     intervalMs: interval,
     enabled: isAuthenticated,
   });

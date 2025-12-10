@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo } from "react";
+import React, { createContext, useCallback, useContext, useMemo } from "react";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -20,23 +20,25 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
 
-  const { data, loading, error, lastUpdated, refresh } = usePolling({
-    fetchFn: async () => {
-      const params = tenantId ? { clientId: tenantId, limit } : { limit };
-      const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, { params });
-      if (apiError) {
-        const status = Number(apiError?.response?.status ?? apiError?.status);
-        const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadEvents");
-        const normalised = new Error(friendly);
-        if (Number.isFinite(status)) {
-          normalised.status = status;
-          if (status >= 400 && status < 500) normalised.permanent = true;
-        }
-        if (apiError?.permanent) normalised.permanent = true;
-        throw normalised;
+  const fetchEvents = useCallback(async () => {
+    const params = tenantId ? { clientId: tenantId, limit } : { limit };
+    const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, { params });
+    if (apiError) {
+      const status = Number(apiError?.response?.status ?? apiError?.status);
+      const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadEvents");
+      const normalised = new Error(friendly);
+      if (Number.isFinite(status)) {
+        normalised.status = status;
+        if (status >= 400 && status < 500) normalised.permanent = true;
       }
-      return normaliseEvents(payload).slice(0, limit);
-    },
+      if (apiError?.permanent) normalised.permanent = true;
+      throw normalised;
+    }
+    return normaliseEvents(payload).slice(0, limit);
+  }, [limit, t, tenantId]);
+
+  const { data, loading, error, lastUpdated, refresh } = usePolling({
+    fetchFn: fetchEvents,
     intervalMs: interval,
     enabled: isAuthenticated,
   });
