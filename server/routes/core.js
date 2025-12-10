@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import * as clientMiddleware from "../middleware/client.js";
-import resolveClientIdMiddleware from "../middleware/resolve-client.js";
+import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import * as clientModel from "../models/client.js";
 import * as modelModel from "../models/model.js";
 import * as deviceModel from "../models/device.js";
