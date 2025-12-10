@@ -33,6 +33,12 @@ export function useTrips({
       setLoading(false);
       return;
     }
+    if (!deviceId) {
+      setLoading(false);
+      setError(null);
+      setTrips([]);
+      return;
+    }
     setLoading((current) => current || initialLoadRef.current);
     setError(null);
     abortRef.current?.abort();
@@ -64,7 +70,7 @@ export function useTrips({
         const normalised = new Error(friendly);
         setError(normalised);
         setTrips([]);
-        return;
+        throw requestError?.permanent ? normalised : requestError;
       }
       const payloadData = responseData?.data ?? responseData;
       const items = Array.isArray(payloadData)
@@ -89,7 +95,8 @@ export function useTrips({
     }
   }, [shouldFetch, deviceId, from, to, limit, tenantId, t]);
 
-  const pollingEnabled = shouldFetch && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
+  const pollingEnabled =
+    shouldFetch && Boolean(deviceId) && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
 
   usePollingTask(fetchTrips, {
     enabled: pollingEnabled,
@@ -104,7 +111,7 @@ export function useTrips({
 
   const refresh = useMemo(
     () => () => {
-      void fetchTrips();
+      void fetchTrips().catch(() => {});
     },
     [fetchTrips],
   );
@@ -112,7 +119,7 @@ export function useTrips({
   useEffect(() => {
     mountedRef.current = true;
     if (shouldFetch && !pollingEnabled) {
-      void fetchTrips();
+      void fetchTrips().catch(() => {});
     }
     return () => {
       mountedRef.current = false;
