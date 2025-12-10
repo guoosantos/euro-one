@@ -66,7 +66,8 @@ const TelemetryContext = createContext({
 
 function buildWebSocketUrl(path = "/ws/live") {
   try {
-    const base = new URL(getApiBaseUrl());
+    const rawEnvBase = (import.meta?.env?.VITE_WS_URL || import.meta?.env?.VITE_WS_BASE_URL || "").trim();
+    const base = new URL(rawEnvBase || getApiBaseUrl());
     const wsUrl = new URL(path, base);
     wsUrl.protocol = wsUrl.protocol === "https:" ? "wss:" : "ws:";
     return wsUrl.toString();
