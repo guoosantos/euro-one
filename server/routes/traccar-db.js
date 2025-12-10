@@ -79,7 +79,13 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const deviceId = req.query.deviceId;
     if (!deviceId) {
-      throw createError(400, "deviceId é obrigatório");
+      return res.status(400).json({
+        data: null,
+        error: {
+          message: "Informe um dispositivo para gerar o relatório de viagens.",
+          code: "DEVICE_REQUIRED",
+        },
+      });
     }
 
     const device = await ensureDeviceAllowed(deviceId, clientId);
@@ -89,6 +95,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     if (!from || !to) {
       throw createError(400, "Período obrigatório: from e to");
     }
+
 
     const trips = await fetchTrips(deviceId, from, to);
     const normalisedTrips = trips
@@ -101,6 +108,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
         from,
         to,
         trips: normalisedTrips,
+
       },
       error: null,
     });

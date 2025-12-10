@@ -174,6 +174,15 @@ export default function Dashboard() {
     const totalDistance = list.reduce((acc, item) => acc + kmFromPosition(item), 0);
     const avgSpeed = list.reduce((acc, item) => acc + speedFromPosition(item), 0) / (list.length || 1);
     const engineTotal = list.reduce((acc, item) => acc + engineHours(item), 0);
+    const ignitionOn = list.filter((item) => {
+      const value = item?.attributes?.ignition ?? item?.ignition;
+      return value === true || value === 1 || value === "1" || value === "true";
+    }).length;
+    const blocked = list.filter((item) => item?.attributes?.blocked || item?.blocked).length;
+    const lowBattery = list.filter((item) => {
+      const battery = Number(item?.attributes?.batteryLevel ?? item?.batteryLevel);
+      return Number.isFinite(battery) && battery <= 20;
+    }).length;
 
     const speedDistribution = list.map((item) => ({
       name: item.deviceId ?? item.id ?? "—",
@@ -206,6 +215,9 @@ export default function Dashboard() {
       eventsByType,
       drivers,
       fuelSeries,
+      ignitionOn,
+      blocked,
+      lowBattery,
     };
   }, [positions, events]);
 
@@ -274,19 +286,19 @@ export default function Dashboard() {
         key: "stat-distance",
         node: (
           <DashboardStat
-            title="Distância acumulada"
-            value={`${summary.totalDistance.toFixed(1)} km`}
-            hint="Somatório da métrica totalDistance reportada"
+            title="Ignição ligada"
+            value={summary.ignitionOn ?? 0}
+            hint="Veículos com motor em funcionamento agora"
           />
         ),
       },
       {
         key: "stat-speed",
-        node: <DashboardStat title="Velocidade média" value={`${summary.avgSpeed} km/h`} hint="Últimos pontos recebidos" />,
+        node: <DashboardStat title="Bloqueados" value={summary.blocked ?? 0} hint="Equipamentos com bloqueio ativo" />,
       },
       {
         key: "stat-engine",
-        node: <DashboardStat title="Motor ligado" value={`${summary.engineTotal} h`} hint="Horas acumuladas de ignição" />,
+        node: <DashboardStat title="Bateria baixa" value={summary.lowBattery ?? 0} hint="Nível abaixo de 20%" />,
       },
       {
         key: "chart-telemetry",

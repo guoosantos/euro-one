@@ -48,6 +48,7 @@ export function useTrips({
       };
       if (deviceId) payload.deviceId = deviceId;
       if (tenantId) payload.clientId = tenantId;
+
       const { data: responseData, error: requestError } = await safeApi.get(
         API_ROUTES.traccar.reports.trips,
         {
@@ -55,6 +56,7 @@ export function useTrips({
           signal: controller.signal,
         },
       );
+
       if (!mountedRef.current || controller.signal?.aborted) return;
       if (requestError) {
         if (safeApi.isAbortError(requestError)) return;
@@ -68,12 +70,14 @@ export function useTrips({
       const items = Array.isArray(payloadData)
         ? payloadData
         : Array.isArray(payloadData?.trips)
+
         ? payloadData.trips
         : Array.isArray(payloadData?.data?.trips)
         ? payloadData.data.trips
         : Array.isArray(payloadData?.items)
         ? payloadData.items
         : [];
+
       setTrips(items.slice(0, limit));
       setFetchedAt(new Date());
       setError(null);

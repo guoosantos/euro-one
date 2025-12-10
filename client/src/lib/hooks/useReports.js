@@ -8,11 +8,13 @@ const TRIPS_CACHE_KEY = "reports:trips:last";
 
 export const normalizeTrips = (payload) => {
   if (!payload) return { trips: [] };
+
   const base = Array.isArray(payload)
     ? { trips: payload }
-    : typeof payload === "object"
+    : typeof payload === "object" && payload !== null
       ? { ...payload }
       : {};
+
 
   const trips = Array.isArray(base.trips)
     ? base.trips
@@ -24,7 +26,8 @@ export const normalizeTrips = (payload) => {
       ? base.data
       : [];
 
-  return { ...base, trips: trips.filter(Boolean) };
+
+  return { ...base, trips: tripsSource.filter(Boolean) };
 };
 
 export function useReports() {
@@ -48,13 +51,25 @@ export function useReports() {
     setLoading(true);
     setError(null);
     try {
+      if (!deviceId) {
+        const validationError = new Error("Selecione um dispositivo para gerar o relatório.");
+        setError(validationError);
+        throw validationError;
+      }
+      if (!from || !to) {
+        const validationError = new Error("Informe as datas de início e fim para gerar o relatório.");
+        setError(validationError);
+        throw validationError;
+      }
       const payload = { deviceId, from, to, type };
+
       const { data: response, error } = await safeApi.get(API_ROUTES.traccar.reports.trips, { params: payload });
       if (error) {
         throw error;
       }
       const enriched = {
         ...normalizeTrips(response?.data ?? response),
+
         __meta: { generatedAt: new Date().toISOString(), params: payload },
       };
       persistData(enriched);
@@ -78,7 +93,7 @@ export function useReports() {
       throw new Error("Informe as datas de início e fim para exportar o relatório.");
     }
     const payload = { deviceId, from, to, type, format: "csv" };
-    const response = await api.post(API_ROUTES.reports.trips, payload, { responseType: "blob" });
+    const response = await api.get(API_ROUTES.reports.trips, { params: payload, responseType: "blob" });
     if (typeof document === "undefined") {
       return response?.data ?? null;
     }

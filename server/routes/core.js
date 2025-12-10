@@ -151,6 +151,7 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
 
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
+  const attrs = position.attributes || {};
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
     latitude: position.latitude ?? null,
@@ -162,7 +163,9 @@ function normaliseTelemetryPosition(position) {
     deviceTime: position.deviceTime || null,
     fixTime: position.fixTime || null,
     address: position.address || "Endereço não disponível",
+
     attributes: position.attributes || {},
+
   };
 }
 
@@ -699,8 +702,10 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const latestPositions = await deps.fetchLatestPositions(deviceIdsToQuery, clientId);
     const positionByDevice = new Map(latestPositions.map((item) => [String(item.deviceId), item]));
 
+
     for (const deviceId of deviceIdsToQuery) {
       const position = positionByDevice.get(String(deviceId));
+
 
       const normalisedPosition = position
         ? normaliseTelemetryPosition({
