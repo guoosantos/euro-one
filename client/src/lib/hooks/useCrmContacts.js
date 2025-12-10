@@ -21,13 +21,17 @@ export function useCrmContacts(clientId, params = null) {
 
   const load = useCallback(() => {
     const currentParams = paramsRef.current;
+
+
     if (!clientId) {
       setContacts([]);
       return () => {};
     }
+
     let cancelled = false;
     setLoading(true);
     setError(null);
+
 
 
 
@@ -36,9 +40,14 @@ export function useCrmContacts(clientId, params = null) {
 
 
 
+
       .then((data) => {
         if (cancelled) return;
-        const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
+        const list = Array.isArray(data?.contacts)
+          ? data.contacts
+          : Array.isArray(data)
+            ? data
+            : [];
         setContacts(list);
       })
       .catch((err) => {
@@ -50,6 +59,7 @@ export function useCrmContacts(clientId, params = null) {
         if (cancelled) return;
         setLoading(false);
       });
+
     return () => {
       cancelled = true;
     };
@@ -58,9 +68,11 @@ export function useCrmContacts(clientId, params = null) {
 
 
 
+
   }, [clientId, resolvedParams, t]);
 
   useEffect(() => load(), [load]);
+
 
 
   const addContact = useCallback(
@@ -71,7 +83,7 @@ export function useCrmContacts(clientId, params = null) {
       setContacts((prev) => [...prev, created]);
       return created;
     },
-    [clientId],
+    [clientId]
   );
 
 
