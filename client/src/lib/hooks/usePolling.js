@@ -1,102 +1,89 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const defaultState = { data: null, loading: false, error: null, lastUpdated: null };
+/**
+ * Hook de polling com dependências estáveis para evitar loops infinitos.
+ *
+ * Pode ser usado de duas formas para manter compatibilidade:
+ * - usePolling(() => api.get("/endpoint"), { enabled: true, intervalMs: 5000 })
+ * - usePolling({ fetchFn: () => api.get("/endpoint"), enabled: true, intervalMs: 5000 })
+ */
+export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
+  const requestFn = typeof requestFnOrOptions === "function"
+    ? requestFnOrOptions
+    : requestFnOrOptions?.fetchFn;
 
-export function usePolling({ fetchFn, intervalMs = 10_000, enabled = true } = {}) {
-  const [state, setState] = useState(() => ({ ...defaultState, loading: Boolean(enabled) }));
-  const timerRef = useRef(null);
-  const isMountedRef = useRef(false);
-  const isRunningRef = useRef(false);
-  const requestIdRef = useRef(0);
-  const enabledRef = useRef(enabled);
+  const options = typeof requestFnOrOptions === "function" ? maybeOptions : requestFnOrOptions || {};
+  const {
+    enabled = true,
+    intervalMs = 5000,
+  } = options;
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(Boolean(enabled));
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const scheduleNext = useCallback(() => {
-    clearTimer();
-    if (!enabledRef.current || !intervalMs) return;
-    timerRef.current = setTimeout(() => {
-      void runRef.current?.();
-    }, intervalMs);
-  }, [clearTimer, intervalMs]);
+  const fnRef = useRef(requestFn);
+  const tickRef = useRef(null);
 
-  const runRef = useRef(null);
+  fnRef.current = requestFn;
 
-  const run = useCallback(async () => {
-    if (!enabledRef.current || isRunningRef.current) return;
+  useEffect(() => {
+    if (!enabled || typeof fnRef.current !== "function") return undefined;
 
-    isRunningRef.current = true;
-    const requestId = Date.now();
-    requestIdRef.current = requestId;
+    let cancelled = false;
+    let timerId;
 
-    setState((prev) => ({ ...prev, loading: true }));
+    async function tick() {
+      if (cancelled) return;
 
-    try {
-      const result = await fetchFn();
-      if (!isMountedRef.current || requestIdRef.current !== requestId || !enabledRef.current) return;
-      setState({ data: result ?? null, loading: false, error: null, lastUpdated: new Date() });
-    } catch (error) {
-      if (!isMountedRef.current || requestIdRef.current !== requestId || !enabledRef.current) return;
-      setState((prev) => ({
-        ...prev,
-        loading: false,
-        error: error instanceof Error ? error : new Error(error?.message || "Erro desconhecido"),
-      }));
-    } finally {
-      if (requestIdRef.current === requestId) {
-        isRunningRef.current = false;
-        if (isMountedRef.current && enabledRef.current) {
-          scheduleNext();
+      try {
+        setLoading(true);
+        const result = await fnRef.current();
+        if (!cancelled) {
+          setData(result ?? null);
+          setError(null);
+          setLastUpdated(new Date());
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          timerId = setTimeout(tick, intervalMs);
         }
       }
     }
-  }, [fetchFn, scheduleNext]);
 
-  useEffect(() => {
-    enabledRef.current = enabled;
-    if (!enabled) {
-      clearTimer();
-      isRunningRef.current = false;
-      setState((prev) => ({ ...prev, loading: false }));
-    } else if (isMountedRef.current) {
-      void run();
-    }
-  }, [clearTimer, enabled, run]);
+    tickRef.current = tick;
+    tick();
 
-  useEffect(() => {
-    isMountedRef.current = true;
-    runRef.current = run;
-    if (enabledRef.current) {
-      void run();
-    }
     return () => {
-      isMountedRef.current = false;
-      enabledRef.current = false;
-      clearTimer();
+      cancelled = true;
+      if (timerId) clearTimeout(timerId);
     };
-  }, [clearTimer, run]);
+  }, [enabled, intervalMs]);
 
   const refresh = useCallback(() => {
-    if (!enabledRef.current) return;
-    clearTimer();
-    return run();
-  }, [clearTimer, run]);
+    if (!enabled) return undefined;
+    if (typeof tickRef.current === "function") {
+      return tickRef.current();
+    }
+    return undefined;
+  }, [enabled]);
 
   return useMemo(
     () => ({
-      data: state.data,
-      loading: Boolean(state.loading),
-      error: state.error,
-      lastUpdated: state.lastUpdated,
+      data,
+      error,
+      loading,
+      lastUpdated,
       refresh,
     }),
-    [state.data, state.loading, state.error, state.lastUpdated, refresh],
+    [data, error, loading, lastUpdated, refresh],
   );
 }
 
-export default usePolling;
+export { usePolling };
