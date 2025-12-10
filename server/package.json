@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "lint": "eslint . --ext js",
+    "lint": "eslint .",
     "test": "node --test",
     "migrate:storage": "node scripts/migrate-storage-to-db.js"
   },

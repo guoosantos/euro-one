@@ -10,26 +10,28 @@ async function main() {
   } catch (error) {
     console.error("Prisma não está instalado. Execute npm install antes de migrar.");
     console.error(error?.message || error);
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
 
   const prisma = new PrismaClient();
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const storagePath = path.resolve(__dirname, "../data/storage.json");
 
-  if (!fs.existsSync(storagePath)) {
-    console.log("Nenhum storage.json encontrado para migrar.");
-    process.exit(0);
-  }
+  try {
+    if (!fs.existsSync(storagePath)) {
+      console.log("Nenhum storage.json encontrado para migrar.");
+      return;
+    }
 
-  const raw = fs.readFileSync(storagePath, "utf8");
-  const data = raw ? JSON.parse(raw) : {};
-  const entries = Object.entries(data);
+    const raw = fs.readFileSync(storagePath, "utf8");
+    const data = raw ? JSON.parse(raw) : {};
+    const entries = Object.entries(data);
 
-  if (!entries.length) {
-    console.log("Arquivo storage.json está vazio, nada a migrar.");
-    process.exit(0);
-  }
+    if (!entries.length) {
+      console.log("Arquivo storage.json está vazio, nada a migrar.");
+      return;
+    }
 
   const {
     crmClients = [],
@@ -229,7 +231,9 @@ async function main() {
   }
 
   console.log(`Migradas ${entries.length} coleções do storage.json para o banco.`);
-  await prisma.$disconnect();
+  } finally {
+    await prisma.$disconnect();
+  }
 }
 
 main().catch(async (error) => {

@@ -112,19 +112,19 @@ function computeContractEnd(startDate, durationDays) {
   return date.toISOString();
 }
 
-function normaliseContactType(value) {
-  const map = {
-    "ligação": "ligacao",
-    ligação: "ligacao",
-    ligacao: "ligacao",
-    whatsapp: "whatsapp",
-    "e-mail": "email",
-    email: "email",
-    reuniao: "reuniao",
-    reunião: "reuniao",
-  };
-  return map[value] || "ligacao";
-}
+  function normaliseContactType(value) {
+    const normalisedValue = typeof value === "string" ? value.toLowerCase().trim() : "";
+    const map = {
+      "ligação": "ligacao",
+      ligacao: "ligacao",
+      whatsapp: "whatsapp",
+      "e-mail": "email",
+      email: "email",
+      reuniao: "reuniao",
+      reunião: "reuniao",
+    };
+    return map[normalisedValue] || "ligacao";
+  }
 
 function isDateWithinDays(dateValue, withinDays) {
   if (!withinDays || withinDays <= 0) return false;
