@@ -54,21 +54,27 @@ async function request(
     });
     return { data: response?.data ?? null, error: null, status: response?.status ?? null, response };
   } catch (error) {
-    const normalised = error instanceof Error ? error : new Error(error?.message || "Erro na requisição");
-    if (isAbortError(normalised)) {
-      normalised.message = normalised.message || "Tempo de resposta excedido";
+    const baseError = error instanceof Error ? error : new Error(error?.message || "Erro na requisição");
+    if (isAbortError(baseError)) {
+      const abortError = new Error(baseError.message || "Tempo de resposta excedido");
+      abortError.name = baseError.name;
       return { data: null, error: null, status: null, response: null, aborted: true };
     }
     const statusCode = Number(error?.response?.status ?? error?.status);
+    const friendly = new Error(baseError?.message || "Erro na requisição");
     if (Number.isFinite(statusCode) && statusCode >= 400 && statusCode < 500) {
-      normalised.permanent = true;
+      friendly.permanent = true;
     }
-    if (!Number.isFinite(statusCode) && normalised?.message?.includes?.("Failed to fetch")) {
-      normalised.permanent = true;
+    if (!Number.isFinite(statusCode) && baseError?.message?.includes?.("Failed to fetch")) {
+      friendly.permanent = true;
     }
-    normalised.response = error?.response;
+    friendly.response = error?.response;
     const resolvedStatus = Number.isFinite(statusCode) ? statusCode : null;
-    return { data: null, error: normalised, status: resolvedStatus, response: error?.response };
+    if (resolvedStatus != null) {
+      friendly.status = resolvedStatus;
+    }
+    friendly.cause = baseError;
+    return { data: null, error: friendly, status: resolvedStatus, response: error?.response };
   } finally {
     clearTimeout(timer);
     if (signal) {
