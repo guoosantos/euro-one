@@ -7,19 +7,25 @@ const TRIPS_CACHE_KEY = "reports:trips:last";
 
 export const normalizeTrips = (payload) => {
   if (!payload) return { trips: [] };
+
   const base = Array.isArray(payload)
     ? { trips: payload }
-    : typeof payload === "object"
+    : typeof payload === "object" && payload !== null
       ? { ...payload }
       : {};
 
-  const trips = Array.isArray(base.trips)
-    ? base.trips
-    : Array.isArray(base.data)
-      ? base.data
-      : [];
+  const tripsSource =
+    Array.isArray(base.trips)
+      ? base.trips
+      : Array.isArray(base?.data?.trips)
+        ? base.data.trips
+        : Array.isArray(base.data)
+          ? base.data
+          : Array.isArray(base.items)
+            ? base.items
+            : [];
 
-  return { ...base, trips: trips.filter(Boolean) };
+  return { ...base, trips: tripsSource.filter(Boolean) };
 };
 
 export function useReports() {

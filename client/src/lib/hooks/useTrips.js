@@ -61,13 +61,16 @@ export function useTrips({
         setTrips([]);
         return;
       }
-      const items = Array.isArray(responseData)
-        ? responseData
-        : Array.isArray(responseData?.trips)
-        ? responseData.trips
-        : Array.isArray(responseData?.items)
-        ? responseData.items
-        : [];
+      const payloadData = responseData?.data ?? responseData;
+      const items = Array.isArray(payloadData)
+        ? payloadData
+        : Array.isArray(payloadData?.trips)
+          ? payloadData.trips
+          : Array.isArray(payloadData?.items)
+            ? payloadData.items
+            : Array.isArray(payloadData?.data?.trips)
+              ? payloadData.data.trips
+              : [];
       setTrips(items.slice(0, limit));
       setFetchedAt(new Date());
       setError(null);

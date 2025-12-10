@@ -102,10 +102,13 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     const trips = await response.json();
 
     res.json({
-      deviceId,
-      from,
-      to,
-      trips,
+      data: {
+        deviceId,
+        from,
+        to,
+        trips,
+      },
+      error: null,
     });
   } catch (error) {
     next(error);
