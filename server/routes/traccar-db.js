@@ -62,6 +62,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     }
 
     const type = req.query.type || "all";
+    const wantsCsv = String(req.query.format || "").toLowerCase() === "csv";
 
     // IMPORTANTE: base SEM /api, e o path JÁ com /api/...
     const baseUrl = process.env.TRACCAR_URL || "http://localhost:8082";
@@ -78,7 +79,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     const response = await fetch(url.toString(), {
       method: "GET",
       headers: {
-        Accept: "application/json",
+        Accept: wantsCsv ? "text/csv" : "application/json",
         Authorization: authHeader,
       },
     });
@@ -90,6 +91,14 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       );
     }
 
+    if (wantsCsv) {
+      const buffer = Buffer.from(await response.arrayBuffer());
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename=trips-${deviceId}.csv`);
+      res.send(buffer);
+      return;
+    }
+
     const trips = await response.json();
 
     res.json({
@@ -97,6 +106,58 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       from,
       to,
       trips,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/events", resolveClientIdMiddleware, async (req, res, next) => {
+  try {
+    ensureDbReady();
+
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const rawDeviceIds = req.query.deviceIds ?? req.query.deviceId;
+    const requestedIds = Array.isArray(rawDeviceIds)
+      ? rawDeviceIds
+      : typeof rawDeviceIds === "string"
+      ? rawDeviceIds.split(",")
+      : [];
+
+    let deviceIds = requestedIds.map((value) => String(value).trim()).filter(Boolean);
+
+    if (deviceIds.some((value) => !/^\d+$/.test(value))) {
+      throw createError(400, "deviceId inválido");
+    }
+
+    if (!deviceIds.length) {
+      const clientDevices = listDevices({ clientId });
+      deviceIds = clientDevices
+        .filter((item) => item?.traccarId)
+        .map((item) => String(item.traccarId))
+        .filter(Boolean);
+    } else {
+      await Promise.all(deviceIds.map((id) => ensureDeviceAllowed(id, clientId)));
+    }
+
+    const now = new Date();
+    const defaultFrom = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const defaultTo = now.toISOString();
+
+    const from = parseDate(req.query.from ?? defaultFrom, "from");
+    const to = parseDate(req.query.to ?? defaultTo, "to");
+    const limit = Number(req.query.limit) || 200;
+
+    const events = deviceIds.length ? await fetchEvents(deviceIds, from, to, limit) : [];
+
+    res.json({
+      data: {
+        events,
+        deviceIds,
+        from,
+        to,
+      },
+      error: null,
     });
   } catch (error) {
     next(error);

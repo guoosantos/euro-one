@@ -36,6 +36,20 @@ import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
 const COLUMN_STORAGE_KEY = "monitoredTableColumns";
 const DEFAULT_MAP_ZOOM = 12;
 
+function formatBoolean(value, { yes = "Sim", no = "Não", fallback = "—" } = {}) {
+  if (value === true) return yes;
+  if (value === false) return no;
+  return fallback;
+}
+
+function formatHours(value) {
+  const totalSeconds = Number(value);
+  if (!Number.isFinite(totalSeconds)) return "—";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  return `${hours} h ${minutes.toString().padStart(2, "0")} m`;
+}
+
 function getStatusBadge(position, t) {
   const status = deriveStatus(position);
   switch (status) {
@@ -429,6 +443,70 @@ export default function Monitoring() {
     ignitionOff: ignitionOffCount,
   };
 
+  const selectedRow = useMemo(() => {
+    if (!selectedDeviceId) return null;
+    const fromFiltered = filteredRows.find((row) => row.deviceId === selectedDeviceId);
+    if (fromFiltered) return fromFiltered;
+    return rows.find((row) => row.deviceId === selectedDeviceId) || null;
+  }, [filteredRows, rows, selectedDeviceId]);
+
+  const selectedAttributes = selectedRow?.position?.attributes || {};
+  const batteryLevel = Number(selectedAttributes?.batteryLevel);
+  const batteryLabel = Number.isFinite(batteryLevel) ? `${batteryLevel}%` : "—";
+  const batteryClass =
+    Number.isFinite(batteryLevel) && batteryLevel <= 20
+      ? "text-amber-200"
+      : Number.isFinite(batteryLevel)
+      ? "text-emerald-200"
+      : "text-white/80";
+
+  const detailItems = useMemo(
+    () => [
+      {
+        label: "Ignição",
+        value: formatBoolean(getIgnition(selectedRow?.position, selectedRow?.device)),
+      },
+      {
+        label: "Bloqueado",
+        value: formatBoolean(selectedAttributes?.blocked),
+      },
+      {
+        label: "Bateria",
+        value: batteryLabel,
+        className: batteryClass,
+      },
+      {
+        label: "Carga",
+        value: formatBoolean(selectedAttributes?.charge, { yes: "Carregando", no: "Não", fallback: "—" }),
+      },
+      {
+        label: "Movimento",
+        value: formatBoolean(selectedAttributes?.motion, { yes: "Sim", no: "Não", fallback: "—" }),
+      },
+      {
+        label: "Horímetro",
+        value: formatHours(selectedAttributes?.hours),
+      },
+      {
+        label: "Distância total",
+        value: selectedAttributes?.totalDistance ? `${(Number(selectedAttributes.totalDistance) / 1000).toFixed(2)} km` : "—",
+      },
+      {
+        label: "RSSI",
+        value: selectedAttributes?.rssi ?? "—",
+      },
+      {
+        label: "Protocolo",
+        value: selectedRow?.position?.protocol || "—",
+      },
+      {
+        label: "Status bruto",
+        value: selectedAttributes?.status ?? selectedAttributes?.type ?? "—",
+      },
+    ],
+    [batteryClass, batteryLabel, selectedAttributes, selectedRow?.device, selectedRow?.position],
+  );
+
   const visibleColumnCount = Math.max(1, visibleColumns.length);
 
   const handleToggleColumn = useCallback(
@@ -640,6 +718,42 @@ export default function Monitoring() {
           </div>
         )}
       </section>
+
+      {selectedRow ? (
+        <Card className="p-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <div className="text-sm font-semibold text-white">{selectedRow.deviceName}</div>
+              <div className="text-xs text-white/60">
+                {selectedRow.position?.address || t("monitoring.noAddress")}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs text-white/70">
+              <span className="rounded-full bg-white/5 px-3 py-1">
+                {t("monitoring.popup.serverTime")}: {formatDateTime(getLastUpdate(selectedRow.position), locale)}
+              </span>
+              <span className="rounded-full bg-white/5 px-3 py-1">
+                Velocidade: {pickSpeed(selectedRow.position) ?? 0} km/h
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {detailItems.map((item) => (
+              <div key={item.label} className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+                <div className="text-[11px] uppercase tracking-wide text-white/50">{item.label}</div>
+                <div className={`text-base font-semibold ${item.className ?? "text-white"}`}>{item.value}</div>
+              </div>
+            ))}
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              <div className="text-[11px] uppercase tracking-wide text-white/50">Distância recente</div>
+              <div className="text-base font-semibold text-white">
+                {selectedRow.position?.distance ? `${(Number(selectedRow.position.distance) / 1000).toFixed(2)} km` : "—"}
+              </div>
+            </div>
+          </div>
+        </Card>
+      ) : null}
 
       {showTable ? (
         <Card className="card" padding={false}>

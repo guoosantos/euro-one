@@ -151,6 +151,7 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
 
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
+  const attrs = position.attributes || {};
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
     latitude: position.latitude ?? null,
@@ -159,6 +160,23 @@ function normaliseTelemetryPosition(position) {
     course: position.course ?? null,
     timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
     address: position.address || "Endereço não disponível",
+    attributes: {
+      protocol: position.protocol || null,
+      valid: position.valid ?? null,
+      accuracy: position.accuracy ?? null,
+      type: attrs.type ?? null,
+      status: attrs.status ?? null,
+      ignition: attrs.ignition ?? null,
+      charge: attrs.charge ?? null,
+      blocked: attrs.blocked ?? null,
+      batteryLevel: attrs.batteryLevel ?? null,
+      rssi: attrs.rssi ?? null,
+      distance: attrs.distance ?? null,
+      totalDistance: attrs.totalDistance ?? null,
+      motion: attrs.motion ?? null,
+      hours: attrs.hours ?? null,
+      raw: attrs,
+    },
   };
 }
 
@@ -714,13 +732,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         const lastPos = list[list.length - 1];
 
         const normalisedPosition = normaliseTelemetryPosition({
+          ...lastPos,
           deviceId: lastPos.deviceId ?? deviceId,
-          latitude: lastPos.latitude,
-          longitude: lastPos.longitude,
-          speed: lastPos.speed,
-          course: lastPos.course,
-          serverTime: lastPos.serverTime || lastPos.fixTime || lastPos.deviceTime,
-          address: lastPos.address,
         });
 
         if (!normalisedPosition) continue;

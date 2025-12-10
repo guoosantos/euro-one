@@ -8,6 +8,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 function normaliseEvents(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.events)) return payload.events;
+  if (Array.isArray(payload?.data?.events)) return payload.data.events;
   if (Array.isArray(payload?.data)) return payload.data;
   return [];
 }

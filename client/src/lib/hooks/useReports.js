@@ -44,9 +44,9 @@ export function useReports() {
     setError(null);
     try {
       const payload = { deviceId, from, to, type };
-      const response = await api.post(API_ROUTES.reports.trips, payload);
+      const { data: responseData } = await api.get(API_ROUTES.reports.trips, { params: payload });
       const enriched = {
-        ...normalizeTrips(response?.data),
+        ...normalizeTrips(responseData),
         __meta: { generatedAt: new Date().toISOString(), params: payload },
       };
       persistData(enriched);
@@ -70,7 +70,7 @@ export function useReports() {
       throw new Error("Informe as datas de início e fim para exportar o relatório.");
     }
     const payload = { deviceId, from, to, type, format: "csv" };
-    const response = await api.post(API_ROUTES.reports.trips, payload, { responseType: "blob" });
+    const response = await api.get(API_ROUTES.reports.trips, { params: payload, responseType: "blob" });
     if (typeof document === "undefined") {
       return response?.data ?? null;
     }

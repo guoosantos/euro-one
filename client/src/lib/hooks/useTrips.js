@@ -48,8 +48,9 @@ export function useTrips({
       };
       if (deviceId) payload.deviceId = deviceId;
       if (tenantId) payload.clientId = tenantId;
-      const { data: responseData, error: requestError } = await safeApi.post(API_ROUTES.reports.trips, payload, {
+      const { data: responseData, error: requestError } = await safeApi.get(API_ROUTES.reports.trips, {
         signal: controller.signal,
+        params: payload,
       });
       if (!mountedRef.current || controller.signal?.aborted) return;
       if (requestError) {

@@ -434,8 +434,12 @@ async function handleEventsReport(req, res, next) {
 
   try {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
-    const from = parseDateOrThrow(req.query?.from, "from");
-    const to = parseDateOrThrow(req.query?.to, "to");
+    const now = new Date();
+    const from = parseDateOrThrow(
+      req.query?.from ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+      "from",
+    );
+    const to = parseDateOrThrow(req.query?.to ?? now.toISOString(), "to");
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
 
     const events = await fetchEvents(deviceIdsToQuery, from, to, limit);

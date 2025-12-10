@@ -14,7 +14,7 @@ export const API_ROUTES = {
   videoTelematics: "video-telematics",
   positionsExport: "positions/export",
   reports: {
-    trips: "reports/trips",
+    trips: "traccar/reports/trips",
     stops: "reports/stops",
     summary: "reports/summary",
     route: "reports/route",
