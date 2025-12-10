@@ -16,10 +16,8 @@ import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
-import { PrismaClient } from "@prisma/client";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const defaultDeps = {
   authenticate,
@@ -640,12 +638,7 @@ router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClie
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-
-    // 🔄 atualizado: buscar devices direto do Postgres
-    const devices = await prisma.device.findMany({
-      where: clientId ? { clientId: String(clientId) } : {},
-    });
-
+    const devices = deps.listDevices({ clientId });
     const allowedDeviceIds = devices
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
       .filter(Boolean);
@@ -676,7 +669,10 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       });
     }
 
-    const metadata = await deps.fetchDevicesMetadata();
+    const [positions, metadata] = await Promise.all([
+      deps.fetchLatestPositions(deviceIdsToQuery, clientId),
+      deps.fetchDevicesMetadata(),
+    ]);
 
     const metadataById = new Map(metadata.map((item) => [String(item.id), item]));
     const devicesByTraccarId = new Map(
@@ -685,62 +681,26 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         .map((device) => [String(device.traccarId), device]),
     );
 
-    const telemetry = [];
+    const telemetry = positions
+      .map((position) => {
+        const normalisedPosition = normaliseTelemetryPosition(position);
+        if (!normalisedPosition) return null;
 
-    // janela de tempo para buscar posições (últimas 24h)
-    const now = new Date();
-    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const to = now.toISOString();
-
-    for (const deviceId of deviceIdsToQuery) {
-      try {
-        const rawPositions = await deps.traccarProxy("get", "/positions", {
-          params: { deviceId, from, to },
-          asAdmin: true,
-        });
-
-        const list = Array.isArray(rawPositions)
-          ? rawPositions
-          : Array.isArray(rawPositions?.positions)
-          ? rawPositions.positions
-          : Array.isArray(rawPositions?.data)
-          ? rawPositions.data
-          : [];
-
-        if (!list.length) {
-          continue;
-        }
-
-        const lastPos = list[list.length - 1];
-
-        const normalisedPosition = normaliseTelemetryPosition({
-          deviceId: lastPos.deviceId ?? deviceId,
-          latitude: lastPos.latitude,
-          longitude: lastPos.longitude,
-          speed: lastPos.speed,
-          course: lastPos.course,
-          serverTime: lastPos.serverTime || lastPos.fixTime || lastPos.deviceTime,
-          address: lastPos.address,
-        });
-
-        if (!normalisedPosition) continue;
-
-        const deviceMetadata = metadataById.get(String(deviceId));
-        const deviceMatch = devicesByTraccarId.get(String(deviceId));
+        const deviceId = normalisedPosition.deviceId ? String(normalisedPosition.deviceId) : null;
+        const deviceMetadata = deviceId ? metadataById.get(deviceId) : null;
+        const deviceMatch = deviceId ? devicesByTraccarId.get(deviceId) : null;
 
         const device = {
-          id: String(deviceId),
-          name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || String(deviceId),
+          id: deviceId,
+          name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || deviceId,
           uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
           status: deviceMetadata?.status || "unknown",
           lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition.timestamp || null,
         };
 
-        telemetry.push({ device, position: normalisedPosition, lastEvent: null });
-      } catch (err) {
-        logTelemetryWarning("positions-http", err, { deviceId });
-      }
-    }
+        return { device, position: normalisedPosition, lastEvent: null };
+      })
+      .filter(Boolean);
 
     const warnings = telemetry.length
       ? []
@@ -763,12 +723,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
-
-    // 🔄 atualizado: devices direto do Postgres (Prisma)
-    const devices = await prisma.device.findMany({
-      where: clientId ? { clientId: String(clientId) } : {},
-    });
-
+    const devices = deps.listDevices({ clientId });
     const metadata = await deps.fetchDevicesMetadata();
 
     const traccarById = new Map(metadata.map((item) => [String(item.id), item]));

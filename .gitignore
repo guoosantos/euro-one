@@ -1,26 +1,34 @@
-node_modules
-client/node_modules
-server/node_modules
-.dist
-/.dist
-client/dist
-dist
-build
-.env
-.env.local
-.env.production
-.env.development
-.env.test
-client/.env
-server/.env
-!.env.example
-!client/.env.example
-!server/.env.example
-.DS_Store
+# Node
+node_modules/
 npm-debug.log*
 yarn-error.log*
 pnpm-lock.yaml
+
+# Build / dist
+dist/
+build/
+.cache/
+.vite/
+coverage/
+
+# Logs
+logs/
 *.log
-.backups
-backups/deploy-*
-server/data/storage.json
+
+# Ambiente / segredos
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+
+# VSCode / editor
+.vscode/
+.idea/
+
+# Sistema
+.DS_Store
+Thumbs.db
+
+# PM2
+.pids
