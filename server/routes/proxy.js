@@ -6,7 +6,14 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
-import { fetchDevicesMetadata, fetchEvents, fetchLatestPositions, fetchPositions, fetchTrips } from "../services/traccar-db.js";
+import {
+  fetchDevicesMetadata,
+  fetchEvents,
+  fetchLatestPositions,
+  fetchLatestPositionsWithFallback,
+  fetchPositions,
+  fetchTrips,
+} from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
   enforceDeviceFilterInBody,
@@ -482,7 +489,7 @@ router.get("/telemetry", async (req, res) => {
   try {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
 
-    const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId, req);
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
     return res.status(200).json({ data, error: null });
@@ -616,7 +623,7 @@ router.get("/positions/last", async (req, res) => {
       return respondDeviceNotFound(res);
     }
 
-    const positions = await fetchLatestPositions(deviceIdsToQuery, clientId);
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId, req);
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
     return res.status(200).json({ data, error: null });

@@ -56,6 +56,7 @@ const defaultDeps = {
   traccarProxy: traccarService.traccarProxy,
   buildTraccarUnavailableError: traccarService.buildTraccarUnavailableError,
   fetchLatestPositions: traccarDbService.fetchLatestPositions,
+  fetchLatestPositionsWithFallback: traccarDbService.fetchLatestPositionsWithFallback,
   fetchDevicesMetadata: traccarDbService.fetchDevicesMetadata,
   isTraccarDbConfigured: traccarDbService.isTraccarDbConfigured,
   ensureTraccarRegistryConsistency,
@@ -152,6 +153,13 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
   const attrs = position.attributes || {};
+  const rawAddress = position.address;
+  const resolvedAddress =
+    rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)
+      ? rawAddress
+      : rawAddress
+      ? { formatted: rawAddress }
+      : null;
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
     latitude: position.latitude ?? null,
@@ -167,7 +175,7 @@ function normaliseTelemetryPosition(position) {
     valid: position.valid ?? null,
     protocol: position.protocol || attrs.protocol || null,
     network: position.network || null,
-    address: position.address || "Endereço não disponível",
+    address: resolvedAddress || { formatted: "Endereço não disponível" },
 
     attributes: position.attributes || {},
 
@@ -653,10 +661,21 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
-    // 🔄 atualizado: buscar devices direto do Postgres
-    const devices = await prisma.device.findMany({
-      where: clientId ? { clientId: String(clientId) } : {},
-    });
+    const prismaFilter = clientId ? { clientId: String(clientId) } : {};
+    let devices = [];
+
+    if (process.env.DATABASE_URL) {
+      try {
+        // 🔄 atualizado: buscar devices direto do Postgres
+        devices = await prisma.device.findMany({ where: prismaFilter });
+      } catch (prismaError) {
+        logTelemetryWarning("devices-db", prismaError);
+      }
+    }
+
+    if (!devices.length) {
+      devices = deps.listDevices({ clientId });
+    }
 
     const allowedDeviceIds = devices
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
@@ -688,7 +707,15 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       });
     }
 
-    const metadata = await deps.fetchDevicesMetadata();
+    let metadata = [];
+    if (deps.isTraccarDbConfigured()) {
+      try {
+        metadata = await deps.fetchDevicesMetadata();
+      } catch (metadataError) {
+        logTelemetryWarning("positions-db", metadataError);
+        metadata = [];
+      }
+    }
 
     const metadataById = new Map(metadata.map((item) => [String(item.id), item]));
     const devicesByTraccarId = new Map(
@@ -698,14 +725,34 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     );
 
     const telemetry = [];
+    const warnings = [];
 
     // janela de tempo para buscar posições (últimas 24h)
     const now = new Date();
     const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const to = now.toISOString();
 
-    const latestPositions = await deps.fetchLatestPositions(deviceIdsToQuery, clientId);
-    const positionByDevice = new Map(latestPositions.map((item) => [String(item.deviceId), item]));
+    let latestPositions = await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId, req);
+
+    if ((!latestPositions || latestPositions.length === 0) && typeof deps.traccarProxy === "function") {
+      try {
+        const proxyResponse = await deps.traccarProxy("get", "/positions", {
+          params: deviceIdsToQuery.length ? { deviceId: deviceIdsToQuery } : undefined,
+          context: req,
+        });
+        const proxyPositions = normaliseList(proxyResponse, ["positions", "data"]);
+        latestPositions = proxyPositions.map((item) => ({
+          ...item,
+          deviceId: item.deviceId ?? item.deviceid ?? item.device?.id ?? null,
+          serverTime: item.serverTime ?? item.deviceTime ?? item.fixTime ?? null,
+        }));
+      } catch (proxyError) {
+        logTelemetryWarning("positions-http", proxyError);
+        throw proxyError;
+      }
+    }
+
+    const positionByDevice = new Map((latestPositions || []).map((item) => [String(item.deviceId), item]));
 
 
     for (const deviceId of deviceIdsToQuery) {
@@ -735,11 +782,24 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       }
     }
 
-    const warnings = telemetry.length
-      ? []
-      : ["Nenhuma posição encontrada para os dispositivos deste cliente."];
+    if (typeof deps.traccarProxy === "function") {
+      try {
+        await deps.traccarProxy("get", "/events", {
+          params: { deviceId: deviceIdsToQuery, from, to, limit: 20 },
+          context: req,
+        });
+      } catch (eventsError) {
+        warnings.push({ stage: "events", message: eventsError?.message || "Falha ao carregar eventos." });
+      }
+    }
+
+    if (!telemetry.length) {
+      warnings.push({ stage: "positions", message: "Nenhuma posição encontrada para os dispositivos deste cliente." });
+    }
 
     return res.status(200).json({
+      telemetry,
+      warnings,
       data: { telemetry, warnings },
       error: null,
     });
@@ -749,7 +809,13 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     }
 
     logTelemetryWarning("positions-db", error);
-    return res.status(503).json(TELEMETRY_UNAVAILABLE_PAYLOAD);
+    const status = Number(error?.status || error?.statusCode) || 503;
+    const message = error?.message || TELEMETRY_UNAVAILABLE_PAYLOAD.error.message;
+    return res.status(status).json({
+      message,
+      data: null,
+      error: { message, code: error?.code || TELEMETRY_UNAVAILABLE_PAYLOAD.error.code },
+    });
   }
 });
 
@@ -1202,6 +1268,9 @@ router.delete("/stock/:id", deps.requireRole("manager", "admin"), resolveClientM
 
 export function __setCoreRouteMocks(overrides = {}) {
   Object.assign(deps, overrides);
+  if (overrides.fetchLatestPositions && !overrides.fetchLatestPositionsWithFallback) {
+    deps.fetchLatestPositionsWithFallback = overrides.fetchLatestPositions;
+  }
 }
 
 export function __resetCoreRouteMocks() {
