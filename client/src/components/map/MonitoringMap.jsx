@@ -61,11 +61,24 @@ function getMarkerIcon(color, iconType) {
 
 function PopupContent({ marker }) {
   const statusStyle = getStatusStyle(marker.status);
+  const addressText = useMemo(() => {
+    if (typeof marker.address === "string") return marker.address;
+    if (marker.address && typeof marker.address === "object") {
+      return (
+        marker.address.formatted ||
+        marker.address.formattedAddress ||
+        marker.address.shortAddress ||
+        marker.address.address ||
+        ""
+      );
+    }
+    return "";
+  }, [marker.address]);
   return (
     <div className="space-y-1.5 text-white">
       {marker.label ? <div className="text-sm font-semibold leading-tight">{marker.label}</div> : null}
       {marker.plate ? <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div> : null}
-      {marker.address ? <div className="text-xs leading-snug text-white/80">{marker.address}</div> : null}
+      {addressText ? <div className="text-xs leading-snug text-white/80">{addressText}</div> : null}
       <div className="flex items-center gap-2 text-xs text-white/80">
         <span className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold text-white">
           {marker.speedLabel || "—"}

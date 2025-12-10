@@ -33,6 +33,12 @@ export function useTrips({
       setLoading(false);
       return;
     }
+    if (!deviceId) {
+      setLoading(false);
+      setError(null);
+      setTrips([]);
+      return;
+    }
     setLoading((current) => current || initialLoadRef.current);
     setError(null);
     abortRef.current?.abort();
