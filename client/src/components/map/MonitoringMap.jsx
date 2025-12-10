@@ -104,6 +104,8 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
   );
 
   useEffect(() => {
+    const ENABLE_VIEWPORT_EVENTS = false;
+    if (!ENABLE_VIEWPORT_EVENTS) return undefined;
     if (!map) return undefined;
     if (typeof onViewportChange !== "function") return undefined;
 
