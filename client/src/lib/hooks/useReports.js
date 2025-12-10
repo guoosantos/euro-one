@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { readCachedReport, writeCachedReport } from "./reportStorage.js";
 
@@ -14,16 +15,17 @@ export const normalizeTrips = (payload) => {
       ? { ...payload }
       : {};
 
-  const tripsSource =
-    Array.isArray(base.trips)
-      ? base.trips
-      : Array.isArray(base?.data?.trips)
-        ? base.data.trips
-        : Array.isArray(base.data)
-          ? base.data
-          : Array.isArray(base.items)
-            ? base.items
-            : [];
+
+  const trips = Array.isArray(base.trips)
+    ? base.trips
+    : Array.isArray(base.data?.trips)
+      ? base.data.trips
+      : Array.isArray(base.data?.data?.trips)
+        ? base.data.data.trips
+    : Array.isArray(base.data)
+      ? base.data
+      : [];
+
 
   return { ...base, trips: tripsSource.filter(Boolean) };
 };
@@ -60,9 +62,14 @@ export function useReports() {
         throw validationError;
       }
       const payload = { deviceId, from, to, type };
-      const { data: responseData } = await api.get(API_ROUTES.reports.trips, { params: payload });
+
+      const { data: response, error } = await safeApi.get(API_ROUTES.traccar.reports.trips, { params: payload });
+      if (error) {
+        throw error;
+      }
       const enriched = {
-        ...normalizeTrips(responseData),
+        ...normalizeTrips(response?.data ?? response),
+
         __meta: { generatedAt: new Date().toISOString(), params: payload },
       };
       persistData(enriched);

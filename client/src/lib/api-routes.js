@@ -57,6 +57,12 @@ export const API_ROUTES = {
   },
   health: "health",
   traccarHealth: "health/traccar",
+  traccar: {
+    events: "traccar/events",
+    reports: {
+      trips: "traccar/reports/trips",
+    },
+  },
 };
 
 export default API_ROUTES;
