@@ -489,7 +489,9 @@ router.get("/telemetry", async (req, res) => {
   try {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
 
-    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId, req);
+
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
     return res.status(200).json({ data, error: null });
@@ -623,7 +625,9 @@ router.get("/positions/last", async (req, res) => {
       return respondDeviceNotFound(res);
     }
 
-    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId, req);
+
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
     return res.status(200).json({ data, error: null });
