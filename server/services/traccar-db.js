@@ -508,7 +508,7 @@ export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   }
 
   const sql = `
-    SELECT id, type, eventtime, servertime, deviceid, positionid, geofenceid, attributes
+    SELECT id, type, eventtime, deviceid, positionid, geofenceid, attributes
     FROM ${EVENT_TABLE}
     WHERE ${conditions.join(" AND ")}
     ORDER BY eventtime DESC
