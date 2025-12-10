@@ -203,16 +203,20 @@ function buildTripSegment(start, end, accumulator) {
 
   return {
     start: {
+      id: start.id ?? null,
       time: start.fixTime || start.serverTime || start.deviceTime,
       latitude: start.latitude,
       longitude: start.longitude,
       address: start.address || {},
+      attributes: start.attributes || {},
     },
     end: {
+      id: end.id ?? null,
       time: end.fixTime || end.serverTime || end.deviceTime,
       latitude: end.latitude,
       longitude: end.longitude,
       address: end.address || {},
+      attributes: end.attributes || {},
     },
     distanceKm: Number(accumulator.distanceKm.toFixed(3)),
     durationMinutes: Number(durationMinutes.toFixed(2)),

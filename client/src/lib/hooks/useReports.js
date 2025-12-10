@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import api from "../api.js";
+import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { readCachedReport, writeCachedReport } from "./reportStorage.js";
 
@@ -15,6 +16,10 @@ export const normalizeTrips = (payload) => {
 
   const trips = Array.isArray(base.trips)
     ? base.trips
+    : Array.isArray(base.data?.trips)
+      ? base.data.trips
+      : Array.isArray(base.data?.data?.trips)
+        ? base.data.data.trips
     : Array.isArray(base.data)
       ? base.data
       : [];
@@ -44,9 +49,12 @@ export function useReports() {
     setError(null);
     try {
       const payload = { deviceId, from, to, type };
-      const response = await api.post(API_ROUTES.reports.trips, payload);
+      const { data: response, error } = await safeApi.get(API_ROUTES.traccar.reports.trips, { params: payload });
+      if (error) {
+        throw error;
+      }
       const enriched = {
-        ...normalizeTrips(response?.data),
+        ...normalizeTrips(response?.data ?? response),
         __meta: { generatedAt: new Date().toISOString(), params: payload },
       };
       persistData(enriched);

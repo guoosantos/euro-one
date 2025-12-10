@@ -42,7 +42,7 @@ export function useEvents({
         const params = buildParams({ deviceId, types, from, to, limit });
         if (tenantId) params.clientId = tenantId;
 
-        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.events, {
+        const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.traccar.events, {
           params,
           signal,
         });
@@ -62,6 +62,8 @@ export function useEvents({
 
         const list = Array.isArray(payload)
           ? payload
+          : Array.isArray(payload?.data?.events)
+          ? payload.data.events
           : Array.isArray(payload?.events)
           ? payload.events
           : Array.isArray(payload?.data)

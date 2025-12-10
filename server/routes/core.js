@@ -158,7 +158,11 @@ function normaliseTelemetryPosition(position) {
     speed: position.speed ?? null,
     course: position.course ?? null,
     timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
+    serverTime: position.serverTime || null,
+    deviceTime: position.deviceTime || null,
+    fixTime: position.fixTime || null,
     address: position.address || "Endereço não disponível",
+    attributes: position.attributes || {},
   };
 }
 
@@ -692,53 +696,32 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
     const to = now.toISOString();
 
+    const latestPositions = await deps.fetchLatestPositions(deviceIdsToQuery, clientId);
+    const positionByDevice = new Map(latestPositions.map((item) => [String(item.deviceId), item]));
+
     for (const deviceId of deviceIdsToQuery) {
-      try {
-        const rawPositions = await deps.traccarProxy("get", "/positions", {
-          params: { deviceId, from, to },
-          asAdmin: true,
-        });
+      const position = positionByDevice.get(String(deviceId));
 
-        const list = Array.isArray(rawPositions)
-          ? rawPositions
-          : Array.isArray(rawPositions?.positions)
-          ? rawPositions.positions
-          : Array.isArray(rawPositions?.data)
-          ? rawPositions.data
-          : [];
+      const normalisedPosition = position
+        ? normaliseTelemetryPosition({
+            ...position,
+            timestamp: position.serverTime || position.deviceTime || position.fixTime,
+          })
+        : null;
 
-        if (!list.length) {
-          continue;
-        }
+      const deviceMetadata = metadataById.get(String(deviceId));
+      const deviceMatch = devicesByTraccarId.get(String(deviceId));
 
-        const lastPos = list[list.length - 1];
+      const device = {
+        id: String(deviceId),
+        name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || String(deviceId),
+        uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
+        status: deviceMetadata?.status || "unknown",
+        lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
+      };
 
-        const normalisedPosition = normaliseTelemetryPosition({
-          deviceId: lastPos.deviceId ?? deviceId,
-          latitude: lastPos.latitude,
-          longitude: lastPos.longitude,
-          speed: lastPos.speed,
-          course: lastPos.course,
-          serverTime: lastPos.serverTime || lastPos.fixTime || lastPos.deviceTime,
-          address: lastPos.address,
-        });
-
-        if (!normalisedPosition) continue;
-
-        const deviceMetadata = metadataById.get(String(deviceId));
-        const deviceMatch = devicesByTraccarId.get(String(deviceId));
-
-        const device = {
-          id: String(deviceId),
-          name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || String(deviceId),
-          uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
-          status: deviceMetadata?.status || "unknown",
-          lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition.timestamp || null,
-        };
-
+      if (normalisedPosition) {
         telemetry.push({ device, position: normalisedPosition, lastEvent: null });
-      } catch (err) {
-        logTelemetryWarning("positions-http", err, { deviceId });
       }
     }
 
