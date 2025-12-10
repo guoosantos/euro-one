@@ -72,10 +72,12 @@ export function useTrips({
         setTrips([]);
 
 
+
         if (requestError?.permanent) {
           throw normalised;
         }
         return;
+
 
 
       }
