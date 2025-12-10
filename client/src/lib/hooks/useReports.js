@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+
 import api from "../api.js";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
@@ -15,17 +16,15 @@ export const normalizeTrips = (payload) => {
       ? { ...payload }
       : {};
 
-
-  const trips = Array.isArray(base.trips)
+  const tripsSource = Array.isArray(base.trips)
     ? base.trips
     : Array.isArray(base.data?.trips)
       ? base.data.trips
       : Array.isArray(base.data?.data?.trips)
         ? base.data.data.trips
-    : Array.isArray(base.data)
-      ? base.data
-      : [];
-
+        : Array.isArray(base.data)
+          ? base.data
+          : [];
 
   return { ...base, trips: tripsSource.filter(Boolean) };
 };

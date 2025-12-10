@@ -162,6 +162,11 @@ function normaliseTelemetryPosition(position) {
     serverTime: position.serverTime || null,
     deviceTime: position.deviceTime || null,
     fixTime: position.fixTime || null,
+    altitude: position.altitude ?? null,
+    accuracy: position.accuracy ?? null,
+    valid: position.valid ?? null,
+    protocol: position.protocol || attrs.protocol || null,
+    network: position.network || null,
     address: position.address || "Endereço não disponível",
 
     attributes: position.attributes || {},
