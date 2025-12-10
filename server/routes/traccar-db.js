@@ -50,7 +50,13 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const deviceId = req.query.deviceId;
     if (!deviceId) {
-      throw createError(400, "deviceId é obrigatório");
+      return res.status(400).json({
+        data: null,
+        error: {
+          message: "Informe um dispositivo para gerar o relatório de viagens.",
+          code: "DEVICE_REQUIRED",
+        },
+      });
     }
 
     await ensureDeviceAllowed(deviceId, clientId);

@@ -49,6 +49,16 @@ export function useReports() {
     setLoading(true);
     setError(null);
     try {
+      if (!deviceId) {
+        const validationError = new Error("Selecione um dispositivo para gerar o relatório.");
+        setError(validationError);
+        throw validationError;
+      }
+      if (!from || !to) {
+        const validationError = new Error("Informe as datas de início e fim para gerar o relatório.");
+        setError(validationError);
+        throw validationError;
+      }
       const payload = { deviceId, from, to, type };
       const { data: responseData } = await api.get(API_ROUTES.reports.trips, { params: payload });
       const enriched = {
