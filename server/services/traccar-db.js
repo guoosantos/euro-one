@@ -7,7 +7,7 @@
 import createError from "http-errors";
 
 import { config } from "../config.js";
-import { buildTraccarUnavailableError } from "./traccar.js";
+import { buildTraccarUnavailableError, getLastPositions } from "./traccar.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -380,6 +380,63 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
   return rows
     .map(normalisePositionRow)
     .filter((position) => position && position.deviceId !== null && position.fixTime);
+}
+
+async function fetchLatestPositionsFromApi(context, deviceIds = []) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length) return [];
+
+  async function tryFetch(asAdmin) {
+    const response = await getLastPositions(context, filtered, { asAdmin });
+    if (response?.ok) {
+      const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
+      return positions
+        .map(normalisePositionRow)
+        .filter((position) => position && position.deviceId !== null && position.fixTime);
+    }
+    return response;
+  }
+
+  const userAttempt = await tryFetch(false);
+  if (Array.isArray(userAttempt)) {
+    return userAttempt;
+  }
+
+  const adminAttempt = await tryFetch(true);
+  if (Array.isArray(adminAttempt)) {
+    return adminAttempt;
+  }
+
+  const lastResponse = adminAttempt && !Array.isArray(adminAttempt) ? adminAttempt : userAttempt;
+  const status = Number(lastResponse?.error?.code || lastResponse?.status);
+  throw buildTraccarUnavailableError(
+    createError(Number.isFinite(status) ? status : 503, lastResponse?.error?.message || TRACCAR_UNAVAILABLE_MESSAGE),
+    { stage: "http-last-positions", response: lastResponse?.error },
+  );
+}
+
+export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null, context = null) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  let lastError = null;
+
+  if (isTraccarDbConfigured()) {
+    try {
+      return await fetchLatestPositions(filtered, clientId);
+    } catch (error) {
+      lastError = error;
+    }
+  } else if (!filtered.length) {
+    return [];
+  }
+
+  try {
+    return await fetchLatestPositionsFromApi(context, filtered);
+  } catch (fallbackError) {
+    if (lastError) {
+      fallbackError.cause = lastError;
+    }
+    throw fallbackError;
+  }
 }
 
 export async function fetchPositions(deviceIds = [], from, to, { limit = null } = {}) {
