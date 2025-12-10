@@ -7,7 +7,7 @@
 import createError from "http-errors";
 
 import { config } from "../config.js";
-import { buildTraccarUnavailableError } from "./traccar.js";
+import { buildTraccarUnavailableError, getLastPositions } from "./traccar.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -380,6 +380,50 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
   return rows
     .map(normalisePositionRow)
     .filter((position) => position && position.deviceId !== null && position.fixTime);
+}
+
+async function fetchLatestPositionsFromApi(deviceIds = []) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length) return [];
+
+  const response = await getLastPositions(null, filtered, { asAdmin: true });
+  const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
+
+  if (response?.ok) {
+    return positions
+      .map(normalisePositionRow)
+      .filter((position) => position && position.deviceId !== null && position.fixTime);
+  }
+
+  const status = Number(response?.error?.code || response?.status);
+  throw buildTraccarUnavailableError(
+    createError(Number.isFinite(status) ? status : 503, response?.error?.message || TRACCAR_UNAVAILABLE_MESSAGE),
+    { stage: "http-last-positions", response: response?.error },
+  );
+}
+
+export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  let lastError = null;
+
+  if (isTraccarDbConfigured()) {
+    try {
+      return await fetchLatestPositions(filtered, clientId);
+    } catch (error) {
+      lastError = error;
+    }
+  } else if (!filtered.length) {
+    return [];
+  }
+
+  try {
+    return await fetchLatestPositionsFromApi(filtered);
+  } catch (fallbackError) {
+    if (lastError) {
+      fallbackError.cause = lastError;
+    }
+    throw fallbackError;
+  }
 }
 
 export async function fetchPositions(deviceIds = [], from, to, { limit = null } = {}) {
