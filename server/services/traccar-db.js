@@ -382,40 +382,31 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
     .filter((position) => position && position.deviceId !== null && position.fixTime);
 }
 
-async function fetchLatestPositionsFromApi(context, deviceIds = []) {
+
+
+async function fetchLatestPositionsFromApi(deviceIds = []) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
-  async function tryFetch(asAdmin) {
-    const response = await getLastPositions(context, filtered, { asAdmin });
-    if (response?.ok) {
-      const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
-      return positions
-        .map(normalisePositionRow)
-        .filter((position) => position && position.deviceId !== null && position.fixTime);
-    }
-    return response;
+  const response = await getLastPositions(null, filtered, { asAdmin: true });
+  const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
+
+  if (response?.ok) {
+    return positions
+      .map(normalisePositionRow)
+      .filter((position) => position && position.deviceId !== null && position.fixTime);
   }
 
-  const userAttempt = await tryFetch(false);
-  if (Array.isArray(userAttempt)) {
-    return userAttempt;
-  }
-
-  const adminAttempt = await tryFetch(true);
-  if (Array.isArray(adminAttempt)) {
-    return adminAttempt;
-  }
-
-  const lastResponse = adminAttempt && !Array.isArray(adminAttempt) ? adminAttempt : userAttempt;
-  const status = Number(lastResponse?.error?.code || lastResponse?.status);
+  const status = Number(response?.error?.code || response?.status);
   throw buildTraccarUnavailableError(
-    createError(Number.isFinite(status) ? status : 503, lastResponse?.error?.message || TRACCAR_UNAVAILABLE_MESSAGE),
-    { stage: "http-last-positions", response: lastResponse?.error },
+    createError(Number.isFinite(status) ? status : 503, response?.error?.message || TRACCAR_UNAVAILABLE_MESSAGE),
+    { stage: "http-last-positions", response: response?.error },
   );
 }
 
-export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null, context = null) {
+export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null) {
+
+
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   let lastError = null;
 
@@ -430,7 +421,11 @@ export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId 
   }
 
   try {
-    return await fetchLatestPositionsFromApi(context, filtered);
+
+
+    return await fetchLatestPositionsFromApi(filtered);
+
+
   } catch (fallbackError) {
     if (lastError) {
       fallbackError.cause = lastError;
