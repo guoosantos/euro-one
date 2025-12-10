@@ -7,6 +7,7 @@ import { usePolling } from "../lib/hooks/usePolling.js";
 
 function normaliseEvents(payload) {
   if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.data?.events)) return payload.data.events;
   if (Array.isArray(payload?.events)) return payload.events;
   if (Array.isArray(payload?.data)) return payload.data;
   return [];
@@ -21,7 +22,7 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
   const { data, loading, error, lastUpdated, refresh } = usePolling({
     fetchFn: async () => {
       const params = tenantId ? { clientId: tenantId, limit } : { limit };
-      const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.events, { params });
+      const { data: payload, error: apiError } = await safeApi.get(API_ROUTES.traccar.events, { params });
       if (apiError) {
         const status = Number(apiError?.response?.status ?? apiError?.status);
         const friendly = apiError?.response?.data?.message || apiError.message || t("errors.loadEvents");
