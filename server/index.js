@@ -11,13 +11,15 @@ async function bootstrap() {
     { default: app },
     { initializeTraccarAdminSession },
     { startTraccarSyncJob },
-    { fetchLatestPositions },
+    { fetchLatestPositionsWithFallback },
+    { listDevices },
     { config },
   ] = await Promise.all([
     import("./app.js"),
     import("./services/traccar.js"),
     import("./services/traccar-sync.js"),
     import("./services/traccar-db.js"),
+    import("./models/device.js"),
     import("./config.js"),
   ]);
 
@@ -84,8 +86,14 @@ async function bootstrap() {
   const pushTelemetryToClient = async (clientId, sockets) => {
     if (!sockets || !sockets.size) return;
     try {
+      const devices = listDevices({ clientId });
+      const deviceIds = devices
+        .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+        .filter(Boolean);
+      if (!deviceIds.length) return;
+
       // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
-      const positions = await fetchLatestPositions([], clientId);
+      const positions = await fetchLatestPositionsWithFallback(deviceIds, clientId);
       const payload = JSON.stringify({
         type: "positions",
         data: normalisePositionMessage(positions),

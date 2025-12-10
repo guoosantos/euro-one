@@ -523,12 +523,12 @@ export async function getDevices(context, options = {}) {
   return response?.ok ? { ok: true, devices: response.data } : response;
 }
 
-export async function getLastPositions(context, deviceIds) {
+export async function getLastPositions(context, deviceIds, { asAdmin = false } = {}) {
   const params = {};
   if (Array.isArray(deviceIds) && deviceIds.length > 0) {
     params.deviceId = deviceIds;
   }
-  const response = await traccarRequest({ method: "GET", url: "/positions/last", params }, context);
+  const response = await traccarRequest({ method: "GET", url: "/positions/last", params }, context, { asAdmin });
   return response?.ok ? { ok: true, positions: response.data } : response;
 }
 
