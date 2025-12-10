@@ -28,7 +28,9 @@ export function useCrmContacts(clientId, params = null) {
     setLoading(true);
     setError(null);
 
-    CoreApi.listCrmContacts(clientId, paramsRef.current)
+
+    CoreApi.listCrmContacts(clientId, resolvedParams)
+
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -48,10 +50,11 @@ export function useCrmContacts(clientId, params = null) {
     };
   }, [clientId, t]);
 
-  useEffect(() => {
-    const cancel = load();
-    return cancel;
-  }, [load, paramsKey]);
+
+  }, [clientId, resolvedParams, t]);
+
+  useEffect(() => load(), [load]);
+
 
   const addContact = useCallback(
     async (payload) => {

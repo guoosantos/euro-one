@@ -70,7 +70,12 @@ export function useTrips({
         const normalised = new Error(friendly);
         setError(normalised);
         setTrips([]);
-        throw requestError?.permanent ? normalised : requestError;
+
+        if (requestError?.permanent) {
+          throw normalised;
+        }
+        return;
+
       }
       const payloadData = responseData?.data ?? responseData;
       const items = Array.isArray(payloadData)
