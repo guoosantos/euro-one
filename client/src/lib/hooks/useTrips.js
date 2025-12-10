@@ -70,10 +70,12 @@ export function useTrips({
         const normalised = new Error(friendly);
         setError(normalised);
         setTrips([]);
+
         if (requestError?.permanent) {
           throw normalised;
         }
         return;
+
       }
       const payloadData = responseData?.data ?? responseData;
       const items = Array.isArray(payloadData)
@@ -98,7 +100,8 @@ export function useTrips({
     }
   }, [shouldFetch, deviceId, from, to, limit, tenantId, t]);
 
-  const pollingEnabled = shouldFetch && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
+  const pollingEnabled =
+    shouldFetch && Boolean(deviceId) && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
 
   usePollingTask(fetchTrips, {
     enabled: pollingEnabled,
