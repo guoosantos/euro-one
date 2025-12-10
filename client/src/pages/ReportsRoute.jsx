@@ -470,6 +470,7 @@ export default function ReportsRoute() {
                 </tr>
               )}
 
+
               {points.map((point, index) => (
                 <tr
                   key={`${point.deviceId ?? "unknown"}-${point.fixTime ?? point.serverTime ?? index}-${index}`}
@@ -482,6 +483,7 @@ export default function ReportsRoute() {
                   ))}
                 </tr>
               ))}
+
 
             </tbody>
           </table>

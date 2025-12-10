@@ -71,10 +71,12 @@ export function useTrips({
         setError(normalised);
         setTrips([]);
 
+
         if (requestError?.permanent) {
           throw normalised;
         }
         return;
+
 
       }
       const payloadData = responseData?.data ?? responseData;

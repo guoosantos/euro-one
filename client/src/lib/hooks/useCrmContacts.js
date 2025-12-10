@@ -29,7 +29,9 @@ export function useCrmContacts(clientId, params = null) {
     setError(null);
 
 
+
     CoreApi.listCrmContacts(clientId, resolvedParams)
+
 
       .then((data) => {
         if (cancelled) return;
@@ -51,6 +53,7 @@ export function useCrmContacts(clientId, params = null) {
   }, [clientId, t]);
 
 
+
   }, [clientId, resolvedParams, t]);
 
   useEffect(() => load(), [load]);
@@ -66,6 +69,7 @@ export function useCrmContacts(clientId, params = null) {
     },
     [clientId],
   );
+
 
   return { contacts, loading, error, refresh: load, addContact };
 }
