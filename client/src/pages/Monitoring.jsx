@@ -387,7 +387,7 @@ export default function Monitoring() {
         }
 
         if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return null;
-        const addressText = row.position?.address || formatAddress(row.position || row.device || row.vehicle);
+        const addressText = formatAddress(row.position?.address || row.position || row.device || row.vehicle);
         const displayAddress = addressText && addressText !== "—" ? addressText : t("monitoring.noAddress");
         const speed = pickSpeed(row.position);
         const lastUpdateLabel = formatDateTime(getLastUpdate(row.position), locale);

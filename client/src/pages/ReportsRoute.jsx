@@ -469,8 +469,11 @@ export default function ReportsRoute() {
                   </td>
                 </tr>
               )}
-              {points.map((point) => (
-                <tr key={`${point.deviceId}-${point.fixTime}-${point.latitude}-${point.longitude}`} className="hover:bg-white/5">
+              {points.map((point, index) => (
+                <tr
+                  key={`${point.deviceId ?? "unknown"}-${point.fixTime ?? point.serverTime ?? index}-${index}`}
+                  className="hover:bg-white/5"
+                >
                   {visibleColumns.map((column) => (
                     <td key={column.key} className="py-2 pr-6 text-white/80">
                       {column.render ? column.render(point) : column.getValue?.(point, { locale })}

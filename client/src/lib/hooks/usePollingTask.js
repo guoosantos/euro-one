@@ -23,6 +23,7 @@ export function usePollingTask(
   const failuresRef = useRef(0);
   const runningRef = useRef(false);
   const cancelledRef = useRef(false);
+  const haltedRef = useRef(false);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -35,7 +36,7 @@ export function usePollingTask(
 
   const schedule = useCallback((delay) => {
     const effectiveDelay = Number.isFinite(delay) ? delay : intervalMs;
-    if (!enabled || !effectiveDelay || cancelledRef.current) return;
+    if (!enabled || !effectiveDelay || cancelledRef.current || haltedRef.current) return;
     clearTimer();
     timerRef.current = globalThis.setTimeout(() => {
       timerRef.current = null;
@@ -46,7 +47,7 @@ export function usePollingTask(
   }, [clearTimer, enabled, intervalMs]);
 
   const run = useCallback(async () => {
-    if (!enabled || cancelledRef.current) return;
+    if (!enabled || cancelledRef.current || haltedRef.current) return;
     if (runningRef.current) return;
     if (pauseWhenHidden && isDocumentHidden()) {
       schedule();
@@ -74,11 +75,12 @@ export function usePollingTask(
             // ignore notification errors
           }
         }
+        haltedRef.current = true;
         return;
       }
     } finally {
       runningRef.current = false;
-      if (!cancelledRef.current && enabled && intervalMs) {
+      if (!cancelledRef.current && enabled && intervalMs && !haltedRef.current) {
         const backoff = Math.min(intervalMs * Math.max(1, backoffFactor ** failuresRef.current), maxIntervalMs);
         schedule(failuresRef.current ? backoff : intervalMs);
       }
@@ -91,6 +93,7 @@ export function usePollingTask(
 
   useEffect(() => {
     cancelledRef.current = false;
+    haltedRef.current = false;
     failuresRef.current = 0;
     clearTimer();
 
