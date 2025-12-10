@@ -29,7 +29,13 @@ export function useCrmContacts(clientId, params = null) {
     setLoading(true);
     setError(null);
 
-    CoreApi.listCrmContacts(clientId, currentParams)
+
+
+
+    CoreApi.listCrmContacts(clientId, resolvedParams)
+
+
+
       .then((data) => {
         if (cancelled) return;
         const list = Array.isArray(data?.contacts) ? data.contacts : Array.isArray(data) ? data : [];
@@ -49,18 +55,26 @@ export function useCrmContacts(clientId, params = null) {
     };
   }, [clientId, t]);
 
-  useEffect(() => {
-    const cancel = load();
-    return cancel;
-  }, [load, paramsKey]);
 
-  const addContact = useCallback(async (payload) => {
-    if (!clientId) throw new Error("Cliente não selecionado");
-    const response = await CoreApi.addCrmContact(clientId, payload);
-    const created = response?.contact || response;
-    setContacts((prev) => [...prev, created]);
-    return created;
-  }, [clientId]);
+
+
+  }, [clientId, resolvedParams, t]);
+
+  useEffect(() => load(), [load]);
+
+
+  const addContact = useCallback(
+    async (payload) => {
+      if (!clientId) throw new Error("Cliente não selecionado");
+      const response = await CoreApi.addCrmContact(clientId, payload);
+      const created = response?.contact || response;
+      setContacts((prev) => [...prev, created]);
+      return created;
+    },
+    [clientId],
+  );
+
+
 
   return { contacts, loading, error, refresh: load, addContact };
 }

@@ -469,23 +469,24 @@ export default function ReportsRoute() {
                   </td>
                 </tr>
               )}
-              {points.map((point, index) => {
-                const rowKey =
-                  point.id ??
-                  point._id ??
-                  `${point.deviceId ?? "unknown"}-${
-                    point.fixTime ?? point.serverTime ?? point.deviceTime ?? point.time ?? index
-                  }-${index}`;
-                return (
-                  <tr key={rowKey} className="hover:bg-white/5">
-                    {visibleColumns.map((column) => (
-                      <td key={column.key} className="py-2 pr-6 text-white/80">
-                        {column.render ? column.render(point) : column.getValue?.(point, { locale })}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })}
+
+
+
+              {points.map((point, index) => (
+                <tr
+                  key={`${point.deviceId ?? "unknown"}-${point.fixTime ?? point.serverTime ?? index}-${index}`}
+                  className="hover:bg-white/5"
+                >
+                  {visibleColumns.map((column) => (
+                    <td key={column.key} className="py-2 pr-6 text-white/80">
+                      {column.render ? column.render(point) : column.getValue?.(point, { locale })}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+
+
+
             </tbody>
           </table>
         </div>
