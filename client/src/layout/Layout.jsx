@@ -75,7 +75,7 @@ export default function Layout({ children, title, hideTitle = false }) {
         {/* No monitoring a própria página cuida do cabeçalho */}
         <Topbar title={isFullWidthPage ? null : title} />
 
-        <main className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex flex-1 flex-col overflow-hidden bg-[#0b0f17]">
           {isFullWidthPage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
             <div className="flex flex-1 overflow-hidden bg-[#0b0f17]">
@@ -84,8 +84,8 @@ export default function Layout({ children, title, hideTitle = false }) {
           ) : (
             // 🔹 Demais páginas com container centralizado
             <div className="flex-1 overflow-y-auto">
-              <div className="flex h-full w-full flex-col px-4 py-6">
-                <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+              <div className="flex min-h-full w-full flex-col px-4 py-6">
+                <div className="flex w-full flex-col gap-6">
                   {title && !hideTitle && (
                     <h1 className="text-3xl font-semibold text-white">
                       {title}
