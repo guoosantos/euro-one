@@ -236,6 +236,7 @@ export default function Sidebar() {
     <motion.aside
       className="flex h-full flex-col overflow-hidden bg-[#0f141c]"
       aria-label="Menu principal"
+      data-collapsed={collapsed ? "true" : "false"}
       initial={false}
       animate={{
         width: collapsed ? 64 : 288, // 64px ≈ w-16, 288px ≈ w-72
