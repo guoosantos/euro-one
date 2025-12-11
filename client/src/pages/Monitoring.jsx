@@ -192,11 +192,9 @@ export default function Monitoring() {
     });
 
   return (
-    // CSS HACK: Margens negativas (-m-8) para anular o padding do layout pai.
-    // Ajuste o -m-8 para -m-6 se ainda sobrar borda branca.
     <div
-      className="relative bg-[#0b0f17] overflow-hidden -m-8 w-[calc(100%+4rem)]"
-      style={{ height: 'calc(100vh - 64px)' }}
+      className="relative bg-[#0b0f17] overflow-hidden w-full"
+      style={{ minHeight: "calc(100vh - 64px)" }}
     >
 
       {/* --- ÁREA DO MAPA (fundo) --- */}
