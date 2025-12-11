@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { useLocation } from "react-router-dom";
 
 import Sidebar from "../components/Sidebar";
 import { Topbar } from "../components/Topbar";
@@ -8,6 +9,13 @@ import { useUI } from "../lib/store";
 import { useTenant } from "../lib/tenant-context";
 
 export default function Layout({ children, title, hideTitle = false }) {
+  const location = useLocation();
+
+  // Rotas fullscreen (sem container / sem padding)
+  const isFullWidthPage =
+    location.pathname.startsWith("/monitoring") ||
+    location.pathname.startsWith("/realtime");
+
   const sidebarOpen = useUI((state) => state.sidebarOpen);
   const sidebarCollapsed = useUI((state) => state.sidebarCollapsed);
   const toggleSidebar = useUI((state) => state.toggle);
@@ -28,8 +36,6 @@ export default function Layout({ children, title, hideTitle = false }) {
     }
   }, [theme, locale]);
 
-  const sidebarWidthClass = sidebarCollapsed ? "md:w-16" : "md:w-72";
-
   const rootStyle = accentColor
     ? {
         "--accent-color": accentColor,
@@ -39,6 +45,7 @@ export default function Layout({ children, title, hideTitle = false }) {
 
   return (
     <div className="app-shell flex min-h-screen text-text" style={rootStyle}>
+      {/* backdrop mobile */}
       {sidebarOpen && (
         <button
           type="button"
@@ -48,29 +55,47 @@ export default function Layout({ children, title, hideTitle = false }) {
         />
       )}
 
+      {/* SIDEBAR WRAPPER
+          >>> IMPORTANTE: SEM w-72 / w-16 AQUI <<<
+          A largura agora é 100% controlada pelo motion.aside
+          dentro de Sidebar.jsx (82px colapsado, ~292px expandido)
+      */}
       <div
         role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
-        className={`fixed inset-y-0 left-0 z-40 w-72 transform border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 transform border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        } ${sidebarWidthClass}`}
+        }`}
       >
         <Sidebar />
       </div>
 
+      {/* CONTEÚDO PRINCIPAL */}
       <div className="flex flex-1 flex-col">
-        <Topbar title={title} />
+        {/* No monitoring a própria página cuida do cabeçalho */}
+        <Topbar title={isFullWidthPage ? null : title} />
 
         <main className="flex flex-1 flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto">
-            <div className="flex h-full w-full flex-col px-4 py-6">
-              <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
-                {title && !hideTitle && <h1 className="text-3xl font-semibold text-white">{title}</h1>}
-
-                <ErrorBoundary>{children}</ErrorBoundary>
+          {isFullWidthPage ? (
+            // 🔵 Páginas fullscreen (monitoring / realtime)
+            <div className="flex flex-1 overflow-hidden bg-[#0b0f17]">
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </div>
+          ) : (
+            // 🔹 Demais páginas com container centralizado
+            <div className="flex-1 overflow-y-auto">
+              <div className="flex h-full w-full flex-col px-4 py-6">
+                <div className="mx-auto flex w-full max-w-7xl flex-col gap-6">
+                  {title && !hideTitle && (
+                    <h1 className="text-3xl font-semibold text-white">
+                      {title}
+                    </h1>
+                  )}
+                  <ErrorBoundary>{children}</ErrorBoundary>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </main>
       </div>
 

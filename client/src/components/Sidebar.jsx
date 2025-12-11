@@ -46,7 +46,13 @@ function toRgba(color, alpha = 1) {
     return `rgba(57, 189, 248, ${alpha})`;
   }
   const hex = color.replace("#", "").trim();
-  const normalized = hex.length === 3 ? hex.split("").map((char) => `${char}${char}`).join("") : hex.padEnd(6, "0");
+  const normalized =
+    hex.length === 3
+      ? hex
+          .split("")
+          .map((char) => `${char}${char}`)
+          .join("")
+      : hex.padEnd(6, "0");
   const int = parseInt(normalized.slice(0, 6), 16);
   const r = (int >> 16) & 255;
   const g = (int >> 8) & 255;
@@ -54,26 +60,33 @@ function toRgba(color, alpha = 1) {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
-const linkClass = (collapsed) => ({ isActive }) =>
-  `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
-    collapsed ? "justify-center" : "justify-start"
-  } ${
-    isActive
-      ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
-      : "text-white/70 hover:bg-white/5 hover:text-white"
-  }`;
+const linkClass =
+  (collapsed) =>
+  ({ isActive }) =>
+    `flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
+      collapsed ? "justify-center" : "justify-start"
+    } ${
+      isActive
+        ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+        : "text-white/70 hover:bg-white/5 hover:text-white"
+    }`;
 
-const linkStyle = (accentColor) => ({ isActive }) =>
-  isActive
-    ? {
-        backgroundColor: toRgba(accentColor, 0.18),
-        boxShadow: `0 0 0 1px ${toRgba(accentColor, 0.4)}`,
-      }
-    : undefined;
+const linkStyle =
+  (accentColor) =>
+  ({ isActive }) =>
+    isActive
+      ? {
+          backgroundColor: toRgba(accentColor, 0.18),
+          boxShadow: `0 0 0 1px ${toRgba(accentColor, 0.4)}`,
+        }
+      : undefined;
 
 const sectionTitle = (collapsed, text) =>
   collapsed ? null : (
-    <div className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-white/50" aria-hidden="true">
+    <div
+      className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-white/50"
+      aria-hidden="true"
+    >
       {text}
     </div>
   );
@@ -94,7 +107,10 @@ export default function Sidebar() {
   const isAdmin = role === "admin";
   const canManageUsers = role === "admin" || role === "manager";
   const labelVisibilityClass = collapsed ? "sr-only" : "flex-1 truncate";
-  const navLabelProps = (label) => ({ title: label, ...(collapsed ? { "aria-label": label } : {}) });
+  const navLabelProps = (label) => ({
+    title: label,
+    ...(collapsed ? { "aria-label": label } : {}),
+  });
 
   const clientLink = { to: "/clients", label: "Clientes", icon: Users };
   const userLink = { to: "/users", label: "Usuários", icon: User };
@@ -177,40 +193,73 @@ export default function Sidebar() {
   ];
 
   const renderNavLink = (link) => (
-    <NavLink key={link.to} to={link.to} className={navLinkClass} style={activeStyle} {...navLabelProps(link.label)}>
+    <NavLink
+      key={link.to}
+      to={link.to}
+      className={navLinkClass}
+      style={activeStyle}
+      {...navLabelProps(link.label)}
+    >
       <link.icon size={18} />
       <span className={labelVisibilityClass}>{link.label}</span>
     </NavLink>
   );
 
   const renderNestedLink = (link) => (
-    <NavLink key={link.to} to={link.to} className={nestedLinkClass} style={activeStyle} title={link.label}>
+    <NavLink
+      key={link.to}
+      to={link.to}
+      className={nestedLinkClass}
+      style={activeStyle}
+      title={link.label}
+    >
       <link.icon size={18} />
       <span>{link.label}</span>
     </NavLink>
   );
 
   const renderCompactLink = (link) => (
-    <NavLink key={link.to} to={link.to} className={compactLinkClass} style={activeStyle} title={link.label}>
+    <NavLink
+      key={link.to}
+      to={link.to}
+      className={compactLinkClass}
+      style={activeStyle}
+      title={link.label}
+    >
       <link.icon size={18} />
       <span className="sr-only">{link.label}</span>
     </NavLink>
   );
 
   return (
+
     <motion.aside
       className="flex h-full flex-col overflow-hidden bg-[#0f141c]"
       aria-label="Menu principal"
       initial={false}
-      animate={{ width: collapsed ? 82 : 292, boxShadow: collapsed ? "0 12px 28px rgba(0,0,0,0.35)" : "0 18px 42px rgba(0,0,0,0.4)" }}
+      animate={{
+        width: collapsed ? 64 : 288, // 64px ≈ w-16, 288px ≈ w-72
+        boxShadow: collapsed
+          ? "0 12px 28px rgba(0,0,0,0.35)"
+          : "0 18px 42px rgba(0,0,0,0.4)",
+      }}
       transition={{ type: "spring", stiffness: 240, damping: 28 }}
     >
+
       <nav className="flex h-full flex-col gap-3 overflow-y-auto p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
-          style={{ borderColor: tenant?.brandColor ? `${tenant.brandColor}33` : undefined }}
+          style={{
+            borderColor: tenant?.brandColor
+              ? `${tenant.brandColor}33`
+              : undefined,
+          }}
         >
-          <span className={`text-white font-semibold ${collapsed ? "hidden" : "truncate"}`}>
+          <span
+            className={`text-white font-semibold ${
+              collapsed ? "hidden" : "truncate"
+            }`}
+          >
             {tenant?.name ?? "Euro One"}
           </span>
           <button
@@ -229,7 +278,9 @@ export default function Sidebar() {
               <div
                 className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full"
                 style={{
-                  backgroundColor: tenant?.brandColor ? `${tenant.brandColor}1a` : "#1f2937",
+                  backgroundColor: tenant?.brandColor
+                    ? `${tenant.brandColor}1a`
+                    : "#1f2937",
                   color: tenant?.brandColor ?? "#f8fafc",
                 }}
               >
@@ -239,8 +290,12 @@ export default function Sidebar() {
               </div>
               {!collapsed && (
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-white">{tenant?.segment ?? "Operação"}</div>
-                  <div className="-mt-0.5 text-xs text-[#9AA3B2]">Clientes premium</div>
+                  <div className="text-sm font-medium text-white">
+                    {tenant?.segment ?? "Operação"}
+                  </div>
+                  <div className="-mt-0.5 text-xs text-[#9AA3B2]">
+                    Clientes premium
+                  </div>
                 </div>
               )}
             </div>
@@ -266,11 +321,21 @@ export default function Sidebar() {
                 transition={{ duration: 0.2 }}
                 className="mt-3 space-y-2 text-sm overflow-hidden"
               >
-                <NavLink to="/account" className={nestedLinkClass} style={activeStyle} title="Perfil">
+                <NavLink
+                  to="/account"
+                  className={nestedLinkClass}
+                  style={activeStyle}
+                  title="Perfil"
+                >
                   <User size={18} />
                   <span>Perfil</span>
                 </NavLink>
-                <NavLink to="/settings" className={nestedLinkClass} style={activeStyle} title="Configurações">
+                <NavLink
+                  to="/settings"
+                  className={nestedLinkClass}
+                  style={activeStyle}
+                  title="Configurações"
+                >
                   <Settings size={18} />
                   <span>Configurações</span>
                 </NavLink>
@@ -300,7 +365,9 @@ export default function Sidebar() {
           </button>
         )}
         {collapsed ? (
-          <div className="flex flex-col gap-2">{quickDeviceLinks.map(renderCompactLink)}</div>
+          <div className="flex flex-col gap-2">
+            {quickDeviceLinks.map(renderCompactLink)}
+          </div>
         ) : (
           <AnimatePresence initial={false}>
             {openDisp && (
@@ -325,7 +392,9 @@ export default function Sidebar() {
         {fleetLinks.map(renderNavLink)}
 
         {sectionTitle(collapsed, "Relatórios")}
-        <div className="flex flex-col gap-2">{reportLinks.map(renderNavLink)}</div>
+        <div className="flex flex-col gap-2">
+          {reportLinks.map(renderNavLink)}
+        </div>
 
         {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
         {adminLinks.map(renderNavLink)}
@@ -345,7 +414,9 @@ export default function Sidebar() {
           </button>
         )}
         {collapsed ? (
-          <div className="flex flex-col gap-2">{analyticsLinks.map(renderCompactLink)}</div>
+          <div className="flex flex-col gap-2">
+            {analyticsLinks.map(renderCompactLink)}
+          </div>
         ) : (
           <AnimatePresence initial={false}>
             {openAnalytics && (
@@ -364,7 +435,9 @@ export default function Sidebar() {
         )}
 
         {sectionTitle(collapsed, "Telemetria")}
-        <div className="flex flex-col gap-2">{telematicsLinks.map(renderNavLink)}</div>
+        <div className="flex flex-col gap-2">
+          {telematicsLinks.map(renderNavLink)}
+        </div>
 
         {sectionTitle(collapsed, "Admin")}
         {utilityLinks.map(renderNavLink)}
