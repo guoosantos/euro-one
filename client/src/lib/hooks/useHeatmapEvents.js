@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import api from "../api.js";
 import { API_ROUTES } from "../api-routes.js";
@@ -18,87 +18,97 @@ export function useHeatmapEvents({
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
+
   const [points, setPoints] = useState([]);
   const [topZones, setTopZones] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [version, setVersion] = useState(0);
-  const [consecutiveErrors, setConsecutiveErrors] = useState(0);
-  const [stopped, setStopped] = useState(false);
 
-  const params = useMemo(() => {
+  const abortRef = useRef(null);
+
+  // -------------- PARAMS ESTÁVEIS (sem loop) --------------
+  const stableParams = useMemo(() => {
     const next = {};
+
     if (from) next.from = from;
     if (to) next.to = to;
+
     const resolvedTypes = eventTypes?.length ? eventTypes : eventType;
-    if (resolvedTypes?.length) {
-      const list = Array.isArray(resolvedTypes) ? resolvedTypes : [resolvedTypes];
-      const joined = list.join(",");
+    if (resolvedTypes) {
+      const arr = Array.isArray(resolvedTypes) ? resolvedTypes : [resolvedTypes];
+      const joined = arr.join(",");
       next.eventTypes = joined;
-      next.type = joined; // compat with backend filters
+      next.type = joined;
     }
+
     if (groupId) next.groupId = groupId;
+
     const resolvedTenant = overrideTenant ?? tenantId;
     if (resolvedTenant) next.clientId = resolvedTenant;
+
     return next;
-  }, [eventType, eventTypes, from, groupId, overrideTenant, tenantId, to]);
+  }, [from, to, eventType, eventTypes, groupId, overrideTenant, tenantId]);
 
+  // Hash estável para evitar JSON.stringify dentro do effect
+  const paramsKey = useMemo(() => JSON.stringify(stableParams), [stableParams]);
+
+  // -------------- FETCH SEGURO E SEM LOOP --------------
+  const fetchHeatmap = useCallback(async () => {
+    if (!enabled) return;
+
+    setLoading(true);
+    setError(null);
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const response = await api.get(API_ROUTES.analytics.eventsHeatmap, {
+        params: stableParams,
+        signal: controller.signal,
+      });
+
+      const payload = response?.data || {};
+
+      setPoints(Array.isArray(payload.points) ? payload.points : []);
+      setTopZones(Array.isArray(payload.topZones) ? payload.topZones : []);
+      setTotal(Number(payload.total) || 0);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+
+      console.error("Falha ao carregar heatmap de eventos", err);
+
+      const friendly =
+        err?.response?.data?.message ||
+        err?.message ||
+        t("errors.loadHeatmap");
+
+      setError(new Error(friendly));
+      setPoints([]);
+      setTopZones([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled, paramsKey, t]);
+
+  // -------------- EFFECT ESTÁVEL --------------
   useEffect(() => {
-    if (!enabled) {
-      return undefined;
-    }
-    if (stopped) {
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    async function fetchHeatmap() {
-      setLoading(true);
-      setError(null);
-      try {
-        const response = await api.get(API_ROUTES.analytics.eventsHeatmap, { params });
-        if (cancelled) return;
-        const payload = response?.data || {};
-        setPoints(Array.isArray(payload.points) ? payload.points : []);
-        setTopZones(Array.isArray(payload.topZones) ? payload.topZones : []);
-        setTotal(Number(payload.total) || 0);
-        setConsecutiveErrors(0);
-      } catch (requestError) {
-        if (cancelled) return;
-        console.error("Falha ao carregar heatmap de eventos", requestError);
-        const friendlyMessage =
-          requestError?.response?.data?.message || requestError.message || t("errors.loadHeatmap");
-        const nextErrorCount = consecutiveErrors + 1;
-        const reachedLimit = nextErrorCount >= MAX_CONSECUTIVE_ERRORS;
-        setError(new Error(friendlyMessage));
-        setConsecutiveErrors(nextErrorCount);
-        if (reachedLimit) {
-          setStopped(true);
-        }
-        setPoints([]);
-        setTopZones([]);
-        setTotal(0);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
+    if (!enabled) return;
 
     fetchHeatmap();
 
     return () => {
-      cancelled = true;
+      abortRef.current?.abort();
     };
-  }, [params, version, t, consecutiveErrors, enabled, stopped]);
+  }, [fetchHeatmap, enabled]);
 
+  // -------------- REFRESH SEGURO --------------
   const refresh = useCallback(() => {
-    setStopped(false);
-    setConsecutiveErrors(0);
-    setVersion((value) => value + 1);
-  }, []);
+    fetchHeatmap();
+  }, [fetchHeatmap]);
 
   return { points, topZones, total, loading, error, refresh };
 }

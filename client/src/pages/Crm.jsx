@@ -10,7 +10,7 @@ import Modal from "../ui/Modal";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useCrmClients, { logCrmError } from "../lib/hooks/useCrmClients.js";
-import useCrmContacts from "../lib/hooks/useCrmContacts.js";
+import useCrmContacts from "../lib/hooks/useCrmContacts.jsx";
 import useCrmTags from "../lib/hooks/useCrmTags.js";
 import useCrmPipeline from "../lib/hooks/useCrmPipeline.js";
 
@@ -202,13 +202,21 @@ export default function Crm() {
   const [activeInteraction, setActiveInteraction] = useState(null);
   const [cnpjError, setCnpjError] = useState(null);
 
-  const contactListParams = useMemo(() => {
-    if (!hasAdminAccess) return { view: "mine" };
-    if (interactionViewScope === "mine") return { view: "mine" };
-    return null;
-  }, [hasAdminAccess, interactionViewScope]);
-  const { contacts, loading: contactsLoading, error: contactsError, addContact, refresh: refreshContacts } =
-    useCrmContacts(selectedId, contactListParams);
+const contactListParams = useMemo(() => {
+  if (!hasAdminAccess) return { view: "mine" };
+  if (interactionViewScope === "mine") return { view: "mine" };
+  // antes retornava null – isso fazia o hook quebrar ao tentar destruturar options
+  return {};
+}, [hasAdminAccess, interactionViewScope]);
+
+const {
+  contacts,
+  loading: contactsLoading,
+  error: contactsError,
+  addContact,
+  refresh: refreshContacts,
+} = useCrmContacts(selectedId, contactListParams);
+
   const { tags: tagCatalog, loading: tagsLoading, error: tagsError, refresh: refreshTags, createTag, deleteTag } =
     useCrmTags();
 

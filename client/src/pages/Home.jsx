@@ -79,21 +79,34 @@ export default function Home() {
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
 
   const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 10 });
-  const { trips, loading: loadingTrips, error: tripsError } = useTrips({ limit: 6 });
-  const { tasks } = useTasks({ clientId: tenantId });
 
-  const { points, topZones, loading: loadingHeatmap } = useHeatmapEvents({
-    tenantId,
-    from: heatmapRange.from,
-    to: heatmapRange.to,
-  });
+  const tasksParams = useMemo(() => ({ clientId: tenantId }), [tenantId]);
+  const tripsParams = useMemo(() => ({ limit: 6 }), []);
 
-  const { points: riskPoints, total: riskTotal } = useHeatmapEvents({
-    tenantId,
-    eventType: RISK_EVENT_TYPES,
-    from: heatmapRange.from,
-    to: heatmapRange.to,
-  });
+  const { tasks } = useTasks(tasksParams);
+  const { trips, loading: loadingTrips, error: tripsError } = useTrips(tripsParams);
+
+  const heatmapParams = useMemo(
+    () => ({
+      tenantId,
+      from: heatmapRange.from,
+      to: heatmapRange.to,
+    }),
+    [tenantId, heatmapRange]
+  );
+
+  const riskHeatmapParams = useMemo(
+    () => ({
+      tenantId,
+      eventType: RISK_EVENT_TYPES,
+      from: heatmapRange.from,
+      to: heatmapRange.to,
+    }),
+    [tenantId, heatmapRange]
+  );
+
+  const { points, topZones, loading: loadingHeatmap } = useHeatmapEvents(heatmapParams);
+  const { points: riskPoints, total: riskTotal } = useHeatmapEvents(riskHeatmapParams);
 
   const { summary, table } = useMemo(() => {
     const { rows, stats } = buildFleetState(devices, positions, { tenantId });
@@ -102,7 +115,7 @@ export default function Home() {
 
   const onlineVehicles = useMemo(
     () => table.filter((vehicle) => vehicle.status === "online" && vehicle.speed > 5).slice(0, 3),
-    [table],
+    [table]
   );
 
   const vehicleIndex = useMemo(() => {
@@ -120,7 +133,7 @@ export default function Home() {
 
   const criticalEvents = useMemo(
     () => events.filter((event) => String(event.severity ?? event.level ?? "").toLowerCase() === "critical"),
-    [events],
+    [events]
   );
 
   const heatmapCenter = useMemo(() => {
@@ -231,12 +244,12 @@ export default function Home() {
         <Card
           title={t("home.vehiclesOnRoute")}
           subtitle={t("home.liveTelemetry")}
-        actions={
-          <Link to="/monitoring" className="text-xs font-semibold text-primary">
-            {t("home.openMonitoring")}
-          </Link>
-        }
-      >
+          actions={
+            <Link to="/monitoring" className="text-xs font-semibold text-primary">
+              {t("home.openMonitoring")}
+            </Link>
+          }
+        >
           {loadingPositions && (
             <DataState state="loading" tone="muted" title={t("monitoring.loadingTelemetry")} />
           )}
@@ -307,12 +320,7 @@ export default function Home() {
                   <TableStateRow colSpan={6} state="loading" tone="muted" title={t("home.loadingTrips")} />
                 )}
                 {!loadingTrips && tripsError && (
-                  <TableStateRow
-                    colSpan={6}
-                    state="error"
-                    tone="error"
-                    title={t("home.tripsError")}
-                  />
+                  <TableStateRow colSpan={6} state="error" tone="error" title={t("home.tripsError")} />
                 )}
                 {!loadingTrips && !tripsError && trips.length === 0 && (
                   <TableStateRow colSpan={6} state="empty" tone="muted" title={t("home.noTrips")} />
@@ -333,6 +341,7 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+
           <div className="mt-4 grid grid-cols-2 gap-3 text-xs text-white/70">
             <MetricBadge label={t("home.tasksOnTime")} value={taskMetrics.onTimePercent} />
             <MetricBadge label={t("home.arrivalDelay")} value={taskMetrics.arrivalDelayPercent} variant="warning" />
@@ -347,12 +356,12 @@ export default function Home() {
         <Card
           title={t("home.analyticsHeatmapCard")}
           subtitle={t("home.last24h")}
-        actions={
-          <Link to="/analytics/events" className="text-xs font-semibold text-primary">
-            {t("home.viewFullAnalysis")}
-          </Link>
-        }
-      >
+          actions={
+            <Link to="/analytics/events" className="text-xs font-semibold text-primary">
+              {t("home.viewFullAnalysis")}
+            </Link>
+          }
+        >
           {loadingHeatmap && <DataState state="loading" tone="muted" title={t("home.loadingEvents")} />}
           {!loadingHeatmap && points.length === 0 && (
             <DataState state="empty" tone="muted" title={t("home.noHeatmapData")} />
@@ -369,12 +378,13 @@ export default function Home() {
                   className="h-56"
                 >
                   <TileLayer
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    attribution='&copy; OpenStreetMap'
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                   />
                   <HeatCircles points={points} />
                 </MapContainer>
               </div>
+
               <div className="space-y-2 text-xs text-white/80">
                 <div className="text-white/50">{t("home.topRegions")}</div>
                 {topZones.slice(0, 5).map((zone, index) => (
@@ -385,11 +395,13 @@ export default function Home() {
                         {zone.name || `${zone.lat.toFixed(4)}, ${zone.lng.toFixed(4)}`}
                       </div>
                     </div>
+
                     <span className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-200">
                       {zone.count} {t("home.events")}
                     </span>
                   </div>
                 ))}
+
                 {topZones.length === 0 && (
                   <DataState state="partial" tone="muted" title={t("home.noHeatmapData")} compact />
                 )}
@@ -400,70 +412,71 @@ export default function Home() {
       </section>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Card
-            className="space-y-2"
-            title={t("home.dangerousRoutes")}
-            subtitle={t("home.dangerousRoutesHint")}
-            actions={
-              <Link to="/analytics/events?filter=crime" className="text-xs font-semibold text-primary">
-                {t("home.viewMore")}
-              </Link>
-            }
-          >
-            <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.vehiclesInRisk")}</div>
-                <div className="text-2xl font-semibold text-white">{riskPoints.length}</div>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.averageStay")}</div>
-                <div className="text-2xl font-semibold text-white">~{Math.max(1, riskTotal || 1)}m</div>
-              </div>
+        <Card
+          className="space-y-2"
+          title={t("home.dangerousRoutes")}
+          subtitle={t("home.dangerousRoutesHint")}
+          actions={
+            <Link to="/analytics/events?filter=crime" className="text-xs font-semibold text-primary">
+              {t("home.viewMore")}
+            </Link>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.vehiclesInRisk")}</div>
+              <div className="text-2xl font-semibold text-white">{riskPoints.length}</div>
             </div>
-          </Card>
 
-          <Card
-            className="space-y-2"
-            title={t("home.alertsInProgress")}
-            subtitle={t("home.criticalEventsOngoing")}
-            actions={
-              <Link to="/events?severity=critical" className="text-xs font-semibold text-primary">
-                {t("home.viewAll")}
-              </Link>
-            }
-          >
-            <div className="text-4xl font-semibold text-red-200">{criticalEvents.length || summary.alert}</div>
-          </Card>
-
-          <Card
-            className="space-y-2"
-            title={t("home.services")}
-            subtitle={t("home.servicesThisMonth")}
-            actions={
-              <Link to="/services" className="text-xs font-semibold text-primary">
-                {t("home.viewServices")}
-              </Link>
-            }
-          >
-            <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.total")}</div>
-                <div className="text-2xl font-semibold text-white">{taskMetrics.totalServices}</div>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.closed")}</div>
-                <div className="text-2xl font-semibold text-white">{taskMetrics.closedServices}</div>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.idle")}</div>
-                <div className="text-2xl font-semibold text-white">{taskMetrics.idleServices}</div>
-              </div>
-              <div className="rounded-lg bg-white/5 p-3">
-                <div className="text-xs text-white/50">{t("home.cancelled")}</div>
-                <div className="text-2xl font-semibold text-white">{taskMetrics.cancelledServices}</div>
-              </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.averageStay")}</div>
+              <div className="text-2xl font-semibold text-white">~{Math.max(1, riskTotal || 1)}m</div>
             </div>
-          </Card>
+          </div>
+        </Card>
+
+        <Card
+          className="space-y-2"
+          title={t("home.alertsInProgress")}
+          subtitle={t("home.criticalEventsOngoing")}
+          actions={
+            <Link to="/events?severity=critical" className="text-xs font-semibold text-primary">
+              {t("home.viewAll")}
+            </Link>
+          }
+        >
+          <div className="text-4xl font-semibold text-red-200">{criticalEvents.length || summary.alert}</div>
+        </Card>
+
+        <Card
+          className="space-y-2"
+          title={t("home.services")}
+          subtitle={t("home.servicesThisMonth")}
+          actions={
+            <Link to="/services" className="text-xs font-semibold text-primary">
+              {t("home.viewServices")}
+            </Link>
+          }
+        >
+          <div className="grid grid-cols-2 gap-3 text-sm text-white/80">
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.total")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.totalServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.closed")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.closedServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.idle")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.idleServices}</div>
+            </div>
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="text-xs text-white/50">{t("home.cancelled")}</div>
+              <div className="text-2xl font-semibold text-white">{taskMetrics.cancelledServices}</div>
+            </div>
+          </div>
+        </Card>
       </section>
 
       <Card
@@ -501,11 +514,13 @@ export default function Home() {
                 {t("home.close")}
               </button>
             </div>
+
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {communicationBuckets.map((bucket) => (
                 <div key={bucket.label} className="rounded-xl border border-white/10 bg-white/5 p-3">
                   <div className="text-xs text-white/50">{bucket.label}</div>
                   <div className="text-2xl font-semibold text-white">{bucket.vehicles.length}</div>
+
                   <div className="mt-2 space-y-1 text-[11px] text-white/60">
                     {bucket.vehicles.slice(0, 4).map((vehicle) => (
                       <div key={vehicle.id} className="flex justify-between">
@@ -513,7 +528,9 @@ export default function Home() {
                         <span>{formatDate(vehicle.lastUpdate, locale)}</span>
                       </div>
                     ))}
-                    {bucket.vehicles.length === 0 && <div className="text-white/40">{t("home.noVehicles")}</div>}
+                    {bucket.vehicles.length === 0 && (
+                      <div className="text-white/40">{t("home.noVehicles")}</div>
+                    )}
                   </div>
                 </div>
               ))}
@@ -524,6 +541,10 @@ export default function Home() {
     </div>
   );
 }
+
+// -------------------------------------------------------
+// COMPONENTES AUXILIARES (SEM ALTERAÇÃO NA LÓGICA)
+// -------------------------------------------------------
 
 function StatCard({ title, value, hint, variant = "default", onClick, action }) {
   const palette = {
@@ -543,6 +564,7 @@ function StatCard({ title, value, hint, variant = "default", onClick, action }) 
           <div className="mt-1 text-3xl font-semibold text-white">{value}</div>
           {hint && <div className="mt-1 text-[11px] text-white/40">{hint}</div>}
         </div>
+
         {action ? (
           <button
             type="button"
@@ -563,6 +585,7 @@ function StatCard({ title, value, hint, variant = "default", onClick, action }) 
 function SeverityBadge({ severity }) {
   const { t } = useTranslation();
   const normalized = String(severity ?? "").toLowerCase();
+
   const palette = {
     critical: "bg-red-500/20 text-red-200 border border-red-500/40",
     high: "bg-red-500/20 text-red-200 border border-red-500/40",
@@ -570,6 +593,7 @@ function SeverityBadge({ severity }) {
     low: "bg-green-500/20 text-green-200 border border-green-500/40",
     info: "bg-blue-500/20 text-blue-200 border border-blue-500/40",
   };
+
   const label =
     normalized === "critical"
       ? t("severity.critical")
@@ -580,11 +604,13 @@ function SeverityBadge({ severity }) {
       : normalized === "info"
       ? t("severity.info")
       : t("severity.low");
+
   return <span className={`rounded-full px-3 py-1 text-xs ${palette[normalized] ?? palette.low}`}>{label}</span>;
 }
 
 function AnalyticsChart({ data }) {
   const maxDistance = Math.max(...data.map((item) => item.distance || 0), 1);
+
   return (
     <div className="grid gap-6 md:grid-cols-2">
       <div className="space-y-3">
@@ -594,13 +620,16 @@ function AnalyticsChart({ data }) {
             <div className="flex-1 rounded-full bg-white/10">
               <div
                 className="h-3 rounded-full bg-primary"
-                style={{ width: `${Math.round(((item.distance || 0) / maxDistance) * 100)}%` }}
+                style={{
+                  width: `${Math.round(((item.distance || 0) / maxDistance) * 100)}%`,
+                }}
               />
             </div>
             <div className="w-20 text-right text-xs text-white/50">{formatDistance(item.distance)}</div>
           </div>
         ))}
       </div>
+
       <div className="space-y-3">
         {data.map((item) => (
           <div key={`${item.month}-alerts`} className="flex items-center justify-between text-sm text-white/70">
@@ -621,6 +650,7 @@ function MetricBadge({ label, value, variant = "default" }) {
     warning: "bg-yellow-500/10 text-yellow-200",
     muted: "bg-white/5 text-white/70",
   };
+
   return (
     <div className={`rounded-full px-3 py-2 text-xs font-semibold ${palette[variant] ?? palette.default}`}>
       {label}: {Math.round(value)}%
@@ -644,11 +674,13 @@ function resolveVehicle(item, vehicleIndex) {
     item.device?.uniqueId,
     item.id,
   ];
+
   for (const candidate of candidates) {
     if (candidate === null || candidate === undefined) continue;
     const key = String(candidate);
     if (vehicleIndex.has(key)) return vehicleIndex.get(key);
   }
+
   return null;
 }
 
@@ -673,42 +705,57 @@ function formatDistance(value) {
 function formatSpeed(value) {
   if (!Number.isFinite(Number(value))) return "—";
   const numeric = Number(value);
-  const speed = numeric > 300 ? numeric * 1.852 : numeric; // fallback caso venha em nós
+  const speed = numeric > 300 ? numeric * 1.852 : numeric;
   return `${Math.round(speed)} km/h`;
 }
 
 function formatRelativeTime(value) {
   const timestamp = typeof value === "number" ? value : parsePositionTime({ fixTime: value });
   if (!timestamp) return "há pouco";
+
   const diff = Date.now() - timestamp;
   if (diff < 60 * 1000) return "há instantes";
   if (diff < 60 * 60 * 1000) {
     const minutes = Math.round(diff / (60 * 1000));
     return `há ${minutes} min`;
   }
+
   const hours = Math.round(diff / (60 * 60 * 1000));
   return `há ${hours} h`;
 }
 
 function buildAnalytics(trips) {
   if (!Array.isArray(trips) || trips.length === 0) return [];
+
   const map = new Map();
   for (const trip of trips) {
     const timestamp = parsePositionTime({ fixTime: trip.start ?? trip.startTime ?? trip.from });
     if (!timestamp) continue;
+
     const date = new Date(timestamp);
     const key = `${date.getFullYear()}-${date.getMonth()}`;
     const monthLabel = date.toLocaleString("pt-BR", { month: "short" });
+
     if (!map.has(key)) {
-      map.set(key, { month: capitalize(monthLabel), distance: 0, alerts: 0, deliveriesOnTime: 100, order: timestamp });
+      map.set(key, {
+        month: capitalize(monthLabel),
+        distance: 0,
+        alerts: 0,
+        deliveriesOnTime: 100,
+        order: timestamp,
+      });
     }
+
     const entry = map.get(key);
     entry.order = Math.min(entry.order, timestamp);
+
     const distanceValue = Number(trip.distanceKm ?? trip.distance ?? trip.totalDistance ?? 0);
     const normalizedDistance = distanceValue > 1000 ? distanceValue / 1000 : distanceValue;
+
     entry.distance += Number.isFinite(normalizedDistance) ? normalizedDistance : 0;
     entry.alerts += Number(trip.alerts ?? trip.eventCount ?? 0) || 0;
   }
+
   return Array.from(map.values())
     .sort((a, b) => a.order - b.order)
     .slice(0, 6);
@@ -742,29 +789,20 @@ function buildTaskMetrics(tasks = []) {
     const endExpected = task.endTimeExpected ? Date.parse(task.endTimeExpected) : null;
     const updated = task.updatedAt ? Date.parse(task.updatedAt) : null;
 
-    if (String(task.status).toLowerCase().includes("final")) {
-      closed += 1;
-    } else if (String(task.status).toLowerCase().includes("cancel")) {
-      cancelled += 1;
-    } else if (String(task.status).toLowerCase().includes("improdut")) {
-      idle += 1;
-    }
+    if (String(task.status).toLowerCase().includes("final")) closed += 1;
+    else if (String(task.status).toLowerCase().includes("cancel")) cancelled += 1;
+    else if (String(task.status).toLowerCase().includes("improdut")) idle += 1;
 
-    if (!task.attachments || task.attachments.length === 0) {
-      noChecklist += 1;
-    }
+    if (!task.attachments || task.attachments.length === 0) noChecklist += 1;
 
-    if (startExpected && updated && updated <= startExpected && String(task.status).toLowerCase().includes("final")) {
+    if (startExpected && updated && updated <= startExpected && String(task.status).toLowerCase().includes("final"))
       onTime += 1;
-    }
 
-    if (startExpected && now > startExpected && !String(task.status).toLowerCase().includes("final")) {
+    if (startExpected && now > startExpected && !String(task.status).toLowerCase().includes("final"))
       arrivalDelay += 1;
-    }
 
-    if (endExpected && now > endExpected && String(task.status).toLowerCase().includes("em atendimento")) {
+    if (endExpected && now > endExpected && String(task.status).toLowerCase().includes("em atendimento"))
       serviceDelay += 1;
-    }
   }
 
   const total = tasks.length || 1;
@@ -791,6 +829,7 @@ function buildRouteMetrics(table = [], tasks = []) {
   let delivering = 0;
   let routeDelay = 0;
   let serviceDelay = 0;
+
   const now = Date.now();
 
   for (const task of activeTasks) {
@@ -805,13 +844,7 @@ function buildRouteMetrics(table = [], tasks = []) {
       if (endExpected && now > endExpected) serviceDelay += 1;
     }
 
-    if (!normalizedStatus.includes("final") && startExpected && now > startExpected) {
-      routeDelay += 1;
-    }
-
-    if (vehicle && vehicle.speed > 5 && !normalizedStatus.includes("final")) {
-      // already counted as onRoute
-    }
+    if (!normalizedStatus.includes("final") && startExpected && now > startExpected) routeDelay += 1;
   }
 
   return { onRoute, collecting, delivering, routeDelay, serviceDelay };
@@ -820,6 +853,7 @@ function buildRouteMetrics(table = [], tasks = []) {
 function buildOfflineBuckets(table = []) {
   const now = Date.now();
   const offlineVehicles = table.filter((item) => item.status === "offline");
+
   const buckets = [
     { label: "0-1h", min: 0, max: 1 },
     { label: "1-6h", min: 1, max: 6 },

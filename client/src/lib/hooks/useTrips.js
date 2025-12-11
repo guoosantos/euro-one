@@ -18,76 +18,94 @@ export function useTrips({
 } = {}) {
   const { tenantId } = useTenant();
   const { t } = useTranslation();
+
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [fetchedAt, setFetchedAt] = useState(null);
+
   const mountedRef = useRef(true);
   const abortRef = useRef(null);
   const initialLoadRef = useRef(true);
 
   const shouldFetch = Boolean(enabled);
 
+  // ❗ CORREÇÃO DEFINITIVA:
+  // Se não tem deviceId OU tenantId, o hook termina aqui
+  if (!shouldFetch || !tenantId || !deviceId) {
+    return ensureHookResult(
+      {
+        data: [],
+        trips: [],
+        loading: false,
+        error: null,
+        fetchedAt: null,
+        refresh: () => {},
+      },
+      { defaultData: [] }
+    );
+  }
+
   const fetchTrips = useCallback(async () => {
-    if (!shouldFetch || !mountedRef.current) {
+    if (!mountedRef.current) {
       setLoading(false);
       return;
     }
-    if (!deviceId) {
-      setLoading(false);
-      setError(null);
-      setTrips([]);
-      return;
-    }
+
     setLoading((current) => current || initialLoadRef.current);
     setError(null);
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
+
     try {
       const now = new Date();
       const defaultFrom = new Date(now.getTime() - 6 * 60 * 60 * 1000);
+
       const payload = {
         from: (from ? new Date(from) : defaultFrom).toISOString(),
         to: (to ? new Date(to) : now).toISOString(),
         type: "all",
+        deviceId,
+        clientId: tenantId,
       };
-      if (deviceId) payload.deviceId = deviceId;
-      if (tenantId) payload.clientId = tenantId;
 
       const { data: responseData, error: requestError } = await safeApi.get(
         API_ROUTES.traccar.reports.trips,
         {
           params: payload,
           signal: controller.signal,
-        },
+        }
       );
 
       if (!mountedRef.current || controller.signal?.aborted) return;
+
       if (requestError) {
         if (safeApi.isAbortError(requestError)) return;
-        const friendly = requestError?.response?.data?.message || requestError.message || t("errors.loadTrips");
+
+        const friendly =
+          requestError?.response?.data?.message ||
+          requestError.message ||
+          t("errors.loadTrips");
+
         const normalised = new Error(friendly);
+
         setError(normalised);
         setTrips([]);
-
-
-
 
         if (requestError?.permanent) {
           throw normalised;
         }
+
         return;
-
-
-
-
       }
+
       const payloadData = responseData?.data ?? responseData;
+
       const items = Array.isArray(payloadData)
         ? payloadData
         : Array.isArray(payloadData?.trips)
-
         ? payloadData.trips
         : Array.isArray(payloadData?.data?.trips)
         ? payloadData.data.trips
@@ -98,16 +116,18 @@ export function useTrips({
       setTrips(items.slice(0, limit));
       setFetchedAt(new Date());
       setError(null);
+
     } finally {
       if (mountedRef.current) {
         setLoading(false);
       }
       initialLoadRef.current = false;
     }
-  }, [shouldFetch, deviceId, from, to, limit, tenantId, t]);
+  }, [deviceId, from, to, limit, tenantId, t]);
 
   const pollingEnabled =
-    shouldFetch && Boolean(deviceId) && typeof refreshInterval === "number" && Number.isFinite(refreshInterval);
+    typeof refreshInterval === "number" &&
+    Number.isFinite(refreshInterval);
 
   usePollingTask(fetchTrips, {
     enabled: pollingEnabled,
@@ -120,26 +140,31 @@ export function useTrips({
     },
   });
 
-  const refresh = useMemo(
-    () => () => {
+  const refresh = useMemo(() => {
+    return () => {
       void fetchTrips().catch(() => {});
-    },
-    [fetchTrips],
-  );
+    };
+  }, [fetchTrips]);
 
   useEffect(() => {
     mountedRef.current = true;
-    if (shouldFetch && !pollingEnabled) {
+
+    if (!pollingEnabled) {
       void fetchTrips().catch(() => {});
     }
+
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
     };
-  }, [fetchTrips, pollingEnabled, shouldFetch]);
+  }, [fetchTrips, pollingEnabled]);
 
   const data = Array.isArray(trips) ? trips : [];
-  return ensureHookResult({ data, trips: data, loading, error, fetchedAt, refresh }, { defaultData: [] });
+
+  return ensureHookResult(
+    { data, trips: data, loading, error, fetchedAt, refresh },
+    { defaultData: [] }
+  );
 }
 
 export default useTrips;
