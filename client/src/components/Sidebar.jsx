@@ -247,7 +247,7 @@ export default function Sidebar() {
       transition={{ type: "spring", stiffness: 240, damping: 28 }}
     >
 
-      <nav className="flex h-full flex-col gap-3 overflow-y-auto p-3">
+      <nav className="flex h-full flex-col gap-3 p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
           style={{
@@ -345,103 +345,105 @@ export default function Sidebar() {
           </AnimatePresence>
         </div>
 
-        {sectionTitle(collapsed, "Negócios")}
-        {businessLinks.map(renderNavLink)}
+        <div className="flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin">
+          {sectionTitle(collapsed, "Negócios")}
+          {businessLinks.map(renderNavLink)}
 
-        {sectionTitle(collapsed, "Principais")}
-        {primaryLinks.map(renderNavLink)}
+          {sectionTitle(collapsed, "Principais")}
+          {primaryLinks.map(renderNavLink)}
 
-        {!collapsed && (
-          <button
-            type="button"
-            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
-            onClick={() => setOpenDisp((value) => !value)}
-            aria-expanded={openDisp}
-          >
-            <span className="flex items-center gap-2">
-              <Cpu size={18} />
-              <span>Dispositivos</span>
-            </span>
-            <span className="text-xs">{openDisp ? "−" : "+"}</span>
-          </button>
-        )}
-        {collapsed ? (
+          {!collapsed && (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
+              onClick={() => setOpenDisp((value) => !value)}
+              aria-expanded={openDisp}
+            >
+              <span className="flex items-center gap-2">
+                <Cpu size={18} />
+                <span>Dispositivos</span>
+              </span>
+              <span className="text-xs">{openDisp ? "−" : "+"}</span>
+            </button>
+          )}
+          {collapsed ? (
+            <div className="flex flex-col gap-2">
+              {quickDeviceLinks.map(renderCompactLink)}
+            </div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {openDisp && (
+                <motion.div
+                  key="device-links"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="ml-3 space-y-2 overflow-hidden text-sm"
+                >
+                  {deviceLinks.map(renderNestedLink)}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
+
+          {sectionTitle(collapsed, "Euro View")}
+          {euroViewLinks.map(renderNavLink)}
+
+          {sectionTitle(collapsed, "Frotas")}
+          {fleetLinks.map(renderNavLink)}
+
+          {sectionTitle(collapsed, "Relatórios")}
           <div className="flex flex-col gap-2">
-            {quickDeviceLinks.map(renderCompactLink)}
+            {reportLinks.map(renderNavLink)}
           </div>
-        ) : (
-          <AnimatePresence initial={false}>
-            {openDisp && (
-              <motion.div
-                key="device-links"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="ml-3 space-y-2 text-sm overflow-hidden"
-              >
-                {deviceLinks.map(renderNestedLink)}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
 
-        {sectionTitle(collapsed, "Euro View")}
-        {euroViewLinks.map(renderNavLink)}
+          {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
+          {adminLinks.map(renderNavLink)}
 
-        {sectionTitle(collapsed, "Frotas")}
-        {fleetLinks.map(renderNavLink)}
+          {!collapsed && (
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
+              onClick={() => setOpenAnalytics((value) => !value)}
+              aria-expanded={openAnalytics}
+            >
+              <span className="flex items-center gap-2">
+                <BarChart3 size={18} />
+                <span>Analytics</span>
+              </span>
+              <span className="text-xs">{openAnalytics ? "−" : "+"}</span>
+            </button>
+          )}
+          {collapsed ? (
+            <div className="flex flex-col gap-2">
+              {analyticsLinks.map(renderCompactLink)}
+            </div>
+          ) : (
+            <AnimatePresence initial={false}>
+              {openAnalytics && (
+                <motion.div
+                  key="analytics-links"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                  className="ml-3 space-y-2 overflow-hidden text-sm"
+                >
+                  {analyticsLinks.map(renderNestedLink)}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          )}
 
-        {sectionTitle(collapsed, "Relatórios")}
-        <div className="flex flex-col gap-2">
-          {reportLinks.map(renderNavLink)}
-        </div>
-
-        {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
-        {adminLinks.map(renderNavLink)}
-
-        {!collapsed && (
-          <button
-            type="button"
-            className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
-            onClick={() => setOpenAnalytics((value) => !value)}
-            aria-expanded={openAnalytics}
-          >
-            <span className="flex items-center gap-2">
-              <BarChart3 size={18} />
-              <span>Analytics</span>
-            </span>
-            <span className="text-xs">{openAnalytics ? "−" : "+"}</span>
-          </button>
-        )}
-        {collapsed ? (
+          {sectionTitle(collapsed, "Telemetria")}
           <div className="flex flex-col gap-2">
-            {analyticsLinks.map(renderCompactLink)}
+            {telematicsLinks.map(renderNavLink)}
           </div>
-        ) : (
-          <AnimatePresence initial={false}>
-            {openAnalytics && (
-              <motion.div
-                key="analytics-links"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="ml-3 space-y-2 text-sm overflow-hidden"
-              >
-                {analyticsLinks.map(renderNestedLink)}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        )}
 
-        {sectionTitle(collapsed, "Telemetria")}
-        <div className="flex flex-col gap-2">
-          {telematicsLinks.map(renderNavLink)}
+          {sectionTitle(collapsed, "Admin")}
+          {utilityLinks.map(renderNavLink)}
         </div>
-
-        {sectionTitle(collapsed, "Admin")}
-        {utilityLinks.map(renderNavLink)}
       </nav>
     </motion.aside>
   );
