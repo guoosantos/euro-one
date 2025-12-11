@@ -110,14 +110,7 @@ export default function Monitoring() {
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [actionsColumn, telemetryColumns]);
 
-  const {
-    columnPrefs,
-    visibleColumns,
-    moveColumn,
-    toggleColumn,
-    restoreColumns,
-    panelRatio,
-  } = useMonitoringSettings({
+  const { columnPrefs, visibleColumns, moveColumn, toggleColumn, restoreColumns } = useMonitoringSettings({
     columns: allColumns,
     storageKey: COLUMN_STORAGE_KEY,
     remotePreferences: preferences,
@@ -298,59 +291,73 @@ export default function Monitoring() {
     [filteredRows],
   );
 
-  return (
-    <div className="flex h-[calc(100vh-64px)] flex-col overflow-hidden bg-[#0b0f17]">
-      <div className="flex items-center justify-between border-b border-white/5 px-4 py-3 text-white/70">
-        <div>
-          <div className="text-sm font-semibold text-white">{t("monitoring.title")}</div>
-          <div className="text-xs text-white/50">{t("monitoring.showingDevices", { count: filteredRows.length })}</div>
-        </div>
-        <div className="flex items-center gap-3 text-xs text-white/60">
-          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-200">Online: {summary.online}</span>
-          <span className="rounded-full bg-red-500/10 px-3 py-1 text-red-200">Offline: {summary.offline}</span>
-          <span className="rounded-full bg-sky-500/10 px-3 py-1 text-sky-200">Movendo: {summary.moving}</span>
-          <button
-            type="button"
-            className="rounded-lg border border-white/10 px-3 py-1 text-[11px] font-semibold text-white/80 hover:border-white/30"
-            onClick={handleExport}
-          >
-            {t("monitoring.exportNow")}
-          </button>
-        </div>
-      </div>
+  const mapHeight = layoutVisibility.showTable ? "60%" : "100%";
+  const tableHeight = layoutVisibility.showMap ? "40%" : "100%";
 
+  return (
+    <div className="relative flex h-[calc(100vh-64px)] w-[calc(100%+3rem)] flex-col overflow-hidden bg-[#0b0f17] -m-6 md:-m-8 md:w-[calc(100%+4rem)]">
       {layoutVisibility.showMap ? (
-        <div className="relative flex-none" style={{ height: `calc(${panelRatio * 100}vh - 80px)` }}>
-          <div className="absolute inset-0 z-0">
-            <MonitoringMap
-              markers={markers}
-              geofences={geofences}
-              focusMarkerId={selectedDeviceId}
-              mapViewport={mapViewport}
-              onViewportChange={setMapViewport}
-            />
+        <div className="relative w-full flex-none" style={{ height: mapHeight }}>
+          <MonitoringMap
+            markers={markers}
+            geofences={geofences}
+            focusMarkerId={selectedDeviceId}
+            height="100%"
+            mapViewport={mapViewport}
+            onViewportChange={setMapViewport}
+          />
+
+          <div className="pointer-events-none absolute top-4 left-4 right-4 z-[500] flex flex-col gap-3">
+            <div className="pointer-events-auto flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/40 px-4 py-3 text-xs text-white/80 shadow-xl backdrop-blur-md">
+              <div>
+                <div className="text-sm font-semibold text-white">{t("monitoring.title")}</div>
+                <div className="text-[11px] text-white/60">
+                  {t("monitoring.showingDevices", { count: filteredRows.length })}
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/70">
+                <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-emerald-100 shadow-sm">
+                  Online: {summary.online}
+                </span>
+                <span className="rounded-full bg-red-500/20 px-3 py-1 text-red-100 shadow-sm">
+                  Offline: {summary.offline}
+                </span>
+                <span className="rounded-full bg-sky-500/20 px-3 py-1 text-sky-100 shadow-sm">
+                  Movendo: {summary.moving}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/15 bg-white/5 px-3 py-1 text-[11px] font-semibold text-white/80 shadow-sm transition hover:border-white/30 hover:bg-white/10"
+                  onClick={handleExport}
+                >
+                  {t("monitoring.exportNow")}
+                </button>
+              </div>
+            </div>
+
+            <div className="pointer-events-auto">
+              <MonitoringToolbar
+                query={query}
+                onQueryChange={setQuery}
+                filterMode={filterMode}
+                onFilterChange={setFilterMode}
+                onOpenColumns={() => {
+                  setShowColumns(true);
+                  setShowLayoutMenu(false);
+                }}
+                onOpenLayout={() => {
+                  setShowLayoutMenu(true);
+                  setShowColumns(false);
+                }}
+              />
+            </div>
           </div>
         </div>
       ) : null}
 
-      <MonitoringToolbar
-        query={query}
-        onQueryChange={setQuery}
-        filterMode={filterMode}
-        onFilterChange={setFilterMode}
-        onOpenColumns={() => {
-          setShowColumns(true);
-          setShowLayoutMenu(false);
-        }}
-        onOpenLayout={() => {
-          setShowLayoutMenu(true);
-          setShowColumns(false);
-        }}
-      />
-
       {layoutVisibility.showTable ? (
-        <div className="relative flex-1 bg-[#0b0f17]">
-          <div className="absolute inset-0 z-10">
+        <div className="relative w-full flex-none overflow-hidden bg-[#0b0f17]" style={{ height: tableHeight }}>
+          <div className="absolute inset-0 z-10 overflow-hidden">
             <MonitoringTable
               rows={filteredRows}
               columns={visibleColumns}
