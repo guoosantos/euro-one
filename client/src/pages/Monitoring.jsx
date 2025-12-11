@@ -42,6 +42,9 @@ export default function Monitoring() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
 
+  // Controle visual entre mapa e grade
+  const [mapHeightPercent, setMapHeightPercent] = useState(65); // Mapa ocupa 65% por padrão
+
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
 
@@ -49,6 +52,13 @@ export default function Monitoring() {
     showMap: true,
     showTable: true,
   });
+
+  const clampMapHeight = value => Math.min(85, Math.max(45, Number.isFinite(Number(value)) ? Number(value) : 65));
+  const tableHeightPercent = useMemo(
+    () => (layoutVisibility.showMap ? Math.max(18, 100 - mapHeightPercent) : 100),
+    [layoutVisibility.showMap, mapHeightPercent],
+  );
+  const handleMapHeightChange = value => setMapHeightPercent(clampMapHeight(value));
 
   // --- Lógica de Dados ---
   const searchFiltered = useMemo(() => {
@@ -145,18 +155,14 @@ export default function Monitoring() {
   return (
     // CSS HACK: Margens negativas (-m-8) para anular o padding do layout pai.
     // Ajuste o -m-8 para -m-6 se ainda sobrar borda branca.
-    <div 
-      className="flex flex-col relative bg-[#0b0f17] overflow-hidden -m-8 w-[calc(100%+4rem)]"
-      style={{ height: 'calc(100vh - 64px)' }} 
+    <div
+      className="relative bg-[#0b0f17] overflow-hidden -m-8 w-[calc(100%+4rem)]"
+      style={{ height: 'calc(100vh - 64px)' }}
     >
-      
-      {/* --- ÁREA DO MAPA (Topo) --- */}
+
+      {/* --- ÁREA DO MAPA (fundo) --- */}
       {layoutVisibility.showMap && (
-        <div 
-          className="relative w-full z-0 transition-all duration-300" 
-          style={{ height: layoutVisibility.showTable ? '60%' : '100%' }}
-        >
-          {/* Mapa Base */}
+        <div className="absolute inset-0 z-0">
           <MonitoringMap
             markers={markers}
             geofences={geofences}
@@ -167,56 +173,84 @@ export default function Monitoring() {
 
           {/* TOOLBAR FLUTUANTE (Overlay) */}
           <div className="absolute top-4 left-4 right-4 z-[400] pointer-events-none">
-            {/* O container interno precisa ter pointer-events-auto para ser clicável */}
             <div className="pointer-events-auto inline-block w-full">
-                <MonitoringToolbar
-                    query={query}
-                    onQueryChange={setQuery}
-                    filterMode={filterMode}
-                    onFilterChange={setFilterMode}
-                    summary={summary}
-                    activePopup={activePopup}
-                    onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
-                />
+              <MonitoringToolbar
+                query={query}
+                onQueryChange={setQuery}
+                filterMode={filterMode}
+                onFilterChange={setFilterMode}
+                summary={summary}
+                activePopup={activePopup}
+                onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
+              />
             </div>
 
             {/* Popups Flutuantes */}
             {activePopup === 'columns' && (
-                <div className="absolute right-0 top-14 pointer-events-auto">
-                    <MonitoringColumnSelector
-                        columns={allColumns}
-                        visibleState={columnPrefs.visible}
-                        onToggle={toggleColumn}
-                        onReorder={moveColumn}
-                        onRestore={restoreColumns}
-                        onClose={() => setActivePopup(null)}
-                    />
-                </div>
+              <div className="absolute right-0 top-14 pointer-events-auto">
+                <MonitoringColumnSelector
+                  columns={allColumns}
+                  visibleState={columnPrefs.visible}
+                  onToggle={toggleColumn}
+                  onReorder={moveColumn}
+                  onRestore={restoreColumns}
+                  onClose={() => setActivePopup(null)}
+                />
+              </div>
             )}
             {activePopup === 'layout' && (
-                <div className="absolute right-0 top-14 pointer-events-auto">
-                    <MonitoringLayoutSelector
-                        layoutVisibility={layoutVisibility}
-                        onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
-                        onClose={() => setActivePopup(null)}
-                    />
-                </div>
+              <div className="absolute right-0 top-14 pointer-events-auto">
+                <MonitoringLayoutSelector
+                  layoutVisibility={layoutVisibility}
+                  onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
+                  onClose={() => setActivePopup(null)}
+                />
+              </div>
             )}
           </div>
         </div>
       )}
 
-      {/* --- ÁREA DA TABELA (Base) --- */}
+      {/* --- ÁREA DA TABELA FLUTUANTE --- */}
       {layoutVisibility.showTable && (
-        <div className="flex-1 w-full relative z-10 bg-[#0b0f17] border-t border-white/10">
-          <MonitoringTable
-            rows={rows}
-            columns={visibleColumns}
-            selectedDeviceId={selectedDeviceId}
-            onSelect={setSelectedDeviceId}
-            loading={loading}
-            emptyText={t("monitoring.emptyState")}
-          />
+        <div
+          className={`${layoutVisibility.showMap ? "absolute left-4 right-4" : "relative w-full px-4"} z-30 transition-all duration-300`}
+          style={layoutVisibility.showMap
+            ? { bottom: '1rem', height: `${tableHeightPercent}%` }
+            : { height: '100%', paddingTop: '1rem', paddingBottom: '1rem' }
+          }
+        >
+          <div className="relative h-full rounded-2xl bg-[#0b0f17]/95 border border-white/10 shadow-2xl backdrop-blur-xl overflow-hidden">
+            {layoutVisibility.showMap && (
+              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-white/5">
+                <span className="text-[11px] font-semibold text-white/60 uppercase tracking-[0.12em]">Lista de veículos</span>
+                <div className="flex items-center gap-2 text-[11px] text-white/70">
+                  <span className="hidden sm:inline">Altura do mapa</span>
+                  <input
+                    type="range"
+                    min="45"
+                    max="85"
+                    step="1"
+                    value={mapHeightPercent}
+                    onChange={(e) => handleMapHeightChange(e.target.value)}
+                    className="h-2 w-28 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
+                  />
+                  <span className="font-semibold text-white/90">{mapHeightPercent}%</span>
+                </div>
+              </div>
+            )}
+
+            <div className="h-full overflow-auto">
+              <MonitoringTable
+                rows={rows}
+                columns={visibleColumns}
+                selectedDeviceId={selectedDeviceId}
+                onSelect={setSelectedDeviceId}
+                loading={loading}
+                emptyText={t("monitoring.emptyState")}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

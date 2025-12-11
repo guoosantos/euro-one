@@ -25,7 +25,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
             {columns.map((col) => (
               <th
                 key={col.key}
-                className="px-4 py-3 text-[11px] font-bold text-white/60 uppercase tracking-wider whitespace-nowrap bg-[#161b22]"
+                className="px-3 py-2 text-[10px] font-bold text-white/60 uppercase tracking-[0.14em] whitespace-nowrap bg-[#161b22]"
               >
                 {col.label}
               </th>
@@ -60,7 +60,10 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                 }
 
                 return (
-                  <td key={`${row.key}-${col.key}`} className="px-4 py-3 text-sm text-white/80 whitespace-nowrap">
+                  <td
+                    key={`${row.key}-${col.key}`}
+                    className="px-3 py-2 text-xs leading-tight text-white/80 whitespace-nowrap"
+                  >
                     {cellValue}
                   </td>
                 );
