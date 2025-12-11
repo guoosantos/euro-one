@@ -15,7 +15,7 @@ export default function MonitoringColumnSelector({
   return (
     <div
       ref={containerRef}
-      className="absolute right-0 mt-2 w-64 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-2xl z-[9999]"
+      className="absolute right-0 mt-2 w-64 max-h-[75vh] overflow-y-auto rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-3xl ring-1 ring-white/10 z-[9999]"
     >
       <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">Colunas</div>
       <div className="space-y-1">

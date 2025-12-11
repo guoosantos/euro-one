@@ -27,6 +27,37 @@ import {
 
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
 
+const MAP_HEIGHT_STORAGE_KEY = "monitoring:mapHeightPercent";
+const DEFAULT_MAP_HEIGHT = 65;
+const MIN_MAP_HEIGHT = 10;
+const MAX_MAP_HEIGHT = 100;
+
+function getStoredMapHeight() {
+  if (typeof window === "undefined") return DEFAULT_MAP_HEIGHT;
+
+  try {
+    const storedValue = window.localStorage?.getItem(MAP_HEIGHT_STORAGE_KEY);
+    const parsed = Number(storedValue);
+    if (Number.isFinite(parsed)) {
+      return Math.min(MAX_MAP_HEIGHT, Math.max(MIN_MAP_HEIGHT, parsed));
+    }
+  } catch (_error) {
+    // Se o localStorage não estiver disponível, apenas retorna o padrão.
+  }
+
+  return DEFAULT_MAP_HEIGHT;
+}
+
+function persistMapHeight(value) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage?.setItem(MAP_HEIGHT_STORAGE_KEY, String(value));
+  } catch (_error) {
+    // Persistência local não é essencial; ignore falhas silenciosamente.
+  }
+}
+
 export default function Monitoring() {
   const { t, locale } = useTranslation();
   const navigate = useNavigate();
@@ -43,7 +74,7 @@ export default function Monitoring() {
   const [mapViewport, setMapViewport] = useState(null);
 
   // Controle visual entre mapa e grade
-  const [mapHeightPercent, setMapHeightPercent] = useState(65); // Mapa ocupa 65% por padrão
+  const [mapHeightPercent, setMapHeightPercent] = useState(getStoredMapHeight()); // Mapa ocupa 65% por padrão
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -53,12 +84,20 @@ export default function Monitoring() {
     showTable: true,
   });
 
-  const clampMapHeight = value => Math.min(85, Math.max(45, Number.isFinite(Number(value)) ? Number(value) : 65));
+  useEffect(() => {
+    persistMapHeight(mapHeightPercent);
+  }, [mapHeightPercent]);
+
+  const clampMapHeight = value => Math.min(
+    MAX_MAP_HEIGHT,
+    Math.max(MIN_MAP_HEIGHT, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_MAP_HEIGHT),
+  );
   const tableHeightPercent = useMemo(
-    () => (layoutVisibility.showMap ? Math.max(18, 100 - mapHeightPercent) : 100),
+    () => (layoutVisibility.showMap ? Math.max(10, 100 - mapHeightPercent) : 100),
     [layoutVisibility.showMap, mapHeightPercent],
   );
   const handleMapHeightChange = value => setMapHeightPercent(clampMapHeight(value));
+  const toggleTableEmphasis = () => setMapHeightPercent(prev => clampMapHeight(prev >= 60 ? 35 : 75));
 
   // --- Lógica de Dados ---
   const searchFiltered = useMemo(() => {
@@ -225,17 +264,47 @@ export default function Monitoring() {
               <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-white/5">
                 <span className="text-[11px] font-semibold text-white/60 uppercase tracking-[0.12em]">Lista de veículos</span>
                 <div className="flex items-center gap-2 text-[11px] text-white/70">
-                  <span className="hidden sm:inline">Altura do mapa</span>
-                  <input
-                    type="range"
-                    min="45"
-                    max="85"
-                    step="1"
-                    value={mapHeightPercent}
-                    onChange={(e) => handleMapHeightChange(e.target.value)}
-                    className="h-2 w-28 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
-                  />
-                  <span className="font-semibold text-white/90">{mapHeightPercent}%</span>
+                  <button
+                    type="button"
+                    onClick={toggleTableEmphasis}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition hover:border-primary/70 hover:text-white"
+                    title="Alternar foco entre mapa e tabela"
+                    aria-label="Alternar foco entre mapa e tabela"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
+                    </svg>
+                  </button>
+
+                  <div className="hidden sm:flex items-center gap-2">
+                    <span className="hidden md:inline">Altura do mapa</span>
+                    <input
+                      type="range"
+                      min={MIN_MAP_HEIGHT}
+                      max={MAX_MAP_HEIGHT}
+                      step="1"
+                      value={mapHeightPercent}
+                      onChange={(e) => handleMapHeightChange(e.target.value)}
+                      className="h-2 w-28 md:w-36 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
+                    />
+                    <input
+                      type="number"
+                      min={MIN_MAP_HEIGHT}
+                      max={MAX_MAP_HEIGHT}
+                      value={mapHeightPercent}
+                      onChange={(e) => handleMapHeightChange(e.target.value)}
+                      className="hidden lg:block w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/90 outline-none transition focus:border-primary"
+                    />
+                  </div>
+
+                  <span className="font-semibold text-white/90 min-w-[3ch] text-right">{mapHeightPercent}%</span>
                 </div>
               </div>
             )}

@@ -11,9 +11,9 @@ export default function MonitoringLayoutSelector({ layoutVisibility, onToggle, o
   ];
 
   return (
-    <div 
-      ref={ref} 
-      className="w-56 bg-[#161b22] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+    <div
+      ref={ref}
+      className="w-56 max-h-[75vh] bg-[#161b22] border border-white/10 rounded-xl shadow-3xl ring-1 ring-white/10 flex flex-col overflow-auto animate-in fade-in zoom-in-95 duration-200"
     >
       {/* Cabeçalho */}
       <div className="px-4 py-3 border-b border-white/10 bg-[#1c222b]">
