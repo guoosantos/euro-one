@@ -22,14 +22,15 @@
 
 /* Sidebar: qualquer <aside> do layout principal */
 aside{
-  width: var(--e-sidebar-w) !important;
-  flex: 0 0 var(--e-sidebar-w) !important;
+  width: auto !important; /* largura controlada pelo motion.aside */
+  flex: 0 0 auto !important;
   border-right: 1px solid rgba(255,255,255,0.10);
 }
 
-aside[data-collapsed="true"]{
-  width: var(--e-sidebar-collapsed-w) !important;
-  flex: 0 0 var(--e-sidebar-collapsed-w) !important;
+aside[data-collapsed="true"],
+aside[data-collapsed="false"]{
+  width: auto !important;
+  flex: 0 0 auto !important;
 }
 
 /* Itens de navegação (anchors dentro do nav do sidebar) */
