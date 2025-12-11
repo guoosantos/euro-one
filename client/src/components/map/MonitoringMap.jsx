@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap, Polygon } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
+// --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 15;
@@ -25,6 +26,8 @@ const STATUS_STYLES = {
   blocked: { background: "rgba(147,51,234,0.15)", border: "1px solid rgba(192,132,252,0.65)", color: "#e9d5ff" },
   offline: { background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.2)", color: "#e5e7eb" },
 };
+
+// --- HELPERS DE ESTILO ---
 
 function getStatusStyle(status) {
   if (!status) return STATUS_STYLES.offline;
@@ -59,8 +62,11 @@ function getMarkerIcon(color, iconType) {
   return icon;
 }
 
+// --- COMPONENTES INTERNOS ---
+
 function PopupContent({ marker }) {
   const statusStyle = getStatusStyle(marker.status);
+  
   const addressText = useMemo(() => {
     if (typeof marker.address === "string") return marker.address;
     if (marker.address && typeof marker.address === "object") {
@@ -74,18 +80,21 @@ function PopupContent({ marker }) {
     }
     return "";
   }, [marker.address]);
+
   return (
-    <div className="space-y-1.5 text-white">
-      {marker.label ? <div className="text-sm font-semibold leading-tight">{marker.label}</div> : null}
-      {marker.plate ? <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div> : null}
-      {addressText ? <div className="text-xs leading-snug text-white/80">{addressText}</div> : null}
-      <div className="flex items-center gap-2 text-xs text-white/80">
-        <span className="rounded-lg bg-white/10 px-2 py-1 text-[11px] font-semibold text-white">
-          {marker.speedLabel || "—"}
+    <div className="space-y-1.5 text-white min-w-[200px]">
+      {marker.label && <div className="text-sm font-bold leading-tight text-white">{marker.label}</div>}
+      {marker.plate && <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div>}
+      
+      {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
+      
+      <div className="flex items-center gap-2 text-xs text-white/80 mt-2">
+        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-white">
+          {marker.speedLabel || "0 km/h"}
         </span>
-        {marker.statusLabel ? (
+        {marker.statusLabel && (
           <span
-            className="rounded-full px-2 py-1 text-[11px] font-semibold"
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
             style={{
               background: statusStyle.background,
               border: statusStyle.border,
@@ -94,14 +103,15 @@ function PopupContent({ marker }) {
           >
             {marker.statusLabel}
           </span>
-        ) : null}
+        )}
       </div>
-      {marker.lastUpdateLabel ? (
-        <div className="flex items-center gap-2 text-[11px] text-white/60">
-          <span>{marker.updatedTitle ?? "Última atualização"}</span>
-          <span className="text-white/80">{marker.lastUpdateLabel}</span>
+      
+      {marker.lastUpdateLabel && (
+        <div className="flex items-center gap-1 text-[10px] text-white/50 mt-1">
+          <span>{marker.updatedTitle ?? "Atualizado:"}</span>
+          <span className="text-white/70">{marker.lastUpdateLabel}</span>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -111,126 +121,140 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
   const lastFocusedRef = useRef(null);
   const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
+  
   const safeMarkers = useMemo(
     () => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)),
     [markers],
   );
 
+  // Manipular eventos de movimento (opcional)
   useEffect(() => {
-    const ENABLE_VIEWPORT_EVENTS = false;
-    if (!ENABLE_VIEWPORT_EVENTS) return undefined;
-    if (!map) return undefined;
-    if (typeof onViewportChange !== "function") return undefined;
+    if (!map || !onViewportChange) return;
 
     const handleMove = () => {
-      const center = map?.getCenter();
-      if (!center) return;
+      const center = map.getCenter();
       onViewportChange({ center: [center.lat, center.lng], zoom: map.getZoom() });
     };
 
     map.on("moveend", handleMove);
-    return () => {
-      map?.off("moveend", handleMove);
-    };
+    return () => map.off("moveend", handleMove);
   }, [map, onViewportChange]);
 
+  // Focar no marcador quando selecionado
   useEffect(() => {
-    if (!map) return;
+    if (!map || !focusMarkerId) return;
 
-    if (focusMarkerId) {
-      const targetMarker = markerRefs.current.get(focusMarkerId);
-      if (targetMarker) {
-        targetMarker.openPopup();
-      }
+    const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
+    if (target && lastFocusedRef.current !== focusMarkerId) {
+      lastFocusedRef.current = focusMarkerId;
+      
+      // Animação de voo até o alvo
+      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { 
+        duration: 1.2,
+        easeLinearity: 0.25
+      });
+
+      // Abrir Popup após chegar (pequeno delay)
+      setTimeout(() => {
+        const instance = markerRefs.current.get(focusMarkerId);
+        if (instance) instance.openPopup();
+      }, 1200);
     }
-  }, [focusMarkerId]);
+  }, [focusMarkerId, map, safeMarkers]);
 
+  // Ajuste inicial da viewport (Fit Bounds)
   useEffect(() => {
-    if (!map) return;
-    if (focusMarkerId) {
-      const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
-      if (target && lastFocusedRef.current !== focusMarkerId) {
-        lastFocusedRef.current = focusMarkerId;
-        map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { duration: 0.75 });
-        const targetMarker = markerRefs.current.get(focusMarkerId);
-        if (targetMarker) {
-          targetMarker.openPopup();
-        }
-        return;
-      }
+    if (!map || hasInitialFitRef.current) return;
+
+    // Se tiver viewport salvo nas preferências, usa ele
+    if (mapViewport?.center && Array.isArray(mapViewport.center)) {
+       const [lat, lng] = mapViewport.center;
+       if (Number.isFinite(lat) && Number.isFinite(lng)) {
+         map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
+         hasInitialFitRef.current = true;
+         return;
+       }
     }
 
-    if (!safeMarkers.length) {
-      hasInitialFitRef.current = false;
-      lastFocusedRef.current = null;
+    // Caso contrário, ajusta para ver todos os marcadores
+    if (safeMarkers.length > 0) {
+      const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      hasInitialFitRef.current = true;
+    } else {
       map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-      return;
-    }
-
-    if (!hasInitialFitRef.current) {
-      if (mapViewport?.center && Array.isArray(mapViewport.center)) {
-        const [lat, lng] = mapViewport.center;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
-          hasInitialFitRef.current = true;
-          return;
-        }
-      }
-
-      const bounds = L.latLngBounds(safeMarkers.map((marker) => [marker.lat, marker.lng]));
-      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 16 });
       hasInitialFitRef.current = true;
     }
-  }, [focusMarkerId, map, mapViewport, safeMarkers]);
+  }, [map, safeMarkers, mapViewport]);
 
   return safeMarkers.map((marker) => (
     <Marker
       key={marker.id ?? `${marker.lat}-${marker.lng}`}
       position={[marker.lat, marker.lng]}
       icon={getMarkerIcon(marker.color, marker.iconType)}
-      ref={(instance) => {
-        if (!marker.id) return;
-        if (instance) {
-          markerRefs.current.set(marker.id, instance);
-        } else {
-          markerRefs.current.delete(marker.id);
-        }
+      ref={(ref) => {
+        if (ref && marker.id) markerRefs.current.set(marker.id, ref);
+        else if (!ref && marker.id) markerRefs.current.delete(marker.id);
       }}
     >
-      <Popup>
+      <Popup className="monitoring-popup" closeButton={false}>
         <PopupContent marker={marker} />
       </Popup>
     </Marker>
   ));
 }
 
+// --- COMPONENTE PRINCIPAL ---
+
 export default function MonitoringMap({
   markers = [],
   geofences = [],
   focusMarkerId = null,
-  height = 360,
   mapViewport = null,
   onViewportChange = null,
 }) {
-  const style = useMemo(() => ({ height: typeof height === "number" ? `${height}px` : height || "360px" }), [height]);
-  const initialCenterRef = useRef(
-    mapViewport?.center && mapViewport.center.length === 2 ? mapViewport.center : DEFAULT_CENTER,
-  );
-  const initialZoomRef = useRef(Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : DEFAULT_ZOOM);
-
+  // Configuração padrão do tile layer
   const tileUrl = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
   return (
-    <div className="rounded-xl border border-white/5 bg-[#0b0f17]" style={style}>
+    <div className="h-full w-full bg-[#0b0f17] relative z-0">
       <MapContainer
-        center={initialCenterRef.current}
-        zoom={initialZoomRef.current}
-        style={{ height: "100%", width: "100%" }}
-        scrollWheelZoom
+        center={DEFAULT_CENTER}
+        zoom={DEFAULT_ZOOM}
+        className="h-full w-full outline-none"
+        zoomControl={false} // Remover controle padrão para visual mais limpo (opcional)
+        scrollWheelZoom={true}
       >
-        <TileLayer url={tileUrl} />
-        <MarkerLayer markers={markers} focusMarkerId={focusMarkerId} mapViewport={mapViewport} onViewportChange={onViewportChange} />
+        <TileLayer 
+          url={tileUrl} 
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        />
+
+        <MarkerLayer 
+          markers={markers} 
+          focusMarkerId={focusMarkerId} 
+          mapViewport={mapViewport} 
+          onViewportChange={onViewportChange} 
+        />
+
+        {/* Renderização de Geofences */}
+        {geofences.map((geo) => {
+          if (!geo.coordinates || geo.coordinates.length === 0) return null;
+          return (
+            <Polygon
+              key={geo.id}
+              positions={geo.coordinates}
+              pathOptions={{
+                color: geo.color || "#3b82f6",
+                fillColor: geo.color || "#3b82f6",
+                fillOpacity: 0.15,
+                weight: 2,
+              }}
+            />
+          );
+        })}
       </MapContainer>
     </div>
   );
 }
+

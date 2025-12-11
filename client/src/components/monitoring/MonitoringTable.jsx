@@ -1,129 +1,72 @@
-import React, { useMemo } from "react";
-import { formatDistanceToNow, parseISO } from "date-fns";
-import { ptBR } from "date-fns/locale";
-import { formatAddress } from "../../lib/format-address.js";
-import { pickSpeed } from "../../lib/monitoring-helpers.js";
+import React from "react";
 
-function safeAddress(value) {
-  if (!value) return "Sem endereço";
-  if (typeof value === "string") {
-    try {
-      const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === "object") {
-        return (
-          parsed.formatted_address ||
-          parsed.formattedAddress ||
-          parsed.address ||
-          parsed.shortAddress ||
-          parsed.label ||
-          value
-        );
-      }
-    } catch (error) {
-      // keep string value
-    }
-    return value;
-  }
-  if (typeof value === "object") {
+export default function MonitoringTable({ rows, columns, loading, selectedDeviceId, onSelect, emptyText }) {
+  if (loading && rows.length === 0) {
     return (
-      value.formatted_address ||
-      value.formattedAddress ||
-      value.address ||
-      value.shortAddress ||
-      value.label ||
-      value.description ||
-      JSON.stringify(value)
+      <div className="flex items-center justify-center h-full text-white/50">
+        <div className="animate-pulse">Carregando dados da frota...</div>
+      </div>
     );
   }
-  return String(value);
-}
 
-function formatLastUpdate(value) {
-  if (!value) return "—";
-  const isoValue = typeof value === "string" ? value : value.toISOString?.();
-  if (!isoValue) return "—";
-  try {
-    return formatDistanceToNow(parseISO(isoValue), { addSuffix: true, locale: ptBR });
-  } catch (error) {
-    return "—";
+  if (rows.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-full text-white/50">
+        {emptyText || "Nenhum veículo encontrado."}
+      </div>
+    );
   }
-}
-
-export default function MonitoringTable({
-  rows,
-  columns,
-  selectedDeviceId,
-  onSelect,
-  loading,
-  emptyText,
-}) {
-  const safeColumns = useMemo(() => columns || [], [columns]);
 
   return (
-    <div className="h-full overflow-y-auto scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
-      <table className="min-w-full text-left text-sm text-white/80">
-        <thead className="sticky top-0 z-20 bg-[#0d121b] text-[11px] uppercase tracking-wide text-white/50">
+    <div className="min-w-full inline-block align-middle">
+      <table className="min-w-full text-left border-collapse">
+        <thead className="bg-[#161b22] sticky top-0 z-10 shadow-sm border-b border-white/10">
           <tr>
-            {safeColumns.map((column) => (
-              <th key={column.key} className="px-4 py-3 font-semibold">
-                {column.label}
+            {columns.map((col) => (
+              <th
+                key={col.key}
+                className="px-4 py-3 text-[11px] font-bold text-white/60 uppercase tracking-wider whitespace-nowrap bg-[#161b22]"
+              >
+                {col.label}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
-          {rows.map((row, index) => {
-            const rowKey = row.key ?? row.deviceId ?? `row-${index}`;
-            const isSelected = selectedDeviceId === row.deviceId;
-            return (
-              <tr
-                key={rowKey}
-                className={`h-12 border-b border-white/5 transition hover:bg-gray-800/40 ${isSelected ? "bg-gray-800/70" : ""}`}
-                onClick={() => onSelect?.(row.deviceId)}
-              >
-                {safeColumns.map((column) => {
-                  const content = column.key === "address"
-                    ? safeAddress(row.address || row.position?.address || formatAddress(row.position || row.device || row.vehicle))
-                    : column.key === "lastUpdate"
-                    ? formatLastUpdate(row.lastUpdate)
-                    : column.key === "status"
-                    ? (
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`h-2.5 w-2.5 rounded-full ${row.statusBadge?.status === "online" ? "bg-emerald-400" : row.statusBadge?.status === "alert" ? "bg-amber-400" : "bg-red-400"}`}
-                          />
-                          <span className="text-white/80 text-xs">{row.statusBadge?.label}</span>
-                        </div>
-                      )
-                    : column.key === "speed"
-                    ? `${pickSpeed(row.position) ?? 0} km/h`
-                    : column.render?.(row);
+        <tbody className="divide-y divide-white/5 bg-[#0b0f17]">
+          {rows.map((row) => (
+            <tr
+              key={row.key}
+              onClick={() => onSelect(row.deviceId)}
+              className={`
+                group cursor-pointer transition-colors hover:bg-white/[0.03]
+                ${selectedDeviceId === row.deviceId ? "bg-primary/10 border-l-2 border-primary" : "border-l-2 border-transparent"}
+              `}
+            >
+              {columns.map((col) => {
+                // --- TRATAMENTO SEGURO DE DADOS ---
+                // Verifica se tem render customizado, senão pega o valor direto
+                let cellValue = col.render ? col.render(row) : row[col.key];
 
-                  return (
-                    <td key={column.key} className="px-4 py-2 align-middle text-sm text-white/80">
-                      {content ?? "—"}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
+                // Proteção extra contra [object Object] se o render falhar ou não existir
+                if (typeof cellValue === 'object' && cellValue !== null && !React.isValidElement(cellValue)) {
+                   // Se for um objeto de endereço, tenta formatar, senão stringify
+                   if (cellValue.formattedAddress) {
+                       cellValue = cellValue.formattedAddress;
+                   } else if (cellValue.address) {
+                       cellValue = cellValue.address;
+                   } else {
+                       cellValue = ""; // Valor vazio em vez de [object Object]
+                   }
+                }
 
-          {!loading && rows.length === 0 ? (
-            <tr>
-              <td colSpan={safeColumns.length} className="px-4 py-6 text-center text-sm text-white/50">
-                {emptyText}
-              </td>
+                return (
+                  <td key={`${row.key}-${col.key}`} className="px-4 py-3 text-sm text-white/80 whitespace-nowrap">
+                    {cellValue}
+                  </td>
+                );
+              })}
             </tr>
-          ) : null}
-
-          {loading ? (
-            <tr>
-              <td colSpan={safeColumns.length} className="px-4 py-6 text-center text-sm text-white/50">
-                Carregando...
-              </td>
-            </tr>
-          ) : null}
+          ))}
         </tbody>
       </table>
     </div>
