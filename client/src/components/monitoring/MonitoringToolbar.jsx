@@ -50,6 +50,7 @@ export default function MonitoringToolbar({
   onRegionQueryChange,
   onRegionSearch,
   isSearchingRegion,
+  layoutButtonRef,
 }) {
   const { t } = useTranslation();
   
@@ -83,7 +84,7 @@ export default function MonitoringToolbar({
           />
         </div>
 
-        <div className="relative flex min-w-[240px] max-w-[360px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+        <div className="relative flex min-w-[220px] max-w-[320px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
           <div className="pointer-events-none text-white/40">
             <SearchIcon />
           </div>
@@ -99,13 +100,9 @@ export default function MonitoringToolbar({
             placeholder={t("monitoring.searchRegionPlaceholder")}
             className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
           />
-          <button
-            type="button"
-            onClick={onRegionSearch}
-            className="ml-2 whitespace-nowrap rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white transition hover:border-primary/60"
-          >
-            {isSearchingRegion ? t("loading") : t("monitoring.searchAction")}
-          </button>
+          {isSearchingRegion ? (
+            <div className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent" aria-label={t("loading")} />
+          ) : null}
         </div>
 
         <div className="flex flex-1 flex-wrap items-center gap-1 lg:flex-none">
@@ -146,6 +143,7 @@ export default function MonitoringToolbar({
             title="Colunas"
           />
           <ActionButton
+            ref={layoutButtonRef}
             icon={<LayoutIcon />}
             active={isLayoutActive}
             onClick={handleToggleLayout}
@@ -190,9 +188,10 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
   );
 }
 
-function ActionButton({ icon, active, onClick, title }) {
+const ActionButton = React.forwardRef(function ActionButton({ icon, active, onClick, title }, ref) {
   return (
     <button
+      ref={ref}
       type="button"
       onClick={onClick}
       title={title}
@@ -206,4 +205,4 @@ function ActionButton({ icon, active, onClick, title }) {
       {icon}
     </button>
   );
-}
+});

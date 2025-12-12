@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -32,6 +32,24 @@ const DEFAULT_MAP_HEIGHT = 60;
 const MIN_MAP_HEIGHT = 20;
 const MAX_MAP_HEIGHT = 80;
 
+const EURO_ONE_DEFAULT_COLUMNS = [
+  "client",
+  "vehicle",
+  "plate",
+  "ignition",
+  "deviceTime",
+  "serverTime",
+  "address",
+  "lastEvent",
+  "blocked",
+  "batteryLevel",
+  "speed",
+  "status",
+  "geofences",
+  "notes",
+  "actions",
+];
+
 const COLUMN_WIDTH_HINTS = {
   vehicle: 160,
   plate: 110,
@@ -48,6 +66,10 @@ const COLUMN_WIDTH_HINTS = {
   address: 260,
   status: 120,
   ignition: 110,
+  client: 160,
+  geofences: 140,
+  notes: 180,
+  faceRecognition: 120,
   actions: 90,
 };
 
@@ -90,9 +112,13 @@ export default function Monitoring() {
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
+  const [lastRegionQuery, setLastRegionQuery] = useState("");
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
+  const layoutButtonRef = useRef(null);
+  const [layoutPopupAnchor, setLayoutPopupAnchor] = useState(null);
+  const regionSearchTimeout = useRef(null);
 
   const [layoutVisibility, setLayoutVisibility] = useState({
     showMap: true,
@@ -100,6 +126,26 @@ export default function Monitoring() {
   });
 
   const { isSearching, searchRegion } = useGeocodeSearch();
+
+  useEffect(() => {
+    if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
+
+    if (!regionQuery.trim()) {
+      setRegionTarget(null);
+      return undefined;
+    }
+
+    const term = regionQuery.trim();
+    regionSearchTimeout.current = setTimeout(() => {
+      if (term !== lastRegionQuery) {
+        runRegionSearch(term);
+      }
+    }, 650);
+
+    return () => {
+      if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
+    };
+  }, [lastRegionQuery, regionQuery, runRegionSearch]);
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
@@ -306,14 +352,22 @@ export default function Monitoring() {
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
 
-  const handleRegionSearch = useCallback(async () => {
-    if (!regionQuery.trim()) return;
-    const result = await searchRegion(regionQuery);
+  const runRegionSearch = useCallback(async (term) => {
+    const safeTerm = term?.trim();
+    if (!safeTerm) return;
+    const result = await searchRegion(safeTerm);
     if (result) {
       setRegionTarget(result);
       setMapViewport({ center: [result.lat, result.lng], zoom: 13 });
+      setLastRegionQuery(safeTerm);
     }
-  }, [regionQuery, searchRegion]);
+  }, [searchRegion]);
+
+  const handleRegionSearch = useCallback(() => {
+    if (!regionQuery.trim()) return;
+    if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
+    runRegionSearch(regionQuery);
+  }, [regionQuery, runRegionSearch]);
 
   const handleSelectRow = useCallback((deviceId) => {
     focusDevice(deviceId);
@@ -331,7 +385,23 @@ export default function Monitoring() {
     focusDevice(deviceId, { openDetails: true });
   }, [focusDevice]);
 
+  const captureLayoutAnchor = useCallback(() => {
+    if (!layoutButtonRef.current) return;
+    const rect = layoutButtonRef.current.getBoundingClientRect();
+    const left = Math.min(Math.max(rect.left - 12, 8), window.innerWidth - 260);
+    setLayoutPopupAnchor({ top: rect.bottom + 8, left });
+  }, []);
+
+  const handleTogglePopup = useCallback((name) => {
+    setActivePopup((prev) => {
+      const next = prev === name ? null : name;
+      if (next === "layout") captureLayoutAnchor();
+      return next;
+    });
+  }, [captureLayoutAnchor]);
+
   const {
+    columnDefaults,
     visibleColumns,
     columnPrefs,
     toggleColumn,
@@ -347,6 +417,7 @@ export default function Monitoring() {
     loadingPreferences,
     storageKey: "monitoring.table.columns",
     savePreferences,
+    defaultColumnKeys: EURO_ONE_DEFAULT_COLUMNS,
   });
 
   useEffect(() => {
@@ -398,6 +469,49 @@ export default function Monitoring() {
             onMarkerSelect={handleMarkerSelect}
             onMarkerOpenDetails={handleMarkerDetails}
           />
+
+          {!layoutVisibility.showTable && (
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-3 px-4 py-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="pointer-events-auto flex min-w-[220px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-black/60 px-3 py-2 backdrop-blur-md">
+                  <div className="pointer-events-none text-white/50">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="11" cy="11" r="8"></circle>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                  </div>
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={t("monitoring.searchPlaceholderSimple")}
+                    className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/60 focus:outline-none"
+                  />
+                </div>
+
+                <div className="pointer-events-auto flex items-center gap-2">
+                  <button
+                    ref={layoutButtonRef}
+                    type="button"
+                    onClick={() => handleTogglePopup("layout")}
+                    className={`
+                      flex h-10 w-10 items-center justify-center rounded-md border text-xs leading-none transition-all
+                      ${activePopup === "layout"
+                        ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
+                        : "bg-black/60 text-white/70 border-white/20 hover:text-white hover:border-white/40"}
+                    `}
+                    title="Layout"
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <line x1="3" y1="11" x2="21" y2="11" />
+                      <line x1="12" y1="4" x2="12" y2="20" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -415,23 +529,14 @@ export default function Monitoring() {
               onFilterChange={setFilterMode}
               summary={summary}
               activePopup={activePopup}
-              onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
+              onTogglePopup={handleTogglePopup}
               regionQuery={regionQuery}
               onRegionQueryChange={setRegionQuery}
               onRegionSearch={handleRegionSearch}
               isSearchingRegion={isSearching}
+              layoutButtonRef={layoutButtonRef}
             />
           </div>
-
-          {activePopup === "layout" && (
-            <div className="absolute right-4 top-full mt-2 z-30">
-              <MonitoringLayoutSelector
-                layoutVisibility={layoutVisibility}
-                onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
-                onClose={() => setActivePopup(null)}
-              />
-            </div>
-          )}
         </div>
       )}
 
@@ -453,10 +558,26 @@ export default function Monitoring() {
         </div>
       )}
 
+      {activePopup === "layout" && (
+        <div className="fixed inset-0 z-40 pointer-events-none">
+          <div
+            className="pointer-events-auto"
+            style={{ position: "absolute", top: layoutPopupAnchor?.top ?? 96, left: layoutPopupAnchor?.left ?? 16 }}
+          >
+            <MonitoringLayoutSelector
+              layoutVisibility={layoutVisibility}
+              onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
+              onClose={() => setActivePopup(null)}
+            />
+          </div>
+        </div>
+      )}
+
       {activePopup === "columns" && (
         <MonitoringColumnSelector
           columns={allColumns}
           columnPrefs={columnPrefs}
+          defaultPrefs={columnDefaults}
           onApply={applyColumns}
           onRestore={restoreColumns}
           onClose={() => setActivePopup(null)}

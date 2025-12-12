@@ -12,8 +12,8 @@ function reorder(list, fromKey, toKey) {
   return next;
 }
 
-export default function MonitoringColumnSelector({ columns, columnPrefs, onApply, onRestore, onClose }) {
-  const defaults = useMemo(() => buildColumnDefaults(columns), [columns]);
+export default function MonitoringColumnSelector({ columns, columnPrefs, defaultPrefs, onApply, onRestore, onClose }) {
+  const defaults = useMemo(() => defaultPrefs || buildColumnDefaults(columns), [columns, defaultPrefs]);
 
   const initialState = useMemo(
     () => ({
@@ -24,10 +24,6 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
   );
 
   const [working, setWorking] = useState(initialState);
-
-  React.useEffect(() => {
-    setWorking(initialState);
-  }, [initialState]);
 
   const orderedColumns = useMemo(() => {
     const ordered = working.order
@@ -52,7 +48,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
   };
 
   const handleApply = () => {
-    onApply?.(working);
+    onApply?.({ ...working, widths: columnPrefs?.widths });
     onClose?.();
   };
 
@@ -60,6 +56,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
     const defaultState = {
       visible: { ...(defaults?.visible || {}) },
       order: [...(defaults?.order || columns.map((col) => col.key))],
+      widths: defaults?.widths,
     };
     setWorking(defaultState);
     onRestore?.();

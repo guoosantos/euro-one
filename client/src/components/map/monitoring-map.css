@@ -1,0 +1,16 @@
+.leaflet-container .monitoring-popup .leaflet-popup-content-wrapper {
+  background: rgba(11, 15, 23, 0.95);
+  color: #e5e7eb;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.leaflet-container .monitoring-popup .leaflet-popup-tip-container {
+  display: none;
+}
+
+.leaflet-container .monitoring-popup .leaflet-popup-content {
+  margin: 10px 12px;
+  width: auto !important;
+}
