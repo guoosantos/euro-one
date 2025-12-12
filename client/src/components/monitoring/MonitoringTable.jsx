@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 
+
 const MIN_COLUMN_WIDTH = 80;
+
 
 
 export default function MonitoringTable({ rows, columns, loading, selectedDeviceId, onSelect, emptyText }) {
@@ -43,7 +45,9 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
     const width = columnWidths[key];
     if (!width) return undefined;
 
+
     return { width, minWidth: width };
+
 
   };
 
@@ -65,18 +69,22 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
 
   return (
     <div className="h-full w-full overflow-auto bg-[#0b0f17]">
+
       <table className="min-w-full border-collapse text-left">
+
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
           <tr>
             {columns.map((col) => (
               <th
                 key={col.key}
                 style={getWidthStyle(col.key)}
+
                 className="relative border-r border-white/5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
                   <span className="whitespace-nowrap">{col.label}</span>
+
 
                   {!col.fixed && (
                     <span
@@ -104,6 +112,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
 
                 if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
 
+
                   if (cellValue.formattedAddress) {
                     cellValue = cellValue.formattedAddress;
                   } else if (cellValue.address) {
@@ -112,16 +121,19 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                     cellValue = "";
                   }
 
+
                 }
 
                 return (
                   <td
                     key={`${row.key}-${col.key}`}
                     style={getWidthStyle(col.key)}
+
                     className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                   >
                     <div className="truncate" title={typeof cellValue === "string" ? cellValue : undefined}>{cellValue}</div>
                   </td>
+
                 );
               })}
             </tr>

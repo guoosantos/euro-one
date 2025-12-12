@@ -210,12 +210,14 @@ export default function Monitoring() {
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
 
+
     TELEMETRY_COLUMNS.map(col => ({
       ...col,
       width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
       label: t(col.labelKey),
       render: row => col.getValue(row, { t, locale }),
     })), [t, locale]);
+
 
 
   const actionsColumn = useMemo(() => ({
@@ -257,8 +259,10 @@ export default function Monitoring() {
   return (
     <div
 
+
       className="relative grid w-full bg-[#0b0f17]"
       style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}
+
 
     >
       {layoutVisibility.showMap && (
