@@ -18,8 +18,25 @@ export default function useMonitoringSettings({
   remotePreferences = null,
   loadingPreferences = false,
   savePreferences = null,
+  defaultColumnKeys = null,
 }) {
-  const defaults = useMemo(() => buildColumnDefaults(columns), [columns]);
+  const defaults = useMemo(() => {
+    const base = buildColumnDefaults(columns);
+    if (Array.isArray(defaultColumnKeys) && defaultColumnKeys.length) {
+      const orderFromDefaults = defaultColumnKeys.filter((key) => base.order.includes(key));
+      const missing = base.order.filter((key) => !orderFromDefaults.includes(key));
+      const visible = Object.fromEntries(
+        base.order.map((key) => [key, orderFromDefaults.includes(key)]),
+      );
+
+      return {
+        ...base,
+        visible,
+        order: [...orderFromDefaults, ...missing],
+      };
+    }
+    return base;
+  }, [columns, defaultColumnKeys]);
 
   // memo estável
   const mergePrefs = useCallback(
@@ -200,6 +217,7 @@ export default function useMonitoringSettings({
   );
 
   return {
+    columnDefaults: defaults,
     columnPrefs,
     visibleColumns,
     moveColumn,

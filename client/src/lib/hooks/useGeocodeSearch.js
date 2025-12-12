@@ -15,7 +15,7 @@ export default function useGeocodeSearch() {
     setError(null);
 
     try {
-      const url = `${NOMINATIM_URL}?format=json&q=${encodeURIComponent(term)}&limit=1`;
+      const url = `${NOMINATIM_URL}?format=json&q=${encodeURIComponent(term)}&limit=5&addressdetails=1&polygon_geojson=0`;
       const response = await fetch(url, {
         headers: {
           "User-Agent": "Euro-One/monitoring-ui",
@@ -24,13 +24,26 @@ export default function useGeocodeSearch() {
 
       if (!response.ok) throw new Error("Geocoding failed");
       const data = await response.json();
-      const first = Array.isArray(data) ? data[0] : null;
+      const candidates = Array.isArray(data)
+        ? data.filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)))
+        : [];
 
-      if (first && first.lat && first.lon) {
+      const [best] = candidates.sort((a, b) => (b.importance || 0) - (a.importance || 0));
+
+      if (best) {
+        const label = best.display_name || term;
+        const address = best.address || {};
+        const conciseAddress = [address.city || address.town || address.village, address.state, address.country]
+          .filter(Boolean)
+          .join(", ");
+
         const result = {
-          lat: Number(first.lat),
-          lng: Number(first.lon),
-          label: first.display_name || term,
+          lat: Number(best.lat),
+          lng: Number(best.lon),
+          label,
+          address: conciseAddress || label,
+          raw: best,
+          boundingBox: best.boundingbox,
         };
         setLastResult(result);
         return result;

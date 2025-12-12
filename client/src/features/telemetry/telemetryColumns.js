@@ -1,3 +1,4 @@
+import React from "react";
 import { formatAddress } from "../../lib/format-address.js";
 import {
   deriveStatus,
@@ -16,6 +17,18 @@ export const TELEMETRY_COLUMNS = [
     labelKey: "monitoring.columns.vehicle",
     defaultVisible: true,
     getValue: (row) => row.deviceName || row.vehicleName || row.vehicle?.name || FALLBACK,
+  },
+  {
+    key: "client",
+    labelKey: "monitoring.columns.client",
+    defaultVisible: false,
+    getValue: (row) =>
+      row.device?.client ||
+      row.device?.customer ||
+      row.device?.customerName ||
+      row.device?.attributes?.client ||
+      row.device?.attributes?.customer ||
+      FALLBACK,
   },
   {
     key: "plate",
@@ -158,6 +171,17 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row) => (row.position?.geofenceIds ? [].concat(row.position.geofenceIds).join(", ") : FALLBACK),
   },
   {
+    key: "geofences",
+    labelKey: "monitoring.columns.geofences",
+    defaultVisible: false,
+    getValue: (row) => {
+      const names = row.position?.geofences || row.device?.geofences;
+      if (Array.isArray(names) && names.length) return names.join(", ");
+      if (row.position?.geofenceIds) return [].concat(row.position.geofenceIds).join(", ");
+      return FALLBACK;
+    },
+  },
+  {
     key: "type",
     labelKey: "monitoring.columns.type",
     defaultVisible: false,
@@ -212,6 +236,27 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row) => row.position?.batteryLevel ?? row.position?.attributes?.batteryLevel ?? FALLBACK,
   },
   {
+    key: "faceRecognition",
+    labelKey: "monitoring.columns.faceRecognition",
+    defaultVisible: false,
+    getValue: (row) => {
+      const attributes = row.position?.attributes || row.device?.attributes || {};
+      const mediaUrl = attributes.faceRecognitionMediaUrl || attributes.faceRecognitionUrl || attributes.faceRecognition;
+      const thumbnail = attributes.faceRecognitionThumbnail || attributes.faceRecognitionThumb || mediaUrl;
+      const status = attributes.faceRecognitionStatus ?? attributes.faceRecognitionSuccess ?? attributes.faceRecognition;
+
+      if (!mediaUrl && !thumbnail && !status) return "—";
+
+      return (
+        <FaceRecognitionCell
+          mediaUrl={mediaUrl || thumbnail}
+          thumbnail={thumbnail || mediaUrl}
+          status={status}
+        />
+      );
+    },
+  },
+  {
     key: "rssi",
     labelKey: "monitoring.columns.rssi",
     defaultVisible: false,
@@ -245,7 +290,40 @@ export const TELEMETRY_COLUMNS = [
     defaultVisible: false,
     getValue: (row) => row.position?.hours ?? row.position?.attributes?.hours ?? FALLBACK,
   },
+  {
+    key: "notes",
+    labelKey: "monitoring.columns.notes",
+    defaultVisible: false,
+    getValue: (row) => row.device?.notes || row.device?.observations || row.device?.attributes?.notes || FALLBACK,
+  },
 ];
+
+function FaceRecognitionCell({ mediaUrl, thumbnail, status }) {
+  const hasMedia = Boolean(mediaUrl || thumbnail);
+  const success = status === true || status === "success" || status === "ok" || status === 1;
+
+  if (!hasMedia) return "—";
+
+  return (
+    <div className="group relative inline-flex items-center gap-2 text-emerald-300">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-emerald-400/40 bg-emerald-500/10 text-[11px] font-semibold">
+        📷
+      </span>
+      <span className="text-[10px] uppercase tracking-wide">{success ? "OK" : "Registrado"}</span>
+
+      <div className="pointer-events-none absolute left-1/2 top-full z-40 hidden w-56 -translate-x-1/2 translate-y-2 rounded-xl border border-white/10 bg-[#0b0f17] p-2 text-white shadow-3xl group-hover:block">
+        <div className="mb-2 text-[10px] uppercase tracking-wide text-white/60">Reconhecimento facial</div>
+        <div className="overflow-hidden rounded-lg border border-white/10 bg-black/30">
+          {mediaUrl?.endsWith(".mp4") || mediaUrl?.endsWith(".webm") ? (
+            <video className="h-full w-full" src={mediaUrl} controls muted playsInline />
+          ) : (
+            <img src={thumbnail || mediaUrl} alt="Reconhecimento facial" className="h-full w-full object-cover" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function getTelemetryColumnByKey(key) {
   return TELEMETRY_COLUMNS.find((column) => column.key === key) || null;

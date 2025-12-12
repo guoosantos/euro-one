@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, Polygon, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
+import "./monitoring-map.css";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
@@ -256,7 +257,7 @@ export default function MonitoringMap({
             radius={18}
             pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.18 }}
           >
-            <Popup closeButton={false}>
+            <Popup closeButton={false} className="monitoring-popup">
               <div className="text-xs text-white/80">
                 <div className="font-semibold text-white">{regionTarget.label}</div>
                 <div>{regionTarget.address}</div>

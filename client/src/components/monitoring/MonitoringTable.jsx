@@ -24,8 +24,13 @@ export default function MonitoringTable({
   );
 
   const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...(externalWidths || {}) });
+  const liveWidthsRef = useRef(columnWidths);
   const containerRef = useRef(null);
   const rowRefs = useRef(new Map());
+
+  useEffect(() => {
+    liveWidthsRef.current = columnWidths;
+  }, [columnWidths]);
 
   useEffect(() => {
     setColumnWidths((prev) => {
@@ -55,13 +60,17 @@ export default function MonitoringTable({
     const handleMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX;
       const nextWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + delta));
-      setColumnWidths(prev => ({ ...prev, [key]: nextWidth }));
+      setColumnWidths(prev => {
+        const updated = { ...prev, [key]: nextWidth };
+        liveWidthsRef.current = updated;
+        return updated;
+      });
     };
 
     const handleUp = () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
-      const finalWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(event.currentTarget.parentElement.getBoundingClientRect().width));
+      const finalWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(liveWidthsRef.current?.[key] || startWidth));
       onColumnWidthChange?.(key, finalWidth);
     };
 
@@ -171,11 +180,15 @@ export default function MonitoringTable({
                   }
                 }
 
+                const isElement = React.isValidElement(cellValue);
                 const cellTitle = col.key === "vehicle"
                   ? row.deviceName
                   : typeof cellValue === "string"
                     ? cellValue
                     : undefined;
+                const contentClass = isElement
+                  ? "flex items-center gap-1 overflow-visible"
+                  : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
 
                 return (
                   <td
@@ -185,8 +198,8 @@ export default function MonitoringTable({
                     className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                   >
                     <div
-                      className="truncate whitespace-nowrap overflow-hidden text-ellipsis"
-                      title={cellTitle}
+                      className={contentClass}
+                      title={isElement ? undefined : cellTitle}
                     >
                       {cellValue}
                     </div>
