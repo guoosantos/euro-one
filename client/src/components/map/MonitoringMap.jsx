@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap, Polygon } from "react-leaflet";
+import { MapContainer, Marker, Popup, TileLayer, useMap, Polygon, CircleMarker } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -191,7 +191,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
     <Marker
       key={marker.id ?? `${marker.lat}-${marker.lng}`}
       position={[marker.lat, marker.lng]}
-      icon={getMarkerIcon(marker.color, marker.iconType)}
+      icon={getMarkerIcon(marker.color || marker.accentColor, marker.iconType)}
       ref={(ref) => {
         if (ref && marker.id) markerRefs.current.set(marker.id, ref);
         else if (!ref && marker.id) markerRefs.current.delete(marker.id);
@@ -212,6 +212,7 @@ export default function MonitoringMap({
   focusMarkerId = null,
   mapViewport = null,
   onViewportChange = null,
+  regionTarget = null,
 }) {
   // Configuração padrão do tile layer
   const tileUrl = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -230,12 +231,27 @@ export default function MonitoringMap({
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
 
-        <MarkerLayer 
-          markers={markers} 
-          focusMarkerId={focusMarkerId} 
-          mapViewport={mapViewport} 
-          onViewportChange={onViewportChange} 
+        <MarkerLayer
+          markers={markers}
+          focusMarkerId={focusMarkerId}
+          mapViewport={mapViewport}
+          onViewportChange={onViewportChange}
         />
+
+        {regionTarget ? (
+          <CircleMarker
+            center={[regionTarget.lat, regionTarget.lng]}
+            radius={18}
+            pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.18 }}
+          >
+            <Popup closeButton={false}>
+              <div className="text-xs text-white/80">
+                <div className="font-semibold text-white">{regionTarget.label}</div>
+                <div>{regionTarget.address}</div>
+              </div>
+            </Popup>
+          </CircleMarker>
+        ) : null}
 
         {/* Renderização de Geofences */}
         {geofences.map((geo) => {

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -6,11 +6,14 @@ import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringToolbar from "../components/monitoring/MonitoringToolbar.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
+import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
+import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
+import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 
 import {
   deriveStatus,
@@ -25,10 +28,9 @@ import {
 
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
 
-const MAP_HEIGHT_STORAGE_KEY = "monitoring:mapHeightPercent";
-const DEFAULT_MAP_HEIGHT = 65;
-const MIN_MAP_HEIGHT = 10;
-const MAX_MAP_HEIGHT = 100;
+const DEFAULT_MAP_HEIGHT = 60;
+const MIN_MAP_HEIGHT = 20;
+const MAX_MAP_HEIGHT = 80;
 
 const COLUMN_WIDTH_HINTS = {
   vehicle: 180,
@@ -49,37 +51,26 @@ const COLUMN_WIDTH_HINTS = {
   actions: 90,
 };
 
+const NEARBY_RADIUS_KM = 5;
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 const COLUMN_LABEL_OVERRIDES = {
   speed: "monitoring.columns.speedShort",
   address: "monitoring.columns.addressShort",
   serverTime: "monitoring.columns.serverTimeShort",
 };
-
-function getStoredMapHeight() {
-  if (typeof window === "undefined") return DEFAULT_MAP_HEIGHT;
-
-  try {
-    const storedValue = window.localStorage?.getItem(MAP_HEIGHT_STORAGE_KEY);
-    const parsed = Number(storedValue);
-    if (Number.isFinite(parsed)) {
-      return Math.min(MAX_MAP_HEIGHT, Math.max(MIN_MAP_HEIGHT, parsed));
-    }
-  } catch (_error) {
-    // Se o localStorage não estiver disponível, apenas retorna o padrão.
-  }
-
-  return DEFAULT_MAP_HEIGHT;
-}
-
-function persistMapHeight(value) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage?.setItem(MAP_HEIGHT_STORAGE_KEY, String(value));
-  } catch (_error) {
-    // Persistência local não é essencial; ignore falhas silenciosamente.
-  }
-}
 
 export default function Monitoring() {
   const { t, locale } = useTranslation();
@@ -94,9 +85,11 @@ export default function Monitoring() {
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
-
-  // Controle visual entre mapa e grade
-  const [mapHeightPercent, setMapHeightPercent] = useState(getStoredMapHeight());
+  const [regionQuery, setRegionQuery] = useState("");
+  const [regionTarget, setRegionTarget] = useState(null);
+  const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
+  const [detailsVehicle, setDetailsVehicle] = useState(null);
+  const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -106,20 +99,28 @@ export default function Monitoring() {
     showTable: true,
   });
 
-  useEffect(() => {
-    persistMapHeight(mapHeightPercent);
-  }, [mapHeightPercent]);
+  const { isSearching, searchRegion } = useGeocodeSearch();
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
     Math.max(MIN_MAP_HEIGHT, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_MAP_HEIGHT),
   );
-  const tableHeightPercent = useMemo(
-    () => (layoutVisibility.showMap ? Math.max(10, 100 - mapHeightPercent) : 100),
-    [layoutVisibility.showMap, mapHeightPercent],
+
+  useEffect(() => {
+    const next = Number.isFinite(mapHeightPercent)
+      ? clampMapHeight(mapHeightPercent)
+      : DEFAULT_MAP_HEIGHT;
+    setLocalMapHeight(prev => (prev !== next ? next : prev));
+  }, [mapHeightPercent]);
+
+  const handleMapResize = useCallback(
+    (value) => {
+      const next = clampMapHeight(value);
+      setLocalMapHeight(next);
+      updateMapHeight(next);
+    },
+    [updateMapHeight],
   );
-  const handleMapHeightChange = value => setMapHeightPercent(clampMapHeight(value));
-  const toggleTableEmphasis = () => setMapHeightPercent(prev => clampMapHeight(prev >= 60 ? 35 : 75));
 
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
@@ -173,7 +174,7 @@ export default function Monitoring() {
       const lat = pickCoordinate([pos?.lat, pos?.latitude]);
       const lng = pickCoordinate([pos?.lng, pos?.longitude]);
 
-      return {
+      const row = {
         key,
         device,
         deviceId: key,
@@ -188,11 +189,27 @@ export default function Monitoring() {
         statusBadge: deriveStatus(pos),
         onFocus: setSelectedDeviceId,
       };
+
+      return {
+        ...row,
+        onOpenDetails: () => setDetailsVehicle(row),
+      };
     });
   }, [filteredDevices]);
 
+  const decoratedRows = useMemo(
+    () => rows.map(row => ({ ...row, isNearby: nearbyDeviceIds.includes(row.deviceId) })),
+    [rows, nearbyDeviceIds],
+  );
+
+  useEffect(() => {
+    if (!detailsVehicle) return;
+    const match = decoratedRows.find(item => item.deviceId === detailsVehicle.deviceId);
+    if (match) setDetailsVehicle(match);
+  }, [decoratedRows, detailsVehicle]);
+
   const markers = useMemo(() => {
-    return rows
+    return decoratedRows
       .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
       .map(r => ({
         id: r.deviceId,
@@ -204,14 +221,28 @@ export default function Monitoring() {
         speedLabel: `${r.speed ?? 0} km/h`,
         lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
         color: r.statusBadge === "online" ? "#22c55e" : "#f87171",
+        accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
       }));
-  }, [rows, locale]);
+  }, [decoratedRows, locale, selectedDeviceId]);
 
   const summary = useMemo(() => {
     const online = rows.filter(r => isOnline(r.position)).length;
     const moving = rows.filter(r => (r.speed ?? 0) > 0).length;
     return { online, offline: rows.length - online, moving, total: rows.length };
   }, [rows]);
+
+  useEffect(() => {
+    if (!regionTarget) {
+      setNearbyDeviceIds([]);
+      return;
+    }
+
+    const ids = rows
+      .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+      .filter(r => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= NEARBY_RADIUS_KM)
+      .map(r => r.deviceId);
+    setNearbyDeviceIds(ids);
+  }, [rows, regionTarget]);
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
@@ -235,44 +266,80 @@ export default function Monitoring() {
     fixed: true,
     width: COLUMN_WIDTH_HINTS.actions,
     render: row => (
-      <button
-        className="text-primary hover:text-primary-light text-xs font-bold uppercase tracking-wide"
-        onClick={() => row.onFocus?.(row.deviceId)}
-      >
-        Mapa
-      </button>
+      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
+        <button
+          className="rounded border border-primary/40 bg-primary/10 px-2 py-1 font-semibold text-primary hover:bg-primary/20"
+          onClick={() => row.onFocus?.(row.deviceId)}
+        >
+          Mapa
+        </button>
+        <button
+          className="rounded border border-white/15 bg-white/5 px-2 py-1 font-semibold text-white/70 hover:text-white"
+          onClick={(event) => {
+            event.stopPropagation();
+            row.onOpenDetails?.();
+          }}
+        >
+          Detalhes
+        </button>
+      </div>
     ),
   }), [t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
 
-  const { visibleColumns, columnPrefs, toggleColumn, restoreColumns, moveColumn } =
-    useMonitoringSettings({
-      columns: allColumns,
-      remotePreferences: preferences,
-      loadingPreferences,
-      storageKey: "monitoring.table.columns",
-      savePreferences,
-    });
+  const handleRegionSearch = useCallback(async () => {
+    if (!regionQuery.trim()) return;
+    const result = await searchRegion(regionQuery);
+    if (result) {
+      setRegionTarget(result);
+      setMapViewport({ center: [result.lat, result.lng], zoom: 13 });
+    }
+  }, [regionQuery, searchRegion]);
+
+  const handleSelectRow = useCallback((deviceId) => {
+    setSelectedDeviceId(deviceId);
+  }, []);
+
+  const {
+    visibleColumns,
+    columnPrefs,
+    toggleColumn,
+    restoreColumns,
+    moveColumn,
+    updateColumnWidth,
+    mapHeightPercent,
+    updateMapHeight,
+    applyColumns,
+  } = useMonitoringSettings({
+    columns: allColumns,
+    remotePreferences: preferences,
+    loadingPreferences,
+    storageKey: "monitoring.table.columns",
+    savePreferences,
+  });
+
+  const visibleColumnsWithWidths = useMemo(
+    () => visibleColumns.map(col => ({ ...col, width: columnPrefs.widths?.[col.key] ?? col.width })),
+    [visibleColumns, columnPrefs.widths],
+  );
+
+  const tableHeightPercent = useMemo(
+    () => (layoutVisibility.showMap ? Math.max(10, 100 - localMapHeight) : 100),
+    [layoutVisibility.showMap, localMapHeight],
+  );
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
-      return `${mapHeightPercent}fr auto ${tableHeightPercent}fr`;
+      return `${localMapHeight}% 12px ${tableHeightPercent}%`;
     }
     if (layoutVisibility.showMap) return "1fr";
     if (layoutVisibility.showTable) return "auto 1fr";
     return "1fr";
-  }, [layoutVisibility.showMap, layoutVisibility.showTable, mapHeightPercent, tableHeightPercent]);
+  }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight, tableHeightPercent]);
 
   return (
-    <div
-
-
-      className="relative grid w-full bg-[#0b0f17]"
-      style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}
-
-
-    >
+    <div className="relative grid w-full bg-[#0b0f17]" style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}>
       {layoutVisibility.showMap && (
         <div className="relative border-b border-white/10">
           <MonitoringMap
@@ -281,8 +348,13 @@ export default function Monitoring() {
             focusMarkerId={selectedDeviceId}
             mapViewport={mapViewport}
             onViewportChange={setMapViewport}
+            regionTarget={regionTarget}
           />
         </div>
+      )}
+
+      {layoutVisibility.showMap && layoutVisibility.showTable && (
+        <MapTableSplitter onResize={handleMapResize} currentPercent={localMapHeight} />
       )}
 
       {layoutVisibility.showTable && (
@@ -296,52 +368,11 @@ export default function Monitoring() {
               summary={summary}
               activePopup={activePopup}
               onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
+              regionQuery={regionQuery}
+              onRegionQueryChange={setRegionQuery}
+              onRegionSearch={handleRegionSearch}
+              isSearchingRegion={isSearching}
             />
-
-            {layoutVisibility.showMap && (
-              <div className="flex flex-wrap items-center gap-3 text-[11px] text-white/70">
-                <button
-                  type="button"
-                  onClick={toggleTableEmphasis}
-                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition hover:border-primary/70 hover:text-white"
-                  title="Alternar foco entre mapa e tabela"
-                  aria-label="Alternar foco entre mapa e tabela"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
-                  </svg>
-                </button>
-
-                <div className="flex items-center gap-2">
-                  <span className="hidden xl:inline">Altura do mapa</span>
-                  <input
-                    type="range"
-                    min={MIN_MAP_HEIGHT}
-                    max={MAX_MAP_HEIGHT}
-                    step="1"
-                    value={mapHeightPercent}
-                    onChange={(e) => handleMapHeightChange(e.target.value)}
-                    className="h-2 w-28 md:w-36 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
-                  />
-                  <input
-                    type="number"
-                    min={MIN_MAP_HEIGHT}
-                    max={MAX_MAP_HEIGHT}
-                    value={mapHeightPercent}
-                    onChange={(e) => handleMapHeightChange(e.target.value)}
-                    className="hidden lg:block w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/90 outline-none transition focus:border-primary"
-                  />
-                  <span className="font-semibold text-white/90 min-w-[3ch] text-right">{mapHeightPercent}%</span>
-                </div>
-              </div>
-            )}
           </div>
 
           {activePopup === "layout" && (
@@ -360,12 +391,14 @@ export default function Monitoring() {
         <div className="relative z-10 overflow-hidden">
           <div className="h-full overflow-hidden">
             <MonitoringTable
-              rows={rows}
-              columns={visibleColumns}
+              rows={decoratedRows}
+              columns={visibleColumnsWithWidths}
               selectedDeviceId={selectedDeviceId}
-              onSelect={setSelectedDeviceId}
+              onSelect={handleSelectRow}
               loading={loading}
               emptyText={t("monitoring.emptyState")}
+              columnWidths={columnPrefs.widths}
+              onColumnWidthChange={updateColumnWidth}
             />
           </div>
         </div>
@@ -374,13 +407,14 @@ export default function Monitoring() {
       {activePopup === "columns" && (
         <MonitoringColumnSelector
           columns={allColumns}
-          visibleState={columnPrefs.visible}
-          onToggle={toggleColumn}
-          onReorder={moveColumn}
+          columnPrefs={columnPrefs}
+          onApply={applyColumns}
           onRestore={restoreColumns}
           onClose={() => setActivePopup(null)}
         />
       )}
+
+      <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={() => setDetailsVehicle(null)} />
     </div>
   );
 }

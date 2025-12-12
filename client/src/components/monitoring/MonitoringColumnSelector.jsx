@@ -1,16 +1,65 @@
-import React, { useRef } from "react";
+import React, { useMemo, useState } from "react";
 import useOutsideClick from "../../hooks/useOutsideClick.js";
 
-export default function MonitoringColumnSelector({
-  columns,
-  visibleState,
-  onToggle,
-  onReorder,
-  onRestore,
-  onClose,
-}) {
-  const containerRef = useRef(null);
-  useOutsideClick(containerRef, onClose, true);
+function reorder(list, fromKey, toKey) {
+  const currentOrder = Array.isArray(list) ? [...list] : [];
+  const fromIndex = currentOrder.indexOf(fromKey);
+  const toIndex = currentOrder.indexOf(toKey);
+  if (fromIndex === -1 || toIndex === -1) return currentOrder;
+  const next = [...currentOrder];
+  const [moved] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, moved);
+  return next;
+}
+
+export default function MonitoringColumnSelector({ columns, columnPrefs, onApply, onRestore, onClose }) {
+  const containerRef = useOutsideClick(onClose);
+
+  const initialState = useMemo(
+    () => ({
+      visible: { ...(columnPrefs?.visible || {}) },
+      order: [...(columnPrefs?.order || columns.map((col) => col.key))],
+    }),
+    [columnPrefs, columns],
+  );
+
+  const [working, setWorking] = useState(initialState);
+
+  React.useEffect(() => {
+    setWorking(initialState);
+  }, [initialState]);
+
+  const orderedColumns = useMemo(() => {
+    const ordered = working.order
+      .map((key) => columns.find((col) => col.key === key))
+      .filter(Boolean);
+    const missing = columns.filter((col) => !working.order.includes(col.key));
+    return [...ordered, ...missing];
+  }, [columns, working.order]);
+
+  const toggleVisibility = (key) => {
+    setWorking((prev) => ({
+      ...prev,
+      visible: { ...prev.visible, [key]: prev.visible?.[key] === false },
+    }));
+  };
+
+  const handleDrop = (fromKey, toKey) => {
+    setWorking((prev) => ({
+      ...prev,
+      order: reorder(prev.order, fromKey, toKey),
+    }));
+  };
+
+  const handleApply = () => {
+    onApply?.(working);
+    onClose?.();
+  };
+
+  const handleRestore = () => {
+    setWorking(initialState);
+    onRestore?.();
+  };
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
@@ -21,7 +70,7 @@ export default function MonitoringColumnSelector({
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-white">Colunas visíveis</div>
-            <p className="text-xs text-white/60">Arraste para reordenar e marque para exibir ou esconder.</p>
+            <p className="text-xs text-white/60">Arraste para reordenar, marque para exibir ou esconder.</p>
           </div>
           <button
             type="button"
@@ -34,7 +83,7 @@ export default function MonitoringColumnSelector({
         </div>
 
         <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
-          {columns.map((column) => (
+          {orderedColumns.map((column) => (
             <div
               key={column.key}
               className={`flex items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-2 hover:border-white/30 ${column.fixed ? "opacity-80" : ""}`}
@@ -44,11 +93,8 @@ export default function MonitoringColumnSelector({
                 event.preventDefault();
                 const fromKey = event.dataTransfer?.getData("text/column-key") || event.currentTarget.dataset.dragKey;
                 if (fromKey && fromKey !== column.key) {
-                  onReorder?.(fromKey, column.key);
+                  handleDrop(fromKey, column.key);
                 }
-              }}
-              onDragEnd={() => {
-                if (onClose) onClose();
               }}
               data-drag-key={column.key}
               onDragStartCapture={(event) => {
@@ -63,29 +109,38 @@ export default function MonitoringColumnSelector({
               <input
                 type="checkbox"
                 className="accent-primary"
-                checked={visibleState?.[column.key] !== false}
+                checked={working.visible?.[column.key] !== false}
                 disabled={column.fixed}
-                onChange={() => onToggle?.(column.key)}
+                onChange={() => toggleVisibility(column.key)}
               />
             </div>
           ))}
         </div>
 
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <div className="mt-4 flex items-center justify-between gap-2">
           <button
             type="button"
             className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
-            onClick={onRestore}
+            onClick={handleRestore}
           >
             Restaurar padrão
           </button>
-          <button
-            type="button"
-            className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
-            onClick={onClose}
-          >
-            Fechar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+              onClick={onClose}
+            >
+              Fechar
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
+              onClick={handleApply}
+            >
+              Aplicar
+            </button>
+          </div>
         </div>
       </div>
     </div>

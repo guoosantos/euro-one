@@ -2,19 +2,32 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const MIN_COLUMN_WIDTH = 80;
 
-export default function MonitoringTable({ rows, columns, loading, selectedDeviceId, onSelect, emptyText }) {
-  const baseWidths = useMemo(() => (
-    columns.reduce((acc, col) => {
-      if (col.width) acc[col.key] = col.width;
-      return acc;
-    }, {})
-  ), [columns]);
+export default function MonitoringTable({
+  rows,
+  columns,
+  loading,
+  selectedDeviceId,
+  onSelect,
+  emptyText,
+  columnWidths: externalWidths,
+  onColumnWidthChange,
+  onOpenDetails,
+}) {
+  const baseWidths = useMemo(
+    () => (
+      columns.reduce((acc, col) => {
+        if (col.width) acc[col.key] = col.width;
+        return acc;
+      }, {})
+    ),
+    [columns],
+  );
 
-  const [columnWidths, setColumnWidths] = useState(baseWidths);
+  const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...(externalWidths || {}) });
 
   useEffect(() => {
-    setColumnWidths(prev => ({ ...baseWidths, ...prev }));
-  }, [baseWidths]);
+    setColumnWidths(prev => ({ ...baseWidths, ...(externalWidths || {}), ...prev }));
+  }, [baseWidths, externalWidths]);
 
   const startResize = (key, event) => {
     event.preventDefault();
@@ -31,6 +44,8 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
     const handleUp = () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
+      const finalWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(event.currentTarget.parentElement.getBoundingClientRect().width));
+      onColumnWidthChange?.(key, finalWidth);
     };
 
     window.addEventListener("mousemove", handleMove);
@@ -99,7 +114,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
             <tr
               key={row.key}
               onClick={() => onSelect(row.deviceId)}
-              className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""}`}
+              className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
             >
               {columns.map((col) => {
                 let cellValue = col.render ? col.render(row) : row[col.key];
@@ -137,7 +152,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
 
                     className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                   >
-                    <div className="truncate" title={typeof cellValue === "string" ? cellValue : undefined}>{cellValue}</div>
+                    <div className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={typeof cellValue === "string" ? cellValue : undefined}>{cellValue}</div>
                   </td>
                 );
               })}

@@ -7,22 +7,26 @@ const STORAGE_KEY = "userPrefs:monitoring";
 
 const DEFAULT_PREFERENCES = {
   monitoringTableColumns: null,
+  monitoringColumnWidths: null,
   routeReportColumns: null,
   tripsReportColumns: null,
   monitoringDefaultFilters: null,
   monitoringLayoutVisibility: null,
+  monitoringMapHeight: null,
 };
 
 function normaliseColumns(columns) {
   if (!columns || typeof columns !== "object") return null;
   const visible = columns.visible && typeof columns.visible === "object" ? { ...columns.visible } : undefined;
   const order = Array.isArray(columns.order) ? [...columns.order] : undefined;
+  const widths = columns.widths && typeof columns.widths === "object" ? { ...columns.widths } : undefined;
 
-  if (!visible && !order) return null;
+  if (!visible && !order && !widths) return null;
 
   return {
     ...(visible ? { visible } : {}),
     ...(order ? { order } : {}),
+    ...(widths ? { widths } : {}),
   };
 }
 
