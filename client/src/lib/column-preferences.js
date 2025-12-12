@@ -3,23 +3,30 @@ export function buildColumnDefaults(columns = []) {
   return {
     visible: Object.fromEntries(list.map((column) => [column.key, column.defaultVisible !== false])),
     order: list.map((column) => column.key),
+    widths: Object.fromEntries(
+      list
+        .filter((column) => column.width)
+        .map((column) => [column.key, column.width]),
+    ),
   };
 }
 
 export function mergeColumnPreferences(defaults, saved) {
-  const base = defaults || { visible: {}, order: [] };
+  const base = defaults || { visible: {}, order: [], widths: {} };
   const visible = { ...base.visible, ...(saved?.visible || {}) };
   const savedOrder = Array.isArray(saved?.order) ? saved.order : [];
   const ordered = savedOrder.filter((key) => base.order.includes(key));
   const missing = base.order.filter((key) => !ordered.includes(key));
+  const widths = { ...base.widths, ...(saved?.widths || {}) };
   return {
     visible,
     order: [...ordered, ...missing],
+    widths,
   };
 }
 
 export function loadColumnPreferences(storageKey, defaults) {
-  const fallback = defaults || { visible: {}, order: [] };
+  const fallback = defaults || { visible: {}, order: [], widths: {} };
   if (typeof window === "undefined") return fallback;
   try {
     const saved = window.localStorage?.getItem(storageKey);

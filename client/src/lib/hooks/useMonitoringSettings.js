@@ -10,6 +10,7 @@ import {
 
 const DEFAULT_STORAGE_KEY = "monitoring.table.columns";
 const PANEL_STORAGE_KEY = "monitoring.panel.ratio";
+const MAP_HEIGHT_KEY = "monitoring.map.height";
 
 export default function useMonitoringSettings({
   columns,
@@ -28,6 +29,7 @@ export default function useMonitoringSettings({
 
   const [columnPrefs, setColumnPrefs] = useState(defaults);
   const [panelRatio, setPanelRatio] = useState(0.55);
+  const [mapHeightPercent, setMapHeightPercent] = useState(null);
 
   // --- CARREGAMENTO INICIAL SEGURO (sem loops) ---
   useEffect(() => {
@@ -60,6 +62,14 @@ export default function useMonitoringSettings({
         setPanelRatio((prev) => (prev !== storedRatio ? storedRatio : prev));
       }
     }
+
+    const storedMapHeight = Number(localStorage.getItem(MAP_HEIGHT_KEY));
+    const remoteMapHeight = Number(remotePreferences?.monitoringMapHeight);
+    if (Number.isFinite(remoteMapHeight) && remoteMapHeight > 10 && remoteMapHeight < 90) {
+      setMapHeightPercent((prev) => (prev !== remoteMapHeight ? remoteMapHeight : prev));
+    } else if (Number.isFinite(storedMapHeight) && storedMapHeight > 10 && storedMapHeight < 90) {
+      setMapHeightPercent((prev) => (prev !== storedMapHeight ? storedMapHeight : prev));
+    }
   }, [
     columns?.length,
     defaults,
@@ -79,7 +89,9 @@ export default function useMonitoringSettings({
           monitoringTableColumns: {
             visible: nextPrefs.visible,
             order: nextPrefs.order,
+            widths: nextPrefs.widths,
           },
+          monitoringColumnWidths: nextPrefs.widths,
         }).catch((error) => {
           console.warn("Falha ao salvar preferências de colunas", error);
         });
@@ -125,6 +137,23 @@ export default function useMonitoringSettings({
     [columnPrefs, columns]
   );
 
+  const updateColumnWidth = useCallback(
+    (key, width) => {
+      if (!key || !Number.isFinite(width)) return;
+      setColumnPrefs((current) => {
+        const currentWidth = current.widths?.[key];
+        if (currentWidth === width) return current;
+        const next = {
+          ...current,
+          widths: { ...current.widths, [key]: width },
+        };
+        persistColumns(next);
+        return next;
+      });
+    },
+    [persistColumns],
+  );
+
   const updatePanelRatio = useCallback(
     (ratio) => {
       if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) return;
@@ -141,6 +170,35 @@ export default function useMonitoringSettings({
     [loadingPreferences, savePreferences]
   );
 
+  const updateMapHeight = useCallback(
+    (heightPercent) => {
+      if (!Number.isFinite(heightPercent) || heightPercent <= 0 || heightPercent >= 100) return;
+      setMapHeightPercent((prev) => (prev !== heightPercent ? heightPercent : prev));
+      try {
+        localStorage.setItem(MAP_HEIGHT_KEY, String(heightPercent));
+      } catch (_error) {
+        // ignore local persistence failures
+      }
+
+      if (typeof savePreferences === "function" && !loadingPreferences) {
+        savePreferences({ monitoringMapHeight: heightPercent }).catch((error) => {
+          console.warn("Falha ao salvar altura do mapa", error);
+        });
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
+
+  const applyColumns = useCallback(
+    (nextPrefs) => {
+      if (!nextPrefs) return;
+      const merged = mergePrefs(nextPrefs);
+      setColumnPrefs(merged);
+      persistColumns(merged);
+    },
+    [mergePrefs, persistColumns],
+  );
+
   return {
     columnPrefs,
     visibleColumns,
@@ -149,5 +207,9 @@ export default function useMonitoringSettings({
     restoreColumns,
     panelRatio,
     updatePanelRatio,
+    updateColumnWidth,
+    mapHeightPercent,
+    updateMapHeight,
+    applyColumns,
   };
 }

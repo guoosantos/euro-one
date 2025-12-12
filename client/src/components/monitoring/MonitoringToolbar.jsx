@@ -1,4 +1,5 @@
 import React from "react";
+import { useTranslation } from "../../lib/i18n.js";
 
 // --- ÍCONES SVG (Para não depender de bibliotecas externas) ---
 const SearchIcon = () => (
@@ -44,8 +45,13 @@ export default function MonitoringToolbar({
   activePopup,     // Props novas (do Monitoring.jsx atualizado)
   onTogglePopup,   // Props novas
   onOpenColumns,   // Props antigas (fallback)
-  onOpenLayout     // Props antigas (fallback)
+  onOpenLayout,    // Props antigas (fallback)
+  regionQuery,
+  onRegionQueryChange,
+  onRegionSearch,
+  isSearchingRegion,
 }) {
+  const { t } = useTranslation();
   
   // Adaptador para funcionar com ambas versões do Monitoring.jsx
   const handleToggleColumns = () => {
@@ -72,34 +78,34 @@ export default function MonitoringToolbar({
             type="text"
             value={query}
             onChange={(e) => onQueryChange?.(e.target.value)}
-            placeholder="Buscar veículo, placa ou monitor"
+            placeholder={t("monitoring.searchPlaceholderSimple")}
             className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
           />
         </div>
 
         <div className="flex flex-wrap items-center gap-1">
           <FilterPill
-            label="Todos"
+            label={t("monitoring.filters.all")}
             count={summary?.total}
             active={filterMode === 'all'}
             onClick={() => onFilterChange?.('all')}
           />
           <FilterPill
-            label="Online"
+            label={t("monitoring.filters.online")}
             count={summary?.online}
             active={filterMode === 'online'}
             onClick={() => onFilterChange?.('online')}
             color="text-emerald-400"
           />
           <FilterPill
-            label="Offline"
+            label={t("monitoring.filters.offline")}
             count={summary?.offline}
             active={filterMode === 'offline'}
             onClick={() => onFilterChange?.('offline')}
             color="text-red-400"
           />
           <FilterPill
-            label="Ign."
+            label={t("monitoring.filters.criticalEvents")}
             active={filterMode === 'ignition'}
             onClick={() => onFilterChange?.('ignition')}
             color="text-amber-400"
@@ -122,6 +128,33 @@ export default function MonitoringToolbar({
             onClick={handleToggleLayout}
             title="Layout"
           />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex min-w-[280px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+          <div className="pointer-events-none text-white/40">
+            <SearchIcon />
+          </div>
+          <input
+            type="text"
+            value={regionQuery}
+            onChange={(e) => onRegionQueryChange?.(e.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                onRegionSearch?.();
+              }
+            }}
+            placeholder={t("monitoring.searchRegionPlaceholder")}
+            className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+          />
+          <button
+            type="button"
+            onClick={onRegionSearch}
+            className="ml-2 rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-white transition hover:border-primary/60"
+          >
+            {isSearchingRegion ? t("loading") : t("monitoring.searchAction")}
+          </button>
         </div>
       </div>
 
@@ -168,7 +201,7 @@ function ActionButton({ icon, active, onClick, title }) {
       onClick={onClick}
       title={title}
       className={`
-        h-9 w-9 rounded-md border text-xs transition-all
+        flex h-10 w-10 items-center justify-center rounded-md border text-xs transition-all
         ${active
           ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
           : "bg-[#0d1117] text-white/60 border-white/15 hover:text-white hover:border-white/40"}
