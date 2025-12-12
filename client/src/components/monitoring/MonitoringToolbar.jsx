@@ -92,7 +92,9 @@ export default function MonitoringToolbar({
 
         <div className="ml-auto flex items-center gap-1">
           <ActionButton
-            icon={<ColumnsIcon />}
+
+            icon={<SlidersIcon />}
+
             active={isColumnsActive}
             onClick={handleToggleColumns}
             title="Colunas"

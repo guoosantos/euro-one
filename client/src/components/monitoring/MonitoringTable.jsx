@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 
-const MIN_COLUMN_WIDTH = 40;
+
+const MIN_COLUMN_WIDTH = 80;
+
 
 export default function MonitoringTable({ rows, columns, loading, selectedDeviceId, onSelect, emptyText }) {
   const baseWidths = useMemo(() => (
@@ -40,7 +42,9 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
   const getWidthStyle = (key) => {
     const width = columnWidths[key];
     if (!width) return undefined;
-    return { width, minWidth: MIN_COLUMN_WIDTH };
+
+    return { width, minWidth: width };
+
   };
 
   if (loading && rows.length === 0) {
@@ -71,7 +75,9 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                 className="relative border-r border-white/5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
-                  <span className="truncate" title={col.label}>{col.label}</span>
+
+                  <span className="whitespace-nowrap">{col.label}</span>
+
                   {!col.fixed && (
                     <span
                       role="separator"
@@ -97,13 +103,15 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                 let cellValue = col.render ? col.render(row) : row[col.key];
 
                 if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
-                  const fallbackObjectText =
-                    cellValue?.label || cellValue?.value || cellValue?.formattedAddress || cellValue?.address;
-                  cellValue = fallbackObjectText ?? "";
-                }
 
-                if (cellValue === undefined || cellValue === null || cellValue === "") {
-                  cellValue = "—";
+                  if (cellValue.formattedAddress) {
+                    cellValue = cellValue.formattedAddress;
+                  } else if (cellValue.address) {
+                    cellValue = cellValue.address;
+                  } else {
+                    cellValue = "";
+                  }
+
                 }
 
                 return (
