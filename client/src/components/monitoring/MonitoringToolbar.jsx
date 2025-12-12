@@ -38,73 +38,72 @@ export default function MonitoringToolbar({
   const isLayoutActive = activePopup === 'layout';
 
   return (
-    // CÁPSULA FLUTUANTE COMPACTA
-    <div className="flex items-center gap-2 bg-[#161b22]/95 backdrop-blur-md border border-white/10 p-1.5 rounded-xl shadow-2xl w-max max-w-full">
-      
-      {/* 1. BUSCA COMPACTA */}
-      <div className="relative group">
-        <div className="absolute inset-y-0 left-0 flex items-center pl-2.5 text-white/40 pointer-events-none group-focus-within:text-primary">
-          <SearchIcon />
+    <div className="flex w-full flex-col gap-2 text-[11px] text-white/80">
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative flex min-w-[240px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+          <div className="pointer-events-none text-white/40">
+            <SearchIcon />
+          </div>
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => onQueryChange?.(e.target.value)}
+            placeholder="Buscar veículo, placa ou monitor"
+            className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+          />
         </div>
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => onQueryChange?.(e.target.value)}
-          placeholder="Buscar..."
-          className="w-32 sm:w-48 bg-[#0d1117] border border-white/10 text-xs rounded-lg pl-8 pr-2 py-1.5 text-white placeholder-white/30 focus:outline-none focus:border-primary/50 transition-all"
-        />
+
+        <div className="flex flex-wrap items-center gap-1">
+          <FilterPill
+            label="Todos"
+            count={summary?.total}
+            active={filterMode === 'all'}
+            onClick={() => onFilterChange?.('all')}
+          />
+          <FilterPill
+            label="Online"
+            count={summary?.online}
+            active={filterMode === 'online'}
+            onClick={() => onFilterChange?.('online')}
+            color="text-emerald-400"
+          />
+          <FilterPill
+            label="Offline"
+            count={summary?.offline}
+            active={filterMode === 'offline'}
+            onClick={() => onFilterChange?.('offline')}
+            color="text-red-400"
+          />
+          <FilterPill
+            label="Ign."
+            active={filterMode === 'ignition'}
+            onClick={() => onFilterChange?.('ignition')}
+            color="text-amber-400"
+          />
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <ActionButton
+            icon={<SlidersIcon />}
+            active={isColumnsActive}
+            onClick={handleToggleColumns}
+            title="Colunas"
+          />
+          <ActionButton
+            icon={<LayoutIcon />}
+            active={isLayoutActive}
+            onClick={handleToggleLayout}
+            title="Layout"
+          />
+        </div>
       </div>
 
-      {/* Divisória Vertical */}
-      <div className="h-5 w-px bg-white/10 mx-1 hidden sm:block"></div>
-
-      {/* 2. FILTROS (PILLS) */}
-      <div className="flex items-center gap-1 overflow-x-auto no-scrollbar">
-        <FilterPill 
-          label="Todos" 
-          count={summary?.total} 
-          active={filterMode === 'all'} 
-          onClick={() => onFilterChange?.('all')} 
-        />
-        <FilterPill 
-          label="Online" 
-          count={summary?.online} 
-          active={filterMode === 'online'} 
-          onClick={() => onFilterChange?.('online')} 
-          color="text-emerald-400" 
-        />
-        <FilterPill 
-          label="Offline" 
-          count={summary?.offline} 
-          active={filterMode === 'offline'} 
-          onClick={() => onFilterChange?.('offline')} 
-          color="text-red-400" 
-        />
-         <FilterPill 
-          label="Ign." 
-          active={filterMode === 'ignition'} 
-          onClick={() => onFilterChange?.('ignition')} 
-          color="text-amber-400" 
-        />
-      </div>
-
-      {/* Divisória Vertical */}
-      <div className="h-5 w-px bg-white/10 mx-1"></div>
-
-      {/* 3. BOTÕES DE AÇÃO (ÍCONES) */}
-      <div className="flex items-center gap-1">
-        <ActionButton 
-          icon={<SlidersIcon />} 
-          active={isColumnsActive} 
-          onClick={handleToggleColumns} 
-          title="Colunas"
-        />
-        <ActionButton 
-          icon={<LayoutIcon />} 
-          active={isLayoutActive} 
-          onClick={handleToggleLayout} 
-          title="Layout"
-        />
+      <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.08em] text-white/40">
+        <span className="hidden sm:inline">Exibindo {summary?.total ?? 0} veículos</span>
+        <div className="flex items-center gap-2 text-white/60">
+          <span className="font-semibold text-emerald-400">{summary?.online ?? 0} online</span>
+          <span className="font-semibold text-red-400">{summary?.offline ?? 0} offline</span>
+        </div>
       </div>
     </div>
   );
@@ -118,10 +117,10 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
       type="button"
       onClick={onClick}
       className={`
-        flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap
-        ${active 
-          ? 'bg-primary/20 text-white border border-primary/30 shadow-sm' 
-          : 'hover:bg-white/5 text-white/60 border border-transparent'}
+        flex items-center gap-1.5 rounded-md border px-3 py-2 text-[11px] font-medium transition-all whitespace-nowrap
+        ${active
+          ? 'bg-primary/15 text-white border-primary/40 shadow-sm'
+          : 'bg-[#0d1117] text-white/70 border-white/10 hover:border-white/30 hover:text-white'}
       `}
     >
       <span className={active ? color : ""}>{label}</span>
@@ -141,10 +140,10 @@ function ActionButton({ icon, active, onClick, title }) {
       onClick={onClick}
       title={title}
       className={`
-        p-1.5 rounded-lg transition-all border
-        ${active 
-          ? "bg-primary text-white border-primary shadow-lg shadow-primary/20" 
-          : "bg-[#0d1117] text-white/50 border-white/10 hover:text-white hover:bg-white/10 hover:border-white/30"}
+        h-9 w-9 rounded-md border text-xs transition-all
+        ${active
+          ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
+          : "bg-[#0d1117] text-white/60 border-white/15 hover:text-white hover:border-white/40"}
       `}
     >
       {icon}
