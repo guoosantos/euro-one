@@ -243,6 +243,14 @@ export default function ReportsRoute() {
   }, [defaultPreferences, persistColumnPrefs]);
 
   const visibleColumns = useMemo(() => resolveVisibleColumns(tableColumns, columnPrefs), [columnPrefs, tableColumns]);
+  const orderedColumns = useMemo(() => {
+    const order = columnPrefs?.order || [];
+    const ordered = order
+      .map((key) => tableColumns.find((column) => column.key === key))
+      .filter(Boolean);
+    const missing = tableColumns.filter((column) => !order.includes(column.key));
+    return [...ordered, ...missing];
+  }, [columnPrefs?.order, tableColumns]);
   const visibleColumnCount = Math.max(1, visibleColumns.length);
 
   async function handleSubmit(event) {
@@ -402,7 +410,7 @@ export default function ReportsRoute() {
               {showColumns && (
                 <div className="absolute right-0 z-10 mt-2 w-64 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-sm text-white/80 shadow-xl">
                   <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-white/40">Organizar colunas</div>
-                  {tableColumns.map((column) => (
+                  {orderedColumns.map((column) => (
                     <div
                       key={column.key}
                       className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1 ${draggingColumn === column.key ? "bg-white/10" : ""}`}
