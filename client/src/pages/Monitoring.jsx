@@ -88,7 +88,7 @@ export default function Monitoring() {
   const [regionQuery, setRegionQuery] = useState("");
   const [regionTarget, setRegionTarget] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
-  const [detailsVehicle, setDetailsVehicle] = useState(null);
+  const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
 
   // Controle de Popups
@@ -196,16 +196,14 @@ export default function Monitoring() {
     [rows, nearbyDeviceIds],
   );
 
-  useEffect(() => {
-    if (!detailsVehicle) return;
-    const match = decoratedRows.find(item => item.deviceId === detailsVehicle.deviceId);
-    if (match) setDetailsVehicle(match);
-  }, [decoratedRows, detailsVehicle]);
+  const detailsVehicle = useMemo(
+    () => decoratedRows.find(item => item.deviceId === detailsDeviceId) || null,
+    [decoratedRows, detailsDeviceId],
+  );
 
   const openDetailsFor = useCallback((deviceId) => {
-    const match = decoratedRows.find(item => item.deviceId === deviceId);
-    if (match) setDetailsVehicle(match);
-  }, [decoratedRows]);
+    setDetailsDeviceId(deviceId);
+  }, []);
 
   const focusDevice = useCallback((deviceId, { openDetails = false } = {}) => {
     if (!deviceId) return;
@@ -465,7 +463,7 @@ export default function Monitoring() {
         />
       )}
 
-      <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={() => setDetailsVehicle(null)} />
+      <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={() => setDetailsDeviceId(null)} />
     </div>
   );
 }

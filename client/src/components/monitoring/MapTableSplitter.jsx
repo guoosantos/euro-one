@@ -18,7 +18,7 @@ export default function MapTableSplitter({ onResize, currentPercent }) {
 
     const handleMove = (moveEvent) => {
       const deltaY = moveEvent.clientY - startY;
-      const nextHeightPx = startHeightPx + deltaY;
+      const nextHeightPx = startHeightPx - deltaY;
       const nextPercent = Math.min(
         MAX_PERCENT,
         Math.max(MIN_PERCENT, (nextHeightPx / containerRect.height) * 100),
