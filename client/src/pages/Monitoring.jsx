@@ -448,17 +448,20 @@ export default function Monitoring() {
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
-      return `${localMapHeight}% 12px ${tableHeightPercent}%`;
+      return `${localMapHeight}% 12px minmax(0, ${tableHeightPercent}%)`;
     }
-    if (layoutVisibility.showMap) return "1fr";
-    if (layoutVisibility.showTable) return "auto 1fr";
+    if (layoutVisibility.showMap) return "minmax(0, 1fr)";
+    if (layoutVisibility.showTable) return "minmax(0, 1fr)";
     return "1fr";
   }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight, tableHeightPercent]);
 
   return (
-    <div className="relative grid w-full bg-[#0b0f17]" style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}>
+    <div
+      className="relative grid w-full min-h-0 bg-[#0b0f17]"
+      style={{ height: "calc(100vh - 64px)", gridTemplateRows }}
+    >
       {layoutVisibility.showMap && (
-        <div className="relative border-b border-white/10">
+        <div className="relative min-h-0 border-b border-white/10">
           <MonitoringMap
             markers={markers}
             geofences={geofences}
@@ -520,40 +523,40 @@ export default function Monitoring() {
       )}
 
       {layoutVisibility.showTable && (
-        <div className="relative z-20 border-b border-white/10 bg-[#0f141c] px-4 py-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <MonitoringToolbar
-              query={query}
-              onQueryChange={setQuery}
-              filterMode={filterMode}
-              onFilterChange={setFilterMode}
-              summary={summary}
-              activePopup={activePopup}
-              onTogglePopup={handleTogglePopup}
-              regionQuery={regionQuery}
-              onRegionQueryChange={setRegionQuery}
-              onRegionSearch={handleRegionSearch}
-              isSearchingRegion={isSearching}
-              layoutButtonRef={layoutButtonRef}
-            />
+        <div className="relative z-20 flex min-h-0 flex-col overflow-hidden bg-[#0f141c]">
+          <div className="border-b border-white/10 px-4 py-3">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <MonitoringToolbar
+                query={query}
+                onQueryChange={setQuery}
+                filterMode={filterMode}
+                onFilterChange={setFilterMode}
+                summary={summary}
+                activePopup={activePopup}
+                onTogglePopup={handleTogglePopup}
+                regionQuery={regionQuery}
+                onRegionQueryChange={setRegionQuery}
+                onRegionSearch={handleRegionSearch}
+                isSearchingRegion={isSearching}
+                layoutButtonRef={layoutButtonRef}
+              />
+            </div>
           </div>
-        </div>
-      )}
 
-      {layoutVisibility.showTable && (
-        <div className="relative z-10 overflow-hidden">
-          <div className="h-full overflow-hidden">
-            <MonitoringTable
-              rows={decoratedRows}
-              columns={visibleColumnsWithWidths}
-              selectedDeviceId={selectedDeviceId}
-              onSelect={handleSelectRow}
-              onRowClick={handleRowClick}
-              loading={loading}
-              emptyText={t("monitoring.emptyState")}
-              columnWidths={columnPrefs.widths}
-              onColumnWidthChange={updateColumnWidth}
-            />
+          <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
+            <div className="h-full min-h-0 overflow-hidden">
+              <MonitoringTable
+                rows={decoratedRows}
+                columns={visibleColumnsWithWidths}
+                selectedDeviceId={selectedDeviceId}
+                onSelect={handleSelectRow}
+                onRowClick={handleRowClick}
+                loading={loading}
+                emptyText={t("monitoring.emptyState")}
+                columnWidths={columnPrefs.widths}
+                onColumnWidthChange={updateColumnWidth}
+              />
+            </div>
           </div>
         </div>
       )}
