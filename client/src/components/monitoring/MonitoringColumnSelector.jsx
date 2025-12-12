@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import useOutsideClick from "../../hooks/useOutsideClick.js";
+import { buildColumnDefaults } from "../../lib/column-preferences.js";
 
 function reorder(list, fromKey, toKey) {
   const currentOrder = Array.isArray(list) ? [...list] : [];
@@ -13,7 +13,7 @@ function reorder(list, fromKey, toKey) {
 }
 
 export default function MonitoringColumnSelector({ columns, columnPrefs, onApply, onRestore, onClose }) {
-  const containerRef = useOutsideClick(onClose);
+  const defaults = useMemo(() => buildColumnDefaults(columns), [columns]);
 
   const initialState = useMemo(
     () => ({
@@ -57,14 +57,26 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
   };
 
   const handleRestore = () => {
-    setWorking(initialState);
+    const defaultState = {
+      visible: { ...(defaults?.visible || {}) },
+      order: [...(defaults?.order || columns.map((col) => col.key))],
+    };
+    setWorking(defaultState);
     onRestore?.();
   };
 
+  const handleCancel = () => {
+    setWorking(initialState);
+    onClose?.();
+  };
+
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
       <div
-        ref={containerRef}
+        onClick={(event) => event.stopPropagation()}
         className="w-full max-w-xl max-h-[85vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
       >
         <div className="flex items-center justify-between gap-3">
@@ -74,7 +86,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
           </div>
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleCancel}
             className="h-9 w-9 rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
             aria-label="Fechar"
           >
@@ -123,22 +135,22 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, onApply
             className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
             onClick={handleRestore}
           >
-            Restaurar padrão
+            Restaurar padrão Euro One
           </button>
           <div className="flex items-center gap-2">
             <button
               type="button"
               className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
-              onClick={onClose}
+              onClick={handleCancel}
             >
-              Fechar
+              Cancelar
             </button>
             <button
               type="button"
               className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
               onClick={handleApply}
             >
-              Aplicar
+              Salvar
             </button>
           </div>
         </div>

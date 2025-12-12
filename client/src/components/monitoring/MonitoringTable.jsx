@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const MIN_COLUMN_WIDTH = 80;
+const MIN_COLUMN_WIDTH = 72;
 
 export default function MonitoringTable({
   rows,
@@ -11,7 +11,7 @@ export default function MonitoringTable({
   emptyText,
   columnWidths: externalWidths,
   onColumnWidthChange,
-  onOpenDetails,
+  onRowClick,
 }) {
   const baseWidths = useMemo(
     () => (
@@ -24,10 +24,20 @@ export default function MonitoringTable({
   );
 
   const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...(externalWidths || {}) });
+  const containerRef = useRef(null);
+  const rowRefs = useRef(new Map());
 
   useEffect(() => {
     setColumnWidths(prev => ({ ...baseWidths, ...(externalWidths || {}), ...prev }));
   }, [baseWidths, externalWidths]);
+
+  useEffect(() => {
+    if (!selectedDeviceId) return;
+    const rowEl = rowRefs.current.get(selectedDeviceId);
+    if (rowEl && containerRef.current) {
+      rowEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    }
+  }, [selectedDeviceId]);
 
   const startResize = (key, event) => {
     event.preventDefault();
@@ -56,7 +66,8 @@ export default function MonitoringTable({
     const width = columnWidths[key];
     if (!width) return undefined;
 
-    return { width, minWidth: width };
+    const minWidth = Math.max(MIN_COLUMN_WIDTH, width * 0.6);
+    return { width, minWidth };
   };
 
   if (loading && rows.length === 0) {
@@ -76,7 +87,7 @@ export default function MonitoringTable({
   }
 
   return (
-    <div className="h-full w-full overflow-auto bg-[#0b0f17]">
+    <div ref={containerRef} className="h-full w-full overflow-auto bg-[#0b0f17]">
 
       <table className="min-w-full table-fixed border-collapse text-left">
 
@@ -113,7 +124,15 @@ export default function MonitoringTable({
           {rows.map((row) => (
             <tr
               key={row.key}
-              onClick={() => onSelect(row.deviceId)}
+              ref={(el) => {
+                if (!row.deviceId) return;
+                if (el) rowRefs.current.set(row.deviceId, el);
+                else rowRefs.current.delete(row.deviceId);
+              }}
+              onClick={() => {
+                onSelect?.(row.deviceId, row);
+                onRowClick?.(row);
+              }}
               className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
             >
               {columns.map((col) => {
@@ -145,6 +164,12 @@ export default function MonitoringTable({
                   }
                 }
 
+                const cellTitle = col.key === "vehicle"
+                  ? row.deviceName
+                  : typeof cellValue === "string"
+                    ? cellValue
+                    : undefined;
+
                 return (
                   <td
                     key={`${row.key}-${col.key}`}
@@ -152,7 +177,12 @@ export default function MonitoringTable({
 
                     className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                   >
-                    <div className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={typeof cellValue === "string" ? cellValue : undefined}>{cellValue}</div>
+                    <div
+                      className="truncate whitespace-nowrap overflow-hidden text-ellipsis"
+                      title={cellTitle}
+                    >
+                      {cellValue}
+                    </div>
                   </td>
                 );
               })}

@@ -116,7 +116,7 @@ function PopupContent({ marker }) {
   );
 }
 
-function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) {
+function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, onMarkerSelect, onMarkerOpenDetails }) {
   const map = useMap();
   const lastFocusedRef = useRef(null);
   const hasInitialFitRef = useRef(false);
@@ -192,6 +192,14 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange }) 
       key={marker.id ?? `${marker.lat}-${marker.lng}`}
       position={[marker.lat, marker.lng]}
       icon={getMarkerIcon(marker.color || marker.accentColor, marker.iconType)}
+      eventHandlers={{
+        click: () => {
+          if (marker.id) {
+            onMarkerSelect?.(marker.id);
+            onMarkerOpenDetails?.(marker.id);
+          }
+        },
+      }}
       ref={(ref) => {
         if (ref && marker.id) markerRefs.current.set(marker.id, ref);
         else if (!ref && marker.id) markerRefs.current.delete(marker.id);
@@ -213,6 +221,8 @@ export default function MonitoringMap({
   mapViewport = null,
   onViewportChange = null,
   regionTarget = null,
+  onMarkerSelect = null,
+  onMarkerOpenDetails = null,
 }) {
   // Configuração padrão do tile layer
   const tileUrl = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
@@ -226,8 +236,8 @@ export default function MonitoringMap({
         zoomControl={false} // Remover controle padrão para visual mais limpo (opcional)
         scrollWheelZoom={true}
       >
-        <TileLayer 
-          url={tileUrl} 
+        <TileLayer
+          url={tileUrl}
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
 
@@ -236,6 +246,8 @@ export default function MonitoringMap({
           focusMarkerId={focusMarkerId}
           mapViewport={mapViewport}
           onViewportChange={onViewportChange}
+          onMarkerSelect={onMarkerSelect}
+          onMarkerOpenDetails={onMarkerOpenDetails}
         />
 
         {regionTarget ? (

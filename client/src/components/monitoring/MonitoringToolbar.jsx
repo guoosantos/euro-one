@@ -69,8 +69,8 @@ export default function MonitoringToolbar({
 
   return (
     <div className="flex h-full w-full flex-col gap-2 text-[11px] text-white/80">
-      <div className="flex h-full flex-wrap items-center gap-3">
-        <div className="relative flex min-w-[240px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+      <div className="flex h-full flex-wrap items-center gap-2 lg:gap-3">
+        <div className="relative flex min-w-[220px] max-w-[320px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
           <div className="pointer-events-none text-white/40">
             <SearchIcon />
           </div>
@@ -83,56 +83,7 @@ export default function MonitoringToolbar({
           />
         </div>
 
-        <div className="flex flex-wrap items-center gap-1">
-          <FilterPill
-            label={t("monitoring.filters.all")}
-            count={summary?.total}
-            active={filterMode === 'all'}
-            onClick={() => onFilterChange?.('all')}
-          />
-          <FilterPill
-            label={t("monitoring.filters.online")}
-            count={summary?.online}
-            active={filterMode === 'online'}
-            onClick={() => onFilterChange?.('online')}
-            color="text-emerald-400"
-          />
-          <FilterPill
-            label={t("monitoring.filters.offline")}
-            count={summary?.offline}
-            active={filterMode === 'offline'}
-            onClick={() => onFilterChange?.('offline')}
-            color="text-red-400"
-          />
-          <FilterPill
-            label={t("monitoring.filters.criticalEvents")}
-            active={filterMode === 'ignition'}
-            onClick={() => onFilterChange?.('ignition')}
-            color="text-amber-400"
-          />
-        </div>
-
-        <div className="ml-auto flex h-full items-center gap-1">
-          <ActionButton
-
-
-            icon={<SlidersIcon />}
-
-            active={isColumnsActive}
-            onClick={handleToggleColumns}
-            title="Colunas"
-          />
-          <ActionButton
-            icon={<LayoutIcon />}
-            active={isLayoutActive}
-            onClick={handleToggleLayout}
-            title="Layout"
-          />
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex min-w-[280px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+        <div className="relative flex min-w-[240px] max-w-[360px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
           <div className="pointer-events-none text-white/40">
             <SearchIcon />
           </div>
@@ -155,6 +106,51 @@ export default function MonitoringToolbar({
           >
             {isSearchingRegion ? t("loading") : t("monitoring.searchAction")}
           </button>
+        </div>
+
+        <div className="flex flex-1 flex-wrap items-center gap-1 lg:flex-none">
+          <FilterPill
+            label={t("monitoring.filters.all")}
+            count={summary?.total}
+            active={filterMode === 'all'}
+            onClick={() => onFilterChange?.('all')}
+          />
+          <FilterPill
+            label={t("monitoring.filters.online")}
+            count={summary?.online}
+            active={filterMode === 'online'}
+            onClick={() => onFilterChange?.('online')}
+            color="text-emerald-400"
+          />
+          <FilterPill
+            label={t("monitoring.filters.offline")}
+            count={summary?.offline}
+            active={filterMode === 'stale'}
+            onClick={() => onFilterChange?.('stale')}
+            color="text-red-400"
+          />
+          <FilterPill
+            label={t("monitoring.filters.criticalEvents")}
+            count={summary?.critical}
+            active={filterMode === 'critical'}
+            onClick={() => onFilterChange?.('critical')}
+            color="text-amber-400"
+          />
+        </div>
+
+        <div className="ml-auto flex h-full items-center gap-1">
+          <ActionButton
+            icon={<SlidersIcon />}
+            active={isColumnsActive}
+            onClick={handleToggleColumns}
+            title="Colunas"
+          />
+          <ActionButton
+            icon={<LayoutIcon />}
+            active={isLayoutActive}
+            onClick={handleToggleLayout}
+            title="Layout"
+          />
         </div>
       </div>
 
@@ -201,7 +197,7 @@ function ActionButton({ icon, active, onClick, title }) {
       onClick={onClick}
       title={title}
       className={`
-        flex h-10 w-10 items-center justify-center rounded-md border text-xs transition-all
+        flex h-10 w-10 items-center justify-center rounded-md border text-xs leading-none transition-all
         ${active
           ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
           : "bg-[#0d1117] text-white/60 border-white/15 hover:text-white hover:border-white/40"}
