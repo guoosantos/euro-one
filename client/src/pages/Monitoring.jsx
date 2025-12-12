@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { useTranslation } from "../lib/i18n.js";
-import { useNavigate } from "react-router-dom";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
@@ -20,7 +19,6 @@ import {
   getIgnition,
   getLastUpdate,
   isOnline,
-  minutesSince,
   pickCoordinate,
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
@@ -31,6 +29,25 @@ const MAP_HEIGHT_STORAGE_KEY = "monitoring:mapHeightPercent";
 const DEFAULT_MAP_HEIGHT = 65;
 const MIN_MAP_HEIGHT = 10;
 const MAX_MAP_HEIGHT = 100;
+
+const COLUMN_WIDTH_HINTS = {
+  vehicle: 180,
+  plate: 110,
+  deviceId: 120,
+  protocol: 120,
+  serverTime: 150,
+  deviceTime: 150,
+  gpsTime: 150,
+  lastEvent: 140,
+  valid: 90,
+  latitude: 120,
+  longitude: 120,
+  speed: 90,
+  address: 260,
+  status: 120,
+  ignition: 110,
+  actions: 90,
+};
 
 function getStoredMapHeight() {
   if (typeof window === "undefined") return DEFAULT_MAP_HEIGHT;
@@ -60,10 +77,9 @@ function persistMapHeight(value) {
 
 export default function Monitoring() {
   const { t, locale } = useTranslation();
-  const navigate = useNavigate();
 
   const { telemetry, loading } = useTelemetry();
-  const safeTelemetry = useMemo(() => Array.isArray(telemetry) ? telemetry : [], [telemetry]);
+  const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
@@ -74,7 +90,7 @@ export default function Monitoring() {
   const [mapViewport, setMapViewport] = useState(null);
 
   // Controle visual entre mapa e grade
-  const [mapHeightPercent, setMapHeightPercent] = useState(getStoredMapHeight()); // Mapa ocupa 65% por padrão
+  const [mapHeightPercent, setMapHeightPercent] = useState(getStoredMapHeight());
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -100,40 +116,74 @@ export default function Monitoring() {
   const toggleTableEmphasis = () => setMapHeightPercent(prev => clampMapHeight(prev >= 60 ? 35 : 75));
 
   // --- Lógica de Dados ---
+  const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
+    device: item.device || item,
+    source: item,
+  })), [safeTelemetry]);
+
   const searchFiltered = useMemo(() => {
     const term = query.toLowerCase().trim();
-    const list = safeTelemetry.map(item => item.device || item);
-    if (!term) return list;
-    return list.filter(device => {
+    if (!term) return normalizedTelemetry;
+
+    return normalizedTelemetry.filter(({ device }) => {
       const name = (device.name ?? device.alias ?? "").toLowerCase();
       const plate = (device.plate ?? device.registrationNumber ?? "").toLowerCase();
       return name.includes(term) || plate.includes(term);
     });
-  }, [query, safeTelemetry]);
+  }, [query, normalizedTelemetry]);
+
+  const filteredDevices = useMemo(() => {
+    return searchFiltered.filter(({ source, device }) => {
+      if (filterMode === "online") return isOnline(source?.position);
+      if (filterMode === "offline") return !isOnline(source?.position);
+      if (filterMode === "ignition") return getIgnition(source?.position, device) === true;
+      return true;
+    });
+  }, [searchFiltered, filterMode]);
+
+  const resolveAddress = (position, lat, lng) => {
+    const rawAddress = position?.address || position?.attributes?.formattedAddress;
+    if (typeof rawAddress === "string" && rawAddress.trim()) return rawAddress.trim();
+    if (typeof position?.address === "object") {
+      if (typeof position.address.formattedAddress === "string" && position.address.formattedAddress.trim()) {
+        return position.address.formattedAddress.trim();
+      }
+      if (typeof position.address.address === "string" && position.address.address.trim()) {
+        return position.address.address.trim();
+      }
+    }
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+    }
+
+    return "Endereço não disponível";
+  };
 
   const rows = useMemo(() => {
-    return searchFiltered.map(device => {
+    return filteredDevices.map(({ device, source }) => {
       const key = getDeviceKey(device);
-      const item = safeTelemetry.find(x => getDeviceKey(x.device || x) === key);
-      const pos = item?.position;
+      const pos = source?.position;
+      const lat = pickCoordinate([pos?.lat, pos?.latitude]);
+      const lng = pickCoordinate([pos?.lng, pos?.longitude]);
 
       return {
         key,
         device,
         deviceId: key,
         position: pos,
-        lat: pickCoordinate([pos?.lat, pos?.latitude]),
-        lng: pickCoordinate([pos?.lng, pos?.longitude]),
+        lat,
+        lng,
         deviceName: device.name ?? "—",
         plate: device.plate ?? "—",
-        address: typeof pos?.address === "string" ? pos.address : pos?.address?.formattedAddress || "Endereço não disponível",
+        address: resolveAddress(pos, lat, lng),
         speed: pickSpeed(pos),
         lastUpdate: getLastUpdate(pos),
         statusBadge: deriveStatus(pos),
         onFocus: setSelectedDeviceId,
       };
     });
-  }, [searchFiltered, safeTelemetry]);
+  }, [filteredDevices]);
 
   const markers = useMemo(() => {
     return rows
@@ -158,9 +208,10 @@ export default function Monitoring() {
   }, [rows]);
 
   // --- Configuração de Colunas ---
-  const telemetryColumns = useMemo(() => 
+  const telemetryColumns = useMemo(() =>
     TELEMETRY_COLUMNS.map(col => ({
       ...col,
+      width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
       label: t(col.labelKey),
       render: row => col.getValue(row, { t, locale }),
     })), [t, locale]);
@@ -170,6 +221,7 @@ export default function Monitoring() {
     label: t("monitoring.columns.actions"),
     defaultVisible: true,
     fixed: true,
+    width: COLUMN_WIDTH_HINTS.actions,
     render: row => (
       <button
         className="text-primary hover:text-primary-light text-xs font-bold uppercase tracking-wide"
@@ -181,7 +233,7 @@ export default function Monitoring() {
   }), [t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
-  
+
   const { visibleColumns, columnPrefs, toggleColumn, restoreColumns, moveColumn } =
     useMonitoringSettings({
       columns: allColumns,
@@ -191,15 +243,22 @@ export default function Monitoring() {
       savePreferences,
     });
 
+  const gridTemplateRows = useMemo(() => {
+    if (layoutVisibility.showMap && layoutVisibility.showTable) {
+      return `${mapHeightPercent}fr auto ${tableHeightPercent}fr`;
+    }
+    if (layoutVisibility.showMap) return "1fr";
+    if (layoutVisibility.showTable) return "auto 1fr";
+    return "1fr";
+  }, [layoutVisibility.showMap, layoutVisibility.showTable, mapHeightPercent, tableHeightPercent]);
+
   return (
     <div
-      className="relative bg-[#0b0f17] overflow-hidden w-full"
-      style={{ minHeight: "calc(100vh - 64px)" }}
+      className="relative grid w-full bg-[#0b0f17]"
+      style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}
     >
-
-      {/* --- ÁREA DO MAPA (fundo) --- */}
       {layoutVisibility.showMap && (
-        <div className="absolute inset-0 z-0">
+        <div className="relative border-b border-white/10">
           <MonitoringMap
             markers={markers}
             geofences={geofences}
@@ -207,118 +266,104 @@ export default function Monitoring() {
             mapViewport={mapViewport}
             onViewportChange={setMapViewport}
           />
-
-          {/* TOOLBAR FLUTUANTE (Overlay) */}
-          <div className="absolute top-4 left-4 right-4 z-[400] pointer-events-none">
-            <div className="pointer-events-auto inline-block w-full">
-              <MonitoringToolbar
-                query={query}
-                onQueryChange={setQuery}
-                filterMode={filterMode}
-                onFilterChange={setFilterMode}
-                summary={summary}
-                activePopup={activePopup}
-                onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
-              />
-            </div>
-
-            {/* Popups Flutuantes */}
-            {activePopup === 'columns' && (
-              <div className="absolute right-0 top-14 pointer-events-auto">
-                <MonitoringColumnSelector
-                  columns={allColumns}
-                  visibleState={columnPrefs.visible}
-                  onToggle={toggleColumn}
-                  onReorder={moveColumn}
-                  onRestore={restoreColumns}
-                  onClose={() => setActivePopup(null)}
-                />
-              </div>
-            )}
-            {activePopup === 'layout' && (
-              <div className="absolute right-0 top-14 pointer-events-auto">
-                <MonitoringLayoutSelector
-                  layoutVisibility={layoutVisibility}
-                  onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
-                  onClose={() => setActivePopup(null)}
-                />
-              </div>
-            )}
-          </div>
         </div>
       )}
 
-      {/* --- ÁREA DA TABELA FLUTUANTE --- */}
       {layoutVisibility.showTable && (
-        <div
-          className={`${layoutVisibility.showMap ? "absolute left-4 right-4" : "relative w-full px-4"} z-30 transition-all duration-300`}
-          style={layoutVisibility.showMap
-            ? { bottom: '1rem', height: `${tableHeightPercent}%` }
-            : { height: '100%', paddingTop: '1rem', paddingBottom: '1rem' }
-          }
-        >
-          <div className="relative h-full rounded-2xl bg-[#0b0f17]/95 border border-white/10 shadow-2xl backdrop-blur-xl overflow-hidden">
+        <div className="relative z-20 border-b border-white/10 bg-[#0f141c] px-4 py-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <MonitoringToolbar
+              query={query}
+              onQueryChange={setQuery}
+              filterMode={filterMode}
+              onFilterChange={setFilterMode}
+              summary={summary}
+              activePopup={activePopup}
+              onTogglePopup={(name) => setActivePopup(activePopup === name ? null : name)}
+            />
+
             {layoutVisibility.showMap && (
-              <div className="flex items-center justify-between px-4 py-2 border-b border-white/10 bg-white/5">
-                <span className="text-[11px] font-semibold text-white/60 uppercase tracking-[0.12em]">Lista de veículos</span>
-                <div className="flex items-center gap-2 text-[11px] text-white/70">
-                  <button
-                    type="button"
-                    onClick={toggleTableEmphasis}
-                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition hover:border-primary/70 hover:text-white"
-                    title="Alternar foco entre mapa e tabela"
-                    aria-label="Alternar foco entre mapa e tabela"
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-white/70">
+                <button
+                  type="button"
+                  onClick={toggleTableEmphasis}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/80 transition hover:border-primary/70 hover:text-white"
+                  title="Alternar foco entre mapa e tabela"
+                  aria-label="Alternar foco entre mapa e tabela"
+                >
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="2"
                   >
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      className="h-4 w-4"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
-                    </svg>
-                  </button>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M8 9l4-4 4 4M16 15l-4 4-4-4" />
+                  </svg>
+                </button>
 
-                  <div className="hidden sm:flex items-center gap-2">
-                    <span className="hidden md:inline">Altura do mapa</span>
-                    <input
-                      type="range"
-                      min={MIN_MAP_HEIGHT}
-                      max={MAX_MAP_HEIGHT}
-                      step="1"
-                      value={mapHeightPercent}
-                      onChange={(e) => handleMapHeightChange(e.target.value)}
-                      className="h-2 w-28 md:w-36 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
-                    />
-                    <input
-                      type="number"
-                      min={MIN_MAP_HEIGHT}
-                      max={MAX_MAP_HEIGHT}
-                      value={mapHeightPercent}
-                      onChange={(e) => handleMapHeightChange(e.target.value)}
-                      className="hidden lg:block w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/90 outline-none transition focus:border-primary"
-                    />
-                  </div>
-
+                <div className="flex items-center gap-2">
+                  <span className="hidden xl:inline">Altura do mapa</span>
+                  <input
+                    type="range"
+                    min={MIN_MAP_HEIGHT}
+                    max={MAX_MAP_HEIGHT}
+                    step="1"
+                    value={mapHeightPercent}
+                    onChange={(e) => handleMapHeightChange(e.target.value)}
+                    className="h-2 w-28 md:w-36 accent-primary bg-white/10 rounded-full overflow-hidden cursor-pointer"
+                  />
+                  <input
+                    type="number"
+                    min={MIN_MAP_HEIGHT}
+                    max={MAX_MAP_HEIGHT}
+                    value={mapHeightPercent}
+                    onChange={(e) => handleMapHeightChange(e.target.value)}
+                    className="hidden lg:block w-16 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/90 outline-none transition focus:border-primary"
+                  />
                   <span className="font-semibold text-white/90 min-w-[3ch] text-right">{mapHeightPercent}%</span>
                 </div>
               </div>
             )}
+          </div>
 
-            <div className="h-full overflow-auto">
-              <MonitoringTable
-                rows={rows}
-                columns={visibleColumns}
-                selectedDeviceId={selectedDeviceId}
-                onSelect={setSelectedDeviceId}
-                loading={loading}
-                emptyText={t("monitoring.emptyState")}
+          {activePopup === "layout" && (
+            <div className="absolute right-4 top-full mt-2 z-30">
+              <MonitoringLayoutSelector
+                layoutVisibility={layoutVisibility}
+                onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
+                onClose={() => setActivePopup(null)}
               />
             </div>
+          )}
+        </div>
+      )}
+
+      {layoutVisibility.showTable && (
+        <div className="relative z-10 overflow-hidden">
+          <div className="h-full overflow-hidden">
+            <MonitoringTable
+              rows={rows}
+              columns={visibleColumns}
+              selectedDeviceId={selectedDeviceId}
+              onSelect={setSelectedDeviceId}
+              loading={loading}
+              emptyText={t("monitoring.emptyState")}
+            />
           </div>
         </div>
+      )}
+
+      {activePopup === "columns" && (
+        <MonitoringColumnSelector
+          columns={allColumns}
+          visibleState={columnPrefs.visible}
+          onToggle={toggleColumn}
+          onReorder={moveColumn}
+          onRestore={restoreColumns}
+          onClose={() => setActivePopup(null)}
+        />
       )}
     </div>
   );
