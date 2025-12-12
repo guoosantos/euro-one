@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 
+
 const MIN_COLUMN_WIDTH = 80;
+
 
 export default function MonitoringTable({ rows, columns, loading, selectedDeviceId, onSelect, emptyText }) {
   const baseWidths = useMemo(() => (
@@ -40,7 +42,9 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
   const getWidthStyle = (key) => {
     const width = columnWidths[key];
     if (!width) return undefined;
+
     return { width, minWidth: width };
+
   };
 
   if (loading && rows.length === 0) {
@@ -71,7 +75,9 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                 className="relative border-r border-white/5 px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
+
                   <span className="whitespace-nowrap">{col.label}</span>
+
                   {!col.fixed && (
                     <span
                       role="separator"
@@ -97,6 +103,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                 let cellValue = col.render ? col.render(row) : row[col.key];
 
                 if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
+
                   if (cellValue.formattedAddress) {
                     cellValue = cellValue.formattedAddress;
                   } else if (cellValue.address) {
@@ -104,6 +111,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                   } else {
                     cellValue = "";
                   }
+
                 }
 
                 return (
@@ -112,7 +120,7 @@ export default function MonitoringTable({ rows, columns, loading, selectedDevice
                     style={getWidthStyle(col.key)}
                     className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                   >
-                    {cellValue}
+                    <div className="truncate" title={typeof cellValue === "string" ? cellValue : undefined}>{cellValue}</div>
                   </td>
                 );
               })}
