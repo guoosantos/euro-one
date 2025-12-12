@@ -106,22 +106,6 @@ export default function Monitoring() {
     Math.max(MIN_MAP_HEIGHT, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_MAP_HEIGHT),
   );
 
-  useEffect(() => {
-    const next = Number.isFinite(mapHeightPercent)
-      ? clampMapHeight(mapHeightPercent)
-      : DEFAULT_MAP_HEIGHT;
-    setLocalMapHeight(prev => (prev !== next ? next : prev));
-  }, [mapHeightPercent]);
-
-  const handleMapResize = useCallback(
-    (value) => {
-      const next = clampMapHeight(value);
-      setLocalMapHeight(next);
-      updateMapHeight(next);
-    },
-    [updateMapHeight],
-  );
-
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
     device: item.device || item,
@@ -318,6 +302,22 @@ export default function Monitoring() {
     storageKey: "monitoring.table.columns",
     savePreferences,
   });
+
+  useEffect(() => {
+    const next = Number.isFinite(mapHeightPercent)
+      ? clampMapHeight(mapHeightPercent)
+      : DEFAULT_MAP_HEIGHT;
+    setLocalMapHeight(prev => (prev !== next ? next : prev));
+  }, [mapHeightPercent]);
+
+  const handleMapResize = useCallback(
+    (value) => {
+      const next = clampMapHeight(value);
+      setLocalMapHeight(next);
+      updateMapHeight(next);
+    },
+    [updateMapHeight],
+  );
 
   const visibleColumnsWithWidths = useMemo(
     () => visibleColumns.map(col => ({ ...col, width: columnPrefs.widths?.[col.key] ?? col.width })),
