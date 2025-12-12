@@ -6,12 +6,6 @@ export default function VehicleDetailsDrawer({ vehicle, onClose }) {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState("status");
 
-  if (!vehicle) return null;
-
-  const { device, position } = vehicle;
-  const address = vehicle.address || position?.address;
-  const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
-
   const tabs = useMemo(
     () => [
       { id: "status", label: "Status" },
@@ -23,6 +17,12 @@ export default function VehicleDetailsDrawer({ vehicle, onClose }) {
     ],
     [],
   );
+
+  if (!vehicle) return null;
+
+  const { device, position } = vehicle;
+  const address = vehicle.address || position?.address;
+  const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
 
   const renderContent = () => {
     if (activeTab === "status") {
