@@ -209,25 +209,16 @@ export default function Monitoring() {
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
-    TELEMETRY_COLUMNS.map(col => {
-      const base = {
-        ...col,
-        width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
-        label: t(col.labelKey),
-      };
 
-      if (col.key === "address") {
-        return {
-          ...base,
-          render: (row) => row.address || col.getValue(row, { t, locale }),
-        };
-      }
 
-      return {
-        ...base,
-        render: (row) => col.getValue(row, { t, locale }),
-      };
-    }), [t, locale]);
+    TELEMETRY_COLUMNS.map(col => ({
+      ...col,
+      width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
+      label: t(col.labelKey),
+      render: row => col.getValue(row, { t, locale }),
+    })), [t, locale]);
+
+
 
   const actionsColumn = useMemo(() => ({
     key: "actions",
@@ -267,8 +258,12 @@ export default function Monitoring() {
 
   return (
     <div
-      className="relative grid h-[calc(100vh-64px)] w-full overflow-hidden bg-[#0b0f17]"
-      style={{ gridTemplateRows }}
+
+
+      className="relative grid w-full bg-[#0b0f17]"
+      style={{ minHeight: "calc(100vh - 64px)", gridTemplateRows }}
+
+
     >
       {layoutVisibility.showMap && (
         <div className="relative border-b border-white/10">
