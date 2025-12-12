@@ -33,7 +33,7 @@ const MIN_MAP_HEIGHT = 20;
 const MAX_MAP_HEIGHT = 80;
 
 const COLUMN_WIDTH_HINTS = {
-  vehicle: 180,
+  vehicle: 160,
   plate: 110,
   deviceId: 120,
   protocol: 120,
@@ -119,15 +119,22 @@ export default function Monitoring() {
     return normalizedTelemetry.filter(({ device }) => {
       const name = (device.name ?? device.alias ?? "").toLowerCase();
       const plate = (device.plate ?? device.registrationNumber ?? "").toLowerCase();
-      return name.includes(term) || plate.includes(term);
+      const identifier = (device.identifier ?? device.uniqueId ?? "").toLowerCase();
+      const deviceKey = (getDeviceKey(device) ?? "").toLowerCase();
+      return (
+        name.includes(term) ||
+        plate.includes(term) ||
+        identifier.includes(term) ||
+        deviceKey.includes(term)
+      );
     });
   }, [query, normalizedTelemetry]);
 
   const filteredDevices = useMemo(() => {
     return searchFiltered.filter(({ source, device }) => {
       if (filterMode === "online") return isOnline(source?.position);
-      if (filterMode === "offline") return !isOnline(source?.position);
-      if (filterMode === "ignition") return getIgnition(source?.position, device) === true;
+      if (filterMode === "stale") return !isOnline(source?.position);
+      if (filterMode === "critical") return deriveStatus(source?.position) === "alert";
       return true;
     });
   }, [searchFiltered, filterMode]);
@@ -157,6 +164,12 @@ export default function Monitoring() {
       const pos = source?.position;
       const lat = pickCoordinate([pos?.lat, pos?.latitude]);
       const lng = pickCoordinate([pos?.lng, pos?.longitude]);
+      const statusBadge = deriveStatus(pos);
+      const statusLabel = statusBadge === "online"
+        ? t("monitoring.filters.online")
+        : statusBadge === "alert"
+          ? t("monitoring.filters.criticalEvents")
+          : t("monitoring.filters.offline");
 
       const row = {
         key,
@@ -170,16 +183,13 @@ export default function Monitoring() {
         address: resolveAddress(pos, lat, lng),
         speed: pickSpeed(pos),
         lastUpdate: getLastUpdate(pos),
-        statusBadge: deriveStatus(pos),
-        onFocus: setSelectedDeviceId,
+        statusBadge,
+        statusLabel,
       };
 
-      return {
-        ...row,
-        onOpenDetails: () => setDetailsVehicle(row),
-      };
+      return row;
     });
-  }, [filteredDevices]);
+  }, [filteredDevices, t]);
 
   const decoratedRows = useMemo(
     () => rows.map(row => ({ ...row, isNearby: nearbyDeviceIds.includes(row.deviceId) })),
@@ -192,27 +202,50 @@ export default function Monitoring() {
     if (match) setDetailsVehicle(match);
   }, [decoratedRows, detailsVehicle]);
 
+  const openDetailsFor = useCallback((deviceId) => {
+    const match = decoratedRows.find(item => item.deviceId === deviceId);
+    if (match) setDetailsVehicle(match);
+  }, [decoratedRows]);
+
+  const focusDevice = useCallback((deviceId, { openDetails = false } = {}) => {
+    if (!deviceId) return;
+    setSelectedDeviceId(deviceId);
+    if (openDetails) openDetailsFor(deviceId);
+  }, [openDetailsFor]);
+
   const markers = useMemo(() => {
     return decoratedRows
       .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-      .map(r => ({
-        id: r.deviceId,
-        lat: r.lat,
-        lng: r.lng,
-        label: r.deviceName,
-        plate: r.plate,
-        address: r.address,
-        speedLabel: `${r.speed ?? 0} km/h`,
-        lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
-        color: r.statusBadge === "online" ? "#22c55e" : "#f87171",
-        accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
-      }));
-  }, [decoratedRows, locale, selectedDeviceId]);
+      .map(r => {
+        const status = r.statusBadge;
+        const statusLabel = status === "online"
+          ? t("monitoring.filters.online")
+          : status === "alert"
+            ? t("monitoring.filters.criticalEvents")
+            : t("monitoring.filters.offline");
+
+        return {
+          id: r.deviceId,
+          lat: r.lat,
+          lng: r.lng,
+          label: r.deviceName,
+          plate: r.plate,
+          address: r.address,
+          speedLabel: `${r.speed ?? 0} km/h`,
+          lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
+          color: r.statusBadge === "online" ? "#22c55e" : "#f87171",
+          accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
+          statusLabel,
+        };
+      });
+  }, [decoratedRows, locale, selectedDeviceId, t]);
 
   const summary = useMemo(() => {
     const online = rows.filter(r => isOnline(r.position)).length;
     const moving = rows.filter(r => (r.speed ?? 0) > 0).length;
-    return { online, offline: rows.length - online, moving, total: rows.length };
+    const critical = rows.filter(r => deriveStatus(r.position) === "alert").length;
+    const offline = rows.length - online;
+    return { online, offline, moving, total: rows.length, critical };
   }, [rows]);
 
   useEffect(() => {
@@ -253,7 +286,10 @@ export default function Monitoring() {
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
         <button
           className="rounded border border-primary/40 bg-primary/10 px-2 py-1 font-semibold text-primary hover:bg-primary/20"
-          onClick={() => row.onFocus?.(row.deviceId)}
+          onClick={(event) => {
+            event.stopPropagation();
+            focusDevice(row.deviceId);
+          }}
         >
           Mapa
         </button>
@@ -261,14 +297,14 @@ export default function Monitoring() {
           className="rounded border border-white/15 bg-white/5 px-2 py-1 font-semibold text-white/70 hover:text-white"
           onClick={(event) => {
             event.stopPropagation();
-            row.onOpenDetails?.();
+            focusDevice(row.deviceId, { openDetails: true });
           }}
         >
           Detalhes
         </button>
       </div>
     ),
-  }), [t]);
+  }), [focusDevice, t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
 
@@ -282,8 +318,20 @@ export default function Monitoring() {
   }, [regionQuery, searchRegion]);
 
   const handleSelectRow = useCallback((deviceId) => {
-    setSelectedDeviceId(deviceId);
-  }, []);
+    focusDevice(deviceId);
+  }, [focusDevice]);
+
+  const handleRowClick = useCallback((row) => {
+    focusDevice(row.deviceId, { openDetails: true });
+  }, [focusDevice]);
+
+  const handleMarkerSelect = useCallback((deviceId) => {
+    focusDevice(deviceId);
+  }, [focusDevice]);
+
+  const handleMarkerDetails = useCallback((deviceId) => {
+    focusDevice(deviceId, { openDetails: true });
+  }, [focusDevice]);
 
   const {
     visibleColumns,
@@ -349,6 +397,8 @@ export default function Monitoring() {
             mapViewport={mapViewport}
             onViewportChange={setMapViewport}
             regionTarget={regionTarget}
+            onMarkerSelect={handleMarkerSelect}
+            onMarkerOpenDetails={handleMarkerDetails}
           />
         </div>
       )}
@@ -395,6 +445,7 @@ export default function Monitoring() {
               columns={visibleColumnsWithWidths}
               selectedDeviceId={selectedDeviceId}
               onSelect={handleSelectRow}
+              onRowClick={handleRowClick}
               loading={loading}
               emptyText={t("monitoring.emptyState")}
               columnWidths={columnPrefs.widths}
