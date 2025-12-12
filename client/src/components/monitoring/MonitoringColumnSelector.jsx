@@ -13,10 +13,10 @@ export default function MonitoringColumnSelector({
   useOutsideClick(containerRef, onClose, true);
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
       <div
         ref={containerRef}
-        className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
+        className="w-full max-w-xl max-h-[85vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
       >
         <div className="flex items-center justify-between gap-3">
           <div>

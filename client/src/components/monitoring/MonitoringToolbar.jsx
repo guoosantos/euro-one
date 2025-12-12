@@ -62,8 +62,8 @@ export default function MonitoringToolbar({
   const isLayoutActive = activePopup === 'layout';
 
   return (
-    <div className="flex w-full flex-col gap-2 text-[11px] text-white/80">
-      <div className="flex flex-wrap items-center gap-3">
+    <div className="flex h-full w-full flex-col gap-2 text-[11px] text-white/80">
+      <div className="flex h-full flex-wrap items-center gap-3">
         <div className="relative flex min-w-[240px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
           <div className="pointer-events-none text-white/40">
             <SearchIcon />
@@ -106,7 +106,7 @@ export default function MonitoringToolbar({
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-1">
+        <div className="ml-auto flex h-full items-center gap-1">
           <ActionButton
 
 

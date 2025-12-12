@@ -71,12 +71,12 @@ export default function Layout({ children, title, hideTitle = false }) {
       </div>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex flex-1 min-w-0 flex-col">
         {/* No monitoring a própria página cuida do cabeçalho */}
         <Topbar title={isFullWidthPage ? null : title} />
 
         <main
-          className={`flex flex-1 flex-col overflow-hidden bg-[#0b0f17] ${
+          className={`flex flex-1 min-w-0 flex-col overflow-hidden bg-[#0b0f17] ${
             isMonitoringPage
               ? "h-full w-full max-w-none p-0"
               : "p-6"

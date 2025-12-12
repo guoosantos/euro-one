@@ -49,6 +49,12 @@ const COLUMN_WIDTH_HINTS = {
   actions: 90,
 };
 
+const COLUMN_LABEL_OVERRIDES = {
+  speed: "monitoring.columns.speedShort",
+  address: "monitoring.columns.addressShort",
+  serverTime: "monitoring.columns.serverTimeShort",
+};
+
 function getStoredMapHeight() {
   if (typeof window === "undefined") return DEFAULT_MAP_HEIGHT;
 
@@ -209,16 +215,18 @@ export default function Monitoring() {
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
+    TELEMETRY_COLUMNS.map(col => {
+      const overrideKey = COLUMN_LABEL_OVERRIDES[col.key];
+      const label = overrideKey ? t(overrideKey) : t(col.labelKey);
 
-
-    TELEMETRY_COLUMNS.map(col => ({
-      ...col,
-      width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
-      label: t(col.labelKey),
-      render: row => col.getValue(row, { t, locale }),
-    })), [t, locale]);
-
-
+      return {
+        ...col,
+        width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
+        label,
+        render: row => col.getValue(row, { t, locale }),
+      };
+    }),
+  [t, locale]);
 
   const actionsColumn = useMemo(() => ({
     key: "actions",
