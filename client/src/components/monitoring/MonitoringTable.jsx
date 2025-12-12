@@ -28,7 +28,14 @@ export default function MonitoringTable({
   const rowRefs = useRef(new Map());
 
   useEffect(() => {
-    setColumnWidths(prev => ({ ...baseWidths, ...(externalWidths || {}), ...prev }));
+    setColumnWidths((prev) => {
+      const next = { ...baseWidths, ...(externalWidths || {}), ...prev };
+
+      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+      const hasDiff = Array.from(keys).some((key) => prev[key] !== next[key]);
+
+      return hasDiff ? next : prev;
+    });
   }, [baseWidths, externalWidths]);
 
   useEffect(() => {

@@ -102,7 +102,7 @@ export default function MonitoringToolbar({
           <button
             type="button"
             onClick={onRegionSearch}
-            className="ml-2 rounded-md border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-white transition hover:border-primary/60"
+            className="ml-2 whitespace-nowrap rounded-md border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white transition hover:border-primary/60"
           >
             {isSearchingRegion ? t("loading") : t("monitoring.searchAction")}
           </button>
