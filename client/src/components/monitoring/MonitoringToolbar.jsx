@@ -180,39 +180,41 @@ export default function MonitoringToolbar({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3 text-[10px] text-white/70">
-        <span className="text-white/60">
-          Exibindo {summary?.total ?? 0} veículos / {summary?.online ?? 0} online / {summary?.offline ?? 0} offline
-        </span>
-        <StatusChip
+      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
+        <StatusBadge
+          label={t("monitoring.filters.all")}
+          count={summary?.total}
+          className="border-white/10 bg-white/5 text-white/80"
+        />
+        <StatusBadge
+          label={t("monitoring.filters.online")}
+          count={summary?.online}
+          className="border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
+        />
+        <StatusBadge
           label={t("monitoring.filters.noSignal1to3h")}
           count={summary?.stale1to3}
-          color="text-amber-200"
-          onClick={() => onFilterChange?.('stale_1_3')}
+          className="border-emerald-200/40 bg-emerald-200/15 text-emerald-50"
         />
-        <StatusChip
+        <StatusBadge
           label={t("monitoring.filters.noSignal6to18h")}
           count={summary?.stale6to18}
-          color="text-amber-100"
-          onClick={() => onFilterChange?.('stale_6_18')}
+          className="border-amber-200/50 bg-amber-100/15 text-amber-100"
         />
-        <StatusChip
+        <StatusBadge
           label={t("monitoring.filters.noSignal24h")}
           count={summary?.stale24}
-          color="text-orange-200"
-          onClick={() => onFilterChange?.('stale_24')}
+          className="border-yellow-300/50 bg-yellow-300/15 text-yellow-200"
         />
-        <StatusChip
+        <StatusBadge
           label={t("monitoring.filters.noSignal10d")}
           count={summary?.stale10d}
-          color="text-red-200"
-          onClick={() => onFilterChange?.('stale_10d')}
+          className="border-orange-400/50 bg-orange-400/15 text-orange-200"
         />
-        <StatusChip
-          label={t("monitoring.filters.criticalEvents")}
-          count={summary?.critical}
-          color="text-amber-300"
-          onClick={() => onFilterChange?.('critical')}
+        <StatusBadge
+          label={t("monitoring.filters.offline")}
+          count={summary?.offline}
+          className="border-red-500/50 bg-red-500/15 text-red-200"
         />
       </div>
     </div>
@@ -329,16 +331,14 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
   );
 }
 
-function StatusChip({ label, count, color = "text-white/60", onClick }) {
+function StatusBadge({ label, count, className = "" }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/70 transition hover:text-white"
+    <div
+      className={`flex min-w-[150px] items-center justify-between gap-2 rounded-md border px-3 py-2 text-[10px] uppercase tracking-[0.08em] shadow-inner shadow-black/10 ${className}`}
     >
-      <span className={color}>{label}</span>
-      <span className="text-[8px] text-white/70">{count ?? 0}</span>
-    </button>
+      <span className="truncate">{label}</span>
+      <span className="text-[11px]">{count ?? 0}</span>
+    </div>
   );
 }
 
