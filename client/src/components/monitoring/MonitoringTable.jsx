@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const MIN_COLUMN_WIDTH = 72;
+const MIN_COLUMN_WIDTH = 2;
 
 export default function MonitoringTable({
   rows,
@@ -181,11 +181,13 @@ export default function MonitoringTable({
                 }
 
                 const isElement = React.isValidElement(cellValue);
-                const cellTitle = col.key === "vehicle"
-                  ? row.deviceName
-                  : typeof cellValue === "string"
-                    ? cellValue
-                    : undefined;
+                const tooltipValue = col.tooltipValue
+                  ? col.tooltipValue(row)
+                  : col.key === "vehicle"
+                    ? row.deviceName
+                    : typeof cellValue === "string" || typeof cellValue === "number"
+                      ? String(cellValue)
+                      : undefined;
                 const contentClass = isElement
                   ? "flex items-center gap-1 overflow-visible"
                   : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
@@ -199,7 +201,7 @@ export default function MonitoringTable({
                   >
                     <div
                       className={contentClass}
-                      title={isElement ? undefined : cellTitle}
+                      title={tooltipValue}
                     >
                       {cellValue}
                     </div>
