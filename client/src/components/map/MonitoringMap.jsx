@@ -530,6 +530,8 @@ export default function MonitoringMap({
     setMapBearing(0);
   }, []);
 
+  const tileSubdomains = mapLayer?.subdomains ?? "abc";
+
   return (
     <div className="h-full w-full bg-[#0b0f17] relative z-0">
       <MapContainer
@@ -547,7 +549,7 @@ export default function MonitoringMap({
           url={tileUrl}
           attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
           maxZoom={mapLayer?.maxZoom || 20}
-          subdomains={mapLayer?.subdomains}
+          subdomains={tileSubdomains}
         />
 
         <ClickToZoom mapReady={mapReady} />
