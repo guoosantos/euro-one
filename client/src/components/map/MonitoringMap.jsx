@@ -289,11 +289,16 @@ function ClickToZoom({ mapReady }) {
 function MapControls({ mapReady, mapViewport }) {
   const map = useMap();
 
-  const zoomBy = (delta) => {
+  const zoomIn = () => {
     if (!map || !mapReady) return;
-    const nextZoom = Math.max(1, Math.min((map.getZoom?.() ?? DEFAULT_ZOOM) + delta, map.getMaxZoom?.() ?? 18));
     map.stop?.();
-    map.flyTo(map.getCenter(), nextZoom, { duration: 0.2 });
+    map.zoomIn?.(1, { animate: true });
+  };
+
+  const zoomOut = () => {
+    if (!map || !mapReady) return;
+    map.stop?.();
+    map.zoomOut?.(1, { animate: true });
   };
 
   const recenter = () => {
@@ -301,26 +306,26 @@ function MapControls({ mapReady, mapViewport }) {
     const center = Array.isArray(mapViewport?.center) ? mapViewport.center : DEFAULT_CENTER;
     const zoom = Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : DEFAULT_ZOOM;
     map.stop?.();
-    map.flyTo(center, zoom, { duration: 0.35, easeLinearity: 0.25 });
+    map.flyTo(center, zoom, { duration: 0.3, easeLinearity: 0.25 });
   };
 
   return (
-    <div className="pointer-events-none absolute left-3 top-3 z-[999] flex flex-col gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f141c] shadow-lg">
+    <div className="pointer-events-none absolute bottom-4 right-4 z-[999] flex flex-col gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/90 shadow-xl backdrop-blur">
         <button
           type="button"
-          className="h-9 w-9 text-white transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
           aria-label="Aumentar zoom"
-          onClick={() => zoomBy(1)}
+          onClick={zoomIn}
         >
           +
         </button>
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="h-9 w-9 text-white transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
           aria-label="Reduzir zoom"
-          onClick={() => zoomBy(-1)}
+          onClick={zoomOut}
         >
           −
         </button>
@@ -328,12 +333,12 @@ function MapControls({ mapReady, mapViewport }) {
 
       <button
         type="button"
-        className="pointer-events-auto flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-[#0f141c] px-3 text-xs font-semibold text-white shadow-lg transition hover:border-primary/60 hover:text-primary"
-        aria-label="Recentralizar"
+        className="pointer-events-auto flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/90 px-3 text-[11px] font-semibold uppercase text-white shadow-xl backdrop-blur transition hover:border-primary/60 hover:text-primary"
+        aria-label="Recentralizar mapa"
         onClick={recenter}
       >
-        <span role="img" aria-hidden="true">🧭</span>
-        <span>Recentrar</span>
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 text-[10px] font-bold">N</span>
+        <span>Reset</span>
       </button>
     </div>
   );
