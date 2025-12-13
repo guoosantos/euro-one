@@ -315,15 +315,15 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
       type="button"
       onClick={onClick}
       className={`
-        flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-[10px] font-medium transition-all whitespace-nowrap
+        flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold transition-all whitespace-nowrap leading-none
         ${active
-          ? 'bg-primary/15 text-white border-primary/40 shadow-sm'
-          : 'bg-[#0d1117] text-white/70 border-white/10 hover:border-white/30 hover:text-white'}
+          ? 'bg-primary/25 text-white shadow-sm'
+          : 'bg-[#0d1117] text-white/70 hover:bg-white/5 hover:text-white'}
       `}
     >
       <span className={active ? color : ""}>{label}</span>
       {count !== undefined && (
-        <span className={`px-1 rounded text-[9px] ${active ? 'bg-black/30' : 'bg-white/10'}`}>
+        <span className={`px-1 rounded text-[9px] leading-none ${active ? 'bg-black/30' : 'bg-white/10'}`}>
           {count}
         </span>
       )}
@@ -334,7 +334,7 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
 function StatusBadge({ label, count, className = "" }) {
   return (
     <div
-      className={`flex min-w-[150px] items-center justify-between gap-2 rounded-md border px-3 py-2 text-[10px] uppercase tracking-[0.08em] shadow-inner shadow-black/10 ${className}`}
+      className={`flex min-w-[140px] items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] leading-none shadow-inner shadow-black/5 ${className}`}
     >
       <span className="truncate">{label}</span>
       <span className="text-[11px]">{count ?? 0}</span>
