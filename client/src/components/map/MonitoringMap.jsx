@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef } from "react";
-import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip, useMapEvents } from "react-leaflet";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -130,9 +130,10 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
 
   // Manipular eventos de movimento (opcional)
   useEffect(() => {
-    if (!map || !onViewportChange) return;
+    if (!map || !onViewportChange) return undefined;
 
     const handleMove = () => {
+      if (!map._loaded) return;
       const center = map.getCenter();
       onViewportChange({ center: [center.lat, center.lng], zoom: map.getZoom() });
     };
@@ -228,13 +229,18 @@ function RegionOverlay({ target }) {
     if (!map || !target) return;
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
-    try {
-      const center = L.latLng(target.lat, target.lng);
-      const circle = L.circle(center, { radius });
-      map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
-    } catch (_error) {
-      // Evita falha ao ajustar bounds quando o mapa não está pronto
-    }
+    const applyFit = () => {
+      try {
+        const center = L.latLng(target.lat, target.lng);
+        const circle = L.circle(center, { radius });
+        map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
+      } catch (_error) {
+        // Evita falha ao ajustar bounds quando o mapa não está pronto
+      }
+    };
+
+    if (map._loaded) applyFit();
+    else map.whenReady(applyFit);
   }, [map, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
@@ -255,20 +261,82 @@ function RegionOverlay({ target }) {
   );
 }
 
-function ClickToZoom() {
-  useMapEvents({
-    click(event) {
-      const map = event.target;
+function ClickToZoom({ mapReady }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || !mapReady) return undefined;
+
+    const handleClick = (event) => {
       const currentZoom = map.getZoom?.() ?? DEFAULT_ZOOM;
       const maxZoom = map.getMaxZoom?.() ?? 18;
       const nextZoom = Math.min(currentZoom + 1, maxZoom);
-      const target = event.latlng || map.getCenter();
+      const target = event?.latlng || map.getCenter();
 
+      if (!target || typeof target.lat !== "number" || typeof target.lng !== "number") return;
+
+      map.stop?.();
       map.flyTo(target, nextZoom, { duration: 0.35, easeLinearity: 0.25 });
-    },
-  });
+    };
+
+    map.on("click", handleClick);
+    return () => map.off("click", handleClick);
+  }, [map, mapReady]);
 
   return null;
+}
+
+function MapControls({ mapReady, mapViewport }) {
+  const map = useMap();
+
+  const zoomBy = (delta) => {
+    if (!map || !mapReady) return;
+    const nextZoom = Math.max(1, Math.min((map.getZoom?.() ?? DEFAULT_ZOOM) + delta, map.getMaxZoom?.() ?? 18));
+    map.stop?.();
+    map.flyTo(map.getCenter(), nextZoom, { duration: 0.2 });
+  };
+
+  const recenter = () => {
+    if (!map || !mapReady) return;
+    const center = Array.isArray(mapViewport?.center) ? mapViewport.center : DEFAULT_CENTER;
+    const zoom = Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : DEFAULT_ZOOM;
+    map.stop?.();
+    map.flyTo(center, zoom, { duration: 0.35, easeLinearity: 0.25 });
+  };
+
+  return (
+    <div className="pointer-events-none absolute left-3 top-3 z-[999] flex flex-col gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f141c] shadow-lg">
+        <button
+          type="button"
+          className="h-9 w-9 text-white transition hover:bg-white/10"
+          aria-label="Aumentar zoom"
+          onClick={() => zoomBy(1)}
+        >
+          +
+        </button>
+        <div className="h-px bg-white/10" />
+        <button
+          type="button"
+          className="h-9 w-9 text-white transition hover:bg-white/10"
+          aria-label="Reduzir zoom"
+          onClick={() => zoomBy(-1)}
+        >
+          −
+        </button>
+      </div>
+
+      <button
+        type="button"
+        className="pointer-events-auto flex h-10 items-center gap-2 rounded-lg border border-white/10 bg-[#0f141c] px-3 text-xs font-semibold text-white shadow-lg transition hover:border-primary/60 hover:text-primary"
+        aria-label="Recentralizar"
+        onClick={recenter}
+      >
+        <span role="img" aria-hidden="true">🧭</span>
+        <span>Recentrar</span>
+      </button>
+    </div>
+  );
 }
 
 // --- COMPONENTE PRINCIPAL ---
@@ -282,9 +350,23 @@ export default function MonitoringMap({
   regionTarget = null,
   onMarkerSelect = null,
   onMarkerOpenDetails = null,
+  mapLayer,
 }) {
-  // Configuração padrão do tile layer
-  const tileUrl = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const [mapReady, setMapReady] = useState(false);
+  const mapRef = useRef(null);
+
+  useEffect(() => {
+    const instance = mapRef.current;
+    if (!instance) return undefined;
+
+    if (instance._loaded) {
+      setMapReady(true);
+      return undefined;
+    }
+
+    instance.whenReady(() => setMapReady(true));
+  }, [mapLayer?.key]);
 
   return (
     <div className="h-full w-full bg-[#0b0f17] relative z-0">
@@ -292,15 +374,21 @@ export default function MonitoringMap({
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
         className="h-full w-full outline-none"
-        zoomControl={false} // Remover controle padrão para visual mais limpo (opcional)
+        zoomControl={false}
         scrollWheelZoom={true}
+        whenCreated={(instance) => {
+          mapRef.current = instance;
+        }}
       >
         <TileLayer
+          key={mapLayer?.key || tileUrl}
           url={tileUrl}
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+          attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+          maxZoom={mapLayer?.maxZoom || 20}
         />
 
-        <ClickToZoom />
+        <ClickToZoom mapReady={mapReady} />
+        <MapControls mapReady={mapReady} mapViewport={mapViewport} />
 
         <MarkerLayer
           markers={markers}

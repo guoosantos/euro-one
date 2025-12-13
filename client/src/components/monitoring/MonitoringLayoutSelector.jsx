@@ -1,6 +1,15 @@
 import React from "react";
 
-export default function MonitoringLayoutSelector({ layoutVisibility, onToggle, onClose, searchRadius, onRadiusChange }) {
+export default function MonitoringLayoutSelector({
+  layoutVisibility,
+  onToggle,
+  onClose,
+  searchRadius,
+  onRadiusChange,
+  mapLayers = [],
+  activeMapLayer,
+  onMapLayerChange,
+}) {
   const options = [
     { key: "showMap", label: "Mostrar Mapa" },
     { key: "showTable", label: "Mostrar Tabela" },
@@ -78,6 +87,39 @@ export default function MonitoringLayoutSelector({ layoutVisibility, onToggle, o
             />
             <p className="mt-1 text-[11px] text-white/50">Ajuste o raio usado na busca por endereço (50m a 5km).</p>
           </div>
+
+          {mapLayers.length > 0 && (
+            <div className="rounded-lg border border-white/10 px-3 py-2">
+              <div className="text-sm font-semibold text-white">Tipo de mapa</div>
+              <p className="text-[11px] text-white/60">Escolha o provedor exibido no mapa.</p>
+
+              <div className="mt-2 space-y-2">
+                {mapLayers.map((layer) => {
+                  const isActive = layer.key === activeMapLayer;
+                  return (
+                    <label
+                      key={layer.key}
+                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition ${isActive ? "border-primary/60 bg-primary/10 text-white" : "border-white/10 text-white/70 hover:border-white/30"}`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{layer.label}</span>
+                        {layer.description ? (
+                          <span className="text-[11px] text-white/60">{layer.description}</span>
+                        ) : null}
+                      </div>
+                      <input
+                        type="radio"
+                        name="map-layer"
+                        className="h-4 w-4"
+                        checked={isActive}
+                        onChange={() => onMapLayerChange?.(layer.key)}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
