@@ -180,8 +180,8 @@ export default function MonitoringToolbar({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-white/70">
-        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px]">
+      <div className="flex flex-wrap items-center gap-3 text-[10px] text-white/70">
+        <span className="text-white/60">
           Exibindo {summary?.total ?? 0} veículos / {summary?.online ?? 0} online / {summary?.offline ?? 0} offline
         </span>
         <StatusChip
@@ -334,10 +334,10 @@ function StatusChip({ label, count, color = "text-white/60", onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/70 transition hover:border-white/30 hover:text-white"
+      className="flex items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-white/70 transition hover:text-white"
     >
       <span className={color}>{label}</span>
-      <span className="rounded bg-black/20 px-1 text-[8px] text-white/80">{count ?? 0}</span>
+      <span className="text-[8px] text-white/70">{count ?? 0}</span>
     </button>
   );
 }
