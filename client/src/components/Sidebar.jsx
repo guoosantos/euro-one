@@ -234,7 +234,7 @@ export default function Sidebar() {
   return (
 
     <motion.aside
-      className="flex h-full flex-col overflow-hidden bg-[#0f141c]"
+      className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0f141c]"
       aria-label="Menu principal"
       data-collapsed={collapsed ? "true" : "false"}
       initial={false}
@@ -247,7 +247,7 @@ export default function Sidebar() {
       transition={{ type: "spring", stiffness: 240, damping: 28 }}
     >
 
-      <nav className="flex h-full flex-col gap-3 p-3">
+      <nav className="flex h-full min-h-0 flex-col gap-3 p-3">
         <div
           className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
           style={{
@@ -345,7 +345,7 @@ export default function Sidebar() {
           </AnimatePresence>
         </div>
 
-        <div className="flex-1 space-y-3 overflow-y-auto pr-1 scrollbar-thin">
+        <div className="sidebar-scroll flex-1 space-y-3 overflow-y-auto pr-1">
           {sectionTitle(collapsed, "Negócios")}
           {businessLinks.map(renderNavLink)}
 

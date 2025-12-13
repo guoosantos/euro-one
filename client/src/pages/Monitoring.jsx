@@ -14,15 +14,18 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
 
 import {
   deriveStatus,
   formatDateTime,
   getDeviceKey,
+  getLastActivity,
   getIgnition,
   getLastUpdate,
   isOnline,
+  minutesSince,
   pickCoordinate,
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
@@ -111,39 +114,52 @@ const BASE_MAP_LAYERS = [
   },
 ];
 
-const MAP_LAYERS = [
-  ...BASE_MAP_LAYERS,
-  ...(GOOGLE_ROAD_TILE_URL
-    ? [
-        {
-          key: "google-road",
-          label: "Google Estrada",
-          description: "Mapa padrão do Google (se habilitado)",
-          url: GOOGLE_ROAD_TILE_URL,
-        },
-      ]
-    : []),
-  ...(GOOGLE_SATELLITE_TILE_URL
-    ? [
-        {
-          key: "google-satellite",
-          label: "Google Satélite",
-          description: "Imagem de satélite Google (se habilitado)",
-          url: GOOGLE_SATELLITE_TILE_URL,
-        },
-      ]
-    : []),
-  ...(GOOGLE_HYBRID_TILE_URL
-    ? [
-        {
-          key: "google-hybrid",
-          label: "Google Híbrido",
-          description: "Satélite + labels Google (se habilitado)",
-          url: GOOGLE_HYBRID_TILE_URL,
-        },
-      ]
-    : []),
+const GOOGLE_LAYERS = [
+  {
+    key: "google-road",
+    label: "Google Estrada",
+    description: "Mapa padrão do Google (se habilitado)",
+    url: GOOGLE_ROAD_TILE_URL,
+    available: Boolean(GOOGLE_ROAD_TILE_URL),
+  },
+  {
+    key: "google-satellite",
+    label: "Google Satélite",
+    description: "Imagem de satélite Google (se habilitado)",
+    url: GOOGLE_SATELLITE_TILE_URL,
+    available: Boolean(GOOGLE_SATELLITE_TILE_URL),
+  },
+  {
+    key: "google-hybrid",
+    label: "Google Híbrido",
+    description: "Satélite + labels Google (se habilitado)",
+    url: GOOGLE_HYBRID_TILE_URL,
+    available: Boolean(GOOGLE_HYBRID_TILE_URL),
+  },
 ];
+
+const MAP_LAYER_SECTIONS = [
+  {
+    key: "core",
+    label: "OpenStreetMap / Carto / Topo",
+    layers: BASE_MAP_LAYERS,
+  },
+  {
+    key: "google",
+    label: "Google",
+    disabledMessage: "Google Maps não configurado",
+    layers: GOOGLE_LAYERS,
+  },
+];
+
+const ENABLED_MAP_LAYERS = MAP_LAYER_SECTIONS.flatMap((section) =>
+  section.layers
+    .filter((layer) => layer.available !== false && layer.url)
+    .map((layer) => ({ ...layer, section: section.key })),
+);
+
+const MAP_LAYER_FALLBACK = ENABLED_MAP_LAYERS[0] || BASE_MAP_LAYERS[0];
+const DEVICE_FOCUS_ZOOM = 16;
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -248,17 +264,17 @@ function PaginationFooter({
   };
 
   return (
-    <div className="border-t border-white/10 bg-[#0f141c] px-3 py-2 text-[11px]">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/70">
-          <label className="text-[10px] uppercase tracking-[0.08em] text-white/50" htmlFor="monitoring-page-size">
+    <div className="border-t border-white/10 bg-[#0f141c] px-2 py-1.5 text-[10px] leading-tight">
+      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-white/70">
+          <label className="text-[9px] uppercase tracking-[0.1em] text-white/50" htmlFor="monitoring-page-size">
             Itens por página
           </label>
           <select
             id="monitoring-page-size"
             value={pageSize === "all" ? "all" : String(pageSize)}
             onChange={handlePageSizeChange}
-            className="rounded border border-white/10 bg-[#0b0f17] px-2 py-1 text-[11px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
+            className="rounded border border-white/10 bg-[#0b0f17] px-1.5 py-1 text-[10px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -267,10 +283,10 @@ function PaginationFooter({
             ))}
           </select>
 
-          <span className="text-[10px] uppercase tracking-[0.08em] text-white/50">
+          <span className="text-[9px] uppercase tracking-[0.1em] text-white/50">
             Página {currentPage} de {totalPages}
           </span>
-          <span className="text-[10px] uppercase tracking-[0.08em] text-white/50">
+          <span className="text-[9px] uppercase tracking-[0.1em] text-white/50">
             Mostrando {pageStart}–{pageEnd} de {totalRows}
           </span>
         </div>
@@ -301,7 +317,7 @@ function PaginationButton({ children, disabled, onClick }) {
       disabled={disabled}
       onClick={onClick}
       className={`
-        rounded border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition
+        rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition
         ${disabled
           ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
           : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"}
@@ -315,6 +331,7 @@ function PaginationButton({ children, disabled, onClick }) {
 export default function Monitoring() {
   const { t, locale } = useTranslation();
 
+  const { tenantId, user } = useTenant();
   const { telemetry, loading } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
 
@@ -332,7 +349,7 @@ export default function Monitoring() {
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [reverseAddresses, setReverseAddresses] = useState({});
-  const [mapLayerKey, setMapLayerKey] = useState(MAP_LAYERS[0].key);
+  const [mapLayerKey, setMapLayerKey] = useState(MAP_LAYER_FALLBACK.key);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
 
@@ -344,6 +361,11 @@ export default function Monitoring() {
     showMap: true,
     showTable: true,
   });
+
+  const columnStorageKey = useMemo(
+    () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
+    [tenantId, user?.id],
+  );
 
   const {
     isSearching,
@@ -380,7 +402,7 @@ export default function Monitoring() {
   useEffect(() => {
     try {
       const storedLayer = localStorage.getItem(MAP_LAYER_STORAGE_KEY);
-      if (storedLayer && MAP_LAYERS.some((layer) => layer.key === storedLayer)) {
+      if (storedLayer && ENABLED_MAP_LAYERS.some((layer) => layer.key === storedLayer)) {
         setMapLayerKey(storedLayer);
       }
     } catch (_error) {
@@ -450,9 +472,19 @@ export default function Monitoring() {
 
   const filteredDevices = useMemo(() => {
     return searchFiltered.filter(({ source, device }) => {
-      if (filterMode === "online") return isOnline(source?.position);
-      if (filterMode === "stale") return !isOnline(source?.position);
-      if (filterMode === "critical") return deriveStatus(source?.position) === "alert";
+      const position = source?.position;
+      const online = isOnline(position);
+      const lastActivity = getLastActivity(position, device) || getLastUpdate(position);
+      const stalenessMinutes = minutesSince(lastActivity);
+      const hasStaleness = Number.isFinite(stalenessMinutes);
+
+      if (filterMode === "online") return online;
+      if (filterMode === "stale") return !online;
+      if (filterMode === "critical") return deriveStatus(position) === "alert";
+      if (filterMode === "stale_1_3") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 180;
+      if (filterMode === "stale_6_18") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1080;
+      if (filterMode === "stale_24") return !online && hasStaleness && stalenessMinutes >= 1440;
+      if (filterMode === "stale_10d") return !online && hasStaleness && stalenessMinutes >= 14400;
       return true;
     });
   }, [searchFiltered, filterMode]);
@@ -496,6 +528,8 @@ export default function Monitoring() {
         : statusBadge === "alert"
           ? t("monitoring.filters.criticalEvents")
           : t("monitoring.filters.offline");
+      const lastActivity = getLastActivity(pos, device) || getLastUpdate(pos);
+      const stalenessMinutes = minutesSince(lastActivity);
 
       const row = {
         key,
@@ -508,7 +542,9 @@ export default function Monitoring() {
         plate: device.plate ?? "—",
         address: resolveAddress(pos, lat, lng),
         speed: pickSpeed(pos),
-        lastUpdate: getLastUpdate(pos),
+        lastUpdate: lastActivity,
+        lastActivity,
+        stalenessMinutes,
         statusBadge,
         statusLabel,
       };
@@ -579,25 +615,42 @@ export default function Monitoring() {
     setSelectedDeviceId(deviceId);
     const targetRow = decoratedRows.find((item) => item.deviceId === deviceId);
     if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
-      const focus = { center: [targetRow.lat, targetRow.lng], zoom: 16, key: `device-${deviceId}-${Date.now()}` };
-      setFocusTarget(focus);
-      setMapViewport(focus);
+      const currentCenter = Array.isArray(mapViewport?.center) ? mapViewport.center : null;
+      const currentZoom = Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : null;
+      const distanceToCurrent = currentCenter
+        ? distanceKm(targetRow.lat, targetRow.lng, currentCenter[0], currentCenter[1]) * 1000
+        : null;
+      const alreadyFocused =
+        isAlreadySelected &&
+        distanceToCurrent !== null &&
+        distanceToCurrent < 50 &&
+        (currentZoom ?? 0) >= DEVICE_FOCUS_ZOOM - 1;
+
+      if (!alreadyFocused) {
+        const focus = {
+          center: [targetRow.lat, targetRow.lng],
+          zoom: DEVICE_FOCUS_ZOOM,
+          key: `device-${deviceId}-${Date.now()}`,
+        };
+        setFocusTarget(focus);
+        setMapViewport(focus);
+      }
     }
     if (openDetails) openDetailsFor(deviceId);
-  }, [decoratedRows, openDetailsFor, selectedDeviceId]);
+  }, [decoratedRows, mapViewport, openDetailsFor, selectedDeviceId]);
 
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
   }, []);
 
   const mapLayer = useMemo(
-    () => MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYERS[0],
+    () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK,
     [mapLayerKey],
   );
 
   const handleMapLayerChange = useCallback((nextKey) => {
-    const valid = MAP_LAYERS.find((item) => item.key === nextKey);
-    setMapLayerKey(valid ? valid.key : MAP_LAYERS[0].key);
+    const valid = ENABLED_MAP_LAYERS.find((item) => item.key === nextKey);
+    setMapLayerKey(valid ? valid.key : MAP_LAYER_FALLBACK.key);
   }, []);
 
   const markers = useMemo(() => {
@@ -628,11 +681,40 @@ export default function Monitoring() {
   }, [displayRows, locale, selectedDeviceId, t]);
 
   const summary = useMemo(() => {
-    const online = displayRows.filter(r => isOnline(r.position)).length;
-    const moving = displayRows.filter(r => (r.speed ?? 0) > 0).length;
-    const critical = displayRows.filter(r => deriveStatus(r.position) === "alert").length;
-    const offline = displayRows.length - online;
-    return { online, offline, moving, total: displayRows.length, critical };
+    const base = {
+      online: 0,
+      offline: 0,
+      moving: 0,
+      critical: 0,
+      stale1to3: 0,
+      stale6to18: 0,
+      stale24: 0,
+      stale10d: 0,
+      total: displayRows.length,
+    };
+
+    displayRows.forEach((row) => {
+      const online = isOnline(row.position);
+      const staleness = Number.isFinite(row.stalenessMinutes)
+        ? row.stalenessMinutes
+        : minutesSince(row.lastActivity);
+      const critical = deriveStatus(row.position) === "alert";
+
+      if (online) base.online += 1;
+      else base.offline += 1;
+
+      if ((row.speed ?? 0) > 0) base.moving += 1;
+      if (critical) base.critical += 1;
+
+      if (!online && Number.isFinite(staleness)) {
+        if (staleness >= 60 && staleness < 180) base.stale1to3 += 1;
+        if (staleness >= 360 && staleness < 1080) base.stale6to18 += 1;
+        if (staleness >= 1440) base.stale24 += 1;
+        if (staleness >= 14400) base.stale10d += 1;
+      }
+    });
+
+    return base;
   }, [displayRows]);
 
   // --- Configuração de Colunas ---
@@ -724,7 +806,7 @@ export default function Monitoring() {
     columns: allColumns,
     remotePreferences: preferences,
     loadingPreferences,
-    storageKey: "monitoring.table.columns",
+    storageKey: columnStorageKey,
     savePreferences,
     defaultColumnKeys: EURO_ONE_DEFAULT_COLUMNS,
   });
@@ -742,7 +824,7 @@ export default function Monitoring() {
       radius,
     };
     setRegionTarget(target);
-    const focus = { center: [payload.lat, payload.lng], zoom: 16, key: `address-${Date.now()}` };
+    const focus = { center: [payload.lat, payload.lng], zoom: DEVICE_FOCUS_ZOOM, key: `address-${Date.now()}` };
     setFocusTarget(focus);
     setMapViewport(focus);
   }, [clampRadius, radiusValue]);
@@ -868,7 +950,7 @@ export default function Monitoring() {
 
   return (
     <div
-      className="relative grid h-full w-full min-h-[calc(100vh-64px)] overflow-hidden bg-[#0b0f17]"
+      className="relative grid flex-1 min-h-0 w-full overflow-hidden bg-[#0b0f17]"
       style={{ gridTemplateRows }}
     >
       {layoutVisibility.showMap && (
@@ -944,7 +1026,7 @@ export default function Monitoring() {
       {layoutVisibility.showTable && (
         <div className="relative z-20 flex min-h-0 flex-col overflow-hidden bg-[#0f141c]">
           <div className="border-b border-white/10 px-3 py-2">
-            <div className="flex min-h-[104px] flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
                 vehicleSearchTerm={vehicleQuery}
                 onVehicleSearchChange={handleVehicleSearchChange}
@@ -1004,7 +1086,8 @@ export default function Monitoring() {
           onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
           searchRadius={radiusValue}
           onRadiusChange={(value) => updateSearchRadius(clampRadius(value))}
-          mapLayers={MAP_LAYERS}
+          mapLayerSections={MAP_LAYER_SECTIONS}
+          mapLayers={ENABLED_MAP_LAYERS}
           activeMapLayer={mapLayer.key}
           onMapLayerChange={handleMapLayerChange}
           onClose={() => setActivePopup(null)}

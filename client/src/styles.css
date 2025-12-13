@@ -85,6 +85,18 @@ body {
   background-color: var(--scrollbar-thumb-hover);
 }
 
+.sidebar-scroll {
+  scrollbar-width: thin;
+}
+
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  border-width: 1px;
+}
+
 .app-shell {
   @apply min-h-screen bg-gradient-to-b from-[#0a0f1a] via-[#0b1220] to-[#0f172a] text-text;
   background-image: var(--mesh-gradient), radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.04), transparent 48%);

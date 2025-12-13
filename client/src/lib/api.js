@@ -90,7 +90,7 @@ function normaliseToken(value) {
   return `Bearer ${value}`;
 }
 
-function resolveAuthorizationHeader() {
+export function resolveAuthorizationHeader() {
   const stored = getStoredSession();
   if (stored?.token) {
     return normaliseToken(stored.token);

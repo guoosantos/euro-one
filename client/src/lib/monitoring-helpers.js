@@ -56,7 +56,15 @@ export function getIgnition(position, device) {
 
 export function getLastUpdate(position) {
   if (!position) return null;
-  const candidates = [position.serverTime, position.time, position.fixTime, position.server_time, position.fixtime];
+  const candidates = [
+    position.serverTime,
+    position.time,
+    position.fixTime,
+    position.server_time,
+    position.fixtime,
+    position.lastUpdate,
+    position.deviceTime,
+  ];
 
   for (const value of candidates) {
     if (!value) continue;
@@ -93,6 +101,26 @@ export function deriveStatus(position) {
   return "online";
 }
 
+export function getLastActivity(position, device) {
+  const byPosition = getLastUpdate(position);
+  if (byPosition) return byPosition;
+
+  const candidates = [
+    device?.lastUpdate,
+    device?.lastPositionTime,
+    device?.lastCommunication,
+    device?.lastUpdateTime,
+  ];
+
+  for (const value of candidates) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (!Number.isNaN(parsed)) return new Date(parsed);
+  }
+
+  return null;
+}
+
 export function minutesSince(date) {
   if (!(date instanceof Date)) return Infinity;
   return (Date.now() - date.getTime()) / 1000 / 60;
@@ -119,6 +147,7 @@ export default {
   pickSpeed,
   getIgnition,
   getLastUpdate,
+  getLastActivity,
   formatDateTime,
   isOnline,
   deriveStatus,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -281,7 +281,7 @@ function ClickToZoom({ mapReady }) {
   return null;
 }
 
-function MapControls({ mapReady, mapViewport, focusTarget }) {
+function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onResetRotation = null }) {
   const map = useMap();
 
   const zoomIn = () => {
@@ -315,10 +315,10 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
 
   return (
     <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/90 text-white/80 shadow-lg backdrop-blur-sm opacity-90 transition hover:opacity-100">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f141c]/80 text-white/80 shadow-lg backdrop-blur-sm">
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-xs font-semibold transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-sm font-semibold transition hover:bg-white/10"
           aria-label="Aumentar zoom"
           onClick={zoomIn}
         >
@@ -327,7 +327,7 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-xs font-semibold transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-sm font-semibold transition hover:bg-white/10"
           aria-label="Reduzir zoom"
           onClick={zoomOut}
         >
@@ -335,15 +335,44 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
         </button>
       </div>
 
-      <button
-        type="button"
-        className="pointer-events-auto flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/85 px-2.5 text-[10px] font-semibold uppercase text-white/80 shadow-lg backdrop-blur-sm transition hover:border-primary/60 hover:text-primary"
-        aria-label="Recentralizar mapa"
-        onClick={recenter}
-      >
-        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/20 text-[10px] font-bold">N</span>
-        <span>Reset</span>
-      </button>
+      <div className="pointer-events-auto flex items-center gap-1 self-end rounded-lg border border-white/10 bg-[#0f141c]/70 p-1 text-white/70 shadow-lg backdrop-blur-sm">
+        <button
+          type="button"
+          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-white/10"
+          aria-label="Rotacionar mapa para a esquerda"
+          onClick={() => onRotate?.(-15)}
+        >
+          ↺
+        </button>
+
+        <button
+          type="button"
+          className={`flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase transition ${
+            bearing !== 0 ? "border-primary/60 text-primary" : "border-white/15 text-white/80"
+          } hover:bg-white/10`}
+          aria-label="Recentralizar mapa para o norte"
+          onClick={() => {
+            onResetRotation?.();
+            recenter();
+          }}
+        >
+          <span
+            className="relative flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-white/5"
+            style={{ transform: `rotate(${bearing}deg)` }}
+          >
+            <span className="text-[11px] font-bold text-white">N</span>
+          </span>
+        </button>
+
+        <button
+          type="button"
+          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-white/10"
+          aria-label="Rotacionar mapa para a direita"
+          onClick={() => onRotate?.(15)}
+        >
+          ↻
+        </button>
+      </div>
     </div>
   );
 }
@@ -364,6 +393,7 @@ export default function MonitoringMap({
 }) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
+  const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
 
   useEffect(() => {
@@ -380,6 +410,54 @@ export default function MonitoringMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map || !mapReady) return undefined;
+
+    const pane = map.getPane?.("mapPane");
+    const baseLatLngToContainerPoint = map.latLngToContainerPoint?.bind(map);
+    const baseContainerPointToLatLng = map.containerPointToLatLng?.bind(map);
+
+    const rotatePoint = (point, angleDeg) => {
+      if (!point || typeof point.x !== "number" || typeof point.y !== "number") return point;
+      const size = map.getSize();
+      const center = L.point(size.x / 2, size.y / 2);
+      const angle = (angleDeg * Math.PI) / 180;
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      const dx = point.x - center.x;
+      const dy = point.y - center.y;
+      return L.point(center.x + dx * cos - dy * sin, center.y + dx * sin + dy * cos);
+    };
+
+    const applyRotation = () => {
+      if (!pane) return;
+      const current = pane.style.transform || "";
+      const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
+      pane.style.transform = `${withoutRotate} rotate(${mapBearing}deg)`;
+      pane.style.transformOrigin = "50% 50%";
+    };
+
+    if (baseLatLngToContainerPoint && baseContainerPointToLatLng) {
+      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), mapBearing);
+      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -mapBearing), zoom);
+    }
+
+    map.on("move", applyRotation);
+    map.on("zoom", applyRotation);
+    applyRotation();
+
+    return () => {
+      if (baseLatLngToContainerPoint) map.latLngToContainerPoint = baseLatLngToContainerPoint;
+      if (baseContainerPointToLatLng) map.containerPointToLatLng = baseContainerPointToLatLng;
+      map.off("move", applyRotation);
+      map.off("zoom", applyRotation);
+      if (pane) {
+        pane.style.transform = (pane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
+      }
+    };
+  }, [mapBearing, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map || !mapReady || !focusTarget?.center) return;
     const [lat, lng] = focusTarget.center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
@@ -389,6 +467,17 @@ export default function MonitoringMap({
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
   }, [focusTarget, mapReady]);
+
+  const rotateMap = useCallback((delta) => {
+    setMapBearing((prev) => {
+      const next = (prev + delta) % 360;
+      return next < 0 ? next + 360 : next;
+    });
+  }, []);
+
+  const resetMapRotation = useCallback(() => {
+    setMapBearing(0);
+  }, []);
 
   return (
     <div className="h-full w-full bg-[#0b0f17] relative z-0">
@@ -410,7 +499,14 @@ export default function MonitoringMap({
         />
 
         <ClickToZoom mapReady={mapReady} />
-        <MapControls mapReady={mapReady} mapViewport={mapViewport} focusTarget={focusTarget} />
+        <MapControls
+          mapReady={mapReady}
+          mapViewport={mapViewport}
+          focusTarget={focusTarget}
+          bearing={mapBearing}
+          onRotate={rotateMap}
+          onResetRotation={resetMapRotation}
+        />
 
         <MarkerLayer
           markers={markers}
