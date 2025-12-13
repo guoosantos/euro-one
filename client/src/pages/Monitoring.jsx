@@ -991,11 +991,11 @@ export default function Monitoring() {
 
   return (
     <div
-      className="relative grid flex-1 min-h-0 w-full overflow-hidden bg-[#0b0f17]"
+      className="relative grid h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0b0f17]"
       style={{ gridTemplateRows }}
     >
       {layoutVisibility.showMap && (
-        <div className="relative min-h-0 border-b border-white/10">
+        <div className="relative min-h-0 h-full border-b border-white/10">
           <MonitoringMap
             markers={markers}
             geofences={geofences}
@@ -1076,7 +1076,7 @@ export default function Monitoring() {
       )}
 
       {layoutVisibility.showTable && (
-        <div className="relative z-20 flex min-h-0 flex-col overflow-hidden bg-[#0f141c]">
+        <div className="relative z-20 flex h-full min-h-0 flex-col overflow-hidden bg-[#0f141c]">
           <div className="border-b border-white/10 px-3 py-2">
             <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
