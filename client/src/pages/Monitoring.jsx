@@ -111,8 +111,6 @@ const BASE_MAP_LAYERS = [
   },
 ];
 
-const MAP_LAYERS = [...BASE_MAP_LAYERS, ...GOOGLE_MAP_LAYERS];
-
 const GOOGLE_MAP_LAYERS = [
   GOOGLE_ROAD_TILE_URL
     ? {
@@ -139,6 +137,8 @@ const GOOGLE_MAP_LAYERS = [
       }
     : null,
 ].filter(Boolean);
+
+const MAP_LAYERS = [...BASE_MAP_LAYERS, ...GOOGLE_MAP_LAYERS];
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
