@@ -1,17 +1,17 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const MIN_COLUMN_WIDTH = 60;
-const MAX_COLUMN_WIDTH = 420;
+const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_MIN_WIDTH = 60;
-const DEFAULT_COLUMN_WIDTH = 140;
+const DEFAULT_COLUMN_WIDTH = 120;
 
 const DATE_KEYS = new Set(["serverTime", "deviceTime", "gpsTime"]);
 const ADDRESS_KEYS = new Set(["address", "endereco"]);
 const BOOLEAN_KEYS = new Set(["valid", "ignition", "blocked"]);
 
 export default function MonitoringTable({
-  rows,
-  columns,
+  rows = [],
+  columns = [],
   loading,
   selectedDeviceId,
   onSelect,
@@ -20,26 +20,40 @@ export default function MonitoringTable({
   onColumnWidthChange,
   onRowClick,
 }) {
+  const normalizedColumns = useMemo(() => {
+    const list = Array.isArray(columns) ? columns : [];
+    if (list.length) return list;
+    return [{ key: "placeholder", label: "—", width: DEFAULT_COLUMN_WIDTH, minWidth: DEFAULT_MIN_WIDTH, fixed: true }];
+  }, [columns]);
+
+  const sanitizeWidths = (source = {}) => Object.fromEntries(
+    Object.entries(source)
+      .filter(([, value]) => Number.isFinite(value) && value > 0),
+  );
+
   const baseWidths = useMemo(
     () => (
-      columns.reduce((acc, col) => {
-        if (col.width) acc[col.key] = col.width;
+      normalizedColumns.reduce((acc, col) => {
+        const width = Number.isFinite(col.width) && col.width > 0 ? col.width : null;
+        if (width) acc[col.key] = width;
         return acc;
       }, {})
     ),
-    [columns],
+    [normalizedColumns],
   );
 
-  const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...(externalWidths || {}) });
+  const sanitizedExternalWidths = useMemo(() => sanitizeWidths(externalWidths || {}), [externalWidths]);
+
+  const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...sanitizedExternalWidths });
   const liveWidthsRef = useRef(columnWidths);
   const containerRef = useRef(null);
   const rowRefs = useRef(new Map());
   const columnLookup = useMemo(() => (
-    columns.reduce((acc, col) => {
+    normalizedColumns.reduce((acc, col) => {
       acc[col.key] = col;
       return acc;
     }, {})
-  ), [columns]);
+  ), [normalizedColumns]);
 
   useEffect(() => {
     liveWidthsRef.current = columnWidths;
@@ -47,14 +61,14 @@ export default function MonitoringTable({
 
   useEffect(() => {
     setColumnWidths((prev) => {
-      const next = { ...baseWidths, ...(externalWidths || {}), ...prev };
+      const next = { ...baseWidths, ...sanitizedExternalWidths, ...prev };
 
       const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
       const hasDiff = Array.from(keys).some((key) => prev[key] !== next[key]);
 
       return hasDiff ? next : prev;
     });
-  }, [baseWidths, externalWidths]);
+  }, [baseWidths, sanitizedExternalWidths]);
 
   useEffect(() => {
     if (!selectedDeviceId) return;
@@ -66,16 +80,25 @@ export default function MonitoringTable({
 
   const getColumnMinWidth = (key) => {
     const columnConfig = columnLookup[key];
-    const declaredMin = columnConfig?.minWidth ?? DEFAULT_MIN_WIDTH;
+    const declaredMin = Number.isFinite(columnConfig?.minWidth) ? columnConfig.minWidth : DEFAULT_MIN_WIDTH;
     return Math.max(MIN_COLUMN_WIDTH, declaredMin);
+  };
+
+  const getDefaultWidth = (key) => {
+    const columnConfig = columnLookup[key];
+    const declaredWidth = Number.isFinite(columnConfig?.width) && columnConfig.width > 0
+      ? columnConfig.width
+      : DEFAULT_COLUMN_WIDTH;
+    return declaredWidth;
   };
 
   const getAppliedWidth = (key) => {
     const minWidth = getColumnMinWidth(key);
     const columnConfig = columnLookup[key];
-    const declaredWidth = columnConfig?.width ?? DEFAULT_COLUMN_WIDTH;
-    const width = columnWidths[key] ?? declaredWidth;
-    const clamped = Math.max(minWidth, Math.min(width, MAX_COLUMN_WIDTH));
+    const storedWidth = columnWidths[key];
+    const declaredWidth = getDefaultWidth(key);
+    const chosenWidth = Number.isFinite(storedWidth) && storedWidth > 0 ? storedWidth : declaredWidth;
+    const clamped = Math.max(minWidth, Math.min(chosenWidth, MAX_COLUMN_WIDTH));
     return clamped;
   };
 
@@ -83,15 +106,17 @@ export default function MonitoringTable({
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
-    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width;
+    const startWidthRaw = event.currentTarget.parentElement?.getBoundingClientRect().width;
     const minWidth = getColumnMinWidth(key);
-
-    if (!Number.isFinite(startWidth) || startWidth <= 0) return;
+    const startWidth = Number.isFinite(startWidthRaw) && startWidthRaw > 0
+      ? startWidthRaw
+      : getAppliedWidth(key);
+    const safeStartWidth = Math.max(minWidth, Math.min(startWidth, MAX_COLUMN_WIDTH));
 
     const handleMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX;
-      const unclamped = Math.round(startWidth + delta);
-      const safeWidth = Number.isFinite(unclamped) ? unclamped : startWidth;
+      const unclamped = Math.round(safeStartWidth + delta);
+      const safeWidth = Number.isFinite(unclamped) ? unclamped : minWidth;
       const clampedWidth = Math.max(minWidth, Math.min(safeWidth, MAX_COLUMN_WIDTH));
 
       setColumnWidths(prev => {
@@ -105,8 +130,9 @@ export default function MonitoringTable({
     const handleUp = () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
-      const storedWidth = liveWidthsRef.current?.[key] || startWidth;
-      const finalWidth = Math.max(minWidth, Math.min(Math.round(storedWidth), MAX_COLUMN_WIDTH));
+      const storedWidth = liveWidthsRef.current?.[key];
+      const safeStored = Number.isFinite(storedWidth) ? storedWidth : minWidth;
+      const finalWidth = Math.max(minWidth, Math.min(Math.round(safeStored), MAX_COLUMN_WIDTH));
       onColumnWidthChange?.(key, finalWidth);
     };
 
@@ -151,7 +177,7 @@ export default function MonitoringTable({
 
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
           <tr>
-            {columns.map((col) => (
+            {normalizedColumns.map((col) => (
               <th
                 key={col.key}
                 style={getWidthStyle(col.key)}
@@ -180,7 +206,7 @@ export default function MonitoringTable({
           {rows.length === 0 ? (
             <tr>
               <td
-                colSpan={columns.length}
+                colSpan={Math.max(normalizedColumns.length, 1)}
                 className="px-3 py-4 text-center text-sm text-white/50"
               >
                 {loading ? "Carregando dados da frota..." : emptyText || "—"}
@@ -201,7 +227,7 @@ export default function MonitoringTable({
                 }}
                 className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
               >
-                {columns.map((col) => {
+                {normalizedColumns.map((col) => {
                   let cellValue = col.render ? col.render(row) : row[col.key];
 
                   if (col.key === "address" || col.key === "endereco") {
