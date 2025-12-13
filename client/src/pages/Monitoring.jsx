@@ -264,9 +264,9 @@ function PaginationFooter({
   };
 
   return (
-    <div className="border-t border-white/10 bg-[#0f141c] px-2 py-1.5 text-[10px] leading-tight">
-      <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-white/70">
+    <div className="shrink-0 border-t border-white/10 bg-[#0f141c] px-2 py-1 text-[10px] leading-tight">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-1 text-[10px] text-white/70">
           <label className="text-[9px] uppercase tracking-[0.1em] text-white/50" htmlFor="monitoring-page-size">
             Itens por página
           </label>
@@ -274,7 +274,7 @@ function PaginationFooter({
             id="monitoring-page-size"
             value={pageSize === "all" ? "all" : String(pageSize)}
             onChange={handlePageSizeChange}
-            className="rounded border border-white/10 bg-[#0b0f17] px-1.5 py-1 text-[10px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
+            className="h-7 min-w-[72px] rounded border border-white/10 bg-[#0b0f17] px-1.5 py-1 text-[10px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -317,7 +317,7 @@ function PaginationButton({ children, disabled, onClick }) {
       disabled={disabled}
       onClick={onClick}
       className={`
-        rounded border px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] transition
+        rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition
         ${disabled
           ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
           : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"}
@@ -361,6 +361,16 @@ export default function Monitoring() {
     showMap: true,
     showTable: true,
   });
+
+  const toggleLayoutVisibility = useCallback((key) => {
+    setLayoutVisibility((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (!next.showMap && !next.showTable) {
+        next[key] = true;
+      }
+      return next;
+    });
+  }, []);
 
   const columnStorageKey = useMemo(
     () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
@@ -1083,7 +1093,7 @@ export default function Monitoring() {
       {activePopup === "layout" && (
         <MonitoringLayoutSelector
           layoutVisibility={layoutVisibility}
-          onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
+          onToggle={toggleLayoutVisibility}
           searchRadius={radiusValue}
           onRadiusChange={(value) => updateSearchRadius(clampRadius(value))}
           mapLayerSections={MAP_LAYER_SECTIONS}
