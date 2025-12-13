@@ -285,19 +285,19 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
   const map = useMap();
 
   const zoomIn = () => {
-    if (!map || !mapReady) return;
+    if (!map) return;
     map.stop?.();
     map.zoomIn?.(1, { animate: true });
   };
 
   const zoomOut = () => {
-    if (!map || !mapReady) return;
+    if (!map) return;
     map.stop?.();
     map.zoomOut?.(1, { animate: true });
   };
 
   const recenter = () => {
-    if (!map || !mapReady) return;
+    if (!map) return;
     const targetCenter = Array.isArray(focusTarget?.center)
       ? focusTarget.center
       : Array.isArray(mapViewport?.center)
@@ -314,11 +314,11 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
   };
 
   return (
-    <div className="pointer-events-none absolute right-4 top-4 z-[999] flex flex-col gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/95 shadow-xl backdrop-blur">
+    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/90 text-white/80 shadow-lg backdrop-blur-sm opacity-90 transition hover:opacity-100">
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-xs font-semibold transition hover:bg-white/10"
           aria-label="Aumentar zoom"
           onClick={zoomIn}
         >
@@ -327,7 +327,7 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="flex h-9 w-9 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
+          className="flex h-8 w-8 items-center justify-center text-xs font-semibold transition hover:bg-white/10"
           aria-label="Reduzir zoom"
           onClick={zoomOut}
         >
@@ -337,7 +337,7 @@ function MapControls({ mapReady, mapViewport, focusTarget }) {
 
       <button
         type="button"
-        className="pointer-events-auto flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/95 px-3 text-[11px] font-semibold uppercase text-white shadow-xl backdrop-blur transition hover:border-primary/60 hover:text-primary"
+        className="pointer-events-auto flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/85 px-2.5 text-[10px] font-semibold uppercase text-white/80 shadow-lg backdrop-blur-sm transition hover:border-primary/60 hover:text-primary"
         aria-label="Recentralizar mapa"
         onClick={recenter}
       >

@@ -42,7 +42,10 @@ export default function useGeocodeSearch() {
     }
 
     if (!response.ok) {
-      const message = payload?.error?.message || "Não foi possível buscar endereços.";
+      const defaultMessage = response.status === 401
+        ? "Busca de endereço indisponível no momento."
+        : "Não foi possível buscar endereços.";
+      const message = payload?.error?.message || defaultMessage;
       throw new Error(message);
     }
 
@@ -88,6 +91,8 @@ export default function useGeocodeSearch() {
       setCache(term.toLowerCase(), { list, best });
       return best || null;
     } catch (searchError) {
+      setSuggestions([]);
+      setLastResult(null);
       setError(searchError);
       return null;
     } finally {
@@ -121,6 +126,8 @@ export default function useGeocodeSearch() {
       setCache(term.toLowerCase(), { list, best: list[0] || null });
       return list;
     } catch (previewError) {
+      setSuggestions([]);
+      setLastResult(null);
       setError(previewError);
       return [];
     } finally {
