@@ -333,45 +333,6 @@ export default function Monitoring() {
     setQuery(value);
   }, []);
 
-  const applyAddressTarget = useCallback((payload) => {
-    if (!payload) return;
-    const radius = clampRadius(payload.radius ?? radiusValue);
-    const target = {
-      lat: payload.lat,
-      lng: payload.lng,
-      label: payload.label,
-      address: payload.description || payload.address || payload.label,
-      radius,
-    };
-    setRegionTarget(target);
-    setMapViewport({ center: [payload.lat, payload.lng], zoom: 15 });
-  }, [clampRadius, radiusValue]);
-
-  const handleSelectSuggestion = useCallback((option) => {
-    if (!option) return;
-    if (option.type === "vehicle") {
-      setSearchTerm(option.label);
-      setQuery(option.label);
-      focusDevice(option.deviceId, { openDetails: true });
-      clearSuggestions();
-      return;
-    }
-
-    if (option.type === "address") {
-      setSearchTerm(option.label);
-      setQuery("");
-      applyAddressTarget(option);
-    }
-  }, [applyAddressTarget, clearSuggestions, focusDevice]);
-
-  const handleClearAddress = useCallback(() => {
-    setRegionTarget(null);
-    setSearchTerm("");
-    setQuery("");
-    setNearbyDeviceIds([]);
-    clearSuggestions();
-  }, [clearSuggestions]);
-
   const markers = useMemo(() => {
     return decoratedRows
       .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
@@ -406,30 +367,6 @@ export default function Monitoring() {
     const offline = rows.length - online;
     return { online, offline, moving, total: rows.length, critical };
   }, [rows]);
-
-  useEffect(() => {
-    if (!regionTarget) {
-      setNearbyDeviceIds((prev) => (prev.length ? [] : prev));
-      return;
-    }
-
-    const radiusKm = clampRadius(regionTarget.radius ?? radiusValue) / 1000;
-    const ids = rows
-      .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-      .filter((r) => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= radiusKm)
-      .map((r) => r.deviceId);
-
-    setNearbyDeviceIds((prev) => {
-      if (prev.length === ids.length && prev.every((id, index) => id === ids[index])) {
-        return prev;
-      }
-      return ids;
-    });
-  }, [clampRadius, radiusValue, regionTarget, rows]);
-
-  useEffect(() => {
-    setRegionTarget((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
-  }, [clampRadius, radiusValue]);
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
@@ -524,6 +461,69 @@ export default function Monitoring() {
   });
 
   const radiusValue = useMemo(() => clampRadius(searchRadius ?? DEFAULT_RADIUS), [clampRadius, searchRadius]);
+
+  const applyAddressTarget = useCallback((payload) => {
+    if (!payload) return;
+    const radius = clampRadius(payload.radius ?? radiusValue);
+    const target = {
+      lat: payload.lat,
+      lng: payload.lng,
+      label: payload.label,
+      address: payload.description || payload.address || payload.label,
+      radius,
+    };
+    setRegionTarget(target);
+    setMapViewport({ center: [payload.lat, payload.lng], zoom: 15 });
+  }, [clampRadius, radiusValue]);
+
+  const handleSelectSuggestion = useCallback((option) => {
+    if (!option) return;
+    if (option.type === "vehicle") {
+      setSearchTerm(option.label);
+      setQuery(option.label);
+      focusDevice(option.deviceId, { openDetails: true });
+      clearSuggestions();
+      return;
+    }
+
+    if (option.type === "address") {
+      setSearchTerm(option.label);
+      setQuery("");
+      applyAddressTarget(option);
+    }
+  }, [applyAddressTarget, clearSuggestions, focusDevice]);
+
+  const handleClearAddress = useCallback(() => {
+    setRegionTarget(null);
+    setSearchTerm("");
+    setQuery("");
+    setNearbyDeviceIds([]);
+    clearSuggestions();
+  }, [clearSuggestions]);
+
+  useEffect(() => {
+    if (!regionTarget) {
+      setNearbyDeviceIds((prev) => (prev.length ? [] : prev));
+      return;
+    }
+
+    const radiusKm = clampRadius(regionTarget.radius ?? radiusValue) / 1000;
+    const ids = rows
+      .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+      .filter((r) => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= radiusKm)
+      .map((r) => r.deviceId);
+
+    setNearbyDeviceIds((prev) => {
+      if (prev.length === ids.length && prev.every((id, index) => id === ids[index])) {
+        return prev;
+      }
+      return ids;
+    });
+  }, [clampRadius, radiusValue, regionTarget, rows]);
+
+  useEffect(() => {
+    setRegionTarget((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
+  }, [clampRadius, radiusValue]);
 
   useEffect(() => {
     const next = Number.isFinite(mapHeightPercent)
