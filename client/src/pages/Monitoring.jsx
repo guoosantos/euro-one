@@ -26,7 +26,7 @@ import {
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
 
-import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.js";
+import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.jsx";
 
 const DEFAULT_MAP_HEIGHT = 60;
 const MIN_MAP_HEIGHT = 20;
