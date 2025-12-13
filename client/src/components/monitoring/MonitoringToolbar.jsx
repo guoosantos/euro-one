@@ -37,8 +37,10 @@ const LayoutIcon = () => (
 );
 
 export default function MonitoringToolbar({
-  query,
-  onQueryChange,
+  searchTerm,
+  onSearchChange,
+  onSelectSuggestion,
+  suggestions,
   filterMode,
   onFilterChange,
   summary,
@@ -46,11 +48,10 @@ export default function MonitoringToolbar({
   onTogglePopup,   // Props novas
   onOpenColumns,   // Props antigas (fallback)
   onOpenLayout,    // Props antigas (fallback)
-  regionQuery,
-  onRegionQueryChange,
-  onRegionSearch,
   isSearchingRegion,
   layoutButtonRef,
+  addressFilter,
+  onClearAddress,
 }) {
   const { t } = useTranslation();
   
@@ -67,42 +68,56 @@ export default function MonitoringToolbar({
 
   const isColumnsActive = activePopup === 'columns';
   const isLayoutActive = activePopup === 'layout';
+  const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Enter" && hasSuggestions) {
+      event.preventDefault();
+      onSelectSuggestion?.(suggestions[0]);
+    }
+  };
 
   return (
     <div className="flex h-full w-full flex-col gap-2 text-[11px] text-white/80">
       <div className="flex h-full flex-wrap items-center gap-2 lg:gap-3">
-        <div className="relative flex min-w-[220px] max-w-[320px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
+        <div className="relative flex min-w-[240px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
           <div className="pointer-events-none text-white/40">
             <SearchIcon />
           </div>
           <input
             type="text"
-            value={query}
-            onChange={(e) => onQueryChange?.(e.target.value)}
+            value={searchTerm}
+            onChange={(e) => onSearchChange?.(e.target.value)}
+            onKeyDown={handleKeyDown}
             placeholder={t("monitoring.searchPlaceholderSimple")}
-            className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
-          />
-        </div>
-
-        <div className="relative flex min-w-[220px] max-w-[320px] flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
-          <div className="pointer-events-none text-white/40">
-            <SearchIcon />
-          </div>
-          <input
-            type="text"
-            value={regionQuery}
-            onChange={(e) => onRegionQueryChange?.(e.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter") {
-                onRegionSearch?.();
-              }
-            }}
-            placeholder={t("monitoring.searchRegionPlaceholder")}
             className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
           />
           {isSearchingRegion ? (
             <div className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent" aria-label={t("loading")} />
           ) : null}
+
+          {hasSuggestions && (
+            <div className="absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl">
+              <ul className="max-h-64 overflow-auto text-xs text-white/80">
+                {suggestions.map((item) => (
+                  <li
+                    key={`${item.type}-${item.id ?? item.label}`}
+                    className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-white/5"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => onSelectSuggestion?.(item)}
+                  >
+                    <span className="text-white/60">
+                      {item.type === "address" ? "📍" : "🚗"}
+                    </span>
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate text-white">{item.label}</span>
+                      {item.description ? <span className="truncate text-[10px] text-white/60">{item.description}</span> : null}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-1 flex-wrap items-center gap-1 lg:flex-none">
@@ -152,6 +167,19 @@ export default function MonitoringToolbar({
         </div>
       </div>
 
+      {addressFilter ? (
+        <div className="flex items-center gap-2 rounded-md border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[11px] text-white/80">
+          <span className="text-cyan-300">📍 {addressFilter.label}</span>
+          {addressFilter.radius ? <span className="text-white/60">({addressFilter.radius} m)</span> : null}
+          <button
+            type="button"
+            className="rounded border border-white/10 px-2 py-1 text-[10px] uppercase text-white/70 hover:border-white/30"
+            onClick={onClearAddress}
+          >
+            Limpar
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.08em] text-white/40">
         <span className="hidden sm:inline">Exibindo {summary?.total ?? 0} veículos</span>

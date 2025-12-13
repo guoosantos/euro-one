@@ -11,6 +11,8 @@ import {
 const DEFAULT_STORAGE_KEY = "monitoring.table.columns";
 const PANEL_STORAGE_KEY = "monitoring.panel.ratio";
 const MAP_HEIGHT_KEY = "monitoring.map.height";
+const SEARCH_RADIUS_KEY = "monitoring.search.radius";
+const DEFAULT_RADIUS = 500;
 
 export default function useMonitoringSettings({
   columns,
@@ -47,6 +49,7 @@ export default function useMonitoringSettings({
   const [columnPrefs, setColumnPrefs] = useState(defaults);
   const [panelRatio, setPanelRatio] = useState(0.55);
   const [mapHeightPercent, setMapHeightPercent] = useState(null);
+  const [searchRadius, setSearchRadius] = useState(DEFAULT_RADIUS);
 
   // --- CARREGAMENTO INICIAL SEGURO (sem loops) ---
   useEffect(() => {
@@ -86,6 +89,13 @@ export default function useMonitoringSettings({
       setMapHeightPercent((prev) => (prev !== remoteMapHeight ? remoteMapHeight : prev));
     } else if (Number.isFinite(storedMapHeight) && storedMapHeight > 10 && storedMapHeight < 90) {
       setMapHeightPercent((prev) => (prev !== storedMapHeight ? storedMapHeight : prev));
+    }
+
+    const remoteRadius = Number(remotePreferences?.monitoringSearchRadius);
+    const storedRadius = Number(localStorage.getItem(SEARCH_RADIUS_KEY));
+    const resolvedRadius = Number.isFinite(remoteRadius) ? remoteRadius : storedRadius;
+    if (Number.isFinite(resolvedRadius) && resolvedRadius >= 50 && resolvedRadius <= 5000) {
+      setSearchRadius((prev) => (prev !== resolvedRadius ? resolvedRadius : prev));
     }
   }, [
     columns?.length,
@@ -229,5 +239,25 @@ export default function useMonitoringSettings({
     mapHeightPercent,
     updateMapHeight,
     applyColumns,
+    searchRadius,
+    updateSearchRadius: useCallback(
+      (radius) => {
+        if (!Number.isFinite(radius)) return;
+        const clamped = Math.min(5000, Math.max(50, radius));
+        setSearchRadius((prev) => (prev !== clamped ? clamped : prev));
+        try {
+          localStorage.setItem(SEARCH_RADIUS_KEY, String(clamped));
+        } catch (_err) {
+          // ignore
+        }
+
+        if (typeof savePreferences === "function" && !loadingPreferences) {
+          savePreferences({ monitoringSearchRadius: clamped }).catch((error) => {
+            console.warn("Falha ao salvar raio de busca", error);
+          });
+        }
+      },
+      [loadingPreferences, savePreferences],
+    ),
   };
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap, Polygon, CircleMarker } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -206,11 +206,40 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
         else if (!ref && marker.id) markerRefs.current.delete(marker.id);
       }}
     >
-      <Popup className="monitoring-popup" closeButton={false}>
+      <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
         <PopupContent marker={marker} />
-      </Popup>
+      </Tooltip>
     </Marker>
   ));
+}
+
+function RegionOverlay({ target }) {
+  const map = useMap();
+  const radius = target?.radius ?? 500;
+
+  useEffect(() => {
+    if (!map || !target) return;
+    const center = L.latLng(target.lat, target.lng);
+    const circle = L.circle(center, { radius });
+    map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
+  }, [map, radius, target]);
+
+  if (!target) return null;
+  return (
+    <Circle
+      center={[target.lat, target.lng]}
+      radius={radius}
+      pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.12, weight: 2 }}
+    >
+      <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
+        <div className="text-xs text-white/80">
+          <div className="font-semibold text-white">{target.label}</div>
+          <div>{target.address}</div>
+          <div className="text-white/60">Raio: {radius} m</div>
+        </div>
+      </Tooltip>
+    </Circle>
+  );
 }
 
 // --- COMPONENTE PRINCIPAL ---
@@ -251,20 +280,7 @@ export default function MonitoringMap({
           onMarkerOpenDetails={onMarkerOpenDetails}
         />
 
-        {regionTarget ? (
-          <CircleMarker
-            center={[regionTarget.lat, regionTarget.lng]}
-            radius={18}
-            pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.18 }}
-          >
-            <Popup closeButton={false} className="monitoring-popup">
-              <div className="text-xs text-white/80">
-                <div className="font-semibold text-white">{regionTarget.label}</div>
-                <div>{regionTarget.address}</div>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ) : null}
+        <RegionOverlay target={regionTarget} />
 
         {/* Renderização de Geofences */}
         {geofences.map((geo) => {
