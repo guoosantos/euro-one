@@ -281,8 +281,10 @@ function ClickToZoom({ mapReady }) {
   return null;
 }
 
-function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onResetRotation = null }) {
+function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onRotateTo = null, onResetRotation = null }) {
   const map = useMap();
+  const compassRef = useRef(null);
+  const dragStateRef = useRef(null);
 
   const zoomIn = () => {
     if (!map) return;
@@ -313,12 +315,57 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     map.flyTo(center, zoom, { duration: 0.3, easeLinearity: 0.25 });
   };
 
+  const getPointerAngle = (event) => {
+    const rect = compassRef.current?.getBoundingClientRect();
+    if (!rect) return null;
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const angle = (Math.atan2(event.clientY - cy, event.clientX - cx) * 180) / Math.PI + 90;
+    return Number.isFinite(angle) ? angle : null;
+  };
+
+  const handleCompassDown = (event) => {
+    const startAngle = getPointerAngle(event);
+    if (startAngle === null) return;
+
+    dragStateRef.current = { startAngle, startBearing: bearing, hasMoved: false };
+
+    const handleMove = (moveEvent) => {
+      const angle = getPointerAngle(moveEvent);
+      const state = dragStateRef.current;
+      if (angle === null || !state) return;
+      const delta = angle - state.startAngle;
+      if (Math.abs(delta) > 0.5) state.hasMoved = true;
+
+      if (onRotateTo) {
+        onRotateTo(state.startBearing + delta);
+      } else if (onRotate) {
+        onRotate(delta);
+      }
+    };
+
+    const handleUp = () => {
+      const state = dragStateRef.current;
+      dragStateRef.current = null;
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+
+      if (!state?.hasMoved) {
+        onResetRotation?.();
+        recenter();
+      }
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
+
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-lg border border-white/10 bg-[#0f141c]/80 text-white/80 shadow-lg backdrop-blur-sm">
+    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/85 text-white/80 shadow-md backdrop-blur-sm">
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-sm font-semibold transition hover:bg-white/10"
+          className="flex h-7 w-7 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10"
           aria-label="Aumentar zoom"
           onClick={zoomIn}
         >
@@ -327,7 +374,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-sm font-semibold transition hover:bg-white/10"
+          className="flex h-7 w-7 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10"
           aria-label="Reduzir zoom"
           onClick={zoomOut}
         >
@@ -335,44 +382,22 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
         </button>
       </div>
 
-      <div className="pointer-events-auto flex items-center gap-1 self-end rounded-lg border border-white/10 bg-[#0f141c]/70 p-1 text-white/70 shadow-lg backdrop-blur-sm">
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-white/10"
-          aria-label="Rotacionar mapa para a esquerda"
-          onClick={() => onRotate?.(-15)}
+      <button
+        ref={compassRef}
+        type="button"
+        onMouseDown={handleCompassDown}
+        className={`pointer-events-auto flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-md transition backdrop-blur-sm ${
+          bearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
+        } hover:border-primary/60 hover:text-white`}
+        aria-label="Controle de rotação do mapa"
+      >
+        <span
+          className="relative flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/5"
+          style={{ transform: `rotate(${bearing}deg)` }}
         >
-          ↺
-        </button>
-
-        <button
-          type="button"
-          className={`flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase transition ${
-            bearing !== 0 ? "border-primary/60 text-primary" : "border-white/15 text-white/80"
-          } hover:bg-white/10`}
-          aria-label="Recentralizar mapa para o norte"
-          onClick={() => {
-            onResetRotation?.();
-            recenter();
-          }}
-        >
-          <span
-            className="relative flex h-6 w-6 items-center justify-center rounded-full border border-white/15 bg-white/5"
-            style={{ transform: `rotate(${bearing}deg)` }}
-          >
-            <span className="text-[11px] font-bold text-white">N</span>
-          </span>
-        </button>
-
-        <button
-          type="button"
-          className="flex h-8 w-8 items-center justify-center rounded-md transition hover:bg-white/10"
-          aria-label="Rotacionar mapa para a direita"
-          onClick={() => onRotate?.(15)}
-        >
-          ↻
-        </button>
-      </div>
+          <span className="text-[10px] font-bold text-white">N</span>
+        </span>
+      </button>
     </div>
   );
 }
@@ -395,6 +420,11 @@ export default function MonitoringMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
+
+  const normalizeBearing = useCallback((value) => {
+    const mod = value % 360;
+    return mod < 0 ? mod + 360 : mod;
+  }, []);
 
   useEffect(() => {
     const instance = mapRef.current;
@@ -469,11 +499,12 @@ export default function MonitoringMap({
   }, [focusTarget, mapReady]);
 
   const rotateMap = useCallback((delta) => {
-    setMapBearing((prev) => {
-      const next = (prev + delta) % 360;
-      return next < 0 ? next + 360 : next;
-    });
-  }, []);
+    setMapBearing((prev) => normalizeBearing(prev + delta));
+  }, [normalizeBearing]);
+
+  const setMapBearingTo = useCallback((value) => {
+    setMapBearing(normalizeBearing(value));
+  }, [normalizeBearing]);
 
   const resetMapRotation = useCallback(() => {
     setMapBearing(0);
@@ -505,6 +536,7 @@ export default function MonitoringMap({
           focusTarget={focusTarget}
           bearing={mapBearing}
           onRotate={rotateMap}
+          onRotateTo={setMapBearingTo}
           onResetRotation={resetMapRotation}
         />
 
