@@ -35,6 +35,33 @@ const MAX_MAP_HEIGHT = 80;
 const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
+const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+
+const MAP_LAYERS = [
+  {
+    key: "default",
+    label: "OpenStreetMap",
+    url: DEFAULT_TILE_URL,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  },
+  {
+    key: "satellite",
+    label: "Satélite",
+    description: "Imagem de alta resolução (Esri World Imagery)",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      'Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+    maxZoom: 19,
+  },
+  {
+    key: "hybrid",
+    label: "Híbrido",
+    description: "Mapa de ruas com relevo (OpenTopoMap)",
+    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM',
+    maxZoom: 17,
+  },
+];
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -144,6 +171,7 @@ export default function Monitoring() {
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [reverseAddresses, setReverseAddresses] = useState({});
+  const [mapLayerKey, setMapLayerKey] = useState(MAP_LAYERS[0].key);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -352,6 +380,15 @@ export default function Monitoring() {
 
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
+  }, []);
+
+  const mapLayer = useMemo(
+    () => MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYERS[0],
+    [mapLayerKey],
+  );
+
+  const handleMapLayerChange = useCallback((nextKey) => {
+    setMapLayerKey(nextKey);
   }, []);
 
   const markers = useMemo(() => {
@@ -595,6 +632,7 @@ export default function Monitoring() {
             regionTarget={regionTarget}
             onMarkerSelect={handleMarkerSelect}
             onMarkerOpenDetails={handleMarkerDetails}
+            mapLayer={mapLayer}
           />
 
           {!layoutVisibility.showTable && (
@@ -701,6 +739,9 @@ export default function Monitoring() {
           onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
           searchRadius={radiusValue}
           onRadiusChange={(value) => updateSearchRadius(clampRadius(value))}
+          mapLayers={MAP_LAYERS}
+          activeMapLayer={mapLayer.key}
+          onMapLayerChange={handleMapLayerChange}
           onClose={() => setActivePopup(null)}
         />
       )}

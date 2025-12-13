@@ -4,6 +4,10 @@ const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 420;
 const DEFAULT_MIN_WIDTH = 60;
 
+const DATE_KEYS = new Set(["serverTime", "deviceTime", "gpsTime"]);
+const ADDRESS_KEYS = new Set(["address", "endereco"]);
+const BOOLEAN_KEYS = new Set(["valid", "ignition", "blocked"]);
+
 export default function MonitoringTable({
   rows,
   columns,
@@ -59,6 +63,13 @@ export default function MonitoringTable({
     return Math.max(MIN_COLUMN_WIDTH, declaredMin);
   };
 
+  const getAppliedWidth = (key) => {
+    const width = columnWidths[key] ?? columns.find((col) => col.key === key)?.width;
+    const minWidth = getColumnMinWidth(key);
+    if (!width) return minWidth;
+    return Math.max(minWidth, Math.min(width, MAX_COLUMN_WIDTH));
+  };
+
   const startResize = (key, event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -92,36 +103,39 @@ export default function MonitoringTable({
   };
 
   const getWidthStyle = (key) => {
-    const width = columnWidths[key];
     const minWidth = getColumnMinWidth(key);
-
-    const clampedWidth = width ? Math.max(Math.min(width, MAX_COLUMN_WIDTH), minWidth) : null;
-
-    if (!clampedWidth) return { minWidth };
+    const clampedWidth = getAppliedWidth(key);
 
     return { width: clampedWidth, minWidth };
   };
 
-  if (loading && rows.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-white/50">
-        <div className="animate-pulse">Carregando dados da frota...</div>
-      </div>
-    );
-  }
+  const formatCompactValue = (col, value) => {
+    if (React.isValidElement(value)) return value;
+    const appliedWidth = getAppliedWidth(col.key);
+    const minWidth = getColumnMinWidth(col.key);
 
-  if (rows.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-white/50">
-        {emptyText || "Nenhum veículo encontrado."}
-      </div>
-    );
-  }
+    if (appliedWidth <= minWidth + 20) {
+      if (BOOLEAN_KEYS.has(col.key) && typeof value === "string") {
+        return value.length > 3 ? value.slice(0, 3) : value;
+      }
+
+      if (DATE_KEYS.has(col.key) && typeof value === "string") {
+        return value.replace(/(\d{2}\/\d{2})\/\d{4}/, "$1");
+      }
+
+      if (ADDRESS_KEYS.has(col.key) && typeof value === "string") {
+        const [first, second] = value.split(",");
+        if (second) return `${first.trim()} - ${second.trim().split(" ")[0] || ""}`.trim();
+      }
+    }
+
+    return value;
+  };
 
   return (
     <div ref={containerRef} className="h-full w-full overflow-auto bg-[#0b0f17]">
 
-      <table className="min-w-full table-fixed border-collapse text-left">
+      <table className="min-w-full w-full table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
 
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
           <tr>
@@ -135,7 +149,7 @@ export default function MonitoringTable({
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
-                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis">{col.label}</span>
+                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={col.label}>{col.label}</span>
 
 
                   {!col.fixed && (
@@ -153,79 +167,91 @@ export default function MonitoringTable({
           </tr>
         </thead>
         <tbody className="bg-[#0b0f17] text-xs">
-          {rows.map((row) => (
-            <tr
-              key={row.key}
-              ref={(el) => {
-                if (!row.deviceId) return;
-                if (el) rowRefs.current.set(row.deviceId, el);
-                else rowRefs.current.delete(row.deviceId);
-              }}
-              onClick={() => {
-                onSelect?.(row.deviceId, row);
-                onRowClick?.(row);
-              }}
-              className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
-            >
-              {columns.map((col) => {
-                let cellValue = col.render ? col.render(row) : row[col.key];
-
-                if (col.key === "address" || col.key === "endereco") {
-                  let addr = row.address || row.position?.address;
-
-                  if (typeof addr === "object" && addr !== null) {
-                    addr = addr.formattedAddress || addr.address;
-                  }
-
-                  if (!addr || addr === "[object Object]") {
-                    if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
-                      cellValue = `${Number(row.lat).toFixed(4)}, ${Number(row.lng).toFixed(4)}`;
-                    } else {
-                      cellValue = "—";
-                    }
-                  } else {
-                    cellValue = addr;
-                  }
-                } else if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
-                  if (cellValue.formattedAddress) {
-                    cellValue = cellValue.formattedAddress;
-                  } else if (cellValue.address) {
-                    cellValue = cellValue.address;
-                  } else {
-                    cellValue = "";
-                  }
-                }
-
-                const isElement = React.isValidElement(cellValue);
-                const tooltipValue = col.tooltipValue
-                  ? col.tooltipValue(row)
-                  : col.key === "vehicle"
-                    ? row.deviceName
-                    : typeof cellValue === "string" || typeof cellValue === "number"
-                      ? String(cellValue)
-                      : undefined;
-                const contentClass = isElement
-                  ? "flex items-center gap-1 overflow-visible"
-                  : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
-
-                return (
-                  <td
-                    key={`${row.key}-${col.key}`}
-                    style={getWidthStyle(col.key)}
-
-                    className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
-                  >
-                    <div
-                      className={contentClass}
-                      title={tooltipValue}
-                    >
-                      {cellValue}
-                    </div>
-                  </td>
-                );
-              })}
+          {rows.length === 0 ? (
+            <tr>
+              <td
+                colSpan={columns.length}
+                className="px-3 py-4 text-center text-sm text-white/50"
+              >
+                {loading ? "Carregando dados da frota..." : emptyText || "—"}
+              </td>
             </tr>
-          ))}
+          ) : (
+            rows.map((row) => (
+              <tr
+                key={row.key}
+                ref={(el) => {
+                  if (!row.deviceId) return;
+                  if (el) rowRefs.current.set(row.deviceId, el);
+                  else rowRefs.current.delete(row.deviceId);
+                }}
+                onClick={() => {
+                  onSelect?.(row.deviceId, row);
+                  onRowClick?.(row);
+                }}
+                className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
+              >
+                {columns.map((col) => {
+                  let cellValue = col.render ? col.render(row) : row[col.key];
+
+                  if (col.key === "address" || col.key === "endereco") {
+                    let addr = row.address || row.position?.address;
+
+                    if (typeof addr === "object" && addr !== null) {
+                      addr = addr.formattedAddress || addr.address;
+                    }
+
+                    if (!addr || addr === "[object Object]") {
+                      if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
+                        cellValue = `${Number(row.lat).toFixed(4)}, ${Number(row.lng).toFixed(4)}`;
+                      } else {
+                        cellValue = "—";
+                      }
+                    } else {
+                      cellValue = addr;
+                    }
+                  } else if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
+                    if (cellValue.formattedAddress) {
+                      cellValue = cellValue.formattedAddress;
+                    } else if (cellValue.address) {
+                      cellValue = cellValue.address;
+                    } else {
+                      cellValue = "";
+                    }
+                  }
+
+                  const isElement = React.isValidElement(cellValue);
+                  const tooltipValue = col.tooltipValue
+                    ? col.tooltipValue(row)
+                    : col.key === "vehicle"
+                      ? row.deviceName
+                      : typeof cellValue === "string" || typeof cellValue === "number"
+                        ? String(cellValue)
+                        : undefined;
+                  const displayValue = formatCompactValue(col, cellValue);
+                  const contentClass = React.isValidElement(displayValue)
+                    ? "flex items-center gap-1 overflow-visible"
+                    : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
+
+                  return (
+                    <td
+                      key={`${row.key}-${col.key}`}
+                      style={getWidthStyle(col.key)}
+
+                      className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
+                    >
+                      <div
+                        className={contentClass}
+                        title={tooltipValue}
+                      >
+                        {displayValue}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))
+          )}
         </tbody>
       </table>
     </div>
