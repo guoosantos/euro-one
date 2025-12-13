@@ -77,6 +77,29 @@ const COLUMN_WIDTH_HINTS = {
   actions: 90,
 };
 
+const COLUMN_MIN_WIDTHS = {
+  vehicle: 120,
+  plate: 90,
+  deviceId: 100,
+  protocol: 100,
+  serverTime: 120,
+  deviceTime: 120,
+  gpsTime: 120,
+  lastEvent: 110,
+  valid: 70,
+  latitude: 110,
+  longitude: 110,
+  speed: 80,
+  address: 140,
+  status: 100,
+  ignition: 90,
+  client: 120,
+  geofences: 120,
+  notes: 120,
+  faceRecognition: 110,
+  actions: 80,
+};
+
 function distanceKm(lat1, lon1, lat2, lon2) {
   const toRad = (value) => (value * Math.PI) / 180;
   const R = 6371;
@@ -376,6 +399,7 @@ export default function Monitoring() {
       return {
         ...col,
         width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
+        minWidth: COLUMN_MIN_WIDTHS[col.key] ?? col.minWidth,
         label,
         render: row => col.getValue(row, { t, locale }),
       };
@@ -388,6 +412,7 @@ export default function Monitoring() {
     defaultVisible: true,
     fixed: true,
     width: COLUMN_WIDTH_HINTS.actions,
+    minWidth: COLUMN_MIN_WIDTHS.actions,
     render: row => (
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
         <a

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from "react";
-import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -166,25 +166,32 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
   // Ajuste inicial da viewport (Fit Bounds)
   useEffect(() => {
     if (!map || hasInitialFitRef.current) return;
+    const applyInitialFit = () => {
+      // Se tiver viewport salvo nas preferências, usa ele
+      if (mapViewport?.center && Array.isArray(mapViewport.center)) {
+        const [lat, lng] = mapViewport.center;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
+          hasInitialFitRef.current = true;
+          return;
+        }
+      }
 
-    // Se tiver viewport salvo nas preferências, usa ele
-    if (mapViewport?.center && Array.isArray(mapViewport.center)) {
-       const [lat, lng] = mapViewport.center;
-       if (Number.isFinite(lat) && Number.isFinite(lng)) {
-         map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
-         hasInitialFitRef.current = true;
-         return;
-       }
-    }
+      // Caso contrário, ajusta para ver todos os marcadores
+      if (safeMarkers.length > 0) {
+        const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        hasInitialFitRef.current = true;
+      } else {
+        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
+        hasInitialFitRef.current = true;
+      }
+    };
 
-    // Caso contrário, ajusta para ver todos os marcadores
-    if (safeMarkers.length > 0) {
-      const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
-      hasInitialFitRef.current = true;
+    if (map._loaded) {
+      applyInitialFit();
     } else {
-      map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-      hasInitialFitRef.current = true;
+      map.whenReady(applyInitialFit);
     }
   }, [map, safeMarkers, mapViewport]);
 
@@ -221,9 +228,13 @@ function RegionOverlay({ target }) {
     if (!map || !target) return;
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
-    const center = L.latLng(target.lat, target.lng);
-    const circle = L.circle(center, { radius });
-    map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
+    try {
+      const center = L.latLng(target.lat, target.lng);
+      const circle = L.circle(center, { radius });
+      map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
+    } catch (_error) {
+      // Evita falha ao ajustar bounds quando o mapa não está pronto
+    }
   }, [map, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
@@ -242,6 +253,22 @@ function RegionOverlay({ target }) {
       </Tooltip>
     </Circle>
   );
+}
+
+function ClickToZoom() {
+  useMapEvents({
+    click(event) {
+      const map = event.target;
+      const currentZoom = map.getZoom?.() ?? DEFAULT_ZOOM;
+      const maxZoom = map.getMaxZoom?.() ?? 18;
+      const nextZoom = Math.min(currentZoom + 1, maxZoom);
+      const target = event.latlng || map.getCenter();
+
+      map.flyTo(target, nextZoom, { duration: 0.35, easeLinearity: 0.25 });
+    },
+  });
+
+  return null;
 }
 
 // --- COMPONENTE PRINCIPAL ---
@@ -272,6 +299,8 @@ export default function MonitoringMap({
           url={tileUrl}
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
+
+        <ClickToZoom />
 
         <MarkerLayer
           markers={markers}
