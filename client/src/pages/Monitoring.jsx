@@ -334,7 +334,7 @@ function PaginationButton({ children, disabled, onClick }) {
       disabled={disabled}
       onClick={onClick}
       className={`
-        rounded border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition
+        flex h-7 min-w-[88px] items-center justify-center rounded border px-2 text-[10px] font-semibold uppercase tracking-[0.08em] transition
         ${disabled
           ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
           : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"}
