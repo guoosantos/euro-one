@@ -14,6 +14,7 @@ export default function MonitoringLayoutSelector({
   const options = [
     { key: "showMap", label: "Mostrar Mapa" },
     { key: "showTable", label: "Mostrar Tabela" },
+    { key: "showToolbar", label: "Mostrar menu de filtros" },
   ];
 
   const sections = mapLayerSections?.length

@@ -33,6 +33,11 @@ import {
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.jsx";
 
 const DEFAULT_MAP_HEIGHT = 60;
+const DEFAULT_LAYOUT_VISIBILITY = {
+  showMap: true,
+  showTable: true,
+  showToolbar: true,
+};
 const MIN_MAP_HEIGHT = 20;
 const MAX_MAP_HEIGHT = 80;
 const DEFAULT_RADIUS = 500;
@@ -62,6 +67,11 @@ const COLUMN_MIN_WIDTHS = {
 const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 const DEFAULT_PAGE_SIZE = 50;
 const MAP_LAYER_STORAGE_KEY = "monitoring.map.layer";
+const normaliseLayoutVisibility = (value = {}) => ({
+  showMap: value.showMap !== false,
+  showTable: value.showTable !== false,
+  showToolbar: value.showToolbar !== false,
+});
 
 const BASE_MAP_LAYERS = [
   {
@@ -375,20 +385,40 @@ export default function Monitoring() {
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
   const layoutButtonRef = useRef(null);
 
-  const [layoutVisibility, setLayoutVisibility] = useState({
-    showMap: true,
-    showTable: true,
-  });
+  const [layoutVisibility, setLayoutVisibility] = useState(() => ({ ...DEFAULT_LAYOUT_VISIBILITY }));
 
   const toggleLayoutVisibility = useCallback((key) => {
     setLayoutVisibility((prev) => {
       const next = { ...prev, [key]: !prev[key] };
-      if (!next.showMap && !next.showTable) {
-        next[key] = true;
+      if (key === "showMap" || key === "showTable") {
+        if (!next.showMap && !next.showTable) {
+          next[key] = true;
+        }
       }
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    const remote = preferences?.monitoringLayoutVisibility;
+
+    if (remote) {
+      setLayoutVisibility((prev) => {
+        const next = normaliseLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote });
+        return prev.showMap === next.showMap && prev.showTable === next.showTable && prev.showToolbar === next.showToolbar
+          ? prev
+          : next;
+      });
+    } else {
+      setLayoutVisibility((prev) => normaliseLayoutVisibility(prev));
+    }
+  }, [loadingPreferences, preferences?.monitoringLayoutVisibility]);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    savePreferences({ monitoringLayoutVisibility: layoutVisibility }).catch(() => {});
+  }, [layoutVisibility, loadingPreferences, savePreferences]);
 
   const columnStorageKey = useMemo(
     () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
@@ -1078,31 +1108,76 @@ export default function Monitoring() {
       {layoutVisibility.showTable && (
         <div className="relative z-20 flex h-full min-h-0 flex-col overflow-hidden bg-[#0f141c]">
           <div className="border-b border-white/10 px-3 py-2">
-            <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <MonitoringToolbar
-                vehicleSearchTerm={vehicleQuery}
-                onVehicleSearchChange={handleVehicleSearchChange}
-                vehicleSuggestions={vehicleSuggestions}
-                onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
-                addressSearchTerm={addressQuery}
-                onAddressSearchChange={setAddressQuery}
-                onAddressSubmit={handleAddressSubmit}
-                addressSuggestions={addressSuggestionOptions}
-                onSelectAddressSuggestion={handleSelectAddressSuggestion}
-                addressError={geocodeError?.message}
-                filterMode={filterMode}
-                onFilterChange={setFilterMode}
-                summary={summary}
-                activePopup={activePopup}
-                onTogglePopup={handleTogglePopup}
-                isSearchingRegion={isSearching}
-                layoutButtonRef={layoutButtonRef}
-                addressFilter={regionTarget ? { label: regionTarget.label || regionTarget.address, radius: radiusValue } : null}
-                onClearAddress={handleClearAddress}
-                hasSelection={Boolean(selectedDeviceId)}
-                onClearSelection={clearSelection}
-              />
-            </div>
+            {layoutVisibility.showToolbar ? (
+              <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <MonitoringToolbar
+                  vehicleSearchTerm={vehicleQuery}
+                  onVehicleSearchChange={handleVehicleSearchChange}
+                  vehicleSuggestions={vehicleSuggestions}
+                  onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
+                  addressSearchTerm={addressQuery}
+                  onAddressSearchChange={setAddressQuery}
+                  onAddressSubmit={handleAddressSubmit}
+                  addressSuggestions={addressSuggestionOptions}
+                  onSelectAddressSuggestion={handleSelectAddressSuggestion}
+                  addressError={geocodeError?.message}
+                  filterMode={filterMode}
+                  onFilterChange={setFilterMode}
+                  summary={summary}
+                  activePopup={activePopup}
+                  onTogglePopup={handleTogglePopup}
+                  isSearchingRegion={isSearching}
+                  layoutButtonRef={layoutButtonRef}
+                  addressFilter={regionTarget ? { label: regionTarget.label || regionTarget.address, radius: radiusValue } : null}
+                  onClearAddress={handleClearAddress}
+                  hasSelection={Boolean(selectedDeviceId)}
+                  onClearSelection={clearSelection}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div className="text-xs text-white/60">
+                  Menu oculto para ganhar espaço. Abra "Layout" para reativar as buscas e filtros.
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePopup("columns")}
+                    className={`flex h-10 items-center justify-center rounded-md border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${
+                      activePopup === "columns"
+                        ? "border-primary/50 bg-primary/10 text-white"
+                        : "border-white/15 bg-[#0d1117] text-white/70 hover:border-white/30 hover:text-white"
+                    }`}
+                    title="Colunas"
+                  >
+                    Colunas
+                  </button>
+                  <button
+                    ref={layoutButtonRef}
+                    type="button"
+                    onClick={() => handleTogglePopup("layout")}
+                    className={`flex h-10 items-center justify-center rounded-md border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${
+                      activePopup === "layout"
+                        ? "border-primary/50 bg-primary/10 text-white"
+                        : "border-white/15 bg-[#0d1117] text-white/70 hover:border-white/30 hover:text-white"
+                    }`}
+                    title="Layout"
+                  >
+                    Layout
+                  </button>
+                  {selectedDeviceId ? (
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className="flex h-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
+                      title="Limpar seleção"
+                    >
+                      Limpar
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
