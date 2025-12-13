@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 420;
 const DEFAULT_MIN_WIDTH = 60;
+const DEFAULT_COLUMN_WIDTH = 160;
 
 const DATE_KEYS = new Set(["serverTime", "deviceTime", "gpsTime"]);
 const ADDRESS_KEYS = new Set(["address", "endereco"]);
@@ -33,6 +34,12 @@ export default function MonitoringTable({
   const liveWidthsRef = useRef(columnWidths);
   const containerRef = useRef(null);
   const rowRefs = useRef(new Map());
+  const columnLookup = useMemo(() => (
+    columns.reduce((acc, col) => {
+      acc[col.key] = col;
+      return acc;
+    }, {})
+  ), [columns]);
 
   useEffect(() => {
     liveWidthsRef.current = columnWidths;
@@ -58,16 +65,18 @@ export default function MonitoringTable({
   }, [selectedDeviceId]);
 
   const getColumnMinWidth = (key) => {
-    const columnConfig = columns.find((col) => col.key === key);
+    const columnConfig = columnLookup[key];
     const declaredMin = columnConfig?.minWidth ?? DEFAULT_MIN_WIDTH;
     return Math.max(MIN_COLUMN_WIDTH, declaredMin);
   };
 
   const getAppliedWidth = (key) => {
-    const width = columnWidths[key] ?? columns.find((col) => col.key === key)?.width;
     const minWidth = getColumnMinWidth(key);
-    if (!width) return minWidth;
-    return Math.max(minWidth, Math.min(width, MAX_COLUMN_WIDTH));
+    const columnConfig = columnLookup[key];
+    const declaredWidth = columnConfig?.width ?? DEFAULT_COLUMN_WIDTH;
+    const width = columnWidths[key] ?? declaredWidth;
+    const clamped = Math.max(minWidth, Math.min(width, MAX_COLUMN_WIDTH));
+    return clamped;
   };
 
   const startResize = (key, event) => {
@@ -106,7 +115,7 @@ export default function MonitoringTable({
     const minWidth = getColumnMinWidth(key);
     const clampedWidth = getAppliedWidth(key);
 
-    return { width: clampedWidth, minWidth };
+    return { width: clampedWidth, minWidth, maxWidth: MAX_COLUMN_WIDTH };
   };
 
   const formatCompactValue = (col, value) => {
@@ -151,16 +160,14 @@ export default function MonitoringTable({
 
                   <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={col.label}>{col.label}</span>
 
-
-                  {!col.fixed && (
-                    <span
-                      role="separator"
-                      tabIndex={0}
-                      onMouseDown={(event) => startResize(col.key, event)}
-                      onClick={(event) => event.stopPropagation()}
-                      className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
-                    />
-                  )}
+                  <span
+                    role="separator"
+                    tabIndex={0}
+                    onMouseDown={(event) => startResize(col.key, event)}
+                    onClick={(event) => event.stopPropagation()}
+                    className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                    title="Redimensionar coluna"
+                  />
                 </div>
               </th>
             ))}

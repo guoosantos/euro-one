@@ -36,6 +36,10 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const DEFAULT_COLUMN_WIDTH = 160;
+const DEFAULT_COLUMN_MIN_WIDTH = 60;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
+const DEFAULT_PAGE_SIZE = 50;
 
 const MAP_LAYERS = [
   {
@@ -152,6 +156,91 @@ const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.notes": "Rec. Facial",
 };
 
+function PaginationFooter({
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions = PAGE_SIZE_OPTIONS,
+  pageIndex,
+  totalPages,
+  onPageChange,
+  pageStart,
+  pageEnd,
+  totalRows,
+}) {
+  const currentPage = Math.max(1, Math.min(pageIndex + 1, totalPages));
+  const isFirstPage = currentPage <= 1;
+  const isLastPage = currentPage >= totalPages;
+
+  const handlePageSizeChange = (event) => {
+    const { value } = event.target;
+    onPageSizeChange?.(value === "all" ? "all" : Number(value));
+  };
+
+  return (
+    <div className="border-t border-white/10 bg-[#0f141c] px-4 py-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3 text-sm text-white/70">
+          <label className="text-xs uppercase tracking-[0.08em] text-white/50" htmlFor="monitoring-page-size">
+            Itens por página
+          </label>
+          <select
+            id="monitoring-page-size"
+            value={pageSize === "all" ? "all" : String(pageSize)}
+            onChange={handlePageSizeChange}
+            className="rounded-md border border-white/10 bg-[#0b0f17] px-3 py-2 text-xs font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
+          >
+            {pageSizeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === "all" ? "Todos" : option}
+              </option>
+            ))}
+          </select>
+
+          <span className="text-xs uppercase tracking-[0.08em] text-white/50">
+            Página {currentPage} de {totalPages}
+          </span>
+          <span className="text-xs uppercase tracking-[0.08em] text-white/50">
+            Mostrando {pageStart}–{pageEnd} de {totalRows}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <PaginationButton disabled={isFirstPage} onClick={() => onPageChange?.(0)}>
+            Primeira
+          </PaginationButton>
+          <PaginationButton disabled={isFirstPage} onClick={() => onPageChange?.(Math.max(pageIndex - 1, 0))}>
+            Anterior
+          </PaginationButton>
+          <PaginationButton disabled={isLastPage} onClick={() => onPageChange?.(Math.min(pageIndex + 1, totalPages - 1))}>
+            Próxima
+          </PaginationButton>
+          <PaginationButton disabled={isLastPage} onClick={() => onPageChange?.(totalPages - 1)}>
+            Última
+          </PaginationButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaginationButton({ children, disabled, onClick }) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`
+        rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition
+        ${disabled
+          ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
+          : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"}
+      `}
+    >
+      {children}
+    </button>
+  );
+}
+
 export default function Monitoring() {
   const { t, locale } = useTranslation();
 
@@ -172,6 +261,8 @@ export default function Monitoring() {
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [reverseAddresses, setReverseAddresses] = useState({});
   const [mapLayerKey, setMapLayerKey] = useState(MAP_LAYERS[0].key);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [pageIndex, setPageIndex] = useState(0);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -598,7 +689,11 @@ export default function Monitoring() {
   );
 
   const visibleColumnsWithWidths = useMemo(
-    () => visibleColumns.map(col => ({ ...col, width: columnPrefs.widths?.[col.key] ?? col.width })),
+    () => visibleColumns.map(col => ({
+      ...col,
+      width: columnPrefs.widths?.[col.key] ?? col.width ?? COLUMN_WIDTH_HINTS[col.key] ?? DEFAULT_COLUMN_WIDTH,
+      minWidth: col.minWidth ?? COLUMN_MIN_WIDTHS[col.key] ?? DEFAULT_COLUMN_MIN_WIDTH,
+    })),
     [visibleColumns, columnPrefs.widths],
   );
 
@@ -606,6 +701,20 @@ export default function Monitoring() {
     () => (layoutVisibility.showMap ? Math.max(10, 100 - localMapHeight) : 100),
     [layoutVisibility.showMap, localMapHeight],
   );
+
+  const totalRows = decoratedRows.length;
+  const effectivePageSize = pageSize === "all" ? totalRows || 1 : pageSize;
+  const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
+  const pageStart = totalRows === 0 ? 0 : safePageIndex * effectivePageSize + 1;
+  const pageEnd = totalRows === 0 ? 0 : Math.min(totalRows, pageStart + effectivePageSize - 1);
+  const paginatedRows = pageSize === "all"
+    ? decoratedRows
+    : decoratedRows.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize);
+
+  useEffect(() => {
+    setPageIndex(0);
+  }, [pageSize, decoratedRows.length]);
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
@@ -692,7 +801,7 @@ export default function Monitoring() {
       {layoutVisibility.showTable && (
         <div className="relative z-20 flex min-h-0 flex-col overflow-hidden bg-[#0f141c]">
           <div className="border-b border-white/10 px-4 py-3">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-h-[128px] flex-col justify-center gap-3 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
                 vehicleSearchTerm={vehicleQuery}
                 onVehicleSearchChange={handleVehicleSearchChange}
@@ -718,7 +827,7 @@ export default function Monitoring() {
           <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
             <div className="h-full min-h-0 overflow-hidden">
               <MonitoringTable
-                rows={decoratedRows}
+                rows={paginatedRows}
                 columns={visibleColumnsWithWidths}
                 selectedDeviceId={selectedDeviceId}
                 onSelect={handleSelectRow}
@@ -730,6 +839,17 @@ export default function Monitoring() {
               />
             </div>
           </div>
+
+          <PaginationFooter
+            pageSize={pageSize}
+            onPageSizeChange={setPageSize}
+            pageIndex={safePageIndex}
+            totalPages={totalPages}
+            onPageChange={setPageIndex}
+            pageStart={pageStart}
+            pageEnd={pageEnd}
+            totalRows={totalRows}
+          />
         </div>
       )}
 
