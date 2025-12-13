@@ -3,7 +3,7 @@ import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
-import MonitoringToolbar from "../components/monitoring/MonitoringToolbar.jsx";
+import MonitoringToolbar, { MonitoringSearchBox } from "../components/monitoring/MonitoringToolbar.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
@@ -111,8 +111,8 @@ export default function Monitoring() {
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
-  const [query, setQuery] = useState("");
-  const [searchTerm, setSearchTerm] = useState("");
+  const [vehicleQuery, setVehicleQuery] = useState("");
+  const [addressQuery, setAddressQuery] = useState("");
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
@@ -131,7 +131,7 @@ export default function Monitoring() {
     showTable: true,
   });
 
-  const { isSearching, suggestions: addressSuggestions, previewSuggestions, searchRegion, clearSuggestions } = useGeocodeSearch();
+  const { isSearching, suggestions: addressSuggestions, previewSuggestions, clearSuggestions } = useGeocodeSearch();
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
@@ -149,12 +149,12 @@ export default function Monitoring() {
   }, []);
 
   useEffect(() => {
-    if (searchTerm.trim()) {
-      previewSuggestions(searchTerm);
+    if (addressQuery.trim()) {
+      previewSuggestions(addressQuery);
     } else {
       clearSuggestions();
     }
-  }, [clearSuggestions, previewSuggestions, searchTerm]);
+  }, [addressQuery, clearSuggestions, previewSuggestions]);
 
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
@@ -172,14 +172,14 @@ export default function Monitoring() {
     return { type: "vehicle", deviceId: getDeviceKey(device), label, description, searchValue };
   }), [normalizedTelemetry]);
 
-  const matchingVehicleOptions = useMemo(() => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return vehicleOptions.slice(0, 8);
+  const vehicleSuggestions = useMemo(() => {
+    const term = vehicleQuery.toLowerCase().trim();
+    if (!term) return [];
     return vehicleOptions.filter((option) => option.searchValue.includes(term)).slice(0, 8);
-  }, [searchTerm, vehicleOptions]);
+  }, [vehicleOptions, vehicleQuery]);
 
-  const suggestionList = useMemo(() => {
-    const addressOptions = addressSuggestions.map((item) => ({
+  const addressSuggestionOptions = useMemo(() => {
+    return addressSuggestions.map((item) => ({
       type: "address",
       id: item.id,
       label: item.label,
@@ -188,11 +188,10 @@ export default function Monitoring() {
       lng: item.lng,
       boundingBox: item.boundingBox,
     }));
-    return [...matchingVehicleOptions, ...addressOptions];
-  }, [addressSuggestions, matchingVehicleOptions]);
+  }, [addressSuggestions]);
 
   const searchFiltered = useMemo(() => {
-    const term = query.toLowerCase().trim();
+    const term = vehicleQuery.toLowerCase().trim();
     if (!term) return normalizedTelemetry;
 
     return normalizedTelemetry.filter(({ device }) => {
@@ -207,7 +206,7 @@ export default function Monitoring() {
         deviceKey.includes(term)
       );
     });
-  }, [query, normalizedTelemetry]);
+  }, [normalizedTelemetry, vehicleQuery]);
 
   const filteredDevices = useMemo(() => {
     return searchFiltered.filter(({ source, device }) => {
@@ -328,9 +327,8 @@ export default function Monitoring() {
     if (openDetails) openDetailsFor(deviceId);
   }, [openDetailsFor]);
 
-  const handleSearchChange = useCallback((value) => {
-    setSearchTerm(value);
-    setQuery(value);
+  const handleVehicleSearchChange = useCallback((value) => {
+    setVehicleQuery(value);
   }, []);
 
   const markers = useMemo(() => {
@@ -476,27 +474,23 @@ export default function Monitoring() {
     setMapViewport({ center: [payload.lat, payload.lng], zoom: 15 });
   }, [clampRadius, radiusValue]);
 
-  const handleSelectSuggestion = useCallback((option) => {
+  const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
-    if (option.type === "vehicle") {
-      setSearchTerm(option.label);
-      setQuery(option.label);
-      focusDevice(option.deviceId, { openDetails: true });
-      clearSuggestions();
-      return;
-    }
+    setVehicleQuery(option.label ?? "");
+    focusDevice(option.deviceId, { openDetails: true });
+    clearSuggestions();
+  }, [clearSuggestions, focusDevice]);
 
-    if (option.type === "address") {
-      setSearchTerm(option.label);
-      setQuery("");
-      applyAddressTarget(option);
-    }
-  }, [applyAddressTarget, clearSuggestions, focusDevice]);
+  const handleSelectAddressSuggestion = useCallback((option) => {
+    if (!option) return;
+    setAddressQuery(option.label ?? "");
+    applyAddressTarget(option);
+  }, [applyAddressTarget]);
 
   const handleClearAddress = useCallback(() => {
     setRegionTarget(null);
-    setSearchTerm("");
-    setQuery("");
+    setVehicleQuery("");
+    setAddressQuery("");
     setNearbyDeviceIds([]);
     clearSuggestions();
   }, [clearSuggestions]);
@@ -580,20 +574,25 @@ export default function Monitoring() {
 
           {!layoutVisibility.showTable && (
             <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-3 px-4 py-3">
-              <div className="flex items-start justify-between gap-3">
-                <div className="pointer-events-auto flex min-w-[220px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-black/60 px-3 py-2 backdrop-blur-md">
-                  <div className="pointer-events-none text-white/50">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <circle cx="11" cy="11" r="8"></circle>
-                      <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                    </svg>
-                  </div>
-                  <input
-                    type="text"
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
+              <div className="flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="pointer-events-auto flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center">
+                  <MonitoringSearchBox
+                    value={vehicleQuery}
+                    onChange={handleVehicleSearchChange}
                     placeholder={t("monitoring.searchPlaceholderSimple")}
-                    className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/60 focus:outline-none"
+                    suggestions={vehicleSuggestions}
+                    onSelectSuggestion={handleSelectVehicleSuggestion}
+                    containerClassName="bg-black/70 backdrop-blur-md"
+                  />
+
+                  <MonitoringSearchBox
+                    value={addressQuery}
+                    onChange={setAddressQuery}
+                    placeholder={t("monitoring.searchRegionPlaceholder")}
+                    suggestions={addressSuggestionOptions}
+                    onSelectSuggestion={handleSelectAddressSuggestion}
+                    isLoading={isSearching}
+                    containerClassName="bg-black/70 backdrop-blur-md"
                   />
                 </div>
 
@@ -632,10 +631,14 @@ export default function Monitoring() {
           <div className="border-b border-white/10 px-4 py-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
-                searchTerm={searchTerm}
-                onSearchChange={handleSearchChange}
-                onSelectSuggestion={handleSelectSuggestion}
-                suggestions={suggestionList}
+                vehicleSearchTerm={vehicleQuery}
+                onVehicleSearchChange={handleVehicleSearchChange}
+                vehicleSuggestions={vehicleSuggestions}
+                onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
+                addressSearchTerm={addressQuery}
+                onAddressSearchChange={setAddressQuery}
+                addressSuggestions={addressSuggestionOptions}
+                onSelectAddressSuggestion={handleSelectAddressSuggestion}
                 filterMode={filterMode}
                 onFilterChange={setFilterMode}
                 summary={summary}

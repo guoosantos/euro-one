@@ -5,6 +5,12 @@ import { useTranslation } from "../../lib/i18n.js";
 const SearchIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
 );
+const LocationIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 1 1 18 0z"></path>
+    <circle cx="12" cy="10" r="3"></circle>
+  </svg>
+);
 const ColumnsIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="3" y="5" width="5" height="14" rx="1" />
@@ -37,10 +43,14 @@ const LayoutIcon = () => (
 );
 
 export default function MonitoringToolbar({
-  searchTerm,
-  onSearchChange,
-  onSelectSuggestion,
-  suggestions,
+  vehicleSearchTerm,
+  onVehicleSearchChange,
+  vehicleSuggestions,
+  onSelectVehicleSuggestion,
+  addressSearchTerm,
+  onAddressSearchChange,
+  addressSuggestions,
+  onSelectAddressSuggestion,
   filterMode,
   onFilterChange,
   summary,
@@ -54,7 +64,7 @@ export default function MonitoringToolbar({
   onClearAddress,
 }) {
   const { t } = useTranslation();
-  
+
   // Adaptador para funcionar com ambas versões do Monitoring.jsx
   const handleToggleColumns = () => {
     if (onTogglePopup) onTogglePopup('columns');
@@ -68,56 +78,29 @@ export default function MonitoringToolbar({
 
   const isColumnsActive = activePopup === 'columns';
   const isLayoutActive = activePopup === 'layout';
-  const hasSuggestions = Array.isArray(suggestions) && suggestions.length > 0;
-
-  const handleKeyDown = (event) => {
-    if (event.key === "Enter" && hasSuggestions) {
-      event.preventDefault();
-      onSelectSuggestion?.(suggestions[0]);
-    }
-  };
 
   return (
     <div className="flex h-full w-full flex-col gap-2 text-[11px] text-white/80">
       <div className="flex h-full flex-wrap items-center gap-2 lg:gap-3">
-        <div className="relative flex min-w-[240px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner">
-          <div className="pointer-events-none text-white/40">
-            <SearchIcon />
-          </div>
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => onSearchChange?.(e.target.value)}
-            onKeyDown={handleKeyDown}
+        <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center lg:gap-2">
+          <MonitoringSearchBox
+            value={vehicleSearchTerm}
+            onChange={onVehicleSearchChange}
             placeholder={t("monitoring.searchPlaceholderSimple")}
-            className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+            suggestions={vehicleSuggestions}
+            onSelectSuggestion={onSelectVehicleSuggestion}
+            icon={<SearchIcon />}
           />
-          {isSearchingRegion ? (
-            <div className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent" aria-label={t("loading")} />
-          ) : null}
 
-          {hasSuggestions && (
-            <div className="absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl">
-              <ul className="max-h-64 overflow-auto text-xs text-white/80">
-                {suggestions.map((item) => (
-                  <li
-                    key={`${item.type}-${item.id ?? item.label}`}
-                    className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-white/5"
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => onSelectSuggestion?.(item)}
-                  >
-                    <span className="text-white/60">
-                      {item.type === "address" ? "📍" : "🚗"}
-                    </span>
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate text-white">{item.label}</span>
-                      {item.description ? <span className="truncate text-[10px] text-white/60">{item.description}</span> : null}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <MonitoringSearchBox
+            value={addressSearchTerm}
+            onChange={onAddressSearchChange}
+            placeholder={t("monitoring.searchRegionPlaceholder")}
+            suggestions={addressSuggestions}
+            onSelectSuggestion={onSelectAddressSuggestion}
+            icon={<LocationIcon />}
+            isLoading={isSearchingRegion}
+          />
         </div>
 
         <div className="flex flex-1 flex-wrap items-center gap-1 lg:flex-none">
@@ -193,6 +176,79 @@ export default function MonitoringToolbar({
 }
 
 // --- SUB-COMPONENTES PARA ESTILO ---
+
+export function MonitoringSearchBox({
+  value,
+  onChange,
+  placeholder,
+  suggestions = [],
+  onSelectSuggestion,
+  icon = <SearchIcon />,
+  isLoading = false,
+  containerClassName = "",
+}) {
+  const trimmedValue = (value || "").trim();
+  const [isFocused, setIsFocused] = React.useState(false);
+  const showSuggestions =
+    isFocused && Boolean(trimmedValue) && Array.isArray(suggestions) && suggestions.length > 0;
+
+  const handleKeyDown = (event) => {
+    if (event.key === "Enter" && showSuggestions) {
+      event.preventDefault();
+      onSelectSuggestion?.(suggestions[0]);
+    }
+  };
+
+  return (
+    <div className={`relative flex min-w-[240px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner ${containerClassName}`}>
+      <div className="pointer-events-none text-white/40">
+        {icon}
+      </div>
+      <input
+        type="text"
+        value={value}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
+        onChange={(e) => onChange?.(e.target.value)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+      />
+
+      {isLoading ? (
+        <div
+          className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
+          aria-label="loading"
+        />
+      ) : null}
+
+      {showSuggestions && (
+        <div className="absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl">
+          <ul className="max-h-64 overflow-auto text-xs text-white/80">
+            {suggestions.map((item) => (
+              <li
+                key={`${item.type}-${item.id ?? item.deviceId ?? item.label}`}
+                className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-white/5"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => onSelectSuggestion?.(item)}
+              >
+                <span className="text-white/60">
+                  {item.type === "address" ? "📍" : "🚗"}
+                </span>
+                <div className="flex min-w-0 flex-col">
+                  <span className="truncate text-white">{item.label}</span>
+                  {item.description ? (
+                    <span className="truncate text-[10px] text-white/60">{item.description}</span>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) {
   return (
