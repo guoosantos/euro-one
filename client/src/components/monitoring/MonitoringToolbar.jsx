@@ -129,6 +129,34 @@ export default function MonitoringToolbar({
             color="text-red-400"
           />
           <FilterPill
+            label={t("monitoring.filters.noSignal1to3h")}
+            count={summary?.stale1to3}
+            active={filterMode === 'stale_1_3'}
+            onClick={() => onFilterChange?.('stale_1_3')}
+            color="text-amber-300"
+          />
+          <FilterPill
+            label={t("monitoring.filters.noSignal6to18h")}
+            count={summary?.stale6to18}
+            active={filterMode === 'stale_6_18'}
+            onClick={() => onFilterChange?.('stale_6_18')}
+            color="text-amber-200"
+          />
+          <FilterPill
+            label={t("monitoring.filters.noSignal24h")}
+            count={summary?.stale24}
+            active={filterMode === 'stale_24'}
+            onClick={() => onFilterChange?.('stale_24')}
+            color="text-red-200"
+          />
+          <FilterPill
+            label={t("monitoring.filters.noSignal10d")}
+            count={summary?.stale10d}
+            active={filterMode === 'stale_10d'}
+            onClick={() => onFilterChange?.('stale_10d')}
+            color="text-red-300"
+          />
+          <FilterPill
             label={t("monitoring.filters.criticalEvents")}
             count={summary?.critical}
             active={filterMode === 'critical'}
@@ -168,12 +196,50 @@ export default function MonitoringToolbar({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.08em] text-white/40">
+      <div className="flex flex-wrap items-center gap-2 text-[10px] uppercase tracking-[0.08em] text-white/50">
         <span className="hidden sm:inline">Exibindo {summary?.total ?? 0} veículos</span>
-        <div className="flex items-center gap-2 text-white/60">
-          <span className="font-semibold text-emerald-400">{summary?.online ?? 0} online</span>
-          <span className="font-semibold text-red-400">{summary?.offline ?? 0} offline</span>
-        </div>
+        <StatusChip
+          label={t("monitoring.filters.online")}
+          count={summary?.online}
+          color="text-emerald-300"
+          onClick={() => onFilterChange?.('online')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.offline")}
+          count={summary?.offline}
+          color="text-red-300"
+          onClick={() => onFilterChange?.('stale')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.noSignal1to3h")}
+          count={summary?.stale1to3}
+          color="text-amber-200"
+          onClick={() => onFilterChange?.('stale_1_3')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.noSignal6to18h")}
+          count={summary?.stale6to18}
+          color="text-amber-100"
+          onClick={() => onFilterChange?.('stale_6_18')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.noSignal24h")}
+          count={summary?.stale24}
+          color="text-orange-200"
+          onClick={() => onFilterChange?.('stale_24')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.noSignal10d")}
+          count={summary?.stale10d}
+          color="text-red-200"
+          onClick={() => onFilterChange?.('stale_10d')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.criticalEvents")}
+          count={summary?.critical}
+          color="text-amber-300"
+          onClick={() => onFilterChange?.('critical')}
+        />
       </div>
     </div>
   );
@@ -285,6 +351,19 @@ function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) 
           {count}
         </span>
       )}
+    </button>
+  );
+}
+
+function StatusChip({ label, count, color = "text-white/60", onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
+    >
+      <span className={color}>{label}</span>
+      <span className="rounded bg-black/20 px-1 text-[9px] text-white/80">{count ?? 0}</span>
     </button>
   );
 }

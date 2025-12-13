@@ -63,7 +63,7 @@ export default function Layout({ children, title, hideTitle = false }) {
       <div
         role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
-        className={`fixed inset-y-0 left-0 z-40 transform overflow-y-auto border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-40 transform overflow-hidden border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
@@ -71,12 +71,12 @@ export default function Layout({ children, title, hideTitle = false }) {
       </div>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <div className="flex flex-1 min-w-0 flex-col">
+      <div className="flex min-h-0 flex-1 min-w-0 flex-col">
         {/* No monitoring a própria página cuida do cabeçalho */}
         <Topbar title={isFullWidthPage ? null : title} />
 
         <main
-          className={`flex flex-1 min-w-0 flex-col bg-[#0b0f17] ${
+          className={`flex min-h-0 flex-1 min-w-0 flex-col bg-[#0b0f17] ${
             isMonitoringPage
               ? "h-full w-full max-w-none overflow-y-auto p-0"
               : "overflow-hidden p-6"
@@ -84,7 +84,7 @@ export default function Layout({ children, title, hideTitle = false }) {
         >
           {isFullWidthPage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
-            <div className="flex flex-1 overflow-hidden bg-[#0b0f17]">
+            <div className="flex min-h-0 flex-1 overflow-hidden bg-[#0b0f17]">
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           ) : (

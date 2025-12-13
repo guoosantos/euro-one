@@ -7,6 +7,7 @@ export default function MonitoringLayoutSelector({
   searchRadius,
   onRadiusChange,
   mapLayers = [],
+  mapLayerSections = [],
   activeMapLayer,
   onMapLayerChange,
 }) {
@@ -14,6 +15,10 @@ export default function MonitoringLayoutSelector({
     { key: "showMap", label: "Mostrar Mapa" },
     { key: "showTable", label: "Mostrar Tabela" },
   ];
+
+  const sections = mapLayerSections?.length
+    ? mapLayerSections
+    : [{ key: "default", label: "Mapas", layers: mapLayers }];
 
   return (
     <div
@@ -89,33 +94,59 @@ export default function MonitoringLayoutSelector({
             <p className="mt-1 text-[11px] text-white/50">Ajuste o raio usado na busca por endereço (50m a 5km).</p>
           </div>
 
-          {mapLayers.length > 0 && (
+          {sections.some((section) => section.layers?.length) && (
             <div className="rounded-lg border border-white/10 px-3 py-2">
               <div className="text-sm font-semibold text-white">Tipo de mapa</div>
               <p className="text-[11px] text-white/60">Escolha o provedor exibido no mapa.</p>
 
-              <div className="mt-2 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
-                {mapLayers.map((layer) => {
-                  const isActive = layer.key === activeMapLayer;
+              <div className="mt-2 max-h-[70vh] space-y-3 overflow-y-auto pr-1">
+                {sections.map((section) => {
+                  if (!section.layers?.length) return null;
+                  const sectionHasEnabled = section.layers.some((layer) => layer.available !== false && layer.url);
                   return (
-                    <label
-                      key={layer.key}
-                      className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition ${isActive ? "border-primary/60 bg-primary/10 text-white" : "border-white/10 text-white/70 hover:border-white/30"}`}
-                    >
-                      <div className="flex flex-col">
-                        <span className="font-semibold">{layer.label}</span>
-                        {layer.description ? (
-                          <span className="text-[11px] text-white/60">{layer.description}</span>
-                        ) : null}
+                    <div key={section.key} className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-white/50">
+                        <span className="font-semibold text-white/80">{section.label}</span>
+                        {!sectionHasEnabled && section.disabledMessage && (
+                          <span className="text-[10px] text-amber-300/80" title={section.disabledMessage}>
+                            {section.disabledMessage}
+                          </span>
+                        )}
                       </div>
-                      <input
-                        type="radio"
-                        name="map-layer"
-                        className="h-4 w-4"
-                        checked={isActive}
-                        onChange={() => onMapLayerChange?.(layer.key)}
-                      />
-                    </label>
+
+                      <div className="space-y-2">
+                        {section.layers.map((layer) => {
+                          const isActive = layer.key === activeMapLayer;
+                          const isDisabled = layer.available === false || !layer.url;
+                          return (
+                            <label
+                              key={layer.key}
+                              title={isDisabled ? section.disabledMessage || "Mapa não configurado" : undefined}
+                              className={`flex items-center justify-between rounded-md border px-3 py-2 text-sm transition ${isDisabled
+                                ? "border-white/5 text-white/40"
+                                : isActive
+                                  ? "border-primary/60 bg-primary/10 text-white"
+                                  : "border-white/10 text-white/70 hover:border-white/30"}`}
+                            >
+                              <div className="flex flex-col">
+                                <span className="font-semibold">{layer.label}</span>
+                                {layer.description ? (
+                                  <span className="text-[11px] text-white/60">{layer.description}</span>
+                                ) : null}
+                              </div>
+                              <input
+                                type="radio"
+                                name="map-layer"
+                                className="h-4 w-4"
+                                disabled={isDisabled}
+                                checked={isActive}
+                                onChange={() => onMapLayerChange?.(layer.key)}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   );
                 })}
               </div>
