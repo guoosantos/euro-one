@@ -14,6 +14,7 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
+import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
 
 import {
   deriveStatus,
@@ -31,6 +32,9 @@ import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.jsx";
 const DEFAULT_MAP_HEIGHT = 60;
 const MIN_MAP_HEIGHT = 20;
 const MAX_MAP_HEIGHT = 80;
+const DEFAULT_RADIUS = 500;
+const MIN_RADIUS = 50;
+const MAX_RADIUS = 5000;
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -73,8 +77,6 @@ const COLUMN_WIDTH_HINTS = {
   actions: 90,
 };
 
-const NEARBY_RADIUS_KM = 5;
-
 function distanceKm(lat1, lon1, lat2, lon2) {
   const toRad = (value) => (value * Math.PI) / 180;
   const R = 6371;
@@ -94,6 +96,12 @@ const COLUMN_LABEL_OVERRIDES = {
   serverTime: "monitoring.columns.serverTimeShort",
 };
 
+const COLUMN_LABEL_FALLBACKS = {
+  "monitoring.columns.client": "Cliente",
+  "monitoring.columns.geofences": "Rotas",
+  "monitoring.columns.notes": "Rec. Facial",
+};
+
 export default function Monitoring() {
   const { t, locale } = useTranslation();
 
@@ -104,70 +112,84 @@ export default function Monitoring() {
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [query, setQuery] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
-  const [regionQuery, setRegionQuery] = useState("");
   const [regionTarget, setRegionTarget] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
-  const [lastRegionQuery, setLastRegionQuery] = useState("");
+  const [reverseAddresses, setReverseAddresses] = useState({});
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
   const layoutButtonRef = useRef(null);
-  const [layoutPopupAnchor, setLayoutPopupAnchor] = useState(null);
-  const regionSearchTimeout = useRef(null);
 
   const [layoutVisibility, setLayoutVisibility] = useState({
     showMap: true,
     showTable: true,
   });
 
-  const { isSearching, searchRegion } = useGeocodeSearch();
-
-  const runRegionSearch = useCallback(async (term) => {
-    const safeTerm = term?.trim();
-    if (!safeTerm) return;
-    const result = await searchRegion(safeTerm);
-    if (result) {
-      setRegionTarget(result);
-      setMapViewport({ center: [result.lat, result.lng], zoom: 13 });
-      setLastRegionQuery(safeTerm);
-    }
-  }, [searchRegion]);
-
-  useEffect(() => {
-    if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
-
-    if (!regionQuery.trim()) {
-      setRegionTarget(null);
-      return undefined;
-    }
-
-    const term = regionQuery.trim();
-    regionSearchTimeout.current = setTimeout(() => {
-      if (term !== lastRegionQuery) {
-        runRegionSearch(term);
-      }
-    }, 650);
-
-    return () => {
-      if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
-    };
-  }, [lastRegionQuery, regionQuery, runRegionSearch]);
+  const { isSearching, suggestions: addressSuggestions, previewSuggestions, searchRegion, clearSuggestions } = useGeocodeSearch();
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
     Math.max(MIN_MAP_HEIGHT, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_MAP_HEIGHT),
   );
 
+  const clampRadius = useCallback(
+    (value) => Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_RADIUS)),
+    [],
+  );
+
+  const buildCoordKey = useCallback((lat, lng) => {
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+  }, []);
+
+  useEffect(() => {
+    if (searchTerm.trim()) {
+      previewSuggestions(searchTerm);
+    } else {
+      clearSuggestions();
+    }
+  }, [clearSuggestions, previewSuggestions, searchTerm]);
+
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
     device: item.device || item,
     source: item,
   })), [safeTelemetry]);
+
+  const vehicleOptions = useMemo(() => normalizedTelemetry.map(({ device }) => {
+    const name = device.name ?? device.alias ?? "";
+    const plate = device.plate ?? device.registrationNumber ?? "";
+    const identifier = device.identifier ?? device.uniqueId ?? "";
+    const label = name || plate || identifier || "Veículo";
+    const description = plate && name ? `${plate} · ${name}` : plate || name || identifier;
+    const searchValue = `${label} ${plate} ${identifier}`.toLowerCase();
+    return { type: "vehicle", deviceId: getDeviceKey(device), label, description, searchValue };
+  }), [normalizedTelemetry]);
+
+  const matchingVehicleOptions = useMemo(() => {
+    const term = searchTerm.toLowerCase().trim();
+    if (!term) return vehicleOptions.slice(0, 8);
+    return vehicleOptions.filter((option) => option.searchValue.includes(term)).slice(0, 8);
+  }, [searchTerm, vehicleOptions]);
+
+  const suggestionList = useMemo(() => {
+    const addressOptions = addressSuggestions.map((item) => ({
+      type: "address",
+      id: item.id,
+      label: item.label,
+      description: item.concise,
+      lat: item.lat,
+      lng: item.lng,
+      boundingBox: item.boundingBox,
+    }));
+    return [...matchingVehicleOptions, ...addressOptions];
+  }, [addressSuggestions, matchingVehicleOptions]);
 
   const searchFiltered = useMemo(() => {
     const term = query.toLowerCase().trim();
@@ -208,6 +230,14 @@ export default function Monitoring() {
       }
     }
 
+    const coordKey = buildCoordKey(lat, lng);
+    if (coordKey && reverseAddresses[coordKey]) return reverseAddresses[coordKey];
+
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      const cached = getCachedReverse(lat, lng);
+      if (cached) return cached;
+    }
+
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
       return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     }
@@ -246,7 +276,37 @@ export default function Monitoring() {
 
       return row;
     });
-  }, [filteredDevices, t]);
+  }, [buildCoordKey, filteredDevices, reverseAddresses, t]);
+
+  useEffect(() => {
+    const missing = rows
+      .map((row) => ({
+        key: buildCoordKey(row.lat, row.lng),
+        lat: row.lat,
+        lng: row.lng,
+      }))
+      .filter((item) => item.key && !reverseAddresses[item.key])
+      .slice(0, 4);
+
+    if (!missing.length) return undefined;
+
+    let cancelled = false;
+    (async () => {
+      for (const item of missing) {
+        try {
+          const value = await reverseGeocode(item.lat, item.lng);
+          if (cancelled) return;
+          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: value }));
+        } catch (_err) {
+          // ignore individual failures
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [buildCoordKey, reverseAddresses, rows]);
 
   const decoratedRows = useMemo(
     () => rows.map(row => ({ ...row, isNearby: nearbyDeviceIds.includes(row.deviceId) })),
@@ -267,6 +327,50 @@ export default function Monitoring() {
     setSelectedDeviceId(deviceId);
     if (openDetails) openDetailsFor(deviceId);
   }, [openDetailsFor]);
+
+  const handleSearchChange = useCallback((value) => {
+    setSearchTerm(value);
+    setQuery(value);
+  }, []);
+
+  const applyAddressTarget = useCallback((payload) => {
+    if (!payload) return;
+    const radius = clampRadius(payload.radius ?? radiusValue);
+    const target = {
+      lat: payload.lat,
+      lng: payload.lng,
+      label: payload.label,
+      address: payload.description || payload.address || payload.label,
+      radius,
+    };
+    setRegionTarget(target);
+    setMapViewport({ center: [payload.lat, payload.lng], zoom: 15 });
+  }, [clampRadius, radiusValue]);
+
+  const handleSelectSuggestion = useCallback((option) => {
+    if (!option) return;
+    if (option.type === "vehicle") {
+      setSearchTerm(option.label);
+      setQuery(option.label);
+      focusDevice(option.deviceId, { openDetails: true });
+      clearSuggestions();
+      return;
+    }
+
+    if (option.type === "address") {
+      setSearchTerm(option.label);
+      setQuery("");
+      applyAddressTarget(option);
+    }
+  }, [applyAddressTarget, clearSuggestions, focusDevice]);
+
+  const handleClearAddress = useCallback(() => {
+    setRegionTarget(null);
+    setSearchTerm("");
+    setQuery("");
+    setNearbyDeviceIds([]);
+    clearSuggestions();
+  }, [clearSuggestions]);
 
   const markers = useMemo(() => {
     return decoratedRows
@@ -309,9 +413,10 @@ export default function Monitoring() {
       return;
     }
 
+    const radiusKm = clampRadius(regionTarget.radius ?? radiusValue) / 1000;
     const ids = rows
       .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-      .filter((r) => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= NEARBY_RADIUS_KM)
+      .filter((r) => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= radiusKm)
       .map((r) => r.deviceId);
 
     setNearbyDeviceIds((prev) => {
@@ -320,13 +425,18 @@ export default function Monitoring() {
       }
       return ids;
     });
-  }, [rows, regionTarget]);
+  }, [clampRadius, radiusValue, regionTarget, rows]);
+
+  useEffect(() => {
+    setRegionTarget((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
+  }, [clampRadius, radiusValue]);
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
     TELEMETRY_COLUMNS.map(col => {
       const overrideKey = COLUMN_LABEL_OVERRIDES[col.key];
-      const label = overrideKey ? t(overrideKey) : t(col.labelKey);
+      const translated = overrideKey ? t(overrideKey) : t(col.labelKey);
+      const label = COLUMN_LABEL_FALLBACKS[translated] || COLUMN_LABEL_FALLBACKS[col.labelKey] || translated;
 
       return {
         ...col,
@@ -345,15 +455,15 @@ export default function Monitoring() {
     width: COLUMN_WIDTH_HINTS.actions,
     render: row => (
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
-        <button
+        <a
           className="rounded border border-primary/40 bg-primary/10 px-2 py-1 font-semibold text-primary hover:bg-primary/20"
-          onClick={(event) => {
-            event.stopPropagation();
-            focusDevice(row.deviceId);
-          }}
+          href={Number.isFinite(row.lat) && Number.isFinite(row.lng) ? `https://www.google.com/maps?q=${row.lat},${row.lng}` : "#"}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(event) => event.stopPropagation()}
         >
           Mapa
-        </button>
+        </a>
         <button
           className="rounded border border-white/15 bg-white/5 px-2 py-1 font-semibold text-white/70 hover:text-white"
           onClick={(event) => {
@@ -368,12 +478,6 @@ export default function Monitoring() {
   }), [focusDevice, t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
-
-  const handleRegionSearch = useCallback(() => {
-    if (!regionQuery.trim()) return;
-    if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
-    runRegionSearch(regionQuery);
-  }, [regionQuery, runRegionSearch]);
 
   const handleSelectRow = useCallback((deviceId) => {
     focusDevice(deviceId);
@@ -391,20 +495,11 @@ export default function Monitoring() {
     focusDevice(deviceId, { openDetails: true });
   }, [focusDevice]);
 
-  const captureLayoutAnchor = useCallback(() => {
-    if (!layoutButtonRef.current) return;
-    const rect = layoutButtonRef.current.getBoundingClientRect();
-    const left = Math.min(Math.max(rect.left - 12, 8), window.innerWidth - 260);
-    setLayoutPopupAnchor({ top: rect.bottom + 8, left });
-  }, []);
-
   const handleTogglePopup = useCallback((name) => {
     setActivePopup((prev) => {
-      const next = prev === name ? null : name;
-      if (next === "layout") captureLayoutAnchor();
-      return next;
+      return prev === name ? null : name;
     });
-  }, [captureLayoutAnchor]);
+  }, []);
 
   const {
     columnDefaults,
@@ -417,6 +512,8 @@ export default function Monitoring() {
     mapHeightPercent,
     updateMapHeight,
     applyColumns,
+    searchRadius,
+    updateSearchRadius,
   } = useMonitoringSettings({
     columns: allColumns,
     remotePreferences: preferences,
@@ -425,6 +522,8 @@ export default function Monitoring() {
     savePreferences,
     defaultColumnKeys: EURO_ONE_DEFAULT_COLUMNS,
   });
+
+  const radiusValue = useMemo(() => clampRadius(searchRadius ?? DEFAULT_RADIUS), [clampRadius, searchRadius]);
 
   useEffect(() => {
     const next = Number.isFinite(mapHeightPercent)
@@ -533,18 +632,19 @@ export default function Monitoring() {
           <div className="border-b border-white/10 px-4 py-3">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
-                query={query}
-                onQueryChange={setQuery}
+                searchTerm={searchTerm}
+                onSearchChange={handleSearchChange}
+                onSelectSuggestion={handleSelectSuggestion}
+                suggestions={suggestionList}
                 filterMode={filterMode}
                 onFilterChange={setFilterMode}
                 summary={summary}
                 activePopup={activePopup}
                 onTogglePopup={handleTogglePopup}
-                regionQuery={regionQuery}
-                onRegionQueryChange={setRegionQuery}
-                onRegionSearch={handleRegionSearch}
                 isSearchingRegion={isSearching}
                 layoutButtonRef={layoutButtonRef}
+                addressFilter={regionTarget ? { label: regionTarget.label || regionTarget.address, radius: radiusValue } : null}
+                onClearAddress={handleClearAddress}
               />
             </div>
           </div>
@@ -568,18 +668,13 @@ export default function Monitoring() {
       )}
 
       {activePopup === "layout" && (
-        <div className="fixed inset-0 z-40 pointer-events-none">
-          <div
-            className="pointer-events-auto"
-            style={{ position: "absolute", top: layoutPopupAnchor?.top ?? 96, left: layoutPopupAnchor?.left ?? 16 }}
-          >
-            <MonitoringLayoutSelector
-              layoutVisibility={layoutVisibility}
-              onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
-              onClose={() => setActivePopup(null)}
-            />
-          </div>
-        </div>
+        <MonitoringLayoutSelector
+          layoutVisibility={layoutVisibility}
+          onToggle={key => setLayoutVisibility(prev => ({ ...prev, [key]: !prev[key] }))}
+          searchRadius={radiusValue}
+          onRadiusChange={(value) => updateSearchRadius(clampRadius(value))}
+          onClose={() => setActivePopup(null)}
+        />
       )}
 
       {activePopup === "columns" && (
