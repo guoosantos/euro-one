@@ -9,7 +9,7 @@ import { Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
-import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.js";
+import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.jsx";
 
 function formatDate(value) {
   if (!value) return "—";
