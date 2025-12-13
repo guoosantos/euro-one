@@ -219,12 +219,14 @@ function RegionOverlay({ target }) {
 
   useEffect(() => {
     if (!map || !target) return;
+    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
+
     const center = L.latLng(target.lat, target.lng);
     const circle = L.circle(center, { radius });
     map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
   }, [map, radius, target]);
 
-  if (!target) return null;
+  if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
   return (
     <Circle
       center={[target.lat, target.lng]}

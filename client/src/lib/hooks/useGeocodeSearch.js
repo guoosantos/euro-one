@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const MAX_CACHE = 24;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+const MIN_QUERY_LENGTH = 3;
 
 export default function useGeocodeSearch() {
   const [isSearching, setIsSearching] = useState(false);
@@ -31,40 +31,43 @@ export default function useGeocodeSearch() {
   }, []);
 
   const fetchCandidates = useCallback(async (term) => {
-    const url = `${NOMINATIM_URL}?format=json&q=${encodeURIComponent(term)}&limit=5&addressdetails=1&polygon_geojson=0`;
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Euro-One/monitoring-ui",
-      },
-    });
+    const url = `/api/geocode/search?query=${encodeURIComponent(term)}&limit=5`;
+    const response = await fetch(url, { credentials: "include" });
 
-    if (!response.ok) throw new Error("Geocoding failed");
-    const data = await response.json();
-    return Array.isArray(data)
-      ? data.filter((item) => Number.isFinite(Number(item.lat)) && Number.isFinite(Number(item.lon)))
-      : [];
-  }, []);
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (_error) {
+      payload = null;
+    }
 
-  const buildSuggestion = useCallback((item, fallbackLabel) => {
-    const address = item.address || {};
-    const conciseAddress = [address.road, address.neighbourhood, address.city || address.town || address.village, address.state, address.country]
-      .filter(Boolean)
-      .join(", ");
+    if (!response.ok) {
+      const message = payload?.error?.message || "Não foi possível buscar endereços.";
+      throw new Error(message);
+    }
 
-    return {
-      id: `${item.place_id}`,
-      lat: Number(item.lat),
-      lng: Number(item.lon),
-      label: item.display_name || fallbackLabel,
-      concise: conciseAddress || item.display_name || fallbackLabel,
-      raw: item,
-      boundingBox: item.boundingbox,
-    };
+    const list = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : [];
+    return list
+      .map((item) => {
+        const lat = Number(item.lat);
+        const lng = Number(item.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+        return {
+          id: item.id || `${lat},${lng}`,
+          lat,
+          lng,
+          label: item.label || term,
+          concise: item.concise || item.label || term,
+          raw: item.raw || item,
+          boundingBox: item.boundingBox,
+        };
+      })
+      .filter(Boolean);
   }, []);
 
   const searchRegion = useCallback(async (query) => {
     const term = query?.trim();
-    if (!term) return null;
+    if (!term || term.length < MIN_QUERY_LENGTH) return null;
 
     const cached = getCached(term.toLowerCase());
     if (cached) {
@@ -78,7 +81,7 @@ export default function useGeocodeSearch() {
 
     try {
       const candidates = await fetchCandidates(term);
-      const list = candidates.map((item) => buildSuggestion(item, term));
+      const list = candidates;
       const [best] = list;
       setSuggestions(list);
       setLastResult(best || null);
@@ -90,7 +93,7 @@ export default function useGeocodeSearch() {
     } finally {
       setIsSearching(false);
     }
-  }, [buildSuggestion, fetchCandidates, getCached, setCache]);
+    }, [fetchCandidates, getCached, setCache]);
 
   const clearSuggestions = useCallback(() => {
     setSuggestions([]);
@@ -99,7 +102,7 @@ export default function useGeocodeSearch() {
 
   const previewSuggestions = useCallback(async (query) => {
     const term = query?.trim();
-    if (!term) {
+    if (!term || term.length < MIN_QUERY_LENGTH) {
       clearSuggestions();
       return [];
     }
@@ -113,7 +116,7 @@ export default function useGeocodeSearch() {
     setIsSearching(true);
     try {
       const candidates = await fetchCandidates(term);
-      const list = candidates.map((item) => buildSuggestion(item, term));
+      const list = candidates;
       setSuggestions(list);
       setCache(term.toLowerCase(), { list, best: list[0] || null });
       return list;
@@ -123,7 +126,7 @@ export default function useGeocodeSearch() {
     } finally {
       setIsSearching(false);
     }
-  }, [buildSuggestion, clearSuggestions, fetchCandidates, getCached, setCache]);
+    }, [clearSuggestions, fetchCandidates, getCached, setCache]);
 
   return useMemo(() => ({
     isSearching,

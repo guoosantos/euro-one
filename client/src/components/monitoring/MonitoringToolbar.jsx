@@ -200,8 +200,8 @@ export function MonitoringSearchBox({
   };
 
   return (
-    <div className={`relative flex min-w-[240px] max-w-xl flex-1 items-center rounded-md border border-white/10 bg-[#0d1117] px-3 py-2 shadow-inner ${containerClassName}`}>
-      <div className="pointer-events-none text-white/40">
+    <div className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}>
+      <div className="pointer-events-none flex items-center justify-center text-white/40">
         {icon}
       </div>
       <input
