@@ -36,8 +36,18 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DEFAULT_COLUMN_WIDTH = 140;
+const DEFAULT_COLUMN_WIDTH = 120;
 const DEFAULT_COLUMN_MIN_WIDTH = 60;
+const COLUMN_MIN_WIDTHS = {
+  default: DEFAULT_COLUMN_MIN_WIDTH,
+  client: DEFAULT_COLUMN_MIN_WIDTH,
+  vehicle: DEFAULT_COLUMN_MIN_WIDTH,
+  plate: DEFAULT_COLUMN_MIN_WIDTH,
+  address: DEFAULT_COLUMN_MIN_WIDTH,
+  geofences: DEFAULT_COLUMN_MIN_WIDTH,
+  notes: DEFAULT_COLUMN_MIN_WIDTH,
+  actions: DEFAULT_COLUMN_MIN_WIDTH,
+};
 const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 const DEFAULT_PAGE_SIZE = 50;
 const MAP_LAYER_STORAGE_KEY = "monitoring.map.layer";
@@ -117,6 +127,7 @@ const EURO_ONE_DEFAULT_COLUMNS = [
 ];
 
 const COLUMN_WIDTH_HINTS = {
+  default: DEFAULT_COLUMN_WIDTH,
   vehicle: DEFAULT_COLUMN_WIDTH,
   plate: DEFAULT_COLUMN_WIDTH,
   deviceId: DEFAULT_COLUMN_WIDTH,
@@ -162,6 +173,18 @@ const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.client": "Cliente",
   "monitoring.columns.geofences": "Rotas",
   "monitoring.columns.notes": "Rec. Facial",
+};
+
+const getColumnMinWidth = (key) => COLUMN_MIN_WIDTHS?.[key] ?? COLUMN_MIN_WIDTHS?.default ?? DEFAULT_COLUMN_MIN_WIDTH;
+
+const getColumnBaseWidth = (key) => {
+  const candidates = [
+    COLUMN_WIDTH_HINTS?.[key],
+    COLUMN_WIDTH_HINTS?.default,
+    DEFAULT_COLUMN_WIDTH,
+  ];
+  const resolved = candidates.find((value) => Number.isFinite(value) && value > 0);
+  return resolved ?? DEFAULT_COLUMN_WIDTH;
 };
 
 function PaginationFooter({
@@ -566,8 +589,8 @@ export default function Monitoring() {
 
       return {
         ...col,
-        width: COLUMN_WIDTH_HINTS[col.key] ?? col.width,
-        minWidth: COLUMN_MIN_WIDTHS[col.key] ?? col.minWidth,
+        width: getColumnBaseWidth(col.key),
+        minWidth: getColumnMinWidth(col.key),
         label,
         render: row => col.getValue(row, { t, locale }),
       };
@@ -579,8 +602,8 @@ export default function Monitoring() {
     label: t("monitoring.columns.actions"),
     defaultVisible: true,
     fixed: true,
-    width: COLUMN_WIDTH_HINTS.actions,
-    minWidth: COLUMN_MIN_WIDTHS.actions,
+    width: getColumnBaseWidth("actions"),
+    minWidth: getColumnMinWidth("actions"),
     render: row => (
       <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
         <a
@@ -743,14 +766,22 @@ export default function Monitoring() {
     [updateMapHeight],
   );
 
-  const visibleColumnsWithWidths = useMemo(
-    () => visibleColumns.map(col => ({
-      ...col,
-      width: columnPrefs.widths?.[col.key] ?? col.width ?? COLUMN_WIDTH_HINTS[col.key] ?? DEFAULT_COLUMN_WIDTH,
-      minWidth: DEFAULT_COLUMN_MIN_WIDTH,
-    })),
-    [visibleColumns, columnPrefs.widths],
-  );
+  const visibleColumnsWithWidths = useMemo(() => {
+    const list = Array.isArray(visibleColumns) ? visibleColumns : [];
+
+    return list.map(col => {
+      const preferredWidth = columnPrefs.widths?.[col.key];
+      const widthCandidates = [preferredWidth, col.width, getColumnBaseWidth(col.key)];
+      const resolvedWidth = widthCandidates.find((value) => Number.isFinite(value) && value > 0) ?? DEFAULT_COLUMN_WIDTH;
+      const minWidth = getColumnMinWidth(col.key);
+
+      return {
+        ...col,
+        width: Math.max(minWidth, resolvedWidth),
+        minWidth,
+      };
+    });
+  }, [columnPrefs.widths, visibleColumns]);
 
   const tableHeightPercent = useMemo(
     () => (layoutVisibility.showMap ? Math.max(10, 100 - localMapHeight) : 100),
