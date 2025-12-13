@@ -305,15 +305,21 @@ export default function Monitoring() {
 
   useEffect(() => {
     if (!regionTarget) {
-      setNearbyDeviceIds([]);
+      setNearbyDeviceIds((prev) => (prev.length ? [] : prev));
       return;
     }
 
     const ids = rows
-      .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
-      .filter(r => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= NEARBY_RADIUS_KM)
-      .map(r => r.deviceId);
-    setNearbyDeviceIds(ids);
+      .filter((r) => Number.isFinite(r.lat) && Number.isFinite(r.lng))
+      .filter((r) => distanceKm(r.lat, r.lng, regionTarget.lat, regionTarget.lng) <= NEARBY_RADIUS_KM)
+      .map((r) => r.deviceId);
+
+    setNearbyDeviceIds((prev) => {
+      if (prev.length === ids.length && prev.every((id, index) => id === ids[index])) {
+        return prev;
+      }
+      return ids;
+    });
   }, [rows, regionTarget]);
 
   // --- Configuração de Colunas ---
