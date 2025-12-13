@@ -36,17 +36,48 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DEFAULT_COLUMN_WIDTH = 160;
+const DEFAULT_COLUMN_WIDTH = 140;
 const DEFAULT_COLUMN_MIN_WIDTH = 60;
 const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 const DEFAULT_PAGE_SIZE = 50;
+const MAP_LAYER_STORAGE_KEY = "monitoring.map.layer";
 
 const MAP_LAYERS = [
   {
-    key: "default",
+    key: "openstreetmap",
     label: "OpenStreetMap",
+    description: "Mapa padrão de ruas",
     url: DEFAULT_TILE_URL,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  },
+  {
+    key: "openfreemap",
+    label: "OpenFreeMap",
+    description: "Versão estilo HOT",
+    url: "https://{s}.tile.openfreemap.org/hot/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openfreemap.org/">OpenFreeMap</a> contributors',
+  },
+  {
+    key: "opentopomap",
+    label: "OpenTopoMap",
+    description: "Topografia com relevo",
+    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
+    attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM',
+    maxZoom: 17,
+  },
+  {
+    key: "carto-light",
+    label: "Carto Basemaps",
+    description: "Tema claro estilo Traccar",
+    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+  },
+  {
+    key: "carto-dark",
+    label: "Carto Dark",
+    description: "Tema escuro",
+    url: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
   },
   {
     key: "satellite",
@@ -60,10 +91,10 @@ const MAP_LAYERS = [
   {
     key: "hybrid",
     label: "Híbrido",
-    description: "Mapa de ruas com relevo (OpenTopoMap)",
-    url: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-    attribution: 'Map data: &copy; OpenStreetMap contributors, SRTM',
-    maxZoom: 17,
+    description: "Sátelite + labels (Esri)",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
+    attribution: 'Tiles &copy; Esri — Source: Esri',
+    maxZoom: 20,
   },
 ];
 
@@ -86,49 +117,26 @@ const EURO_ONE_DEFAULT_COLUMNS = [
 ];
 
 const COLUMN_WIDTH_HINTS = {
-  vehicle: 160,
-  plate: 110,
-  deviceId: 120,
-  protocol: 120,
-  serverTime: 150,
-  deviceTime: 150,
-  gpsTime: 150,
-  lastEvent: 140,
-  valid: 90,
-  latitude: 120,
-  longitude: 120,
-  speed: 90,
-  address: 260,
-  status: 120,
-  ignition: 110,
-  client: 160,
-  geofences: 140,
-  notes: 180,
-  faceRecognition: 120,
-  actions: 90,
-};
-
-const COLUMN_MIN_WIDTHS = {
-  vehicle: 120,
-  plate: 90,
-  deviceId: 100,
-  protocol: 100,
-  serverTime: 120,
-  deviceTime: 120,
-  gpsTime: 120,
-  lastEvent: 110,
-  valid: 70,
-  latitude: 110,
-  longitude: 110,
-  speed: 80,
-  address: 140,
-  status: 100,
-  ignition: 90,
-  client: 120,
-  geofences: 120,
-  notes: 120,
-  faceRecognition: 110,
-  actions: 80,
+  vehicle: DEFAULT_COLUMN_WIDTH,
+  plate: DEFAULT_COLUMN_WIDTH,
+  deviceId: DEFAULT_COLUMN_WIDTH,
+  protocol: DEFAULT_COLUMN_WIDTH,
+  serverTime: DEFAULT_COLUMN_WIDTH,
+  deviceTime: DEFAULT_COLUMN_WIDTH,
+  gpsTime: DEFAULT_COLUMN_WIDTH,
+  lastEvent: DEFAULT_COLUMN_WIDTH,
+  valid: DEFAULT_COLUMN_WIDTH,
+  latitude: DEFAULT_COLUMN_WIDTH,
+  longitude: DEFAULT_COLUMN_WIDTH,
+  speed: DEFAULT_COLUMN_WIDTH,
+  address: DEFAULT_COLUMN_WIDTH,
+  status: DEFAULT_COLUMN_WIDTH,
+  ignition: DEFAULT_COLUMN_WIDTH,
+  client: DEFAULT_COLUMN_WIDTH,
+  geofences: DEFAULT_COLUMN_WIDTH,
+  notes: DEFAULT_COLUMN_WIDTH,
+  faceRecognition: DEFAULT_COLUMN_WIDTH,
+  actions: DEFAULT_COLUMN_WIDTH,
 };
 
 function distanceKm(lat1, lon1, lat2, lon2) {
@@ -257,6 +265,7 @@ export default function Monitoring() {
   const [mapViewport, setMapViewport] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
+  const [focusTarget, setFocusTarget] = useState(null);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [reverseAddresses, setReverseAddresses] = useState({});
@@ -273,7 +282,7 @@ export default function Monitoring() {
     showTable: true,
   });
 
-  const { isSearching, suggestions: addressSuggestions, previewSuggestions, clearSuggestions } = useGeocodeSearch();
+  const { isSearching, suggestions: addressSuggestions, previewSuggestions, clearSuggestions, searchRegion } = useGeocodeSearch();
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
@@ -297,6 +306,25 @@ export default function Monitoring() {
       clearSuggestions();
     }
   }, [addressQuery, clearSuggestions, previewSuggestions]);
+
+  useEffect(() => {
+    try {
+      const storedLayer = localStorage.getItem(MAP_LAYER_STORAGE_KEY);
+      if (storedLayer && MAP_LAYERS.some((layer) => layer.key === storedLayer)) {
+        setMapLayerKey(storedLayer);
+      }
+    } catch (_error) {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MAP_LAYER_STORAGE_KEY, mapLayerKey);
+    } catch (_error) {
+      // ignore
+    }
+  }, [mapLayerKey]);
 
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
@@ -454,6 +482,11 @@ export default function Monitoring() {
     [rows, nearbyDeviceIds],
   );
 
+  const displayRows = useMemo(
+    () => (regionTarget ? decoratedRows.filter((row) => row.isNearby) : decoratedRows),
+    [decoratedRows, regionTarget],
+  );
+
   const detailsVehicle = useMemo(
     () => decoratedRows.find(item => item.deviceId === detailsDeviceId) || null,
     [decoratedRows, detailsDeviceId],
@@ -466,8 +499,14 @@ export default function Monitoring() {
   const focusDevice = useCallback((deviceId, { openDetails = false } = {}) => {
     if (!deviceId) return;
     setSelectedDeviceId(deviceId);
+    const targetRow = decoratedRows.find((item) => item.deviceId === deviceId);
+    if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
+      const focus = { center: [targetRow.lat, targetRow.lng], zoom: 16, key: `device-${deviceId}-${Date.now()}` };
+      setFocusTarget(focus);
+      setMapViewport(focus);
+    }
     if (openDetails) openDetailsFor(deviceId);
-  }, [openDetailsFor]);
+  }, [decoratedRows, openDetailsFor]);
 
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
@@ -479,11 +518,12 @@ export default function Monitoring() {
   );
 
   const handleMapLayerChange = useCallback((nextKey) => {
-    setMapLayerKey(nextKey);
+    const valid = MAP_LAYERS.find((item) => item.key === nextKey);
+    setMapLayerKey(valid ? valid.key : MAP_LAYERS[0].key);
   }, []);
 
   const markers = useMemo(() => {
-    return decoratedRows
+    return displayRows
       .filter(r => Number.isFinite(r.lat) && Number.isFinite(r.lng))
       .map(r => {
         const status = r.statusBadge;
@@ -507,15 +547,15 @@ export default function Monitoring() {
           statusLabel,
         };
       });
-  }, [decoratedRows, locale, selectedDeviceId, t]);
+  }, [displayRows, locale, selectedDeviceId, t]);
 
   const summary = useMemo(() => {
-    const online = rows.filter(r => isOnline(r.position)).length;
-    const moving = rows.filter(r => (r.speed ?? 0) > 0).length;
-    const critical = rows.filter(r => deriveStatus(r.position) === "alert").length;
-    const offline = rows.length - online;
-    return { online, offline, moving, total: rows.length, critical };
-  }, [rows]);
+    const online = displayRows.filter(r => isOnline(r.position)).length;
+    const moving = displayRows.filter(r => (r.speed ?? 0) > 0).length;
+    const critical = displayRows.filter(r => deriveStatus(r.position) === "alert").length;
+    const offline = displayRows.length - online;
+    return { online, offline, moving, total: displayRows.length, critical };
+  }, [displayRows]);
 
   // --- Configuração de Colunas ---
   const telemetryColumns = useMemo(() =>
@@ -624,7 +664,9 @@ export default function Monitoring() {
       radius,
     };
     setRegionTarget(target);
-    setMapViewport({ center: [payload.lat, payload.lng], zoom: 15 });
+    const focus = { center: [payload.lat, payload.lng], zoom: 16, key: `address-${Date.now()}` };
+    setFocusTarget(focus);
+    setMapViewport(focus);
   }, [clampRadius, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
@@ -638,13 +680,26 @@ export default function Monitoring() {
     if (!option) return;
     setAddressQuery(option.label ?? "");
     applyAddressTarget(option);
-  }, [applyAddressTarget]);
+    clearSuggestions();
+  }, [applyAddressTarget, clearSuggestions]);
+
+  const handleAddressSubmit = useCallback(async (queryValue) => {
+    const term = queryValue?.trim();
+    if (!term) return;
+    const result = await searchRegion(term);
+    if (result) {
+      setAddressQuery(result.label ?? term);
+      applyAddressTarget(result);
+      clearSuggestions();
+    }
+  }, [applyAddressTarget, clearSuggestions, searchRegion]);
 
   const handleClearAddress = useCallback(() => {
     setRegionTarget(null);
     setVehicleQuery("");
     setAddressQuery("");
     setNearbyDeviceIds([]);
+    setFocusTarget(null);
     clearSuggestions();
   }, [clearSuggestions]);
 
@@ -692,7 +747,7 @@ export default function Monitoring() {
     () => visibleColumns.map(col => ({
       ...col,
       width: columnPrefs.widths?.[col.key] ?? col.width ?? COLUMN_WIDTH_HINTS[col.key] ?? DEFAULT_COLUMN_WIDTH,
-      minWidth: col.minWidth ?? COLUMN_MIN_WIDTHS[col.key] ?? DEFAULT_COLUMN_MIN_WIDTH,
+      minWidth: DEFAULT_COLUMN_MIN_WIDTH,
     })),
     [visibleColumns, columnPrefs.widths],
   );
@@ -702,19 +757,19 @@ export default function Monitoring() {
     [layoutVisibility.showMap, localMapHeight],
   );
 
-  const totalRows = decoratedRows.length;
+  const totalRows = displayRows.length;
   const effectivePageSize = pageSize === "all" ? totalRows || 1 : pageSize;
   const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
   const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
   const pageStart = totalRows === 0 ? 0 : safePageIndex * effectivePageSize + 1;
   const pageEnd = totalRows === 0 ? 0 : Math.min(totalRows, pageStart + effectivePageSize - 1);
   const paginatedRows = pageSize === "all"
-    ? decoratedRows
-    : decoratedRows.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize);
+    ? displayRows
+    : displayRows.slice(safePageIndex * pageSize, safePageIndex * pageSize + pageSize);
 
   useEffect(() => {
     setPageIndex(0);
-  }, [pageSize, decoratedRows.length]);
+  }, [pageSize, displayRows.length]);
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
@@ -727,8 +782,8 @@ export default function Monitoring() {
 
   return (
     <div
-      className="relative grid w-full min-h-0 bg-[#0b0f17]"
-      style={{ height: "calc(100vh - 64px)", gridTemplateRows }}
+      className="relative grid h-full w-full min-h-[calc(100vh-64px)] bg-[#0b0f17]"
+      style={{ gridTemplateRows }}
     >
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 border-b border-white/10">
@@ -742,6 +797,7 @@ export default function Monitoring() {
             onMarkerSelect={handleMarkerSelect}
             onMarkerOpenDetails={handleMarkerDetails}
             mapLayer={mapLayer}
+            focusTarget={focusTarget}
           />
 
           {!layoutVisibility.showTable && (
@@ -809,6 +865,7 @@ export default function Monitoring() {
                 onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
                 addressSearchTerm={addressQuery}
                 onAddressSearchChange={setAddressQuery}
+                onAddressSubmit={handleAddressSubmit}
                 addressSuggestions={addressSuggestionOptions}
                 onSelectAddressSuggestion={handleSelectAddressSuggestion}
                 filterMode={filterMode}

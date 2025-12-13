@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 420;
 const DEFAULT_MIN_WIDTH = 60;
-const DEFAULT_COLUMN_WIDTH = 160;
+const DEFAULT_COLUMN_WIDTH = 140;
 
 const DATE_KEYS = new Set(["serverTime", "deviceTime", "gpsTime"]);
 const ADDRESS_KEYS = new Set(["address", "endereco"]);
@@ -83,13 +83,16 @@ export default function MonitoringTable({
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
-    const startWidth = event.currentTarget.parentElement.getBoundingClientRect().width;
+    const startWidth = event.currentTarget.parentElement?.getBoundingClientRect().width;
     const minWidth = getColumnMinWidth(key);
+
+    if (!Number.isFinite(startWidth) || startWidth <= 0) return;
 
     const handleMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX;
       const unclamped = Math.round(startWidth + delta);
-      const clampedWidth = Math.max(minWidth, Math.min(unclamped, MAX_COLUMN_WIDTH));
+      const safeWidth = Number.isFinite(unclamped) ? unclamped : startWidth;
+      const clampedWidth = Math.max(minWidth, Math.min(safeWidth, MAX_COLUMN_WIDTH));
 
       setColumnWidths(prev => {
         if (prev[key] === clampedWidth) return prev;
@@ -142,7 +145,7 @@ export default function MonitoringTable({
   };
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-auto bg-[#0b0f17]">
+    <div ref={containerRef} className="h-full min-h-[260px] w-full overflow-auto bg-[#0b0f17]">
 
       <table className="min-w-full w-full table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
 

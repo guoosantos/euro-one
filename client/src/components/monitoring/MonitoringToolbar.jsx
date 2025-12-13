@@ -49,6 +49,7 @@ export default function MonitoringToolbar({
   onSelectVehicleSuggestion,
   addressSearchTerm,
   onAddressSearchChange,
+  onAddressSubmit,
   addressSuggestions,
   onSelectAddressSuggestion,
   filterMode,
@@ -100,6 +101,7 @@ export default function MonitoringToolbar({
             onSelectSuggestion={onSelectAddressSuggestion}
             icon={<LocationIcon />}
             isLoading={isSearchingRegion}
+            onSubmit={onAddressSubmit}
           />
         </div>
 
@@ -186,6 +188,7 @@ export function MonitoringSearchBox({
   icon = <SearchIcon />,
   isLoading = false,
   containerClassName = "",
+  onSubmit,
 }) {
   const trimmedValue = (value || "").trim();
   const [isFocused, setIsFocused] = React.useState(false);
@@ -193,9 +196,16 @@ export function MonitoringSearchBox({
     isFocused && Boolean(trimmedValue) && Array.isArray(suggestions) && suggestions.length > 0;
 
   const handleKeyDown = (event) => {
-    if (event.key === "Enter" && showSuggestions) {
-      event.preventDefault();
-      onSelectSuggestion?.(suggestions[0]);
+    if (event.key === "Enter") {
+      if (showSuggestions) {
+        event.preventDefault();
+        onSelectSuggestion?.(suggestions[0]);
+        return;
+      }
+      if (onSubmit) {
+        event.preventDefault();
+        onSubmit(trimmedValue);
+      }
     }
   };
 

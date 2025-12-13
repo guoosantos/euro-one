@@ -81,6 +81,7 @@ export default function MonitoringLayoutSelector({
               type="number"
               min={50}
               max={5000}
+              step={50}
               value={searchRadius}
               onChange={(event) => onRadiusChange?.(Number(event.target.value))}
               className="mt-1 w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/60 focus:outline-none"

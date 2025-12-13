@@ -119,7 +119,6 @@ function PopupContent({ marker }) {
 
 function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, onMarkerSelect, onMarkerOpenDetails }) {
   const map = useMap();
-  const lastFocusedRef = useRef(null);
   const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
   
@@ -147,16 +146,12 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     if (!map || !focusMarkerId) return;
 
     const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
-    if (target && lastFocusedRef.current !== focusMarkerId) {
-      lastFocusedRef.current = focusMarkerId;
-      
-      // Animação de voo até o alvo
-      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), { 
+    if (target) {
+      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), {
         duration: 1.2,
         easeLinearity: 0.25
       });
 
-      // Abrir Popup após chegar (pequeno delay)
       setTimeout(() => {
         const instance = markerRefs.current.get(focusMarkerId);
         if (instance) instance.openPopup();
@@ -221,12 +216,12 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
   ));
 }
 
-function RegionOverlay({ target }) {
+function RegionOverlay({ target, mapReady }) {
   const map = useMap();
   const radius = target?.radius ?? 500;
 
   useEffect(() => {
-    if (!map || !target) return;
+    if (!map || !target || !mapReady) return;
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
@@ -241,7 +236,7 @@ function RegionOverlay({ target }) {
 
     if (map._loaded) applyFit();
     else map.whenReady(applyFit);
-  }, [map, radius, target]);
+  }, [map, mapReady, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
   return (
@@ -286,7 +281,7 @@ function ClickToZoom({ mapReady }) {
   return null;
 }
 
-function MapControls({ mapReady, mapViewport }) {
+function MapControls({ mapReady, mapViewport, focusTarget }) {
   const map = useMap();
 
   const zoomIn = () => {
@@ -303,18 +298,27 @@ function MapControls({ mapReady, mapViewport }) {
 
   const recenter = () => {
     if (!map || !mapReady) return;
-    const center = Array.isArray(mapViewport?.center) ? mapViewport.center : DEFAULT_CENTER;
-    const zoom = Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : DEFAULT_ZOOM;
+    const targetCenter = Array.isArray(focusTarget?.center)
+      ? focusTarget.center
+      : Array.isArray(mapViewport?.center)
+        ? mapViewport.center
+        : null;
+    const center = targetCenter || map.getCenter() || DEFAULT_CENTER;
+    const zoom = Number.isFinite(focusTarget?.zoom)
+      ? focusTarget.zoom
+      : Number.isFinite(mapViewport?.zoom)
+        ? mapViewport.zoom
+        : map.getZoom?.() ?? DEFAULT_ZOOM;
     map.stop?.();
     map.flyTo(center, zoom, { duration: 0.3, easeLinearity: 0.25 });
   };
 
   return (
-    <div className="pointer-events-none absolute bottom-4 right-4 z-[999] flex flex-col gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/90 shadow-xl backdrop-blur">
+    <div className="pointer-events-none absolute right-4 top-4 z-[999] flex flex-col gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/10 bg-[#0f141c]/95 shadow-xl backdrop-blur">
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
+          className="flex h-9 w-9 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
           aria-label="Aumentar zoom"
           onClick={zoomIn}
         >
@@ -323,7 +327,7 @@ function MapControls({ mapReady, mapViewport }) {
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="flex h-8 w-8 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
+          className="flex h-9 w-9 items-center justify-center text-sm font-semibold text-white transition hover:bg-white/10"
           aria-label="Reduzir zoom"
           onClick={zoomOut}
         >
@@ -333,7 +337,7 @@ function MapControls({ mapReady, mapViewport }) {
 
       <button
         type="button"
-        className="pointer-events-auto flex h-9 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/90 px-3 text-[11px] font-semibold uppercase text-white shadow-xl backdrop-blur transition hover:border-primary/60 hover:text-primary"
+        className="pointer-events-auto flex h-10 items-center justify-center gap-2 rounded-md border border-white/10 bg-[#0f141c]/95 px-3 text-[11px] font-semibold uppercase text-white shadow-xl backdrop-blur transition hover:border-primary/60 hover:text-primary"
         aria-label="Recentralizar mapa"
         onClick={recenter}
       >
@@ -356,6 +360,7 @@ export default function MonitoringMap({
   onMarkerSelect = null,
   onMarkerOpenDetails = null,
   mapLayer,
+  focusTarget,
 }) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
@@ -372,6 +377,18 @@ export default function MonitoringMap({
 
     instance.whenReady(() => setMapReady(true));
   }, [mapLayer?.key]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !focusTarget?.center) return;
+    const [lat, lng] = focusTarget.center;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const zoom = Number.isFinite(focusTarget.zoom)
+      ? focusTarget.zoom
+      : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+    map.stop?.();
+    map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
+  }, [focusTarget, mapReady]);
 
   return (
     <div className="h-full w-full bg-[#0b0f17] relative z-0">
@@ -393,7 +410,7 @@ export default function MonitoringMap({
         />
 
         <ClickToZoom mapReady={mapReady} />
-        <MapControls mapReady={mapReady} mapViewport={mapViewport} />
+        <MapControls mapReady={mapReady} mapViewport={mapViewport} focusTarget={focusTarget} />
 
         <MarkerLayer
           markers={markers}
@@ -404,7 +421,7 @@ export default function MonitoringMap({
           onMarkerOpenDetails={onMarkerOpenDetails}
         />
 
-        <RegionOverlay target={regionTarget} />
+        <RegionOverlay target={regionTarget} mapReady={mapReady} />
 
         {/* Renderização de Geofences */}
         {geofences.map((geo) => {
