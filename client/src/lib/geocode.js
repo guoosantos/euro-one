@@ -1,9 +1,10 @@
 export async function geocodeAddress(q){
-  const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}`
-  const r = await fetch(url, { headers: { 'Accept': 'application/json' } })
+  const url = `/api/geocode/search?query=${encodeURIComponent(q)}`
+  const r = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'include' })
   if (!r.ok) throw new Error(`Geocode HTTP ${r.status}`)
-  const data = await r.json()
+  const payload = await r.json()
+  const data = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload) ? payload : []
   if (!data?.length) return null
-  const { lat, lon, display_name } = data[0]
-  return { lat: +lat, lng: +lon, address: display_name }
+  const { lat, lng, label } = data[0]
+  return { lat: +lat, lng: +lng, address: label }
 }

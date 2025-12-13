@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const MIN_COLUMN_WIDTH = 2;
+const MIN_COLUMN_WIDTH = 60;
+const MAX_COLUMN_WIDTH = 420;
+const DEFAULT_MIN_WIDTH = 60;
 
 export default function MonitoringTable({
   rows,
@@ -51,17 +53,27 @@ export default function MonitoringTable({
     }
   }, [selectedDeviceId]);
 
+  const getColumnMinWidth = (key) => {
+    const columnConfig = columns.find((col) => col.key === key);
+    const declaredMin = columnConfig?.minWidth ?? DEFAULT_MIN_WIDTH;
+    return Math.max(MIN_COLUMN_WIDTH, declaredMin);
+  };
+
   const startResize = (key, event) => {
     event.preventDefault();
     event.stopPropagation();
     const startX = event.clientX;
     const startWidth = event.currentTarget.parentElement.getBoundingClientRect().width;
+    const minWidth = getColumnMinWidth(key);
 
     const handleMove = (moveEvent) => {
       const delta = moveEvent.clientX - startX;
-      const nextWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + delta));
+      const unclamped = Math.round(startWidth + delta);
+      const clampedWidth = Math.max(minWidth, Math.min(unclamped, MAX_COLUMN_WIDTH));
+
       setColumnWidths(prev => {
-        const updated = { ...prev, [key]: nextWidth };
+        if (prev[key] === clampedWidth) return prev;
+        const updated = { ...prev, [key]: clampedWidth };
         liveWidthsRef.current = updated;
         return updated;
       });
@@ -70,7 +82,8 @@ export default function MonitoringTable({
     const handleUp = () => {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
-      const finalWidth = Math.max(MIN_COLUMN_WIDTH, Math.round(liveWidthsRef.current?.[key] || startWidth));
+      const storedWidth = liveWidthsRef.current?.[key] || startWidth;
+      const finalWidth = Math.max(minWidth, Math.min(Math.round(storedWidth), MAX_COLUMN_WIDTH));
       onColumnWidthChange?.(key, finalWidth);
     };
 
@@ -80,10 +93,13 @@ export default function MonitoringTable({
 
   const getWidthStyle = (key) => {
     const width = columnWidths[key];
-    if (!width) return undefined;
+    const minWidth = getColumnMinWidth(key);
 
-    const minWidth = Math.max(MIN_COLUMN_WIDTH, width * 0.6);
-    return { width, minWidth };
+    const clampedWidth = width ? Math.max(Math.min(width, MAX_COLUMN_WIDTH), minWidth) : null;
+
+    if (!clampedWidth) return { minWidth };
+
+    return { width: clampedWidth, minWidth };
   };
 
   if (loading && rows.length === 0) {
@@ -114,12 +130,12 @@ export default function MonitoringTable({
                 key={col.key}
                 style={getWidthStyle(col.key)}
 
-                className="relative border-r border-white/5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0 truncate"
+                className="relative border-r border-white/5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
                 title={col.label}
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
-                  <span className="truncate">{col.label}</span>
+                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis">{col.label}</span>
 
 
                   {!col.fixed && (

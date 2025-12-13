@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
-import { formatAddress } from "../utils/address.js";
+import { formatAddress, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -109,6 +109,32 @@ router.get("/geocode/search", async (req, res) => {
     return res.status(error?.status || 502).json({ data: [], error: { message } });
   } finally {
     pending.delete(cacheKey);
+  }
+});
+
+router.get("/geocode/reverse", async (req, res) => {
+  const lat = Number(req.query.lat ?? req.query.latitude);
+  const lng = Number(req.query.lng ?? req.query.lon ?? req.query.longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return res.status(400).json({ error: { message: "Coordenadas inválidas." } });
+  }
+
+  try {
+    const resolved = await resolveShortAddress(lat, lng);
+    if (!resolved) {
+      return res.json({ lat, lng, address: null, formattedAddress: null, shortAddress: null });
+    }
+
+    return res.json({
+      lat,
+      lng,
+      address: resolved.address || resolved.formattedAddress || resolved.shortAddress,
+      formattedAddress: resolved.formattedAddress || resolved.address || resolved.shortAddress,
+      shortAddress: resolved.shortAddress || resolved.formattedAddress || resolved.address,
+    });
+  } catch (_error) {
+    return res.status(502).json({ error: { message: "Não foi possível obter o endereço agora." } });
   }
 });
 
