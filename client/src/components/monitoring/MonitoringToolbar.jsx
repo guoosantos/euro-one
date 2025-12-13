@@ -64,6 +64,8 @@ export default function MonitoringToolbar({
   addressFilter,
   onClearAddress,
   addressError,
+  hasSelection,
+  onClearSelection,
 }) {
   const { t } = useTranslation();
 
@@ -151,6 +153,16 @@ export default function MonitoringToolbar({
             onClick={handleToggleLayout}
             title="Layout"
           />
+          {hasSelection ? (
+            <button
+              type="button"
+              onClick={onClearSelection}
+              className="ml-1 flex h-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
+              title="Limpar seleção"
+            >
+              Limpar
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -168,8 +180,10 @@ export default function MonitoringToolbar({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-1 text-[9px] uppercase tracking-[0.1em] text-white/60">
-        <span className="hidden sm:inline">Exibindo {summary?.total ?? 0} veículos</span>
+      <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-white/70">
+        <span className="flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px]">
+          Exibindo {summary?.total ?? 0} veículos / {summary?.online ?? 0} online / {summary?.offline ?? 0} offline
+        </span>
         <StatusChip
           label={t("monitoring.filters.noSignal1to3h")}
           count={summary?.stale1to3}
@@ -193,6 +207,12 @@ export default function MonitoringToolbar({
           count={summary?.stale10d}
           color="text-red-200"
           onClick={() => onFilterChange?.('stale_10d')}
+        />
+        <StatusChip
+          label={t("monitoring.filters.criticalEvents")}
+          count={summary?.critical}
+          color="text-amber-300"
+          onClick={() => onFilterChange?.('critical')}
         />
       </div>
     </div>

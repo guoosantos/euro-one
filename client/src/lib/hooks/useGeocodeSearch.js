@@ -5,9 +5,11 @@ import { resolveAuthorizationHeader } from "../api.js";
 const MAX_CACHE = 24;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 const MIN_QUERY_LENGTH = 3;
-const RESULT_LIMIT = 8;
+const RESULT_LIMIT = 10;
 const COUNTRY_BIAS = "br";
 const ACCEPT_LANGUAGE = "pt-BR";
+const UNAUTHORIZED_COOLDOWN_MS = 3 * 60 * 1000; // aguarda antes de novas tentativas
+const UNAVAILABLE_MESSAGE = "Endereço indisponível — faça login novamente";
 
 export default function useGeocodeSearch() {
   const [isSearching, setIsSearching] = useState(false);
@@ -19,6 +21,7 @@ export default function useGeocodeSearch() {
   const debounceRef = useRef(null);
   const unauthorizedRef = useRef(false);
   const guestFallbackRef = useRef(false);
+  const cooldownUntilRef = useRef(0);
 
   const setCache = useCallback((key, value) => {
     const cache = cacheRef.current;
@@ -61,6 +64,12 @@ export default function useGeocodeSearch() {
               .join(", ")) ||
           address;
 
+        const boundingBox = item.boundingBox || item.boundingbox;
+        const importance = Number(item.importance ?? item.place_rank ?? item.rank ?? 0);
+        const areaScore = Array.isArray(boundingBox)
+          ? Math.max(0.1, 1 / Math.max(Math.abs(boundingBox[1] - boundingBox[0]) * Math.abs(boundingBox[3] - boundingBox[2]), 0.001))
+          : 0;
+
         return {
           id: item.id || item.place_id || `${lat},${lng}`,
           lat,
@@ -68,10 +77,12 @@ export default function useGeocodeSearch() {
           label: item.label || item.display_name || term,
           concise,
           raw: item.raw || item,
-          boundingBox: item.boundingBox || item.boundingbox,
+          boundingBox,
+          score: importance + areaScore,
         };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .sort((a, b) => (b.score || 0) - (a.score || 0));
   }, []);
 
   const fetchFromApi = useCallback(async (term, signal) => {
@@ -95,10 +106,11 @@ export default function useGeocodeSearch() {
       const unauthorized = response.status === 401 || response.status === 403;
       if (unauthorized) {
         unauthorizedRef.current = true;
+        cooldownUntilRef.current = Date.now() + UNAUTHORIZED_COOLDOWN_MS;
       }
 
       const defaultMessage = unauthorized
-        ? "Geocoding indisponível — faça login novamente."
+        ? UNAVAILABLE_MESSAGE
         : "Não foi possível buscar endereços.";
       const message = payload?.error?.message || defaultMessage;
       const error = new Error(message);
@@ -142,6 +154,12 @@ export default function useGeocodeSearch() {
     const controller = new AbortController();
     abortRef.current = controller;
 
+    const cooldownActive = cooldownUntilRef.current && Date.now() < cooldownUntilRef.current;
+    if (cooldownActive) {
+      setError((prev) => (prev?.message === UNAVAILABLE_MESSAGE ? prev : new Error(UNAVAILABLE_MESSAGE)));
+      return fetchFromPublic(term, controller.signal).catch(() => []);
+    }
+
     if (unauthorizedRef.current || guestFallbackRef.current) {
       return fetchFromPublic(term, controller.signal).catch(() => []);
     }
@@ -152,6 +170,8 @@ export default function useGeocodeSearch() {
       const unauthorized = apiError?.status === 401 || apiError?.status === 403;
       if (unauthorized) {
         unauthorizedRef.current = true;
+        cooldownUntilRef.current = Date.now() + UNAUTHORIZED_COOLDOWN_MS;
+        setError(new Error(UNAVAILABLE_MESSAGE));
       }
 
       if (unauthorized || unauthorizedRef.current) {
@@ -171,12 +191,15 @@ export default function useGeocodeSearch() {
     if (cached) {
       setSuggestions(cached.list);
       setLastResult(cached.best || cached.list[0] || null);
-      setError(cached.list.length ? null : new Error("Nenhum resultado encontrado."));
+      if (!unauthorizedRef.current) {
+        setError(cached.list.length ? null : new Error("Nenhum resultado encontrado."));
+      }
       return cached.best || cached.list[0] || null;
     }
 
+    const inCooldown = unauthorizedRef.current && Date.now() < cooldownUntilRef.current;
+    if (!inCooldown) setError(null);
     setIsSearching(true);
-    setError(null);
 
     try {
       const candidates = await fetchCandidates(term);
@@ -184,7 +207,11 @@ export default function useGeocodeSearch() {
       const [best] = list;
       setSuggestions(list);
       setLastResult(best || null);
-      setError(list.length ? null : new Error("Nenhum resultado encontrado."));
+      if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
+        setError(new Error(UNAVAILABLE_MESSAGE));
+      } else {
+        setError(list.length ? null : new Error("Nenhum resultado encontrado."));
+      }
       setCache(term.toLowerCase(), { list, best });
       return best || null;
     } catch (searchError) {
@@ -227,7 +254,11 @@ export default function useGeocodeSearch() {
           const candidates = await fetchCandidates(term);
           const list = candidates;
           setSuggestions(list);
-          setError(list.length ? null : new Error("Nenhum resultado encontrado."));
+          if (unauthorizedRef.current && Date.now() < cooldownUntilRef.current) {
+            setError(new Error(UNAVAILABLE_MESSAGE));
+          } else {
+            setError(list.length ? null : new Error("Nenhum resultado encontrado."));
+          }
           setCache(term.toLowerCase(), { list, best: list[0] || null });
           resolve(list);
         } catch (previewError) {
