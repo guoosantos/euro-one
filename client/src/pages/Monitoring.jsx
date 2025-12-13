@@ -461,7 +461,7 @@ export default function Monitoring() {
   const radiusValue = useMemo(() => clampRadius(searchRadius ?? DEFAULT_RADIUS), [clampRadius, searchRadius]);
 
   const applyAddressTarget = useCallback((payload) => {
-    if (!payload) return;
+    if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
     const target = {
       lat: payload.lat,
