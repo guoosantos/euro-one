@@ -127,6 +127,17 @@ export default function Monitoring() {
 
   const { isSearching, searchRegion } = useGeocodeSearch();
 
+  const runRegionSearch = useCallback(async (term) => {
+    const safeTerm = term?.trim();
+    if (!safeTerm) return;
+    const result = await searchRegion(safeTerm);
+    if (result) {
+      setRegionTarget(result);
+      setMapViewport({ center: [result.lat, result.lng], zoom: 13 });
+      setLastRegionQuery(safeTerm);
+    }
+  }, [searchRegion]);
+
   useEffect(() => {
     if (regionSearchTimeout.current) clearTimeout(regionSearchTimeout.current);
 
@@ -351,17 +362,6 @@ export default function Monitoring() {
   }), [focusDevice, t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
-
-  const runRegionSearch = useCallback(async (term) => {
-    const safeTerm = term?.trim();
-    if (!safeTerm) return;
-    const result = await searchRegion(safeTerm);
-    if (result) {
-      setRegionTarget(result);
-      setMapViewport({ center: [result.lat, result.lng], zoom: 13 });
-      setLastRegionQuery(safeTerm);
-    }
-  }, [searchRegion]);
 
   const handleRegionSearch = useCallback(() => {
     if (!regionQuery.trim()) return;
