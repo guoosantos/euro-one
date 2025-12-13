@@ -87,10 +87,12 @@ body {
 
 .sidebar-scroll {
   scrollbar-width: thin;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 
 .sidebar-scroll::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
 }
 
 .sidebar-scroll::-webkit-scrollbar-thumb {

@@ -39,9 +39,14 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-const GOOGLE_ROAD_TILE_URL = import.meta.env.VITE_GOOGLE_ROAD_TILE_URL;
-const GOOGLE_SATELLITE_TILE_URL = import.meta.env.VITE_GOOGLE_SATELLITE_TILE_URL;
-const GOOGLE_HYBRID_TILE_URL = import.meta.env.VITE_GOOGLE_HYBRID_TILE_URL;
+const GOOGLE_MAPS_KEY = import.meta.env.VITE_GOOGLE_MAPS_KEY;
+const GOOGLE_TILE_KEY_PARAM = GOOGLE_MAPS_KEY ? `&key=${GOOGLE_MAPS_KEY}` : "";
+const buildGoogleTileUrl = (layer) =>
+  GOOGLE_MAPS_KEY ? `https://{s}.google.com/vt/lyrs=${layer}&x={x}&y={y}&z={z}&hl=pt-BR${GOOGLE_TILE_KEY_PARAM}` : null;
+
+const GOOGLE_ROAD_TILE_URL = import.meta.env.VITE_GOOGLE_ROAD_TILE_URL || buildGoogleTileUrl("m");
+const GOOGLE_SATELLITE_TILE_URL = import.meta.env.VITE_GOOGLE_SATELLITE_TILE_URL || buildGoogleTileUrl("s");
+const GOOGLE_HYBRID_TILE_URL = import.meta.env.VITE_GOOGLE_HYBRID_TILE_URL || buildGoogleTileUrl("y");
 const DEFAULT_COLUMN_WIDTH = 120;
 const DEFAULT_COLUMN_MIN_WIDTH = 60;
 const COLUMN_MIN_WIDTHS = {
@@ -114,27 +119,38 @@ const BASE_MAP_LAYERS = [
   },
 ];
 
+const HAS_GOOGLE_LAYERS = Boolean(GOOGLE_ROAD_TILE_URL || GOOGLE_SATELLITE_TILE_URL || GOOGLE_HYBRID_TILE_URL);
+
 const GOOGLE_LAYERS = [
   {
     key: "google-road",
     label: "Google Estrada",
     description: "Mapa padrão do Google (se habilitado)",
     url: GOOGLE_ROAD_TILE_URL,
-    available: Boolean(GOOGLE_ROAD_TILE_URL),
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    maxZoom: 20,
+    attribution: "Map data ©2024 Google",
+    available: HAS_GOOGLE_LAYERS && Boolean(GOOGLE_ROAD_TILE_URL),
   },
   {
     key: "google-satellite",
     label: "Google Satélite",
     description: "Imagem de satélite Google (se habilitado)",
     url: GOOGLE_SATELLITE_TILE_URL,
-    available: Boolean(GOOGLE_SATELLITE_TILE_URL),
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    maxZoom: 20,
+    attribution: "Map data ©2024 Google",
+    available: HAS_GOOGLE_LAYERS && Boolean(GOOGLE_SATELLITE_TILE_URL),
   },
   {
     key: "google-hybrid",
     label: "Google Híbrido",
     description: "Satélite + labels Google (se habilitado)",
     url: GOOGLE_HYBRID_TILE_URL,
-    available: Boolean(GOOGLE_HYBRID_TILE_URL),
+    subdomains: ["mt0", "mt1", "mt2", "mt3"],
+    maxZoom: 20,
+    attribution: "Map data ©2024 Google",
+    available: HAS_GOOGLE_LAYERS && Boolean(GOOGLE_HYBRID_TILE_URL),
   },
 ];
 
@@ -147,7 +163,7 @@ const MAP_LAYER_SECTIONS = [
   {
     key: "google",
     label: "Google",
-    disabledMessage: "Google Maps não configurado",
+    disabledMessage: "Google Maps não configurado (adicione VITE_GOOGLE_MAPS_KEY ou URLs de tile)",
     layers: GOOGLE_LAYERS,
   },
 ];
@@ -159,6 +175,7 @@ const ENABLED_MAP_LAYERS = MAP_LAYER_SECTIONS.flatMap((section) =>
 );
 
 const MAP_LAYER_FALLBACK = ENABLED_MAP_LAYERS[0] || BASE_MAP_LAYERS[0];
+const DEFAULT_MAP_LAYER_KEY = MAP_LAYER_FALLBACK?.key || BASE_MAP_LAYERS[0]?.key || "openstreetmap";
 const DEVICE_FOCUS_ZOOM = 16;
 
 const EURO_ONE_DEFAULT_COLUMNS = [
@@ -344,12 +361,13 @@ export default function Monitoring() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
+  const [addressPin, setAddressPin] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [focusTarget, setFocusTarget] = useState(null);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [reverseAddresses, setReverseAddresses] = useState({});
-  const [mapLayerKey, setMapLayerKey] = useState(MAP_LAYER_FALLBACK.key);
+  const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
 
@@ -616,9 +634,10 @@ export default function Monitoring() {
     if (!deviceId) return;
     const isAlreadySelected = selectedDeviceId === deviceId;
 
-    if (isAlreadySelected && allowToggle && !openDetails) {
+    if (isAlreadySelected && allowToggle) {
       setSelectedDeviceId(null);
       setFocusTarget(null);
+      setDetailsDeviceId((prev) => (openDetails ? null : prev));
       return;
     }
 
@@ -654,13 +673,13 @@ export default function Monitoring() {
   }, []);
 
   const mapLayer = useMemo(
-    () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK || BASE_MAP_LAYERS[0],
     [mapLayerKey],
   );
 
   const handleMapLayerChange = useCallback((nextKey) => {
     const valid = ENABLED_MAP_LAYERS.find((item) => item.key === nextKey);
-    setMapLayerKey(valid ? valid.key : MAP_LAYER_FALLBACK.key);
+    setMapLayerKey(valid ? valid.key : DEFAULT_MAP_LAYER_KEY);
   }, []);
 
   const markers = useMemo(() => {
@@ -834,6 +853,11 @@ export default function Monitoring() {
       radius,
     };
     setRegionTarget(target);
+    setAddressPin({
+      lat: payload.lat,
+      lng: payload.lng,
+      label: payload.label || payload.description || "Local selecionado",
+    });
     const focus = { center: [payload.lat, payload.lng], zoom: DEVICE_FOCUS_ZOOM, key: `address-${Date.now()}` };
     setFocusTarget(focus);
     setMapViewport(focus);
@@ -866,6 +890,7 @@ export default function Monitoring() {
 
   const handleClearAddress = useCallback(() => {
     setRegionTarget(null);
+    setAddressPin(null);
     setVehicleQuery("");
     setAddressQuery("");
     setNearbyDeviceIds([]);
@@ -896,6 +921,12 @@ export default function Monitoring() {
   useEffect(() => {
     setRegionTarget((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
   }, [clampRadius, radiusValue]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedDeviceId(null);
+    setDetailsDeviceId(null);
+    setFocusTarget(null);
+  }, []);
 
   useEffect(() => {
     const next = Number.isFinite(mapHeightPercent)
@@ -976,6 +1007,7 @@ export default function Monitoring() {
             onMarkerOpenDetails={handleMarkerDetails}
             mapLayer={mapLayer}
             focusTarget={focusTarget}
+            addressMarker={addressPin}
           />
 
           {!layoutVisibility.showTable && (
@@ -1022,6 +1054,16 @@ export default function Monitoring() {
                       <line x1="12" y1="4" x2="12" y2="20" />
                     </svg>
                   </button>
+                  {selectedDeviceId ? (
+                    <button
+                      type="button"
+                      onClick={clearSelection}
+                      className="flex h-10 items-center justify-center rounded-md border border-white/20 bg-black/60 px-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/40 hover:text-white"
+                      title="Limpar seleção"
+                    >
+                      Limpar
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -1057,6 +1099,8 @@ export default function Monitoring() {
                 layoutButtonRef={layoutButtonRef}
                 addressFilter={regionTarget ? { label: regionTarget.label || regionTarget.address, radius: radiusValue } : null}
                 onClearAddress={handleClearAddress}
+                hasSelection={Boolean(selectedDeviceId)}
+                onClearSelection={clearSelection}
               />
             </div>
           </div>

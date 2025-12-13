@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, Tooltip } from "react-leaflet";
+import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -256,6 +256,25 @@ function RegionOverlay({ target, mapReady }) {
   );
 }
 
+function AddressMarker({ marker }) {
+  if (!marker || !Number.isFinite(marker.lat) || !Number.isFinite(marker.lng)) return null;
+
+  return (
+    <CircleMarker
+      center={[marker.lat, marker.lng]}
+      radius={8}
+      pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.28, weight: 2 }}
+    >
+      <Tooltip direction="top" offset={[0, -6]} opacity={0.9} className="monitoring-popup">
+        <div className="text-xs text-white/80">
+          <div className="font-semibold text-white">{marker.label || "Ponto de referência"}</div>
+          <div className="text-white/60">Toque para centralizar</div>
+        </div>
+      </Tooltip>
+    </CircleMarker>
+  );
+}
+
 function ClickToZoom({ mapReady }) {
   const map = useMap();
 
@@ -415,6 +434,7 @@ export default function MonitoringMap({
   onMarkerOpenDetails = null,
   mapLayer,
   focusTarget,
+  addressMarker,
 }) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
@@ -527,6 +547,7 @@ export default function MonitoringMap({
           url={tileUrl}
           attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
           maxZoom={mapLayer?.maxZoom || 20}
+          subdomains={mapLayer?.subdomains}
         />
 
         <ClickToZoom mapReady={mapReady} />
@@ -550,6 +571,7 @@ export default function MonitoringMap({
         />
 
         <RegionOverlay target={regionTarget} mapReady={mapReady} />
+        <AddressMarker marker={addressMarker} />
 
         {/* Renderização de Geofences */}
         {geofences.map((geo) => {
