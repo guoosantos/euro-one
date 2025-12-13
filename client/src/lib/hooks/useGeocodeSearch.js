@@ -10,6 +10,9 @@ export default function useGeocodeSearch() {
   const [suggestions, setSuggestions] = useState([]);
   const [error, setError] = useState(null);
   const cacheRef = useRef(new Map());
+  const abortRef = useRef(null);
+  const debounceRef = useRef(null);
+  const unauthorizedRef = useRef(false);
 
   const setCache = useCallback((key, value) => {
     const cache = cacheRef.current;
@@ -31,8 +34,18 @@ export default function useGeocodeSearch() {
   }, []);
 
   const fetchCandidates = useCallback(async (term) => {
+    if (unauthorizedRef.current) return [];
+
     const url = `/api/geocode/search?query=${encodeURIComponent(term)}&limit=5`;
-    const response = await fetch(url, { credentials: "include" });
+
+    if (abortRef.current) {
+      abortRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const response = await fetch(url, { credentials: "include", signal: controller.signal });
 
     let payload;
     try {
@@ -42,8 +55,13 @@ export default function useGeocodeSearch() {
     }
 
     if (!response.ok) {
-      const defaultMessage = response.status === 401
-        ? "Busca de endereço indisponível no momento."
+      const unauthorized = response.status === 401 || response.status === 403;
+      if (unauthorized) {
+        unauthorizedRef.current = true;
+      }
+
+      const defaultMessage = unauthorized
+        ? "Geocoding indisponível — faça login novamente."
         : "Não foi possível buscar endereços.";
       const message = payload?.error?.message || defaultMessage;
       throw new Error(message);
@@ -118,21 +136,29 @@ export default function useGeocodeSearch() {
       return cached.list;
     }
 
-    setIsSearching(true);
-    try {
-      const candidates = await fetchCandidates(term);
-      const list = candidates;
-      setSuggestions(list);
-      setCache(term.toLowerCase(), { list, best: list[0] || null });
-      return list;
-    } catch (previewError) {
-      setSuggestions([]);
-      setLastResult(null);
-      setError(previewError);
-      return [];
-    } finally {
-      setIsSearching(false);
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
     }
+
+    return new Promise((resolve) => {
+      debounceRef.current = setTimeout(async () => {
+        setIsSearching(true);
+        try {
+          const candidates = await fetchCandidates(term);
+          const list = candidates;
+          setSuggestions(list);
+          setCache(term.toLowerCase(), { list, best: list[0] || null });
+          resolve(list);
+        } catch (previewError) {
+          setSuggestions([]);
+          setLastResult(null);
+          setError(previewError);
+          resolve([]);
+        } finally {
+          setIsSearching(false);
+        }
+      }, 300);
+    });
     }, [clearSuggestions, fetchCandidates, getCached, setCache]);
 
   return useMemo(() => ({

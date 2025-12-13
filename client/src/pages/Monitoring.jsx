@@ -111,34 +111,39 @@ const BASE_MAP_LAYERS = [
   },
 ];
 
-const GOOGLE_MAP_LAYERS = [
-  GOOGLE_ROAD_TILE_URL
-    ? {
-        key: "google-road",
-        label: "Google Estrada",
-        description: "Mapa padrão do Google (se habilitado)",
-        url: GOOGLE_ROAD_TILE_URL,
-      }
-    : null,
-  GOOGLE_SATELLITE_TILE_URL
-    ? {
-        key: "google-satellite",
-        label: "Google Satélite",
-        description: "Imagem de satélite Google (se habilitado)",
-        url: GOOGLE_SATELLITE_TILE_URL,
-      }
-    : null,
-  GOOGLE_HYBRID_TILE_URL
-    ? {
-        key: "google-hybrid",
-        label: "Google Híbrido",
-        description: "Satélite + labels Google (se habilitado)",
-        url: GOOGLE_HYBRID_TILE_URL,
-      }
-    : null,
-].filter(Boolean);
-
-const MAP_LAYERS = [...BASE_MAP_LAYERS, ...GOOGLE_MAP_LAYERS];
+const MAP_LAYERS = [
+  ...BASE_MAP_LAYERS,
+  ...(GOOGLE_ROAD_TILE_URL
+    ? [
+        {
+          key: "google-road",
+          label: "Google Estrada",
+          description: "Mapa padrão do Google (se habilitado)",
+          url: GOOGLE_ROAD_TILE_URL,
+        },
+      ]
+    : []),
+  ...(GOOGLE_SATELLITE_TILE_URL
+    ? [
+        {
+          key: "google-satellite",
+          label: "Google Satélite",
+          description: "Imagem de satélite Google (se habilitado)",
+          url: GOOGLE_SATELLITE_TILE_URL,
+        },
+      ]
+    : []),
+  ...(GOOGLE_HYBRID_TILE_URL
+    ? [
+        {
+          key: "google-hybrid",
+          label: "Google Híbrido",
+          description: "Satélite + labels Google (se habilitado)",
+          url: GOOGLE_HYBRID_TILE_URL,
+        },
+      ]
+    : []),
+];
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -204,7 +209,7 @@ const COLUMN_LABEL_OVERRIDES = {
 const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.client": "Cliente",
   "monitoring.columns.geofences": "Rotas",
-  "monitoring.columns.notes": "Rec. Facial",
+  "monitoring.columns.faceRecognition": "Rec. Facial",
 };
 
 const getColumnMinWidth = (key) => {
@@ -243,17 +248,17 @@ function PaginationFooter({
   };
 
   return (
-    <div className="border-t border-white/10 bg-[#0f141c] px-4 py-3">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-3 text-sm text-white/70">
-          <label className="text-xs uppercase tracking-[0.08em] text-white/50" htmlFor="monitoring-page-size">
+    <div className="border-t border-white/10 bg-[#0f141c] px-3 py-2 text-[11px]">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-white/70">
+          <label className="text-[10px] uppercase tracking-[0.08em] text-white/50" htmlFor="monitoring-page-size">
             Itens por página
           </label>
           <select
             id="monitoring-page-size"
             value={pageSize === "all" ? "all" : String(pageSize)}
             onChange={handlePageSizeChange}
-            className="rounded-md border border-white/10 bg-[#0b0f17] px-3 py-2 text-xs font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
+            className="rounded border border-white/10 bg-[#0b0f17] px-2 py-1 text-[11px] font-semibold text-white shadow-inner focus:border-primary focus:outline-none"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -262,15 +267,15 @@ function PaginationFooter({
             ))}
           </select>
 
-          <span className="text-xs uppercase tracking-[0.08em] text-white/50">
+          <span className="text-[10px] uppercase tracking-[0.08em] text-white/50">
             Página {currentPage} de {totalPages}
           </span>
-          <span className="text-xs uppercase tracking-[0.08em] text-white/50">
+          <span className="text-[10px] uppercase tracking-[0.08em] text-white/50">
             Mostrando {pageStart}–{pageEnd} de {totalRows}
           </span>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1">
           <PaginationButton disabled={isFirstPage} onClick={() => onPageChange?.(0)}>
             Primeira
           </PaginationButton>
@@ -296,7 +301,7 @@ function PaginationButton({ children, disabled, onClick }) {
       disabled={disabled}
       onClick={onClick}
       className={`
-        rounded-md border px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] transition
+        rounded border px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] transition
         ${disabled
           ? "cursor-not-allowed border-white/5 bg-white/5 text-white/30"
           : "border-white/15 bg-white/10 text-white hover:border-primary/60 hover:text-primary"}
@@ -561,8 +566,16 @@ export default function Monitoring() {
     setDetailsDeviceId(deviceId);
   }, []);
 
-  const focusDevice = useCallback((deviceId, { openDetails = false } = {}) => {
+  const focusDevice = useCallback((deviceId, { openDetails = false, allowToggle = true } = {}) => {
     if (!deviceId) return;
+    const isAlreadySelected = selectedDeviceId === deviceId;
+
+    if (isAlreadySelected && allowToggle && !openDetails) {
+      setSelectedDeviceId(null);
+      setFocusTarget(null);
+      return;
+    }
+
     setSelectedDeviceId(deviceId);
     const targetRow = decoratedRows.find((item) => item.deviceId === deviceId);
     if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
@@ -571,7 +584,7 @@ export default function Monitoring() {
       setMapViewport(focus);
     }
     if (openDetails) openDetailsFor(deviceId);
-  }, [decoratedRows, openDetailsFor]);
+  }, [decoratedRows, openDetailsFor, selectedDeviceId]);
 
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
