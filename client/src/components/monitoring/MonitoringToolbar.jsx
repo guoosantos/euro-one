@@ -63,6 +63,7 @@ export default function MonitoringToolbar({
   layoutButtonRef,
   addressFilter,
   onClearAddress,
+  addressError,
 }) {
   const { t } = useTranslation();
 
@@ -102,6 +103,7 @@ export default function MonitoringToolbar({
             icon={<LocationIcon />}
             isLoading={isSearchingRegion}
             onSubmit={onAddressSubmit}
+            errorMessage={addressError}
           />
         </div>
 
@@ -189,6 +191,7 @@ export function MonitoringSearchBox({
   isLoading = false,
   containerClassName = "",
   onSubmit,
+  errorMessage,
 }) {
   const trimmedValue = (value || "").trim();
   const [isFocused, setIsFocused] = React.useState(false);
@@ -256,6 +259,10 @@ export function MonitoringSearchBox({
           </ul>
         </div>
       )}
+
+      {errorMessage ? (
+        <div className="text-[10px] text-amber-300/80">{errorMessage}</div>
+      ) : null}
     </div>
   );
 }

@@ -1,12 +1,10 @@
 import express from "express";
 import createError from "http-errors";
 
-import { authenticate } from "../middleware/auth.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { formatAddress, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
-router.use(authenticate);
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const cache = createTtlCache(10 * 60 * 1000);

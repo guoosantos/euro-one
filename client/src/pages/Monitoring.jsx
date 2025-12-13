@@ -36,6 +36,9 @@ const DEFAULT_RADIUS = 500;
 const MIN_RADIUS = 50;
 const MAX_RADIUS = 5000;
 const DEFAULT_TILE_URL = import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+const GOOGLE_ROAD_TILE_URL = import.meta.env.VITE_GOOGLE_ROAD_TILE_URL;
+const GOOGLE_SATELLITE_TILE_URL = import.meta.env.VITE_GOOGLE_SATELLITE_TILE_URL;
+const GOOGLE_HYBRID_TILE_URL = import.meta.env.VITE_GOOGLE_HYBRID_TILE_URL;
 const DEFAULT_COLUMN_WIDTH = 120;
 const DEFAULT_COLUMN_MIN_WIDTH = 60;
 const COLUMN_MIN_WIDTHS = {
@@ -52,7 +55,7 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 const DEFAULT_PAGE_SIZE = 50;
 const MAP_LAYER_STORAGE_KEY = "monitoring.map.layer";
 
-const MAP_LAYERS = [
+const BASE_MAP_LAYERS = [
   {
     key: "openstreetmap",
     label: "OpenStreetMap",
@@ -61,11 +64,11 @@ const MAP_LAYERS = [
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   },
   {
-    key: "openfreemap",
-    label: "OpenFreeMap",
-    description: "Versão estilo HOT",
-    url: "https://{s}.tile.openfreemap.org/hot/{z}/{x}/{y}.png",
-    attribution: '&copy; <a href="https://www.openfreemap.org/">OpenFreeMap</a> contributors',
+    key: "osm-hot",
+    label: "OpenStreetMap HOT",
+    description: "Estilo humanitário (HOT)",
+    url: "https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
   },
   {
     key: "opentopomap",
@@ -107,6 +110,35 @@ const MAP_LAYERS = [
     maxZoom: 20,
   },
 ];
+
+const MAP_LAYERS = [...BASE_MAP_LAYERS, ...GOOGLE_MAP_LAYERS];
+
+const GOOGLE_MAP_LAYERS = [
+  GOOGLE_ROAD_TILE_URL
+    ? {
+        key: "google-road",
+        label: "Google Estrada",
+        description: "Mapa padrão do Google (se habilitado)",
+        url: GOOGLE_ROAD_TILE_URL,
+      }
+    : null,
+  GOOGLE_SATELLITE_TILE_URL
+    ? {
+        key: "google-satellite",
+        label: "Google Satélite",
+        description: "Imagem de satélite Google (se habilitado)",
+        url: GOOGLE_SATELLITE_TILE_URL,
+      }
+    : null,
+  GOOGLE_HYBRID_TILE_URL
+    ? {
+        key: "google-hybrid",
+        label: "Google Híbrido",
+        description: "Satélite + labels Google (se habilitado)",
+        url: GOOGLE_HYBRID_TILE_URL,
+      }
+    : null,
+].filter(Boolean);
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -175,7 +207,10 @@ const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.notes": "Rec. Facial",
 };
 
-const getColumnMinWidth = (key) => COLUMN_MIN_WIDTHS?.[key] ?? COLUMN_MIN_WIDTHS?.default ?? DEFAULT_COLUMN_MIN_WIDTH;
+const getColumnMinWidth = (key) => {
+  const minWidths = typeof COLUMN_MIN_WIDTHS === "undefined" ? null : COLUMN_MIN_WIDTHS;
+  return minWidths?.[key] ?? minWidths?.default ?? DEFAULT_COLUMN_MIN_WIDTH;
+};
 
 const getColumnBaseWidth = (key) => {
   const candidates = [
@@ -305,7 +340,14 @@ export default function Monitoring() {
     showTable: true,
   });
 
-  const { isSearching, suggestions: addressSuggestions, previewSuggestions, clearSuggestions, searchRegion } = useGeocodeSearch();
+  const {
+    isSearching,
+    suggestions: addressSuggestions,
+    previewSuggestions,
+    clearSuggestions,
+    searchRegion,
+    error: geocodeError,
+  } = useGeocodeSearch();
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
@@ -804,7 +846,7 @@ export default function Monitoring() {
 
   const gridTemplateRows = useMemo(() => {
     if (layoutVisibility.showMap && layoutVisibility.showTable) {
-      return `${localMapHeight}% 12px minmax(0, ${tableHeightPercent}%)`;
+      return `${localMapHeight}% 8px minmax(0, ${tableHeightPercent}%)`;
     }
     if (layoutVisibility.showMap) return "minmax(0, 1fr)";
     if (layoutVisibility.showTable) return "minmax(0, 1fr)";
@@ -813,7 +855,7 @@ export default function Monitoring() {
 
   return (
     <div
-      className="relative grid h-full w-full min-h-[calc(100vh-64px)] bg-[#0b0f17]"
+      className="relative grid h-full w-full min-h-[calc(100vh-64px)] overflow-hidden bg-[#0b0f17]"
       style={{ gridTemplateRows }}
     >
       {layoutVisibility.showMap && (
@@ -832,8 +874,8 @@ export default function Monitoring() {
           />
 
           {!layoutVisibility.showTable && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-3 px-4 py-3">
-              <div className="flex flex-col items-start gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-2 px-3 py-2">
+              <div className="flex flex-col items-start gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="pointer-events-auto flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center">
                   <MonitoringSearchBox
                     value={vehicleQuery}
@@ -852,6 +894,7 @@ export default function Monitoring() {
                     onSelectSuggestion={handleSelectAddressSuggestion}
                     isLoading={isSearching}
                     containerClassName="bg-black/70 backdrop-blur-md"
+                    errorMessage={geocodeError?.message}
                   />
                 </div>
 
@@ -887,8 +930,8 @@ export default function Monitoring() {
 
       {layoutVisibility.showTable && (
         <div className="relative z-20 flex min-h-0 flex-col overflow-hidden bg-[#0f141c]">
-          <div className="border-b border-white/10 px-4 py-3">
-            <div className="flex min-h-[128px] flex-col justify-center gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="border-b border-white/10 px-3 py-2">
+            <div className="flex min-h-[104px] flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
               <MonitoringToolbar
                 vehicleSearchTerm={vehicleQuery}
                 onVehicleSearchChange={handleVehicleSearchChange}
@@ -899,6 +942,7 @@ export default function Monitoring() {
                 onAddressSubmit={handleAddressSubmit}
                 addressSuggestions={addressSuggestionOptions}
                 onSelectAddressSuggestion={handleSelectAddressSuggestion}
+                addressError={geocodeError?.message}
                 filterMode={filterMode}
                 onFilterChange={setFilterMode}
                 summary={summary}

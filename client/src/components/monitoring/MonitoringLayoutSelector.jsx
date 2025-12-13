@@ -21,7 +21,7 @@ export default function MonitoringLayoutSelector({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-xl max-h-[85vh] overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
+        className="w-full max-w-xl max-h-[85vh] overflow-y-auto rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
         onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-3">
@@ -94,7 +94,7 @@ export default function MonitoringLayoutSelector({
               <div className="text-sm font-semibold text-white">Tipo de mapa</div>
               <p className="text-[11px] text-white/60">Escolha o provedor exibido no mapa.</p>
 
-              <div className="mt-2 space-y-2">
+              <div className="mt-2 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
                 {mapLayers.map((layer) => {
                   const isActive = layer.key === activeMapLayer;
                   return (
