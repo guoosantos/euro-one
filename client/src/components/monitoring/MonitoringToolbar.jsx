@@ -256,34 +256,28 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#0d1117]/40 px-3 py-2 shadow-inner shadow-black/20 backdrop-blur-sm">
-      {items.map((item) => {
-        const isActive = activeFilter === item.key;
-        return (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => onChange?.(item.key)}
-            aria-pressed={isActive}
-            className={`
-              flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em]
-              transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
-              ${isActive
-                ? "border-primary/60 bg-primary/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.05)]"
-                : "border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"}
-            `}
-          >
-            <span className="whitespace-nowrap">{item.label}</span>
-            <span
-              className={`rounded-full px-2 text-[10px] ${
-                isActive ? "bg-black/40 text-white" : "bg-black/20 text-white/80"
+    <div className="relative -mx-1">
+      <div className="flex min-h-[32px] flex-nowrap items-center gap-2 overflow-x-auto px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/70">
+        {items.map((item) => {
+          const isActive = activeFilter === item.key;
+          return (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onChange?.(item.key)}
+              aria-pressed={isActive}
+              className={`group flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 transition-colors focus:outline-none focus-visible:text-white ${
+                isActive ? "text-primary" : "text-white/60 hover:text-white"
               }`}
             >
-              {item.value}
-            </span>
-          </button>
-        );
-      })}
+              <span className={`pb-0.5 ${isActive ? "border-b border-current" : "border-b border-transparent group-hover:border-white/20"}`}>
+                {item.label}
+              </span>
+              <span className={`text-[10px] font-semibold ${isActive ? "text-primary/80" : "text-white/50"}`}>{item.value}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
