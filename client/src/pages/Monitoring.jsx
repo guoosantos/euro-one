@@ -190,6 +190,38 @@ const ENABLED_MAP_LAYERS = MAP_LAYER_SECTIONS.flatMap((section) =>
 const MAP_LAYER_FALLBACK = ENABLED_MAP_LAYERS[0] || BASE_MAP_LAYERS[0];
 const DEFAULT_MAP_LAYER_KEY = MAP_LAYER_FALLBACK?.key || BASE_MAP_LAYERS[0]?.key || "openstreetmap";
 const DEVICE_FOCUS_ZOOM = 16;
+const ADDRESS_FOCUS_ZOOM = 16;
+
+const normaliseBoundingBox = (boundingBox) => {
+  if (!boundingBox) return null;
+  if (
+    Array.isArray(boundingBox) &&
+    boundingBox.length === 4 &&
+    boundingBox.every((value) => Number.isFinite(Number(value)))
+  ) {
+    const [south, north, west, east] = boundingBox.map((value) => Number(value));
+    return [
+      [south, west],
+      [north, east],
+    ];
+  }
+
+  if (
+    Array.isArray(boundingBox) &&
+    boundingBox.length === 2 &&
+    boundingBox.every((point) => Array.isArray(point) && point.length === 2)
+  ) {
+    const [[south, west], [north, east]] = boundingBox;
+    if ([south, west, north, east].every((value) => Number.isFinite(Number(value)))) {
+      return [
+        [Number(south), Number(west)],
+        [Number(north), Number(east)],
+      ];
+    }
+  }
+
+  return null;
+};
 
 const EURO_ONE_DEFAULT_COLUMNS = [
   "client",
@@ -371,6 +403,7 @@ export default function Monitoring() {
 
   const [vehicleQuery, setVehicleQuery] = useState("");
   const [addressQuery, setAddressQuery] = useState("");
+  const [selectedAddress, setSelectedAddress] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
@@ -380,6 +413,7 @@ export default function Monitoring() {
   const [focusTarget, setFocusTarget] = useState(null);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
+  const [mapInvalidateKey, setMapInvalidateKey] = useState(0);
   const [reverseAddresses, setReverseAddresses] = useState({});
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
@@ -887,26 +921,33 @@ export default function Monitoring() {
   const applyAddressTarget = useCallback((payload) => {
     if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
+    const boundingBox = normaliseBoundingBox(payload.boundingBox || payload.boundingbox);
     const target = {
       lat: payload.lat,
       lng: payload.lng,
       label: payload.label,
       address: payload.description || payload.address || payload.label,
       radius,
+      boundingBox,
     };
     setRegionTarget(target);
+    setSelectedAddress(target);
     setAddressPin({
       lat: payload.lat,
       lng: payload.lng,
       label: payload.label || payload.description || "Local selecionado",
     });
-    const focus = { center: [payload.lat, payload.lng], zoom: DEVICE_FOCUS_ZOOM, key: `address-${Date.now()}` };
+
+    const focus = boundingBox
+      ? { bounds: boundingBox, center: [payload.lat, payload.lng], key: `address-${Date.now()}` }
+      : { center: [payload.lat, payload.lng], zoom: ADDRESS_FOCUS_ZOOM, key: `address-${Date.now()}` };
+
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
     setFocusTarget(focus);
-    setMapViewport(focus);
+    setMapViewport({ center: [payload.lat, payload.lng], zoom: ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
-  }, [clampRadius, radiusValue]);
+  }, [clampRadius, normaliseBoundingBox, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
@@ -936,8 +977,8 @@ export default function Monitoring() {
   const handleClearAddress = useCallback(() => {
     setRegionTarget(null);
     setAddressPin(null);
-    setVehicleQuery("");
     setAddressQuery("");
+    setSelectedAddress(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
     clearSuggestions();
@@ -965,6 +1006,7 @@ export default function Monitoring() {
 
   useEffect(() => {
     setRegionTarget((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
+    setSelectedAddress((prev) => (prev ? { ...prev, radius: clampRadius(prev.radius ?? radiusValue) } : prev));
   }, [clampRadius, radiusValue]);
 
   const clearSelection = useCallback(() => {
@@ -979,6 +1021,10 @@ export default function Monitoring() {
       : DEFAULT_MAP_HEIGHT;
     setLocalMapHeight(prev => (prev !== next ? next : prev));
   }, [mapHeightPercent]);
+
+  useEffect(() => {
+    setMapInvalidateKey((prev) => prev + 1);
+  }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight]);
 
   const handleMapResize = useCallback(
     (value) => {
@@ -1053,6 +1099,8 @@ export default function Monitoring() {
             mapLayer={mapLayer}
             focusTarget={focusTarget}
             addressMarker={addressPin}
+            addressViewport={selectedAddress ? { center: [selectedAddress.lat, selectedAddress.lng], bounds: selectedAddress.boundingBox } : null}
+            invalidateKey={mapInvalidateKey}
           />
 
           {!layoutVisibility.showTable && (
@@ -1075,6 +1123,7 @@ export default function Monitoring() {
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
                     isLoading={isSearching}
+                    onClear={handleClearAddress}
                     containerClassName="bg-black/70 backdrop-blur-md"
                     errorMessage={geocodeError?.message}
                   />
@@ -1143,7 +1192,6 @@ export default function Monitoring() {
                   onTogglePopup={handleTogglePopup}
                   isSearchingRegion={isSearching}
                   layoutButtonRef={layoutButtonRef}
-                  addressFilter={regionTarget ? { label: regionTarget.label || regionTarget.address, radius: radiusValue } : null}
                   onClearAddress={handleClearAddress}
                   hasSelection={Boolean(selectedDeviceId)}
                   onClearSelection={clearSelection}
@@ -1167,6 +1215,7 @@ export default function Monitoring() {
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
                     isLoading={isSearching}
+                    onClear={handleClearAddress}
                     errorMessage={geocodeError?.message}
                   />
                 </div>

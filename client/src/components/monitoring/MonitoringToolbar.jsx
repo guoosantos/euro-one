@@ -61,7 +61,6 @@ export default function MonitoringToolbar({
   onOpenLayout,    // Props antigas (fallback)
   isSearchingRegion,
   layoutButtonRef,
-  addressFilter,
   onClearAddress,
   addressError,
   hasSelection,
@@ -105,6 +104,7 @@ export default function MonitoringToolbar({
             icon={<LocationIcon />}
             isLoading={isSearchingRegion}
             onSubmit={onAddressSubmit}
+            onClear={onClearAddress}
             errorMessage={addressError}
           />
         </div>
@@ -145,19 +145,7 @@ export default function MonitoringToolbar({
         />
       </div>
 
-      {addressFilter ? (
-        <div className="flex items-center gap-2 rounded-md border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[11px] text-white/80">
-          <span className="text-cyan-300">📍 {addressFilter.label}</span>
-          {addressFilter.radius ? <span className="text-white/60">({addressFilter.radius} m)</span> : null}
-          <button
-            type="button"
-            className="rounded border border-white/10 px-2 py-1 text-[10px] uppercase text-white/70 hover:border-white/30"
-            onClick={onClearAddress}
-          >
-            Limpar
-          </button>
-        </div>
-      ) : null}
+      <StatusSummaryLine summary={summary} t={t} />
     </div>
   );
 }
@@ -175,11 +163,13 @@ export function MonitoringSearchBox({
   containerClassName = "",
   onSubmit,
   errorMessage,
+  onClear,
 }) {
   const trimmedValue = (value || "").trim();
   const [isFocused, setIsFocused] = React.useState(false);
   const showSuggestions =
     isFocused && Boolean(trimmedValue) && Array.isArray(suggestions) && suggestions.length > 0;
+  const showClearButton = Boolean(onClear) && Boolean(trimmedValue);
 
   const handleKeyDown = (event) => {
     if (event.key === "Enter") {
@@ -210,6 +200,18 @@ export function MonitoringSearchBox({
         placeholder={placeholder}
         className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
       />
+
+      {showClearButton ? (
+        <button
+          type="button"
+          className="ml-2 text-white/40 transition hover:text-white"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onClear?.()}
+          aria-label="Limpar busca"
+        >
+          ✕
+        </button>
+      ) : null}
 
       {isLoading ? (
         <div
@@ -299,6 +301,30 @@ function StatusChipsRow({ t, summary, activeFilter, onChange }) {
           </button>
         );
       })}
+    </div>
+  );
+}
+
+function StatusSummaryLine({ t, summary }) {
+  const items = [
+    { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
+    { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
+    { key: "stale", label: t("monitoring.filters.offline"), value: summary?.offline ?? 0 },
+    { key: "stale_1_3", label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3 ?? 0 },
+    { key: "stale_6_18", label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18 ?? 0 },
+    { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 ?? 0 },
+    { key: "stale_10d", label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d ?? 0 },
+    { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical ?? 0 },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-4 rounded-lg px-2 text-[10px] text-white/40">
+      {items.map((item) => (
+        <span key={item.key} className="flex items-center gap-1">
+          <span className="uppercase tracking-[0.06em] text-white/50">{item.label}</span>
+          <span className="font-semibold text-white/60">{item.value}</span>
+        </span>
+      ))}
     </div>
   );
 }
