@@ -307,10 +307,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const map = useMap();
   const compassRef = useRef(null);
   const dragStateRef = useRef(null);
-
-  const stepRotate = () => {
-    if (onRotate) onRotate(45);
-  };
+  const dragMovedRef = useRef(false);
 
   const resetAndCenter = () => {
     onResetRotation?.();
@@ -359,19 +356,30 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     const startAngle = getPointerAngle(event);
     if (startAngle === null) return;
 
-    dragStateRef.current = { startAngle, startBearing: bearing, hasMoved: false };
+    dragStateRef.current = { startAngle, startBearing: bearing, lastAngle: startAngle, accumulated: 0, hasMoved: false };
+    dragMovedRef.current = false;
 
     const handleMove = (moveEvent) => {
       const angle = getPointerAngle(moveEvent);
       const state = dragStateRef.current;
       if (angle === null || !state) return;
-      const delta = angle - state.startAngle;
-      if (Math.abs(delta) > 0.5) state.hasMoved = true;
+      let delta = angle - state.lastAngle;
+      if (delta > 180) delta -= 360;
+      else if (delta < -180) delta += 360;
 
+      state.accumulated += delta;
+      state.lastAngle = angle;
+
+      if (Math.abs(state.accumulated) > 0.5) {
+        state.hasMoved = true;
+        dragMovedRef.current = true;
+      }
+
+      const nextBearing = state.startBearing + state.accumulated;
       if (onRotateTo) {
-        onRotateTo(state.startBearing + delta);
+        onRotateTo(nextBearing);
       } else if (onRotate) {
-        onRotate(delta);
+        onRotate(state.accumulated);
       }
     };
 
@@ -386,6 +394,16 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     window.addEventListener("mousemove", handleMove);
     window.addEventListener("mouseup", handleUp);
   };
+
+  const handleCompassClick = () => {
+    if (dragMovedRef.current) {
+      dragMovedRef.current = false;
+      return;
+    }
+    onResetRotation?.();
+  };
+
+  const displayBearing = ((bearing % 360) + 360) % 360;
 
   return (
     <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-3">
@@ -413,16 +431,16 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
         ref={compassRef}
         type="button"
         onMouseDown={handleCompassDown}
-        onClick={stepRotate}
+        onClick={handleCompassClick}
         onDoubleClick={resetAndCenter}
         className={`pointer-events-auto flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-md transition backdrop-blur-sm ${
-          bearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
+          displayBearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
         } hover:border-primary/60 hover:text-white`}
         aria-label="Controle de rotação do mapa"
       >
         <span
           className="relative flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/5"
-          style={{ transform: `rotate(${bearing}deg)` }}
+          style={{ transform: `rotate(${displayBearing}deg)` }}
         >
           <span className="text-[10px] font-bold text-white">N</span>
         </span>
@@ -498,8 +516,8 @@ export default function MonitoringMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return undefined;
+    const effectiveBearing = normalizeBearing(mapBearing);
 
-    const pane = map.getPane?.("mapPane");
     const baseLatLngToContainerPoint = map.latLngToContainerPoint?.bind(map);
     const baseContainerPointToLatLng = map.containerPointToLatLng?.bind(map);
     const baseContainerPointToLayerPoint = map.containerPointToLayerPoint?.bind(map);
@@ -524,23 +542,23 @@ export default function MonitoringMap({
         if (!currentPane?.style) return;
         const current = currentPane.style.transform || "";
         const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
-        currentPane.style.transform = `${withoutRotate} rotate(${mapBearing}deg)`;
+        currentPane.style.transform = `${withoutRotate} rotate(${effectiveBearing}deg)`;
         currentPane.style.transformOrigin = "50% 50%";
       });
     };
 
     if (baseLatLngToContainerPoint && baseContainerPointToLatLng) {
-      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), mapBearing);
-      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -mapBearing), zoom);
+      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), effectiveBearing);
+      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -effectiveBearing), zoom);
     }
 
     if (baseContainerPointToLayerPoint && baseLayerPointToContainerPoint) {
-      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -mapBearing)), mapBearing);
-      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -mapBearing)), mapBearing);
+      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -effectiveBearing)), effectiveBearing);
+      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -effectiveBearing)), effectiveBearing);
     }
 
     if (baseMouseEventToContainerPoint) {
-      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), mapBearing);
+      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), effectiveBearing);
     }
 
     map.on("move", applyRotation);
@@ -561,7 +579,7 @@ export default function MonitoringMap({
         currentPane.style.transform = (currentPane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
       });
     };
-  }, [mapBearing, mapReady]);
+  }, [mapBearing, mapReady, normalizeBearing]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -615,12 +633,12 @@ export default function MonitoringMap({
   }, [addressMarker, addressViewport, mapReady, normaliseBounds]);
 
   const rotateMap = useCallback((delta) => {
-    setMapBearing((prev) => normalizeBearing(prev + delta));
-  }, [normalizeBearing]);
+    setMapBearing((prev) => prev + delta);
+  }, []);
 
   const setMapBearingTo = useCallback((value) => {
-    setMapBearing(normalizeBearing(value));
-  }, [normalizeBearing]);
+    setMapBearing(value);
+  }, []);
 
   const resetMapRotation = useCallback(() => {
     setMapBearing(0);
