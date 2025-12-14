@@ -250,8 +250,8 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
   const items = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
-    { key: "stale_1_3", label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3 ?? 0 },
-    { key: "stale_6_18", label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18 ?? 0 },
+    { key: "stale_1_6", label: t("monitoring.filters.noSignal1to6h"), value: summary?.stale1to6 ?? 0 },
+    { key: "stale_6_24", label: t("monitoring.filters.noSignal6to24h"), value: summary?.stale6to24 ?? 0 },
     { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 ?? 0 },
     { key: "stale_10d", label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d ?? 0 },
     { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical ?? 0 },
@@ -268,12 +268,12 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
               type="button"
               onClick={() => onChange?.(item.key)}
               aria-pressed={isActive}
-              className={`flex cursor-pointer items-center gap-1 whitespace-nowrap rounded px-0 py-0 text-[12px] leading-[18px] font-medium transition-colors focus:outline-none ${
-                isActive ? "text-primary" : "text-white/60 hover:text-white/80"
+              className={`flex min-w-[90px] cursor-pointer items-start gap-1 whitespace-nowrap rounded px-2 py-1 text-left text-[12px] leading-[16px] font-medium transition-colors focus:outline-none ${
+                isActive ? "bg-primary/10 text-primary" : "text-white/70 hover:text-white/90"
               }`}
             >
-              <span className="leading-[18px]">{item.label}</span>
-              <span className="leading-[18px] opacity-80">({item.value})</span>
+              <span className="leading-[15px] uppercase tracking-[0.06em]">{item.label}</span>
+              <span className="leading-[15px] font-semibold text-white">{item.value}</span>
             </button>
           );
         })}
