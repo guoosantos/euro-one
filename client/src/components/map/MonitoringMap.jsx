@@ -41,22 +41,25 @@ function getMarkerIcon(color, iconType) {
 
   const symbol = ICON_SYMBOLS[iconType] || ICON_SYMBOLS.default;
   const baseColor = color || "#22c55e";
+  const accentColor = color || "#34d399";
 
   const iconHtml = `
-    <div style="display:flex;align-items:center;justify-content:center;width:34px;height:42px;">
-      <div style="position:relative;width:34px;height:34px;border-radius:14px;background:${baseColor};box-shadow:0 8px 14px rgba(0,0,0,0.35),0 0 0 2px rgba(11,15,23,0.9);border:2px solid rgba(255,255,255,0.8);overflow:hidden;">
-        <div style="position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,0.16),rgba(255,255,255,0.02));"></div>
+    <div style="position:relative;display:flex;align-items:flex-end;justify-content:center;width:42px;height:54px;filter:drop-shadow(0 10px 18px rgba(0,0,0,0.4));">
+      <div style="position:absolute;bottom:10px;width:42px;height:42px;border-radius:16px;border:2px solid ${accentColor};opacity:0.35;"></div>
+      <div style="position:absolute;bottom:4px;width:34px;height:34px;border-radius:14px;background:linear-gradient(140deg,${baseColor},${baseColor} 60%,rgba(255,255,255,0.25));box-shadow:0 8px 14px rgba(0,0,0,0.35),0 0 0 2px rgba(11,15,23,0.9);border:2px solid rgba(255,255,255,0.9);overflow:hidden;">
+        <div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 25%,rgba(255,255,255,0.45),transparent 55%);"></div>
         <span style="position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:18px;">${symbol}</span>
       </div>
+      <div style="position:absolute;bottom:-1px;width:14px;height:14px;background:${baseColor};transform:rotate(45deg);border-radius:3px;border:2px solid rgba(255,255,255,0.9);box-shadow:0 4px 10px rgba(0,0,0,0.35);"></div>
     </div>
   `;
 
   const icon = L.divIcon({
     className: "fleet-marker",
     html: iconHtml,
-    iconSize: [34, 42],
-    iconAnchor: [17, 32],
-    popupAnchor: [0, -28],
+    iconSize: [42, 54],
+    iconAnchor: [21, 42],
+    popupAnchor: [0, -34],
   });
 
   markerIconCache.set(key, icon);
