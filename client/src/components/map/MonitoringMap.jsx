@@ -308,11 +308,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const compassRef = useRef(null);
   const dragStateRef = useRef(null);
   const dragMovedRef = useRef(false);
-
-  const resetAndCenter = () => {
-    onResetRotation?.();
-    recenter();
-  };
+  const pointerIdRef = useRef(null);
 
   const zoomIn = () => {
     if (!map) return;
@@ -326,23 +322,6 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     map.zoomOut?.(1, { animate: true });
   };
 
-  const recenter = () => {
-    if (!map) return;
-    const targetCenter = Array.isArray(focusTarget?.center)
-      ? focusTarget.center
-      : Array.isArray(mapViewport?.center)
-        ? mapViewport.center
-        : null;
-    const center = targetCenter || map.getCenter() || DEFAULT_CENTER;
-    const zoom = Number.isFinite(focusTarget?.zoom)
-      ? focusTarget.zoom
-      : Number.isFinite(mapViewport?.zoom)
-        ? mapViewport.zoom
-        : map.getZoom?.() ?? DEFAULT_ZOOM;
-    map.stop?.();
-    map.flyTo(center, zoom, { duration: 0.3, easeLinearity: 0.25 });
-  };
-
   const getPointerAngle = (event) => {
     const rect = compassRef.current?.getBoundingClientRect();
     if (!rect) return null;
@@ -352,14 +331,17 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     return Number.isFinite(angle) ? angle : null;
   };
 
-  const handleCompassDown = (event) => {
+  const handleCompassPointerDown = (event) => {
+    event.preventDefault();
     const startAngle = getPointerAngle(event);
     if (startAngle === null) return;
 
+    pointerIdRef.current = event.pointerId;
     dragStateRef.current = { startAngle, startBearing: bearing, lastAngle: startAngle, accumulated: 0, hasMoved: false };
     dragMovedRef.current = false;
 
     const handleMove = (moveEvent) => {
+      if (pointerIdRef.current !== null && moveEvent.pointerId !== pointerIdRef.current) return;
       const angle = getPointerAngle(moveEvent);
       const state = dragStateRef.current;
       if (angle === null || !state) return;
@@ -383,16 +365,20 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
       }
     };
 
-    const handleUp = () => {
+    const handleUp = (upEvent) => {
+      if (pointerIdRef.current !== null && upEvent.pointerId !== pointerIdRef.current) return;
       const state = dragStateRef.current;
       dragStateRef.current = null;
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
+      pointerIdRef.current = null;
+      window.removeEventListener("pointermove", handleMove);
+      window.removeEventListener("pointerup", handleUp);
+      compassRef.current?.releasePointerCapture?.(event.pointerId);
       if (!state?.hasMoved) return;
     };
 
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
+    compassRef.current?.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", handleMove);
+    window.addEventListener("pointerup", handleUp);
   };
 
   const handleCompassClick = () => {
@@ -406,11 +392,11 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const displayBearing = ((bearing % 360) + 360) % 360;
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-3">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/85 text-white/80 shadow-md backdrop-blur-sm">
+    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-2">
+      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/80 text-white/80 shadow-sm backdrop-blur-md">
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10"
+          className="flex h-9 w-9 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           aria-label="Aumentar zoom"
           onClick={zoomIn}
         >
@@ -419,7 +405,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
         <div className="h-px bg-white/10" />
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10"
+          className="flex h-9 w-9 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
           aria-label="Reduzir zoom"
           onClick={zoomOut}
         >
@@ -430,16 +416,15 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
       <button
         ref={compassRef}
         type="button"
-        onMouseDown={handleCompassDown}
+        onPointerDown={handleCompassPointerDown}
         onClick={handleCompassClick}
-        onDoubleClick={resetAndCenter}
-        className={`pointer-events-auto flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-md transition backdrop-blur-sm ${
+        className={`pointer-events-auto flex h-9 w-9 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-sm transition backdrop-blur-md ${
           displayBearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
-        } hover:border-primary/60 hover:text-white`}
+        } hover:border-primary/60 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60`}
         aria-label="Controle de rotação do mapa"
       >
         <span
-          className="relative flex h-6 w-6 items-center justify-center rounded-full border border-white/20 bg-white/5"
+          className="relative flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/5"
           style={{ transform: `rotate(${displayBearing}deg)` }}
         >
           <span className="text-[10px] font-bold text-white">N</span>
