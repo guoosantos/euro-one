@@ -136,16 +136,7 @@ export default function MonitoringToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#0d1117]/40 px-3 py-2 shadow-inner shadow-black/20 backdrop-blur-sm">
-        <StatusChipsRow
-          t={t}
-          summary={summary}
-          activeFilter={filterMode}
-          onChange={onFilterChange}
-        />
-      </div>
-
-      <StatusSummaryLine summary={summary} t={t} />
+      <StatusSummaryLine summary={summary} t={t} activeFilter={filterMode} onChange={onFilterChange} />
     </div>
   );
 }
@@ -252,60 +243,7 @@ export function MonitoringSearchBox({
   );
 }
 
-function StatusChipsRow({ t, summary, activeFilter, onChange }) {
-  const chipStyles = {
-    all: "border-white/20 bg-white/5 text-white/80",
-    online: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
-    stale: "border-white/15 bg-white/5 text-white/80",
-    stale_1_3: "border-amber-300/40 bg-amber-500/10 text-amber-50",
-    stale_6_18: "border-orange-300/40 bg-orange-500/10 text-orange-50",
-    stale_24: "border-yellow-200/40 bg-yellow-500/10 text-yellow-50",
-    stale_10d: "border-red-300/40 bg-red-500/10 text-red-50",
-    critical: "border-pink-400/40 bg-pink-500/10 text-pink-50",
-  };
-
-  const chips = [
-    { key: "all", label: t("monitoring.filters.all"), value: summary?.total },
-    { key: "online", label: t("monitoring.filters.online"), value: summary?.online },
-    { key: "stale", label: t("monitoring.filters.offline"), value: summary?.offline },
-    { key: "stale_1_3", label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3 },
-    { key: "stale_6_18", label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18 },
-    { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 },
-    { key: "stale_10d", label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d },
-    { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical },
-  ];
-
-  return (
-    <div className="flex w-full flex-wrap items-center gap-2">
-      {chips.map((chip) => {
-        const isActive = activeFilter === chip.key;
-        return (
-          <button
-            key={chip.key}
-            type="button"
-            onClick={() => onChange?.(chip.key)}
-            className={`
-              flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold leading-none transition
-              ${chipStyles[chip.key] || chipStyles.all}
-              ${isActive ? "ring-2 ring-primary/40 shadow-lg shadow-primary/10" : "hover:border-white/30 hover:text-white"}
-            `}
-          >
-            <span className="whitespace-nowrap">{chip.label}</span>
-            <span
-              className={`rounded-full px-2 text-[10px] ${
-                isActive ? "bg-black/40 text-white" : "bg-black/25 text-white/80"
-              }`}
-            >
-              {chip.value ?? 0}
-            </span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-function StatusSummaryLine({ t, summary }) {
+function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
   const items = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
@@ -318,13 +256,34 @@ function StatusSummaryLine({ t, summary }) {
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-lg px-2 text-[10px] text-white/40">
-      {items.map((item) => (
-        <span key={item.key} className="flex items-center gap-1">
-          <span className="uppercase tracking-[0.06em] text-white/50">{item.label}</span>
-          <span className="font-semibold text-white/60">{item.value}</span>
-        </span>
-      ))}
+    <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#0d1117]/40 px-3 py-2 shadow-inner shadow-black/20 backdrop-blur-sm">
+      {items.map((item) => {
+        const isActive = activeFilter === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onChange?.(item.key)}
+            aria-pressed={isActive}
+            className={`
+              flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em]
+              transition focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60
+              ${isActive
+                ? "border-primary/60 bg-primary/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.05)]"
+                : "border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"}
+            `}
+          >
+            <span className="whitespace-nowrap">{item.label}</span>
+            <span
+              className={`rounded-full px-2 text-[10px] ${
+                isActive ? "bg-black/40 text-white" : "bg-black/20 text-white/80"
+              }`}
+            >
+              {item.value}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
