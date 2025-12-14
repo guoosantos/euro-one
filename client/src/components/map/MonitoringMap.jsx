@@ -502,6 +502,9 @@ export default function MonitoringMap({
     const pane = map.getPane?.("mapPane");
     const baseLatLngToContainerPoint = map.latLngToContainerPoint?.bind(map);
     const baseContainerPointToLatLng = map.containerPointToLatLng?.bind(map);
+    const baseContainerPointToLayerPoint = map.containerPointToLayerPoint?.bind(map);
+    const baseLayerPointToContainerPoint = map.layerPointToContainerPoint?.bind(map);
+    const baseMouseEventToContainerPoint = map.mouseEventToContainerPoint?.bind(map);
 
     const rotatePoint = (point, angleDeg) => {
       if (!point || typeof point.x !== "number" || typeof point.y !== "number") return point;
@@ -516,16 +519,28 @@ export default function MonitoringMap({
     };
 
     const applyRotation = () => {
-      if (!pane) return;
-      const current = pane.style.transform || "";
-      const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
-      pane.style.transform = `${withoutRotate} rotate(${mapBearing}deg)`;
-      pane.style.transformOrigin = "50% 50%";
+      const panes = map._panes || {};
+      Object.values(panes).forEach((currentPane) => {
+        if (!currentPane?.style) return;
+        const current = currentPane.style.transform || "";
+        const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
+        currentPane.style.transform = `${withoutRotate} rotate(${mapBearing}deg)`;
+        currentPane.style.transformOrigin = "50% 50%";
+      });
     };
 
     if (baseLatLngToContainerPoint && baseContainerPointToLatLng) {
       map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), mapBearing);
       map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -mapBearing), zoom);
+    }
+
+    if (baseContainerPointToLayerPoint && baseLayerPointToContainerPoint) {
+      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -mapBearing)), mapBearing);
+      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -mapBearing)), mapBearing);
+    }
+
+    if (baseMouseEventToContainerPoint) {
+      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), mapBearing);
     }
 
     map.on("move", applyRotation);
@@ -535,11 +550,16 @@ export default function MonitoringMap({
     return () => {
       if (baseLatLngToContainerPoint) map.latLngToContainerPoint = baseLatLngToContainerPoint;
       if (baseContainerPointToLatLng) map.containerPointToLatLng = baseContainerPointToLatLng;
+      if (baseContainerPointToLayerPoint) map.containerPointToLayerPoint = baseContainerPointToLayerPoint;
+      if (baseLayerPointToContainerPoint) map.layerPointToContainerPoint = baseLayerPointToContainerPoint;
+      if (baseMouseEventToContainerPoint) map.mouseEventToContainerPoint = baseMouseEventToContainerPoint;
       map.off("move", applyRotation);
       map.off("zoom", applyRotation);
-      if (pane) {
-        pane.style.transform = (pane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
-      }
+      const panes = map._panes || {};
+      Object.values(panes).forEach((currentPane) => {
+        if (!currentPane?.style) return;
+        currentPane.style.transform = (currentPane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
+      });
     };
   }, [mapBearing, mapReady]);
 

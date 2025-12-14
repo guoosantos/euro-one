@@ -408,6 +408,7 @@ export default function Monitoring() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
+  const [addressViewport, setAddressViewport] = useState(null);
   const [addressPin, setAddressPin] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [focusTarget, setFocusTarget] = useState(null);
@@ -942,10 +943,12 @@ export default function Monitoring() {
       ? { bounds: boundingBox, center: [payload.lat, payload.lng], key: `address-${Date.now()}` }
       : { center: [payload.lat, payload.lng], zoom: ADDRESS_FOCUS_ZOOM, key: `address-${Date.now()}` };
 
+    setAddressViewport(focus);
+
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
     setFocusTarget(focus);
-    setMapViewport({ center: [payload.lat, payload.lng], zoom: ADDRESS_FOCUS_ZOOM });
+    setMapViewport({ center: [payload.lat, payload.lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
   }, [clampRadius, normaliseBoundingBox, radiusValue]);
 
@@ -979,6 +982,7 @@ export default function Monitoring() {
     setAddressPin(null);
     setAddressQuery("");
     setSelectedAddress(null);
+    setAddressViewport(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
     clearSuggestions();
@@ -1099,7 +1103,7 @@ export default function Monitoring() {
             mapLayer={mapLayer}
             focusTarget={focusTarget}
             addressMarker={addressPin}
-            addressViewport={selectedAddress ? { center: [selectedAddress.lat, selectedAddress.lng], bounds: selectedAddress.boundingBox } : null}
+            addressViewport={addressViewport}
             invalidateKey={mapInvalidateKey}
           />
 
