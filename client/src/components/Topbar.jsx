@@ -67,7 +67,7 @@ export function Topbar({ title }) {
 
   return (
     <header className="sticky top-0 z-20 border-b border-white/5 bg-[#0b0f17]/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-7xl items-center gap-4 px-4 py-3">
+      <div className="flex w-full items-center gap-4 px-4 py-3 md:px-6 lg:px-8">
         <div className="flex flex-1 items-center gap-3">
           <button type="button" className="btn md:hidden" onClick={toggleSidebar} aria-label="Abrir menu">
             <Menu size={18} />
