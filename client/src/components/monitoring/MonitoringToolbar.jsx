@@ -177,7 +177,9 @@ export function MonitoringSearchBox({
   };
 
   return (
-    <div className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}>
+    <div
+      className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}
+    >
       <div className="pointer-events-none flex items-center justify-center text-white/40">
         {icon}
       </div>
@@ -189,27 +191,28 @@ export function MonitoringSearchBox({
         onChange={(e) => onChange?.(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="ml-2 w-full bg-transparent text-xs text-white placeholder-white/40 focus:outline-none"
+        className="ml-2 w-full bg-transparent pr-10 text-xs text-white placeholder-white/40 focus:outline-none"
       />
 
-      {showClearButton ? (
-        <button
-          type="button"
-          className="ml-2 text-white/40 transition hover:text-white"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onClear?.()}
-          aria-label="Limpar busca"
-        >
-          ✕
-        </button>
-      ) : null}
-
-      {isLoading ? (
-        <div
-          className="ml-2 h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
-          aria-label="loading"
-        />
-      ) : null}
+      <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-2 text-white/40">
+        {isLoading ? (
+          <div
+            className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
+            aria-label="loading"
+          />
+        ) : null}
+        {showClearButton ? (
+          <button
+            type="button"
+            className="pointer-events-auto text-white/50 transition hover:text-white"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => onClear?.()}
+            aria-label="Limpar busca"
+          >
+            ✕
+          </button>
+        ) : null}
+      </div>
 
       {showSuggestions && (
         <div className="absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl">
@@ -247,7 +250,6 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
   const items = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
-    { key: "stale", label: t("monitoring.filters.offline"), value: summary?.offline ?? 0 },
     { key: "stale_1_3", label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3 ?? 0 },
     { key: "stale_6_18", label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18 ?? 0 },
     { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 ?? 0 },
@@ -257,7 +259,7 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
 
   return (
     <div className="relative -mx-1">
-      <div className="flex min-h-[32px] flex-nowrap items-center gap-2 overflow-x-auto px-1 py-1 text-[10px] font-semibold uppercase tracking-[0.06em] text-white/70">
+      <div className="flex min-h-[28px] flex-nowrap items-center gap-3 overflow-x-auto px-1 py-1 text-[12px] leading-[18px] text-white/60">
         {items.map((item) => {
           const isActive = activeFilter === item.key;
           return (
@@ -266,14 +268,12 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
               type="button"
               onClick={() => onChange?.(item.key)}
               aria-pressed={isActive}
-              className={`group flex items-center gap-1 whitespace-nowrap rounded px-1.5 py-1 transition-colors focus:outline-none focus-visible:text-white ${
-                isActive ? "text-primary" : "text-white/60 hover:text-white"
+              className={`flex cursor-pointer items-center gap-1 whitespace-nowrap rounded px-0 py-0 text-[12px] leading-[18px] font-medium transition-colors focus:outline-none ${
+                isActive ? "text-primary" : "text-white/60 hover:text-white/80"
               }`}
             >
-              <span className={`pb-0.5 ${isActive ? "border-b border-current" : "border-b border-transparent group-hover:border-white/20"}`}>
-                {item.label}
-              </span>
-              <span className={`text-[10px] font-semibold ${isActive ? "text-primary/80" : "text-white/50"}`}>{item.value}</span>
+              <span className="leading-[18px]">{item.label}</span>
+              <span className="leading-[18px] opacity-80">({item.value})</span>
             </button>
           );
         })}

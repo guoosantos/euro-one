@@ -922,7 +922,7 @@ export default function Monitoring() {
   const applyAddressTarget = useCallback((payload) => {
     if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
-    const boundingBox = normaliseBoundingBox(payload.boundingBox || payload.boundingbox);
+    const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
     const target = {
       lat: payload.lat,
       lng: payload.lng,
@@ -950,6 +950,7 @@ export default function Monitoring() {
     setFocusTarget(focus);
     setMapViewport({ center: [payload.lat, payload.lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
+    setMapInvalidateKey((prev) => prev + 1);
   }, [clampRadius, normaliseBoundingBox, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
