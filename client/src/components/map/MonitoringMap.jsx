@@ -445,11 +445,29 @@ export default function MonitoringMap({
   mapLayer,
   focusTarget,
   addressMarker,
+  addressViewport = null,
+  invalidateKey = 0,
 }) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
+
+  const normaliseBounds = useCallback((bounds) => {
+    if (!bounds) return null;
+    if (
+      Array.isArray(bounds) &&
+      bounds.length === 2 &&
+      bounds.every((point) => Array.isArray(point) && point.length === 2 && point.every((value) => Number.isFinite(Number(value))))
+    ) {
+      const [[south, west], [north, east]] = bounds;
+      return L.latLngBounds(
+        L.latLng(Number(south), Number(west)),
+        L.latLng(Number(north), Number(east)),
+      );
+    }
+    return null;
+  }, []);
 
   const normalizeBearing = useCallback((value) => {
     const mod = value % 360;
@@ -475,7 +493,7 @@ export default function MonitoringMap({
 
     const timer = setTimeout(() => map.invalidateSize(), 60);
     return () => clearTimeout(timer);
-  }, [mapReady, mapLayer?.key]);
+  }, [invalidateKey, mapLayer?.key, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -527,7 +545,16 @@ export default function MonitoringMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || !focusTarget?.center) return;
+    if (!map || !mapReady || !focusTarget) return;
+
+    const bounds = focusTarget.bounds ? normaliseBounds(focusTarget.bounds) : null;
+    if (bounds) {
+      map.stop?.();
+      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 17 });
+      return;
+    }
+
+    if (!focusTarget.center) return;
     const [lat, lng] = focusTarget.center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const zoom = Number.isFinite(focusTarget.zoom)
@@ -535,17 +562,37 @@ export default function MonitoringMap({
       : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [focusTarget, mapReady]);
+  }, [focusTarget, mapReady, normaliseBounds]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
+
+    if (addressViewport) {
+      const bounds = normaliseBounds(addressViewport.bounds);
+      if (bounds) {
+        map.stop?.();
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
+        return;
+      }
+
+      if (addressViewport.center) {
+        const [lat, lng] = addressViewport.center;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+          map.stop?.();
+          map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
+        }
+        return;
+      }
+    }
+
     if (!addressMarker || !Number.isFinite(addressMarker.lat) || !Number.isFinite(addressMarker.lng)) return;
 
     const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
     map.stop?.();
     map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [addressMarker, mapReady]);
+  }, [addressMarker, addressViewport, mapReady, normaliseBounds]);
 
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => normalizeBearing(prev + delta));
