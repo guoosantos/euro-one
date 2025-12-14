@@ -68,6 +68,19 @@ export default function MonitoringToolbar({
   onClearSelection,
 }) {
   const { t } = useTranslation();
+  const [showStatusDetails, setShowStatusDetails] = React.useState(false);
+  const statusDetailsRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!showStatusDetails) return undefined;
+    const handleClickOutside = (event) => {
+      if (statusDetailsRef.current && !statusDetailsRef.current.contains(event.target)) {
+        setShowStatusDetails(false);
+      }
+    };
+    window.addEventListener("mousedown", handleClickOutside);
+    return () => window.removeEventListener("mousedown", handleClickOutside);
+  }, [showStatusDetails]);
 
   // Adaptador para funcionar com ambas versões do Monitoring.jsx
   const handleToggleColumns = () => {
@@ -84,9 +97,9 @@ export default function MonitoringToolbar({
   const isLayoutActive = activePopup === 'layout';
 
   return (
-    <div className="flex h-full w-full flex-col gap-2 text-[11px] text-white/80">
-      <div className="flex h-full flex-wrap items-center gap-2 lg:gap-3">
-        <div className="flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center lg:gap-2">
+    <div className="flex h-full w-full flex-col gap-3 text-[11px] text-white/80">
+      <div className="flex flex-wrap items-start gap-2 lg:items-center lg:gap-3">
+        <div className="flex min-w-[280px] flex-1 flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
           <MonitoringSearchBox
             value={vehicleSearchTerm}
             onChange={onVehicleSearchChange}
@@ -106,36 +119,6 @@ export default function MonitoringToolbar({
             isLoading={isSearchingRegion}
             onSubmit={onAddressSubmit}
             errorMessage={addressError}
-          />
-        </div>
-
-        <div className="flex flex-1 flex-wrap items-center gap-1 lg:flex-none">
-          <FilterPill
-            label={t("monitoring.filters.all")}
-            count={summary?.total}
-            active={filterMode === 'all'}
-            onClick={() => onFilterChange?.('all')}
-          />
-          <FilterPill
-            label={t("monitoring.filters.online")}
-            count={summary?.online}
-            active={filterMode === 'online'}
-            onClick={() => onFilterChange?.('online')}
-            color="text-emerald-400"
-          />
-          <FilterPill
-            label={t("monitoring.filters.offline")}
-            count={summary?.offline}
-            active={filterMode === 'stale'}
-            onClick={() => onFilterChange?.('stale')}
-            color="text-red-400"
-          />
-          <FilterPill
-            label={t("monitoring.filters.criticalEvents")}
-            count={summary?.critical}
-            active={filterMode === 'critical'}
-            onClick={() => onFilterChange?.('critical')}
-            color="text-amber-400"
           />
         </div>
 
@@ -166,6 +149,34 @@ export default function MonitoringToolbar({
         </div>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#0d1117]/70 px-3 py-2 shadow-inner shadow-black/20">
+        <FilterSegments
+          t={t}
+          summary={summary}
+          activeFilter={filterMode}
+          onChange={onFilterChange}
+        />
+
+        <div className="relative ml-auto flex flex-1 flex-wrap items-center justify-end gap-2" ref={statusDetailsRef}>
+          <StatusBubbleRow summary={summary} />
+          <button
+            type="button"
+            className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
+            onClick={() => setShowStatusDetails((prev) => !prev)}
+          >
+            Detalhes
+          </button>
+
+          {showStatusDetails ? (
+            <StatusDetailsPanel
+              summary={summary}
+              t={t}
+              onClose={() => setShowStatusDetails(false)}
+            />
+          ) : null}
+        </div>
+      </div>
+
       {addressFilter ? (
         <div className="flex items-center gap-2 rounded-md border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[11px] text-white/80">
           <span className="text-cyan-300">📍 {addressFilter.label}</span>
@@ -179,44 +190,6 @@ export default function MonitoringToolbar({
           </button>
         </div>
       ) : null}
-
-      <div className="flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70">
-        <StatusBadge
-          label={t("monitoring.filters.all")}
-          count={summary?.total}
-          className="border-white/10 bg-white/5 text-white/80"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.online")}
-          count={summary?.online}
-          className="border-emerald-500/40 bg-emerald-500/15 text-emerald-100"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.noSignal1to3h")}
-          count={summary?.stale1to3}
-          className="border-emerald-200/40 bg-emerald-200/15 text-emerald-50"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.noSignal6to18h")}
-          count={summary?.stale6to18}
-          className="border-amber-200/50 bg-amber-100/15 text-amber-100"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.noSignal24h")}
-          count={summary?.stale24}
-          className="border-yellow-300/50 bg-yellow-300/15 text-yellow-200"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.noSignal10d")}
-          count={summary?.stale10d}
-          className="border-orange-400/50 bg-orange-400/15 text-orange-200"
-        />
-        <StatusBadge
-          label={t("monitoring.filters.offline")}
-          count={summary?.offline}
-          className="border-red-500/50 bg-red-500/15 text-red-200"
-        />
-      </div>
     </div>
   );
 }
@@ -309,35 +282,104 @@ export function MonitoringSearchBox({
   );
 }
 
-function FilterPill({ label, count, active, onClick, color = "text-gray-300" }) {
+function FilterSegments({ t, summary, activeFilter, onChange }) {
+  const options = [
+    { key: "all", label: t("monitoring.filters.all"), value: summary?.total },
+    { key: "online", label: t("monitoring.filters.online"), value: summary?.online },
+    { key: "stale", label: t("monitoring.filters.offline"), value: summary?.offline },
+    { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical },
+  ];
+
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`
-        flex items-center gap-1.5 rounded-md px-2 py-1 text-[10px] font-semibold transition-all whitespace-nowrap leading-none
-        ${active
-          ? 'bg-primary/25 text-white shadow-sm'
-          : 'bg-[#0d1117] text-white/70 hover:bg-white/5 hover:text-white'}
-      `}
-    >
-      <span className={active ? color : ""}>{label}</span>
-      {count !== undefined && (
-        <span className={`px-1 rounded text-[9px] leading-none ${active ? 'bg-black/30' : 'bg-white/10'}`}>
-          {count}
-        </span>
-      )}
-    </button>
+    <div className="flex flex-1 flex-wrap items-center gap-2">
+      <div className="flex overflow-hidden rounded-lg border border-white/10 bg-[#0d1117]/80 shadow-inner shadow-black/5">
+        {options.map((option, index) => {
+          const isActive = activeFilter === option.key;
+          const divider = index > 0 ? "border-l border-white/5" : "";
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => onChange?.(option.key)}
+              className={`flex items-center gap-1 px-3 py-2 text-[11px] font-semibold leading-none transition ${
+                isActive
+                  ? "bg-white/10 text-white shadow-inner shadow-black/10"
+                  : "text-white/60 hover:bg-white/5 hover:text-white"
+              } ${divider}`}
+            >
+              <span className="whitespace-nowrap">{option.label}</span>
+              <span
+                className={`rounded px-1 text-[10px] ${
+                  isActive ? "bg-primary/30 text-primary-100" : "bg-white/5 text-white/60"
+                }`}
+              >
+                {option.value ?? 0}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
-function StatusBadge({ label, count, className = "" }) {
+function StatusBubbleRow({ summary }) {
+  const items = [
+    { key: "total", label: "Total", value: summary?.total, tone: "text-white" },
+    { key: "online", label: "Online", value: summary?.online, tone: "text-emerald-300" },
+    { key: "crit", label: "Críticos", value: summary?.critical, tone: "text-amber-300" },
+    { key: "offline", label: "Offline", value: summary?.offline, tone: "text-red-300" },
+  ];
+
   return (
-    <div
-      className={`flex min-w-[140px] items-center justify-between gap-2 rounded-md px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.06em] leading-none shadow-inner shadow-black/5 ${className}`}
-    >
-      <span className="truncate">{label}</span>
-      <span className="text-[11px]">{count ?? 0}</span>
+    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 shadow-inner shadow-black/10">
+      {items.map((item) => (
+        <div key={item.key} className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold leading-none">
+          <span className={item.tone}>{item.label}</span>
+          <span className="rounded bg-black/20 px-1 text-white">{item.value ?? 0}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusDetailsPanel({ summary, t, onClose }) {
+  const detailItems = [
+    { label: t("monitoring.filters.all"), value: summary?.total, accent: "text-white" },
+    { label: t("monitoring.filters.online"), value: summary?.online, accent: "text-emerald-300" },
+    { label: t("monitoring.filters.offline"), value: summary?.offline, accent: "text-red-300" },
+    { label: t("monitoring.filters.criticalEvents"), value: summary?.critical, accent: "text-amber-300" },
+    { label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3, accent: "text-emerald-100" },
+    { label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18, accent: "text-amber-100" },
+    { label: t("monitoring.filters.noSignal24h"), value: summary?.stale24, accent: "text-yellow-200" },
+    { label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d, accent: "text-orange-200" },
+    { label: t("monitoring.filters.ignitionOn"), value: summary?.moving, accent: "text-sky-200" },
+  ];
+
+  return (
+    <div className="absolute right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-white/10 bg-[#0f141c] p-3 text-[11px] shadow-3xl">
+      <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em] text-white/60">
+        <span>Resumo detalhado</span>
+        <button
+          type="button"
+          className="rounded border border-white/15 px-2 py-1 text-[10px] text-white/70 hover:border-white/30 hover:text-white"
+          onClick={onClose}
+        >
+          Fechar
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {detailItems.map((item) => (
+          <div
+            key={item.label}
+            className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-[11px] shadow-inner shadow-black/10"
+          >
+            <span className={`font-semibold ${item.accent}`}>{item.label}</span>
+            <span className="text-white">{item.value ?? 0}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

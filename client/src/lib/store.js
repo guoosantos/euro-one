@@ -27,6 +27,7 @@ const initialState = {
   sidebarCollapsed: false,
   theme: "dark",
   locale: "pt-BR",
+  monitoringTopbarVisible: true,
   ...loadState(),
 };
 
@@ -35,6 +36,7 @@ function persistNextState(nextState) {
     theme: nextState.theme,
     locale: nextState.locale,
     sidebarCollapsed: nextState.sidebarCollapsed,
+    monitoringTopbarVisible: nextState.monitoringTopbarVisible,
   });
 }
 
@@ -82,6 +84,13 @@ export const useUI = create((set, get) => ({
     set((state) => {
       const value = typeof collapsed === "boolean" ? collapsed : state.sidebarCollapsed;
       const next = { ...state, sidebarCollapsed: value };
+      persistNextState(next);
+      return next;
+    }),
+  setMonitoringTopbarVisible: (visible) =>
+    set((state) => {
+      const value = visible !== false;
+      const next = { ...state, monitoringTopbarVisible: value };
       persistNextState(next);
       return next;
     }),

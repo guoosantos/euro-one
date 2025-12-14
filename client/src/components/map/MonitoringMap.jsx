@@ -148,8 +148,8 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
     if (target) {
       map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), {
-        duration: 1.2,
-        easeLinearity: 0.25
+        duration: 0.7,
+        easeLinearity: 0.3
       });
 
       setTimeout(() => {
@@ -290,7 +290,7 @@ function ClickToZoom({ mapReady }) {
       if (!target || typeof target.lat !== "number" || typeof target.lng !== "number") return;
 
       map.stop?.();
-      map.flyTo(target, nextZoom, { duration: 0.35, easeLinearity: 0.25 });
+      map.flyTo(target, nextZoom, { duration: 0.25, easeLinearity: 0.35 });
     };
 
     map.on("click", handleClick);
@@ -304,6 +304,15 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const map = useMap();
   const compassRef = useRef(null);
   const dragStateRef = useRef(null);
+
+  const stepRotate = () => {
+    if (onRotate) onRotate(45);
+  };
+
+  const resetAndCenter = () => {
+    onResetRotation?.();
+    recenter();
+  };
 
   const zoomIn = () => {
     if (!map) return;
@@ -368,11 +377,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
       dragStateRef.current = null;
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
-
-      if (!state?.hasMoved) {
-        onResetRotation?.();
-        recenter();
-      }
+      if (!state?.hasMoved) return;
     };
 
     window.addEventListener("mousemove", handleMove);
@@ -380,7 +385,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   };
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-2">
+    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-3">
       <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/85 text-white/80 shadow-md backdrop-blur-sm">
         <button
           type="button"
@@ -405,6 +410,8 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
         ref={compassRef}
         type="button"
         onMouseDown={handleCompassDown}
+        onClick={stepRotate}
+        onDoubleClick={resetAndCenter}
         className={`pointer-events-auto flex h-8 w-8 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-md transition backdrop-blur-sm ${
           bearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
         } hover:border-primary/60 hover:text-white`}
@@ -457,6 +464,15 @@ export default function MonitoringMap({
 
     instance.whenReady(() => setMapReady(true));
   }, [mapLayer?.key]);
+
+  useEffect(() => {
+    if (!mapReady) return undefined;
+    const map = mapRef.current;
+    if (!map?.invalidateSize) return undefined;
+
+    const timer = setTimeout(() => map.invalidateSize(), 60);
+    return () => clearTimeout(timer);
+  }, [mapReady, mapLayer?.key]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -540,6 +556,10 @@ export default function MonitoringMap({
         className="h-full w-full outline-none"
         zoomControl={false}
         scrollWheelZoom={true}
+        preferCanvas={true}
+        updateWhenIdle={true}
+        wheelDebounceTime={120}
+        wheelPxPerZoomLevel={70}
         whenCreated={(instance) => {
           mapRef.current = instance;
         }}
