@@ -149,7 +149,7 @@ export default function MonitoringToolbar({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-[#0d1117]/70 px-3 py-2 shadow-inner shadow-black/20">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#0d1117]/40 px-3 py-2 shadow-inner shadow-black/20 backdrop-blur-sm">
         <FilterSegments
           t={t}
           summary={summary}
@@ -292,25 +292,24 @@ function FilterSegments({ t, summary, activeFilter, onChange }) {
 
   return (
     <div className="flex flex-1 flex-wrap items-center gap-2">
-      <div className="flex overflow-hidden rounded-lg border border-white/10 bg-[#0d1117]/80 shadow-inner shadow-black/5">
-        {options.map((option, index) => {
+      <div className="flex overflow-hidden rounded-full bg-white/5 px-1 py-1 text-white/70 shadow-inner shadow-black/10">
+        {options.map((option) => {
           const isActive = activeFilter === option.key;
-          const divider = index > 0 ? "border-l border-white/5" : "";
           return (
             <button
               key={option.key}
               type="button"
               onClick={() => onChange?.(option.key)}
-              className={`flex items-center gap-1 px-3 py-2 text-[11px] font-semibold leading-none transition ${
+              className={`flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold leading-none transition ${
                 isActive
-                  ? "bg-white/10 text-white shadow-inner shadow-black/10"
-                  : "text-white/60 hover:bg-white/5 hover:text-white"
-              } ${divider}`}
+                  ? "bg-white/15 text-white shadow-inner shadow-black/10"
+                  : "text-white/70 hover:bg-white/10 hover:text-white"
+              }`}
             >
               <span className="whitespace-nowrap">{option.label}</span>
               <span
-                className={`rounded px-1 text-[10px] ${
-                  isActive ? "bg-primary/30 text-primary-100" : "bg-white/5 text-white/60"
+                className={`rounded-full px-2 text-[10px] ${
+                  isActive ? "bg-black/30 text-white" : "bg-white/10 text-white/70"
                 }`}
               >
                 {option.value ?? 0}

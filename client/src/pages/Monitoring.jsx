@@ -901,6 +901,8 @@ export default function Monitoring() {
       label: payload.label || payload.description || "Local selecionado",
     });
     const focus = { center: [payload.lat, payload.lng], zoom: DEVICE_FOCUS_ZOOM, key: `address-${Date.now()}` };
+    setSelectedDeviceId(null);
+    setDetailsDeviceId(null);
     setFocusTarget(focus);
     setMapViewport(focus);
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
@@ -1054,9 +1056,9 @@ export default function Monitoring() {
           />
 
           {!layoutVisibility.showTable && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-2 px-3 py-2">
-              <div className="flex flex-col items-start gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div className="pointer-events-auto flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:items-center">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-2 px-3 py-2 lg:pr-28">
+              <div className="flex flex-col items-start gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
+                <div className="pointer-events-auto flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:flex-wrap lg:items-center">
                   <MonitoringSearchBox
                     value={vehicleQuery}
                     onChange={handleVehicleSearchChange}
@@ -1148,44 +1150,72 @@ export default function Monitoring() {
                 />
               </div>
             ) : (
-              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <div className="text-xs text-white/60">
-                  Menu oculto para ganhar espaço. Abra "Layout" para reativar as buscas e filtros.
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+                <div className="flex w-full flex-1 flex-wrap gap-2">
+                  <MonitoringSearchBox
+                    value={vehicleQuery}
+                    onChange={handleVehicleSearchChange}
+                    placeholder={t("monitoring.searchPlaceholderSimple")}
+                    suggestions={vehicleSuggestions}
+                    onSelectSuggestion={handleSelectVehicleSuggestion}
+                  />
+
+                  <MonitoringSearchBox
+                    value={addressQuery}
+                    onChange={setAddressQuery}
+                    placeholder={t("monitoring.searchRegionPlaceholder")}
+                    suggestions={addressSuggestionOptions}
+                    onSelectSuggestion={handleSelectAddressSuggestion}
+                    isLoading={isSearching}
+                    errorMessage={geocodeError?.message}
+                  />
                 </div>
+
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
                     onClick={() => handleTogglePopup("columns")}
-                    className={`flex h-10 items-center justify-center rounded-md border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${
+                    className={`flex h-10 w-10 items-center justify-center rounded-md border text-xs leading-none transition ${
                       activePopup === "columns"
-                        ? "border-primary/50 bg-primary/10 text-white"
-                        : "border-white/15 bg-[#0d1117] text-white/70 hover:border-white/30 hover:text-white"
+                        ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
+                        : "bg-[#0d1117] text-white/60 border-white/15 hover:text-white hover:border-white/40"
                     }`}
                     title="Colunas"
+                    aria-label="Selecionar colunas"
                   >
-                    Colunas
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="5" width="5" height="14" rx="1" />
+                      <rect x="10" y="5" width="5" height="14" rx="1" />
+                      <rect x="17" y="5" width="4" height="14" rx="1" />
+                    </svg>
                   </button>
                   <button
                     ref={layoutButtonRef}
                     type="button"
                     onClick={() => handleTogglePopup("layout")}
-                    className={`flex h-10 items-center justify-center rounded-md border px-3 text-[10px] font-semibold uppercase tracking-[0.08em] transition ${
+                    className={`flex h-10 w-10 items-center justify-center rounded-md border text-xs leading-none transition ${
                       activePopup === "layout"
-                        ? "border-primary/50 bg-primary/10 text-white"
-                        : "border-white/15 bg-[#0d1117] text-white/70 hover:border-white/30 hover:text-white"
+                        ? "bg-primary/20 text-white border-primary/50 shadow-inner shadow-primary/20"
+                        : "bg-[#0d1117] text-white/60 border-white/15 hover:text-white hover:border-white/40"
                     }`}
                     title="Layout"
+                    aria-label="Abrir layout"
                   >
-                    Layout
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="3" y="4" width="18" height="16" rx="2" />
+                      <line x1="3" y1="11" x2="21" y2="11" />
+                      <line x1="12" y1="4" x2="12" y2="20" />
+                    </svg>
                   </button>
                   {selectedDeviceId ? (
                     <button
                       type="button"
                       onClick={clearSelection}
-                      className="flex h-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] px-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
+                      className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
                       title="Limpar seleção"
+                      aria-label="Limpar seleção"
                     >
-                      Limpar
+                      ✕
                     </button>
                   ) : null}
                 </div>
