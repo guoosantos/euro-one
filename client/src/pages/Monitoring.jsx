@@ -16,6 +16,7 @@ import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
+import { useUI } from "../lib/store.js";
 
 import {
   deriveStatus,
@@ -37,6 +38,7 @@ const DEFAULT_LAYOUT_VISIBILITY = {
   showMap: true,
   showTable: true,
   showToolbar: true,
+  showTopbar: true,
 };
 const MIN_MAP_HEIGHT = 20;
 const MAX_MAP_HEIGHT = 80;
@@ -71,6 +73,7 @@ const normaliseLayoutVisibility = (value = {}) => ({
   showMap: value.showMap !== false,
   showTable: value.showTable !== false,
   showToolbar: value.showToolbar !== false,
+  showTopbar: value.showTopbar !== false,
 });
 
 const BASE_MAP_LAYERS = [
@@ -364,6 +367,7 @@ export default function Monitoring() {
 
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
+  const setMonitoringTopbarVisible = useUI((state) => state.setMonitoringTopbarVisible);
 
   const [vehicleQuery, setVehicleQuery] = useState("");
   const [addressQuery, setAddressQuery] = useState("");
@@ -403,22 +407,30 @@ export default function Monitoring() {
     if (loadingPreferences) return;
     const remote = preferences?.monitoringLayoutVisibility;
 
-    if (remote) {
-      setLayoutVisibility((prev) => {
-        const next = normaliseLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote });
-        return prev.showMap === next.showMap && prev.showTable === next.showTable && prev.showToolbar === next.showToolbar
-          ? prev
-          : next;
-      });
-    } else {
-      setLayoutVisibility((prev) => normaliseLayoutVisibility(prev));
-    }
+      if (remote) {
+        setLayoutVisibility((prev) => {
+          const next = normaliseLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote });
+          const unchanged =
+            prev.showMap === next.showMap &&
+            prev.showTable === next.showTable &&
+            prev.showToolbar === next.showToolbar &&
+            prev.showTopbar === next.showTopbar;
+          return unchanged ? prev : next;
+        });
+      } else {
+        setLayoutVisibility((prev) => normaliseLayoutVisibility(prev));
+      }
   }, [loadingPreferences, preferences?.monitoringLayoutVisibility]);
 
   useEffect(() => {
     if (loadingPreferences) return;
     savePreferences({ monitoringLayoutVisibility: layoutVisibility }).catch(() => {});
   }, [layoutVisibility, loadingPreferences, savePreferences]);
+
+  useEffect(() => {
+    setMonitoringTopbarVisible(layoutVisibility.showTopbar !== false);
+    return () => setMonitoringTopbarVisible(true);
+  }, [layoutVisibility.showTopbar, setMonitoringTopbarVisible]);
 
   const columnStorageKey = useMemo(
     () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
@@ -891,6 +903,7 @@ export default function Monitoring() {
     const focus = { center: [payload.lat, payload.lng], zoom: DEVICE_FOCUS_ZOOM, key: `address-${Date.now()}` };
     setFocusTarget(focus);
     setMapViewport(focus);
+    setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
   }, [clampRadius, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {

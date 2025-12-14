@@ -23,6 +23,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   const locale = useUI((state) => state.locale);
   const { tenant } = useTenant();
   const accentColor = tenant?.brandColor;
+  const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
 
   useEffect(() => {
     if (!title) return;
@@ -73,7 +74,7 @@ export default function Layout({ children, title, hideTitle = false }) {
       {/* CONTEÚDO PRINCIPAL */}
       <div className="flex min-h-0 flex-1 min-w-0 flex-col">
         {/* No monitoring a própria página cuida do cabeçalho */}
-        <Topbar title={isFullWidthPage ? null : title} />
+        {(!isMonitoringPage || showMonitoringTopbar) && <Topbar title={isFullWidthPage ? null : title} />}
 
         <main
           className={`flex min-h-0 flex-1 min-w-0 flex-col bg-[#0b0f17] ${
