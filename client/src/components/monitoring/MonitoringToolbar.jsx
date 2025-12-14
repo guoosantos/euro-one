@@ -68,19 +68,6 @@ export default function MonitoringToolbar({
   onClearSelection,
 }) {
   const { t } = useTranslation();
-  const [showStatusDetails, setShowStatusDetails] = React.useState(false);
-  const statusDetailsRef = React.useRef(null);
-
-  React.useEffect(() => {
-    if (!showStatusDetails) return undefined;
-    const handleClickOutside = (event) => {
-      if (statusDetailsRef.current && !statusDetailsRef.current.contains(event.target)) {
-        setShowStatusDetails(false);
-      }
-    };
-    window.addEventListener("mousedown", handleClickOutside);
-    return () => window.removeEventListener("mousedown", handleClickOutside);
-  }, [showStatusDetails]);
 
   // Adaptador para funcionar com ambas versões do Monitoring.jsx
   const handleToggleColumns = () => {
@@ -150,31 +137,12 @@ export default function MonitoringToolbar({
       </div>
 
       <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[#0d1117]/40 px-3 py-2 shadow-inner shadow-black/20 backdrop-blur-sm">
-        <FilterSegments
+        <StatusChipsRow
           t={t}
           summary={summary}
           activeFilter={filterMode}
           onChange={onFilterChange}
         />
-
-        <div className="relative ml-auto flex flex-1 flex-wrap items-center justify-end gap-2" ref={statusDetailsRef}>
-          <StatusBubbleRow summary={summary} />
-          <button
-            type="button"
-            className="rounded-lg border border-white/15 bg-white/5 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 transition hover:border-white/30 hover:text-white"
-            onClick={() => setShowStatusDetails((prev) => !prev)}
-          >
-            Detalhes
-          </button>
-
-          {showStatusDetails ? (
-            <StatusDetailsPanel
-              summary={summary}
-              t={t}
-              onClose={() => setShowStatusDetails(false)}
-            />
-          ) : null}
-        </div>
       </div>
 
       {addressFilter ? (
@@ -282,103 +250,55 @@ export function MonitoringSearchBox({
   );
 }
 
-function FilterSegments({ t, summary, activeFilter, onChange }) {
-  const options = [
+function StatusChipsRow({ t, summary, activeFilter, onChange }) {
+  const chipStyles = {
+    all: "border-white/20 bg-white/5 text-white/80",
+    online: "border-emerald-400/40 bg-emerald-500/10 text-emerald-100",
+    stale: "border-white/15 bg-white/5 text-white/80",
+    stale_1_3: "border-amber-300/40 bg-amber-500/10 text-amber-50",
+    stale_6_18: "border-orange-300/40 bg-orange-500/10 text-orange-50",
+    stale_24: "border-yellow-200/40 bg-yellow-500/10 text-yellow-50",
+    stale_10d: "border-red-300/40 bg-red-500/10 text-red-50",
+    critical: "border-pink-400/40 bg-pink-500/10 text-pink-50",
+  };
+
+  const chips = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online },
     { key: "stale", label: t("monitoring.filters.offline"), value: summary?.offline },
+    { key: "stale_1_3", label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3 },
+    { key: "stale_6_18", label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18 },
+    { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 },
+    { key: "stale_10d", label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d },
     { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical },
   ];
 
   return (
-    <div className="flex flex-1 flex-wrap items-center gap-2">
-      <div className="flex overflow-hidden rounded-full bg-white/5 px-1 py-1 text-white/70 shadow-inner shadow-black/10">
-        {options.map((option) => {
-          const isActive = activeFilter === option.key;
-          return (
-            <button
-              key={option.key}
-              type="button"
-              onClick={() => onChange?.(option.key)}
-              className={`flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-semibold leading-none transition ${
-                isActive
-                  ? "bg-white/15 text-white shadow-inner shadow-black/10"
-                  : "text-white/70 hover:bg-white/10 hover:text-white"
+    <div className="flex w-full flex-wrap items-center gap-2">
+      {chips.map((chip) => {
+        const isActive = activeFilter === chip.key;
+        return (
+          <button
+            key={chip.key}
+            type="button"
+            onClick={() => onChange?.(chip.key)}
+            className={`
+              flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold leading-none transition
+              ${chipStyles[chip.key] || chipStyles.all}
+              ${isActive ? "ring-2 ring-primary/40 shadow-lg shadow-primary/10" : "hover:border-white/30 hover:text-white"}
+            `}
+          >
+            <span className="whitespace-nowrap">{chip.label}</span>
+            <span
+              className={`rounded-full px-2 text-[10px] ${
+                isActive ? "bg-black/40 text-white" : "bg-black/25 text-white/80"
               }`}
             >
-              <span className="whitespace-nowrap">{option.label}</span>
-              <span
-                className={`rounded-full px-2 text-[10px] ${
-                  isActive ? "bg-black/30 text-white" : "bg-white/10 text-white/70"
-                }`}
-              >
-                {option.value ?? 0}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function StatusBubbleRow({ summary }) {
-  const items = [
-    { key: "total", label: "Total", value: summary?.total, tone: "text-white" },
-    { key: "online", label: "Online", value: summary?.online, tone: "text-emerald-300" },
-    { key: "crit", label: "Críticos", value: summary?.critical, tone: "text-amber-300" },
-    { key: "offline", label: "Offline", value: summary?.offline, tone: "text-red-300" },
-  ];
-
-  return (
-    <div className="flex flex-wrap items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 shadow-inner shadow-black/10">
-      {items.map((item) => (
-        <div key={item.key} className="flex items-center gap-1 rounded px-2 py-1 text-[10px] font-semibold leading-none">
-          <span className={item.tone}>{item.label}</span>
-          <span className="rounded bg-black/20 px-1 text-white">{item.value ?? 0}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function StatusDetailsPanel({ summary, t, onClose }) {
-  const detailItems = [
-    { label: t("monitoring.filters.all"), value: summary?.total, accent: "text-white" },
-    { label: t("monitoring.filters.online"), value: summary?.online, accent: "text-emerald-300" },
-    { label: t("monitoring.filters.offline"), value: summary?.offline, accent: "text-red-300" },
-    { label: t("monitoring.filters.criticalEvents"), value: summary?.critical, accent: "text-amber-300" },
-    { label: t("monitoring.filters.noSignal1to3h"), value: summary?.stale1to3, accent: "text-emerald-100" },
-    { label: t("monitoring.filters.noSignal6to18h"), value: summary?.stale6to18, accent: "text-amber-100" },
-    { label: t("monitoring.filters.noSignal24h"), value: summary?.stale24, accent: "text-yellow-200" },
-    { label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d, accent: "text-orange-200" },
-    { label: t("monitoring.filters.ignitionOn"), value: summary?.moving, accent: "text-sky-200" },
-  ];
-
-  return (
-    <div className="absolute right-0 top-full z-30 mt-2 w-full max-w-xl rounded-xl border border-white/10 bg-[#0f141c] p-3 text-[11px] shadow-3xl">
-      <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-[0.08em] text-white/60">
-        <span>Resumo detalhado</span>
-        <button
-          type="button"
-          className="rounded border border-white/15 px-2 py-1 text-[10px] text-white/70 hover:border-white/30 hover:text-white"
-          onClick={onClose}
-        >
-          Fechar
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {detailItems.map((item) => (
-          <div
-            key={item.label}
-            className="flex items-center justify-between rounded-lg border border-white/5 bg-white/5 px-3 py-2 text-[11px] shadow-inner shadow-black/10"
-          >
-            <span className={`font-semibold ${item.accent}`}>{item.label}</span>
-            <span className="text-white">{item.value ?? 0}</span>
-          </div>
-        ))}
-      </div>
+              {chip.value ?? 0}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

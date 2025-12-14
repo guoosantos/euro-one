@@ -537,6 +537,16 @@ export default function MonitoringMap({
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
   }, [focusTarget, mapReady]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (!addressMarker || !Number.isFinite(addressMarker.lat) || !Number.isFinite(addressMarker.lng)) return;
+
+    const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+    map.stop?.();
+    map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
+  }, [addressMarker, mapReady]);
+
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => normalizeBearing(prev + delta));
   }, [normalizeBearing]);
