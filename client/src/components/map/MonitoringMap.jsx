@@ -425,7 +425,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
       >
         <span
           className="relative flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/5"
-          style={{ transform: `rotate(${displayBearing}deg)` }}
+          style={{ transform: `rotate(${bearing}deg)` }}
         >
           <span className="text-[10px] font-bold text-white">N</span>
         </span>
@@ -472,11 +472,6 @@ export default function MonitoringMap({
     return null;
   }, []);
 
-  const normalizeBearing = useCallback((value) => {
-    const mod = value % 360;
-    return mod < 0 ? mod + 360 : mod;
-  }, []);
-
   useEffect(() => {
     const instance = mapRef.current;
     if (!instance) return undefined;
@@ -501,7 +496,7 @@ export default function MonitoringMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return undefined;
-    const effectiveBearing = normalizeBearing(mapBearing);
+    const appliedBearing = mapBearing;
 
     const baseLatLngToContainerPoint = map.latLngToContainerPoint?.bind(map);
     const baseContainerPointToLatLng = map.containerPointToLatLng?.bind(map);
@@ -527,23 +522,23 @@ export default function MonitoringMap({
         if (!currentPane?.style) return;
         const current = currentPane.style.transform || "";
         const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
-        currentPane.style.transform = `${withoutRotate} rotate(${effectiveBearing}deg)`;
+        currentPane.style.transform = `${withoutRotate} rotate(${appliedBearing}deg)`;
         currentPane.style.transformOrigin = "50% 50%";
       });
     };
 
     if (baseLatLngToContainerPoint && baseContainerPointToLatLng) {
-      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), effectiveBearing);
-      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -effectiveBearing), zoom);
+      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), appliedBearing);
+      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -appliedBearing), zoom);
     }
 
     if (baseContainerPointToLayerPoint && baseLayerPointToContainerPoint) {
-      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -effectiveBearing)), effectiveBearing);
-      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -effectiveBearing)), effectiveBearing);
+      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -appliedBearing)), appliedBearing);
+      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -appliedBearing)), appliedBearing);
     }
 
     if (baseMouseEventToContainerPoint) {
-      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), effectiveBearing);
+      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), appliedBearing);
     }
 
     map.on("move", applyRotation);
@@ -564,7 +559,7 @@ export default function MonitoringMap({
         currentPane.style.transform = (currentPane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
       });
     };
-  }, [mapBearing, mapReady, normalizeBearing]);
+  }, [mapBearing, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

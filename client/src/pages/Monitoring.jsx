@@ -586,8 +586,8 @@ export default function Monitoring() {
       if (filterMode === "online") return online;
       if (filterMode === "stale") return !online;
       if (filterMode === "critical") return deriveStatus(position) === "alert";
-      if (filterMode === "stale_1_3") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 180;
-      if (filterMode === "stale_6_18") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1080;
+      if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
+      if (filterMode === "stale_6_24") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1440;
       if (filterMode === "stale_24") return !online && hasStaleness && stalenessMinutes >= 1440;
       if (filterMode === "stale_10d") return !online && hasStaleness && stalenessMinutes >= 14400;
       return true;
@@ -792,8 +792,8 @@ export default function Monitoring() {
       offline: 0,
       moving: 0,
       critical: 0,
-      stale1to3: 0,
-      stale6to18: 0,
+      stale1to6: 0,
+      stale6to24: 0,
       stale24: 0,
       stale10d: 0,
       total: displayRows.length,
@@ -813,8 +813,8 @@ export default function Monitoring() {
       if (critical) base.critical += 1;
 
       if (!online && Number.isFinite(staleness)) {
-        if (staleness >= 60 && staleness < 180) base.stale1to3 += 1;
-        if (staleness >= 360 && staleness < 1080) base.stale6to18 += 1;
+        if (staleness >= 60 && staleness < 360) base.stale1to6 += 1;
+        if (staleness >= 360 && staleness < 1440) base.stale6to24 += 1;
         if (staleness >= 1440) base.stale24 += 1;
         if (staleness >= 14400) base.stale10d += 1;
       }
