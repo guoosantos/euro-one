@@ -528,6 +528,42 @@ export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   }));
 }
 
+export async function fetchPositionsByIds(positionIds = []) {
+  const filtered = Array.from(new Set((positionIds || []).filter(Boolean)));
+  if (!filtered.length) return [];
+
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const placeholders = buildPlaceholders(filtered);
+  const sql = `
+    SELECT
+      id,
+      deviceid,
+      servertime,
+      devicetime,
+      fixtime,
+      latitude,
+      longitude,
+      speed,
+      course,
+      altitude,
+      accuracy,
+      valid,
+      protocol,
+      network,
+      address,
+      attributes
+    FROM ${POSITION_TABLE}
+    WHERE id IN (${placeholders})
+  `;
+
+  const rows = await queryTraccarDb(sql, filtered);
+  return rows.map(normalisePositionRow).filter(Boolean);
+}
+
 export async function fetchDevicesMetadata() {
   const sql = `
     SELECT id, uniqueid, name, lastupdate, disabled, status
