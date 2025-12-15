@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useTranslation } from "../lib/i18n.js";
@@ -24,10 +25,12 @@ export default function Events() {
   const { locale } = useTranslation();
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const [searchParams] = useSearchParams();
   const [selectedDevice, setSelectedDevice] = useState("all");
   const [type, setType] = useState("all");
   const [from, setFrom] = useState(() => new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
+  const [severity, setSeverity] = useState(() => searchParams.get("severity") ?? "all");
   const [notifications, setNotifications] = useState({ email: true, push: true, sms: false });
 
   const { events, loading, lastUpdated, error, refresh } = useEvents({
@@ -35,21 +38,31 @@ export default function Events() {
     types: type === "all" ? undefined : type,
     from: from ? new Date(from).toISOString() : undefined,
     to: to ? new Date(to).toISOString() : undefined,
+    severity: severity === "all" ? undefined : severity,
     refreshInterval: 15_000,
   });
 
+  const filteredEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        if (severity === "all") return true;
+        return normaliseSeverity(event) === severity;
+      }),
+    [events, severity],
+  );
+
   const rows = useMemo(
     () =>
-      events.map((event) => ({
+      filteredEvents.map((event) => ({
         id: event.id ?? `${event.deviceId}-${event.time}`,
         device: resolveDeviceName(event, devices),
         type: event.type ?? event.attributes?.type ?? event.event,
         time: event.serverTime ?? event.eventTime ?? event.time,
-        severity: event.attributes?.alarm ?? event.severity ?? "normal",
+        severity: normaliseSeverity(event),
         address: event.attributes?.address || event.address,
         description: event.attributes?.message || event.attributes?.description || event.attributes?.type || "—",
       })),
-    [events, devices],
+    [filteredEvents, devices],
   );
 
   return (
@@ -71,7 +84,7 @@ export default function Events() {
           </button>
         </header>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-5">
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide opacity-60">Veículo</span>
             <select
@@ -98,6 +111,21 @@ export default function Events() {
               {EVENT_TYPES.map((option) => (
                 <option key={option} value={option}>
                   {option === "all" ? "Todos" : translateEventType(option, locale)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="text-sm">
+            <span className="block text-xs uppercase tracking-wide opacity-60">Severidade</span>
+            <select
+              value={severity}
+              onChange={(event) => setSeverity(event.target.value)}
+              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
+            >
+              {["all", "critical", "high", "normal", "low"].map((option) => (
+                <option key={option} value={option}>
+                  {option === "all" ? "Todas" : option}
                 </option>
               ))}
             </select>
@@ -219,6 +247,15 @@ function formatDateTime(value) {
   } catch (error) {
     return String(value);
   }
+}
+
+function normaliseSeverity(event) {
+  const raw = event?.attributes?.alarm ?? event?.severity ?? event?.level ?? "normal";
+  const normalized = String(raw).toLowerCase();
+  if (normalized.includes("crit")) return "critical";
+  if (normalized.includes("high") || normalized.includes("alta")) return "high";
+  if (normalized.includes("low") || normalized.includes("baixa")) return "low";
+  return normalized || "normal";
 }
 
 function SeverityPill({ severity }) {

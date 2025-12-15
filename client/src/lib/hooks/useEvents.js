@@ -12,6 +12,7 @@ export function useEvents({
   types,
   from,
   to,
+  severity,
   limit = 50,
   refreshInterval = 15_000,
   autoRefreshMs,
@@ -25,21 +26,30 @@ export function useEvents({
   const { events: cachedEvents, loading: cachedLoading, error: cachedError, fetchedAt, refresh: refreshCached } =
     useEventsContext();
 
-  const hasFilters = Boolean(deviceId || (types && types.length) || from || to);
+  const hasFilters = Boolean(deviceId || (types && types.length) || from || to || severity);
 
   const cacheKey = useMemo(
     () =>
-      ["events", tenantId || "global", deviceId || "all", types?.join?.("|") || "all", from || "", to || "", limit]
+      [
+        "events",
+        tenantId || "global",
+        deviceId || "all",
+        types?.join?.("|") || "all",
+        from || "",
+        to || "",
+        severity || "",
+        limit,
+      ]
         .filter((part) => part !== undefined)
         .join(":"),
-    [deviceId, from, limit, tenantId, to, types],
+    [deviceId, from, limit, tenantId, severity, to, types],
   );
 
   const { data, loading, error, fetchedAt: polledAt, refresh } = useSharedPollingResource(
     cacheKey,
     useCallback(
       async ({ signal }) => {
-        const params = buildParams({ deviceId, types, from, to, limit });
+        const params = buildParams({ deviceId, types, from, to, limit, severity });
         if (tenantId) params.clientId = tenantId;
 
         const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.traccar.events, {
@@ -71,7 +81,7 @@ export function useEvents({
           : [];
         return list.slice(0, limit);
       },
-      [deviceId, types, from, to, limit, tenantId, t],
+      [deviceId, types, from, to, limit, severity, tenantId, t],
     ),
     {
       enabled: enabled && hasFilters,

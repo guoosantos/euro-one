@@ -250,10 +250,14 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
   const items = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
+    { key: "stale_0_1", label: "0-1h sem sinal", value: summary?.stale0to1 ?? 0 },
     { key: "stale_1_6", label: t("monitoring.filters.noSignal1to6h"), value: summary?.stale1to6 ?? 0 },
-    { key: "stale_6_24", label: t("monitoring.filters.noSignal6to24h"), value: summary?.stale6to24 ?? 0 },
-    { key: "stale_24", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24 ?? 0 },
-    { key: "stale_10d", label: t("monitoring.filters.noSignal10d"), value: summary?.stale10d ?? 0 },
+    { key: "stale_6_12", label: "6-12h sem sinal", value: summary?.stale6to12 ?? 0 },
+    { key: "stale_12_24", label: "12-24h sem sinal", value: summary?.stale12to24 ?? 0 },
+    { key: "stale_24_72", label: "24-72h sem sinal", value: summary?.stale24to72 ?? 0 },
+    { key: "stale_72_10d", label: "72h-10d sem sinal", value: summary?.stale72to10d ?? 0 },
+    { key: "stale_10d_30d", label: "10-30d sem sinal", value: summary?.stale10dto30d ?? 0 },
+    { key: "stale_30d_plus", label: "30d+ sem sinal", value: summary?.stale30dPlus ?? 0 },
     { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical ?? 0 },
   ];
 
