@@ -12,6 +12,7 @@ import {
   fetchLatestPositions,
   fetchLatestPositionsWithFallback,
   fetchPositions,
+  fetchPositionsByIds,
   fetchTrips,
 } from "../services/traccar-db.js";
 import {
@@ -450,7 +451,23 @@ async function handleEventsReport(req, res, next) {
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
 
     const events = await fetchEvents(deviceIdsToQuery, from, to, limit);
-    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events };
+    const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
+    const positions = await fetchPositionsByIds(positionIds);
+    const positionMap = new Map(positions.map((position) => [position.id, position]));
+
+    const eventsWithAddress = events.map((event) => {
+      const position = event.positionId ? positionMap.get(event.positionId) : null;
+      const formattedAddress = position ? formatAddress(position.address) : null;
+      return {
+        ...event,
+        position,
+        latitude: position?.latitude,
+        longitude: position?.longitude,
+        address: formattedAddress || position?.address || event.address || null,
+      };
+    });
+
+    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events: eventsWithAddress };
 
     return res.status(200).json({ data, error: null });
   } catch (error) {

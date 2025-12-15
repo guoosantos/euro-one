@@ -591,16 +591,11 @@ export default function Monitoring() {
       const hasStaleness = Number.isFinite(stalenessMinutes);
 
       if (filterMode === "online") return online;
-      if (filterMode === "stale") return !online;
       if (filterMode === "critical") return deriveStatus(position) === "alert";
-      if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
-      if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
-      if (filterMode === "stale_12_24") return !online && hasStaleness && stalenessMinutes >= 720 && stalenessMinutes < 1440;
-      if (filterMode === "stale_24_72") return !online && hasStaleness && stalenessMinutes >= 1440 && stalenessMinutes < 4320;
-      if (filterMode === "stale_72_10d") return !online && hasStaleness && stalenessMinutes >= 4320 && stalenessMinutes < 14400;
-      if (filterMode === "stale_10d_30d") return !online && hasStaleness && stalenessMinutes >= 14400 && stalenessMinutes < 43200;
-      if (filterMode === "stale_30d_plus") return !online && hasStaleness && stalenessMinutes >= 43200;
+      if (filterMode === "stale_6_24") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1440;
+      if (filterMode === "stale_24_plus") return !online && hasStaleness && stalenessMinutes >= 1440 && stalenessMinutes < 14400;
+      if (filterMode === "stale_10d_plus") return !online && hasStaleness && stalenessMinutes >= 14400;
       return true;
     });
   }, [searchFiltered, filterMode]);
@@ -839,7 +834,12 @@ export default function Monitoring() {
       }
     });
 
-    return base;
+    return {
+      ...base,
+      stale6to24: base.stale6to12 + base.stale12to24,
+      stale24Plus: base.stale24to72 + base.stale72to10d,
+      stale10dPlus: base.stale10dto30d + base.stale30dPlus,
+    };
   }, [displayRows]);
 
   // --- Configuração de Colunas ---
