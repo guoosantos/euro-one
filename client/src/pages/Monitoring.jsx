@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -392,6 +393,7 @@ function PaginationButton({ children, disabled, onClick }) {
 
 export default function Monitoring() {
   const { t, locale } = useTranslation();
+  const [searchParams] = useSearchParams();
 
   const { tenantId, user } = useTenant();
   const { telemetry, loading } = useTelemetry();
@@ -419,6 +421,11 @@ export default function Monitoring() {
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
+
+  useEffect(() => {
+    const filter = searchParams.get("filter");
+    if (filter) setFilterMode(filter);
+  }, [searchParams]);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -586,10 +593,14 @@ export default function Monitoring() {
       if (filterMode === "online") return online;
       if (filterMode === "stale") return !online;
       if (filterMode === "critical") return deriveStatus(position) === "alert";
+      if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
-      if (filterMode === "stale_6_24") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1440;
-      if (filterMode === "stale_24") return !online && hasStaleness && stalenessMinutes >= 1440;
-      if (filterMode === "stale_10d") return !online && hasStaleness && stalenessMinutes >= 14400;
+      if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
+      if (filterMode === "stale_12_24") return !online && hasStaleness && stalenessMinutes >= 720 && stalenessMinutes < 1440;
+      if (filterMode === "stale_24_72") return !online && hasStaleness && stalenessMinutes >= 1440 && stalenessMinutes < 4320;
+      if (filterMode === "stale_72_10d") return !online && hasStaleness && stalenessMinutes >= 4320 && stalenessMinutes < 14400;
+      if (filterMode === "stale_10d_30d") return !online && hasStaleness && stalenessMinutes >= 14400 && stalenessMinutes < 43200;
+      if (filterMode === "stale_30d_plus") return !online && hasStaleness && stalenessMinutes >= 43200;
       return true;
     });
   }, [searchFiltered, filterMode]);
@@ -792,10 +803,14 @@ export default function Monitoring() {
       offline: 0,
       moving: 0,
       critical: 0,
+      stale0to1: 0,
       stale1to6: 0,
-      stale6to24: 0,
-      stale24: 0,
-      stale10d: 0,
+      stale6to12: 0,
+      stale12to24: 0,
+      stale24to72: 0,
+      stale72to10d: 0,
+      stale10dto30d: 0,
+      stale30dPlus: 0,
       total: displayRows.length,
     };
 
@@ -813,10 +828,14 @@ export default function Monitoring() {
       if (critical) base.critical += 1;
 
       if (!online && Number.isFinite(staleness)) {
+        if (staleness >= 0 && staleness < 60) base.stale0to1 += 1;
         if (staleness >= 60 && staleness < 360) base.stale1to6 += 1;
-        if (staleness >= 360 && staleness < 1440) base.stale6to24 += 1;
-        if (staleness >= 1440) base.stale24 += 1;
-        if (staleness >= 14400) base.stale10d += 1;
+        if (staleness >= 360 && staleness < 720) base.stale6to12 += 1;
+        if (staleness >= 720 && staleness < 1440) base.stale12to24 += 1;
+        if (staleness >= 1440 && staleness < 4320) base.stale24to72 += 1;
+        if (staleness >= 4320 && staleness < 14400) base.stale72to10d += 1;
+        if (staleness >= 14400 && staleness < 43200) base.stale10dto30d += 1;
+        if (staleness >= 43200) base.stale30dPlus += 1;
       }
     });
 
