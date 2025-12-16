@@ -37,14 +37,6 @@ function toFiniteNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function clampLatitude(lat) {
-  return Math.min(90, Math.max(-90, lat));
-}
-
-function clampLongitude(lng) {
-  return Math.min(180, Math.max(-180, lng));
-}
-
 function isValidLatLng(lat, lng) {
   const normalizedLat = toFiniteNumber(lat);
   const normalizedLng = toFiniteNumber(lng);
@@ -59,7 +51,8 @@ function normalizeLatLng(point) {
   const lat = toFiniteNumber(rawLat);
   const lng = toFiniteNumber(rawLng);
   if (lat === null || lng === null) return null;
-  return { lat: clampLatitude(lat), lng: clampLongitude(lng) };
+  if (!isValidLatLng(lat, lng)) return null;
+  return { lat, lng };
 }
 
 function parseDate(value) {
@@ -277,6 +270,9 @@ function ReplayMap({
   const resolvedSubdomains = tileLayer.subdomains ?? "abc";
   const normalizedAnimatedPoint = useMemo(() => normalizeLatLng(animatedPoint), [animatedPoint]);
   const normalizedActivePoint = useMemo(() => normalizeLatLng(activePoint), [activePoint]);
+  const animatedMarkerPosition = normalizedAnimatedPoint
+    ? [normalizedAnimatedPoint.lat, normalizedAnimatedPoint.lng]
+    : null;
   const initialCenter = useMemo(() => {
     if (normalizedAnimatedPoint) return [normalizedAnimatedPoint.lat, normalizedAnimatedPoint.lng];
     if (normalizedActivePoint) return [normalizedActivePoint.lat, normalizedActivePoint.lng];
@@ -313,7 +309,7 @@ function ReplayMap({
               />
             ))
           : null}
-        {animatedPoint ? <Marker position={[animatedPoint.lat, animatedPoint.lng]} icon={vehicleIcon} /> : null}
+        {animatedMarkerPosition ? <Marker position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
         <MapResizeHandler />
       </MapContainer>
@@ -324,22 +320,54 @@ function ReplayMap({
 function MapFocus({ point }) {
   const map = useMap();
   const lastViewRef = useRef(null);
+  const retryRef = useRef(null);
+  const attemptsRef = useRef(0);
+
   useEffect(() => {
-    if (!map) return;
+    if (!map) return undefined;
 
-    const normalized = normalizeLatLng(point);
+    let cancelled = false;
 
-    const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
-    const zoom = normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
-    const key = `${target[0]},${target[1]},${zoom}`;
+    const clearRetry = () => {
+      if (retryRef.current) {
+        clearTimeout(retryRef.current);
+        retryRef.current = null;
+      }
+    };
 
+    const applyView = () => {
+      if (cancelled) return;
+      const normalized = normalizeLatLng(point);
+      const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
+      const zoom = normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
+      const key = `${target[0]},${target[1]},${zoom}`;
 
-    if (lastViewRef.current === key) return;
+      if (lastViewRef.current === key) return;
 
-    lastViewRef.current = key;
+      const size = map.getSize();
+      if (size.x === 0 || size.y === 0) {
+        clearRetry();
+        if (attemptsRef.current >= 5) return;
+        attemptsRef.current += 1;
+        retryRef.current = setTimeout(() => {
+          if (cancelled) return;
+          map.invalidateSize();
+          applyView();
+        }, 180);
+        return;
+      }
 
-    map.setView(target, zoom, { animate: Boolean(normalized) });
+      attemptsRef.current = 0;
+      lastViewRef.current = key;
+      map.setView(target, zoom, { animate: false });
+    };
 
+    map.whenReady(applyView);
+
+    return () => {
+      cancelled = true;
+      clearRetry();
+    };
   }, [map, point]);
   return null;
 }
@@ -349,17 +377,18 @@ function MapResizeHandler() {
   const timeoutRef = useRef(null);
 
   useEffect(() => {
-    timeoutRef.current = setTimeout(() => map.invalidateSize(), 200);
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    };
-  }, [map]);
+    if (!map) return undefined;
 
-  useEffect(() => {
-    const handleResize = () => {
+    const scheduleInvalidate = (delay = 200) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => map.invalidateSize(), 200);
+      timeoutRef.current = setTimeout(() => {
+        map.whenReady(() => map.invalidateSize());
+      }, delay);
     };
+
+    scheduleInvalidate(200);
+
+    const handleResize = () => scheduleInvalidate(250);
 
     window.addEventListener("resize", handleResize);
     return () => {
