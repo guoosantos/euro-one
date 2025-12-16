@@ -241,6 +241,7 @@ function ReplayMap({
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
   const vehicleIcon = useMemo(() => buildVehicleIcon(animatedPoint?.heading || 0), [animatedPoint?.heading]);
   const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
+  const resolvedSubdomains = tileLayer.subdomains ?? "abc";
 
   return (
     <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
@@ -253,7 +254,7 @@ function ReplayMap({
           key={tileLayer.key}
           attribution={tileLayer.attribution}
           url={tileLayer.url}
-          subdomains={tileLayer.subdomains}
+          subdomains={resolvedSubdomains}
           maxZoom={tileLayer.maxZoom}
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
