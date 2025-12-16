@@ -125,6 +125,7 @@ export default function Sidebar() {
   const activeStyle = linkStyle(accentColor);
   const canManageUsers = role === "admin" || role === "manager";
   const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
+  const linkIconSize = collapsed ? 22 : 18;
   const navLabelProps = (label) => ({
     title: label,
     ...(collapsed ? { "aria-label": label } : {}),
@@ -216,8 +217,8 @@ export default function Sidebar() {
     { to: "/reports/summary", label: "Detalhado", icon: FileBarChart },
     { to: "/reports/stops", label: "Deslocamento e Parada", icon: Route },
     { to: "/reports/trips", label: "Trajetos", icon: Navigation },
-    { to: "/reports/route", label: "Km Percorrido", icon: Layers },
-    { to: "/reports/route", label: "Velocidade", icon: Gauge },
+    { key: "reports-route-distance", to: "/reports/route", label: "Km Percorrido", icon: Layers },
+    { key: "reports-route-speed", to: "/reports/route", label: "Velocidade", icon: Gauge },
   ];
 
   const analysisLinks = [
@@ -296,13 +297,13 @@ export default function Sidebar() {
 
   const renderNavLink = (link) => (
     <NavLink
-      key={link.to}
+      key={link.key ?? link.to}
       to={link.to}
       className={navLinkClass}
       style={activeStyle}
       {...navLabelProps(link.label)}
     >
-      <link.icon size={18} />
+      <link.icon size={linkIconSize} />
       <span className={labelVisibilityClass}>{link.label}</span>
     </NavLink>
   );
@@ -326,7 +327,7 @@ export default function Sidebar() {
             aria-expanded={isOpen}
           >
             <span className="flex items-center gap-2">
-              <item.icon size={18} />
+              <item.icon size={linkIconSize} />
               <span className={labelVisibilityClass}>{item.label}</span>
             </span>
             <span className="text-white/60">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
@@ -357,6 +358,7 @@ export default function Sidebar() {
     const isOpen = openSections[section.key] !== false;
     const Icon = sidebarGroupIcons[section.key];
     const showIconOnly = collapsed && Icon;
+    const sectionIconSize = collapsed ? 20 : 16;
 
     const handleSectionClick = () => {
       if (collapsed) {
@@ -383,7 +385,7 @@ export default function Sidebar() {
           <span className="flex flex-1 items-center gap-2">
             {Icon && (
               <Icon
-                size={16}
+                size={sectionIconSize}
                 aria-hidden
                 className={collapsed ? "mx-auto" : "text-white/70"}
               />

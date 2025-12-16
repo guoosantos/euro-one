@@ -10,6 +10,7 @@ import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import Card from "../ui/Card.jsx";
+import DataState from "../ui/DataState.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
 
 const COMMUNICATION_BUCKETS = [
@@ -269,7 +270,9 @@ export default function Home() {
       className={expanded ? "xl:col-span-2" : ""}
     >
       {criticalByVehicle.length === 0 ? (
-        <TableStateRow colSpan={1} state="empty" tone="muted" title="Nenhum veículo crítico" />
+        <div className="py-6">
+          <DataState state="empty" tone="muted" title="Nenhum veículo crítico" />
+        </div>
       ) : (
         <div className="space-y-3">
           {criticalByVehicle.map((group) => (
