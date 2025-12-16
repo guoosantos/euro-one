@@ -33,6 +33,18 @@ const ANIMATION_BASE_MS = 900;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
 
+const TRIP_EVENT_TRANSLATIONS = {
+  "position registered": "Posição registrada",
+  position: "Posição registrada",
+  overspeed: "Excesso de velocidade",
+  "harsh braking": "Frenagem brusca",
+  "harsh-braking": "Frenagem brusca",
+  "harsh acceleration": "Aceleração brusca",
+  "harsh-acceleration": "Aceleração brusca",
+  "ignition on": "Ignição ligada",
+  "ignition off": "Ignição desligada",
+};
+
 const TRACCAR_EVENT_DEFINITIONS = {
   "70": { type: "overspeed", label: "Overspeed", icon: "🚀" },
   "69": { type: "harsh-braking", label: "Harsh Braking", icon: "🛑" },
@@ -40,6 +52,13 @@ const TRACCAR_EVENT_DEFINITIONS = {
   "6": { type: "ignition-on", label: "Ignition On", icon: "🔌" },
   "7": { type: "ignition-off", label: "Ignition Off", icon: "⏻" },
 };
+
+function translateTripEvent(eventType) {
+  if (!eventType) return "";
+  const normalized = String(eventType).trim();
+  const simplified = normalized.replace(/[_]+/g, " ").toLowerCase();
+  return TRIP_EVENT_TRANSLATIONS[simplified] || normalized;
+}
 
 function toFiniteNumber(value) {
   const parsed = Number(value);
@@ -221,7 +240,7 @@ function normalizeTripEvent(point) {
   const type = mapped?.type || normalizedEvent.toLowerCase();
   return {
     type,
-    label: mapped?.label || point?.__label || normalizedEvent,
+    label: translateTripEvent(mapped?.label || point?.__label || normalizedEvent),
     icon: mapped?.icon || null,
   };
 }
@@ -245,7 +264,7 @@ function formatPointAddress(point) {
   if (typeof point?.attributes?.rawAddress === "string" && point.attributes.rawAddress.trim()) {
     return point.attributes.rawAddress.trim();
   }
-  return "Endereço indisponível";
+  return "Endereço não disponível";
 }
 
 function validateRange({ deviceId, from, to }) {
@@ -448,9 +467,97 @@ function MapResizeHandler() {
   return null;
 }
 
-function EventPanel({ events = [], selectedType, onSelectType, totalOccurrences }) {
+function TimelineTable({ entries = [], activeIndex, onSelect, locale }) {
+  const rowRefs = useRef(new Map());
+
+  useEffect(() => {
+    rowRefs.current = new Map();
+  }, [entries]);
+
+  useEffect(() => {
+    const activeRow = rowRefs.current.get(activeIndex);
+    if (!activeRow || typeof activeRow.scrollIntoView !== "function") return;
+    activeRow.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
+  }, [activeIndex, entries]);
+
+  if (entries.length === 0) {
+    return (
+      <div className="rounded-md border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+        Nenhum ponto carregado para este trajeto.
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-h-96 overflow-y-auto rounded-lg border border-white/10 bg-white/5">
+      <table className="min-w-full text-xs text-white/80">
+        <thead className="sticky top-0 bg-slate-900/70 backdrop-blur">
+          <tr>
+            <th className="px-3 py-2 text-left font-semibold text-white">Hora</th>
+            <th className="px-3 py-2 text-left font-semibold text-white">Evento</th>
+            <th className="px-3 py-2 text-left font-semibold text-white">Velocidade</th>
+            <th className="px-3 py-2 text-left font-semibold text-white">Endereço/Local</th>
+            <th className="px-3 py-2 text-left font-semibold text-white">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => {
+            const isActive = entry.index === activeIndex;
+            return (
+              <tr
+                key={`${entry.index}-${entry.time?.toISOString?.() ?? entry.index}`}
+                ref={(node) => {
+                  if (node) {
+                    rowRefs.current.set(entry.index, node);
+                  } else {
+                    rowRefs.current.delete(entry.index);
+                  }
+                }}
+                className={`cursor-pointer border-b border-white/5 transition ${
+                  isActive ? "bg-primary/10 text-white" : "hover:bg-white/5"
+                }`}
+                onClick={() => onSelect?.(entry.index)}
+              >
+                <td className="px-3 py-2 whitespace-nowrap text-white/80">
+                  {entry.time ? formatDateTime(entry.time, locale) : "Horário indisponível"}
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-white">{entry.label || "—"}</td>
+                <td className="px-3 py-2 whitespace-nowrap text-white/80">
+                  {entry.speed !== undefined && entry.speed !== null ? `${Math.round(entry.speed)} km/h` : "—"}
+                </td>
+                <td className="px-3 py-2 text-white/70">{entry.address || "Endereço não disponível"}</td>
+                <td className="px-3 py-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSelect?.(entry.index);
+                    }}
+                  >
+                    Ver/Ir
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function EventPanel({
+  events = [],
+  selectedType,
+  onSelectType,
+  totalOccurrences,
+  filterType = "all",
+  totalTimeline = 0,
+}) {
   const hasEvents = events.length > 0;
   const totalCount = Number(totalOccurrences) || 0;
+  const filters = [{ type: "all", label: "Todos", count: totalTimeline }, ...events];
 
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -460,35 +567,60 @@ function EventPanel({ events = [], selectedType, onSelectType, totalOccurrences 
       </div>
 
       {hasEvents ? (
-        <div className="mt-2 max-h-[360px] space-y-2 overflow-y-auto pr-1">
-          {events.map((event) => {
-            const isActive = event.type === selectedType;
-            return (
-              <button
-                key={event.type}
-                type="button"
-                onClick={() => onSelectType?.(event.type)}
-                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-                  isActive
-                    ? "border-primary/60 bg-primary/10 text-white"
-                    : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-base">
-                      {event.icon || "•"}
+        <div className="mt-3 space-y-2">
+          <div className="text-[11px] uppercase tracking-wide text-white/50">Filtros rápidos</div>
+          <div className="flex flex-wrap gap-2">
+            {filters.map((filter) => {
+              const isActive = filterType === filter.type || (!filterType && filter.type === "all");
+              return (
+                <button
+                  key={filter.type}
+                  type="button"
+                  onClick={() => onSelectType?.(filter.type)}
+                  className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs transition ${
+                    isActive
+                      ? "border-primary/60 bg-primary/10 text-white"
+                      : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
+                  }`}
+                >
+                  <span className="font-semibold">{filter.label}</span>
+                  <span className="rounded bg-white/10 px-2 py-[2px] text-[11px] text-white/70">{filter.count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="text-[11px] uppercase tracking-wide text-white/50">Eventos do trajeto</div>
+          <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
+            {events.map((event) => {
+              const isActive = event.type === selectedType;
+              return (
+                <button
+                  key={event.type}
+                  type="button"
+                  onClick={() => onSelectType?.(event.type)}
+                  className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                    isActive
+                      ? "border-primary/60 bg-primary/10 text-white"
+                      : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-base">
+                        {event.icon || "•"}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-semibold">{event.label}</span>
+                        <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col">
-                      <span className="font-semibold">{event.label}</span>
-                      <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
-                    </div>
+                    <span className="text-sm font-semibold text-white">({event.count})</span>
                   </div>
-                  <span className="text-sm font-semibold text-white">({event.count})</span>
-                </div>
-              </button>
-            );
-          })}
+                </button>
+              );
+            })}
+          </div>
         </div>
       ) : (
         <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/60">
@@ -526,6 +658,7 @@ export default function Trips() {
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [selectedEventType, setSelectedEventType] = useState(null);
   const [eventCursor, setEventCursor] = useState(0);
+  const [timelineFilter, setTimelineFilter] = useState("all");
   const [animatedPoint, setAnimatedPoint] = useState(null);
   const animationRef = useRef(null);
 
@@ -551,6 +684,15 @@ export default function Trips() {
         if (!coords) return null;
 
         const mappedEvent = normalizeTripEvent(point);
+        const translatedLabel = translateTripEvent(
+          mappedEvent?.label ||
+            point.event ||
+            point.type ||
+            point.attributes?.event ||
+            point.attributes?.alarm ||
+            point.attributes?.status ||
+            "Posição registrada",
+        );
 
         return {
           ...point,
@@ -559,14 +701,7 @@ export default function Trips() {
           __severity: normalizeSeverityFromPoint(point),
           __address: formatPointAddress(point),
           __speed: pickSpeed(point),
-          __label:
-            mappedEvent?.label ||
-            point.event ||
-            point.type ||
-            point.attributes?.event ||
-            point.attributes?.alarm ||
-            point.attributes?.status ||
-            "Posição registrada",
+          __label: translatedLabel,
           __event: mappedEvent,
           __index: index,
         };
@@ -621,11 +756,20 @@ export default function Trips() {
         index,
         time: point.__time,
         label: point.__label,
+        eventType: point.__event?.type || null,
         severity: point.__severity,
         address: point.__address,
         speed: point.__speed,
       })),
     [routePoints],
+  );
+
+  const filteredTimelineEntries = useMemo(
+    () =>
+      timelineFilter === "all"
+        ? timelineEntries
+        : timelineEntries.filter((entry) => entry.eventType === timelineFilter),
+    [timelineEntries, timelineFilter],
   );
 
   const tripEvents = useMemo(
@@ -642,11 +786,7 @@ export default function Trips() {
 
   const eventSummaries = useMemo(() => {
     const accumulator = new Map();
-    const normalizeLabel = (value) => {
-      if (typeof value === "string") return value;
-      if (value === null || value === undefined) return "";
-      return String(value);
-    };
+    const normalizeLabel = (value) => translateTripEvent(typeof value === "string" ? value : value ?? "");
 
     tripEvents.forEach((event) => {
       if (!accumulator.has(event.type)) {
@@ -671,6 +811,12 @@ export default function Trips() {
         return b.count - a.count || labelA.localeCompare(labelB, "pt-BR");
       });
   }, [tripEvents]);
+
+  const activeFilterLabel = useMemo(() => {
+    if (timelineFilter === "all") return "Todos";
+    const summary = eventSummaries.find((item) => item.type === timelineFilter);
+    return summary?.label || translateTripEvent(timelineFilter);
+  }, [eventSummaries, timelineFilter]);
 
   const activeEvent = useMemo(() => tripEvents.find((event) => event.index === activeIndex) || null, [activeIndex, tripEvents]);
   const selectedEventSummary = useMemo(
@@ -701,6 +847,7 @@ export default function Trips() {
     setIsPlaying(false);
     setSelectedEventType(null);
     setEventCursor(0);
+    setTimelineFilter("all");
   }, [routePoints]);
 
   useEffect(() => {
@@ -890,10 +1037,17 @@ export default function Trips() {
 
   const handleSelectEventType = useCallback(
     (eventType) => {
+      if (!eventType || eventType === "all") {
+        setSelectedEventType(null);
+        setTimelineFilter("all");
+        setEventCursor(0);
+        return;
+      }
       const summary = eventSummaries.find((item) => item.type === eventType);
       if (!summary) return;
       const nextCursor = selectedEventType === eventType ? (eventCursor + 1) % summary.occurrences.length : 0;
       setSelectedEventType(eventType);
+      setTimelineFilter(eventType);
       setEventCursor(nextCursor);
       handleSelectPoint(summary.occurrences[nextCursor]);
     },
@@ -1159,6 +1313,8 @@ export default function Trips() {
                 selectedType={selectedEventType}
                 onSelectType={handleSelectEventType}
                 totalOccurrences={totalEvents}
+                filterType={timelineFilter}
+                totalTimeline={timelineEntries.length}
               />
             </div>
 
@@ -1216,25 +1372,17 @@ export default function Trips() {
               <div className="lg:col-span-2 rounded-lg border border-white/10 bg-white/5 p-3">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="text-sm font-semibold text-white">Linha do tempo de auditoria</div>
-                  <div className="text-xs text-white/60">{timelineEntries.length} registros</div>
+                  <div className="text-xs text-white/60">
+                    {filteredTimelineEntries.length} registro(s)
+                    {timelineFilter !== "all" ? ` — filtrando ${activeFilterLabel}` : ""}
+                  </div>
                 </div>
-                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
-                  {timelineEntries.length === 0 ? (
-                    <div className="rounded-md border border-white/10 bg-white/5 p-3 text-sm text-white/60">
-                      Nenhum ponto carregado para este trajeto.
-                    </div>
-                  ) : (
-                    timelineEntries.map((entry) => (
-                      <TimelineItem
-                        key={`${entry.index}-${entry.time?.toISOString?.() ?? entry.index}`}
-                        entry={entry}
-                        active={entry.index === activeIndex}
-                        onSelect={handleSelectPoint}
-                        locale={locale}
-                      />
-                    ))
-                  )}
-                </div>
+                <TimelineTable
+                  entries={filteredTimelineEntries}
+                  activeIndex={activeIndex}
+                  onSelect={handleSelectPoint}
+                  locale={locale}
+                />
               </div>
               {summary ? (
                 <div className="space-y-3">
@@ -1268,54 +1416,3 @@ export default function Trips() {
   );
 }
 
-function TimelineItem({ entry, active, onSelect, locale }) {
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect?.(entry.index)}
-      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
-        active
-          ? "border-primary/60 bg-primary/10 text-white"
-          : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="text-xs text-white/60">{entry.time ? formatDateTime(entry.time, locale) : "Horário indisponível"}</div>
-          <div className="font-semibold text-white">{entry.label}</div>
-          <div className="text-xs text-white/60">{entry.address}</div>
-        </div>
-        <div className="flex flex-col items-end gap-1 text-xs text-white/60">
-          <SeverityPill severity={entry.severity} />
-          <div className="rounded bg-white/10 px-2 py-1 text-[11px] text-white/70">
-            Vel.: {entry.speed !== undefined && entry.speed !== null ? `${Math.round(entry.speed)} km/h` : "—"}
-          </div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function SeverityPill({ severity }) {
-  const palette = {
-    critical: "bg-red-500/20 text-red-200 border-red-500/40",
-    high: "bg-red-500/20 text-red-200 border-red-500/40",
-    medium: "bg-yellow-500/20 text-yellow-200 border-yellow-500/40",
-    low: "bg-green-500/20 text-green-200 border-green-500/40",
-    info: "bg-blue-500/20 text-blue-200 border-blue-500/40",
-    normal: "bg-white/10 text-white/70 border-white/20",
-  };
-
-  const label =
-    severity === "critical"
-      ? "Crítico"
-      : severity === "high"
-        ? "Alto"
-        : severity === "medium"
-          ? "Médio"
-          : severity === "low"
-            ? "Baixo"
-            : "Info";
-
-  return <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${palette[severity] ?? palette.normal}`}>{label}</span>;
-}
