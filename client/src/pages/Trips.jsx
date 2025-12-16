@@ -491,7 +491,11 @@ export default function Trips() {
 
     return Array.from(accumulator.values())
       .map((item) => ({ ...item, count: item.occurrences.length }))
-      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+      .sort((a, b) => {
+        const labelA = String(a?.label ?? "");
+        const labelB = String(b?.label ?? "");
+        return b.count - a.count || labelA.localeCompare(labelB, "pt-BR");
+      });
   }, [tripEvents]);
 
   const activeEvent = useMemo(() => tripEvents.find((event) => event.index === activeIndex) || null, [activeIndex, tripEvents]);

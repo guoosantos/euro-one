@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
 import {
@@ -37,6 +37,8 @@ import {
   NotebookPen,
 } from "lucide-react";
 
+import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
+
 import { useTenant } from "../lib/tenant-context";
 import { useUI } from "../lib/store";
 
@@ -44,13 +46,12 @@ import { useUI } from "../lib/store";
 // collapsible section headers without changing the top fixed block.
 
 const ACCENT_FALLBACK = "#39bdf8";
-const SECTION_STATE_KEY = "sidebar.sections.state";
 const DEFAULT_SECTIONS_OPEN = {
-  negocios: true,
-  principais: true,
-  frotas: true,
-  telemetria: true,
-  administracao: true,
+  negocios: false,
+  principais: false,
+  frotas: false,
+  telemetria: false,
+  administracao: false,
 };
 
 function toRgba(color, alpha = 1) {
@@ -96,6 +97,7 @@ const linkStyle =
 export default function Sidebar() {
   const collapsed = useUI((state) => state.sidebarCollapsed);
   const toggleCollapsed = useUI((state) => state.toggleSidebarCollapsed);
+  const setSidebarCollapsed = useUI((state) => state.setSidebarCollapsed);
   const [openProfile, setOpenProfile] = useState(false);
   const [openSections, setOpenSections] = useState(DEFAULT_SECTIONS_OPEN);
   const [openSubmenus, setOpenSubmenus] = useState({
@@ -120,23 +122,6 @@ export default function Sidebar() {
     title: label,
     ...(collapsed ? { "aria-label": label } : {}),
   });
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(localStorage.getItem(SECTION_STATE_KEY) || "{}");
-      setOpenSections({ ...DEFAULT_SECTIONS_OPEN, ...stored });
-    } catch (_error) {
-      setOpenSections(DEFAULT_SECTIONS_OPEN);
-    }
-  }, []);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(openSections));
-    } catch (_error) {
-      // ignore persistence failures
-    }
-  }, [openSections]);
 
   const toggleSection = (key) => {
     setOpenSections((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
@@ -358,19 +343,42 @@ export default function Sidebar() {
 
   const renderSection = (section) => {
     const isOpen = openSections[section.key] !== false;
+    const Icon = sidebarGroupIcons[section.key];
+    const showIconOnly = collapsed && Icon;
+
+    const handleSectionClick = () => {
+      if (collapsed) {
+        setSidebarCollapsed(false);
+        return;
+      }
+      toggleSection(section.key);
+    };
+
     return (
       <div key={section.key} className="space-y-2">
         <button
           type="button"
-          onClick={() => toggleSection(section.key)}
+          onClick={handleSectionClick}
           aria-expanded={isOpen}
           aria-label={`Alternar seção ${section.title}`}
+          title={collapsed ? section.title : undefined}
           className="flex w-full items-center justify-between rounded-lg px-2 text-[11px] font-semibold uppercase tracking-wide text-white/60 hover:text-white"
         >
-          <span className={collapsed ? "sr-only" : ""}>{section.title}</span>
-          <span aria-hidden className="text-white/60">
-            {isOpen ? "▾" : "▸"}
+          <span className="flex flex-1 items-center gap-2">
+            {Icon && (
+              <Icon
+                size={16}
+                aria-hidden
+                className={collapsed ? "mx-auto" : "text-white/70"}
+              />
+            )}
+            {!showIconOnly && <span>{section.title}</span>}
           </span>
+          {!collapsed && (
+            <span aria-hidden className="text-white/60">
+              {isOpen ? "▾" : "▸"}
+            </span>
+          )}
         </button>
 
         <AnimatePresence initial={false}>
