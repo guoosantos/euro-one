@@ -13,13 +13,13 @@ import Card from "../ui/Card.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
 
 const COMMUNICATION_BUCKETS = [
-  { key: "stale_0_1", label: "0-1h", minMinutes: 0, maxMinutes: 60 },
-  { key: "stale_1_6", label: "1-6h", minMinutes: 60, maxMinutes: 360 },
-  { key: "stale_6_12", label: "6-12h", minMinutes: 360, maxMinutes: 720 },
-  { key: "stale_12_24", label: "12-24h", minMinutes: 720, maxMinutes: 1440 },
-  { key: "stale_24_72", label: "24-72h", minMinutes: 1440, maxMinutes: 4320 },
-  { key: "stale_72_10d", label: "72h-10d", minMinutes: 4320, maxMinutes: 14400 },
-  { key: "stale_10d_30d", label: "10-30d", minMinutes: 14400, maxMinutes: 43200 },
+  { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
+  { key: "stale_1_6", label: "1–6h", minMinutes: 60, maxMinutes: 360 },
+  { key: "stale_6_12", label: "6–12h", minMinutes: 360, maxMinutes: 720 },
+  { key: "stale_12_24", label: "12–24h", minMinutes: 720, maxMinutes: 1440 },
+  { key: "stale_24_72", label: "24–72h", minMinutes: 1440, maxMinutes: 4320 },
+  { key: "stale_72_10d", label: "72h–10d", minMinutes: 4320, maxMinutes: 14400 },
+  { key: "stale_10d_30d", label: "10–30d", minMinutes: 14400, maxMinutes: 43200 },
   { key: "stale_30d_plus", label: "30+d", minMinutes: 43200, maxMinutes: Infinity },
 ];
 
@@ -61,17 +61,41 @@ export default function Home() {
 
   const criticalByVehicle = useMemo(() => {
     const grouped = new Map();
+    const windowMs = 3 * 60 * 60 * 1000;
+
     for (const event of highSeverityEvents) {
       const deviceKey = String(event.deviceId ?? event.device?.id ?? event.device?.deviceId ?? event.id ?? "");
-      if (!deviceKey) continue;
-      const existing = grouped.get(deviceKey) ?? { count: 0, events: [], deviceId: deviceKey, deviceName: event.deviceName };
-      grouped.set(deviceKey, {
-        ...existing,
-        count: existing.count + 1,
-        events: [...existing.events, event].sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0)),
-      });
+      if (!deviceKey || !event.__time) continue;
+      const existing = grouped.get(deviceKey) ?? [];
+      grouped.set(deviceKey, [...existing, event]);
     }
-    return Array.from(grouped.values()).filter((item) => item.count >= 2);
+
+    return Array.from(grouped.entries())
+      .map(([deviceId, events]) => {
+        const sorted = [...events].sort((a, b) => new Date(a.__time || 0) - new Date(b.__time || 0));
+        const clusters = [];
+        for (let i = 0; i < sorted.length; i += 1) {
+          const cluster = [sorted[i]];
+          for (let j = i + 1; j < sorted.length; j += 1) {
+            if (new Date(sorted[j].__time || 0) - new Date(sorted[i].__time || 0) <= windowMs) {
+              cluster.push(sorted[j]);
+            } else {
+              break;
+            }
+          }
+          if (cluster.length >= 2) clusters.push(cluster);
+        }
+
+        const largestCluster = clusters.sort((a, b) => b.length - a.length)[0];
+        if (!largestCluster) return null;
+        return {
+          deviceId,
+          deviceName: largestCluster[0]?.deviceName,
+          count: largestCluster.length,
+          events: largestCluster.sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0)),
+        };
+      })
+      .filter(Boolean);
   }, [highSeverityEvents]);
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -105,9 +129,7 @@ export default function Home() {
                 onClick={() => window.open(`/monitoring?filter=${bucket.filterKey}`, "_blank")}
               >
                 <td className="py-2 pr-4 text-white/80">{bucket.label}</td>
-                <td className="py-2 pr-4 text-white">
-                  {bucket.vehicles.length === 0 ? "Nenhum veículo" : bucket.vehicles.length}
-                </td>
+                <td className="py-2 pr-4 text-white">{bucket.vehicles.length === 0 ? "No vehicles" : bucket.vehicles.length}</td>
               </tr>
             ))}
           </tbody>
@@ -128,22 +150,58 @@ export default function Home() {
       className={expanded ? "xl:col-span-2" : ""}
     >
       <div className={`grid gap-3 ${expanded ? "md:grid-cols-3" : "md:grid-cols-2"}`}>
-        <Metric label="Com rota embarcada" value={routeMetrics.totalWithRoute} onClick={() => navigate("/monitoring")} />
-        <Metric label="Sem sinal" value={routeMetrics.withoutSignal} onClick={() => navigate("/monitoring?filter=stale")} />
-        <Metric label="Com sinal" value={routeMetrics.withSignal} onClick={() => navigate("/monitoring?filter=online")} />
-        <Metric label="Bloqueados" value={routeMetrics.blocked.total} onClick={() => navigate("/monitoring")} />
-        <Metric label="Bloqueado (Jammer)" value={routeMetrics.blocked.jammer} />
-        <Metric label="Bloqueado (Violação)" value={routeMetrics.blocked.violation} />
-        <Metric label="Bloqueado (Reconhecimento facial)" value={routeMetrics.blocked.face} />
-        <Metric label="Desvio de rota" value={routeMetrics.routeDeviation} />
-        <Metric label="Atraso na rota" value={routeMetrics.routeDelay} />
+        <Metric
+          label="Com rota embarcada"
+          value={routeMetrics.totalWithRoute}
+          onClick={() => window.open("/monitoring?routeFilter=active", "_blank")}
+        />
+        <Metric
+          label="Com sinal + rota"
+          value={routeMetrics.withSignal}
+          onClick={() => window.open("/monitoring?routeFilter=with_signal", "_blank")}
+        />
+        <Metric
+          label="Sem sinal + rota"
+          value={routeMetrics.withoutSignal}
+          onClick={() => window.open("/monitoring?routeFilter=without_signal", "_blank")}
+        />
+        <Metric
+          label="Bloqueados + rota"
+          value={routeMetrics.blocked.total}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=blocked", "_blank")}
+        />
+        <Metric
+          label="Bloqueado (Jammer)"
+          value={routeMetrics.blocked.jammer}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=jammer", "_blank")}
+        />
+        <Metric
+          label="Bloqueado (Violação)"
+          value={routeMetrics.blocked.violation}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=violation", "_blank")}
+        />
+        <Metric
+          label="Bloqueado (Reconhecimento facial)"
+          value={routeMetrics.blocked.face}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=face", "_blank")}
+        />
+        <Metric
+          label="Desvio de rota"
+          value={routeMetrics.routeDeviation}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDeviation", "_blank")}
+        />
+        <Metric
+          label="Atraso na rota"
+          value={routeMetrics.routeDelay}
+          onClick={() => window.open("/monitoring?routeFilter=active&securityFilter=routeDelay", "_blank")}
+        />
       </div>
     </Card>
   );
 
   const renderAlertSummary = (expanded = false) => (
     <Card
-      title="Eventos recentes"
+      title="Eventos em alerta"
       subtitle={telemetryFetchedAt ? `Atualizado às ${new Date(telemetryFetchedAt).toLocaleTimeString(locale)}` : "Sincronizando"}
       actions={
         <Link to="/events?severity=critical" className="text-xs font-semibold text-primary">
@@ -202,7 +260,7 @@ export default function Home() {
   const renderCriticalSummary = (expanded = false) => (
     <Card
       title="Eventos críticos"
-      subtitle="Veículos com múltiplos eventos graves"
+      subtitle="Veículos com 2+ alertas graves em curto intervalo"
       actions={expanded ? (
         <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
           Fechar

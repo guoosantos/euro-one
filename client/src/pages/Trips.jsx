@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { MapContainer, Marker, Polyline, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -61,6 +61,49 @@ function formatSpeed(value) {
   return `${Math.round(value)} km/h`;
 }
 
+function normalizeSeverityFromPoint(point) {
+  const raw = point?.alarm ?? point?.attributes?.alarm ?? point?.event ?? point?.attributes?.event ?? point?.type ?? "normal";
+  const normalized = String(raw).toLowerCase();
+  if (normalized.includes("crit")) return "critical";
+  if (normalized.includes("high") || normalized.includes("alto") || normalized.includes("alerta")) return "high";
+  if (normalized.includes("low") || normalized.includes("baixo")) return "low";
+  if (normalized.includes("info")) return "info";
+  return "normal";
+}
+
+function formatPointAddress(point) {
+  if (typeof point?.address === "string" && point.address.trim()) return point.address.trim();
+  if (typeof point?.attributes?.address === "string" && point.attributes.address.trim()) return point.attributes.address.trim();
+  if (typeof point?.attributes?.formattedAddress === "string" && point.attributes.formattedAddress.trim()) {
+    return point.attributes.formattedAddress.trim();
+  }
+  if (typeof point?.attributes?.rawAddress === "string" && point.attributes.rawAddress.trim()) {
+    return point.attributes.rawAddress.trim();
+  }
+  return "Endereço indisponível";
+}
+
+function buildEventIcon(severity = "normal", active = false) {
+  const palette = {
+    critical: "#ef4444",
+    high: "#ef4444",
+    medium: "#f59e0b",
+    low: "#10b981",
+    info: "#3b82f6",
+    normal: "#94a3b8",
+  };
+  const color = palette[severity] || palette.normal;
+  const ring = active ? `box-shadow:0 0 0 6px rgba(34,197,94,0.25);` : "";
+  return L.divIcon({
+    className: "audit-marker",
+    html: `
+      <div style="${ring}display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:10px;background:${color};border:2px solid rgba(255,255,255,0.85);"></div>
+    `,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
+}
+
 function validateRange({ deviceId, from, to }) {
   if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
   const fromDate = parseDate(from);
@@ -70,15 +113,13 @@ function validateRange({ deviceId, from, to }) {
   return null;
 }
 
-function ReplayMap({ points, activeIndex }) {
+function ReplayMap({ points, activeIndex, onSelectIndex }) {
   const routePoints = useMemo(
     () =>
       points
-        .map((point) => {
-          const lat = pickCoordinate([point.latitude, point.lat, point.lat_deg]);
-          const lng = pickCoordinate([point.longitude, point.lon, point.lng]);
-          if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-          return { ...point, lat, lng };
+        .map((point, index) => {
+          if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+          return { ...point, index };
         })
         .filter(Boolean),
     [points],
@@ -96,10 +137,30 @@ function ReplayMap({ points, activeIndex }) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
+        {routePoints.map((point) => (
+          <Marker
+            key={`${point.lat}-${point.lng}-${point.index}`}
+            position={[point.lat, point.lng]}
+            icon={buildEventIcon(point.__severity, point.index === activeIndex)}
+            eventHandlers={{ click: () => onSelectIndex?.(point.index) }}
+          />
+        ))}
         {activePoint ? <Marker position={[activePoint.lat, activePoint.lng]} icon={replayMarkerIcon} /> : null}
+        <MapFocus point={activePoint} />
       </MapContainer>
     </div>
   );
+}
+
+function MapFocus({ point }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!point) return;
+    if (Number.isFinite(point.lat) && Number.isFinite(point.lng)) {
+      map.setView([point.lat, point.lng], DEFAULT_ZOOM, { animate: true });
+    }
+  }, [map, point]);
+  return null;
 }
 
 export default function Trips() {
@@ -138,42 +199,72 @@ export default function Trips() {
       : Array.isArray(routeData?.data)
         ? routeData.data
         : [];
-    return positions;
+
+    const normalized = positions
+      .map((point, index) => {
+        const lat = pickCoordinate([point.latitude, point.lat, point.lat_deg]);
+        const lng = pickCoordinate([point.longitude, point.lon, point.lng]);
+        const time = parseDate(point.fixTime || point.deviceTime || point.serverTime || point.time);
+        return {
+          ...point,
+          lat,
+          lng,
+          __time: time,
+          __severity: normalizeSeverityFromPoint(point),
+          __address: formatPointAddress(point),
+          __speed: pickSpeed(point),
+          __label:
+            point.event ||
+            point.type ||
+            point.attributes?.event ||
+            point.attributes?.alarm ||
+            point.attributes?.status ||
+            "Posição registrada",
+          __index: index,
+        };
+      })
+      .filter((point) => point.__time || (Number.isFinite(point.lat) && Number.isFinite(point.lng)));
+
+    const sorted = normalized.sort((a, b) => {
+      const aTime = a.__time ? a.__time.getTime() : 0;
+      const bTime = b.__time ? b.__time.getTime() : 0;
+      if (aTime === bTime) return a.__index - b.__index;
+      return aTime - bTime;
+    });
+
+    return sorted.map((point, index) => ({ ...point, index }));
   }, [routeData]);
 
-  const activePoint = useMemo(() => {
-    const points = Array.isArray(routePoints) ? routePoints : [];
-    const resolved = points[activeIndex] || points[0];
-    if (!resolved) return null;
-    const lat = pickCoordinate([resolved.latitude, resolved.lat, resolved.lat_deg]);
-    const lng = pickCoordinate([resolved.longitude, resolved.lon, resolved.lng]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return { ...resolved, lat, lng };
-  }, [activeIndex, routePoints]);
+  const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
 
-  const totalPoints = Array.isArray(routePoints) ? routePoints.length : 0;
+  const totalPoints = routePoints.length;
   const timelineMax = Math.max(totalPoints - 1, 0);
 
   const summary = useMemo(() => {
-    if (!Array.isArray(routePoints) || !routePoints.length) return null;
-    const validPoints = routePoints
-      .map((point) => ({
-        ...point,
-        time: Date.parse(point.fixTime || point.deviceTime || point.serverTime || point.time || 0),
-      }))
-      .filter((point) => Number.isFinite(point.time));
+    if (!routePoints.length) return null;
+    const validPoints = routePoints.filter((point) => point.__time instanceof Date);
     if (!validPoints.length) return null;
-    const sorted = [...validPoints].sort((a, b) => a.time - b.time);
-    const speeds = routePoints
-      .map((point) => pickSpeed(point))
-      .filter((value) => value !== null && Number.isFinite(value));
+    const speeds = routePoints.map((point) => point.__speed).filter((value) => value !== null && Number.isFinite(value));
     return {
-      start: sorted[0]?.time ? new Date(sorted[0].time) : null,
-      end: sorted[sorted.length - 1]?.time ? new Date(sorted[sorted.length - 1].time) : null,
+      start: validPoints[0]?.__time ?? null,
+      end: validPoints[validPoints.length - 1]?.__time ?? null,
       averageSpeed: speeds.length ? Math.round(speeds.reduce((acc, value) => acc + value, 0) / speeds.length) : null,
       maxSpeed: speeds.length ? Math.max(...speeds) : null,
     };
   }, [routePoints]);
+
+  const timelineEntries = useMemo(
+    () =>
+      routePoints.map((point, index) => ({
+        index,
+        time: point.__time,
+        label: point.__label,
+        severity: point.__severity,
+        address: point.__address,
+        speed: point.__speed,
+      })),
+    [routePoints],
+  );
 
   useEffect(() => {
     const search = new URLSearchParams(location.search || "");
@@ -302,6 +393,11 @@ export default function Trips() {
     },
     [loadRouteForTrip],
   );
+
+  const handleSelectPoint = useCallback((nextIndex) => {
+    setIsPlaying(false);
+    setActiveIndex(nextIndex);
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -442,9 +538,7 @@ export default function Trips() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="text-sm font-semibold text-white">Reprodução do trajeto selecionado</div>
-            <div className="text-xs text-white/60">
-              {totalPoints ? `${totalPoints} pontos carregados` : "Selecione um trajeto para visualizar."}
-            </div>
+            <div className="text-xs text-white/60">{totalPoints ? `${totalPoints} pontos carregados` : "Selecione um trajeto para visualizar."}</div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
@@ -482,7 +576,7 @@ export default function Trips() {
         {totalPoints ? (
           <>
             <div className="mt-4">
-              <ReplayMap points={routePoints} activeIndex={activeIndex} />
+              <ReplayMap points={routePoints} activeIndex={activeIndex} onSelectIndex={handleSelectPoint} />
             </div>
 
             <div className="mt-4 space-y-3">
@@ -492,18 +586,16 @@ export default function Trips() {
                     <span className="text-white/50">Ponto atual:</span>
                     <span className="ml-1 text-white">{activeIndex + 1} / {Math.max(totalPoints, 1)}</span>
                   </div>
-                  {activePoint?.speed !== undefined ? (
+                  {activePoint?.__speed !== undefined && activePoint?.__speed !== null ? (
                     <div>
                       <span className="text-white/50">Velocidade:</span>
-                      <span className="ml-1 text-white">{pickSpeed(activePoint)} km/h</span>
+                      <span className="ml-1 text-white">{Math.round(activePoint.__speed)} km/h</span>
                     </div>
                   ) : null}
-                  {activePoint?.fixTime || activePoint?.deviceTime || activePoint?.serverTime ? (
+                  {activePoint?.__time ? (
                     <div>
                       <span className="text-white/50">Horário:</span>
-                      <span className="ml-1 text-white">
-                        {formatDateTime(parseDate(activePoint.fixTime || activePoint.deviceTime || activePoint.serverTime), locale)}
-                      </span>
+                      <span className="ml-1 text-white">{formatDateTime(activePoint.__time, locale)}</span>
                     </div>
                   ) : null}
                 </div>
@@ -511,7 +603,7 @@ export default function Trips() {
                   <button
                     type="button"
                     className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white hover:border-white/30"
-                    onClick={() => setActiveIndex((value) => Math.max(0, value - 1))}
+                    onClick={() => handleSelectPoint(Math.max(0, activeIndex - 1))}
                     disabled={activeIndex <= 0}
                   >
                     Anterior
@@ -519,7 +611,7 @@ export default function Trips() {
                   <button
                     type="button"
                     className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white hover:border-white/30"
-                    onClick={() => setActiveIndex((value) => Math.min(timelineMax, value + 1))}
+                    onClick={() => handleSelectPoint(Math.min(timelineMax, activeIndex + 1))}
                     disabled={activeIndex >= timelineMax}
                   >
                     Próximo
@@ -532,31 +624,56 @@ export default function Trips() {
                 min={0}
                 max={timelineMax}
                 value={Math.min(activeIndex, timelineMax)}
-                onChange={(event) => setActiveIndex(Number(event.target.value))}
+                onChange={(event) => handleSelectPoint(Number(event.target.value))}
                 className="w-full accent-primary"
               />
             </div>
 
-            {summary ? (
-              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                  <div className="text-white/50">Início</div>
-                  <div className="font-semibold text-white">{summary.start ? formatDateTime(summary.start, locale) : "—"}</div>
+            <div className="mt-6 grid gap-4 lg:grid-cols-3">
+              <div className="lg:col-span-2 rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-sm font-semibold text-white">Linha do tempo de auditoria</div>
+                  <div className="text-xs text-white/60">{timelineEntries.length} registros</div>
                 </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                  <div className="text-white/50">Fim</div>
-                  <div className="font-semibold text-white">{summary.end ? formatDateTime(summary.end, locale) : "—"}</div>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                  <div className="text-white/50">Vel. média</div>
-                  <div className="font-semibold text-white">{summary.averageSpeed !== null ? `${summary.averageSpeed} km/h` : "—"}</div>
-                </div>
-                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                  <div className="text-white/50">Vel. máxima</div>
-                  <div className="font-semibold text-white">{summary.maxSpeed !== null ? `${summary.maxSpeed} km/h` : "—"}</div>
+                <div className="max-h-96 space-y-2 overflow-y-auto pr-1">
+                  {timelineEntries.length === 0 ? (
+                    <div className="rounded-md border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+                      Nenhum ponto carregado para este trajeto.
+                    </div>
+                  ) : (
+                    timelineEntries.map((entry) => (
+                      <TimelineItem
+                        key={`${entry.index}-${entry.time?.toISOString?.() ?? entry.index}`}
+                        entry={entry}
+                        active={entry.index === activeIndex}
+                        onSelect={handleSelectPoint}
+                        locale={locale}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
-            ) : null}
+              {summary ? (
+                <div className="space-y-3">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Início</div>
+                    <div className="font-semibold text-white">{summary.start ? formatDateTime(summary.start, locale) : "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Fim</div>
+                    <div className="font-semibold text-white">{summary.end ? formatDateTime(summary.end, locale) : "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Vel. média</div>
+                    <div className="font-semibold text-white">{summary.averageSpeed !== null ? `${summary.averageSpeed} km/h` : "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Vel. máxima</div>
+                    <div className="font-semibold text-white">{summary.maxSpeed !== null ? `${summary.maxSpeed} km/h` : "—"}</div>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </>
         ) : (
           <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-4 text-sm text-white/60">
@@ -566,4 +683,56 @@ export default function Trips() {
       </div>
     </div>
   );
+}
+
+function TimelineItem({ entry, active, onSelect, locale }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect?.(entry.index)}
+      className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+        active
+          ? "border-primary/60 bg-primary/10 text-white"
+          : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <div className="text-xs text-white/60">{entry.time ? formatDateTime(entry.time, locale) : "Horário indisponível"}</div>
+          <div className="font-semibold text-white">{entry.label}</div>
+          <div className="text-xs text-white/60">{entry.address}</div>
+        </div>
+        <div className="flex flex-col items-end gap-1 text-xs text-white/60">
+          <SeverityPill severity={entry.severity} />
+          <div className="rounded bg-white/10 px-2 py-1 text-[11px] text-white/70">
+            Vel.: {entry.speed !== undefined && entry.speed !== null ? `${Math.round(entry.speed)} km/h` : "—"}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function SeverityPill({ severity }) {
+  const palette = {
+    critical: "bg-red-500/20 text-red-200 border-red-500/40",
+    high: "bg-red-500/20 text-red-200 border-red-500/40",
+    medium: "bg-yellow-500/20 text-yellow-200 border-yellow-500/40",
+    low: "bg-green-500/20 text-green-200 border-green-500/40",
+    info: "bg-blue-500/20 text-blue-200 border-blue-500/40",
+    normal: "bg-white/10 text-white/70 border-white/20",
+  };
+
+  const label =
+    severity === "critical"
+      ? "Crítico"
+      : severity === "high"
+        ? "Alto"
+        : severity === "medium"
+          ? "Médio"
+          : severity === "low"
+            ? "Baixo"
+            : "Info";
+
+  return <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${palette[severity] ?? palette.normal}`}>{label}</span>;
 }

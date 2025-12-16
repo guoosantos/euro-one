@@ -16,6 +16,7 @@ import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import useTasks from "../lib/hooks/useTasks.js";
 import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
 import { useUI } from "../lib/store.js";
 
@@ -398,6 +399,24 @@ export default function Monitoring() {
   const { tenantId, user } = useTenant();
   const { telemetry, loading } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
+  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+
+  const activeTasks = useMemo(
+    () =>
+      Array.isArray(tasks)
+        ? tasks.filter((task) => !String(task.status || "").toLowerCase().includes("final"))
+        : [],
+    [tasks],
+  );
+
+  const routesByVehicle = useMemo(() => {
+    const map = new Map();
+    activeTasks.forEach((task) => {
+      const key = String(task.vehicleId ?? task.deviceId ?? task.device?.id ?? task.device?.deviceId ?? "");
+      if (key) map.set(key, task);
+    });
+    return map;
+  }, [activeTasks]);
 
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
@@ -421,10 +440,25 @@ export default function Monitoring() {
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
+  const [routeFilter, setRouteFilter] = useState(null);
+  const [securityFilters, setSecurityFilters] = useState([]);
 
   useEffect(() => {
     const filter = searchParams.get("filter");
     if (filter) setFilterMode(filter);
+    const incomingRouteFilter = searchParams.get("routeFilter");
+    setRouteFilter(incomingRouteFilter);
+    const rawSecurityFilter = searchParams.get("securityFilter");
+    if (rawSecurityFilter) {
+      setSecurityFilters(
+        rawSecurityFilter
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
+      );
+    } else {
+      setSecurityFilters([]);
+    }
   }, [searchParams]);
 
   // Controle de Popups
@@ -583,22 +617,65 @@ export default function Monitoring() {
   }, [normalizedTelemetry, vehicleQuery]);
 
   const filteredDevices = useMemo(() => {
+    const now = Date.now();
+
     return searchFiltered.filter(({ source, device }) => {
       const position = source?.position;
       const online = isOnline(position);
       const lastActivity = getLastActivity(position, device) || getLastUpdate(position);
       const stalenessMinutes = minutesSince(lastActivity);
       const hasStaleness = Number.isFinite(stalenessMinutes);
+      const deviceKey = getDeviceKey(device);
+      const activeTask = deviceKey ? routesByVehicle.get(String(deviceKey)) : null;
+      const hasRoute = Boolean(activeTask);
+      const startExpected = activeTask?.startTimeExpected ? Date.parse(activeTask.startTimeExpected) : null;
+      const endExpected = activeTask?.endTimeExpected ? Date.parse(activeTask.endTimeExpected) : null;
+      const statusText = String(activeTask?.status || "").toLowerCase();
+      const routeDelay = Boolean(hasRoute && startExpected && now > startExpected && !statusText.includes("final"));
+      const routeDeviation = Boolean(hasRoute && endExpected && now > endExpected && !statusText.includes("final"));
+      const alarmText = String(
+        position?.attributes?.alarm ??
+          position?.attributes?.event ??
+          position?.alarm ??
+          device?.alarm ??
+          device?.alerts?.[0] ??
+          "",
+      ).toLowerCase();
+      const isBlocked = Boolean(device?.blocked || position?.blocked || String(position?.status || "").toLowerCase() === "blocked");
+
+      if (routeFilter === "active" && !hasRoute) return false;
+      if (routeFilter === "with_signal" && (!hasRoute || !online)) return false;
+      if (routeFilter === "without_signal" && (!hasRoute || online)) return false;
+
+      if (securityFilters.length) {
+        const matchesSecurity = securityFilters.some((filter) => {
+          if (filter === "jammer") return alarmText.includes("jam");
+          if (filter === "violation") return alarmText.includes("viol");
+          if (filter === "face") return alarmText.includes("face");
+          if (filter === "blocked") return isBlocked;
+          if (filter === "routeDeviation") return routeDeviation;
+          if (filter === "routeDelay") return routeDelay;
+          return false;
+        });
+        if (!matchesSecurity) return false;
+      }
 
       if (filterMode === "online") return online;
       if (filterMode === "critical") return deriveStatus(position) === "alert";
+      if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
+      if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
       if (filterMode === "stale_6_24") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 1440;
+      if (filterMode === "stale_12_24") return !online && hasStaleness && stalenessMinutes >= 720 && stalenessMinutes < 1440;
+      if (filterMode === "stale_24_72") return !online && hasStaleness && stalenessMinutes >= 1440 && stalenessMinutes < 4320;
+      if (filterMode === "stale_72_10d") return !online && hasStaleness && stalenessMinutes >= 4320 && stalenessMinutes < 14400;
+      if (filterMode === "stale_10d_30d") return !online && hasStaleness && stalenessMinutes >= 14400 && stalenessMinutes < 43200;
       if (filterMode === "stale_24_plus") return !online && hasStaleness && stalenessMinutes >= 1440 && stalenessMinutes < 14400;
       if (filterMode === "stale_10d_plus") return !online && hasStaleness && stalenessMinutes >= 14400;
+      if (filterMode === "stale_30d_plus") return !online && hasStaleness && stalenessMinutes >= 43200;
       return true;
     });
-  }, [searchFiltered, filterMode]);
+  }, [searchFiltered, filterMode, routeFilter, routesByVehicle, securityFilters]);
 
   const resolveAddress = (position, lat, lng) => {
     const rawAddress = position?.address || position?.attributes?.formattedAddress;
