@@ -1,23 +1,71 @@
 import { resolveAuthorizationHeader } from "./api.js";
 
 const REVERSE_URL = "/api/geocode/reverse";
-const CACHE_TTL = 30 * 60 * 1000; // 30 minutos
+const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 dias
 const ACCEPT_LANGUAGE = "pt-BR";
 const COUNTRY_BIAS = "br";
 const cache = new Map();
 let useGuestReverse = false;
+const STORAGE_KEY = "reverseGeocodeCache:v1";
+let storageHydrated = false;
 
 function buildKey(lat, lng, precision = 5) {
   const factor = 10 ** precision;
   return `${Math.round(lat * factor) / factor},${Math.round(lng * factor) / factor}`;
 }
 
+function hydrateFromStorage() {
+  if (storageHydrated) return;
+  storageHydrated = true;
+  try {
+    if (typeof localStorage === "undefined") return;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.entries)
+        ? parsed.entries
+        : [];
+
+    entries.forEach(([key, value]) => {
+      if (!Array.isArray(value)) return;
+      const [cachedValue, timestamp] = value;
+      if (!cachedValue || !Number.isFinite(timestamp)) return;
+      if (Date.now() - timestamp > CACHE_TTL) return;
+      cache.set(key, { value: cachedValue, timestamp });
+    });
+  } catch (_err) {
+    // ignore hydration failures
+  }
+}
+
+function persistCache() {
+  try {
+    if (typeof localStorage === "undefined") return;
+    const freshEntries = Array.from(cache.entries())
+      .filter(([, entry]) => Date.now() - entry.timestamp <= CACHE_TTL)
+      .slice(-200)
+      .map(([key, entry]) => [key, [entry.value, entry.timestamp]]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ entries: freshEntries }));
+  } catch (_err) {
+    // ignore persist failures
+  }
+}
+
+function setCachedReverse(key, value) {
+  cache.set(key, { value, timestamp: Date.now() });
+  persistCache();
+}
+
 export function getCachedReverse(lat, lng) {
+  hydrateFromStorage();
   const key = buildKey(lat, lng);
   const cached = cache.get(key);
   if (!cached) return null;
   if (Date.now() - cached.timestamp > CACHE_TTL) {
     cache.delete(key);
+    persistCache();
     return null;
   }
   return cached.value;
@@ -83,7 +131,7 @@ export async function reverseGeocode(lat, lng) {
     const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     const resolved = address || fallback;
 
-    cache.set(key, { value: resolved, timestamp: Date.now() });
+    setCachedReverse(key, resolved);
     return resolved;
   } catch (error) {
     const isUnauthorized = error?.status === 401 || error?.status === 403;
@@ -91,15 +139,15 @@ export async function reverseGeocode(lat, lng) {
       useGuestReverse = true;
       try {
         const guest = await reverseGeocode(lat, lng);
-        cache.set(key, { value: guest, timestamp: Date.now() });
+        setCachedReverse(key, guest);
         return guest;
       } catch (_guestError) {
         // fall through to fallback
       }
     }
 
-    const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    cache.set(key, { value: fallback, timestamp: Date.now() });
+    const fallback = "Endereço não disponível";
+    setCachedReverse(key, fallback);
     return fallback;
   }
 }
