@@ -22,7 +22,7 @@ import {
 // improved replay rendering, and event navigation for trip playback.
 
 const DEFAULT_CENTER = [-19.9167, -43.9345];
-const DEFAULT_ZOOM = 12;
+const DEFAULT_ZOOM = 15;
 const DEFAULT_FROM = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
 const DEFAULT_TO = () => new Date().toISOString().slice(0, 16);
 const FALLBACK_CENTER = [-15.793889, -47.882778];
@@ -31,6 +31,15 @@ const REPLAY_SPEEDS = [1, 2, 4, 8];
 const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const ANIMATION_BASE_MS = 900;
 const MAX_INTERPOLATION_METERS = 120;
+const EVENT_OFFSET_METERS = 70;
+
+const TRACCAR_EVENT_DEFINITIONS = {
+  "70": { type: "overspeed", label: "Overspeed", icon: "🚀" },
+  "69": { type: "harsh-braking", label: "Harsh Braking", icon: "🛑" },
+  "68": { type: "harsh-acceleration", label: "Harsh Acceleration", icon: "⚡" },
+  "6": { type: "ignition-on", label: "Ignition On", icon: "🔌" },
+  "7": { type: "ignition-off", label: "Ignition Off", icon: "⏻" },
+};
 
 function toFiniteNumber(value) {
   const parsed = Number(value);
@@ -121,6 +130,29 @@ function computeHeading(from, to) {
   return (bearing + 360) % 360;
 }
 
+function offsetPoint(point, bearing, distanceMeters = EVENT_OFFSET_METERS) {
+  if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
+  const heading = Number.isFinite(bearing) ? bearing : 0;
+  const angularDistance = distanceMeters / 6371000;
+  const bearingRad = toRadians(heading);
+  const latRad = toRadians(point.lat);
+  const lngRad = toRadians(point.lng);
+
+  const nextLat =
+    Math.asin(
+      Math.sin(latRad) * Math.cos(angularDistance) + Math.cos(latRad) * Math.sin(angularDistance) * Math.cos(bearingRad),
+    ) || 0;
+  const nextLng =
+    lngRad +
+      Math.atan2(
+        Math.sin(bearingRad) * Math.sin(angularDistance) * Math.cos(latRad),
+        Math.cos(angularDistance) - Math.sin(latRad) * Math.sin(nextLat),
+      ) ||
+    0;
+
+  return { lat: (nextLat * 180) / Math.PI, lng: ((nextLng * 180) / Math.PI + 540) % 360 - 180 };
+}
+
 function smoothRoute(points) {
   if (!Array.isArray(points)) return [];
   const validPoints = points.filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
@@ -159,10 +191,14 @@ function buildVehicleIcon(bearing = 0) {
   return L.divIcon({
     className: "replay-vehicle",
     html: `
-      <div style="${rotation}width:32px;height:32px;border-radius:12px;background:rgba(34,197,94,0.18);display:flex;align-items:center;justify-content:center;border:1px solid rgba(34,197,94,0.45);box-shadow:0 10px 20px rgba(0,0,0,0.35);backdrop-filter:blur(6px);">
-        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='18' height='18' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='color:#34d399;'>
-          <path d='M3 13l9-9 9 9-1.5 1.5L12 7.5 4.5 14.5 3 13z'/>
-          <path d='M12 7.5V21' />
+      <div style="${rotation}width:32px;height:32px;border-radius:10px;background:rgba(15,23,42,0.75);display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);">
+        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='20' height='20' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' style='color:#22c55e;'>
+          <rect x='4' y='10' width='14' height='9' rx='2' ry='2' fill='rgba(34,197,94,0.08)' />
+          <path d='M18 12h5.5l3.5 4v3H18z' fill='rgba(34,197,94,0.08)' />
+          <circle cx='10' cy='21' r='2.3' fill='currentColor' />
+          <circle cx='22' cy='21' r='2.3' fill='currentColor' />
+          <path d='M4 16h14' />
+          <path d='M18 16h6' />
         </svg>
       </div>
     `,
@@ -180,10 +216,13 @@ function normalizeTripEvent(point) {
     point?.attributes?.status ||
     point?.__label;
   if (!rawEvent) return null;
-  const type = String(rawEvent).toLowerCase();
+  const normalizedEvent = String(rawEvent).trim();
+  const mapped = TRACCAR_EVENT_DEFINITIONS[normalizedEvent];
+  const type = mapped?.type || normalizedEvent.toLowerCase();
   return {
     type,
-    label: point?.__label || rawEvent,
+    label: mapped?.label || point?.__label || normalizedEvent,
+    icon: mapped?.icon || null,
   };
 }
 
@@ -209,27 +248,6 @@ function formatPointAddress(point) {
   return "Endereço indisponível";
 }
 
-function buildEventIcon(severity = "normal", active = false) {
-  const palette = {
-    critical: "#ef4444",
-    high: "#ef4444",
-    medium: "#f59e0b",
-    low: "#10b981",
-    info: "#3b82f6",
-    normal: "#94a3b8",
-  };
-  const color = palette[severity] || palette.normal;
-  const ring = active ? `box-shadow:0 0 0 6px rgba(34,197,94,0.25);` : "";
-  return L.divIcon({
-    className: "audit-marker",
-    html: `
-      <div style="${ring}display:flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:10px;background:${color};border:2px solid rgba(255,255,255,0.85);"></div>
-    `,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-  });
-}
-
 function validateRange({ deviceId, from, to }) {
   if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
   const fromDate = parseDate(from);
@@ -245,8 +263,6 @@ function ReplayMap({
   animatedPoint,
   mapLayer,
   smoothedPath,
-  showPoints,
-  onSelectIndex,
 }) {
   const routePoints = useMemo(
     () =>
@@ -301,18 +317,9 @@ function ReplayMap({
           maxZoom={resolvedMaxZoom}
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
-        {showPoints
-          ? routePoints.map((point) => (
-              <Marker
-                key={`${point.lat}-${point.lng}-${point.index}`}
-                position={[point.lat, point.lng]}
-                icon={buildEventIcon(point.__severity, point.index === activeIndex)}
-                eventHandlers={{ click: () => onSelectIndex?.(point.index) }}
-              />
-            ))
-          : null}
         {animatedMarkerPosition ? <Marker position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
+        <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} />
         <MapResizeHandler />
       </MapContainer>
     </div>
@@ -341,10 +348,11 @@ function MapFocus({ point }) {
       if (cancelled) return;
       const normalized = normalizeLatLng(point);
       const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
-      const zoom = normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
+      const zoom = lastViewRef.current ? map.getZoom() : normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
       const key = `${target[0]},${target[1]},${zoom}`;
+      const shouldCenter = !lastViewRef.current || point?.index === 0;
 
-      if (lastViewRef.current === key) return;
+      if (!shouldCenter || lastViewRef.current === key) return;
 
       const size = map.getSize();
       if (size.x === 0 || size.y === 0) {
@@ -371,6 +379,44 @@ function MapFocus({ point }) {
       clearRetry();
     };
   }, [map, point]);
+  return null;
+}
+
+function ReplayFollower({ point, heading }) {
+  const map = useMap();
+  const lastPanRef = useRef(0);
+  const lastKeyRef = useRef(null);
+
+  useEffect(() => {
+    if (!map || !point) return undefined;
+
+    const normalized = normalizeLatLng(point);
+    if (!normalized) return undefined;
+
+    const targetOffset = offsetPoint(normalized, heading, EVENT_OFFSET_METERS) || normalized;
+    const key = `${normalized.lat.toFixed(5)},${normalized.lng.toFixed(5)}`;
+    const now = Date.now();
+    const alreadyViewed = lastKeyRef.current === key;
+    const withinThrottle = now - lastPanRef.current < 350;
+
+    if (alreadyViewed && withinThrottle) return undefined;
+
+    lastKeyRef.current = key;
+    lastPanRef.current = now;
+
+    const currentCenter = map.getCenter();
+    const distanceFromCenter = haversineDistance(
+      { lat: currentCenter.lat, lng: currentCenter.lng },
+      { lat: targetOffset.lat, lng: targetOffset.lng },
+    );
+
+    if (distanceFromCenter < 5) return undefined;
+
+    map.panTo([targetOffset.lat, targetOffset.lng], { animate: true });
+
+    return undefined;
+  }, [map, point, heading]);
+
   return null;
 }
 
@@ -429,17 +475,16 @@ function EventPanel({ events = [], selectedType, onSelectType, totalOccurrences 
                 }`}
               >
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex flex-col">
-                    <span className="font-semibold">{event.label}</span>
-                    <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-base">
+                      {event.icon || "•"}
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="font-semibold">{event.label}</span>
+                      <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
+                    </div>
                   </div>
-                  <span
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                      isActive ? "border-primary/60 bg-primary/20 text-white" : "border-white/10 bg-white/10 text-white/80"
-                    }`}
-                  >
-                    {event.count}
-                  </span>
+                  <span className="text-sm font-semibold text-white">({event.count})</span>
                 </div>
               </button>
             );
@@ -479,7 +524,6 @@ export default function Trips() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
-  const [showPoints, setShowPoints] = useState(false);
   const [selectedEventType, setSelectedEventType] = useState(null);
   const [eventCursor, setEventCursor] = useState(0);
   const [animatedPoint, setAnimatedPoint] = useState(null);
@@ -506,6 +550,8 @@ export default function Trips() {
 
         if (!coords) return null;
 
+        const mappedEvent = normalizeTripEvent(point);
+
         return {
           ...point,
           ...coords,
@@ -514,12 +560,14 @@ export default function Trips() {
           __address: formatPointAddress(point),
           __speed: pickSpeed(point),
           __label:
+            mappedEvent?.label ||
             point.event ||
             point.type ||
             point.attributes?.event ||
             point.attributes?.alarm ||
             point.attributes?.status ||
             "Posição registrada",
+          __event: mappedEvent,
           __index: index,
         };
       })
@@ -584,7 +632,7 @@ export default function Trips() {
     () =>
       routePoints
         .map((point, index) => {
-          const normalized = normalizeTripEvent(point);
+          const normalized = point.__event || normalizeTripEvent(point);
           if (!normalized) return null;
           return { index, ...normalized, time: point.__time, lat: point.lat, lng: point.lng };
         })
@@ -602,10 +650,16 @@ export default function Trips() {
 
     tripEvents.forEach((event) => {
       if (!accumulator.has(event.type)) {
-        accumulator.set(event.type, { type: event.type, label: normalizeLabel(event.label ?? event.type), occurrences: [] });
+        accumulator.set(event.type, {
+          type: event.type,
+          label: normalizeLabel(event.label ?? event.type),
+          icon: event.icon,
+          occurrences: [],
+        });
       }
       const current = accumulator.get(event.type);
       current.label = normalizeLabel(event.label ?? current.label);
+      current.icon = current.icon || event.icon;
       current.occurrences.push(event.index);
     });
 
@@ -688,7 +742,12 @@ export default function Trips() {
       animatedPoint && Number.isFinite(animatedPoint.lat) && Number.isFinite(animatedPoint.lng)
         ? animatedPoint
         : target;
-    const heading = computeHeading(startPoint, target);
+    const rawHeading = toFiniteNumber(
+      target?.course ?? target?.heading ?? target?.attributes?.course ?? target?.attributes?.heading,
+    );
+    const previous = smoothedRoute[Math.max(activeIndex - 1, 0)] || target;
+    const next = smoothedRoute[Math.min(activeIndex + 1, smoothedRoute.length - 1)] || target;
+    const heading = rawHeading ?? computeHeading(previous, next);
     const start = performance.now();
     const duration = Math.max(320, ANIMATION_BASE_MS / speed);
 
@@ -1042,15 +1101,6 @@ export default function Trips() {
                 )}
               </select>
             </div>
-            <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
-              <input
-                type="checkbox"
-                className="h-4 w-4 accent-primary"
-                checked={showPoints}
-                onChange={(event) => setShowPoints(event.target.checked)}
-              />
-              <span className="text-white/70">Mostrar pontos</span>
-            </label>
           </div>
         </div>
 
@@ -1102,7 +1152,6 @@ export default function Trips() {
                 animatedPoint={animatedPoint}
                 mapLayer={mapLayer}
                 smoothedPath={smoothedPath}
-                showPoints={showPoints}
                 onSelectIndex={handleSelectPoint}
               />
               <EventPanel
