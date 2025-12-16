@@ -323,11 +323,20 @@ function ReplayMap({
 
 function MapFocus({ point }) {
   const map = useMap();
+  const lastViewRef = useRef(null);
   useEffect(() => {
+    if (!map) return;
+
     const normalized = normalizeLatLng(point);
-    const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
-    const zoom = normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
-    map.setView(target, zoom, { animate: Boolean(normalized) });
+    if (!normalized) return;
+
+    const target = [normalized.lat, normalized.lng];
+    const key = `${target[0]},${target[1]},${DEFAULT_ZOOM}`;
+
+    if (lastViewRef.current === key) return;
+
+    lastViewRef.current = key;
+    map.setView(target, DEFAULT_ZOOM, { animate: false });
   }, [map, point]);
   return null;
 }
