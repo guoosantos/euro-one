@@ -10,6 +10,8 @@ import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
 import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.jsx";
+import { useLivePositions } from "../lib/hooks/useLivePositions.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 
 function formatDate(value) {
   if (!value) return "—";
@@ -23,6 +25,7 @@ function formatDate(value) {
 export default function Vehicles() {
   const { tenantId, user } = useTenant();
   const { t, locale } = useTranslation();
+  const { positions } = useLivePositions();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -94,6 +97,9 @@ export default function Vehicles() {
   const tableColumns = useMemo(
     () => [
       ...telemetryColumns,
+      { key: "statusLive", label: "Status online", render: (row) => getDeviceStatus(row.raw) },
+      { key: "lastSeen", label: "Último ping", render: (row) => getDeviceLastSeen(row.raw) },
+      { key: "lastPosition", label: "Última posição", render: (row) => getDeviceCoordinates(row.raw) },
       { key: "driver", label: t("monitoring.columns.driver") || "Motorista", render: (row) => row.driver || "—" },
       {
         key: "actions",
@@ -105,8 +111,22 @@ export default function Vehicles() {
         ),
       },
     ],
-    [openModal, t, telemetryColumns],
+    [getDeviceCoordinates, getDeviceLastSeen, getDeviceStatus, openModal, t, telemetryColumns],
   );
+
+  const latestPositionByDevice = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(positions) ? positions : []).forEach((position) => {
+      const key = toDeviceKey(position?.deviceId ?? position?.device_id ?? position?.deviceID ?? position?.deviceid);
+      if (!key) return;
+      const time = Date.parse(position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.time ?? 0);
+      const existing = map.get(key);
+      if (!existing || (!Number.isNaN(time) && time > existing.time)) {
+        map.set(key, { ...position, parsedTime: time });
+      }
+    });
+    return map;
+  }, [positions]);
 
   const availableDevices = useMemo(() => {
     const currentDeviceId = form.deviceId;
@@ -116,6 +136,40 @@ export default function Vehicles() {
       return device.vehicleId === currentDeviceId || device.internalId === currentDeviceId;
     });
   }, [devices, form.deviceId]);
+
+  function getLatestPosition(vehicle) {
+    const key = toDeviceKey(
+      vehicle.device?.traccarId ?? vehicle.device?.id ?? vehicle.deviceId ?? vehicle.device?.uniqueId ?? vehicle.device_id,
+    );
+    if (!key) return null;
+    return latestPositionByDevice.get(key) || null;
+  }
+
+  function getDeviceStatus(vehicle) {
+    const position = getLatestPosition(vehicle);
+    if (position?.parsedTime) {
+      const isOnline = Date.now() - position.parsedTime < 5 * 60 * 1000;
+      return isOnline ? "Online" : "Offline";
+    }
+    return vehicle.connectionStatusLabel || vehicle.status || "—";
+  }
+
+  function getDeviceLastSeen(vehicle) {
+    const position = getLatestPosition(vehicle);
+    const timestamp = position?.parsedTime || Date.parse(vehicle.lastCommunication || vehicle.serverTime || 0);
+    if (!timestamp || Number.isNaN(timestamp)) return "—";
+    return new Date(timestamp).toLocaleString();
+  }
+
+  function getDeviceCoordinates(vehicle) {
+    const position = getLatestPosition(vehicle);
+    const lat = Number(position?.latitude ?? position?.lat);
+    const lon = Number(position?.longitude ?? position?.lon);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    }
+    return "—";
+  }
 
   function openModal(modeType, vehicle = null) {
     setMode(modeType);

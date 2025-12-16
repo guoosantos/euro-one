@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import { Plus, RefreshCw, Trash2, MapPin } from "lucide-react";
+import "leaflet/dist/leaflet.css";
 
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
@@ -8,15 +10,8 @@ import Select from "../ui/Select";
 import PageHeader from "../ui/PageHeader";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch (_error) {
-    return String(value);
-  }
-}
+import { useLivePositions } from "../lib/hooks/useLivePositions.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 
 const ICON_TYPES = [
   { value: "car", label: "Carro" },
@@ -95,6 +90,7 @@ function ModelCards({ models }) {
 
 export default function Devices() {
   const { tenantId, user } = useTenant();
+  const { positions } = useLivePositions();
   const [tab, setTab] = useState("lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
@@ -124,6 +120,22 @@ export default function Devices() {
     connectivity: "",
     ports: [{ label: "", type: "digital" }],
   });
+  const [query, setQuery] = useState("");
+  const [mapTarget, setMapTarget] = useState(null);
+
+  const positionMap = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(positions) ? positions : []).forEach((position) => {
+      const key = toDeviceKey(position?.deviceId ?? position?.device_id ?? position?.deviceID ?? position?.deviceid);
+      if (!key) return;
+      const time = Date.parse(position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.time ?? 0);
+      const existing = map.get(key);
+      if (!existing || (!Number.isNaN(time) && time > existing.time)) {
+        map.set(key, { ...position, parsedTime: time });
+      }
+    });
+    return map;
+  }, [positions]);
 
   async function load() {
     setLoading(true);
@@ -176,6 +188,69 @@ export default function Devices() {
       label: vehicle.name || vehicle.plate || vehicle.id,
     }));
   }, [vehicles]);
+
+  const filteredDevices = useMemo(() => {
+    if (!query.trim()) return devices;
+    const term = query.trim().toLowerCase();
+    return devices.filter((device) =>
+      [device.name, device.uniqueId, device.imei]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [devices, query]);
+
+  const latestPositionByDevice = useMemo(() => {
+    const map = new Map();
+    filteredDevices.forEach((device) => {
+      const key = toDeviceKey(device.traccarId ?? device.id ?? device.uniqueId ?? device.internalId);
+      if (!key) return;
+      const pos = positionMap.get(key);
+      if (pos) {
+        map.set(device.id || key, pos);
+      }
+    });
+    return map;
+  }, [filteredDevices, positionMap]);
+
+  function getStatus(device) {
+    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
+    const position = latestPositionByDevice.get(key);
+    if (position?.parsedTime) {
+      const freshness = Date.now() - position.parsedTime;
+      const isOnline = freshness < 5 * 60 * 1000;
+      return isOnline ? "Online" : "Offline";
+    }
+    return statusBadge(device);
+  }
+
+  function formatPosition(device) {
+    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
+    const position = latestPositionByDevice.get(key);
+    if (!position) return "—";
+    const lat = Number(position.latitude ?? position.lat ?? position.latitute);
+    const lon = Number(position.longitude ?? position.lon ?? position.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+    }
+    return "—";
+  }
+
+  function formatSpeed(device) {
+    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
+    const position = latestPositionByDevice.get(key);
+    if (!position?.speed) return "0 km/h";
+    const speedKmh = Number(position.speed) * 1.852 || Number(position.speed);
+    if (!Number.isFinite(speedKmh)) return "—";
+    return `${speedKmh.toFixed(1)} km/h`;
+  }
+
+  function formatLastCommunication(device) {
+    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
+    const position = latestPositionByDevice.get(key);
+    const time = position?.parsedTime || Date.parse(device.lastCommunication || device.lastUpdate || 0);
+    if (!time || Number.isNaN(time)) return "—";
+    return new Date(time).toLocaleString();
+  }
 
   function resetDeviceForm() {
     setDeviceForm({ name: "", uniqueId: "", modelId: "", iconType: "", chipId: "", vehicleId: "" });
@@ -310,6 +385,15 @@ export default function Devices() {
         }
       />
 
+      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
+        <Input
+          label="Buscar por nome ou IMEI"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Digite parte do nome ou IMEI"
+        />
+      </div>
+
       <div className="flex items-center gap-2">
         <button
           type="button"
@@ -350,8 +434,11 @@ export default function Devices() {
                 <tr>
                   <th className="px-4 py-3 text-left">Nome</th>
                   <th className="px-4 py-3 text-left">IMEI</th>
-                  <th className="px-4 py-3 text-left">Modelo</th>
                   <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Última comunicação</th>
+                  <th className="px-4 py-3 text-left">Última posição</th>
+                  <th className="px-4 py-3 text-left">Velocidade</th>
+                  <th className="px-4 py-3 text-left">Bateria / Ignição</th>
                   <th className="px-4 py-3 text-left">Chip</th>
                   <th className="px-4 py-3 text-left">Veículo</th>
                   <th className="px-4 py-3 text-left">Ações</th>
@@ -360,29 +447,54 @@ export default function Devices() {
               <tbody className="divide-y divide-white/10">
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                    <td colSpan={10} className="px-4 py-6 text-center text-white/60">
                       Carregando equipamentos…
                     </td>
                   </tr>
                 )}
-                {!loading && devices.length === 0 && (
+                {!loading && filteredDevices.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                    <td colSpan={10} className="px-4 py-6 text-center text-white/60">
                       Nenhum equipamento cadastrado.
                     </td>
                   </tr>
                 )}
                 {!loading &&
-                  devices.map((device) => {
+                  filteredDevices.map((device) => {
                     const modelo = modeloById.get(device.modelId) || null;
                     const chip = chips.find((item) => item.id === device.chipId) || device.chip;
                     const vehicle = vehicles.find((item) => item.id === device.vehicleId) || device.vehicle;
+                    const latestPosition = latestPositionByDevice.get(device.id || toDeviceKey(device.traccarId ?? device.uniqueId));
                     return (
                       <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
                         <td className="px-4 py-3 text-white">{device.name || "—"}</td>
                         <td className="px-4 py-3">{device.uniqueId || "—"}</td>
-                        <td className="px-4 py-3">{device.modelName || modelo?.name || "—"}</td>
-                        <td className="px-4 py-3">{statusBadge(device)}</td>
+                        <td className="px-4 py-3">{getStatus(device)}</td>
+                        <td className="px-4 py-3">{formatLastCommunication(device)}</td>
+                        <td className="px-4 py-3 flex items-center gap-2">
+                          <span>{formatPosition(device)}</span>
+                          {latestPosition && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              icon={MapPin}
+                              onClick={() => setMapTarget({ device, position: latestPosition })}
+                            >
+                              Ver no mapa
+                            </Button>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">{formatSpeed(device)}</td>
+                        <td className="px-4 py-3">
+                          {latestPosition?.attributes?.batteryLevel
+                            ? `${latestPosition.attributes.batteryLevel}%`
+                            : "—"}
+                          {typeof latestPosition?.attributes?.ignition !== "undefined" && (
+                            <span className="ml-2 rounded-full bg-white/10 px-2 py-1 text-xs">
+                              {latestPosition.attributes.ignition ? "Ignição ON" : "Ignição OFF"}
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3">{chip?.iccid || chip?.phone || "—"}</td>
                         <td className="px-4 py-3">{vehicle?.name || vehicle?.plate || "—"}</td>
                         <td className="px-4 py-3 space-x-2 whitespace-nowrap">
@@ -589,6 +701,44 @@ export default function Devices() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(mapTarget)}
+        onClose={() => setMapTarget(null)}
+        title={mapTarget?.device?.name || mapTarget?.device?.uniqueId || "Posição"}
+        width="max-w-4xl"
+      >
+        {mapTarget?.position ? (
+          <div className="h-[420px] overflow-hidden rounded-xl">
+            <MapContainer
+              center={[
+                Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
+                Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+              ]}
+              zoom={15}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+              <Marker
+                position={[
+                  Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
+                  Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+                ]}
+              >
+                <Popup>
+                  <div className="space-y-1 text-sm">
+                    <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
+                    <div>{formatPosition(mapTarget.device)}</div>
+                    <div>{formatLastCommunication(mapTarget.device)}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            </MapContainer>
+          </div>
+        ) : (
+          <p className="text-sm text-white/70">Sem posição recente para este dispositivo.</p>
+        )}
       </Modal>
     </div>
   );

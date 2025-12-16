@@ -1,233 +1,281 @@
-import React, { useMemo, useState } from "react";
-import { MapContainer, TileLayer, Circle, Polygon, useMapEvents } from "react-leaflet";
+import React, { useEffect, useMemo, useState } from "react";
+import { MapContainer, TileLayer, Circle, Polygon, useMapEvents, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-import useDevices from "../lib/hooks/useDevices";
+
 import { useGeofences } from "../lib/hooks/useGeofences";
 import { buildGeofencePayload, decodeGeofencePolygon } from "../lib/geofence-utils";
+import {
+  downloadKml,
+  exportGeofencesToKml,
+  parseKmlPlacemarks,
+} from "../lib/kml";
+import Button from "../ui/Button";
+import Input from "../ui/Input";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 
-function GeofenceDesigner({ shape, onAddPoint }) {
+function MapClickCapture({ onAddPoint }) {
   useMapEvents({
     click(event) {
       onAddPoint([event.latlng.lat, event.latlng.lng]);
     },
   });
-  if (shape.type === "circle" && shape.center) {
-    return <Circle center={shape.center} radius={shape.radius} pathOptions={{ color: "#38bdf8" }} />;
-  }
-  if (shape.type === "polygon" && shape.points.length >= 3) {
-    return <Polygon positions={shape.points} pathOptions={{ color: "#22c55e" }} />;
-  }
   return null;
 }
 
 export default function Fences() {
-  const { geofences, loading, error, createGeofence, updateGeofence, assignToDevice } = useGeofences({ autoRefreshMs: 60_000 });
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const { geofences, loading, error, createGeofence, updateGeofence } = useGeofences({ autoRefreshMs: 60_000 });
 
-  const [name, setName] = useState("");
-  const [shapeType, setShapeType] = useState("circle");
-  const [radius, setRadius] = useState(500);
-  const [center, setCenter] = useState(DEFAULT_CENTER);
-  const [points, setPoints] = useState([]);
-  const [selectedDevice, setSelectedDevice] = useState("all");
+  const [layers, setLayers] = useState([]);
+  const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const shape = useMemo(
-    () => ({ type: shapeType, radius, center, points }),
-    [shapeType, radius, center, points],
-  );
+  useEffect(() => {
+    const mapped = (Array.isArray(geofences) ? geofences : []).map((fence) => {
+      const points = fence.type === "circle" ? [] : decodeGeofencePolygon(fence.area);
+      const center = fence.type === "circle" ? [fence.latitude, fence.longitude] : points[0] || DEFAULT_CENTER;
+      return {
+        id: fence.id,
+        name: fence.name || "Geofence",
+        type: fence.type || "polygon",
+        points: points || [],
+        center,
+        radius: fence.radius || 300,
+        enabled: true,
+        color: fence.color || "#22c55e",
+      };
+    });
+    setLayers(mapped);
+    setSelectedId(mapped[0]?.id || null);
+  }, [geofences]);
 
-  const existing = useMemo(() => (Array.isArray(geofences) ? geofences : []), [geofences]);
+  const selectedLayer = layers.find((item) => item.id === selectedId) || null;
+
+  function addLayer(type = "polygon") {
+    const id = `local-${Date.now()}`;
+    const layer = {
+      id,
+      name: `Arquivo ${layers.length + 1}`,
+      type,
+      points: [],
+      center: DEFAULT_CENTER,
+      radius: 300,
+      enabled: true,
+      color: type === "circle" ? "#22c55e" : "#38bdf8",
+    };
+    setLayers((current) => [...current, layer]);
+    setSelectedId(id);
+  }
+
+  function updateLayer(id, updater) {
+    setLayers((current) =>
+      current.map((layer) => (layer.id === id ? { ...layer, ...(typeof updater === "function" ? updater(layer) : updater) } : layer)),
+    );
+  }
+
+  function deleteLayer(id) {
+    setLayers((current) => current.filter((layer) => layer.id !== id));
+    if (selectedId === id) setSelectedId(null);
+  }
 
   function handleAddPoint(point) {
-    if (shapeType === "circle") {
-      setCenter(point);
-    } else {
-      setPoints((prev) => [...prev, point]);
+    if (!selectedLayer) return;
+    if (selectedLayer.type === "circle") {
+      updateLayer(selectedLayer.id, { center: point });
+      return;
     }
+    updateLayer(selectedLayer.id, (layer) => ({ ...layer, points: [...(layer.points || []), point] }));
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault();
+  async function handleSave() {
     setSaving(true);
     try {
-      const payload = buildGeofencePayload({ name, shapeType, radius, center, points });
-      const geofence = await createGeofence(payload);
-      if (selectedDevice !== "all" && geofence?.id) {
-        await assignToDevice({ geofenceId: geofence.id, deviceId: selectedDevice });
+      for (const layer of layers) {
+        const payload = buildGeofencePayload({
+          name: layer.name,
+          shapeType: layer.type,
+          radius: layer.radius,
+          center: layer.center,
+          points: layer.points,
+        });
+        if (layer.id && !String(layer.id).startsWith("local-")) {
+          await updateGeofence(layer.id, payload);
+        } else {
+          await createGeofence(payload);
+        }
       }
-      setName("");
-      setPoints([]);
-    } catch (submitError) {
-      console.error("Failed to create geofence", submitError);
+      alert("Geofences salvas e sincronizadas com o Traccar.");
+    } catch (saveError) {
+      console.error(saveError);
+      alert(saveError?.message || "Falha ao salvar cercas");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleUpdate(geofence) {
-    setSaving(true);
-    try {
-      const payload = buildGeofencePayload({
-        name: geofence.name,
-        shapeType: geofence.type,
-        radius: geofence.radius,
-        center: [geofence.latitude, geofence.longitude],
-        points: geofence.area ? decodeGeofencePolygon(geofence.area) : [],
-      });
-      await updateGeofence(geofence.id, payload);
-    } catch (updateError) {
-      console.error("Failed to update geofence", updateError);
-    } finally {
-      setSaving(false);
-    }
+  async function handleImport(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const placemarks = parseKmlPlacemarks(text);
+    const imported = placemarks
+      .filter((item) => item.type === "polygon")
+      .map((item, index) => ({
+        id: `kml-${Date.now()}-${index}`,
+        name: item.name,
+        type: "polygon",
+        points: item.points,
+        center: item.points[0] || DEFAULT_CENTER,
+        radius: 300,
+        enabled: true,
+        color: "#f97316",
+      }));
+    setLayers((current) => [...current, ...imported]);
+    if (imported[0]) setSelectedId(imported[0].id);
   }
+
+  function handleExport() {
+    const kml = exportGeofencesToKml(layers.filter((layer) => layer.enabled));
+    downloadKml("geofences.kml", kml);
+  }
+
+  const mapShapes = useMemo(() => layers, [layers]);
+  const enabledShapes = useMemo(() => layers.filter((layer) => layer.enabled), [layers]);
 
   return (
     <div className="space-y-6">
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Cercas inteligentes</h2>
-          <p className="text-xs opacity-70">
-            Clique no mapa para definir o centro da cerca ou desenhar um polígono. Você pode associar a um dispositivo.
-          </p>
+        <header className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">Cerca Virtual (KML-first)</h2>
+            <p className="text-xs opacity-70">Gerencie arquivos/layers acima e desenhe no mapa abaixo.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => addLayer("polygon")}>Criar geofence</Button>
+            <Button onClick={() => addLayer("circle")}>Criar círculo</Button>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white">
+              Importar KML
+              <input type="file" accept=".kml" className="hidden" onChange={handleImport} />
+            </label>
+            <Button variant="secondary" onClick={handleExport}>
+              Exportar KML
+            </Button>
+            <Button onClick={handleSave} disabled={saving}>
+              {saving ? "Salvando..." : "Salvar"}
+            </Button>
+          </div>
         </header>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <form className="space-y-4" onSubmit={handleSubmit}>
-            <label className="block text-sm">
-              <span className="text-xs uppercase tracking-wide opacity-60">Nome</span>
-              <input
-                type="text"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                required
-                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              />
-            </label>
-
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className="text-sm">
-                <span className="text-xs uppercase tracking-wide opacity-60">Formato</span>
-                <select
-                  value={shapeType}
-                  onChange={(event) => {
-                    setShapeType(event.target.value);
-                    setPoints([]);
-                  }}
-                  className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="space-y-3 lg:col-span-1">
+            <h3 className="text-sm font-semibold text-white/80">Layers</h3>
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3">
+              {mapShapes.length === 0 && <p className="text-sm text-white/60">Nenhuma cerca carregada ainda.</p>}
+              {mapShapes.map((layer) => (
+                <div
+                  key={layer.id}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 ${
+                    selectedId === layer.id ? "border-primary/60 bg-primary/10" : "border-white/10"
+                  }`}
                 >
-                  <option value="circle">Círculo</option>
-                  <option value="polygon">Polígono</option>
-                </select>
-              </label>
-
-              {shapeType === "circle" && (
-                <label className="text-sm">
-                  <span className="text-xs uppercase tracking-wide opacity-60">Raio (m)</span>
-                  <input
-                    type="number"
-                    min={50}
-                    step={50}
-                    value={radius}
-                    onChange={(event) => setRadius(Number(event.target.value))}
-                    className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-                  />
-                </label>
-              )}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(layer.id)}
+                      className="text-left text-sm font-semibold text-white"
+                    >
+                      {layer.name}
+                    </button>
+                    <div className="text-xs text-white/60">{layer.type === "circle" ? "Círculo" : "Polígono"}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={layer.color}
+                      onChange={(event) => updateLayer(layer.id, { color: event.target.value })}
+                      aria-label="Cor"
+                    />
+                    <input
+                      type="checkbox"
+                      checked={layer.enabled}
+                      onChange={(event) => updateLayer(layer.id, { enabled: event.target.checked })}
+                      aria-label="Habilitar"
+                    />
+                    <button
+                      type="button"
+                      className="rounded bg-white/10 px-2 py-1 text-xs"
+                      onClick={() => deleteLayer(layer.id)}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
 
-            <label className="block text-sm">
-              <span className="text-xs uppercase tracking-wide opacity-60">Associar a dispositivo</span>
-              <select
-                value={selectedDevice}
-                onChange={(event) => setSelectedDevice(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              >
-                <option value="all">Somente salvar</option>
-                {devices.map((device) => (
-                  <option key={device.id ?? device.deviceId ?? device.uniqueId} value={device.id ?? device.deviceId ?? device.uniqueId}>
-                    {device.name ?? device.uniqueId ?? device.id}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {selectedLayer && (
+              <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-4">
+                <Input
+                  label="Nome"
+                  value={selectedLayer.name}
+                  onChange={(event) => updateLayer(selectedLayer.id, { name: event.target.value })}
+                />
+                {selectedLayer.type === "circle" && (
+                  <Input
+                    label="Raio (m)"
+                    type="number"
+                    value={selectedLayer.radius}
+                    onChange={(event) => updateLayer(selectedLayer.id, { radius: Number(event.target.value) })}
+                  />
+                )}
+                {selectedLayer.type === "polygon" && (
+                  <p className="text-sm text-white/60">Clique no mapa abaixo para adicionar vértices ao polígono.</p>
+                )}
+                <p className="text-xs text-white/50">Pontos atuais: {selectedLayer.points?.length || 0}</p>
+              </div>
+            )}
+          </div>
 
-            <button
-              type="submit"
-              disabled={saving || !name}
-              className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-            >
-              {saving ? "Salvando…" : "Criar geofence"}
-            </button>
-          </form>
-
-          <div className="overflow-hidden rounded-2xl border border-border">
-            <MapContainer center={center} zoom={14} style={{ height: 360 }} className="bg-layer">
-              <TileLayer
-                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-              />
-              <GeofenceDesigner shape={shape} onAddPoint={handleAddPoint} />
-            </MapContainer>
+          <div className="lg:col-span-2">
+            <div className="overflow-hidden rounded-2xl border border-white/10">
+              <MapContainer center={selectedLayer?.center || DEFAULT_CENTER} zoom={13} style={{ height: 480 }} className="bg-layer">
+                <TileLayer
+                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+                <MapClickCapture onAddPoint={handleAddPoint} />
+                {enabledShapes.map((layer) =>
+                  layer.type === "circle" ? (
+                    <Circle key={layer.id} center={layer.center} radius={layer.radius} pathOptions={{ color: layer.color }}>
+                      <Popup>
+                        <strong>{layer.name}</strong>
+                      </Popup>
+                    </Circle>
+                  ) : (
+                    <Polygon key={layer.id} positions={layer.points} pathOptions={{ color: layer.color }}>
+                      <Popup>
+                        <strong>{layer.name}</strong>
+                      </Popup>
+                    </Polygon>
+                  ),
+                )}
+              </MapContainer>
+            </div>
           </div>
         </div>
       </section>
 
+      {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+
       <section className="card space-y-4">
-        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <header className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold">Geofences cadastradas</h3>
-            <p className="text-xs opacity-70">Atualização automática a cada minuto.</p>
+            <h3 className="text-lg font-semibold">Geofences ativas</h3>
+            <p className="text-xs opacity-70">Sincronizadas a cada minuto do Traccar.</p>
           </div>
-          <span className="text-xs opacity-60">
-            {loading ? "Carregando cercas…" : `${existing.length} cercas ativas`}
-          </span>
+          <span className="text-xs opacity-60">{loading ? "Carregando cercas…" : `${layers.length} layers`}</span>
         </header>
-
-        {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-xs uppercase tracking-wider opacity-60">
-              <tr>
-                <th className="py-2 pr-6">Nome</th>
-                <th className="py-2 pr-6">Tipo</th>
-                <th className="py-2 pr-6">Centro</th>
-                <th className="py-2 pr-6">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/40">
-              {existing.map((geofence) => (
-                <tr key={geofence.id} className="hover:bg-white/5">
-                  <td className="py-2 pr-6 text-white">{geofence.name}</td>
-                  <td className="py-2 pr-6 text-white/70">{geofence.type}</td>
-                  <td className="py-2 pr-6 text-white/70">
-                    {formatCoordinate(geofence.latitude, geofence.longitude)}
-                  </td>
-                  <td className="py-2 pr-6">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-border px-3 py-1 text-xs hover:bg-white/10"
-                      onClick={() => handleUpdate(geofence)}
-                    >
-                      Sincronizar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </section>
     </div>
   );
-}
-
-function formatCoordinate(lat, lon) {
-  if (!lat || !lon) return "—";
-  return `${Number(lat).toFixed(4)}, ${Number(lon).toFixed(4)}`;
 }
