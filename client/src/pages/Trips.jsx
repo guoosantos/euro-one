@@ -25,10 +25,42 @@ const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const DEFAULT_FROM = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
 const DEFAULT_TO = () => new Date().toISOString().slice(0, 16);
+const FALLBACK_CENTER = [-15.793889, -47.882778];
+const FALLBACK_ZOOM = 5;
 const REPLAY_SPEEDS = [1, 2, 4, 8];
 const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const ANIMATION_BASE_MS = 900;
 const MAX_INTERPOLATION_METERS = 120;
+
+function toFiniteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function clampLatitude(lat) {
+  return Math.min(90, Math.max(-90, lat));
+}
+
+function clampLongitude(lng) {
+  return Math.min(180, Math.max(-180, lng));
+}
+
+function isValidLatLng(lat, lng) {
+  const normalizedLat = toFiniteNumber(lat);
+  const normalizedLng = toFiniteNumber(lng);
+  if (normalizedLat === null || normalizedLng === null) return false;
+  return normalizedLat >= -90 && normalizedLat <= 90 && normalizedLng >= -180 && normalizedLng <= 180;
+}
+
+function normalizeLatLng(point) {
+  if (!point) return null;
+  const rawLat = point.lat ?? point.latitude;
+  const rawLng = point.lng ?? point.lon ?? point.longitude;
+  const lat = toFiniteNumber(rawLat);
+  const lng = toFiniteNumber(rawLng);
+  if (lat === null || lng === null) return null;
+  return { lat: clampLatitude(lat), lng: clampLongitude(lng) };
+}
 
 function parseDate(value) {
   if (!value) return null;
@@ -226,8 +258,9 @@ function ReplayMap({
     () =>
       points
         .map((point, index) => {
-          if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
-          return { ...point, lat: point.lat, lng: point.lng, index };
+          const normalized = normalizeLatLng(point);
+          if (!normalized) return null;
+          return { ...point, ...normalized, index };
         })
         .filter(Boolean),
     [points],
@@ -235,19 +268,31 @@ function ReplayMap({
 
   const positions = useMemo(() => {
     const basePath = smoothedPath?.length ? smoothedPath : routePoints;
-    return basePath.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)).map((point) => [point.lat, point.lng]);
+    return basePath.filter((point) => isValidLatLng(point.lat, point.lng)).map((point) => [point.lat, point.lng]);
   }, [routePoints, smoothedPath]);
 
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
   const vehicleIcon = useMemo(() => buildVehicleIcon(animatedPoint?.heading || 0), [animatedPoint?.heading]);
   const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
   const resolvedSubdomains = tileLayer.subdomains ?? "abc";
+  const normalizedAnimatedPoint = useMemo(() => normalizeLatLng(animatedPoint), [animatedPoint]);
+  const normalizedActivePoint = useMemo(() => normalizeLatLng(activePoint), [activePoint]);
+  const initialCenter = useMemo(() => {
+    if (normalizedAnimatedPoint) return [normalizedAnimatedPoint.lat, normalizedAnimatedPoint.lng];
+    if (normalizedActivePoint) return [normalizedActivePoint.lat, normalizedActivePoint.lng];
+    const normalizedDefault = normalizeLatLng({ lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1] });
+    return normalizedDefault ? [normalizedDefault.lat, normalizedDefault.lng] : FALLBACK_CENTER;
+  }, [normalizedActivePoint, normalizedAnimatedPoint]);
+  const initialZoom = useMemo(() => (normalizedAnimatedPoint || normalizedActivePoint ? DEFAULT_ZOOM : FALLBACK_ZOOM), [
+    normalizedActivePoint,
+    normalizedAnimatedPoint,
+  ]);
 
   return (
     <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
       <MapContainer
-        center={animatedPoint ? [animatedPoint.lat, animatedPoint.lng] : activePoint ? [activePoint.lat, activePoint.lng] : DEFAULT_CENTER}
-        zoom={DEFAULT_ZOOM}
+        center={initialCenter}
+        zoom={initialZoom}
         className="h-full w-full"
       >
         <TileLayer
@@ -270,6 +315,7 @@ function ReplayMap({
           : null}
         {animatedPoint ? <Marker position={[animatedPoint.lat, animatedPoint.lng]} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
+        <MapResizeHandler />
       </MapContainer>
     </div>
   );
@@ -278,11 +324,38 @@ function ReplayMap({
 function MapFocus({ point }) {
   const map = useMap();
   useEffect(() => {
-    if (!point) return;
-    if (Number.isFinite(point.lat) && Number.isFinite(point.lng)) {
-      map.setView([point.lat, point.lng], DEFAULT_ZOOM, { animate: true });
-    }
+    const normalized = normalizeLatLng(point);
+    const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
+    const zoom = normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
+    map.setView(target, zoom, { animate: Boolean(normalized) });
   }, [map, point]);
+  return null;
+}
+
+function MapResizeHandler() {
+  const map = useMap();
+  const timeoutRef = useRef(null);
+
+  useEffect(() => {
+    timeoutRef.current = setTimeout(() => map.invalidateSize(), 200);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => map.invalidateSize(), 200);
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [map]);
+
   return null;
 }
 
