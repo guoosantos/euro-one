@@ -10,6 +10,8 @@ import Field from "../ui/Field";
 import { Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { useLivePositions } from "../lib/hooks/useLivePositions.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 
 function formatStatus(status) {
   if (!status) return "—";
@@ -18,6 +20,7 @@ function formatStatus(status) {
 
 export default function Chips() {
   const { tenantId, user } = useTenant();
+  const { positions } = useLivePositions();
   const [chips, setChips] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +47,20 @@ export default function Chips() {
     notes: "",
     deviceId: "",
   });
+
+  const latestPositionByDevice = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(positions) ? positions : []).forEach((position) => {
+      const key = toDeviceKey(position?.deviceId ?? position?.device_id);
+      if (!key) return;
+      const time = Date.parse(position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.time ?? 0);
+      const existing = map.get(key);
+      if (!existing || (!Number.isNaN(time) && time > existing.time)) {
+        map.set(key, { ...position, parsedTime: time });
+      }
+    });
+    return map;
+  }, [positions]);
 
   async function load() {
     setLoading(true);
@@ -105,6 +122,13 @@ export default function Chips() {
   }, [chips, query, statusFilter, carrierFilter]);
 
   const availableDevices = useMemo(() => devices.filter((device) => !device.chipId || device.chipId === editingId), [devices, editingId]);
+
+  function getLastPing(chip) {
+    const key = toDeviceKey(chip.deviceId || chip.device?.id || chip.device?.traccarId || chip.device?.uniqueId);
+    const position = key ? latestPositionByDevice.get(key) : null;
+    if (!position?.parsedTime) return "—";
+    return new Date(position.parsedTime).toLocaleString();
+  }
 
   function resetForm() {
     setEditingId(null);
@@ -247,6 +271,7 @@ export default function Chips() {
                 <th className="px-4 py-3 text-left">Telefone</th>
                 <th className="px-4 py-3 text-left">Operadora</th>
                 <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Último ping</th>
                 <th className="px-4 py-3 text-left">Equipamento</th>
                 <th className="px-4 py-3 text-left">Ações</th>
               </tr>
@@ -254,14 +279,14 @@ export default function Chips() {
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
                     Carregando chips…
                   </td>
                 </tr>
               )}
               {!loading && filteredChips.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
                     Nenhum chip encontrado.
                   </td>
                 </tr>
@@ -273,6 +298,7 @@ export default function Chips() {
                     <td className="px-4 py-3">{chip.phone || "—"}</td>
                     <td className="px-4 py-3">{chip.carrier || "—"}</td>
                     <td className="px-4 py-3">{formatStatus(chip.status)}</td>
+                    <td className="px-4 py-3">{getLastPing(chip)}</td>
                     <td className="px-4 py-3">{chip.device?.name || chip.device?.uniqueId || "—"}</td>
                     <td className="px-4 py-3 space-x-2 whitespace-nowrap">
                       <Button size="sm" variant="ghost" onClick={() => openEdit(chip)}>
