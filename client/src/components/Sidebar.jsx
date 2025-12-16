@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
   Banknote,
+  ChevronDown as ChevronDownIcon,
   ChevronDown,
   ChevronRight,
   Boxes,
@@ -35,6 +36,7 @@ import {
   Video,
   Wrench,
   NotebookPen,
+  ChevronUp,
 } from "lucide-react";
 
 import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
@@ -52,6 +54,15 @@ const DEFAULT_SECTIONS_OPEN = {
   frotas: false,
   telemetria: false,
   administracao: false,
+};
+const DEFAULT_SUBMENUS_OPEN = {
+  dispositivos: false,
+  documentos: false,
+  servicos: false,
+  "euro-view": false,
+  "euro-can": false,
+  relatorios: false,
+  analises: false,
 };
 
 function toRgba(color, alpha = 1) {
@@ -99,16 +110,12 @@ export default function Sidebar() {
   const toggleCollapsed = useUI((state) => state.toggleSidebarCollapsed);
   const setSidebarCollapsed = useUI((state) => state.setSidebarCollapsed);
   const [openProfile, setOpenProfile] = useState(false);
-  const [openSections, setOpenSections] = useState(DEFAULT_SECTIONS_OPEN);
-  const [openSubmenus, setOpenSubmenus] = useState({
-    dispositivos: true,
-    documentos: true,
-    servicos: true,
-    "euro-view": true,
-    "euro-can": true,
-    relatorios: true,
-    analises: true,
-  });
+  const [openSections, setOpenSections] = useState(() => ({
+    ...DEFAULT_SECTIONS_OPEN,
+  }));
+  const [openSubmenus, setOpenSubmenus] = useState(() => ({
+    ...DEFAULT_SUBMENUS_OPEN,
+  }));
   const location = useLocation();
 
   const { tenant, role } = useTenant();
@@ -117,11 +124,16 @@ export default function Sidebar() {
   const nestedLinkClass = linkClass(false);
   const activeStyle = linkStyle(accentColor);
   const canManageUsers = role === "admin" || role === "manager";
-  const labelVisibilityClass = collapsed ? "sr-only" : "flex-1 truncate";
+  const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
   const navLabelProps = (label) => ({
     title: label,
     ...(collapsed ? { "aria-label": label } : {}),
   });
+
+  useEffect(() => {
+    setOpenSections({ ...DEFAULT_SECTIONS_OPEN });
+    setOpenSubmenus({ ...DEFAULT_SUBMENUS_OPEN });
+  }, []);
 
   const toggleSection = (key) => {
     setOpenSections((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
@@ -349,6 +361,10 @@ export default function Sidebar() {
     const handleSectionClick = () => {
       if (collapsed) {
         setSidebarCollapsed(false);
+        setOpenSections((state) => ({
+          ...DEFAULT_SECTIONS_OPEN,
+          [section.key]: state[section.key] !== false,
+        }));
         return;
       }
       toggleSection(section.key);
@@ -416,14 +432,7 @@ export default function Sidebar() {
     >
 
       <nav className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-3">
-        <div
-          className="flex items-center justify-between rounded-xl border border-[#1f2430] bg-[#0b1220] px-3 py-2"
-          style={{
-            borderColor: tenant?.brandColor
-              ? `${tenant.brandColor}33`
-              : undefined,
-          }}
-        >
+        <div className="flex items-center justify-between px-2 py-1">
           <span
             className={`text-white font-semibold ${
               collapsed ? "hidden" : "truncate"
@@ -434,14 +443,18 @@ export default function Sidebar() {
           <button
             type="button"
             aria-label="Alternar menu"
-            className="rounded-full p-1 text-white/60 transition hover:text-white"
+            className="rounded-full p-2 text-white/70 transition hover:text-white"
             onClick={toggleCollapsed}
           >
             <Menu size={18} />
           </button>
         </div>
 
-        <div className="rounded-xl border border-[#1f2430] bg-[#111827] p-3 shadow-soft">
+        <div
+          className={`rounded-xl ${
+            collapsed ? "bg-transparent p-2 shadow-none" : "bg-[#111827] p-3 shadow-soft"
+          }`}
+        >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div
@@ -471,11 +484,12 @@ export default function Sidebar() {
             {!collapsed && (
               <button
                 type="button"
-                className="rounded-full border border-white/20 px-3 py-1 text-xs text-white/70 transition hover:border-white/40"
+                className="rounded-full p-2 text-white/70 transition hover:text-white"
                 onClick={() => setOpenProfile((value) => !value)}
                 aria-expanded={openProfile}
+                title={openProfile ? "Fechar resumo" : "Abrir resumo"}
               >
-                {openProfile ? "Ocultar" : "Resumo"}
+                {openProfile ? <ChevronUp size={16} /> : <ChevronDownIcon size={16} />}
               </button>
             )}
           </div>

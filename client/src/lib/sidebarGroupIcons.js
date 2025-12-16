@@ -1,15 +1,9 @@
-import {
-  Briefcase,
-  LayoutGrid,
-  Truck,
-  RadioTower,
-  ShieldCog,
-} from "lucide-react";
+import { Activity, Building2, LayoutGrid, Settings, Truck } from "lucide-react";
 
 export const sidebarGroupIcons = {
-  negocios: Briefcase,
+  negocios: Building2,
   principais: LayoutGrid,
   frotas: Truck,
-  telemetria: RadioTower,
-  administracao: ShieldCog,
+  telemetria: Activity,
+  administracao: Settings,
 };
