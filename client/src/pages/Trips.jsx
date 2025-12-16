@@ -9,6 +9,7 @@ import { useTranslation } from "../lib/i18n.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
+import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -53,6 +54,9 @@ const TRACCAR_EVENT_DEFINITIONS = {
   "7": { type: "ignition-off", label: "Ignition Off", icon: "⏻" },
 };
 
+const COLUMN_STORAGE_KEY = "tripsReplayColumns:v1";
+const DEFAULT_COLUMN_PRESET = ["time", "event", "speed", "address"];
+
 function translateTripEvent(eventType) {
   if (!eventType) return "";
   const normalized = String(eventType).trim();
@@ -70,6 +74,14 @@ function isValidLatLng(lat, lng) {
   const normalizedLng = toFiniteNumber(lng);
   if (normalizedLat === null || normalizedLng === null) return false;
   return normalizedLat >= -90 && normalizedLat <= 90 && normalizedLng >= -180 && normalizedLng <= 180;
+}
+
+function buildCoordKey(lat, lng, precision = 5) {
+  const normalizedLat = toFiniteNumber(lat);
+  const normalizedLng = toFiniteNumber(lng);
+  if (normalizedLat === null || normalizedLng === null) return null;
+  const factor = 10 ** precision;
+  return `${Math.round(normalizedLat * factor) / factor},${Math.round(normalizedLng * factor) / factor}`;
 }
 
 function normalizeLatLng(point) {
@@ -256,15 +268,62 @@ function normalizeSeverityFromPoint(point) {
 }
 
 function formatPointAddress(point) {
-  if (typeof point?.address === "string" && point.address.trim()) return point.address.trim();
-  if (typeof point?.attributes?.address === "string" && point.attributes.address.trim()) return point.attributes.address.trim();
-  if (typeof point?.attributes?.formattedAddress === "string" && point.attributes.formattedAddress.trim()) {
-    return point.attributes.formattedAddress.trim();
+  const candidates = [
+    point?.address,
+    point?.attributes?.address,
+    point?.attributes?.formattedAddress,
+    point?.attributes?.rawAddress,
+    point?.geofence,
+    point?.geofenceName,
+    point?.attributes?.geofence,
+    point?.attributes?.geofenceName,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (candidate && typeof candidate === "object") {
+      if (typeof candidate.formattedAddress === "string" && candidate.formattedAddress.trim()) {
+        return candidate.formattedAddress.trim();
+      }
+      if (typeof candidate.address === "string" && candidate.address.trim()) return candidate.address.trim();
+      if (typeof candidate.name === "string" && candidate.name.trim()) return candidate.name.trim();
+    }
   }
-  if (typeof point?.attributes?.rawAddress === "string" && point.attributes.rawAddress.trim()) {
-    return point.attributes.rawAddress.trim();
+
+  return null;
+}
+
+function loadStoredColumns() {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(COLUMN_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.visible)) return parsed.visible;
+    return null;
+  } catch (_err) {
+    return null;
   }
-  return "Endereço não disponível";
+}
+
+function persistColumns(columns) {
+  try {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify({ visible: columns }));
+  } catch (_err) {
+    // ignore persistence failure
+  }
+}
+
+function formatAttributeLabel(key) {
+  if (!key) return "Atributo";
+  const spaced = String(key)
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_]+/g, " ")
+    .trim();
+  if (!spaced) return "Atributo";
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
 function validateRange({ deviceId, from, to }) {
@@ -282,6 +341,9 @@ function ReplayMap({
   animatedPoint,
   mapLayer,
   smoothedPath,
+  focusMode,
+  isPlaying,
+  manualCenter,
 }) {
   const routePoints = useMemo(
     () =>
@@ -338,7 +400,8 @@ function ReplayMap({
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
         {animatedMarkerPosition ? <Marker position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
-        <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} />
+        <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} enabled={focusMode === "map" && isPlaying} />
+        <ManualCenter target={manualCenter} />
         <MapResizeHandler />
       </MapContainer>
     </div>
@@ -401,13 +464,13 @@ function MapFocus({ point }) {
   return null;
 }
 
-function ReplayFollower({ point, heading }) {
+function ReplayFollower({ point, heading, enabled }) {
   const map = useMap();
   const lastPanRef = useRef(0);
   const lastKeyRef = useRef(null);
 
   useEffect(() => {
-    if (!map || !point) return undefined;
+    if (!map || !point || !enabled) return undefined;
 
     const normalized = normalizeLatLng(point);
     if (!normalized) return undefined;
@@ -434,7 +497,25 @@ function ReplayFollower({ point, heading }) {
     map.panTo([targetOffset.lat, targetOffset.lng], { animate: true });
 
     return undefined;
-  }, [map, point, heading]);
+  }, [enabled, heading, map, point]);
+
+  return null;
+}
+
+function ManualCenter({ target }) {
+  const map = useMap();
+  const lastTsRef = useRef(null);
+
+  useEffect(() => {
+    if (!map || !target) return undefined;
+    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return undefined;
+    if (lastTsRef.current === target.ts) return undefined;
+    lastTsRef.current = target.ts;
+
+    map.flyTo([target.lat, target.lng], map.getZoom(), { animate: true });
+
+    return undefined;
+  }, [map, target]);
 
   return null;
 }
@@ -467,7 +548,16 @@ function MapResizeHandler() {
   return null;
 }
 
-function TimelineTable({ entries = [], activeIndex, onSelect, locale }) {
+function TimelineTable({
+  entries = [],
+  activeIndex,
+  onSelect,
+  locale,
+  columns = [],
+  resolveAddress,
+  focusMode,
+  isPlaying,
+}) {
   const rowRefs = useRef(new Map());
 
   useEffect(() => {
@@ -475,10 +565,11 @@ function TimelineTable({ entries = [], activeIndex, onSelect, locale }) {
   }, [entries]);
 
   useEffect(() => {
+    if (focusMode !== "table") return;
     const activeRow = rowRefs.current.get(activeIndex);
     if (!activeRow || typeof activeRow.scrollIntoView !== "function") return;
-    activeRow.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" });
-  }, [activeIndex, entries]);
+    activeRow.scrollIntoView({ behavior: isPlaying ? "smooth" : "auto", block: "nearest", inline: "nearest" });
+  }, [activeIndex, entries, focusMode, isPlaying]);
 
   if (entries.length === 0) {
     return (
@@ -489,74 +580,83 @@ function TimelineTable({ entries = [], activeIndex, onSelect, locale }) {
   }
 
   return (
-    <div className="max-h-96 overflow-y-auto rounded-lg border border-white/10 bg-white/5">
-      <table className="min-w-full text-xs text-white/80">
-        <thead className="sticky top-0 bg-slate-900/70 backdrop-blur">
-          <tr>
-            <th className="px-3 py-2 text-left font-semibold text-white">Hora</th>
-            <th className="px-3 py-2 text-left font-semibold text-white">Evento</th>
-            <th className="px-3 py-2 text-left font-semibold text-white">Velocidade</th>
-            <th className="px-3 py-2 text-left font-semibold text-white">Endereço/Local</th>
-            <th className="px-3 py-2 text-left font-semibold text-white">Ação</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry) => {
-            const isActive = entry.index === activeIndex;
-            return (
-              <tr
-                key={`${entry.index}-${entry.time?.toISOString?.() ?? entry.index}`}
-                ref={(node) => {
-                  if (node) {
-                    rowRefs.current.set(entry.index, node);
-                  } else {
-                    rowRefs.current.delete(entry.index);
-                  }
-                }}
-                className={`cursor-pointer border-b border-white/5 transition ${
-                  isActive ? "bg-primary/10 text-white" : "hover:bg-white/5"
-                }`}
-                onClick={() => onSelect?.(entry.index)}
-              >
-                <td className="px-3 py-2 whitespace-nowrap text-white/80">
-                  {entry.time ? formatDateTime(entry.time, locale) : "Horário indisponível"}
-                </td>
-                <td className="px-3 py-2 whitespace-nowrap text-white">{entry.label || "—"}</td>
-                <td className="px-3 py-2 whitespace-nowrap text-white/80">
-                  {entry.speed !== undefined && entry.speed !== null ? `${Math.round(entry.speed)} km/h` : "—"}
-                </td>
-                <td className="px-3 py-2 text-white/70">{entry.address || "Endereço não disponível"}</td>
-                <td className="px-3 py-2">
-                  <button
-                    type="button"
-                    className="rounded-md border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onSelect?.(entry.index);
-                    }}
-                  >
-                    Ver/Ir
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="overflow-hidden rounded-lg border border-white/10 bg-white/5">
+      <div className="max-h-[460px] overflow-y-auto">
+        <table className="min-w-full text-xs text-white/80">
+          <thead className="sticky top-0 bg-slate-900/80 backdrop-blur">
+            <tr>
+              {columns.map((column) => {
+                const alignment =
+                  column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
+                return (
+                  <th key={column.key} className={`px-3 py-2 font-semibold text-white ${alignment}`}>
+                    {column.label}
+                  </th>
+                );
+              })}
+              <th className="px-3 py-2 text-right font-semibold text-white">Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry) => {
+              const isActive = entry.index === activeIndex;
+              return (
+                <tr
+                  key={`${entry.index}-${entry.time?.toISOString?.() ?? entry.index}`}
+                  ref={(node) => {
+                    if (node) {
+                      rowRefs.current.set(entry.index, node);
+                    } else {
+                      rowRefs.current.delete(entry.index);
+                    }
+                  }}
+                  className={`cursor-pointer border-b border-white/5 transition ${
+                    isActive ? "bg-primary/10 text-white" : "hover:bg-white/5"
+                  }`}
+                  onClick={() => onSelect?.(entry.index, { centerMap: true })}
+                >
+                  {columns.map((column) => {
+                    const alignment =
+                      column.align === "right" ? "text-right" : column.align === "center" ? "text-center" : "text-left";
+                    const wrapClass = column.allowWrap ? "" : "whitespace-nowrap";
+                    const rawContent =
+                      column.key === "address"
+                        ? resolveAddress?.(entry)
+                        : column.render
+                          ? column.render(entry)
+                          : entry[column.key];
+                    const content = rawContent ?? "—";
+                    return (
+                      <td key={`${entry.index}-${column.key}`} className={`px-3 py-2 text-white/80 ${alignment} ${wrapClass}`}>
+                        {content}
+                      </td>
+                    );
+                  })}
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      className="rounded-md border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onSelect?.(entry.index, { centerMap: true });
+                      }}
+                    >
+                      Ver/Ir
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
 
-function EventPanel({
-  events = [],
-  selectedType,
-  onSelectType,
-  totalOccurrences,
-  filterType = "all",
-  totalTimeline = 0,
-}) {
+function EventPanel({ events = [], selectedType, onSelectType, totalTimeline = 0 }) {
   const hasEvents = events.length > 0;
-  const totalCount = Number(totalOccurrences) || 0;
+  const totalCount = totalTimeline || events.reduce((sum, event) => sum + (event.count || 0), 0);
   const filters = [{ type: "all", label: "Todos", count: totalTimeline }, ...events];
 
   return (
@@ -568,37 +668,15 @@ function EventPanel({
 
       {hasEvents ? (
         <div className="mt-3 space-y-2">
-          <div className="text-[11px] uppercase tracking-wide text-white/50">Filtros rápidos</div>
-          <div className="flex flex-wrap gap-2">
-            {filters.map((filter) => {
-              const isActive = filterType === filter.type || (!filterType && filter.type === "all");
-              return (
-                <button
-                  key={filter.type}
-                  type="button"
-                  onClick={() => onSelectType?.(filter.type)}
-                  className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs transition ${
-                    isActive
-                      ? "border-primary/60 bg-primary/10 text-white"
-                      : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
-                  }`}
-                >
-                  <span className="font-semibold">{filter.label}</span>
-                  <span className="rounded bg-white/10 px-2 py-[2px] text-[11px] text-white/70">{filter.count}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="text-[11px] uppercase tracking-wide text-white/50">Eventos do trajeto</div>
-          <div className="max-h-[300px] space-y-2 overflow-y-auto pr-1">
-            {events.map((event) => {
-              const isActive = event.type === selectedType;
+          <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+            {filters.map((event) => {
+              const isAll = event.type === "all";
+              const isActive = (!selectedType && isAll) || selectedType === event.type;
               return (
                 <button
                   key={event.type}
                   type="button"
-                  onClick={() => onSelectType?.(event.type)}
+                  onClick={() => onSelectType?.(isAll ? "all" : event.type)}
                   className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
                     isActive
                       ? "border-primary/60 bg-primary/10 text-white"
@@ -608,14 +686,14 @@ function EventPanel({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-3">
                       <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/5 text-base">
-                        {event.icon || "•"}
+                        {isAll ? "•" : event.icon || "•"}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-semibold">{event.label}</span>
-                        <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
+                        <span className="font-semibold">{isAll ? "Todos" : event.label}</span>
+                        <span className="text-[11px] text-white/60">Clique para filtrar</span>
                       </div>
                     </div>
-                    <span className="text-sm font-semibold text-white">({event.count})</span>
+                    <span className="text-sm font-semibold text-white">({event.count ?? totalTimeline})</span>
                   </div>
                 </button>
               );
@@ -660,6 +738,12 @@ export default function Trips() {
   const [eventCursor, setEventCursor] = useState(0);
   const [timelineFilter, setTimelineFilter] = useState("all");
   const [animatedPoint, setAnimatedPoint] = useState(null);
+  const [resolvedAddresses, setResolvedAddresses] = useState({});
+  const [addressLoading, setAddressLoading] = useState({});
+  const [focusMode, setFocusMode] = useState("map");
+  const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [manualCenter, setManualCenter] = useState(null);
+  const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const animationRef = useRef(null);
 
   const trips = useMemo(
@@ -694,16 +778,49 @@ export default function Trips() {
             "Posição registrada",
         );
 
+        const heading = toFiniteNumber(
+          point.course ?? point.heading ?? point.attributes?.course ?? point.attributes?.heading,
+        );
+        const ignition =
+          typeof point.attributes?.ignition === "boolean"
+            ? point.attributes.ignition
+            : typeof point.ignition === "boolean"
+              ? point.ignition
+              : null;
+        const odometer = toFiniteNumber(point.attributes?.odometer ?? point.odometer);
+        const altitude = toFiniteNumber(point.altitude ?? point.attributes?.altitude);
+        const satellites = toFiniteNumber(point.attributes?.sat ?? point.satellites);
+        const battery = toFiniteNumber(
+          point.attributes?.batteryLevel ?? point.attributes?.battery ?? point.batteryLevel ?? point.battery,
+        );
+        const motion =
+          typeof point.attributes?.motion === "boolean"
+            ? point.attributes.motion
+            : typeof point.motion === "boolean"
+              ? point.motion
+              : null;
+        const backendAddress = formatPointAddress(point);
+        const addressKey = buildCoordKey(coords.lat, coords.lng);
+
         return {
           ...point,
           ...coords,
           __time: time,
           __severity: normalizeSeverityFromPoint(point),
-          __address: formatPointAddress(point),
+          __address: backendAddress,
+          __addressKey: addressKey,
           __speed: pickSpeed(point),
           __label: translatedLabel,
           __event: mappedEvent,
           __index: index,
+          __heading: heading,
+          __ignition: ignition,
+          __odometer: odometer,
+          __altitude: altitude,
+          __satellites: satellites,
+          __battery: battery,
+          __motion: motion,
+          __attributes: point.attributes || {},
         };
       })
       .filter(Boolean);
@@ -758,11 +875,87 @@ export default function Trips() {
         label: point.__label,
         eventType: point.__event?.type || null,
         severity: point.__severity,
-        address: point.__address,
         speed: point.__speed,
+        backendAddress: point.__address,
+        addressKey: point.__addressKey,
+        lat: point.lat,
+        lng: point.lng,
+        heading: point.__heading,
+        ignition: point.__ignition,
+        odometer: point.__odometer,
+        altitude: point.__altitude,
+        satellites: point.__satellites,
+        battery: point.__battery,
+        motion: point.__motion,
+        attributes: point.__attributes,
       })),
     [routePoints],
   );
+
+  useEffect(() => {
+    setResolvedAddresses({});
+    setAddressLoading({});
+  }, [routeData]);
+
+  useEffect(() => {
+    if (!timelineEntries.length) return undefined;
+
+    const nextResolved = {};
+    const toResolve = [];
+
+    timelineEntries.forEach((entry) => {
+      if (entry.backendAddress) return;
+      if (!Number.isFinite(entry.lat) || !Number.isFinite(entry.lng)) return;
+
+      const key = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
+      if (!key || resolvedAddresses[key]) return;
+
+      const cached = getCachedReverse(entry.lat, entry.lng);
+      if (cached) {
+        nextResolved[key] = cached;
+        return;
+      }
+
+      toResolve.push({ key, lat: entry.lat, lng: entry.lng });
+    });
+
+    if (Object.keys(nextResolved).length) {
+      setResolvedAddresses((prev) => ({ ...prev, ...nextResolved }));
+    }
+
+    if (!toResolve.length) return undefined;
+
+    setAddressLoading((prev) => ({
+      ...prev,
+      ...Object.fromEntries(toResolve.map((item) => [item.key, true])),
+    }));
+
+    let cancelled = false;
+
+    (async () => {
+      for (const item of toResolve.slice(0, 6)) {
+        try {
+          const value = await reverseGeocode(item.lat, item.lng);
+          if (cancelled) return;
+          setResolvedAddresses((prev) => ({ ...prev, [item.key]: value || "Endereço não disponível" }));
+        } catch (_err) {
+          if (cancelled) return;
+          setResolvedAddresses((prev) => ({ ...prev, [item.key]: "Endereço não disponível" }));
+        } finally {
+          if (cancelled) return;
+          setAddressLoading((prev) => {
+            const next = { ...prev };
+            delete next[item.key];
+            return next;
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedAddresses, timelineEntries]);
 
   const filteredTimelineEntries = useMemo(
     () =>
@@ -817,6 +1010,221 @@ export default function Trips() {
     const summary = eventSummaries.find((item) => item.type === timelineFilter);
     return summary?.label || translateTripEvent(timelineFilter);
   }, [eventSummaries, timelineFilter]);
+
+  const resolveEntryAddress = useCallback(
+    (entry) => {
+      if (entry?.backendAddress) return entry.backendAddress;
+      const key = entry?.addressKey || buildCoordKey(entry?.lat, entry?.lng);
+      if (key && resolvedAddresses[key]) {
+        const resolved = resolvedAddresses[key];
+        if (typeof resolved === "string" && resolved.trim() === key) return "Endereço não disponível";
+        return resolved;
+      }
+      if (key && addressLoading[key]) return "Carregando…";
+      return "Endereço não disponível";
+    },
+    [addressLoading, resolvedAddresses],
+  );
+
+  const dynamicAttributeKeys = useMemo(() => {
+    const known = new Set([
+      "address",
+      "formattedAddress",
+      "rawAddress",
+      "geofence",
+      "geofenceName",
+      "ignition",
+      "battery",
+      "batteryLevel",
+      "sat",
+      "satellites",
+      "odometer",
+      "course",
+      "heading",
+      "motion",
+    ]);
+
+    const keys = new Set();
+    timelineEntries.forEach((entry) => {
+      Object.entries(entry.attributes || {}).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        if (known.has(key)) return;
+        keys.add(key);
+      });
+    });
+
+    return Array.from(keys).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [timelineEntries]);
+
+  const availableColumnDefs = useMemo(() => {
+    const hasSpeed = timelineEntries.some((entry) => Number.isFinite(entry.speed));
+    const hasLatLng = timelineEntries.some((entry) => Number.isFinite(entry.lat) && Number.isFinite(entry.lng));
+    const hasHeading = timelineEntries.some((entry) => Number.isFinite(entry.heading));
+    const hasIgnition = timelineEntries.some((entry) => typeof entry.ignition === "boolean");
+    const hasOdometer = timelineEntries.some((entry) => Number.isFinite(entry.odometer));
+    const hasAltitude = timelineEntries.some((entry) => Number.isFinite(entry.altitude));
+    const hasSatellites = timelineEntries.some((entry) => Number.isFinite(entry.satellites));
+    const hasBattery = timelineEntries.some((entry) => Number.isFinite(entry.battery));
+    const hasMotion = timelineEntries.some((entry) => typeof entry.motion === "boolean");
+
+    const baseColumns = [
+      {
+        key: "time",
+        label: "Hora",
+        defaultSelected: true,
+        render: (entry) => (entry.time ? formatDateTime(entry.time, locale) : "Horário indisponível"),
+      },
+      { key: "event", label: "Evento", defaultSelected: true, render: (entry) => entry.label || "—" },
+      {
+        key: "speed",
+        label: "Velocidade",
+        defaultSelected: true,
+        align: "right",
+        isAvailable: hasSpeed,
+        render: (entry) => (Number.isFinite(entry.speed) ? `${Math.round(entry.speed)} km/h` : "—"),
+      },
+      { key: "address", label: "Endereço / Local", defaultSelected: true, allowWrap: true },
+      {
+        key: "lat",
+        label: "Latitude",
+        align: "right",
+        isAvailable: hasLatLng,
+        render: (entry) => (Number.isFinite(entry.lat) ? entry.lat.toFixed(5) : "—"),
+      },
+      {
+        key: "lng",
+        label: "Longitude",
+        align: "right",
+        isAvailable: hasLatLng,
+        render: (entry) => (Number.isFinite(entry.lng) ? entry.lng.toFixed(5) : "—"),
+      },
+      {
+        key: "heading",
+        label: "Curso / Direção",
+        align: "right",
+        isAvailable: hasHeading,
+        render: (entry) => (Number.isFinite(entry.heading) ? `${Math.round(entry.heading)}°` : "—"),
+      },
+      {
+        key: "ignition",
+        label: "Ignição",
+        isAvailable: hasIgnition,
+        render: (entry) => (typeof entry.ignition === "boolean" ? (entry.ignition ? "Ligada" : "Desligada") : "—"),
+      },
+      {
+        key: "odometer",
+        label: "Odômetro",
+        align: "right",
+        isAvailable: hasOdometer,
+        render: (entry) => (Number.isFinite(entry.odometer) ? `${(entry.odometer / 1000).toFixed(1)} km` : "—"),
+      },
+      {
+        key: "altitude",
+        label: "Altitude",
+        align: "right",
+        isAvailable: hasAltitude,
+        render: (entry) => (Number.isFinite(entry.altitude) ? `${Math.round(entry.altitude)} m` : "—"),
+      },
+      {
+        key: "satellites",
+        label: "Satélites",
+        align: "right",
+        isAvailable: hasSatellites,
+        render: (entry) => (Number.isFinite(entry.satellites) ? Math.round(entry.satellites) : "—"),
+      },
+      {
+        key: "battery",
+        label: "Bateria",
+        align: "right",
+        isAvailable: hasBattery,
+        render: (entry) => (Number.isFinite(entry.battery) ? `${Math.round(entry.battery)}%` : "—"),
+      },
+      {
+        key: "motion",
+        label: "Movimento",
+        isAvailable: hasMotion,
+        render: (entry) => (typeof entry.motion === "boolean" ? (entry.motion ? "Em movimento" : "Parado") : "—"),
+      },
+    ];
+
+    const dynamicColumns = dynamicAttributeKeys.map((attrKey) => ({
+      key: `attr:${attrKey}`,
+      label: formatAttributeLabel(attrKey),
+      allowWrap: true,
+      render: (entry) => {
+        const value = entry?.attributes?.[attrKey];
+        if (value === undefined || value === null) return "—";
+        if (typeof value === "boolean") return value ? "Sim" : "Não";
+        const numericValue = Number(value);
+        if (Number.isFinite(numericValue)) return numericValue;
+        return String(value);
+      },
+      isAvailable: true,
+    }));
+
+    return [...baseColumns, ...dynamicColumns].filter((column) => column.isAvailable !== false);
+  }, [dynamicAttributeKeys, locale, timelineEntries]);
+
+  useEffect(() => {
+    const availableKeys = availableColumnDefs.map((column) => column.key);
+    setSelectedColumns((prev) => {
+      const filtered = prev.filter((key) => availableKeys.includes(key));
+      if (filtered.length) return filtered;
+      const defaults = DEFAULT_COLUMN_PRESET.filter((key) => availableKeys.includes(key));
+      if (defaults.length) return defaults;
+      return availableKeys;
+    });
+  }, [availableColumnDefs]);
+
+  useEffect(() => {
+    persistColumns(selectedColumns);
+  }, [selectedColumns]);
+
+  const visibleColumns = useMemo(() => {
+    const columnMap = new Map(availableColumnDefs.map((column) => [column.key, column]));
+    return selectedColumns.map((key) => columnMap.get(key)).filter(Boolean);
+  }, [availableColumnDefs, selectedColumns]);
+
+  const handleToggleColumn = useCallback((key) => {
+    setSelectedColumns((prev) => {
+      const exists = prev.includes(key);
+      if (exists) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((item) => item !== key);
+      }
+      return [...prev, key];
+    });
+  }, []);
+
+  const handleMoveColumn = useCallback((key, direction) => {
+    setSelectedColumns((prev) => {
+      const index = prev.indexOf(key);
+      if (index === -1) return prev;
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= prev.length) return prev;
+      const next = [...prev];
+      const [item] = next.splice(index, 1);
+      next.splice(nextIndex, 0, item);
+      return next;
+    });
+  }, []);
+
+  const applyColumnPreset = useCallback(
+    (preset) => {
+      if (preset === "all") {
+        setSelectedColumns(availableColumnDefs.map((column) => column.key));
+        return;
+      }
+
+      if (preset === "default") {
+        const defaults = DEFAULT_COLUMN_PRESET.filter((key) =>
+          availableColumnDefs.some((column) => column.key === key),
+        );
+        setSelectedColumns(defaults.length ? defaults : availableColumnDefs.map((column) => column.key));
+      }
+    },
+    [availableColumnDefs],
+  );
 
   const activeEvent = useMemo(() => tripEvents.find((event) => event.index === activeIndex) || null, [activeIndex, tripEvents]);
   const selectedEventSummary = useMemo(
@@ -1026,21 +1434,34 @@ export default function Trips() {
     [loadRouteForTrip],
   );
 
-  const handleSelectPoint = useCallback((nextIndex) => {
-    setIsPlaying(false);
-    setActiveIndex(nextIndex);
-  }, []);
+  const handleSelectPoint = useCallback(
+    (nextIndex, options = {}) => {
+      setIsPlaying(false);
+      setActiveIndex(nextIndex);
+      if (options.centerMap) {
+        const target = timelineEntries[nextIndex];
+        if (target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
+          setManualCenter({ lat: target.lat, lng: target.lng, ts: Date.now() });
+        }
+      }
+    },
+    [timelineEntries],
+  );
 
   const handleMapLayerChange = useCallback((nextKey) => {
     setMapLayerKey(getValidMapLayer(nextKey));
   }, []);
 
+  const handleClearFilters = useCallback(() => {
+    setSelectedEventType(null);
+    setTimelineFilter("all");
+    setEventCursor(0);
+  }, []);
+
   const handleSelectEventType = useCallback(
     (eventType) => {
       if (!eventType || eventType === "all") {
-        setSelectedEventType(null);
-        setTimelineFilter("all");
-        setEventCursor(0);
+        handleClearFilters();
         return;
       }
       const summary = eventSummaries.find((item) => item.type === eventType);
@@ -1049,9 +1470,9 @@ export default function Trips() {
       setSelectedEventType(eventType);
       setTimelineFilter(eventType);
       setEventCursor(nextCursor);
-      handleSelectPoint(summary.occurrences[nextCursor]);
+      handleSelectPoint(summary.occurrences[nextCursor], { centerMap: focusMode === "map" });
     },
-    [eventCursor, eventSummaries, handleSelectPoint, selectedEventType],
+    [eventCursor, eventSummaries, focusMode, handleClearFilters, handleSelectPoint, selectedEventType],
   );
 
   const handleJumpToEvent = useCallback(
@@ -1066,10 +1487,16 @@ export default function Trips() {
       const target = baseEvents[nextIndex];
       setSelectedEventType(selectedEventType || target.type);
       setEventCursor(nextIndex);
-      handleSelectPoint(target.index);
+      handleSelectPoint(target.index, { centerMap: focusMode === "map" });
     },
-    [activeIndex, handleSelectPoint, selectedEventType, tripEvents],
+    [activeIndex, focusMode, handleSelectPoint, selectedEventType, tripEvents],
   );
+
+  const visibleCount = filteredTimelineEntries.length;
+  const hasActiveFilter = timelineFilter !== "all";
+  const statusText = `${visibleCount} registro${visibleCount === 1 ? "" : "s"} — ${
+    hasActiveFilter ? `filtrando: ${activeFilterLabel}` : "mostrando todos"
+  }`;
 
   return (
     <div className="space-y-6">
@@ -1255,6 +1682,30 @@ export default function Trips() {
                 )}
               </select>
             </div>
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+              <span className="text-white/50">Foco</span>
+              <div className="flex overflow-hidden rounded-md border border-white/10">
+                {[
+                  { key: "map", label: "Mapa" },
+                  { key: "table", label: "Tabela" },
+                  { key: "none", label: "Nenhum" },
+                ].map((option) => {
+                  const isActive = focusMode === option.key;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={`px-3 py-1 text-xs font-semibold transition ${
+                        isActive ? "bg-primary/20 text-white" : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => setFocusMode(option.key)}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1306,14 +1757,14 @@ export default function Trips() {
                 animatedPoint={animatedPoint}
                 mapLayer={mapLayer}
                 smoothedPath={smoothedPath}
-                onSelectIndex={handleSelectPoint}
+                focusMode={focusMode}
+                isPlaying={isPlaying}
+                manualCenter={manualCenter}
               />
               <EventPanel
                 events={eventSummaries}
                 selectedType={selectedEventType}
                 onSelectType={handleSelectEventType}
-                totalOccurrences={totalEvents}
-                filterType={timelineFilter}
                 totalTimeline={timelineEntries.length}
               />
             </div>
@@ -1368,42 +1819,136 @@ export default function Trips() {
               />
             </div>
 
-            <div className="mt-6 grid gap-4 lg:grid-cols-3">
-              <div className="lg:col-span-2 rounded-lg border border-white/10 bg-white/5 p-3">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="text-sm font-semibold text-white">Linha do tempo de auditoria</div>
-                  <div className="text-xs text-white/60">
-                    {filteredTimelineEntries.length} registro(s)
-                    {timelineFilter !== "all" ? ` — filtrando ${activeFilterLabel}` : ""}
+            <div className="mt-6 space-y-3">
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="text-sm font-semibold text-white">Linha do tempo de auditoria</div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Início</div>
+                    <div className="font-semibold text-white">{summary?.start ? formatDateTime(summary.start, locale) : "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Fim</div>
+                    <div className="font-semibold text-white">{summary?.end ? formatDateTime(summary.end, locale) : "—"}</div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Vel. média</div>
+                    <div className="font-semibold text-white">
+                      {summary?.averageSpeed !== null && summary?.averageSpeed !== undefined ? `${summary.averageSpeed} km/h` : "—"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+                    <div className="text-white/50">Vel. máxima</div>
+                    <div className="font-semibold text-white">
+                      {summary?.maxSpeed !== null && summary?.maxSpeed !== undefined ? `${summary.maxSpeed} km/h` : "—"}
+                    </div>
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div className="text-sm text-white/70">{statusText}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {hasActiveFilter ? (
+                      <button
+                        type="button"
+                        className="rounded-md border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                        onClick={handleClearFilters}
+                      >
+                        Limpar filtro
+                      </button>
+                    ) : null}
+                    <div className="relative">
+                      <button
+                        type="button"
+                        className="rounded-md border border-white/15 bg-white/10 px-3 py-2 text-xs font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                        onClick={() => setColumnPickerOpen((value) => !value)}
+                      >
+                        ⚙ Colunas
+                      </button>
+                      {columnPickerOpen ? (
+                        <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-white/10 bg-slate-900/90 p-3 shadow-xl backdrop-blur">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-semibold text-white">Colunas</div>
+                            <button
+                              type="button"
+                              className="text-xs text-white/60"
+                              onClick={() => setColumnPickerOpen(false)}
+                            >
+                              Fechar
+                            </button>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2 text-xs text-white/80">
+                            <button
+                              type="button"
+                              className="rounded border border-white/15 bg-white/10 px-2 py-1 font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                              onClick={() => applyColumnPreset("default")}
+                            >
+                              Padrão
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-white/15 bg-white/10 px-2 py-1 font-semibold text-white transition hover:border-primary/50 hover:bg-primary/20"
+                              onClick={() => applyColumnPreset("all")}
+                            >
+                              Todas
+                            </button>
+                          </div>
+                          <div className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                            {availableColumnDefs.map((column) => {
+                              const checked = selectedColumns.includes(column.key);
+                              return (
+                                <div
+                                  key={column.key}
+                                  className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-2 py-1"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-white/20 bg-transparent"
+                                    checked={checked}
+                                    onChange={() => handleToggleColumn(column.key)}
+                                  />
+                                  <span className="flex-1 text-sm text-white">{column.label}</span>
+                                  {checked ? (
+                                    <div className="flex items-center gap-1 text-white/60">
+                                      <button
+                                        type="button"
+                                        className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                                        onClick={() => handleMoveColumn(column.key, -1)}
+                                      >
+                                        ↑
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="rounded border border-white/10 px-2 py-1 text-[10px] font-semibold hover:border-primary/40"
+                                        onClick={() => handleMoveColumn(column.key, 1)}
+                                      >
+                                        ↓
+                                      </button>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
                 <TimelineTable
                   entries={filteredTimelineEntries}
                   activeIndex={activeIndex}
                   onSelect={handleSelectPoint}
                   locale={locale}
+                  columns={visibleColumns}
+                  resolveAddress={resolveEntryAddress}
+                  focusMode={focusMode}
+                  isPlaying={isPlaying}
                 />
               </div>
-              {summary ? (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Início</div>
-                    <div className="font-semibold text-white">{summary.start ? formatDateTime(summary.start, locale) : "—"}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Fim</div>
-                    <div className="font-semibold text-white">{summary.end ? formatDateTime(summary.end, locale) : "—"}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Vel. média</div>
-                    <div className="font-semibold text-white">{summary.averageSpeed !== null ? `${summary.averageSpeed} km/h` : "—"}</div>
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-                    <div className="text-white/50">Vel. máxima</div>
-                    <div className="font-semibold text-white">{summary.maxSpeed !== null ? `${summary.maxSpeed} km/h` : "—"}</div>
-                  </div>
-                </div>
-              ) : null}
             </div>
           </>
         ) : (
