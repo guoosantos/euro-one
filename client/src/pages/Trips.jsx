@@ -123,7 +123,8 @@ function computeHeading(from, to) {
 
 function smoothRoute(points) {
   if (!Array.isArray(points)) return [];
-  return points.map((point, index, array) => {
+  const validPoints = points.filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
+  return validPoints.map((point, index, array) => {
     const prev = array[Math.max(index - 1, 0)] || point;
     const next = array[Math.min(index + 1, array.length - 1)] || point;
     const lat = (prev.lat + point.lat + next.lat) / 3;
@@ -268,6 +269,7 @@ function ReplayMap({
   const vehicleIcon = useMemo(() => buildVehicleIcon(animatedPoint?.heading || 0), [animatedPoint?.heading]);
   const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
   const resolvedSubdomains = tileLayer.subdomains ?? "abc";
+  const resolvedMaxZoom = Number.isFinite(tileLayer.maxZoom) ? tileLayer.maxZoom : 19;
   const normalizedAnimatedPoint = useMemo(() => normalizeLatLng(animatedPoint), [animatedPoint]);
   const normalizedActivePoint = useMemo(() => normalizeLatLng(activePoint), [activePoint]);
   const animatedMarkerPosition = normalizedAnimatedPoint
@@ -296,7 +298,7 @@ function ReplayMap({
           attribution={tileLayer.attribution}
           url={tileLayer.url}
           subdomains={resolvedSubdomains}
-          maxZoom={tileLayer.maxZoom}
+          maxZoom={resolvedMaxZoom}
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
         {showPoints
@@ -500,10 +502,13 @@ export default function Trips() {
         const lat = pickCoordinate([point.latitude, point.lat, point.lat_deg]);
         const lng = pickCoordinate([point.longitude, point.lon, point.lng]);
         const time = parseDate(point.fixTime || point.deviceTime || point.serverTime || point.time);
+        const coords = normalizeLatLng({ lat, lng });
+
+        if (!coords) return null;
+
         return {
           ...point,
-          lat,
-          lng,
+          ...coords,
           __time: time,
           __severity: normalizeSeverityFromPoint(point),
           __address: formatPointAddress(point),
@@ -518,7 +523,7 @@ export default function Trips() {
           __index: index,
         };
       })
-      .filter((point) => point.__time || (Number.isFinite(point.lat) && Number.isFinite(point.lng)));
+      .filter(Boolean);
 
     const sorted = normalized.sort((a, b) => {
       const aTime = a.__time ? a.__time.getTime() : 0;
@@ -677,9 +682,12 @@ export default function Trips() {
 
   useEffect(() => {
     const target = smoothedRoute[activeIndex] || smoothedRoute[0];
-    if (!target) return undefined;
+    if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return undefined;
 
-    const startPoint = animatedPoint || target;
+    const startPoint =
+      animatedPoint && Number.isFinite(animatedPoint.lat) && Number.isFinite(animatedPoint.lng)
+        ? animatedPoint
+        : target;
     const heading = computeHeading(startPoint, target);
     const start = performance.now();
     const duration = Math.max(320, ANIMATION_BASE_MS / speed);
