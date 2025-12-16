@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -9,23 +9,26 @@ import { useTranslation } from "../lib/i18n.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
+import {
+  DEFAULT_MAP_LAYER_KEY,
+  ENABLED_MAP_LAYERS,
+  MAP_LAYER_FALLBACK,
+  MAP_LAYER_SECTIONS,
+  MAP_LAYER_STORAGE_KEYS,
+  getValidMapLayer,
+} from "../lib/mapLayers.js";
+
+// Discovery note (Epic B): this page will receive map layer selection,
+// improved replay rendering, and event navigation for trip playback.
 
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const DEFAULT_FROM = () => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16);
 const DEFAULT_TO = () => new Date().toISOString().slice(0, 16);
 const REPLAY_SPEEDS = [1, 2, 4, 8];
-
-const replayMarkerIcon = L.divIcon({
-  className: "replay-marker",
-  html: `
-    <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:16px;background:#22c55e;box-shadow:0 10px 18px rgba(0,0,0,0.35),0 0 0 2px rgba(0,0,0,0.65);border:2px solid rgba(255,255,255,0.85);">
-      <span style="font-size:16px;">▶</span>
-    </div>
-  `,
-  iconSize: [36, 36],
-  iconAnchor: [18, 18],
-});
+const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
+const ANIMATION_BASE_MS = 900;
+const MAX_INTERPOLATION_METERS = 120;
 
 function parseDate(value) {
   if (!value) return null;
@@ -59,6 +62,103 @@ function formatDistance(distanceMeters) {
 function formatSpeed(value) {
   if (!Number.isFinite(value)) return "—";
   return `${Math.round(value)} km/h`;
+}
+
+function toRadians(value) {
+  return (value * Math.PI) / 180;
+}
+
+function haversineDistance(a, b) {
+  if (!a || !b) return 0;
+  const R = 6371000;
+  const dLat = toRadians((b.lat || 0) - (a.lat || 0));
+  const dLng = toRadians((b.lng || 0) - (a.lng || 0));
+  const lat1 = toRadians(a.lat || 0);
+  const lat2 = toRadians(b.lat || 0);
+  const sinDLat = Math.sin(dLat / 2);
+  const sinDLng = Math.sin(dLng / 2);
+  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLng * sinDLng;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function computeHeading(from, to) {
+  if (!from || !to) return 0;
+  const lat1 = toRadians(from.lat || 0);
+  const lat2 = toRadians(to.lat || 0);
+  const dLng = toRadians((to.lng || 0) - (from.lng || 0));
+  const y = Math.sin(dLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+  const bearing = (Math.atan2(y, x) * 180) / Math.PI;
+  return (bearing + 360) % 360;
+}
+
+function smoothRoute(points) {
+  if (!Array.isArray(points)) return [];
+  return points.map((point, index, array) => {
+    const prev = array[Math.max(index - 1, 0)] || point;
+    const next = array[Math.min(index + 1, array.length - 1)] || point;
+    const lat = (prev.lat + point.lat + next.lat) / 3;
+    const lng = (prev.lng + point.lng + next.lng) / 3;
+    return { ...point, lat, lng };
+  });
+}
+
+function densifyPath(points, maxDistanceMeters = MAX_INTERPOLATION_METERS) {
+  if (!Array.isArray(points)) return [];
+  const path = [];
+
+  points.forEach((point, index) => {
+    if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return;
+    const current = { lat: point.lat, lng: point.lng };
+    const next = points[index + 1];
+    path.push(current);
+    if (!next || !Number.isFinite(next.lat) || !Number.isFinite(next.lng)) return;
+    const distance = haversineDistance(current, next);
+    const steps = Math.max(1, Math.min(6, Math.ceil(distance / maxDistanceMeters)));
+    for (let step = 1; step < steps; step += 1) {
+      const ratio = step / steps;
+      path.push({ lat: lerp(current.lat, next.lat, ratio), lng: lerp(current.lng, next.lng, ratio) });
+    }
+  });
+
+  return path;
+}
+
+function buildVehicleIcon(bearing = 0) {
+  const rotation = `transform: rotate(${bearing}deg);`;
+  return L.divIcon({
+    className: "replay-vehicle",
+    html: `
+      <div style="${rotation}width:32px;height:32px;border-radius:12px;background:rgba(34,197,94,0.18);display:flex;align-items:center;justify-content:center;border:1px solid rgba(34,197,94,0.45);box-shadow:0 10px 20px rgba(0,0,0,0.35);backdrop-filter:blur(6px);">
+        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' width='18' height='18' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' style='color:#34d399;'>
+          <path d='M3 13l9-9 9 9-1.5 1.5L12 7.5 4.5 14.5 3 13z'/>
+          <path d='M12 7.5V21' />
+        </svg>
+      </div>
+    `,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+}
+
+function normalizeTripEvent(point) {
+  const rawEvent =
+    point?.event ||
+    point?.type ||
+    point?.attributes?.event ||
+    point?.attributes?.alarm ||
+    point?.attributes?.status ||
+    point?.__label;
+  if (!rawEvent) return null;
+  const type = String(rawEvent).toLowerCase();
+  return {
+    type,
+    label: point?.__label || rawEvent,
+  };
 }
 
 function normalizeSeverityFromPoint(point) {
@@ -113,39 +213,61 @@ function validateRange({ deviceId, from, to }) {
   return null;
 }
 
-function ReplayMap({ points, activeIndex, onSelectIndex }) {
+function ReplayMap({
+  points,
+  activeIndex,
+  animatedPoint,
+  mapLayer,
+  smoothedPath,
+  showPoints,
+  onSelectIndex,
+}) {
   const routePoints = useMemo(
     () =>
       points
         .map((point, index) => {
           if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
-          return { ...point, index };
+          return { ...point, lat: point.lat, lng: point.lng, index };
         })
         .filter(Boolean),
     [points],
   );
 
-  const positions = routePoints.map((point) => [point.lat, point.lng]);
-  const activePoint = routePoints[activeIndex] || routePoints[0];
-  const center = activePoint ? [activePoint.lat, activePoint.lng] : DEFAULT_CENTER;
+  const positions = useMemo(() => {
+    const basePath = smoothedPath?.length ? smoothedPath : routePoints;
+    return basePath.filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)).map((point) => [point.lat, point.lng]);
+  }, [routePoints, smoothedPath]);
+
+  const activePoint = routePoints[activeIndex] || routePoints[0] || null;
+  const vehicleIcon = useMemo(() => buildVehicleIcon(animatedPoint?.heading || 0), [animatedPoint?.heading]);
+  const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/10">
-      <MapContainer center={center} zoom={DEFAULT_ZOOM} style={{ height: "420px", width: "100%" }} scrollWheelZoom>
+    <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
+      <MapContainer
+        center={animatedPoint ? [animatedPoint.lat, animatedPoint.lng] : activePoint ? [activePoint.lat, activePoint.lng] : DEFAULT_CENTER}
+        zoom={DEFAULT_ZOOM}
+        className="h-full w-full"
+      >
         <TileLayer
-          attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          key={tileLayer.key}
+          attribution={tileLayer.attribution}
+          url={tileLayer.url}
+          subdomains={tileLayer.subdomains}
+          maxZoom={tileLayer.maxZoom}
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
-        {routePoints.map((point) => (
-          <Marker
-            key={`${point.lat}-${point.lng}-${point.index}`}
-            position={[point.lat, point.lng]}
-            icon={buildEventIcon(point.__severity, point.index === activeIndex)}
-            eventHandlers={{ click: () => onSelectIndex?.(point.index) }}
-          />
-        ))}
-        {activePoint ? <Marker position={[activePoint.lat, activePoint.lng]} icon={replayMarkerIcon} /> : null}
+        {showPoints
+          ? routePoints.map((point) => (
+              <Marker
+                key={`${point.lat}-${point.lng}-${point.index}`}
+                position={[point.lat, point.lng]}
+                icon={buildEventIcon(point.__severity, point.index === activeIndex)}
+                eventHandlers={{ click: () => onSelectIndex?.(point.index) }}
+              />
+            ))
+          : null}
+        {animatedPoint ? <Marker position={[animatedPoint.lat, animatedPoint.lng]} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
       </MapContainer>
     </div>
@@ -161,6 +283,58 @@ function MapFocus({ point }) {
     }
   }, [map, point]);
   return null;
+}
+
+function EventPanel({ events = [], selectedType, onSelectType, totalOccurrences }) {
+  const hasEvents = events.length > 0;
+  const totalCount = Number(totalOccurrences) || 0;
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+      <div className="flex items-center justify-between">
+        <div className="text-sm font-semibold text-white">Eventos do trajeto</div>
+        <div className="text-xs text-white/60">{totalCount} ocorrência(s)</div>
+      </div>
+
+      {hasEvents ? (
+        <div className="mt-2 max-h-[360px] space-y-2 overflow-y-auto pr-1">
+          {events.map((event) => {
+            const isActive = event.type === selectedType;
+            return (
+              <button
+                key={event.type}
+                type="button"
+                onClick={() => onSelectType?.(event.type)}
+                className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition ${
+                  isActive
+                    ? "border-primary/60 bg-primary/10 text-white"
+                    : "border-white/10 bg-white/5 text-white/80 hover:border-primary/40"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex flex-col">
+                    <span className="font-semibold">{event.label}</span>
+                    <span className="text-[11px] text-white/60">Clique para navegar pelas ocorrências</span>
+                  </div>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                      isActive ? "border-primary/60 bg-primary/20 text-white" : "border-white/10 bg-white/10 text-white/80"
+                    }`}
+                  >
+                    {event.count}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/60">
+          Nenhum evento identificado para este trajeto.
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Trips() {
@@ -187,6 +361,12 @@ export default function Trips() {
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(1);
+  const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
+  const [showPoints, setShowPoints] = useState(false);
+  const [selectedEventType, setSelectedEventType] = useState(null);
+  const [eventCursor, setEventCursor] = useState(0);
+  const [animatedPoint, setAnimatedPoint] = useState(null);
+  const animationRef = useRef(null);
 
   const trips = useMemo(
     () => (Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : []),
@@ -236,6 +416,20 @@ export default function Trips() {
   }, [routeData]);
 
   const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
+  const smoothedRoute = useMemo(() => smoothRoute(routePoints), [routePoints]);
+  const smoothedPath = useMemo(() => densifyPath(smoothedRoute), [smoothedRoute]);
+  const mapLayer = useMemo(
+    () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK,
+    [mapLayerKey],
+  );
+  const mapLayerOptions = useMemo(
+    () =>
+      MAP_LAYER_SECTIONS.map((section) => ({
+        ...section,
+        layers: section.layers.filter((layer) => layer.available !== false && layer.url),
+      })),
+    [],
+  );
 
   const totalPoints = routePoints.length;
   const timelineMax = Math.max(totalPoints - 1, 0);
@@ -266,6 +460,43 @@ export default function Trips() {
     [routePoints],
   );
 
+  const tripEvents = useMemo(
+    () =>
+      routePoints
+        .map((point, index) => {
+          const normalized = normalizeTripEvent(point);
+          if (!normalized) return null;
+          return { index, ...normalized, time: point.__time, lat: point.lat, lng: point.lng };
+        })
+        .filter(Boolean),
+    [routePoints],
+  );
+
+  const eventSummaries = useMemo(() => {
+    const accumulator = new Map();
+
+    tripEvents.forEach((event) => {
+      if (!accumulator.has(event.type)) {
+        accumulator.set(event.type, { type: event.type, label: event.label, occurrences: [] });
+      }
+      const current = accumulator.get(event.type);
+      current.label = event.label || current.label;
+      current.occurrences.push(event.index);
+    });
+
+    return Array.from(accumulator.values())
+      .map((item) => ({ ...item, count: item.occurrences.length }))
+      .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  }, [tripEvents]);
+
+  const activeEvent = useMemo(() => tripEvents.find((event) => event.index === activeIndex) || null, [activeIndex, tripEvents]);
+  const selectedEventSummary = useMemo(
+    () => eventSummaries.find((item) => item.type === selectedEventType) || null,
+    [eventSummaries, selectedEventType],
+  );
+  const totalEvents = tripEvents.length;
+  const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
+
   useEffect(() => {
     const search = new URLSearchParams(location.search || "");
     const queryDevice = search.get("deviceId") || search.get("device");
@@ -285,7 +516,70 @@ export default function Trips() {
   useEffect(() => {
     setActiveIndex(0);
     setIsPlaying(false);
+    setSelectedEventType(null);
+    setEventCursor(0);
   }, [routePoints]);
+
+  useEffect(() => {
+    if (!selectedEventType) return;
+    const summary = eventSummaries.find((item) => item.type === selectedEventType);
+    if (!summary) return;
+    const occurrenceIndex = summary.occurrences.findIndex((value) => value === activeIndex);
+    if (occurrenceIndex >= 0) {
+      setEventCursor(occurrenceIndex);
+    }
+  }, [activeIndex, eventSummaries, selectedEventType]);
+
+  useEffect(() => {
+    try {
+      const storedLayer = localStorage.getItem(MAP_LAYER_STORAGE_KEY);
+      setMapLayerKey(getValidMapLayer(storedLayer));
+    } catch (_error) {
+      setMapLayerKey(DEFAULT_MAP_LAYER_KEY);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MAP_LAYER_STORAGE_KEY, mapLayerKey);
+    } catch (_error) {
+      // ignore persistence errors
+    }
+  }, [mapLayerKey]);
+
+  useEffect(() => {
+    setAnimatedPoint(smoothedRoute[0] || null);
+  }, [smoothedRoute]);
+
+  useEffect(() => {
+    const target = smoothedRoute[activeIndex] || smoothedRoute[0];
+    if (!target) return undefined;
+
+    const startPoint = animatedPoint || target;
+    const heading = computeHeading(startPoint, target);
+    const start = performance.now();
+    const duration = Math.max(320, ANIMATION_BASE_MS / speed);
+
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+
+    const tick = (now) => {
+      const progress = Math.min((now - start) / duration, 1);
+      setAnimatedPoint({
+        lat: lerp(startPoint.lat, target.lat, progress),
+        lng: lerp(startPoint.lng, target.lng, progress),
+        heading,
+      });
+
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    animationRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(animationRef.current);
+  }, [activeIndex, smoothedRoute, speed]);
 
   useEffect(() => {
     if (!isPlaying || totalPoints <= 1) return undefined;
@@ -398,6 +692,39 @@ export default function Trips() {
     setIsPlaying(false);
     setActiveIndex(nextIndex);
   }, []);
+
+  const handleMapLayerChange = useCallback((nextKey) => {
+    setMapLayerKey(getValidMapLayer(nextKey));
+  }, []);
+
+  const handleSelectEventType = useCallback(
+    (eventType) => {
+      const summary = eventSummaries.find((item) => item.type === eventType);
+      if (!summary) return;
+      const nextCursor = selectedEventType === eventType ? (eventCursor + 1) % summary.occurrences.length : 0;
+      setSelectedEventType(eventType);
+      setEventCursor(nextCursor);
+      handleSelectPoint(summary.occurrences[nextCursor]);
+    },
+    [eventCursor, eventSummaries, handleSelectPoint, selectedEventType],
+  );
+
+  const handleJumpToEvent = useCallback(
+    (direction = 1) => {
+      const baseEvents = selectedEventType
+        ? tripEvents.filter((event) => event.type === selectedEventType)
+        : tripEvents;
+      if (!baseEvents.length) return;
+
+      const currentIndex = baseEvents.findIndex((event) => event.index === activeIndex);
+      const nextIndex = currentIndex === -1 ? 0 : (currentIndex + direction + baseEvents.length) % baseEvents.length;
+      const target = baseEvents[nextIndex];
+      setSelectedEventType(selectedEventType || target.type);
+      setEventCursor(nextIndex);
+      handleSelectPoint(target.index);
+    },
+    [activeIndex, handleSelectPoint, selectedEventType, tripEvents],
+  );
 
   return (
     <div className="space-y-6">
@@ -563,6 +890,67 @@ export default function Trips() {
                 ))}
               </select>
             </div>
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+              <span className="text-white/50">Mapa</span>
+              <select
+                value={mapLayerKey}
+                onChange={(event) => handleMapLayerChange(event.target.value)}
+                className="rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm focus:border-primary/40 focus:outline-none"
+              >
+                {mapLayerOptions.map((section) =>
+                  section.layers?.length ? (
+                    <optgroup key={section.key} label={section.label}>
+                      {section.layers.map((layer) => (
+                        <option key={layer.key} value={layer.key}>
+                          {layer.label}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null,
+                )}
+              </select>
+            </div>
+            <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+              <input
+                type="checkbox"
+                className="h-4 w-4 accent-primary"
+                checked={showPoints}
+                onChange={(event) => setShowPoints(event.target.checked)}
+              />
+              <span className="text-white/70">Mostrar pontos</span>
+            </label>
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-white/70">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-white/50">Evento atual:</span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-white">
+              {currentEventLabel}
+            </span>
+            {selectedEventSummary ? (
+              <span className="text-white/50">
+                ({eventCursor + 1} de {selectedEventSummary.count})
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white transition hover:border-primary/40 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30"
+              onClick={() => handleJumpToEvent(-1)}
+              disabled={!totalEvents}
+            >
+              Evento anterior
+            </button>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white transition hover:border-primary/40 disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30"
+              onClick={() => handleJumpToEvent(1)}
+              disabled={!totalEvents}
+            >
+              Próximo evento
+            </button>
           </div>
         </div>
 
@@ -575,8 +963,22 @@ export default function Trips() {
 
         {totalPoints ? (
           <>
-            <div className="mt-4">
-              <ReplayMap points={routePoints} activeIndex={activeIndex} onSelectIndex={handleSelectPoint} />
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(260px,1fr)]">
+              <ReplayMap
+                points={routePoints}
+                activeIndex={activeIndex}
+                animatedPoint={animatedPoint}
+                mapLayer={mapLayer}
+                smoothedPath={smoothedPath}
+                showPoints={showPoints}
+                onSelectIndex={handleSelectPoint}
+              />
+              <EventPanel
+                events={eventSummaries}
+                selectedType={selectedEventType}
+                onSelectType={handleSelectEventType}
+                totalOccurrences={totalEvents}
+              />
             </div>
 
             <div className="mt-4 space-y-3">

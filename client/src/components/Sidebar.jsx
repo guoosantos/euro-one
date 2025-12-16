@@ -1,10 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
   Bell,
   Banknote,
+  ChevronDown,
+  ChevronRight,
   Boxes,
   Camera,
   Car,
@@ -39,7 +41,18 @@ import {
 import { useTenant } from "../lib/tenant-context";
 import { useUI } from "../lib/store";
 
+// Discovery note (Epic A): sidebar navigation will be reorganized into
+// collapsible section headers without changing the top fixed block.
+
 const ACCENT_FALLBACK = "#39bdf8";
+const SECTION_STATE_KEY = "sidebar.sections.state";
+const DEFAULT_SECTIONS_OPEN = {
+  negocios: true,
+  principais: true,
+  frotas: true,
+  telemetria: true,
+  administracao: true,
+};
 
 function toRgba(color, alpha = 1) {
   if (!color || typeof color !== "string" || !color.startsWith("#")) {
@@ -81,36 +94,58 @@ const linkStyle =
         }
       : undefined;
 
-const sectionTitle = (collapsed, text) =>
-  collapsed ? null : (
-    <div
-      className="mt-4 px-2 text-xs font-semibold uppercase tracking-wide text-white/50"
-      aria-hidden="true"
-    >
-      {text}
-    </div>
-  );
-
 export default function Sidebar() {
   const collapsed = useUI((state) => state.sidebarCollapsed);
   const toggleCollapsed = useUI((state) => state.toggleSidebarCollapsed);
-  const [openDisp, setOpenDisp] = useState(true);
-  const [openAnalytics, setOpenAnalytics] = useState(false);
   const [openProfile, setOpenProfile] = useState(false);
+  const [openSections, setOpenSections] = useState(DEFAULT_SECTIONS_OPEN);
+  const [openSubmenus, setOpenSubmenus] = useState({
+    dispositivos: true,
+    "euro-view": true,
+    servicos: true,
+    relatorios: true,
+  });
+  const location = useLocation();
 
   const { tenant, role } = useTenant();
   const accentColor = tenant?.brandColor || ACCENT_FALLBACK;
   const navLinkClass = linkClass(collapsed);
   const nestedLinkClass = linkClass(false);
-  const compactLinkClass = linkClass(true);
   const activeStyle = linkStyle(accentColor);
-  const isAdmin = role === "admin";
   const canManageUsers = role === "admin" || role === "manager";
   const labelVisibilityClass = collapsed ? "sr-only" : "flex-1 truncate";
   const navLabelProps = (label) => ({
     title: label,
     ...(collapsed ? { "aria-label": label } : {}),
   });
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(SECTION_STATE_KEY) || "{}");
+      setOpenSections({ ...DEFAULT_SECTIONS_OPEN, ...stored });
+    } catch (_error) {
+      setOpenSections(DEFAULT_SECTIONS_OPEN);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SECTION_STATE_KEY, JSON.stringify(openSections));
+    } catch (_error) {
+      // ignore persistence failures
+    }
+  }, [openSections]);
+
+  const toggleSection = (key) => {
+    setOpenSections((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
+  };
+
+  const toggleSubmenu = (key) => {
+    setOpenSubmenus((state) => ({ ...state, [key]: state[key] === false ? true : !state[key] }));
+  };
+
+  const currentPath = location.pathname;
+  const isLinkActive = (link) => Boolean(link?.to && currentPath.startsWith(link.to));
 
   const clientLink = { to: "/clients", label: "Clientes", icon: Users };
   const userLink = { to: "/users", label: "Usuários", icon: User };
@@ -145,7 +180,6 @@ export default function Sidebar() {
   const businessLinks = [
     { to: "/dashboard", label: "Dashboard", icon: Home },
     { to: "/finance", label: "Financeiro", icon: Banknote },
-    ...(canManageUsers && !isAdmin ? [clientLink, userLink] : []),
     { to: "/crm", label: "CRM", icon: NotebookPen },
   ];
 
@@ -177,7 +211,7 @@ export default function Sidebar() {
 
   const adminLinks = [
     ...(canManageUsers ? [{ to: "/geofences", label: "Cercas", icon: Map }] : []),
-    ...(isAdmin ? [clientLink, userLink] : []),
+    ...(canManageUsers ? [clientLink, userLink] : []),
   ];
 
   const utilityLinks = [
@@ -185,12 +219,77 @@ export default function Sidebar() {
     { to: "/notifications", label: "Notificações", icon: Bell },
   ];
 
-  const quickDeviceLinks = [
-    { to: "/devices", label: "Equipamentos", icon: Cpu },
-    { to: "/devices/chips", label: "Chip", icon: HardDrive },
-    { to: "/devices/stock", label: "Estoque Produtos", icon: Boxes },
-    { to: "/commands", label: "Comandos", icon: Terminal },
-  ];
+  const menuSections = useMemo(
+    () => [
+      {
+        key: "negocios",
+        title: "NEGÓCIOS",
+        items: businessLinks,
+      },
+      {
+        key: "principais",
+        title: "PRINCIPAIS",
+        items: [
+          ...primaryLinks,
+          {
+            key: "dispositivos",
+            label: "Dispositivos",
+            icon: Cpu,
+            children: deviceLinks,
+          },
+          { to: "/events", label: "Eventos", icon: Video },
+        ],
+      },
+      {
+        key: "frotas",
+        title: "FROTAS",
+        items: [
+          { to: "/vehicles", label: "Veículos", icon: Car },
+          { to: "/groups", label: "Grupos", icon: Layers },
+          { to: "/drivers", label: "Motoristas", icon: UserCog },
+          { to: "/documents", label: "Documentos", icon: FileText },
+          {
+            key: "servicos",
+            label: "Serviços",
+            icon: Wrench,
+            children: [
+              { to: "/services", label: "Ordem de Serviço", icon: Wrench },
+              { to: "/deliveries", label: "Entregas", icon: Package },
+            ].filter(Boolean),
+          },
+        ],
+      },
+      {
+        key: "telemetria",
+        title: "TELEMETRIA",
+        items: [
+          {
+            key: "euro-view",
+            label: "Euro View",
+            icon: Video,
+            children: euroViewLinks,
+          },
+          ...telematicsLinks,
+        ],
+      },
+      {
+        key: "administracao",
+        title: "ADMINISTRAÇÃO",
+        items: [
+          {
+            key: "relatorios",
+            label: "Relatórios",
+            icon: FileText,
+            children: reportLinks,
+          },
+          ...analyticsLinks,
+          ...adminLinks,
+          ...utilityLinks,
+        ],
+      },
+    ],
+    [adminLinks, analyticsLinks, businessLinks, deviceLinks, primaryLinks, reportLinks, telematicsLinks, utilityLinks],
+  );
 
   const renderNavLink = (link) => (
     <NavLink
@@ -205,31 +304,86 @@ export default function Sidebar() {
     </NavLink>
   );
 
-  const renderNestedLink = (link) => (
-    <NavLink
-      key={link.to}
-      to={link.to}
-      className={nestedLinkClass}
-      style={activeStyle}
-      title={link.label}
-    >
-      <link.icon size={18} />
-      <span>{link.label}</span>
-    </NavLink>
-  );
+  const renderMenuItem = (item) => {
+    if (!item) return null;
+    if (item.children?.length) {
+      const isOpen = openSubmenus[item.key] !== false;
+      const hasActiveChild = item.children.some((child) => isLinkActive(child));
 
-  const renderCompactLink = (link) => (
-    <NavLink
-      key={link.to}
-      to={link.to}
-      className={compactLinkClass}
-      style={activeStyle}
-      title={link.label}
-    >
-      <link.icon size={18} />
-      <span className="sr-only">{link.label}</span>
-    </NavLink>
-  );
+      return (
+        <div key={item.key} className="space-y-1">
+          <button
+            type="button"
+            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm transition ${
+              hasActiveChild
+                ? "bg-white/10 text-white shadow-[0_0_0_1px_rgba(255,255,255,0.12)]"
+                : "text-white/70 hover:bg-white/5 hover:text-white"
+            }`}
+            onClick={() => toggleSubmenu(item.key)}
+            aria-expanded={isOpen}
+          >
+            <span className="flex items-center gap-2">
+              <item.icon size={18} />
+              <span className={labelVisibilityClass}>{item.label}</span>
+            </span>
+            <span className="text-white/60">{isOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</span>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {isOpen && (
+              <motion.div
+                key={`${item.key}-children`}
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.18 }}
+                className="ml-3 space-y-2 overflow-hidden text-sm"
+              >
+                {item.children.map(renderNavLink)}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      );
+    }
+
+    return renderNavLink(item);
+  };
+
+  const renderSection = (section) => {
+    const isOpen = openSections[section.key] !== false;
+    return (
+      <div key={section.key} className="space-y-2">
+        <button
+          type="button"
+          onClick={() => toggleSection(section.key)}
+          aria-expanded={isOpen}
+          aria-label={`Alternar seção ${section.title}`}
+          className="flex w-full items-center justify-between rounded-lg px-2 text-[11px] font-semibold uppercase tracking-wide text-white/60 hover:text-white"
+        >
+          <span className={collapsed ? "sr-only" : ""}>{section.title}</span>
+          <span aria-hidden className="text-white/60">
+            {isOpen ? "▾" : "▸"}
+          </span>
+        </button>
+
+        <AnimatePresence initial={false}>
+          {isOpen && (
+            <motion.div
+              key={`${section.key}-items`}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="space-y-2 overflow-hidden"
+            >
+              {section.items.map((item) => renderMenuItem(item))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  };
 
   return (
 
@@ -346,103 +500,7 @@ export default function Sidebar() {
         </div>
 
         <div className="sidebar-scroll flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
-          {sectionTitle(collapsed, "Negócios")}
-          {businessLinks.map(renderNavLink)}
-
-          {sectionTitle(collapsed, "Principais")}
-          {primaryLinks.map(renderNavLink)}
-
-          {!collapsed && (
-            <button
-              type="button"
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
-              onClick={() => setOpenDisp((value) => !value)}
-              aria-expanded={openDisp}
-            >
-              <span className="flex items-center gap-2">
-                <Cpu size={18} />
-                <span>Dispositivos</span>
-              </span>
-              <span className="text-xs">{openDisp ? "−" : "+"}</span>
-            </button>
-          )}
-          {collapsed ? (
-            <div className="flex flex-col gap-2">
-              {quickDeviceLinks.map(renderCompactLink)}
-            </div>
-          ) : (
-            <AnimatePresence initial={false}>
-              {openDisp && (
-                <motion.div
-                  key="device-links"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="ml-3 space-y-2 overflow-hidden text-sm"
-                >
-                  {deviceLinks.map(renderNestedLink)}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          )}
-
-          {sectionTitle(collapsed, "Euro View")}
-          {euroViewLinks.map(renderNavLink)}
-
-          {sectionTitle(collapsed, "Frotas")}
-          {fleetLinks.map(renderNavLink)}
-
-          {sectionTitle(collapsed, "Relatórios")}
-          <div className="flex flex-col gap-2">
-            {reportLinks.map(renderNavLink)}
-          </div>
-
-          {(isAdmin || canManageUsers) && sectionTitle(collapsed, "Administração")}
-          {adminLinks.map(renderNavLink)}
-
-          {!collapsed && (
-            <button
-              type="button"
-              className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/70 transition hover:bg-white/5 hover:text-white"
-              onClick={() => setOpenAnalytics((value) => !value)}
-              aria-expanded={openAnalytics}
-            >
-              <span className="flex items-center gap-2">
-                <BarChart3 size={18} />
-                <span>Analytics</span>
-              </span>
-              <span className="text-xs">{openAnalytics ? "−" : "+"}</span>
-            </button>
-          )}
-          {collapsed ? (
-            <div className="flex flex-col gap-2">
-              {analyticsLinks.map(renderCompactLink)}
-            </div>
-          ) : (
-            <AnimatePresence initial={false}>
-              {openAnalytics && (
-                <motion.div
-                  key="analytics-links"
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="ml-3 space-y-2 overflow-hidden text-sm"
-                >
-                  {analyticsLinks.map(renderNestedLink)}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          )}
-
-          {sectionTitle(collapsed, "Telemetria")}
-          <div className="flex flex-col gap-2">
-            {telematicsLinks.map(renderNavLink)}
-          </div>
-
-          {sectionTitle(collapsed, "Admin")}
-          {utilityLinks.map(renderNavLink)}
+          {menuSections.map((section) => renderSection(section))}
         </div>
       </nav>
     </motion.aside>
