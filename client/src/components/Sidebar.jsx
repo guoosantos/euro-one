@@ -3,7 +3,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   BarChart3,
-  Bell,
   Banknote,
   ChevronDown,
   ChevronRight,
@@ -12,7 +11,7 @@ import {
   Car,
   Cpu,
   Flame,
-  DownloadCloud,
+  CalendarClock,
   FileBarChart,
   FileText,
   HardDrive,
@@ -101,9 +100,12 @@ export default function Sidebar() {
   const [openSections, setOpenSections] = useState(DEFAULT_SECTIONS_OPEN);
   const [openSubmenus, setOpenSubmenus] = useState({
     dispositivos: true,
-    "euro-view": true,
+    documentos: true,
     servicos: true,
+    "euro-view": true,
+    "euro-can": true,
     relatorios: true,
+    analises: true,
   });
   const location = useLocation();
 
@@ -153,28 +155,15 @@ export default function Sidebar() {
   const primaryLinks = [
     { to: "/home", label: "Home", icon: Home },
     { to: "/monitoring", label: "Monitoramento", icon: MapPinned },
-    { to: "/trips", label: "Trajetos", icon: MapPinned },
+    { to: "/trips", label: "Trajetos / Replay", icon: MapPinned },
   ];
 
   const deviceLinks = [
     { to: "/devices", label: "Equipamentos", icon: Cpu },
     { to: "/devices/chips", label: "Chip", icon: HardDrive },
     { to: "/devices/products", label: "Produtos", icon: Boxes },
-    { to: "/devices/import", label: "Importar", icon: DownloadCloud },
+    { to: "/devices/stock", label: "Estoque", icon: Map },
     { to: "/commands", label: "Comandos", icon: Terminal },
-    { to: "/devices/stock", label: "Estoque Produtos", icon: Map },
-  ];
-
-  const analyticsLinks = [
-    { to: "/analytics/heatmap", label: "Analytics", icon: BarChart3 },
-    { to: "/ranking", label: "Ranking", icon: Medal },
-  ];
-
-  const reportLinks = [
-    { to: "/reports/trips", label: "Viagens", icon: FileText },
-    { to: "/reports/route", label: "Rotas", icon: Route },
-    { to: "/reports/stops", label: "Paradas", icon: Navigation },
-    { to: "/reports/summary", label: "Resumo", icon: FileBarChart },
   ];
 
   const businessLinks = [
@@ -183,18 +172,7 @@ export default function Sidebar() {
     { to: "/crm", label: "CRM", icon: NotebookPen },
   ];
 
-  const telematicsLinks = [
-    { to: "/driver-behavior", label: "Driver Behavior", icon: Gauge },
-    { to: "/maintenance", label: "Manutenção", icon: Wrench },
-    { to: "/fuel", label: "Combustível", icon: Flame },
-    { to: "/routing", label: "Roteirização", icon: Route },
-    { to: "/compliance", label: "Compliance", icon: ShieldCheck },
-    { to: "/iot-sensors", label: "Sensores IoT", icon: Cpu },
-    { to: "/video-telematics", label: "Vídeo Telemetria", icon: Video },
-  ];
-
   const euroViewLinks = [
-    { to: "/events", label: "Eventos", icon: Video },
     { to: "/videos", label: "Vídeos", icon: Camera },
     { to: "/face", label: "Reconhecimento Facial", icon: Camera },
     { to: "/live", label: "Live", icon: Radio },
@@ -202,21 +180,54 @@ export default function Sidebar() {
 
   const fleetLinks = [
     { to: "/vehicles", label: "Veículos", icon: Car },
-    { to: "/groups", label: "Grupos", icon: Layers },
-    { to: "/drivers", label: "Motoristas", icon: UserCog },
-    { to: "/documents", label: "Documentos", icon: FileText },
-    { to: "/services", label: "Serviços", icon: Wrench },
+    {
+      key: "documentos",
+      label: "Documentos",
+      icon: FileText,
+      children: [
+        { to: "/drivers", label: "Motorista", icon: UserCog },
+        { to: "/documents", label: "Contratos", icon: FileText },
+      ],
+    },
+    {
+      key: "servicos",
+      label: "Serviços",
+      icon: Wrench,
+      children: [
+        { to: "/services", label: "Ordem de Serviço", icon: Wrench },
+        { to: "/tasks", label: "Agendamentos", icon: CalendarClock },
+      ],
+    },
+    { to: "/routes", label: "Rota Embarcada", icon: Route },
+    { to: "/geofences", label: "Cercas", icon: Map },
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
 
   const adminLinks = [
-    ...(canManageUsers ? [{ to: "/geofences", label: "Cercas", icon: Map }] : []),
     ...(canManageUsers ? [clientLink, userLink] : []),
   ];
 
-  const utilityLinks = [
-    { to: "/settings", label: "Configurações", icon: Settings },
-    { to: "/notifications", label: "Notificações", icon: Bell },
+  const euroCanLinks = [
+    { to: "/fuel", label: "Combustível", icon: Flame },
+    { to: "/compliance", label: "Compliance", icon: ShieldCheck },
+    { to: "/driver-behavior", label: "Drive Behavior", icon: Gauge },
+    { to: "/maintenance", label: "Manutenção", icon: Wrench },
+  ];
+
+  const reportLinks = [
+    { to: "/reports", label: "Auditoria", icon: FileText },
+    { to: "/reports/summary", label: "Detalhado", icon: FileBarChart },
+    { to: "/reports/stops", label: "Deslocamento e Parada", icon: Route },
+    { to: "/reports/trips", label: "Trajetos", icon: Navigation },
+    { to: "/reports/route", label: "Km Percorrido", icon: Layers },
+    { to: "/reports/route", label: "Velocidade", icon: Gauge },
+  ];
+
+  const analysisLinks = [
+    { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3 },
+    { to: "/ranking", label: "Ranking", icon: Medal },
+    { to: "/routes", label: "Rotas Perigosas", icon: Route },
+    { to: "/events", label: "Segurança", icon: ShieldCheck },
   ];
 
   const menuSections = useMemo(
@@ -243,25 +254,11 @@ export default function Sidebar() {
       {
         key: "frotas",
         title: "FROTAS",
-        items: [
-          { to: "/vehicles", label: "Veículos", icon: Car },
-          { to: "/groups", label: "Grupos", icon: Layers },
-          { to: "/drivers", label: "Motoristas", icon: UserCog },
-          { to: "/documents", label: "Documentos", icon: FileText },
-          {
-            key: "servicos",
-            label: "Serviços",
-            icon: Wrench,
-            children: [
-              { to: "/services", label: "Ordem de Serviço", icon: Wrench },
-              { to: "/deliveries", label: "Entregas", icon: Package },
-            ].filter(Boolean),
-          },
-        ],
+        items: fleetLinks,
       },
       {
         key: "telemetria",
-        title: "TELEMETRIA",
+        title: "TELEMETRIA EURO",
         items: [
           {
             key: "euro-view",
@@ -269,7 +266,12 @@ export default function Sidebar() {
             icon: Video,
             children: euroViewLinks,
           },
-          ...telematicsLinks,
+          {
+            key: "euro-can",
+            label: "Euro CAN",
+            icon: Cpu,
+            children: euroCanLinks,
+          },
         ],
       },
       {
@@ -282,13 +284,17 @@ export default function Sidebar() {
             icon: FileText,
             children: reportLinks,
           },
-          ...analyticsLinks,
+          {
+            key: "analises",
+            label: "Análises",
+            icon: BarChart3,
+            children: analysisLinks,
+          },
           ...adminLinks,
-          ...utilityLinks,
         ],
       },
     ],
-    [adminLinks, analyticsLinks, businessLinks, deviceLinks, primaryLinks, reportLinks, telematicsLinks, utilityLinks],
+    [adminLinks, analysisLinks, businessLinks, deviceLinks, euroCanLinks, euroViewLinks, fleetLinks, primaryLinks, reportLinks],
   );
 
   const renderNavLink = (link) => (
