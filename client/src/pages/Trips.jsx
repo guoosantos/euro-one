@@ -474,13 +474,18 @@ export default function Trips() {
 
   const eventSummaries = useMemo(() => {
     const accumulator = new Map();
+    const normalizeLabel = (value) => {
+      if (typeof value === "string") return value;
+      if (value === null || value === undefined) return "";
+      return String(value);
+    };
 
     tripEvents.forEach((event) => {
       if (!accumulator.has(event.type)) {
-        accumulator.set(event.type, { type: event.type, label: event.label, occurrences: [] });
+        accumulator.set(event.type, { type: event.type, label: normalizeLabel(event.label ?? event.type), occurrences: [] });
       }
       const current = accumulator.get(event.type);
-      current.label = event.label || current.label;
+      current.label = normalizeLabel(event.label ?? current.label);
       current.occurrences.push(event.index);
     });
 
