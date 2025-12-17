@@ -24,6 +24,9 @@ import geocodeRoutes from "./routes/geocode.js";
 
 
 import geofenceGroupRoutes from "./routes/geofence-groups.js";
+import geofenceRoutes from "./routes/geofences.js";
+import routeRoutes from "./routes/route.js";
+import proxyRoutes from "./routes/proxy.js";
 
 
 
