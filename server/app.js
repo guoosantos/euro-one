@@ -21,6 +21,7 @@ import mediaRoutes from "./routes/media.js";
 import crmRoutes from "./routes/crm.js";
 import traccarDbRoutes from "./routes/traccar-db.js";
 import geocodeRoutes from "./routes/geocode.js";
+import geofenceRoutes from "./routes/geofences.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -70,6 +71,7 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
+app.use("/api", geofenceRoutes);
 app.use("/api", proxyRoutes);
 app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);

@@ -20,7 +20,7 @@ import Docs from "./pages/Docs";
 import Services from "./pages/Services";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
-import Fences from "./pages/Fences";
+import Geofences from "./pages/Geofences.jsx";
 import Events from "./pages/Events";
 import Videos from "./pages/Videos";
 import Face from "./pages/Face";
@@ -80,8 +80,8 @@ export const routeConfig = [
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },
   { path: "/tasks/:id", element: TaskDetails, title: "Detalhes da task", requireTenant: true },
-  { path: "/geofences", element: Fences, title: "Cercas", requireTenant: true },
-  { path: "/cercas", element: Fences, title: "Cercas", requireTenant: true },
+  { path: "/geofences", element: Geofences, title: "Cercas", requireTenant: true },
+  { path: "/cercas", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/events", element: Events, title: "Eventos", requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true },

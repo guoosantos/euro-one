@@ -53,38 +53,6 @@ export function approximateCirclePoints(center, radiusMeters, segments = 36) {
   return closePolygon(points);
 }
 
-export function exportGeofencesToKml(geofences) {
-  const placemarks = (geofences || []).map((fence) => {
-    const name = fence.name || 'Geofence';
-    const description = fence.description || '';
-    let coordinates = '';
-
-    if (fence.type === 'circle' && fence.center && fence.radius) {
-      const approximated = approximateCirclePoints(fence.center, fence.radius, 48);
-      coordinates = formatCoordinates(closePolygon(approximated));
-    } else {
-      const points = closePolygon(fence.points || []);
-      coordinates = formatCoordinates(points);
-    }
-
-    return `
-      <Placemark>
-        <name>${name}</name>
-        <description>${description}</description>
-        <Polygon>
-          <outerBoundaryIs>
-            <LinearRing>
-              <coordinates>${coordinates}</coordinates>
-            </LinearRing>
-          </outerBoundaryIs>
-        </Polygon>
-      </Placemark>
-    `;
-  });
-
-  return buildKmlDocument(placemarks);
-}
-
 function parseCoordinates(textContent) {
   if (!textContent) return [];
   return textContent
@@ -93,6 +61,19 @@ function parseCoordinates(textContent) {
     .map((raw) => raw.split(',').slice(0, 2).map((value) => Number(value)))
     .filter((pair) => pair.length === 2 && pair.every((v) => Number.isFinite(v)))
     .map(([lon, lat]) => [lat, lon]);
+}
+
+function readExtendedData(placemark) {
+  const entries = Array.from(placemark.getElementsByTagName('Data'));
+  const payload = {};
+  entries.forEach((dataNode) => {
+    const name = dataNode.getAttribute('name');
+    const value = dataNode.getElementsByTagName('value')[0]?.textContent ?? dataNode.textContent;
+    if (name) {
+      payload[name] = value;
+    }
+  });
+  return payload;
 }
 
 export function parseKmlPlacemarks(kmlText) {
@@ -105,10 +86,27 @@ export function parseKmlPlacemarks(kmlText) {
       const name = placemark.getElementsByTagName('name')[0]?.textContent || `Elemento ${index + 1}`;
       const polygon = placemark.getElementsByTagName('Polygon')[0];
       const lineString = placemark.getElementsByTagName('LineString')[0];
+      const point = placemark.getElementsByTagName('Point')[0];
+      const extendedData = readExtendedData(placemark);
+      const rawType = extendedData.type?.toLowerCase?.() || null;
 
       if (polygon) {
         const coordinates = polygon.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
+        if (rawType === 'circle') {
+          const centerLat = Number(extendedData.centerLat ?? extendedData.lat);
+          const centerLng = Number(extendedData.centerLng ?? extendedData.lon);
+          const radius = Number(extendedData.radius);
+          if (Number.isFinite(centerLat) && Number.isFinite(centerLng) && Number.isFinite(radius) && radius > 0) {
+            return {
+              id: `kml-${index}`,
+              name,
+              type: 'circle',
+              center: [centerLat, centerLng],
+              radius,
+            };
+          }
+        }
         return { id: `kml-${index}`, name, type: 'polygon', points };
       }
 
@@ -116,6 +114,20 @@ export function parseKmlPlacemarks(kmlText) {
         const coordinates = lineString.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
         return { id: `kml-${index}`, name, type: 'polyline', points };
+      }
+
+      if (point) {
+        const coordinates = point.getElementsByTagName('coordinates')[0]?.textContent || '';
+        const [[lat, lng] = []] = parseCoordinates(coordinates);
+        if (rawType === 'circle') {
+          const radius = Number(extendedData.radius);
+          if (Number.isFinite(radius) && Number.isFinite(lat) && Number.isFinite(lng)) {
+            return { id: `kml-${index}`, name, type: 'circle', center: [lat, lng], radius };
+          }
+        }
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          return { id: `kml-${index}`, name, type: 'point', center: [lat, lng] };
+        }
       }
 
       return null;
@@ -224,3 +236,64 @@ export function deduplicatePath(points) {
   return unique;
 }
 
+function buildGeofencePlacemark(geofence) {
+  const type = (geofence.type || 'polygon').toLowerCase();
+  const name = geofence.name || 'Geofence';
+  const description = geofence.description || '';
+  const radius = Number(geofence.radius ?? 0);
+  const center = Array.isArray(geofence.center) && geofence.center.length === 2 ? geofence.center : null;
+  const coordinates =
+    type === 'circle' && center && Number.isFinite(radius) && radius > 0
+      ? closePolygon(approximateCirclePoints(center, radius, 48))
+      : closePolygon(geofence.points || geofence.coordinates || []);
+
+  const extended =
+    type === 'circle' && center && Number.isFinite(radius) && radius > 0
+      ? `
+        <ExtendedData>
+          <Data name="type"><value>circle</value></Data>
+          <Data name="radius"><value>${radius}</value></Data>
+          <Data name="centerLat"><value>${center[0]}</value></Data>
+          <Data name="centerLng"><value>${center[1]}</value></Data>
+          ${geofence.color ? `<Data name="color"><value>${geofence.color}</value></Data>` : ''}
+        </ExtendedData>`
+      : `
+        <ExtendedData>
+          <Data name="type"><value>polygon</value></Data>
+          ${geofence.color ? `<Data name="color"><value>${geofence.color}</value></Data>` : ''}
+        </ExtendedData>`;
+
+  return `
+    <Placemark>
+      <name>${name}</name>
+      <description>${description}</description>
+      ${extended}
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>${formatCoordinates(coordinates)}</coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  `;
+}
+
+export function geofencesToKml(geofences) {
+  const placemarks = (geofences || []).map((geofence) => buildGeofencePlacemark(geofence));
+  return buildKmlDocument(placemarks);
+}
+
+export function exportGeofencesToKml(geofences) {
+  return geofencesToKml(geofences);
+}
+
+export function kmlToGeofences(kmlText) {
+  return parseKmlPlacemarks(kmlText).map((item) => {
+    const base = { id: item.id, name: item.name, color: item.color || null };
+    if (item.type === 'circle' && item.center && item.radius) {
+      return { ...base, type: 'circle', center: item.center, radius: item.radius, points: [] };
+    }
+    return { ...base, type: 'polygon', points: item.points || [] };
+  });
+}
