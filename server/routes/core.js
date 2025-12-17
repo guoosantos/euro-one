@@ -130,6 +130,57 @@ function buildDeviceConflictError(uniqueId, existing) {
   return error;
 }
 
+async function findTraccarDeviceByUniqueId(uniqueId) {
+  if (!uniqueId) return null;
+  try {
+    const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
+    const list = normaliseList(lookup, ["devices"]);
+    return list.find((item) => String(item.uniqueId || "").trim().toLowerCase() === String(uniqueId).trim().toLowerCase()) || null;
+  } catch (error) {
+    if (error?.response?.status && error.response.status !== 404) {
+      console.warn("[devices] falha ao consultar device no Traccar", error?.message || error);
+    }
+    return null;
+  }
+}
+
+async function ensureTraccarDeviceExists({ uniqueId, name, groupId, attributes }) {
+  const normalizedUniqueId = String(uniqueId || "").trim();
+  if (!normalizedUniqueId) return { device: null, created: false };
+
+  const existing = await findTraccarDeviceByUniqueId(normalizedUniqueId);
+  if (existing) {
+    console.info("[devices] reutilizando device existente no Traccar", { uniqueId: normalizedUniqueId, traccarId: existing.id });
+    return { device: existing, created: false, synced: true };
+  }
+
+  try {
+    const created = await deps.traccarProxy("post", "/devices", {
+      data: {
+        name: name || normalizedUniqueId,
+        uniqueId: normalizedUniqueId,
+        groupId,
+        attributes,
+      },
+      asAdmin: true,
+    });
+    return { device: created, created: true };
+  } catch (error) {
+    const isConflict = error?.response?.status === 409;
+    if (isConflict) {
+      const fallback = await findTraccarDeviceByUniqueId(normalizedUniqueId);
+      if (fallback) {
+        console.warn("[devices] conflito 409 no Traccar; sincronizando device existente", {
+          uniqueId: normalizedUniqueId,
+          traccarId: fallback.id,
+        });
+        return { device: fallback, created: false, synced: true };
+      }
+    }
+    throw error;
+  }
+}
+
 function logTelemetryWarning(stage, error, context = {}) {
   const now = Date.now();
   const previous = telemetryWarnLog.get(stage);
@@ -942,25 +993,8 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       deps.findDeviceByUniqueId(normalizedUniqueId) ||
       (await deps.findDeviceByUniqueIdInDb(normalizedUniqueId, { clientId })) ||
       (await deps.findDeviceByUniqueIdInDb(normalizedUniqueId, { matchAnyClient: true }));
-    if (existingDevice) {
+    if (existingDevice && String(existingDevice.clientId) !== String(clientId)) {
       throw buildDeviceConflictError(normalizedUniqueId, existingDevice);
-    }
-
-    let traccarExisting = null;
-    try {
-      const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId: normalizedUniqueId }, asAdmin: true });
-      const list = normaliseList(lookup, ["devices"]);
-      traccarExisting = list.find(
-        (item) => String(item.uniqueId || "").trim().toLowerCase() === normalizedUniqueId.toLowerCase(),
-      );
-    } catch (lookupError) {
-      if (lookupError?.response?.status && lookupError.response.status !== 404) {
-        console.warn("[devices] falha ao validar uniqueId no Traccar", lookupError?.message || lookupError);
-      }
-    }
-
-    if (traccarExisting) {
-      throw buildDeviceConflictError({ id: traccarExisting.id, traccarId: traccarExisting.id }, normalizedUniqueId);
     }
 
     if (modelId) {
@@ -979,20 +1013,43 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       attributes.iconType = iconType;
     }
 
-    const traccarPayload = {
-      name: name || normalizedUniqueId,
+    const traccarResult = await ensureTraccarDeviceExists({
       uniqueId: normalizedUniqueId,
+      name,
       groupId,
       attributes,
-    };
-    const traccarDevice = await deps.traccarProxy("post", "/devices", { data: traccarPayload, asAdmin: true });
+    });
+
+    if (existingDevice) {
+      const updated = deps.updateDevice(existingDevice.id, {
+        name: name ?? existingDevice.name,
+        modelId: modelId ? String(modelId) : existingDevice.modelId,
+        traccarId: traccarResult.device?.id ? String(traccarResult.device.id) : existingDevice.traccarId,
+        attributes,
+      });
+
+      const models = deps.listModels({ clientId, includeGlobal: true });
+      const chips = deps.listChips({ clientId });
+      const vehicles = deps.listVehicles({ clientId });
+      const traccarById = traccarResult.device?.id ? new Map([[String(traccarResult.device.id), traccarResult.device]]) : new Map();
+      const response = buildDeviceResponse(updated, {
+        modelMap: new Map(models.map((item) => [item.id, item])),
+        chipMap: new Map(chips.map((item) => [item.id, item])),
+        vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
+        traccarById,
+        traccarByUnique: new Map(traccarResult.device?.uniqueId ? [[traccarResult.device.uniqueId, traccarResult.device]] : []),
+      });
+
+      invalidateDeviceCache();
+      return res.status(200).json({ device: response, upserted: true, synced: Boolean(traccarResult.device) });
+    }
 
     const device = deps.createDevice({
       clientId,
       name,
       uniqueId: normalizedUniqueId,
       modelId: modelId ? String(modelId) : null,
-      traccarId: traccarDevice?.id ? String(traccarDevice.id) : null,
+      traccarId: traccarResult.device?.id ? String(traccarResult.device.id) : null,
       attributes,
     });
 
@@ -1000,15 +1057,17 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     const chips = deps.listChips({ clientId });
     const vehicles = deps.listVehicles({ clientId });
     const traccarById = new Map();
-    if (traccarDevice?.id) {
-      traccarById.set(String(traccarDevice.id), traccarDevice);
+    if (traccarResult.device?.id) {
+      traccarById.set(String(traccarResult.device.id), traccarResult.device);
     }
     const response = buildDeviceResponse(device, {
       modelMap: new Map(models.map((item) => [item.id, item])),
       chipMap: new Map(chips.map((item) => [item.id, item])),
       vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
       traccarById,
-      traccarByUnique: new Map([[uniqueId, traccarDevice]]),
+      traccarByUnique: traccarResult.device?.uniqueId
+        ? new Map([[traccarResult.device.uniqueId, traccarResult.device]])
+        : new Map([[uniqueId, traccarResult.device || {}]]),
     });
 
     invalidateDeviceCache();

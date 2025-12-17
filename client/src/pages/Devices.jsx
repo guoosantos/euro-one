@@ -409,7 +409,11 @@ export default function Devices() {
       if (editingId) {
         await CoreApi.updateDevice(editingId, payload);
       } else {
-        await CoreApi.createDevice(payload);
+        const response = await CoreApi.createDevice(payload);
+        const upserted = response?.device && response?.upserted;
+        if (upserted) {
+          alert("Equipamento já existia e foi sincronizado com sucesso.");
+        }
       }
       await load();
       resetDeviceForm();
