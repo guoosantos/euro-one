@@ -22,7 +22,9 @@ import traccarDbRoutes from "./routes/traccar-db.js";
 import geocodeRoutes from "./routes/geocode.js";
 
 
+
 import geofenceGroupRoutes from "./routes/geofence-groups.js";
+
 
 
 import { errorHandler } from "./middleware/error-handler.js";
@@ -74,6 +76,8 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
+
+
 app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);
 app.use("/api/core", taskRoutes);

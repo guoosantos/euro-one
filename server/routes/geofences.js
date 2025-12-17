@@ -2,13 +2,16 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+
 import { createGeofence, deleteGeofence, getGeofenceById, listGeofences, updateGeofence } from "../models/geofence.js";
 import { listGeofenceGroups } from "../models/geofence-group.js";
 import { buildGeofencesKml, parseGeofencePlacemarks } from "../utils/kml.js";
 
+
 const router = express.Router();
 
 router.use(authenticate);
+
 
 function resolveClientId(req, provided) {
   if (req.user.role === "admin") {
@@ -106,6 +109,7 @@ router.get("/geofences/:id", async (req, res, next) => {
     }
     ensureSameTenant(req.user, geofence.clientId);
     return res.json({ geofence });
+
   } catch (error) {
     return next(error);
   }
@@ -113,15 +117,38 @@ router.get("/geofences/:id", async (req, res, next) => {
 
 router.post("/geofences", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const targetClientId = resolveClientId(req, req.body?.clientId);
-    if (!targetClientId) {
+
+    const prisma = ensurePrisma();
+    const clientId = resolveClientId(req, req.body);
+    if (!clientId) {
       throw createError(400, "clientId é obrigatório");
     }
-    const geofence = await createGeofence({
-      ...req.body,
-      clientId: targetClientId,
+
+    const client = getClientById(clientId);
+    if (!client) {
+      throw createError(404, "Cliente não encontrado");
+    }
+
+    const geometry = normalizeGeometry(req.body || {});
+    const now = new Date();
+
+    const created = await prisma.geofence.create({
+      data: {
+        clientId: String(clientId),
+        name: (req.body?.name || "Cerca virtual").trim(),
+        description: req.body?.description?.trim?.() || null,
+        type: geometry.type,
+        color: req.body?.color || null,
+        points: geometry.points,
+        center: geometry.center,
+        radius: geometry.radius,
+        createdAt: now,
+        updatedAt: now,
+      },
     });
-    return res.status(201).json({ geofence });
+
+    return res.status(201).json({ geofence: serializeGeofence(created) });
+
   } catch (error) {
     return next(error);
   }
@@ -129,6 +156,7 @@ router.post("/geofences", requireRole("manager", "admin"), async (req, res, next
 
 router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+
     const existing = await getGeofenceById(req.params.id);
     if (!existing) {
       throw createError(404, "Geofence não encontrada");
@@ -142,6 +170,7 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
       clientId: req.user.role === "admin" ? req.body?.clientId || existing.clientId : existing.clientId,
     });
     return res.json({ geofence });
+
   } catch (error) {
     return next(error);
   }
@@ -149,12 +178,14 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
 
 router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+
     const existing = await getGeofenceById(req.params.id);
     if (!existing) {
       throw createError(404, "Geofence não encontrada");
     }
     ensureSameTenant(req.user, existing.clientId);
     await deleteGeofence(req.params.id);
+
     return res.status(204).send();
   } catch (error) {
     return next(error);

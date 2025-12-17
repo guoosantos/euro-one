@@ -64,6 +64,7 @@ export function approximateCirclePoints(center, radiusMeters, segments = 36) {
   return closePolygon(points);
 }
 
+
 export function exportGeofencesToKml(geofences) {
   const placemarks = (geofences || []).map((fence) => {
     const name = fence.name || 'Geofence';
@@ -102,6 +103,7 @@ export function exportGeofencesToKml(geofences) {
   return buildKmlDocument(placemarks);
 }
 
+
 function parseCoordinates(textContent) {
   if (!textContent) return [];
   return textContent
@@ -111,6 +113,7 @@ function parseCoordinates(textContent) {
     .filter((pair) => pair.length === 2 && pair.every((v) => Number.isFinite(v)))
     .map(([lon, lat]) => [lat, lon]);
 }
+
 
 function parseExtendedData(placemark) {
   const metadata = {};
@@ -135,6 +138,7 @@ function parseList(raw) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+
 }
 
 export function parseKmlPlacemarks(kmlText) {
@@ -147,22 +151,40 @@ export function parseKmlPlacemarks(kmlText) {
       const name = placemark.getElementsByTagName('name')[0]?.textContent || `Elemento ${index + 1}`;
       const polygon = placemark.getElementsByTagName('Polygon')[0];
       const lineString = placemark.getElementsByTagName('LineString')[0];
+
       const metadata = parseExtendedData(placemark);
       const geofenceGroupIds = parseList(metadata.geofenceGroupIds || metadata.groupIds);
       const geofenceGroupNames = parseList(
         metadata.geofenceGroupNames || metadata.geofenceGroupName || metadata.groupNames || metadata.groupName,
       );
 
+
       if (polygon) {
         const coordinates = polygon.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
+
         return { id: `kml-${index}`, name, type: 'polygon', points, geofenceGroupIds, geofenceGroupNames, metadata };
+
       }
 
       if (lineString) {
         const coordinates = lineString.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
         return { id: `kml-${index}`, name, type: 'polyline', points, geofenceGroupIds, geofenceGroupNames, metadata };
+      }
+
+      if (point) {
+        const coordinates = point.getElementsByTagName('coordinates')[0]?.textContent || '';
+        const [[lat, lng] = []] = parseCoordinates(coordinates);
+        if (rawType === 'circle') {
+          const radius = Number(extendedData.radius);
+          if (Number.isFinite(radius) && Number.isFinite(lat) && Number.isFinite(lng)) {
+            return { id: `kml-${index}`, name, type: 'circle', center: [lat, lng], radius };
+          }
+        }
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          return { id: `kml-${index}`, name, type: 'point', center: [lat, lng] };
+        }
       }
 
       return null;
@@ -270,3 +292,5 @@ export function deduplicatePath(points) {
   });
   return unique;
 }
+
+

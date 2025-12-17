@@ -23,7 +23,9 @@ model Client {
   groups   Group[]
   models   Model[]
   prefs    UserPreference[]
+
   routes   Route[]
+
 }
 
 model User {
@@ -143,6 +145,22 @@ model GeocodeCache {
   data      Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Geofence {
+  id          String   @id @default(uuid())
+  clientId    String
+  name        String
+  description String?
+  type        String
+  color       String?
+  points      Json?
+  center      Json?
+  radius      Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
 }
 
 model CrmClient {

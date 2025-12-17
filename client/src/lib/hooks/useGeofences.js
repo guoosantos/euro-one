@@ -1,12 +1,73 @@
 import { useCallback, useEffect, useState } from "react";
-import api from "../api.js";
+
 import { API_ROUTES } from "../api-routes.js";
+import { approximateCirclePoints } from "../kml.js";
+import safeApi from "../safe-api.js";
+
+const DEFAULT_COLOR = "#3b82f6";
+
+function normalisePoint(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const [lat, lng] = raw;
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+      return [Number(lat), Number(lng)];
+    }
+  }
+  if (typeof raw === "object") {
+    const lat = raw.lat ?? raw.latitude ?? raw[0];
+    const lng = raw.lng ?? raw.lon ?? raw.longitude ?? raw[1];
+    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+      return [Number(lat), Number(lng)];
+    }
+  }
+  return null;
+}
+
+function normalisePoints(list) {
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((item) => normalisePoint(item))
+    .filter((point) => Array.isArray(point) && point.length === 2);
+}
+
+function normaliseGeofence(item) {
+  if (!item) return null;
+  const type = String(item.type || item.shapeType || "polygon").toLowerCase();
+  const points = normalisePoints(item.points || item.coordinates || item.area || []);
+  const center = normalisePoint(item.center || [item.latitude, item.longitude]) || points[0] || null;
+  const radiusValue = item.radius ?? item.area ?? null;
+  const radius = radiusValue === null || radiusValue === undefined ? null : Number(radiusValue);
+
+  const coordinates =
+    type === "circle" && center && Number.isFinite(radius) && radius > 0
+      ? approximateCirclePoints(center, radius, 48)
+      : points;
+
+  return {
+    id: item.id ? String(item.id) : null,
+    clientId: item.clientId || null,
+    name: item.name || "Geofence",
+    description: item.description || "",
+    type,
+    color: item.color || DEFAULT_COLOR,
+    points,
+    center,
+    radius: Number.isFinite(radius) ? radius : null,
+    coordinates,
+    raw: item,
+  };
+}
 
 function normaliseGeofences(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.geofences)) return payload.geofences;
-  if (Array.isArray(payload?.data)) return payload.data;
-  return [];
+  const list = Array.isArray(payload?.geofences)
+    ? payload.geofences
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : Array.isArray(payload)
+        ? payload
+        : [];
+  return list.map((item) => normaliseGeofence(item)).filter(Boolean);
 }
 
 export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
@@ -22,22 +83,19 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     async function fetchGeofences() {
       setLoading(true);
       setError(null);
-      try {
-        const response = await api.get(API_ROUTES.geofences);
-        if (cancelled) return;
-        setGeofences(normaliseGeofences(response?.data));
-      } catch (requestError) {
-        if (cancelled) return;
-        console.error("Failed to load geofences", requestError);
+      const { data, error: requestError, aborted } = await safeApi.get(API_ROUTES.geofences);
+      if (aborted || cancelled) return;
+
+      if (requestError) {
         setError(requestError);
         setGeofences([]);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          if (autoRefreshMs) {
-            timer = setTimeout(fetchGeofences, autoRefreshMs);
-          }
-        }
+      } else {
+        setGeofences(normaliseGeofences(data));
+      }
+
+      setLoading(false);
+      if (!cancelled && autoRefreshMs) {
+        timer = setTimeout(fetchGeofences, autoRefreshMs);
       }
     }
 
@@ -53,17 +111,34 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     setVersion((value) => value + 1);
   }, []);
 
-  const createGeofence = useCallback(async (payload) => {
-    const response = await api.post(API_ROUTES.geofences, payload);
-    refresh();
-    return response?.data;
-  }, [refresh]);
+  const createGeofence = useCallback(
+    async (payload) => {
+      const { data, error, aborted } = await safeApi.post(API_ROUTES.geofences, payload);
+      if (aborted) return null;
+      if (error) throw error;
+      refresh();
+      return data?.geofence ?? data ?? null;
+    },
+    [refresh],
+  );
 
   const updateGeofence = useCallback(
     async (id, payload) => {
-      const response = await api.put(`/geofences/${id}`, payload);
+      const { data, error, aborted } = await safeApi.put(`${API_ROUTES.geofences}/${id}`, payload);
+      if (aborted) return null;
+      if (error) throw error;
       refresh();
-      return response?.data;
+      return data?.geofence ?? data ?? null;
+    },
+    [refresh],
+  );
+
+  const deleteGeofence = useCallback(
+    async (id) => {
+      const { error, aborted } = await safeApi.delete(`${API_ROUTES.geofences}/${id}`);
+      if (aborted) return;
+      if (error) throw error;
+      refresh();
     },
     [refresh],
   );
@@ -75,9 +150,11 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
         ...(deviceId ? { deviceId } : {}),
         ...(groupId ? { groupId } : {}),
       };
-      const response = await api.post("permissions", payload);
+      const { data, error, aborted } = await safeApi.post("permissions", payload);
+      if (aborted) return null;
+      if (error) throw error;
       refresh();
-      return response?.data;
+      return data ?? null;
     },
     [refresh],
   );
@@ -89,6 +166,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     refresh,
     createGeofence,
     updateGeofence,
+    deleteGeofence,
     assignToDevice,
   };
 }
