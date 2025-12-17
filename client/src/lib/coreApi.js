@@ -37,6 +37,7 @@ export const CoreApi = {
     return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
   },
   importDevice: (payload) => http("devices/import", { method: "POST", payload }),
+  syncDevicesFromTraccar: (payload) => http("devices/sync", { method: "POST", payload }),
   listChips: async (params) => {
     const data = await http("chips", { params });
     return Array.isArray(data?.chips) ? data.chips : normaliseDevices(data);
@@ -89,4 +90,3 @@ function normaliseDevices(payload) {
   if (Array.isArray(payload.rows)) return payload.rows;
   return [];
 }
-
