@@ -31,6 +31,15 @@ const radiusIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+function generateLocalId(prefix = "local") {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) {
+    return `${prefix}-${uuid}`;
+  }
+  const entropy = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${entropy}`;
+}
+
 function distanceBetween(a, b) {
   return L.latLng(a[0], a[1]).distanceTo(L.latLng(b[0], b[1]));
 }
@@ -190,7 +199,14 @@ export default function Geofences() {
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
 
-  const { suggestions, isSearching, searchRegion, clearSuggestions, previewSuggestions, error: geocodeError } = useGeocodeSearch();
+  const {
+    suggestions = [],
+    isSearching = false,
+    searchRegion = async () => null,
+    clearSuggestions = () => {},
+    previewSuggestions: previewSearchSuggestions = () => Promise.resolve([]),
+    error: geocodeError = null,
+  } = useGeocodeSearch() || {};
 
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
@@ -245,7 +261,7 @@ export default function Geofences() {
       const point = [latlng.lat, latlng.lng];
       if (drawMode === "polygon") {
         if (draftPolygon.length >= 3 && distanceBetween(draftPolygon[0], point) < 12) {
-          const newId = `local-${Date.now()}`;
+          const newId = generateLocalId("local");
           const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
           const next = [...draftPolygon];
           setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null }]);
@@ -264,7 +280,7 @@ export default function Geofences() {
           return;
         }
         const radius = Math.round(distanceBetween(draftCircle.center, point));
-        const newId = `local-${Date.now()}`;
+        const newId = generateLocalId("local");
         const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
         setLocalGeofences((current) => [
           ...current,
@@ -432,7 +448,7 @@ export default function Geofences() {
       const text = await file.text();
       const parsed = kmlToGeofences(text);
       const mapped = parsed.map((item, index) => {
-        const id = `kml-${Date.now()}-${index}`;
+        const id = generateLocalId("kml");
         const center = item.center || item.points?.[0] || DEFAULT_CENTER;
         return {
           id,
@@ -456,9 +472,9 @@ export default function Geofences() {
     (event) => {
       const value = event.target.value;
       setSearchQuery(value);
-      previewSuggestions(value);
+      previewSearchSuggestions(value);
     },
-    [previewSuggestions],
+    [previewSearchSuggestions],
   );
 
   const flyTo = useCallback((lat, lng, bounds) => {
@@ -609,7 +625,7 @@ export default function Geofences() {
                 eventHandlers={{
                   click: () => {
                     if (index === 0 && draftPolygon.length >= 3) {
-                      const newId = `local-${Date.now()}`;
+                      const newId = generateLocalId("local");
                       const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
                       setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: draftPolygon, color, center: draftPolygon[0], radius: null }]);
                       setSelectedId(newId);
@@ -640,64 +656,66 @@ export default function Geofences() {
       </div>
 
       <div className="floating-top-bar">
-        <div className="flex w-full flex-col gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Cercas</p>
-              <h1 className="text-lg font-semibold text-white">Mapa como palco</h1>
-              <p className="text-xs text-white/70">{helperMessage}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="map-status-pill">
-                <span className="dot" />
-                {activeGeofences.length} cercas
-              </span>
-              {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
-              {drawMode && (
-                <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
-                  {drawMode === "polygon" ? "Desenhando polígono" : "Ajustando círculo"}
+        <div className="map-overlay-card w-full">
+          <div className="flex w-full flex-col gap-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-1">
+                <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Cercas</p>
+                <h1 className="text-lg font-semibold text-white">Mapa como palco</h1>
+                <p className="text-xs text-white/70">{helperMessage}</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="map-status-pill">
+                  <span className="dot" />
+                  {activeGeofences.length} cercas
                 </span>
-              )}
-              {uiError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{uiError.message}</span>}
-              {fetchError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{fetchError.message}</span>}
+                {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
+                {drawMode && (
+                  <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+                    {drawMode === "polygon" ? "Desenhando polígono" : "Ajustando círculo"}
+                  </span>
+                )}
+                {uiError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{uiError.message}</span>}
+                {fetchError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{fetchError.message}</span>}
+              </div>
             </div>
-          </div>
 
-          <div className="relative flex w-full flex-wrap items-center gap-2">
-            <form onSubmit={handleSearchSubmit} className="map-search-form">
-              <Input
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder="Buscar endereço ou coordenada"
-                icon={Search}
-                className="map-search-input pr-12"
-              />
-              <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
-                {isSearching ? "Buscando..." : geocodeError?.message || ""}
-              </div>
-            </form>
-            {suggestions.length > 0 && (
-              <div className="map-search-suggestions">
-                {suggestions.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => {
-                      setSearchQuery(item.concise || item.label);
-                      flyTo(item.lat, item.lng, item.boundingBox);
-                      clearSuggestions();
-                    }}
-                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
-                  >
-                    <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-                    <span>
-                      <div className="font-semibold text-white">{item.concise || item.label}</div>
-                      <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="relative flex w-full flex-wrap items-center gap-2">
+              <form onSubmit={handleSearchSubmit} className="map-search-form">
+                <Input
+                  value={searchQuery}
+                  onChange={handleSearchChange}
+                  placeholder="Buscar endereço ou coordenada"
+                  icon={Search}
+                  className="map-search-input pr-12"
+                />
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
+                  {isSearching ? "Buscando..." : geocodeError?.message || ""}
+                </div>
+              </form>
+              {suggestions.length > 0 && (
+                <div className="map-search-suggestions">
+                  {suggestions.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setSearchQuery(item.concise || item.label);
+                        flyTo(item.lat, item.lng, item.boundingBox);
+                        clearSuggestions();
+                      }}
+                      className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
+                    >
+                      <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
+                      <span>
+                        <div className="font-semibold text-white">{item.concise || item.label}</div>
+                        <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

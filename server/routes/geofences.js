@@ -36,10 +36,12 @@ function handlePrismaFailure(error, req, res, next) {
 }
 
 function resolveClientId(req, provided) {
-  if (req.user.role === "admin") {
-    return provided || req.query?.clientId || req.user.clientId || null;
+  const userRole = req.user?.role;
+  const userClientId = req.user?.clientId ?? null;
+  if (userRole === "admin") {
+    return provided || req.query?.clientId || userClientId || null;
   }
-  return req.user.clientId || null;
+  return userClientId;
 }
 
 function ensureSameTenant(user, clientId) {
@@ -108,8 +110,9 @@ router.post("/geofences/import/kml", requireRole("manager", "admin"), async (req
 
 router.get("/geofences", async (req, res, next) => {
   try {
+    const userRole = req.user?.role || "user";
     const targetClientId = resolveClientId(req, req.query?.clientId);
-    if (!targetClientId && req.user.role !== "admin") {
+    if (!targetClientId && userRole !== "admin") {
       return res.json({ geofences: [] });
     }
     const { groupId } = req.query || {};
