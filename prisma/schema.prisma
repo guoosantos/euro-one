@@ -23,6 +23,7 @@ model Client {
   groups   Group[]
   models   Model[]
   prefs    UserPreference[]
+  routes   Route[]
 }
 
 model User {
@@ -287,4 +288,29 @@ model TaskTemplate {
   payload     Json?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model Route {
+  id        String   @id @default(uuid())
+  clientId  String
+  name      String
+  mode      String   @default("car")
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client       @relation(fields: [clientId], references: [id])
+  points RoutePoint[]
+}
+
+model RoutePoint {
+  id        String   @id @default(uuid())
+  routeId   String
+  order     Int
+  latitude  Float
+  longitude Float
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  route Route @relation(fields: [routeId], references: [id], onDelete: Cascade)
 }

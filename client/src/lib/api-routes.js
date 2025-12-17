@@ -9,6 +9,7 @@ export const API_ROUTES = {
   maintenance: "maintenance",
   fuel: "reports/fuel",
   routing: "routing",
+  routes: "routes",
   compliance: "compliance",
   iotSensors: "iot-sensors",
   videoTelematics: "video-telematics",
