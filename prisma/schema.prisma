@@ -150,17 +150,20 @@ model GeocodeCache {
 model Geofence {
   id          String   @id @default(uuid())
   clientId    String
+  groupId     String?
   name        String
   description String?
   type        String
   color       String?
   points      Json?
-  center      Json?
+  centerLat   Float?
+  centerLng   Float?
   radius      Float?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id])
+  client Client         @relation(fields: [clientId], references: [id])
+  group  GeofenceGroup? @relation(fields: [groupId], references: [id])
 }
 
 model CrmClient {
@@ -311,30 +314,14 @@ model TaskTemplate {
 
 
 model GeofenceGroup {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   clientId    String
   name        String
   color       String?
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  client    Client                    @relation(fields: [clientId], references: [id])
-  geofences GeofenceGroupAssignment[]
-}
-
-model GeofenceGroupAssignment {
-  id              String   @id @default(uuid())
-  clientId        String
-  geofenceGroupId String
-  geofenceId      String
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  client        Client        @relation(fields: [clientId], references: [id])
-  geofenceGroup GeofenceGroup @relation(fields: [geofenceGroupId], references: [id])
-
-  @@unique([geofenceGroupId, geofenceId])
-
-
+  client    Client     @relation(fields: [clientId], references: [id])
+  geofences Geofence[]
 }

@@ -559,11 +559,11 @@ export default function RoutesPage() {
   const mapCenter = useMemo(() => draftRoute.points?.[0] || routes[0]?.points?.[0] || DEFAULT_CENTER, [draftRoute.points, routes]);
 
   return (
-    <div className="relative -mx-6 -mt-4">
+    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden">
       <MapContainer
         center={mapCenter}
         zoom={draftRoute.points?.length ? 13 : 5}
-        style={{ height: "calc(100vh - 140px)", width: "100%" }}
+        className="absolute inset-0 h-full w-full"
         whenCreated={(mapInstance) => {
           mapRef.current = mapInstance;
         }}

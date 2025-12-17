@@ -13,6 +13,23 @@ const router = express.Router();
 router.use(authenticate);
 
 
+function handlePrismaFailure(error, req, res, next) {
+  const message = error?.message || "Erro ao acessar geofences";
+  const isMissingTable = error?.code === "P2021" || /does not exist/i.test(message || "");
+
+  if (isMissingTable) {
+    console.error("Geofences indisponíveis (migration pendente)", error);
+    if (req.method === "GET") {
+      return res.status(200).json({ geofences: [] });
+    }
+    return res
+      .status(503)
+      .json({ message: "Banco não preparado para geofences (migrations pendentes)" });
+  }
+
+  return next(error);
+}
+
 function resolveClientId(req, provided) {
   if (req.user.role === "admin") {
     return provided || req.query?.clientId || req.user.clientId || null;
@@ -97,7 +114,7 @@ router.get("/geofences", async (req, res, next) => {
     });
     return res.json({ geofences });
   } catch (error) {
-    return next(error);
+    return handlePrismaFailure(error, req, res, next);
   }
 });
 
@@ -111,46 +128,26 @@ router.get("/geofences/:id", async (req, res, next) => {
     return res.json({ geofence });
 
   } catch (error) {
-    return next(error);
+    return handlePrismaFailure(error, req, res, next);
   }
 });
 
 router.post("/geofences", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-
-    const prisma = ensurePrisma();
-    const clientId = resolveClientId(req, req.body);
+    const clientId = resolveClientId(req, req.body?.clientId);
     if (!clientId) {
       throw createError(400, "clientId é obrigatório");
     }
 
-    const client = getClientById(clientId);
-    if (!client) {
-      throw createError(404, "Cliente não encontrado");
+    if (req.user.role !== "admin" && (!req.user.clientId || String(req.user.clientId) !== String(clientId))) {
+      throw createError(403, "Operação não permitida para este cliente");
     }
 
-    const geometry = normalizeGeometry(req.body || {});
-    const now = new Date();
+    const geofence = await createGeofence({ ...req.body, clientId });
 
-    const created = await prisma.geofence.create({
-      data: {
-        clientId: String(clientId),
-        name: (req.body?.name || "Cerca virtual").trim(),
-        description: req.body?.description?.trim?.() || null,
-        type: geometry.type,
-        color: req.body?.color || null,
-        points: geometry.points,
-        center: geometry.center,
-        radius: geometry.radius,
-        createdAt: now,
-        updatedAt: now,
-      },
-    });
-
-    return res.status(201).json({ geofence: serializeGeofence(created) });
-
+    return res.status(201).json({ geofence });
   } catch (error) {
-    return next(error);
+    return handlePrismaFailure(error, req, res, next);
   }
 });
 
@@ -172,7 +169,7 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
     return res.json({ geofence });
 
   } catch (error) {
-    return next(error);
+    return handlePrismaFailure(error, req, res, next);
   }
 });
 
@@ -188,7 +185,7 @@ router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res
 
     return res.status(204).send();
   } catch (error) {
-    return next(error);
+    return handlePrismaFailure(error, req, res, next);
   }
 });
 
