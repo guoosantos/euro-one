@@ -1,3 +1,4 @@
+
 import { useMemo } from "react";
 
 import safeApi from "../safe-api.js";
@@ -47,6 +48,7 @@ export function useTraccarDevices({ enabled = true, intervalMs = 15_000 } = {}) 
     error,
     lastUpdated,
     refresh,
+
   };
 }
 
