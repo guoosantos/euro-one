@@ -36,6 +36,7 @@ const defaultDeps = {
   updateDevice: deviceModel.updateDevice,
   getDeviceById: deviceModel.getDeviceById,
   findDeviceByUniqueId: deviceModel.findDeviceByUniqueId,
+  findDeviceByUniqueIdInDb: deviceModel.findDeviceByUniqueIdInDb,
   findDeviceByTraccarId: deviceModel.findDeviceByTraccarId,
   deleteDevice: deviceModel.deleteDevice,
   listChips: chipModel.listChips,
@@ -119,6 +120,15 @@ const TRACCAR_DB_UNAVAILABLE = {
     code: "TRACCAR_DB_ERROR",
   },
 };
+
+function buildDeviceConflictError(uniqueId, existing) {
+  const error = createError(409, "Equipamento já existe no Euro One");
+  error.code = "DEVICE_ALREADY_EXISTS";
+  error.details = existing?.id
+    ? { deviceId: existing.id, uniqueId: existing.uniqueId || uniqueId }
+    : { uniqueId };
+  return error;
+}
 
 function logTelemetryWarning(stage, error, context = {}) {
   const now = Date.now();
@@ -927,6 +937,32 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       throw createError(400, "uniqueId é obrigatório");
     }
 
+    const normalizedUniqueId = String(uniqueId).trim();
+    const existingDevice =
+      deps.findDeviceByUniqueId(normalizedUniqueId) ||
+      (await deps.findDeviceByUniqueIdInDb(normalizedUniqueId, { clientId })) ||
+      (await deps.findDeviceByUniqueIdInDb(normalizedUniqueId, { matchAnyClient: true }));
+    if (existingDevice) {
+      throw buildDeviceConflictError(normalizedUniqueId, existingDevice);
+    }
+
+    let traccarExisting = null;
+    try {
+      const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId: normalizedUniqueId }, asAdmin: true });
+      const list = normaliseList(lookup, ["devices"]);
+      traccarExisting = list.find(
+        (item) => String(item.uniqueId || "").trim().toLowerCase() === normalizedUniqueId.toLowerCase(),
+      );
+    } catch (lookupError) {
+      if (lookupError?.response?.status && lookupError.response.status !== 404) {
+        console.warn("[devices] falha ao validar uniqueId no Traccar", lookupError?.message || lookupError);
+      }
+    }
+
+    if (traccarExisting) {
+      throw buildDeviceConflictError({ id: traccarExisting.id, traccarId: traccarExisting.id }, normalizedUniqueId);
+    }
+
     if (modelId) {
       const model = deps.getModelById(modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
@@ -944,8 +980,8 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     }
 
     const traccarPayload = {
-      name: name || uniqueId,
-      uniqueId,
+      name: name || normalizedUniqueId,
+      uniqueId: normalizedUniqueId,
       groupId,
       attributes,
     };
@@ -954,7 +990,7 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     const device = deps.createDevice({
       clientId,
       name,
-      uniqueId,
+      uniqueId: normalizedUniqueId,
       modelId: modelId ? String(modelId) : null,
       traccarId: traccarDevice?.id ? String(traccarDevice.id) : null,
       attributes,
