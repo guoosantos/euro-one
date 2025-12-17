@@ -23,6 +23,7 @@ model Client {
   groups   Group[]
   models   Model[]
   prefs    UserPreference[]
+  routes   Route[]
 }
 
 model User {
@@ -289,6 +290,7 @@ model TaskTemplate {
   updatedAt   DateTime @updatedAt
 }
 
+
 model GeofenceGroup {
   id          String   @id @default(uuid())
   clientId    String
@@ -314,4 +316,5 @@ model GeofenceGroupAssignment {
   geofenceGroup GeofenceGroup @relation(fields: [geofenceGroupId], references: [id])
 
   @@unique([geofenceGroupId, geofenceId])
+
 }
