@@ -25,23 +25,33 @@ export default function DeviceImport() {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [syncSummary, setSyncSummary] = useState(null);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({ clientId: "", modelId: "" });
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const canChooseClient = role === "admin";
 
-  async function load() {
+  const resolveClientId = (clientIdOverride) => {
+    if (canChooseClient) {
+      return clientIdOverride || form.clientId || tenant?.id || "";
+    }
+    return tenant?.id || "";
+  };
+
+  async function load(clientIdOverride) {
+    const targetClientId = resolveClientId(clientIdOverride);
     setLoading(true);
     setError(null);
     try {
       const [importable, availableModels] = await Promise.all([
-        CoreApi.listImportableDevices({ clientId: tenant?.id }),
-        CoreApi.models({ clientId: tenant?.id }),
+        CoreApi.listImportableDevices({ clientId: targetClientId || undefined }),
+        CoreApi.models({ clientId: targetClientId || undefined }),
       ]);
       setDevices(Array.isArray(importable) ? importable : []);
       setModels(Array.isArray(availableModels) ? availableModels : []);
-      setForm((prev) => ({ ...prev, clientId: tenant?.id ?? prev.clientId ?? "" }));
+      setForm((prev) => ({ ...prev, clientId: targetClientId || prev.clientId || "" }));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar importação"));
       setDevices([]);
@@ -78,10 +88,17 @@ export default function DeviceImport() {
     }));
   }
 
+  function handleClientChange(event) {
+    const value = event.target.value;
+    setForm((prev) => ({ ...prev, clientId: value }));
+    void load(value);
+  }
+
   async function handleImport(event) {
     event.preventDefault();
     if (!selected) return;
-    if (!form.clientId) {
+    const targetClientId = resolveClientId();
+    if (!targetClientId) {
       alert("Selecione o cliente destino");
       return;
     }
@@ -89,16 +106,36 @@ export default function DeviceImport() {
     try {
       await CoreApi.importDevice({
         traccarId: selected.id,
-        clientId: form.clientId,
+        clientId: targetClientId,
         modelId: form.modelId || undefined,
         name: selected.name,
       });
       setSelected(null);
-      await load();
+      await load(targetClientId);
     } catch (requestError) {
       alert(requestError?.message || "Falha ao importar equipamento");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSync() {
+    const targetClientId = resolveClientId();
+    if (!targetClientId) {
+      alert("Selecione o cliente destino para sincronizar");
+      return;
+    }
+    setSyncing(true);
+    setError(null);
+    try {
+      const result = await CoreApi.syncDevicesFromTraccar({ clientId: targetClientId });
+      const summary = result?.data || result || null;
+      setSyncSummary(summary);
+      await load(targetClientId);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError : new Error("Falha ao sincronizar dispositivos"));
+    } finally {
+      setSyncing(false);
     }
   }
 
@@ -108,15 +145,29 @@ export default function DeviceImport() {
         title="Importar rastreadores"
         subtitle="Associe dispositivos já existentes no Traccar a um cliente do Euro One."
         right={
-          <Button variant="outline" onClick={load} aria-label="Atualizar lista">
-            <RefreshCw size={14} /> Atualizar
-          </Button>
+          <div className="flex gap-2">
+            <Button onClick={handleSync} disabled={syncing || !resolveClientId()} aria-label="Sincronizar com o Traccar">
+              {syncing ? <RefreshCw size={14} className="animate-spin" /> : <DownloadCloud size={14} />} Sincronizar
+            </Button>
+            <Button variant="outline" onClick={() => load()} disabled={loading || syncing} aria-label="Atualizar lista">
+              <RefreshCw size={14} /> Atualizar
+            </Button>
+          </div>
         }
       />
 
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
           {error.message}
+        </div>
+      )}
+
+      {syncSummary && (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          Sincronização concluída: {syncSummary.created ?? 0} criado(s), {syncSummary.updated ?? 0} atualizado(s).
+          {Array.isArray(syncSummary.skipped) && syncSummary.skipped.length > 0
+            ? ` Ignorados: ${syncSummary.skipped.length}.`
+            : ""}
         </div>
       )}
 
@@ -128,7 +179,7 @@ export default function DeviceImport() {
             onChange={(event) => setSearch(event.target.value)}
           />
           {canChooseClient && (
-            <Select value={form.clientId} onChange={(event) => setForm((prev) => ({ ...prev, clientId: event.target.value }))}>
+            <Select value={form.clientId} onChange={handleClientChange}>
               <option value="">Cliente destino</option>
               {tenantOptions.map((client) => (
                 <option key={client.id} value={client.id}>
@@ -192,7 +243,7 @@ export default function DeviceImport() {
                     </td>
                     <td className="py-3 pr-6 text-white/60">{formatDate(device.lastUpdate)}</td>
                     <td className="py-3 pr-6 text-right">
-                      <Button onClick={() => openModal(device)} disabled={!form.clientId && canChooseClient}>
+                      <Button onClick={() => openModal(device)} disabled={canChooseClient && !resolveClientId()}>
                         Importar
                       </Button>
                     </td>
@@ -217,7 +268,7 @@ export default function DeviceImport() {
                   <span className="text-xs uppercase tracking-wide text-white/60">Cliente</span>
                   <select
                     value={form.clientId}
-                    onChange={(event) => setForm((prev) => ({ ...prev, clientId: event.target.value }))}
+                    onChange={handleClientChange}
                     required
                     className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2"
                   >

@@ -3,6 +3,7 @@ import { MapContainer, TileLayer, Circle, Polygon, useMapEvents, Popup } from "r
 import "leaflet/dist/leaflet.css";
 
 import { useGeofences } from "../lib/hooks/useGeofences";
+import { useGeofenceGroups } from "../lib/hooks/useGeofenceGroups";
 import { buildGeofencePayload, decodeGeofencePolygon } from "../lib/geofence-utils";
 import {
   downloadKml,
@@ -11,6 +12,7 @@ import {
 } from "../lib/kml";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
+import Select from "../ui/Select";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 
@@ -25,15 +27,34 @@ function MapClickCapture({ onAddPoint }) {
 
 export default function Fences() {
   const { geofences, loading, error, createGeofence, updateGeofence } = useGeofences({ autoRefreshMs: 60_000 });
+  const {
+    groups,
+    loading: groupsLoading,
+    error: groupError,
+    createGroup,
+    updateGroup,
+    deleteGroup,
+    updateGroupGeofences,
+  } = useGeofenceGroups({ includeGeofences: true });
 
   const [layers, setLayers] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [groupForm, setGroupForm] = useState({ name: "", color: "#22c55e" });
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [selectedGroupIds, setSelectedGroupIds] = useState([]);
+
+  const groupColorMap = useMemo(() => {
+    const entries = (groups || []).map((group) => [String(group.id), group.color || null]);
+    return new Map(entries);
+  }, [groups]);
 
   useEffect(() => {
     const mapped = (Array.isArray(geofences) ? geofences : []).map((fence) => {
       const points = fence.type === "circle" ? [] : decodeGeofencePolygon(fence.area);
       const center = fence.type === "circle" ? [fence.latitude, fence.longitude] : points[0] || DEFAULT_CENTER;
+      const geofenceGroupIds = Array.isArray(fence.geofenceGroupIds) ? fence.geofenceGroupIds.map(String) : [];
+      const colorFromGroup = geofenceGroupIds.map((id) => groupColorMap.get(id)).find(Boolean);
       return {
         id: fence.id,
         name: fence.name || "Geofence",
@@ -42,14 +63,35 @@ export default function Fences() {
         center,
         radius: fence.radius || 300,
         enabled: true,
-        color: fence.color || "#22c55e",
+        geofenceGroupIds,
+        color: fence.color || colorFromGroup || "#22c55e",
       };
     });
     setLayers(mapped);
     setSelectedId(mapped[0]?.id || null);
   }, [geofences]);
 
+  useEffect(() => {
+    setLayers((current) =>
+      current.map((layer) => {
+        const colorFromGroup = (layer.geofenceGroupIds || []).map((id) => groupColorMap.get(id)).find(Boolean);
+        if (colorFromGroup && colorFromGroup !== layer.color) {
+          return { ...layer, color: colorFromGroup };
+        }
+        return layer;
+      }),
+    );
+  }, [groupColorMap]);
+
   const selectedLayer = layers.find((item) => item.id === selectedId) || null;
+  const selectedGroupNames = useMemo(() => {
+    const map = new Map((groups || []).map((group) => [String(group.id), group.name]));
+    return (selectedLayer?.geofenceGroupIds || []).map((id) => map.get(String(id))).filter(Boolean);
+  }, [groups, selectedLayer?.geofenceGroupIds]);
+
+  useEffect(() => {
+    setSelectedGroupIds((current) => current.filter((id) => groups.some((group) => String(group.id) === String(id))));
+  }, [groups]);
 
   function addLayer(type = "polygon") {
     const id = `local-${Date.now()}`;
@@ -61,6 +103,7 @@ export default function Fences() {
       center: DEFAULT_CENTER,
       radius: 300,
       enabled: true,
+      geofenceGroupIds: [],
       color: type === "circle" ? "#22c55e" : "#38bdf8",
     };
     setLayers((current) => [...current, layer]);
@@ -87,9 +130,29 @@ export default function Fences() {
     updateLayer(selectedLayer.id, (layer) => ({ ...layer, points: [...(layer.points || []), point] }));
   }
 
+  const resolveGeofenceId = (response, fallback) => {
+    if (!response) return fallback;
+    if (response.id) return response.id;
+    if (response.geofence?.id) return response.geofence.id;
+    return fallback;
+  };
+
+  const syncGroupAssignments = async (savedLayers) => {
+    if (!Array.isArray(groups) || !groups.length) return;
+    const tasks = groups.map((group) => {
+      const geofenceIds = savedLayers
+        .filter((layer) => (layer.geofenceGroupIds || []).some((id) => String(id) === String(group.id)))
+        .map((layer) => layer.id)
+        .filter((id) => id && !String(id).startsWith("local-"));
+      return updateGroupGeofences(group.id, geofenceIds);
+    });
+    await Promise.all(tasks);
+  };
+
   async function handleSave() {
     setSaving(true);
     try {
+      const persistedLayers = [];
       for (const layer of layers) {
         const payload = buildGeofencePayload({
           name: layer.name,
@@ -98,12 +161,17 @@ export default function Fences() {
           center: layer.center,
           points: layer.points,
         });
+        let result;
         if (layer.id && !String(layer.id).startsWith("local-")) {
-          await updateGeofence(layer.id, payload);
+          result = await updateGeofence(layer.id, payload);
         } else {
-          await createGeofence(payload);
+          result = await createGeofence(payload);
         }
+        const persistedId = resolveGeofenceId(result, layer.id);
+        persistedLayers.push({ ...layer, id: persistedId });
       }
+      await syncGroupAssignments(persistedLayers);
+      setLayers(persistedLayers);
       alert("Geofences salvas e sincronizadas com o Traccar.");
     } catch (saveError) {
       console.error(saveError);
@@ -118,6 +186,12 @@ export default function Fences() {
     if (!file) return;
     const text = await file.text();
     const placemarks = parseKmlPlacemarks(text);
+    const matchGroupIds = (names = []) => {
+      const normalized = names.map((name) => String(name).toLowerCase());
+      return (groups || [])
+        .filter((group) => normalized.includes(String(group.name || "").toLowerCase()))
+        .map((group) => group.id);
+    };
     const imported = placemarks
       .filter((item) => item.type === "polygon")
       .map((item, index) => ({
@@ -128,6 +202,7 @@ export default function Fences() {
         center: item.points[0] || DEFAULT_CENTER,
         radius: 300,
         enabled: true,
+        geofenceGroupIds: matchGroupIds(item.geofenceGroupNames),
         color: "#f97316",
       }));
     setLayers((current) => [...current, ...imported]);
@@ -135,12 +210,80 @@ export default function Fences() {
   }
 
   function handleExport() {
-    const kml = exportGeofencesToKml(layers.filter((layer) => layer.enabled));
+    const groupMap = new Map((groups || []).map((group) => [String(group.id), group.name]));
+    const payload = enabledShapes.map((layer) => ({
+      ...layer,
+      geofenceGroupNames: (layer.geofenceGroupIds || []).map((id) => groupMap.get(String(id))).filter(Boolean),
+    }));
+    const kml = exportGeofencesToKml(payload);
     downloadKml("geofences.kml", kml);
   }
 
-  const mapShapes = useMemo(() => layers, [layers]);
-  const enabledShapes = useMemo(() => layers.filter((layer) => layer.enabled), [layers]);
+  const isFiltering = selectedGroupIds.length > 0;
+  const visibleLayers = useMemo(() => {
+    if (!isFiltering) return layers;
+    return layers.filter((layer) => (layer.geofenceGroupIds || []).some((id) => selectedGroupIds.includes(id)));
+  }, [isFiltering, layers, selectedGroupIds]);
+
+  useEffect(() => {
+    if (selectedId && visibleLayers.length && !visibleLayers.some((layer) => layer.id === selectedId)) {
+      setSelectedId(visibleLayers[0].id);
+    }
+  }, [visibleLayers, selectedId]);
+
+  const mapShapes = useMemo(() => visibleLayers, [visibleLayers]);
+  const enabledShapes = useMemo(() => visibleLayers.filter((layer) => layer.enabled), [visibleLayers]);
+
+  const handleGroupFormSubmit = async (event) => {
+    event.preventDefault();
+    if (!groupForm.name?.trim()) return;
+    try {
+      if (editingGroupId) {
+        await updateGroup(editingGroupId, groupForm);
+      } else {
+        await createGroup(groupForm);
+      }
+      setGroupForm({ name: "", color: "#22c55e" });
+      setEditingGroupId(null);
+    } catch (err) {
+      console.error("Erro ao salvar grupo de cercas", err);
+      alert("Falha ao salvar grupo de cercas");
+    }
+  };
+
+  const handleDeleteGroup = async (id) => {
+    if (!window.confirm("Deseja remover este grupo?")) return;
+    try {
+      await deleteGroup(id);
+    } catch (err) {
+      console.error("Erro ao remover grupo", err);
+      alert("Falha ao remover grupo");
+    }
+  };
+
+  const toggleLayerGroup = (layerId, groupId, enabled) => {
+    updateLayer(layerId, (layer) => {
+      const next = new Set(layer.geofenceGroupIds || []);
+      if (enabled) {
+        next.add(groupId);
+      } else {
+        next.delete(groupId);
+      }
+      return { geofenceGroupIds: Array.from(next) };
+    });
+  };
+
+  const toggleGroupFilter = (groupId) => {
+    setSelectedGroupIds((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return Array.from(next);
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -167,7 +310,92 @@ export default function Fences() {
         </header>
 
         <div className="grid gap-4 lg:grid-cols-3">
-          <div className="space-y-3 lg:col-span-1">
+          <div className="space-y-4 lg:col-span-1">
+            <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-white/80">Grupos de cercas</h3>
+                  <p className="text-xs text-white/60">Crie, edite e filtre o mapa por grupos.</p>
+                </div>
+                {groupsLoading && <span className="text-[10px] uppercase tracking-wide text-white/50">Carregando…</span>}
+              </div>
+
+              <form onSubmit={handleGroupFormSubmit} className="grid gap-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <Input
+                  label={editingGroupId ? "Editar grupo" : "Novo grupo"}
+                  placeholder="Nome do grupo"
+                  value={groupForm.name}
+                  onChange={(event) => setGroupForm((current) => ({ ...current, name: event.target.value }))}
+                />
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-white/70">Cor</label>
+                  <input
+                    type="color"
+                    value={groupForm.color}
+                    onChange={(event) => setGroupForm((current) => ({ ...current, color: event.target.value }))}
+                  />
+                  <div className="flex-1" />
+                  {editingGroupId && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditingGroupId(null);
+                        setGroupForm({ name: "", color: "#22c55e" });
+                      }}
+                    >
+                      Cancelar
+                    </Button>
+                  )}
+                  <Button type="submit">{editingGroupId ? "Atualizar" : "Adicionar"}</Button>
+                </div>
+              </form>
+
+              <div className="space-y-2">
+                {groups.length === 0 && (
+                  <p className="text-sm text-white/60">Nenhum grupo cadastrado ainda.</p>
+                )}
+                {groups.map((group) => (
+                  <div
+                    key={group.id}
+                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupIds.includes(group.id)}
+                      onChange={() => toggleGroupFilter(group.id)}
+                      title="Filtrar mapa por este grupo"
+                    />
+                    <div className="h-4 w-4 rounded" style={{ backgroundColor: group.color || "#22c55e" }} />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold text-white">{group.name}</div>
+                      <div className="text-[11px] text-white/50">
+                        {(group.geofenceIds?.length || 0)} cercas
+                        {selectedGroupIds.length === 0 ? "" : selectedGroupIds.includes(group.id) ? " • filtrando" : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-white/60 underline"
+                      onClick={() => {
+                        setEditingGroupId(group.id);
+                        setGroupForm({ name: group.name || "", color: group.color || "#22c55e" });
+                      }}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs text-red-300 underline"
+                      onClick={() => handleDeleteGroup(group.id)}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <h3 className="text-sm font-semibold text-white/80">Layers</h3>
             <div className="space-y-2 rounded-2xl border border-white/10 bg-white/5 p-3">
               {mapShapes.length === 0 && <p className="text-sm text-white/60">Nenhuma cerca carregada ainda.</p>}
@@ -220,6 +448,13 @@ export default function Fences() {
                   value={selectedLayer.name}
                   onChange={(event) => updateLayer(selectedLayer.id, { name: event.target.value })}
                 />
+                <Select
+                  value={selectedLayer.type}
+                  onChange={(event) => updateLayer(selectedLayer.id, { type: event.target.value })}
+                >
+                  <option value="polygon">Polígono</option>
+                  <option value="circle">Círculo</option>
+                </Select>
                 {selectedLayer.type === "circle" && (
                   <Input
                     label="Raio (m)"
@@ -232,6 +467,28 @@ export default function Fences() {
                   <p className="text-sm text-white/60">Clique no mapa abaixo para adicionar vértices ao polígono.</p>
                 )}
                 <p className="text-xs text-white/50">Pontos atuais: {selectedLayer.points?.length || 0}</p>
+                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="text-xs font-semibold text-white/70">Grupos associados</div>
+                  <div className="flex flex-wrap gap-2">
+                    {groups.length === 0 && <span className="text-xs text-white/50">Nenhum grupo cadastrado.</span>}
+                    {groups.map((group) => (
+                      <label key={group.id} className="flex items-center gap-1 rounded bg-white/5 px-2 py-1 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={selectedLayer.geofenceGroupIds?.includes(group.id)}
+                          onChange={(event) => toggleLayerGroup(selectedLayer.id, group.id, event.target.checked)}
+                        />
+                        <span className="h-3 w-3 rounded" style={{ backgroundColor: group.color || "#22c55e" }} />
+                        <span>{group.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {selectedGroupNames.length > 0 && (
+                    <div className="text-[11px] text-white/50">
+                      Grupos selecionados: {selectedGroupNames.join(", ")}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -266,6 +523,11 @@ export default function Fences() {
       </section>
 
       {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>}
+      {groupError && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+          {groupError.message}
+        </div>
+      )}
 
       <section className="card space-y-4">
         <header className="flex items-center justify-between">
