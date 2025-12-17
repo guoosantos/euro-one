@@ -14,12 +14,11 @@ import * as traccarService from "../services/traccar.js";
 import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
+import prisma from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
-import { PrismaClient } from "@prisma/client";
 
 const router = express.Router();
-const prisma = new PrismaClient();
 
 const defaultDeps = {
   authenticate,
@@ -96,6 +95,10 @@ const telemetryCache = createTtlCache(3_000);
 const eventsCache = createTtlCache(15_000);
 const registryCache = createTtlCache(30_000);
 const registryCacheKeys = new Set();
+
+function isPrismaReady() {
+  return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
+}
 
 // Estas rotas usam o banco do Traccar como fonte principal de dados (cenário C).
 // A API HTTP do Traccar é usada apenas em endpoints específicos (ex.: comandos para o rastreador), não nesta rota.
@@ -664,7 +667,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const prismaFilter = clientId ? { clientId: String(clientId) } : {};
     let devices = [];
 
-    if (process.env.DATABASE_URL) {
+    if (isPrismaReady()) {
       try {
         // 🔄 atualizado: buscar devices direto do Postgres
         devices = await prisma.device.findMany({ where: prismaFilter });
@@ -827,10 +830,21 @@ router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
-    // 🔄 atualizado: devices direto do Postgres (Prisma)
-    const devices = await prisma.device.findMany({
-      where: clientId ? { clientId: String(clientId) } : {},
-    });
+    // 🔄 atualizado: devices direto do Postgres (Prisma), com fallback para storage legado
+    let devices = [];
+    if (isPrismaReady()) {
+      try {
+        devices = await prisma.device.findMany({
+          where: clientId ? { clientId: String(clientId) } : {},
+        });
+      } catch (databaseError) {
+        console.warn("[devices] falha ao consultar devices no banco", databaseError?.message || databaseError);
+      }
+    }
+
+    if (!devices.length) {
+      devices = deps.listDevices({ clientId });
+    }
 
     const metadata = await deps.fetchDevicesMetadata();
 

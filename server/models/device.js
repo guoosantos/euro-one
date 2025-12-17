@@ -9,6 +9,10 @@ const devices = new Map();
 const byUniqueId = new Map();
 const byTraccarId = new Map();
 
+function isPrismaReady() {
+  return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
+}
+
 function syncStorage() {
   saveCollection(STORAGE_KEY, Array.from(devices.values()));
 }
@@ -45,7 +49,11 @@ function removeIndexes(record) {
 const persistedDevices = loadCollection(STORAGE_KEY, []);
 persistedDevices.forEach((record) => {
   if (!record?.id) return;
-  persist({ ...record }, { skipSync: true });
+  const stored = persist({ ...record }, { skipSync: true });
+  // Garante que registros pré-existentes também sejam refletidos no banco quando disponível.
+  if (stored?.id) {
+    void syncDeviceToPrisma(stored);
+  }
 });
 
 export function listDevices({ clientId } = {}) {
@@ -72,6 +80,84 @@ export function findDeviceByTraccarId(traccarId) {
   const record = byTraccarId.get(String(traccarId));
   return clone(record);
 }
+
+async function syncDeviceToPrisma(record) {
+  if (!isPrismaReady() || !record?.id) return;
+  try {
+    await prisma.device.upsert({
+      where: { id: record.id },
+      create: {
+        id: record.id,
+        clientId: String(record.clientId),
+        name: record.name,
+        uniqueId: record.uniqueId,
+        modelId: record.modelId ? String(record.modelId) : null,
+        traccarId: record.traccarId ? String(record.traccarId) : null,
+        chipId: record.chipId ? String(record.chipId) : null,
+        vehicleId: record.vehicleId ? String(record.vehicleId) : null,
+        attributes: record.attributes || {},
+        createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
+        updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+      },
+      update: {
+        clientId: String(record.clientId),
+        name: record.name,
+        uniqueId: record.uniqueId,
+        modelId: record.modelId ? String(record.modelId) : null,
+        traccarId: record.traccarId ? String(record.traccarId) : null,
+        chipId: record.chipId ? String(record.chipId) : null,
+        vehicleId: record.vehicleId ? String(record.vehicleId) : null,
+        attributes: record.attributes || {},
+        updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+      },
+    });
+  } catch (error) {
+    console.warn("[devices] falha ao sincronizar com o banco", error?.message || error);
+  }
+}
+
+async function deleteDeviceFromPrisma(id) {
+  if (!isPrismaReady() || !id) return;
+  try {
+    await prisma.device.delete({ where: { id: String(id) } });
+  } catch (error) {
+    // ignora registros inexistentes mas registra outros erros
+    if (error?.code !== "P2025") {
+      console.warn("[devices] falha ao remover no banco", error?.message || error);
+    }
+  }
+}
+
+async function hydrateDevicesFromPrisma() {
+  if (!isPrismaReady()) return;
+  try {
+    const dbDevices = await prisma.device.findMany();
+    dbDevices.forEach((record) => {
+      if (!record?.id) return;
+      persist(
+        {
+          ...record,
+          id: String(record.id),
+          clientId: String(record.clientId),
+          uniqueId: record.uniqueId ? String(record.uniqueId) : null,
+          modelId: record.modelId ? String(record.modelId) : null,
+          traccarId: record.traccarId ? String(record.traccarId) : null,
+          chipId: record.chipId ? String(record.chipId) : null,
+          vehicleId: record.vehicleId ? String(record.vehicleId) : null,
+          attributes: record.attributes || {},
+          createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+          updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : new Date().toISOString(),
+        },
+        { skipSync: true },
+      );
+    });
+    syncStorage();
+  } catch (error) {
+    console.warn("[devices] falha ao hidratar dispositivos do banco", error?.message || error);
+  }
+}
+
+void hydrateDevicesFromPrisma();
 
 export function createDevice({ clientId, name, uniqueId, modelId = null, traccarId = null, attributes = {} }) {
   if (!clientId) {
@@ -105,7 +191,9 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
     updatedAt: now,
   };
 
-  return persist(record);
+  const stored = persist(record);
+  void syncDeviceToPrisma(stored);
+  return stored;
 }
 
 export function updateDevice(id, updates = {}) {
@@ -139,7 +227,9 @@ export function updateDevice(id, updates = {}) {
     record.attributes = { ...record.attributes, ...updates.attributes };
   }
   record.updatedAt = new Date().toISOString();
-  return persist(record);
+  const stored = persist(record);
+  void syncDeviceToPrisma(stored);
+  return stored;
 }
 
 export function deleteDevice(id) {
@@ -150,6 +240,7 @@ export function deleteDevice(id) {
   devices.delete(String(id));
   removeIndexes(record);
   syncStorage();
+  void deleteDeviceFromPrisma(id);
   return clone(record);
 }
 
@@ -160,7 +251,9 @@ export function clearDeviceChip(deviceId) {
   }
   record.chipId = null;
   record.updatedAt = new Date().toISOString();
-  return persist(record);
+  const stored = persist(record);
+  void syncDeviceToPrisma(stored);
+  return stored;
 }
 
 export function clearDeviceVehicle(deviceId) {
@@ -170,7 +263,9 @@ export function clearDeviceVehicle(deviceId) {
   }
   record.vehicleId = null;
   record.updatedAt = new Date().toISOString();
-  return persist(record);
+  const stored = persist(record);
+  void syncDeviceToPrisma(stored);
+  return stored;
 }
 
 export async function findDeviceByTraccarIdInDb(traccarId, { clientId } = {}) {
