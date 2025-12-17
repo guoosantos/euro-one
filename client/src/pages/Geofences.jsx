@@ -2,7 +2,22 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Circle as LeafletCircle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Circle as CircleIcon, Download, FileUp, MousePointer2, Save, Search, Undo2, X } from "lucide-react";
+import {
+  Circle as CircleIcon,
+  Download,
+  Eye,
+  FileUp,
+  MousePointer2,
+  PanelLeft,
+  PanelRight,
+  Pencil,
+  RefreshCw,
+  Save,
+  Search,
+  Trash2,
+  Undo2,
+  X,
+} from "lucide-react";
 
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
@@ -31,12 +46,15 @@ const radiusIcon = L.divIcon({
   iconAnchor: [7, 7],
 });
 
+let localIdCounter = 0;
+
 function generateLocalId(prefix = "local") {
   const uuid = globalThis.crypto?.randomUUID?.();
   if (uuid) {
     return `${prefix}-${uuid}`;
   }
-  const entropy = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  localIdCounter += 1;
+  const entropy = `${Date.now()}-${localIdCounter}-${Math.random().toString(16).slice(2)}`;
   return `${prefix}-${entropy}`;
 }
 
@@ -172,6 +190,154 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
   return null;
 }
 
+function resolveGeofenceBounds(geo) {
+  if (!geo) return null;
+  if (geo.type === "circle" && geo.center && geo.radius) {
+    return L.circle(geo.center, geo.radius).getBounds();
+  }
+  if (geo.points?.length) {
+    return L.latLngBounds(geo.points.map((point) => L.latLng(point[0], point[1])));
+  }
+  return null;
+}
+
+function ToolbarButton({ icon: Icon, active = false, title, className = "", ...props }) {
+  return (
+    <button
+      type="button"
+      className={`map-tool-button ${active ? "is-active" : ""} ${className}`.trim()}
+      title={title}
+      {...props}
+    >
+      <Icon size={16} />
+    </button>
+  );
+}
+
+function GeofenceSearchBar({
+  value,
+  onChange,
+  onSubmit,
+  suggestions,
+  onSelectSuggestion,
+  isSearching,
+  geocodeError,
+}) {
+  return (
+    <div className="floating-search">
+      <form onSubmit={onSubmit} className="map-search-form shadow-2xl">
+        <Input
+          value={value}
+          onChange={onChange}
+          placeholder="Buscar endereço ou coordenada"
+          icon={Search}
+          className="map-search-input pr-12"
+        />
+        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
+          {isSearching ? "Buscando..." : geocodeError?.message || ""}
+        </div>
+      </form>
+      {suggestions.length > 0 && (
+        <div className="map-search-suggestions">
+          {suggestions.map((item, index) => {
+            const key = item.id || `${item.lat}-${item.lng}-${index}`;
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => onSelectSuggestion?.(item)}
+                className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
+              >
+                <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
+                <span>
+                  <div className="font-semibold text-white">{item.concise || item.label}</div>
+                  <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GeofencePanel({
+  open,
+  geofences,
+  searchTerm,
+  onSearch,
+  hiddenIds,
+  onToggleVisibility,
+  onFocus,
+  onEdit,
+  onDelete,
+  onClose,
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="geofence-panel">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Cercas</p>
+          <h2 className="text-base font-semibold text-white">Painel</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="map-status-pill bg-white/5 text-white/70">{geofences.length} itens</span>
+          <ToolbarButton icon={PanelRight} onClick={onClose} title="Recolher painel" />
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <Input
+          value={searchTerm}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Buscar cerca"
+          className="map-compact-input"
+        />
+        <div className="geofence-panel-list">
+          {geofences.map((geo) => {
+            const visible = !hiddenIds.has(geo.id);
+            return (
+              <div
+                key={geo.id}
+                className="geofence-panel-item"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full" style={{ background: geo.color || "#22c55e" }} />
+                    <div>
+                      <p className="text-sm font-semibold text-white">{geo.name}</p>
+                      <p className="text-[11px] text-white/60">
+                        {geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} vértices`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title={visible ? "Ocultar" : "Mostrar"}
+                      className={`geofence-chip ${visible ? "is-active" : ""}`}
+                      onClick={() => onToggleVisibility(geo.id)}
+                    >
+                      {visible ? "Visível" : "Oculto"}
+                    </button>
+                    <ToolbarButton icon={Eye} title="Ver no mapa" onClick={() => onFocus(geo)} />
+                    <ToolbarButton icon={Pencil} title="Editar" onClick={() => onEdit(geo)} />
+                    <ToolbarButton icon={Trash2} title="Excluir" onClick={() => onDelete(geo)} />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {geofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca carregada.</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Geofences() {
   const mapRef = useRef(null);
   const importInputRef = useRef(null);
@@ -180,7 +346,6 @@ export default function Geofences() {
   const [draftCircle, setDraftCircle] = useState({ center: null, edge: null });
   const [hoverPoint, setHoverPoint] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [deletedIds, setDeletedIds] = useState(new Set());
   const [selectedId, setSelectedId] = useState(null);
   const [hiddenIds, setHiddenIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
@@ -188,6 +353,8 @@ export default function Geofences() {
   const [status, setStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [geofenceFilter, setGeofenceFilter] = useState("");
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [colorSeed, setColorSeed] = useState(0);
 
   const {
     geofences: remoteGeofences,
@@ -211,10 +378,7 @@ export default function Geofences() {
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
 
-  const activeGeofences = useMemo(
-    () => localGeofences.filter((geo) => !deletedIds.has(geo.id)),
-    [localGeofences, deletedIds],
-  );
+  const activeGeofences = useMemo(() => localGeofences, [localGeofences]);
 
   const selectedGeofence = useMemo(
     () => activeGeofences.find((geo) => geo.id === selectedId) || null,
@@ -236,7 +400,6 @@ export default function Geofences() {
     if (hasUnsavedChanges) return;
     setLocalGeofences(remoteGeofences);
     setBaselineGeofences(remoteGeofences);
-    setDeletedIds(new Set());
     setHiddenIds(new Set());
     setSelectedId((current) => current || remoteGeofences[0]?.id || null);
   }, [remoteGeofences, hasUnsavedChanges]);
@@ -262,9 +425,10 @@ export default function Geofences() {
       if (drawMode === "polygon") {
         if (draftPolygon.length >= 3 && distanceBetween(draftPolygon[0], point) < 12) {
           const newId = generateLocalId("local");
-          const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
+          const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
           const next = [...draftPolygon];
           setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null }]);
+          setColorSeed((value) => value + 1);
           setSelectedId(newId);
           setHasUnsavedChanges(true);
           resetDrafts();
@@ -281,11 +445,12 @@ export default function Geofences() {
         }
         const radius = Math.round(distanceBetween(draftCircle.center, point));
         const newId = generateLocalId("local");
-        const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
+        const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
         setLocalGeofences((current) => [
           ...current,
           { id: newId, name: `Círculo ${current.length + 1}`, type: "circle", center: draftCircle.center, radius: Math.max(25, radius), color, points: [] },
         ]);
+        setColorSeed((value) => value + 1);
         setSelectedId(newId);
         setHasUnsavedChanges(true);
         resetDrafts();
@@ -294,7 +459,7 @@ export default function Geofences() {
 
       setSelectedId(null);
     },
-    [deletedIds.size, drawMode, draftCircle.center, draftPolygon, localGeofences.length, resetDrafts],
+    [colorSeed, drawMode, draftCircle.center, draftPolygon, localGeofences.length, resetDrafts],
   );
 
   const handleMouseMove = useCallback(
@@ -325,19 +490,43 @@ export default function Geofences() {
     setHasUnsavedChanges(true);
   }, []);
 
+  const handleDeleteGeofence = useCallback(
+    async (target = null) => {
+      const geofence = target || selectedGeofence;
+      if (!geofence) return;
+      const confirmed = window.confirm(`Excluir a cerca "${geofence.name}"?`);
+      if (!confirmed) return;
+
+      const isLocal = !geofence.id || geofence.id.startsWith("local-") || geofence.id.startsWith("kml-");
+      if (isLocal) {
+        setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+        setSelectedId((current) => (current === geofence.id ? null : current));
+        setHasUnsavedChanges(true);
+        return;
+      }
+
+      setSaving(true);
+      setUiError(null);
+      setStatus("Removendo cerca...");
+      try {
+        await deleteGeofence(geofence.id);
+        setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+        setBaselineGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
+        setSelectedId((current) => (current === geofence.id ? null : current));
+        setStatus("Cerca excluída.");
+      } catch (error) {
+        setUiError(error);
+        setStatus(error?.message || "Não foi possível excluir a cerca.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [deleteGeofence, selectedGeofence],
+  );
+
   const handleRemoveSelected = useCallback(() => {
-    if (!selectedGeofence) return;
-    setLocalGeofences((current) => current.filter((geo) => geo.id !== selectedGeofence.id));
-    if (selectedGeofence.id && !selectedGeofence.id.startsWith("local-") && !selectedGeofence.id.startsWith("kml-")) {
-      setDeletedIds((current) => {
-        const next = new Set(current);
-        next.add(selectedGeofence.id);
-        return next;
-      });
-    }
-    setSelectedId(null);
-    setHasUnsavedChanges(true);
-  }, [selectedGeofence]);
+    handleDeleteGeofence(selectedGeofence);
+  }, [handleDeleteGeofence, selectedGeofence]);
 
   const draftRadius = useMemo(() => {
     if (!draftCircle.center) return null;
@@ -345,13 +534,6 @@ export default function Geofences() {
     if (!target) return null;
     return Math.max(10, Math.round(distanceBetween(draftCircle.center, target)));
   }, [draftCircle.center, draftCircle.edge, hoverPoint]);
-
-  const helperMessage = useMemo(() => {
-    if (status) return status;
-    if (drawMode === "polygon") return "Clique no mapa para adicionar vértices e feche no ponto inicial.";
-    if (drawMode === "circle") return "Clique para definir o centro e arraste o raio do círculo.";
-    return "Mapa em destaque: desenhe cercas leves ou importe um KML.";
-  }, [drawMode, status]);
 
   const handleRenameSelected = useCallback(
     (value) => {
@@ -364,7 +546,6 @@ export default function Geofences() {
 
   const handleCancelChanges = useCallback(() => {
     setLocalGeofences(baselineGeofences);
-    setDeletedIds(new Set());
     setHiddenIds(new Set());
     setHasUnsavedChanges(false);
     setStatus("");
@@ -410,10 +591,6 @@ export default function Geofences() {
     setUiError(null);
     setStatus("Sincronizando cercas...");
     try {
-      for (const id of deletedIds) {
-        await deleteGeofence(id);
-      }
-
       for (const geo of activeGeofences) {
         const payload = buildPayload(geo);
         if (!geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-")) {
@@ -424,8 +601,8 @@ export default function Geofences() {
       }
 
       await refresh();
+      setBaselineGeofences(activeGeofences);
       setHasUnsavedChanges(false);
-      setDeletedIds(new Set());
       setStatus("Cercas salvas com sucesso.");
       resetDrafts();
     } catch (error) {
@@ -434,7 +611,7 @@ export default function Geofences() {
     } finally {
       setSaving(false);
     }
-  }, [activeGeofences, buildPayload, createGeofence, deleteGeofence, deletedIds, refresh, resetDrafts, updateGeofence]);
+  }, [activeGeofences, buildPayload, createGeofence, refresh, resetDrafts, updateGeofence]);
 
   const handleExport = useCallback(() => {
     const kml = geofencesToKml(activeGeofences);
@@ -457,15 +634,16 @@ export default function Geofences() {
           points: item.points || [],
           center,
           radius: item.radius || null,
-          color: item.color || COLOR_PALETTE[(localGeofences.length + index) % COLOR_PALETTE.length],
+          color: item.color || COLOR_PALETTE[(localGeofences.length + colorSeed + index) % COLOR_PALETTE.length],
         };
       });
       setLocalGeofences((current) => [...current, ...mapped]);
+      setColorSeed((value) => value + mapped.length);
       setSelectedId((current) => current || mapped[0]?.id || null);
       setHasUnsavedChanges(true);
       event.target.value = "";
     },
-    [localGeofences.length],
+    [colorSeed, localGeofences.length],
   );
 
   const handleSearchChange = useCallback(
@@ -509,6 +687,29 @@ export default function Geofences() {
     [clearSuggestions, flyTo, searchQuery, searchRegion],
   );
 
+  const handleSuggestionSelect = useCallback(
+    (item) => {
+      setSearchQuery(item.concise || item.label || "");
+      flyTo(item.lat, item.lng, item.boundingBox);
+      clearSuggestions();
+    },
+    [clearSuggestions, flyTo],
+  );
+
+  const focusOnGeofence = useCallback(
+    (geo) => {
+      if (!geo || !mapRef.current) return;
+      const bounds = resolveGeofenceBounds(geo);
+      if (bounds) {
+        mapRef.current.fitBounds(bounds, { padding: [32, 32] });
+      } else if (geo.center) {
+        mapRef.current.flyTo(geo.center, Math.max(mapRef.current.getZoom(), 14));
+      }
+      setSelectedId(geo.id);
+    },
+    [],
+  );
+
   const guideLine = useMemo(() => {
     if (drawMode !== "polygon") return [];
     const points = [...draftPolygon];
@@ -544,13 +745,16 @@ export default function Geofences() {
     });
   }, []);
 
+  const mapCenter = selectedGeofence?.center || selectedGeofence?.points?.[0] || DEFAULT_CENTER;
   const isBusy = loading || saving;
+  const panelGeofences = filteredGeofences;
+  const friendlyError = fetchError?.message || null;
 
   return (
     <div className="map-page">
       <div className="map-container">
         <MapContainer
-          center={selectedGeofence?.center || DEFAULT_CENTER}
+          center={mapCenter}
           zoom={13}
           scrollWheelZoom
           className="h-full w-full"
@@ -626,8 +830,9 @@ export default function Geofences() {
                   click: () => {
                     if (index === 0 && draftPolygon.length >= 3) {
                       const newId = generateLocalId("local");
-                      const color = COLOR_PALETTE[(localGeofences.length + deletedIds.size) % COLOR_PALETTE.length];
+                      const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
                       setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: draftPolygon, color, center: draftPolygon[0], radius: null }]);
+                      setColorSeed((value) => value + 1);
                       setSelectedId(newId);
                       setHasUnsavedChanges(true);
                       resetDrafts();
@@ -655,196 +860,129 @@ export default function Geofences() {
         </MapContainer>
       </div>
 
-      <div className="floating-top-bar">
-        <div className="map-overlay-card w-full">
-          <div className="flex w-full flex-col gap-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="space-y-1">
-                <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Cercas</p>
-                <h1 className="text-lg font-semibold text-white">Mapa como palco</h1>
-                <p className="text-xs text-white/70">{helperMessage}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="map-status-pill">
-                  <span className="dot" />
-                  {activeGeofences.length} cercas
-                </span>
-                {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
-                {drawMode && (
-                  <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
-                    {drawMode === "polygon" ? "Desenhando polígono" : "Ajustando círculo"}
-                  </span>
-                )}
-                {uiError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{uiError.message}</span>}
-                {fetchError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{fetchError.message}</span>}
-              </div>
-            </div>
-
-            <div className="relative flex w-full flex-wrap items-center gap-2">
-              <form onSubmit={handleSearchSubmit} className="map-search-form">
-                <Input
-                  value={searchQuery}
-                  onChange={handleSearchChange}
-                  placeholder="Buscar endereço ou coordenada"
-                  icon={Search}
-                  className="map-search-input pr-12"
-                />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
-                  {isSearching ? "Buscando..." : geocodeError?.message || ""}
-                </div>
-              </form>
-              {suggestions.length > 0 && (
-                <div className="map-search-suggestions">
-                  {suggestions.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery(item.concise || item.label);
-                        flyTo(item.lat, item.lng, item.boundingBox);
-                        clearSuggestions();
-                      }}
-                      className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
-                    >
-                      <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-                      <span>
-                        <div className="font-semibold text-white">{item.concise || item.label}</div>
-                        <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="floating-left-panel">
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Criar cerca</p>
-            <h2 className="text-base font-semibold text-white">Polígono ou círculo</h2>
-            <p className="text-xs text-white/60">Clique no mapa; tudo flutua sobre o mapa.</p>
-          </div>
-
-          <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-white/60">Selecionar</p>
-            <div className="space-y-2">
-              {filteredGeofences.map((geo) => {
-                const visible = !hiddenIds.has(geo.id);
-                return (
-                  <button
-                    key={geo.id}
-                    type="button"
-                    onClick={() => setSelectedId(geo.id)}
-                    className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${selectedId === geo.id ? "border-primary/50 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"}`}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="h-3 w-3 rounded-full" style={{ background: geo.color || "#22c55e" }} />
-                      {geo.name}
-                    </span>
-                    <span className="flex items-center gap-2 text-[11px] text-white/60">
-                      <input
-                        type="checkbox"
-                        checked={visible}
-                        onChange={() => toggleVisibility(geo.id)}
-                        className="h-3 w-3 rounded border-white/40 bg-transparent accent-primary"
-                        onClick={(event) => event.stopPropagation()}
-                      />
-                      {geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}
-                    </span>
-                  </button>
-                );
-              })}
-              {activeGeofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca carregada.</p>}
-            </div>
-          </div>
-
-          {selectedGeofence ? (
-            <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">{selectedGeofence.name}</p>
-                <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">{selectedGeofence.type === "circle" ? "Círculo" : "Polígono"}</span>
-              </div>
-              <Input
-                label="Nome"
-                value={selectedGeofence.name}
-                onChange={(event) => handleRenameSelected(event.target.value)}
-              />
-              <div className="flex items-center justify-between text-xs text-white/60">
-                <span>
-                  {selectedGeofence.type === "circle"
-                    ? `Raio ${(selectedGeofence.radius || 0).toFixed(0)} m`
-                    : `${selectedGeofence.points?.length || 0} vértices`}
-                </span>
-                <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>
-                  Remover
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => markVisible([selectedGeofence.id])}>
-                  Mostrar
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-xs text-white/60">Selecione uma cerca ou desenhe uma nova para editar.</p>
-          )}
-
-        </div>
-      </div>
+      <GeofenceSearchBar
+        value={searchQuery}
+        onChange={handleSearchChange}
+        onSubmit={handleSearchSubmit}
+        suggestions={suggestions}
+        onSelectSuggestion={handleSuggestionSelect}
+        isSearching={isSearching}
+        geocodeError={geocodeError}
+      />
 
       <div className="floating-toolbar">
-        <button
-          type="button"
-          className={`map-tool-button ${drawMode === "polygon" ? "is-active" : ""}`}
+        <ToolbarButton
+          icon={panelOpen ? PanelRight : PanelLeft}
+          onClick={() => setPanelOpen((open) => !open)}
+          title={panelOpen ? "Recolher painel" : "Mostrar painel"}
+        />
+        <ToolbarButton
+          icon={MousePointer2}
+          active={drawMode === "polygon"}
           onClick={() => startDrawing("polygon")}
           title="Desenhar polígono"
-        >
-          <MousePointer2 size={16} />
-        </button>
-        <button
-          type="button"
-          className={`map-tool-button ${drawMode === "circle" ? "is-active" : ""}`}
+        />
+        <ToolbarButton
+          icon={CircleIcon}
+          active={drawMode === "circle"}
           onClick={() => startDrawing("circle")}
           title="Desenhar círculo"
-        >
-          <CircleIcon size={16} />
-        </button>
+        />
         {drawMode && (
-          <button type="button" className="map-tool-button" onClick={resetDrafts} title="Encerrar desenho">
-            <X size={16} />
-          </button>
+          <ToolbarButton icon={X} onClick={resetDrafts} title="Encerrar desenho" />
         )}
-        <button
-          type="button"
-          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
+        <ToolbarButton
+          icon={Save}
+          className="disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handleSave}
           disabled={!hasUnsavedChanges || isBusy}
           title="Salvar cercas"
-        >
-          {saving ? <Undo2 size={16} className="animate-spin" /> : <Save size={16} />}
-        </button>
-        <button
-          type="button"
-          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
+        />
+        <ToolbarButton
+          icon={Undo2}
+          className="disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handleCancelChanges}
           disabled={!hasUnsavedChanges}
           title="Cancelar mudanças"
-        >
-          <Undo2 size={16} />
-        </button>
-        <button
-          type="button"
-          className="map-tool-button"
+        />
+        <ToolbarButton
+          icon={RefreshCw}
+          onClick={() => refresh()}
+          title="Recarregar lista"
+        />
+        <ToolbarButton
+          icon={FileUp}
           onClick={() => importInputRef.current?.click()}
           title="Importar KML"
-        >
-          <FileUp size={16} />
-        </button>
-        <button type="button" className="map-tool-button" onClick={handleExport} title="Exportar KML">
-          <Download size={16} />
-        </button>
+        />
+        <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
       </div>
+
+      <div className="geofence-status-stack">
+        <span className="map-status-pill">
+          <span className="dot" />
+          {activeGeofences.length} cercas
+        </span>
+        {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
+        {drawMode && (
+          <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+            {drawMode === "polygon" ? "Desenhando polígono" : "Ajustando círculo"}
+          </span>
+        )}
+        {status && <span className="map-status-pill border-primary/40 bg-primary/10 text-cyan-100">{status}</span>}
+        {uiError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{uiError.message}</span>}
+        {friendlyError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{friendlyError}</span>}
+      </div>
+
+      <GeofencePanel
+        open={panelOpen}
+        geofences={panelGeofences}
+        searchTerm={geofenceFilter}
+        onSearch={setGeofenceFilter}
+        hiddenIds={hiddenIds}
+        onToggleVisibility={toggleVisibility}
+        onFocus={focusOnGeofence}
+        onEdit={(geo) => {
+          setSelectedId(geo.id);
+          focusOnGeofence(geo);
+        }}
+        onDelete={handleDeleteGeofence}
+        onClose={() => setPanelOpen(false)}
+      />
+
+      {selectedGeofence && (
+        <div className="geofence-inspector">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-semibold text-white">{selectedGeofence.name}</p>
+            <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">
+              {selectedGeofence.type === "circle" ? "Círculo" : "Polígono"}
+            </span>
+          </div>
+          <Input
+            label="Nome"
+            value={selectedGeofence.name}
+            onChange={(event) => handleRenameSelected(event.target.value)}
+          />
+          <div className="flex items-center justify-between text-xs text-white/70">
+            <span>
+              {selectedGeofence.type === "circle"
+                ? `Raio ${(selectedGeofence.radius || 0).toFixed(0)} m`
+                : `${selectedGeofence.points?.length || 0} vértices`}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={() => markVisible([selectedGeofence.id])}>
+                Mostrar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => focusOnGeofence(selectedGeofence)}>
+                Centralizar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>
+                Remover
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <input ref={importInputRef} type="file" accept=".kml" className="hidden" onChange={handleImportFile} />
     </div>

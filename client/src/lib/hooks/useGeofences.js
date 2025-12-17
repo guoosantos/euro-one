@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { API_ROUTES } from "../api-routes.js";
 import { approximateCirclePoints } from "../kml.js";
 import safeApi from "../safe-api.js";
+import { useTenant } from "../tenant-context.jsx";
 
 const DEFAULT_COLOR = "#3b82f6";
 
@@ -71,6 +72,7 @@ function normaliseGeofences(payload) {
 }
 
 export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
+  const { tenantId, user } = useTenant();
   const [geofences, setGeofences] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -83,11 +85,19 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
     async function fetchGeofences() {
       setLoading(true);
       setError(null);
-      const { data, error: requestError, aborted } = await safeApi.get(API_ROUTES.geofences);
+      const { data, error: requestError, aborted, status } = await safeApi.get(API_ROUTES.geofences, {
+        params: tenantId ? { clientId: tenantId } : undefined,
+      });
       if (aborted || cancelled) return;
 
       if (requestError) {
-        setError(requestError);
+        const friendly = new Error(
+          requestError?.message || "Não foi possível carregar cercas. Verifique o tenant ou tente novamente.",
+        );
+        if (status) {
+          friendly.status = status;
+        }
+        setError(friendly);
         setGeofences([]);
       } else {
         setGeofences(normaliseGeofences(data));
@@ -105,7 +115,7 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [autoRefreshMs, version]);
+  }, [autoRefreshMs, tenantId, version]);
 
   const refresh = useCallback(() => {
     setVersion((value) => value + 1);
@@ -113,24 +123,30 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
 
   const createGeofence = useCallback(
     async (payload) => {
-      const { data, error, aborted } = await safeApi.post(API_ROUTES.geofences, payload);
+      const { data, error, aborted } = await safeApi.post(API_ROUTES.geofences, {
+        ...payload,
+        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
+      });
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh],
+    [refresh, tenantId, user?.clientId],
   );
 
   const updateGeofence = useCallback(
     async (id, payload) => {
-      const { data, error, aborted } = await safeApi.put(`${API_ROUTES.geofences}/${id}`, payload);
+      const { data, error, aborted } = await safeApi.put(`${API_ROUTES.geofences}/${id}`, {
+        ...payload,
+        clientId: payload?.clientId ?? tenantId ?? user?.clientId ?? null,
+      });
       if (aborted) return null;
       if (error) throw error;
       refresh();
       return data?.geofence ?? data ?? null;
     },
-    [refresh],
+    [refresh, tenantId, user?.clientId],
   );
 
   const deleteGeofence = useCallback(

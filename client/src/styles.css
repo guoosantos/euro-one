@@ -483,6 +483,11 @@ html, body, #root { height: 100%; }
   color: #7dd3fc;
 }
 
+.map-tool-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .map-status-pill {
   display: inline-flex;
   align-items: center;
@@ -502,4 +507,84 @@ html, body, #root { height: 100%; }
   border-radius: 9999px;
   background: #38bdf8;
   box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+
+.floating-search {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: min(520px, calc(100% - 140px));
+  z-index: 1200;
+}
+
+.geofence-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 320px;
+  max-width: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  background: rgba(11, 15, 23, 0.92);
+  backdrop-filter: blur(12px);
+  border-radius: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  z-index: 1100;
+  overflow: hidden;
+}
+
+.geofence-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.geofence-panel-item {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.geofence-chip {
+  border-radius: 9999px;
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e5e7eb;
+}
+
+.geofence-chip.is-active {
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #7dd3fc;
+  background: rgba(56, 189, 248, 0.12);
+}
+
+.geofence-status-stack {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  z-index: 1050;
+}
+
+.geofence-inspector {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: min(360px, calc(100% - 24px));
+  background: rgba(10, 14, 22, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 14px;
+  z-index: 1120;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
 }
