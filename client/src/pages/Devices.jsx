@@ -12,6 +12,7 @@ import PageHeader from "../ui/PageHeader";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
+import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 
 const ICON_TYPES = [
@@ -145,6 +146,7 @@ function ModelCards({ models }) {
 export default function Devices() {
   const { tenantId, user } = useTenant();
   const { positions } = useLivePositions();
+  const { byId: traccarById, byUniqueId: traccarByUniqueId, loading: traccarLoading } = useTraccarDevices();
   const [tab, setTab] = useState("lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
@@ -191,6 +193,15 @@ export default function Devices() {
     });
     return map;
   }, [positions]);
+
+  const deviceKey = (device) => toDeviceKey(device?.traccarId ?? device?.id ?? device?.internalId ?? device?.uniqueId);
+
+  const traccarDeviceFor = (device) => {
+    const byIdMatch = device?.traccarId != null ? traccarById.get(String(device.traccarId)) : null;
+    if (byIdMatch) return byIdMatch;
+    if (device?.uniqueId) return traccarByUniqueId.get(String(device.uniqueId)) || null;
+    return null;
+  };
 
   async function load() {
     setLoading(true);
@@ -269,29 +280,49 @@ export default function Devices() {
   const latestPositionByDevice = useMemo(() => {
     const map = new Map();
     filteredDevices.forEach((device) => {
-      const key = toDeviceKey(device.traccarId ?? device.id ?? device.uniqueId ?? device.internalId);
+      const key = deviceKey(device);
       if (!key) return;
-      const livePosition = positionMap.get(key);
-      const fallbackPosition = device.lastPosition || device.position || device.latestPosition;
-      const latest = pickLatestPosition(livePosition, fallbackPosition);
-      if (latest) {
-        const parsedTime = latest.parsedTime ?? parsePositionTime(latest);
-        map.set(device.id || key, { ...latest, parsedTime });
+
+      const pos = positionMap.get(key);
+      if (pos) {
+        map.set(key, pos);
+
       }
     });
     return map;
   }, [filteredDevices, positionMap]);
 
-  function getStatus(device, position) {
-    if (position?.parsedTime) {
-      const freshness = Date.now() - position.parsedTime;
-      const isOnline = freshness < 5 * 60 * 1000;
+
+  function parseTimestamp(value) {
+    if (!value) return null;
+    const ts = Date.parse(value);
+    return Number.isNaN(ts) ? null : ts;
+  }
+
+  function getStatus(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const traccarDevice = traccarDeviceFor(device);
+    const positionFresh = position?.parsedTime ? Date.now() - position.parsedTime : null;
+    if (positionFresh != null) {
+      const isOnline = positionFresh < 5 * 60 * 1000;
+
       return isOnline ? "Online" : "Offline";
+    }
+    if (traccarDevice?.status) {
+      const status = String(traccarDevice.status).toLowerCase();
+      if (status === "online") return "Online";
+      if (status === "offline") return "Offline";
+      if (status === "unknown") return "Desconhecido";
     }
     return statusBadge(device);
   }
 
-  function formatPosition(position) {
+
+  function formatPosition(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+
     if (!position) return "—";
     const lat = Number(position.latitude ?? position.lat ?? position.latitute);
     const lon = Number(position.longitude ?? position.lon ?? position.lng);
@@ -301,25 +332,54 @@ export default function Devices() {
     return "—";
   }
 
-  function formatSpeed(position) {
+
+  function formatSpeed(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+
     if (!position?.speed) return "0 km/h";
     const speedKmh = Number(position.speed) * 1.852 || Number(position.speed);
     if (!Number.isFinite(speedKmh)) return "—";
     return `${speedKmh.toFixed(1)} km/h`;
   }
 
-  function formatLastCommunication(position, device) {
-    const timestamp =
-      position?.lastCommunication ||
-      position?.timestamp ||
-      position?.fixTime ||
-      position?.deviceTime ||
-      position?.serverTime ||
-      device?.lastCommunication ||
-      device?.lastUpdate ||
-      null;
-    const formatted = formatDate(timestamp);
-    return formatted || "—";
+
+  function formatLastCommunication(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const traccarDevice = traccarDeviceFor(device);
+    const positionTime = position?.parsedTime || null;
+    const statusTime = parseTimestamp(traccarDevice?.lastUpdate || traccarDevice?.lastCommunication);
+    const deviceTime = parseTimestamp(device.lastCommunication || device.lastUpdate);
+    const latestTime = Math.max(positionTime || 0, statusTime || 0, deviceTime || 0);
+    if (!latestTime) return "—";
+    return new Date(latestTime).toLocaleString();
+  }
+
+  function formatBattery(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    if (!position) return "—";
+    const attrs = position.attributes || {};
+    const battery = attrs.batteryLevel ?? attrs.battery ?? attrs.power ?? attrs.charge;
+    if (battery === null || battery === undefined) return "—";
+    const numericBattery = Number(battery);
+    if (Number.isFinite(numericBattery)) {
+      const bounded = Math.max(0, Math.min(100, numericBattery));
+      return `${bounded.toFixed(0)}%`;
+    }
+    return String(battery);
+  }
+
+  function formatIgnition(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const attrs = position?.attributes || {};
+    if (typeof attrs.ignition === "boolean") {
+      return attrs.ignition ? "Ignição ON" : "Ignição OFF";
+    }
+    return null;
+
   }
 
   function resetDeviceForm() {
@@ -515,14 +575,14 @@ export default function Devices() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
-                {loading && (
+                {(loading || traccarLoading) && (
                   <tr>
                     <td colSpan={10} className="px-4 py-6 text-center text-white/60">
                       Carregando equipamentos…
                     </td>
                   </tr>
                 )}
-                {!loading && filteredDevices.length === 0 && (
+                {!loading && !traccarLoading && filteredDevices.length === 0 && (
                   <tr>
                     <td colSpan={10} className="px-4 py-6 text-center text-white/60">
                       Nenhum equipamento cadastrado.
@@ -534,16 +594,18 @@ export default function Devices() {
                     const modelo = modeloById.get(device.modelId) || null;
                     const chip = chips.find((item) => item.id === device.chipId) || device.chip;
                     const vehicle = vehicles.find((item) => item.id === device.vehicleId) || device.vehicle;
-                    const latestPosition = latestPositionByDevice.get(device.id || toDeviceKey(device.traccarId ?? device.uniqueId));
+                    const latestPosition = latestPositionByDevice.get(deviceKey(device));
+                    const ignitionLabel = formatIgnition(device);
+                    const batteryLabel = formatBattery(device);
+                    const traccarDevice = traccarDeviceFor(device);
                     return (
                       <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
-                        <td className="px-4 py-3 text-white">{device.name || "—"}</td>
-                        <td className="px-4 py-3">{device.uniqueId || "—"}</td>
-                        <td className="px-4 py-3">{getStatus(device, latestPosition)}</td>
-                        <td className="px-4 py-3">
-                          <div>{formatLastCommunication(latestPosition, device)}</div>
-                          <div className="text-xs text-white/60">{formatPositionTimestamps(latestPosition)}</div>
-                        </td>
+
+                        <td className="px-4 py-3 text-white">{device.name || traccarDevice?.name || "—"}</td>
+                        <td className="px-4 py-3">{device.uniqueId || traccarDevice?.uniqueId || "—"}</td>
+                        <td className="px-4 py-3">{getStatus(device)}</td>
+                        <td className="px-4 py-3">{formatLastCommunication(device)}</td>
+
                         <td className="px-4 py-3 flex items-center gap-2">
                           <span>{formatPosition(latestPosition)}</span>
                           {latestPosition && (
@@ -557,13 +619,13 @@ export default function Devices() {
                             </Button>
                           )}
                         </td>
-                        <td className="px-4 py-3">{formatSpeed(latestPosition)}</td>
-                        <td className="px-4 py-3">
-                          {formatBattery(latestPosition)}
-                          {typeof (latestPosition?.ignition ?? latestPosition?.attributes?.ignition) !== "undefined" && (
-                            <span className="ml-2 rounded-full bg-white/10 px-2 py-1 text-xs">
-                              {latestPosition?.ignition ?? latestPosition?.attributes?.ignition ? "Ignição ON" : "Ignição OFF"}
-                            </span>
+
+                        <td className="px-4 py-3">{formatSpeed(device)}</td>
+                        <td className="px-4 py-3 space-x-2">
+                          <span>{batteryLabel}</span>
+                          {ignitionLabel && (
+                            <span className="rounded-full bg-white/10 px-2 py-1 text-xs">{ignitionLabel}</span>
+
                           )}
                         </td>
                         <td className="px-4 py-3">{chip?.iccid || chip?.phone || "—"}</td>

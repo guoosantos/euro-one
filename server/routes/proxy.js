@@ -6,6 +6,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
+import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import {
   fetchDevicesMetadata,
   fetchEvents,
@@ -1139,7 +1140,13 @@ router.delete("/users/:id", requireRole("manager", "admin"), async (req, res, ne
 router.get("/geofences", async (req, res, next) => {
   try {
     const data = await traccarProxy("get", "/geofences", { params: req.query, asAdmin: true });
-    res.json(data);
+    const withGroups = Array.isArray(data)
+      ? data.map((item) => ({
+          ...item,
+          geofenceGroupIds: getGroupIdsForGeofence(item?.id ?? item?.geofenceId, { clientId: req.user?.clientId }),
+        }))
+      : data;
+    res.json(withGroups);
   } catch (error) {
     next(error);
   }

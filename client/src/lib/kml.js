@@ -25,6 +25,17 @@ function closePolygon(points) {
   return [...points, [firstLat, firstLon]];
 }
 
+function buildExtendedData(metadata = {}) {
+  const entries = Object.entries(metadata).filter(
+    ([, value]) => value !== undefined && value !== null && String(value).trim() !== "",
+  );
+  if (!entries.length) return "";
+  const dataNodes = entries
+    .map(([key, value]) => `<Data name="${key}"><value>${String(value)}</value></Data>`)
+    .join("");
+  return `<ExtendedData>${dataNodes}</ExtendedData>`;
+}
+
 export function approximateCirclePoints(center, radiusMeters, segments = 36) {
   const [lat, lon] = center;
   const earthRadius = 6371000; // meters
@@ -67,10 +78,16 @@ export function exportGeofencesToKml(geofences) {
       coordinates = formatCoordinates(points);
     }
 
+    const metadata = {
+      geofenceGroupIds: Array.isArray(fence.geofenceGroupIds) ? fence.geofenceGroupIds.join(',') : null,
+      geofenceGroupNames: Array.isArray(fence.geofenceGroupNames) ? fence.geofenceGroupNames.join(',') : fence.geofenceGroupName,
+    };
+
     return `
       <Placemark>
         <name>${name}</name>
         <description>${description}</description>
+        ${buildExtendedData(metadata)}
         <Polygon>
           <outerBoundaryIs>
             <LinearRing>
@@ -95,6 +112,31 @@ function parseCoordinates(textContent) {
     .map(([lon, lat]) => [lat, lon]);
 }
 
+function parseExtendedData(placemark) {
+  const metadata = {};
+  const extended = placemark.getElementsByTagName('ExtendedData')[0];
+  if (!extended) return metadata;
+
+  const dataElements = Array.from(extended.getElementsByTagName('Data'));
+  dataElements.forEach((dataNode) => {
+    const key = dataNode.getAttribute('name');
+    const valueNode = dataNode.getElementsByTagName('value')[0];
+    const raw = valueNode?.textContent || dataNode.textContent || '';
+    if (key) {
+      metadata[key] = raw;
+    }
+  });
+  return metadata;
+}
+
+function parseList(raw) {
+  if (!raw) return [];
+  return String(raw)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function parseKmlPlacemarks(kmlText) {
   const parser = new DOMParser();
   const xml = parser.parseFromString(kmlText, 'text/xml');
@@ -105,17 +147,22 @@ export function parseKmlPlacemarks(kmlText) {
       const name = placemark.getElementsByTagName('name')[0]?.textContent || `Elemento ${index + 1}`;
       const polygon = placemark.getElementsByTagName('Polygon')[0];
       const lineString = placemark.getElementsByTagName('LineString')[0];
+      const metadata = parseExtendedData(placemark);
+      const geofenceGroupIds = parseList(metadata.geofenceGroupIds || metadata.groupIds);
+      const geofenceGroupNames = parseList(
+        metadata.geofenceGroupNames || metadata.geofenceGroupName || metadata.groupNames || metadata.groupName,
+      );
 
       if (polygon) {
         const coordinates = polygon.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
-        return { id: `kml-${index}`, name, type: 'polygon', points };
+        return { id: `kml-${index}`, name, type: 'polygon', points, geofenceGroupIds, geofenceGroupNames, metadata };
       }
 
       if (lineString) {
         const coordinates = lineString.getElementsByTagName('coordinates')[0]?.textContent || '';
         const points = parseCoordinates(coordinates);
-        return { id: `kml-${index}`, name, type: 'polyline', points };
+        return { id: `kml-${index}`, name, type: 'polyline', points, geofenceGroupIds, geofenceGroupNames, metadata };
       }
 
       return null;
@@ -223,4 +270,3 @@ export function deduplicatePath(points) {
   });
   return unique;
 }
-
