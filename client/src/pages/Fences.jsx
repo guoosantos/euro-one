@@ -16,6 +16,40 @@ import Select from "../ui/Select";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 
+function toNumber(value) {
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeLatLngPoint(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const [latRaw, lngRaw] = raw;
+    const lat = toNumber(latRaw);
+    const lng = toNumber(lngRaw);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return [lat, lng];
+  }
+
+  if (typeof raw === "object") {
+    const lat = toNumber(raw.lat ?? raw.latitude);
+    const lng = toNumber(raw.lng ?? raw.lon ?? raw.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+    return [lat, lng];
+  }
+  return null;
+}
+
+function normalizePolygonPoints(points) {
+  const normalized = (Array.isArray(points) ? points : []).map(normalizeLatLngPoint).filter(Boolean);
+  if (normalized.length < 3) return [];
+  return normalized;
+}
+
 function MapClickCapture({ onAddPoint }) {
   useMapEvents({
     click(event) {
@@ -51,15 +85,17 @@ export default function Fences() {
 
   useEffect(() => {
     const mapped = (Array.isArray(geofences) ? geofences : []).map((fence) => {
-      const points = fence.type === "circle" ? [] : decodeGeofencePolygon(fence.area);
-      const center = fence.type === "circle" ? [fence.latitude, fence.longitude] : points[0] || DEFAULT_CENTER;
+      const rawPoints = fence.type === "circle" ? [] : decodeGeofencePolygon(fence.area);
+      const points = fence.type === "circle" ? [] : normalizePolygonPoints(rawPoints);
+      const circleCenter = normalizeLatLngPoint([fence.latitude, fence.longitude]);
+      const center = fence.type === "circle" ? circleCenter || DEFAULT_CENTER : points[0] || DEFAULT_CENTER;
       const geofenceGroupIds = Array.isArray(fence.geofenceGroupIds) ? fence.geofenceGroupIds.map(String) : [];
       const colorFromGroup = geofenceGroupIds.map((id) => groupColorMap.get(id)).find(Boolean);
       return {
         id: fence.id,
         name: fence.name || "Geofence",
         type: fence.type || "polygon",
-        points: points || [],
+        points,
         center,
         radius: fence.radius || 300,
         enabled: true,
@@ -198,8 +234,8 @@ export default function Fences() {
         id: `kml-${Date.now()}-${index}`,
         name: item.name,
         type: "polygon",
-        points: item.points,
-        center: item.points[0] || DEFAULT_CENTER,
+        points: normalizePolygonPoints(item.points),
+        center: normalizeLatLngPoint(item.points?.[0]) || DEFAULT_CENTER,
         radius: 300,
         enabled: true,
         geofenceGroupIds: matchGroupIds(item.geofenceGroupNames),
@@ -501,21 +537,29 @@ export default function Fences() {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
                 <MapClickCapture onAddPoint={handleAddPoint} />
-                {enabledShapes.map((layer) =>
-                  layer.type === "circle" ? (
-                    <Circle key={layer.id} center={layer.center} radius={layer.radius} pathOptions={{ color: layer.color }}>
-                      <Popup>
-                        <strong>{layer.name}</strong>
-                      </Popup>
-                    </Circle>
-                  ) : (
-                    <Polygon key={layer.id} positions={layer.points} pathOptions={{ color: layer.color }}>
+                {enabledShapes.map((layer) => {
+                  if (layer.type === "circle") {
+                    const center = normalizeLatLngPoint(layer.center) || DEFAULT_CENTER;
+                    const radius = Number.isFinite(layer.radius) ? layer.radius : 300;
+                    return (
+                      <Circle key={layer.id} center={center} radius={radius} pathOptions={{ color: layer.color }}>
+                        <Popup>
+                          <strong>{layer.name}</strong>
+                        </Popup>
+                      </Circle>
+                    );
+                  }
+
+                  const polygonPoints = normalizePolygonPoints(layer.points);
+                  if (polygonPoints.length < 3) return null;
+                  return (
+                    <Polygon key={layer.id} positions={polygonPoints} pathOptions={{ color: layer.color }}>
                       <Popup>
                         <strong>{layer.name}</strong>
                       </Popup>
                     </Polygon>
-                  ),
-                )}
+                  );
+                })}
               </MapContainer>
             </div>
           </div>
