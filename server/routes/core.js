@@ -14,6 +14,7 @@ import * as traccarService from "../services/traccar.js";
 import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
+import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import prisma from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -655,6 +656,48 @@ router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClie
 
     invalidateDeviceCache();
     res.status(201).json({ device: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/devices/sync", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const groupId = await ensureClientTraccarGroup(clientId);
+
+    const traccarResponse = await deps.traccarProxy("get", "/devices", {
+      params: groupId ? { groupId } : undefined,
+      asAdmin: true,
+    });
+
+    if (traccarResponse?.ok === false || traccarResponse?.error) {
+      throw deps.buildTraccarUnavailableError(traccarResponse, { stage: "devices-sync" });
+    }
+
+    const traccarDevices = normaliseList(traccarResponse, ["devices"]);
+
+    const filteredDevices = traccarDevices.filter((device) => {
+      if (!groupId) return true;
+      const deviceGroupId = device?.groupId ?? device?.groupid ?? null;
+      return deviceGroupId && String(deviceGroupId) === String(groupId);
+    });
+
+    const summary = syncDevicesFromTraccar({
+      clientId,
+      devices: filteredDevices,
+      findDeviceByTraccarId: deps.findDeviceByTraccarId,
+      findDeviceByUniqueId: deps.findDeviceByUniqueId,
+      createDevice: deps.createDevice,
+      updateDevice: deps.updateDevice,
+    });
+
+    invalidateDeviceCache();
+
+    res.status(200).json({
+      data: summary,
+      error: null,
+    });
   } catch (error) {
     next(error);
   }

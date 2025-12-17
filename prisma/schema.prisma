@@ -23,6 +23,7 @@ model Client {
   groups   Group[]
   models   Model[]
   prefs    UserPreference[]
+  routes   Route[]
 }
 
 model User {
@@ -289,72 +290,33 @@ model TaskTemplate {
   updatedAt   DateTime @updatedAt
 }
 
+
+
 model GeofenceGroup {
-  id          String     @id @default(uuid())
+  id          String   @id @default(uuid())
   clientId    String
   name        String
-  description String?
   color       String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  client    Client    @relation(fields: [clientId], references: [id])
-  geofences Geofence[]
-
-  @@map("geofence_group")
-  @@index([clientId])
+  client    Client                    @relation(fields: [clientId], references: [id])
+  geofences GeofenceGroupAssignment[]
 }
 
-model Geofence {
-  id          String    @id @default(uuid())
-  clientId    String
-  groupId     String?
-  name        String
-  description String?
-  type        String
-  color       String?
-  radius      Float?
-  centerLat   Float?
-  centerLng   Float?
-  points      Json?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+model GeofenceGroupAssignment {
+  id              String   @id @default(uuid())
+  clientId        String
+  geofenceGroupId String
+  geofenceId      String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  client Client         @relation(fields: [clientId], references: [id])
-  group  GeofenceGroup? @relation(fields: [groupId], references: [id])
+  client        Client        @relation(fields: [clientId], references: [id])
+  geofenceGroup GeofenceGroup @relation(fields: [geofenceGroupId], references: [id])
 
-  @@map("geofence")
-  @@index([clientId])
-  @@index([groupId])
-}
+  @@unique([geofenceGroupId, geofenceId])
 
-model Route {
-  id          String       @id @default(uuid())
-  clientId    String
-  name        String
-  description String?
-  color       String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
 
-  client Client        @relation(fields: [clientId], references: [id])
-  points RoutePoint[]
-
-  @@map("route")
-  @@index([clientId])
-}
-
-model RoutePoint {
-  id        String  @id @default(uuid())
-  routeId   String
-  latitude  Float
-  longitude Float
-  "order"   Int
-  createdAt DateTime @default(now())
-
-  route Route @relation(fields: [routeId], references: [id])
-
-  @@map("route_point")
-  @@index([routeId])
-  @@unique([routeId, "order"])
 }
