@@ -2,13 +2,17 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+
 import { getClientById } from "../models/client.js";
+
 import {
   createGeofenceGroup,
   deleteGeofenceGroup,
   getGeofenceGroupById,
   listGeofenceGroups,
+
   setGeofencesForGroup,
+
   updateGeofenceGroup,
 } from "../models/geofence-group.js";
 
@@ -16,12 +20,15 @@ const router = express.Router();
 
 router.use(authenticate);
 
+
 function ensureClientAccess(sessionUser, targetClientId) {
   if (sessionUser.role === "admin") return;
   if (!sessionUser.clientId || String(sessionUser.clientId) !== String(targetClientId)) {
+
     throw createError(403, "Operação não permitida para este cliente");
   }
 }
+
 
 router.get("/geofence-groups", (req, res, next) => {
   try {
@@ -37,11 +44,13 @@ router.get("/geofence-groups", (req, res, next) => {
       return res.json({ groups: [] });
     }
     const groups = listGeofenceGroups({ clientId: req.user.clientId, includeGeofences });
+
     return res.json({ groups });
   } catch (error) {
     return next(error);
   }
 });
+
 
 router.get("/geofence-groups/:id", (req, res, next) => {
   try {
@@ -127,10 +136,12 @@ router.put("/geofence-groups/:id", requireRole("manager", "admin"), (req, res, n
 
     const group = updateGeofenceGroup(id, updates);
     return res.json({ group });
+
   } catch (error) {
     return next(error);
   }
 });
+
 
 router.put("/geofence-groups/:id/geofences", requireRole("manager", "admin"), (req, res, next) => {
   try {
@@ -144,11 +155,13 @@ router.put("/geofence-groups/:id/geofences", requireRole("manager", "admin"), (r
       throw createError(400, "geofenceIds precisa ser um array");
     }
     const group = setGeofencesForGroup(id, req.body.geofenceIds, { clientId: existing.clientId });
+
     return res.json({ group });
   } catch (error) {
     return next(error);
   }
 });
+
 
 router.delete("/geofence-groups/:id", requireRole("manager", "admin"), (req, res, next) => {
   try {
@@ -159,6 +172,7 @@ router.delete("/geofence-groups/:id", requireRole("manager", "admin"), (req, res
     }
     ensureClientAccess(req.user, existing.clientId);
     deleteGeofenceGroup(id);
+
     return res.status(204).send();
   } catch (error) {
     return next(error);

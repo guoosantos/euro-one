@@ -1,0 +1,258 @@
+import createError from "http-errors";
+
+import prisma from "../services/prisma.js";
+
+function ensurePrisma() {
+  if (!prisma) {
+    throw createError(503, "Banco de dados indisponível");
+  }
+}
+
+async function assertClientExists(clientId) {
+  const client = await prisma.client.findUnique({ where: { id: String(clientId) } });
+  if (!client) {
+    throw createError(404, "Cliente associado não encontrado");
+  }
+}
+
+async function assertGroup(groupId, clientId) {
+  if (!groupId) return null;
+  const group = await prisma.geofenceGroup.findUnique({ where: { id: String(groupId) } });
+  if (!group) {
+    throw createError(404, "Grupo de geofence não encontrado");
+  }
+  if (clientId && String(group.clientId) !== String(clientId)) {
+    throw createError(400, "Grupo pertence a outro cliente");
+  }
+  return group;
+}
+
+function parsePointsFromArea(area) {
+  if (!area) return [];
+  return String(area)
+    .split(",")
+    .map((segment) => segment.trim().split(/\s+/).slice(0, 2).map((value) => Number(value)))
+    .filter((pair) => pair.length === 2 && pair.every((value) => Number.isFinite(value)));
+}
+
+function normalizePointList(rawPoints) {
+  if (!Array.isArray(rawPoints)) return [];
+  return rawPoints
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return null;
+      const [lat, lon] = pair;
+      const latitude = Number(lat);
+      const longitude = Number(lon);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      return [latitude, longitude];
+    })
+    .filter(Boolean);
+}
+
+function normalizePoints({ points, area }) {
+  if (Array.isArray(points) && points.length) {
+    return normalizePointList(points);
+  }
+  return normalizePointList(parsePointsFromArea(area));
+}
+
+function buildArea(points = []) {
+  if (!Array.isArray(points) || !points.length) return "";
+  return points.map(([lat, lon]) => `${lat} ${lon}`).join(",");
+}
+
+function mapGeofence(record) {
+  if (!record) return null;
+  const points = normalizePointList(record.points || []);
+  return {
+    id: record.id,
+    clientId: record.clientId,
+    groupId: record.groupId || null,
+    name: record.name,
+    description: record.description,
+    type: record.type,
+    color: record.color,
+    radius: record.radius,
+    latitude: record.centerLat,
+    longitude: record.centerLng,
+    area: buildArea(points),
+    points,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  };
+}
+
+function normalizeType(type) {
+  const value = String(type || "").toLowerCase();
+  if (value === "circle" || value === "polygon") return value;
+  throw createError(400, "Tipo de geofence inválido");
+}
+
+function resolveCircleGeometry(payload, fallback = {}) {
+  const radius = Number(payload.radius ?? fallback.radius ?? 0);
+  const centerLat =
+    payload.centerLat ?? payload.latitude ?? payload.center?.[0] ?? fallback.centerLat ?? fallback.latitude ?? fallback.center?.[0];
+  const centerLng =
+    payload.centerLng ?? payload.longitude ?? payload.center?.[1] ?? fallback.centerLng ?? fallback.longitude ?? fallback.center?.[1];
+
+  const latitude = Number(centerLat);
+  const longitude = Number(centerLng);
+
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    throw createError(400, "latitude/longitude são obrigatórios para círculo");
+  }
+  if (!Number.isFinite(radius) || radius <= 0) {
+    throw createError(400, "radius é obrigatório para círculo");
+  }
+
+  return { radius, centerLat: latitude, centerLng: longitude };
+}
+
+export async function listGeofences({ clientId, groupId } = {}) {
+  ensurePrisma();
+  const where = {
+    ...(clientId ? { clientId: String(clientId) } : {}),
+    ...(groupId ? { groupId: String(groupId) } : {}),
+  };
+  const geofences = await prisma.geofence.findMany({ where, orderBy: { createdAt: "desc" } });
+  return geofences.map(mapGeofence);
+}
+
+export async function getGeofenceById(id) {
+  ensurePrisma();
+  const geofence = await prisma.geofence.findUnique({ where: { id: String(id) } });
+  return mapGeofence(geofence);
+}
+
+export async function createGeofence({
+  clientId,
+  groupId = null,
+  name,
+  description = null,
+  type,
+  color = null,
+  radius = null,
+  center = null,
+  latitude = null,
+  longitude = null,
+  centerLat = null,
+  centerLng = null,
+  points = null,
+  area = null,
+}) {
+  ensurePrisma();
+  if (!clientId) {
+    throw createError(400, "clientId é obrigatório");
+  }
+  if (!name) {
+    throw createError(400, "Nome é obrigatório");
+  }
+
+  const normalizedType = normalizeType(type);
+  await assertClientExists(clientId);
+  await assertGroup(groupId, clientId);
+
+  const payload = {
+    clientId: String(clientId),
+    groupId: groupId ? String(groupId) : null,
+    name: String(name),
+    description: description || null,
+    type: normalizedType,
+    color: color || null,
+    points: [],
+    centerLat: null,
+    centerLng: null,
+    radius: null,
+  };
+
+  if (normalizedType === "polygon") {
+    const resolvedPoints = normalizePoints({ points, area });
+    if (resolvedPoints.length < 3) {
+      throw createError(400, "Polígono deve ter ao menos 3 pontos");
+    }
+    payload.points = resolvedPoints;
+  } else {
+    const geometry = resolveCircleGeometry(
+      { center, radius, latitude, longitude, centerLat, centerLng },
+      { radius: null, centerLat: null, centerLng: null },
+    );
+    payload.centerLat = geometry.centerLat;
+    payload.centerLng = geometry.centerLng;
+    payload.radius = geometry.radius;
+  }
+
+  const geofence = await prisma.geofence.create({ data: payload });
+  return mapGeofence(geofence);
+}
+
+export async function updateGeofence(id, updates = {}) {
+  ensurePrisma();
+  const existing = await prisma.geofence.findUnique({ where: { id: String(id) } });
+  if (!existing) {
+    throw createError(404, "Geofence não encontrada");
+  }
+
+  const nextType = updates.type ? normalizeType(updates.type) : existing.type;
+  const targetClientId = updates.clientId ? String(updates.clientId) : existing.clientId;
+
+  await assertClientExists(targetClientId);
+  await assertGroup(updates.groupId ?? existing.groupId, targetClientId);
+
+  const data = {
+    clientId: targetClientId,
+    groupId:
+      Object.prototype.hasOwnProperty.call(updates, "groupId") && updates.groupId !== undefined
+        ? updates.groupId
+          ? String(updates.groupId)
+          : null
+        : existing.groupId,
+    name: updates.name ? String(updates.name) : existing.name,
+    description: Object.prototype.hasOwnProperty.call(updates, "description") ? updates.description || null : existing.description,
+    color: Object.prototype.hasOwnProperty.call(updates, "color") ? updates.color || null : existing.color,
+    type: nextType,
+  };
+
+  if (nextType === "polygon") {
+    const resolvedPoints = normalizePoints({ points: updates.points, area: updates.area });
+    const pointsToPersist = resolvedPoints.length ? resolvedPoints : normalizePointList(existing.points || []);
+    if (pointsToPersist.length < 3) {
+      throw createError(400, "Polígono deve ter ao menos 3 pontos");
+    }
+    data.points = pointsToPersist;
+    data.centerLat = null;
+    data.centerLng = null;
+    data.radius = null;
+  } else {
+    const geometry = resolveCircleGeometry(
+      { ...updates, centerLat: updates.centerLat ?? updates.latitude, centerLng: updates.centerLng ?? updates.longitude },
+      { radius: existing.radius, centerLat: existing.centerLat, centerLng: existing.centerLng },
+    );
+    data.centerLat = geometry.centerLat;
+    data.centerLng = geometry.centerLng;
+    data.radius = geometry.radius;
+    data.points = [];
+  }
+
+  const geofence = await prisma.geofence.update({
+    where: { id: String(id) },
+    data,
+  });
+  return mapGeofence(geofence);
+}
+
+export async function deleteGeofence(id) {
+  ensurePrisma();
+  const deleted = await prisma.geofence.delete({ where: { id: String(id) } }).catch(() => null);
+  if (!deleted) {
+    throw createError(404, "Geofence não encontrada");
+  }
+  return mapGeofence(deleted);
+}
+
+export default {
+  listGeofences,
+  getGeofenceById,
+  createGeofence,
+  updateGeofence,
+  deleteGeofence,
+};

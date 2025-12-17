@@ -7,7 +7,6 @@ import { config } from "./config.js";
 import authRoutes from "./routes/auth.js";
 import clientRoutes from "./routes/clients.js";
 import userRoutes from "./routes/users.js";
-import proxyRoutes from "./routes/proxy.js";
 import coreRoutes from "./routes/core.js";
 import modelRoutes from "./routes/models.js";
 import groupRoutes from "./routes/groups.js";
@@ -22,7 +21,9 @@ import crmRoutes from "./routes/crm.js";
 import traccarDbRoutes from "./routes/traccar-db.js";
 import geocodeRoutes from "./routes/geocode.js";
 
+
 import geofenceGroupRoutes from "./routes/geofence-groups.js";
+
 
 import { errorHandler } from "./middleware/error-handler.js";
 
@@ -73,11 +74,13 @@ app.use("/health", healthRoutes);
 app.use("/api/health", healthRoutes);
 
 app.use("/api", authRoutes);
-app.use("/api", proxyRoutes);
 app.use("/api", modelRoutes);
 app.use("/api/core", coreRoutes);
 app.use("/api/core", taskRoutes);
 app.use("/api/crm", crmRoutes);
+app.use("/api", geofenceGroupRoutes);
+app.use("/api", geofenceRoutes);
+app.use("/api", routeRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
@@ -88,6 +91,7 @@ app.use("/api", preferencesRoutes);
 app.use("/api", mediaRoutes);
 app.use("/api", traccarDbRoutes);
 app.use("/api", geocodeRoutes);
+app.use("/api", proxyRoutes);
 
 app.use("/api", geofenceGroupRoutes);
 

@@ -291,6 +291,7 @@ model TaskTemplate {
 }
 
 
+
 model GeofenceGroup {
   id          String   @id @default(uuid())
   clientId    String
@@ -316,5 +317,6 @@ model GeofenceGroupAssignment {
   geofenceGroup GeofenceGroup @relation(fields: [geofenceGroupId], references: [id])
 
   @@unique([geofenceGroupId, geofenceId])
+
 
 }

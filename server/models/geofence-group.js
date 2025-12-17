@@ -1,4 +1,5 @@
 import createError from "http-errors";
+
 import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
@@ -214,3 +215,4 @@ export function setGeofencesForGroup(groupId, geofenceIds = [], { clientId } = {
   syncStorage();
   return attachGeofences(record);
 }
+

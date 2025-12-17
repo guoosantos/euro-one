@@ -1,6 +1,7 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
+
 import { loadCollection, saveCollection } from "../services/storage.js";
 import prisma from "../services/prisma.js";
 
@@ -207,3 +208,4 @@ export async function updateRoute(id, updates = {}) {
   void syncRouteToPrisma(stored);
   return stored;
 }
+
