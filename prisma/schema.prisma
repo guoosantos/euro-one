@@ -288,3 +288,30 @@ model TaskTemplate {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model GeofenceGroup {
+  id          String   @id @default(uuid())
+  clientId    String
+  name        String
+  color       String?
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client    Client                    @relation(fields: [clientId], references: [id])
+  geofences GeofenceGroupAssignment[]
+}
+
+model GeofenceGroupAssignment {
+  id              String   @id @default(uuid())
+  clientId        String
+  geofenceGroupId String
+  geofenceId      String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  client        Client        @relation(fields: [clientId], references: [id])
+  geofenceGroup GeofenceGroup @relation(fields: [geofenceGroupId], references: [id])
+
+  @@unique([geofenceGroupId, geofenceId])
+}
