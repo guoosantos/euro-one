@@ -26,8 +26,13 @@ function handlePrismaFailure(error, req, res, next) {
       .status(503)
       .json({ message: "Banco não preparado para geofences (migrations pendentes)" });
   }
+  const status = error?.status || error?.statusCode;
+  if (status) {
+    return res.status(status).json({ message, code: error?.code || "GEOFENCE_ERROR" });
+  }
 
-  return next(error);
+  console.error("[geofences] erro inesperado", error);
+  return res.status(400).json({ message: "Não foi possível processar a geofence.", code: "GEOFENCE_ERROR" });
 }
 
 function resolveClientId(req, provided) {

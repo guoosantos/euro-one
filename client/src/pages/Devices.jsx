@@ -158,6 +158,7 @@ export default function Devices() {
   const [savingModel, setSavingModel] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [conflictDevice, setConflictDevice] = useState(null);
 
   const resolvedClientId = tenantId || user?.clientId || null;
 
@@ -415,6 +416,25 @@ export default function Devices() {
       setShowDeviceModal(false);
       setTab("lista");
     } catch (requestError) {
+      const isConflict = requestError?.response?.status === 409;
+      const code = requestError?.response?.data?.code;
+      if (isConflict && code === "DEVICE_ALREADY_EXISTS") {
+        const uniqueId = deviceForm.uniqueId.trim();
+        const existingId = requestError?.response?.data?.details?.deviceId || null;
+        const match = devices.find(
+          (item) =>
+            item.id === existingId ||
+            (item.uniqueId && uniqueId && String(item.uniqueId).toLowerCase() === uniqueId.toLowerCase()),
+        );
+        setShowDeviceModal(false);
+        setConflictDevice({
+          uniqueId,
+          deviceId: match?.id || existingId || null,
+          message: requestError?.message || "Equipamento já existe no Euro One",
+        });
+        return;
+      }
+
       alert(requestError?.message || "Falha ao salvar equipamento");
     } finally {
       setSavingDevice(false);
@@ -496,6 +516,23 @@ export default function Devices() {
     });
     setShowDeviceModal(true);
     setTab("cadastro");
+  }
+
+  function handleGoToExistingDevice() {
+    if (!conflictDevice) return;
+    const match = devices.find(
+      (item) =>
+        item.id === conflictDevice.deviceId ||
+        (item.uniqueId && conflictDevice.uniqueId &&
+          String(item.uniqueId).toLowerCase() === conflictDevice.uniqueId.toLowerCase()),
+    );
+    if (match) {
+      openEditDevice(match);
+    } else {
+      setTab("lista");
+      void load();
+    }
+    setConflictDevice(null);
   }
 
   return (
@@ -834,6 +871,29 @@ export default function Devices() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(conflictDevice)}
+        onClose={() => setConflictDevice(null)}
+        title="Equipamento já existe"
+        width="max-w-xl"
+      >
+        <div className="space-y-4 text-white">
+          <p className="text-sm text-white/80">
+            {conflictDevice?.message || "Já existe um equipamento com este IMEI / uniqueId no Euro One."}
+          </p>
+          <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-white/70">
+            <div className="font-semibold text-white">UniqueId</div>
+            <div className="break-all">{conflictDevice?.uniqueId || ""}</div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setConflictDevice(null)}>
+              Fechar
+            </Button>
+            <Button onClick={handleGoToExistingDevice}>Ir para equipamento existente</Button>
+          </div>
+        </div>
       </Modal>
 
       <Modal

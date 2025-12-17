@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { Download, FileUp, Play, Save, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 import useDevices from "../lib/hooks/useDevices";
@@ -559,54 +560,76 @@ export default function RoutesPage() {
   const mapCenter = useMemo(() => draftRoute.points?.[0] || routes[0]?.points?.[0] || DEFAULT_CENTER, [draftRoute.points, routes]);
 
   return (
-    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden">
-      <MapContainer
-        center={mapCenter}
-        zoom={draftRoute.points?.length ? 13 : 5}
-        className="absolute inset-0 h-full w-full"
-        whenCreated={(mapInstance) => {
-          mapRef.current = mapInstance;
-        }}
-      >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-        <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
-        {routes
-          .filter((route) => !draftRoute.id || route.id !== draftRoute.id)
-          .map((route) => (
-            <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
+    <div className="map-page">
+      <div className="map-container">
+        <MapContainer
+          center={mapCenter}
+          zoom={draftRoute.points?.length ? 13 : 5}
+          className="h-full w-full"
+          whenCreated={(mapInstance) => {
+            mapRef.current = mapInstance;
+          }}
+        >
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+          <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
+          {routes
+            .filter((route) => !draftRoute.id || route.id !== draftRoute.id)
+            .map((route) => (
+              <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
+            ))}
+          {draftRoute.points?.length ? (
+            <Polyline positions={draftRoute.points} pathOptions={{ color: "#22d3ee", weight: 5 }} />
+          ) : null}
+          {origin ? (
+            <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
+          ) : null}
+          {destination ? (
+            <CircleMarker
+              center={[destination.lat, destination.lng]}
+              radius={8}
+              pathOptions={{ color: "#f97316", fillColor: "#f97316" }}
+            />
+          ) : null}
+          {stops.map((stop) => (
+            <Marker key={stop.id} position={[stop.lat, stop.lng]} />
           ))}
-        {draftRoute.points?.length ? (
-          <Polyline positions={draftRoute.points} pathOptions={{ color: "#22d3ee", weight: 5 }} />
-        ) : null}
-        {origin ? (
-          <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
-        ) : null}
-        {destination ? (
-          <CircleMarker
-            center={[destination.lat, destination.lng]}
-            radius={8}
-            pathOptions={{ color: "#f97316", fillColor: "#f97316" }}
-          />
-        ) : null}
-        {stops.map((stop) => (
-          <Marker key={stop.id} position={[stop.lat, stop.lng]} />
-        ))}
-        <FitToRoute points={draftRoute.points} />
-      </MapContainer>
+          <FitToRoute points={draftRoute.points} />
+        </MapContainer>
+      </div>
 
-      <div className="pointer-events-none absolute inset-0">
-        <div className="pointer-events-auto absolute left-6 top-6 w-full max-w-xl space-y-3 rounded-2xl border border-white/10 bg-neutral-900/70 p-4 backdrop-blur">
-          <div className="flex items-center justify-between gap-2">
+      <div className="floating-top-bar">
+        <div className="flex w-full flex-col gap-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-wide text-primary">Modo: carro (OSRM)</p>
-              <h2 className="text-xl font-semibold text-white">Construtor de rotas</h2>
-              <p className="text-sm text-white/70">Defina origem, paradas e destino e gere uma rota aderente à malha viária.</p>
+              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas</p>
+              <h1 className="text-lg font-semibold text-white">Mapa protagonista</h1>
+              <p className="text-xs text-white/70">Origem, paradas e destino sem empurrar o mapa.</p>
             </div>
-            <Button onClick={handleNewRoute} size="sm">
-              Nova rota
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <span className="map-status-pill">
+                <span className="dot" />
+                {routes.length} rotas
+              </span>
+              {mapAddsStops && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Clique no mapa para adicionar</span>}
+              {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
+            </div>
           </div>
+        </div>
+      </div>
 
+      <div className="floating-left-panel">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Construtor de rotas</p>
+            <h2 className="text-base font-semibold text-white">Leve e flutuante</h2>
+            <p className="text-xs text-white/60">Origem, paradas e destino sempre à vista.</p>
+          </div>
+          <Button onClick={handleNewRoute} size="sm">
+            Nova rota
+          </Button>
+        </div>
+
+        <div className="mt-3 space-y-3">
           <Input
             label="Nome"
             value={draftRoute.name}
@@ -631,7 +654,11 @@ export default function RoutesPage() {
           <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
             <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
-              <Button size="sm" variant="secondary" onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
+              >
                 Adicionar parada
               </Button>
             </div>
@@ -704,52 +731,62 @@ export default function RoutesPage() {
             </Button>
           </form>
         </div>
+      </div>
 
-        <div className="pointer-events-auto absolute right-6 top-6 w-full max-w-xs space-y-2 rounded-2xl border border-white/10 bg-neutral-900/70 p-3 backdrop-blur">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-white">Rotas salvas</p>
-            {loadingRoutes && <span className="text-[11px] text-white/60">Carregando...</span>}
-          </div>
-          {routes.length === 0 && <p className="text-xs text-white/60">Nenhuma rota salva ainda.</p>}
-          <div className="space-y-2">
-            {routes.map((route) => (
-              <button
-                key={route.id}
-                type="button"
-                className={`w-full rounded-xl border px-3 py-2 text-left ${
-                  activeRouteId === route.id ? "border-primary/50 bg-primary/10" : "border-white/10 bg-white/5"
-                }`}
-                onClick={() => handleSelectRoute(route)}
-              >
-                <p className="text-sm font-semibold text-white">{route.name}</p>
-                <p className="text-[11px] text-white/60">{route.points?.length || 0} pontos</p>
-              </button>
-            ))}
-          </div>
+      <div className="floating-right-panel">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-white">Rotas salvas</p>
+          {loadingRoutes && <span className="text-[11px] text-white/60">Carregando...</span>}
         </div>
-
-        <div className="pointer-events-auto absolute bottom-6 right-6 flex flex-col gap-3">
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? "Salvando..." : "Salvar"}
-          </Button>
-          <Button variant="ghost" onClick={handleCancel}>
-            Cancelar
-          </Button>
-          <label className="flex items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2 text-sm text-white shadow-lg hover:bg-white/20">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".kml"
-              className="hidden"
-              onChange={handleImportKml}
-            />
-            Importar KML
-          </label>
-          <Button variant="secondary" onClick={handleExportKml}>
-            Exportar KML
-          </Button>
+        {routes.length === 0 && <p className="mt-2 text-xs text-white/60">Nenhuma rota salva ainda.</p>}
+        <div className="mt-2 space-y-2">
+          {routes.map((route) => (
+            <button
+              key={route.id}
+              type="button"
+              className={`w-full rounded-xl border px-3 py-2 text-left ${
+                activeRouteId === route.id ? "border-primary/50 bg-primary/10" : "border-white/10 bg-white/5 hover:border-white/20"
+              }`}
+              onClick={() => handleSelectRoute(route)}
+            >
+              <p className="text-sm font-semibold text-white">{route.name}</p>
+              <p className="text-[11px] text-white/60">{route.points?.length || 0} pontos</p>
+            </button>
+          ))}
         </div>
       </div>
+
+      <div className="floating-toolbar">
+        <button type="button" className="map-tool-button" onClick={buildRouteFromWaypoints} title="Gerar rota">
+          {isRouting ? <Play size={16} className="animate-pulse" /> : <Play size={16} />}
+        </button>
+        <button
+          type="button"
+          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleSave}
+          disabled={saving}
+          title="Salvar rota"
+        >
+          {saving ? <Undo2 size={16} className="animate-spin" /> : <Save size={16} />}
+        </button>
+        <button type="button" className="map-tool-button" onClick={handleCancel} title="Cancelar alterações">
+          <Undo2 size={16} />
+        </button>
+        <button type="button" className="map-tool-button" onClick={() => fileInputRef.current?.click()} title="Importar KML">
+          <FileUp size={16} />
+        </button>
+        <button type="button" className="map-tool-button" onClick={handleExportKml} title="Exportar KML">
+          <Download size={16} />
+        </button>
+      </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".kml"
+        className="hidden"
+        onChange={handleImportKml}
+      />
     </div>
   );
 }

@@ -9,6 +9,19 @@ const devices = new Map();
 const byUniqueId = new Map();
 const byTraccarId = new Map();
 
+function buildDeviceConflictError(existing, uniqueId) {
+  const error = createError(409, "Equipamento já existe no Euro One");
+  error.code = "DEVICE_ALREADY_EXISTS";
+  error.details = existing?.id
+    ? {
+        deviceId: existing.id,
+        uniqueId: existing.uniqueId || uniqueId,
+        ...(existing.traccarId ? { traccarId: existing.traccarId } : {}),
+      }
+    : { uniqueId };
+  return error;
+}
+
 function isPrismaReady() {
   return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
 }
@@ -79,6 +92,16 @@ export function findDeviceByTraccarId(traccarId) {
   if (traccarId === null || traccarId === undefined) return null;
   const record = byTraccarId.get(String(traccarId));
   return clone(record);
+}
+
+export async function findDeviceByUniqueIdInDb(uniqueId, { clientId, matchAnyClient = false } = {}) {
+  if (!isPrismaReady() || !uniqueId) return null;
+  return prisma.device.findFirst({
+    where: {
+      uniqueId: { equals: String(uniqueId), mode: "insensitive" },
+      ...(clientId && !matchAnyClient ? { clientId: String(clientId) } : {}),
+    },
+  });
 }
 
 async function syncDeviceToPrisma(record) {
@@ -173,7 +196,7 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
 
   const existing = byUniqueId.get(normalizedUniqueId.toLowerCase());
   if (existing) {
-    throw createError(409, "Já existe um equipamento com este identificador");
+    throw buildDeviceConflictError(existing, normalizedUniqueId);
   }
 
   const now = new Date().toISOString();
@@ -296,5 +319,6 @@ export default {
   clearDeviceChip,
   clearDeviceVehicle,
   findDeviceByTraccarIdInDb,
+  findDeviceByUniqueIdInDb,
   listDevicesFromDb,
 };

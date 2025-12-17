@@ -8,6 +8,12 @@ function ensurePrisma() {
   }
 }
 
+function clampCoordinate(value, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(Math.max(num, min), max);
+}
+
 async function assertClientExists(clientId) {
   const client = await prisma.client.findUnique({ where: { id: String(clientId) } });
   if (!client) {
@@ -40,10 +46,9 @@ function normalizePointList(rawPoints) {
   return rawPoints
     .map((pair) => {
       if (!Array.isArray(pair) || pair.length < 2) return null;
-      const [lat, lon] = pair;
-      const latitude = Number(lat);
-      const longitude = Number(lon);
-      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+      const latitude = clampCoordinate(pair[0], -90, 90);
+      const longitude = clampCoordinate(pair[1], -180, 180);
+      if (latitude === null || longitude === null) return null;
       return [latitude, longitude];
     })
     .filter(Boolean);
@@ -51,9 +56,9 @@ function normalizePointList(rawPoints) {
 
 function normalizePoints({ points, area }) {
   if (Array.isArray(points) && points.length) {
-    return normalizePointList(points);
+    return normalizePointList(points).slice(0, 200);
   }
-  return normalizePointList(parsePointsFromArea(area));
+  return normalizePointList(parsePointsFromArea(area)).slice(0, 200);
 }
 
 function buildArea(points = []) {
@@ -90,15 +95,18 @@ function normalizeType(type) {
 
 function resolveCircleGeometry(payload, fallback = {}) {
   const radius = Number(payload.radius ?? fallback.radius ?? 0);
-  const centerLat =
-    payload.centerLat ?? payload.latitude ?? payload.center?.[0] ?? fallback.centerLat ?? fallback.latitude ?? fallback.center?.[0];
-  const centerLng =
-    payload.centerLng ?? payload.longitude ?? payload.center?.[1] ?? fallback.centerLng ?? fallback.longitude ?? fallback.center?.[1];
+  const latitude = clampCoordinate(
+    payload.centerLat ?? payload.latitude ?? payload.center?.[0] ?? fallback.centerLat ?? fallback.latitude ?? fallback.center?.[0],
+    -90,
+    90,
+  );
+  const longitude = clampCoordinate(
+    payload.centerLng ?? payload.longitude ?? payload.center?.[1] ?? fallback.centerLng ?? fallback.longitude ?? fallback.center?.[1],
+    -180,
+    180,
+  );
 
-  const latitude = Number(centerLat);
-  const longitude = Number(centerLng);
-
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+  if (latitude === null || longitude === null) {
     throw createError(400, "latitude/longitude são obrigatórios para círculo");
   }
   if (!Number.isFinite(radius) || radius <= 0) {

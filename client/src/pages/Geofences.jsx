@@ -35,6 +35,43 @@ function distanceBetween(a, b) {
   return L.latLng(a[0], a[1]).distanceTo(L.latLng(b[0], b[1]));
 }
 
+function clampCoordinate(value, min, max) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.min(Math.max(num, min), max);
+}
+
+function sanitizePolygon(points = []) {
+  if (!Array.isArray(points)) return [];
+  const normalized = points
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return null;
+      const lat = clampCoordinate(pair[0], -90, 90);
+      const lng = clampCoordinate(pair[1], -180, 180);
+      if (lat === null || lng === null) return null;
+      return [lat, lng];
+    })
+    .filter(Boolean);
+
+  const deduped = [];
+  normalized.forEach((point) => {
+    const last = deduped[deduped.length - 1];
+    if (!last || distanceBetween(last, point) >= 0.5) {
+      deduped.push(point);
+    }
+  });
+
+  return deduped.slice(0, 200);
+}
+
+function sanitizeCircleGeometry(geofence) {
+  const lat = clampCoordinate(geofence?.center?.[0], -90, 90);
+  const lng = clampCoordinate(geofence?.center?.[1], -180, 180);
+  const radius = Number(geofence?.radius ?? 0);
+  if (lat === null || lng === null || !Number.isFinite(radius) || radius <= 0) return null;
+  return { center: [lat, lng], radius: Math.max(10, Math.round(radius)) };
+}
+
 function movePoint(center, distanceMeters, bearingDeg = 90) {
   const [lat, lon] = center;
   const earthRadius = 6371000;
@@ -126,42 +163,6 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
   return null;
 }
 
-function FloatingFab({ disabled, saving, onSave, onCancel, onImport, onExport }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="pointer-events-auto relative">
-      {open && (
-        <div className="absolute bottom-16 right-0 flex flex-col gap-2 rounded-xl border border-white/10 bg-[#0f141c]/90 p-2 shadow-xl backdrop-blur">
-          <Button onClick={onSave} disabled={disabled || saving} className="justify-start">
-            <Save size={16} className="mr-2" />
-            {saving ? "Salvando..." : "Salvar cercas"}
-          </Button>
-          <Button variant="secondary" onClick={onCancel} className="justify-start">
-            <Undo2 size={16} className="mr-2" />
-            Cancelar mudanças
-          </Button>
-          <Button variant="secondary" onClick={onImport} className="justify-start">
-            <FileUp size={16} className="mr-2" />
-            Importar KML
-          </Button>
-          <Button variant="ghost" onClick={onExport} className="justify-start">
-            <Download size={16} className="mr-2" />
-            Exportar KML
-          </Button>
-        </div>
-      )}
-      <button
-        type="button"
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-black shadow-lg shadow-primary/40 transition hover:-translate-y-1 hover:shadow-xl"
-        onClick={() => setOpen((value) => !value)}
-        aria-label="Ações rápidas"
-      >
-        {open ? <X size={22} /> : <Save size={22} />}
-      </button>
-    </div>
-  );
-}
-
 export default function Geofences() {
   const mapRef = useRef(null);
   const importInputRef = useRef(null);
@@ -187,7 +188,7 @@ export default function Geofences() {
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
 
-  const { suggestions, isSearching, previewSuggestions, searchRegion, clearSuggestions, error: geocodeError } = useGeocodeSearch();
+  const { suggestions, isSearching, searchRegion, clearSuggestions, error: geocodeError } = useGeocodeSearch();
 
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
@@ -326,6 +327,22 @@ export default function Geofences() {
     return Math.max(10, Math.round(distanceBetween(draftCircle.center, target)));
   }, [draftCircle.center, draftCircle.edge, hoverPoint]);
 
+  const helperMessage = useMemo(() => {
+    if (status) return status;
+    if (drawMode === "polygon") return "Clique no mapa para adicionar vértices e feche no ponto inicial.";
+    if (drawMode === "circle") return "Clique para definir o centro e arraste o raio do círculo.";
+    return "Mapa em destaque: desenhe cercas leves ou importe um KML.";
+  }, [drawMode, status]);
+
+  const handleRenameSelected = useCallback(
+    (value) => {
+      if (!selectedId) return;
+      setLocalGeofences((current) => current.map((geo) => (geo.id === selectedId ? { ...geo, name: value } : geo)));
+      setHasUnsavedChanges(true);
+    },
+    [selectedId],
+  );
+
   const handleCancelChanges = useCallback(() => {
     setLocalGeofences(baselineGeofences);
     setDeletedIds(new Set());
@@ -336,14 +353,35 @@ export default function Geofences() {
   }, [baselineGeofences, resetDrafts]);
 
   const buildPayload = useCallback((geo) => {
+    if (geo.type === "polygon") {
+      const sanitized = sanitizePolygon(geo.points);
+      if (sanitized.length < 3) {
+        throw new Error("Polígono precisa de pelo menos 3 vértices válidos.");
+      }
+      return {
+        name: geo.name || "Cerca virtual",
+        description: geo.description || "",
+        type: geo.type,
+        color: geo.color,
+        points: sanitized,
+        center: null,
+        radius: null,
+      };
+    }
+
+    const circle = sanitizeCircleGeometry(geo);
+    if (!circle) {
+      throw new Error("Defina centro e raio válidos para o círculo.");
+    }
+
     return {
       name: geo.name || "Cerca virtual",
       description: geo.description || "",
       type: geo.type,
       color: geo.color,
-      points: geo.type === "polygon" ? geo.points : [],
-      center: geo.center ? { lat: geo.center[0], lng: geo.center[1] } : null,
-      radius: geo.type === "circle" ? geo.radius : null,
+      points: [],
+      center: { lat: circle.center[0], lng: circle.center[1] },
+      radius: circle.radius,
     };
   }, []);
 
@@ -461,27 +499,8 @@ export default function Geofences() {
   const isBusy = loading || saving;
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-semibold text-white">Cercas virtuais</h1>
-            <p className="text-sm text-white/70">Desenhe polígonos e círculos diretamente no mapa, com importação/exportação KML.</p>
-          </div>
-          <div className="flex items-center gap-2 text-sm text-white/70">
-            {status}
-            {uiError && <span className="rounded-lg border border-red-500/50 bg-red-500/10 px-2 py-1 text-xs text-red-200">{uiError.message}</span>}
-            {fetchError && <span className="rounded-lg border border-red-500/50 bg-red-500/10 px-2 py-1 text-xs text-red-200">{fetchError.message}</span>}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">{activeGeofences.length} cercas carregadas</span>
-          {hasUnsavedChanges && <span className="rounded-full border border-amber-500/40 bg-amber-500/10 px-3 py-1 text-amber-200">Alterações pendentes</span>}
-          {drawMode && <span className="rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-primary">Modo desenho ativo</span>}
-        </div>
-      </div>
-
-      <div className="relative -mx-2 h-[calc(100vh-220px)] overflow-hidden rounded-2xl border border-white/10 bg-[#0b0f17] shadow-2xl">
+    <div className="map-page">
+      <div className="map-container">
         <MapContainer
           center={selectedGeofence?.center || DEFAULT_CENTER}
           zoom={13}
@@ -586,94 +605,180 @@ export default function Geofences() {
             />
           )}
         </MapContainer>
+      </div>
 
-        <div className="pointer-events-none absolute inset-0 flex flex-col">
-          <div className="pointer-events-auto absolute left-4 top-4 flex flex-wrap gap-2">
-            <Button onClick={() => startDrawing("polygon")} variant={drawMode === "polygon" ? "primary" : "secondary"} className="shadow">
-              <MousePointer2 size={16} className="mr-2" />
-              Desenhar polígono
-            </Button>
-            <Button onClick={() => startDrawing("circle")} variant={drawMode === "circle" ? "primary" : "secondary"} className="shadow">
-              <CircleIcon size={16} className="mr-2" />
-              Desenhar círculo
-            </Button>
-            {drawMode && (
-              <Button variant="ghost" onClick={resetDrafts} className="shadow">
-                <X size={16} className="mr-2" />
-                Encerrar desenho
-              </Button>
-            )}
+      <div className="floating-top-bar">
+        <div className="flex w-full flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Cercas</p>
+              <h1 className="text-lg font-semibold text-white">Mapa como palco</h1>
+              <p className="text-xs text-white/70">{helperMessage}</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="map-status-pill">
+                <span className="dot" />
+                {activeGeofences.length} cercas
+              </span>
+              {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
+              {drawMode && (
+                <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+                  {drawMode === "polygon" ? "Desenhando polígono" : "Ajustando círculo"}
+                </span>
+              )}
+              {uiError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{uiError.message}</span>}
+              {fetchError && <span className="map-status-pill border-red-400/60 bg-red-500/10 text-red-100">{fetchError.message}</span>}
+            </div>
           </div>
 
-          <div className="pointer-events-auto absolute left-1/2 top-4 w-full max-w-2xl -translate-x-1/2">
-            <form onSubmit={handleSearchSubmit} className="relative">
+          <div className="relative flex w-full flex-wrap items-center gap-2">
+            <form onSubmit={handleSearchSubmit} className="relative flex-1 min-w-[260px]">
               <Input
                 value={searchQuery}
                 onChange={handleSearchChange}
-                placeholder="Pesquisar endereço ou cidade"
+                placeholder="Buscar endereço ou coordenada"
                 icon={Search}
                 className="bg-black/70 pr-12 backdrop-blur"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
                 {isSearching ? "Buscando..." : geocodeError?.message || ""}
               </div>
-              {suggestions.length > 0 && (
-                <div className="absolute z-20 mt-2 w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]/95 backdrop-blur">
-                  {suggestions.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setSearchQuery(item.concise || item.label);
-                        flyTo(item.lat, item.lng, item.boundingBox);
-                        clearSuggestions();
-                      }}
-                      className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
-                    >
-                      <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-                      <span>
-                        <div className="font-semibold text-white">{item.concise || item.label}</div>
-                        <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </form>
-          </div>
-
-          {selectedGeofence && (
-            <div className="pointer-events-auto absolute bottom-4 left-4 w-full max-w-md rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-lg backdrop-blur">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-xs uppercase tracking-[0.08em] text-white/60">Cerca selecionada</div>
-                  <div className="text-lg font-semibold text-white">{selectedGeofence.name}</div>
-                  <div className="text-xs text-white/60">
-                    {selectedGeofence.type === "circle"
-                      ? `Círculo · raio ${(selectedGeofence.radius || 0).toFixed(0)} m`
-                      : `Polígono · ${selectedGeofence.points?.length || 0} vértices`}
-                  </div>
-                </div>
-                <div className="flex gap-2">
-                  <Button size="sm" onClick={handleRemoveSelected} variant="ghost">
-                    Remover
-                  </Button>
-                </div>
+            {suggestions.length > 0 && (
+              <div className="absolute z-20 mt-2 w-full max-w-xl overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]/95 backdrop-blur">
+                {suggestions.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery(item.concise || item.label);
+                      flyTo(item.lat, item.lng, item.boundingBox);
+                      clearSuggestions();
+                    }}
+                    className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
+                  >
+                    <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
+                    <span>
+                      <div className="font-semibold text-white">{item.concise || item.label}</div>
+                      <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
+                    </span>
+                  </button>
+                ))}
               </div>
-            </div>
-          )}
-
-          <div className="pointer-events-auto absolute bottom-4 right-4">
-            <FloatingFab
-              disabled={!hasUnsavedChanges || isBusy}
-              saving={saving}
-              onSave={handleSave}
-              onCancel={handleCancelChanges}
-              onImport={() => importInputRef.current?.click()}
-              onExport={handleExport}
-            />
+            )}
           </div>
         </div>
+      </div>
+
+      <div className="floating-left-panel">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Criar cerca</p>
+            <h2 className="text-base font-semibold text-white">Polígono ou círculo</h2>
+            <p className="text-xs text-white/60">Clique no mapa; tudo flutua sobre o mapa.</p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-white/60">Selecionar</p>
+            <div className="space-y-2">
+              {activeGeofences.map((geo) => (
+                <button
+                  key={geo.id}
+                  type="button"
+                  onClick={() => setSelectedId(geo.id)}
+                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${selectedId === geo.id ? "border-primary/50 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"}`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="h-3 w-3 rounded-full" style={{ background: geo.color || "#22c55e" }} />
+                    {geo.name}
+                  </span>
+                  <span className="text-[11px] text-white/60">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
+                </button>
+              ))}
+              {activeGeofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca carregada.</p>}
+            </div>
+          </div>
+
+          {selectedGeofence ? (
+            <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">{selectedGeofence.name}</p>
+                <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">{selectedGeofence.type === "circle" ? "Círculo" : "Polígono"}</span>
+              </div>
+              <Input
+                label="Nome"
+                value={selectedGeofence.name}
+                onChange={(event) => handleRenameSelected(event.target.value)}
+              />
+              <div className="flex items-center justify-between text-xs text-white/60">
+                <span>
+                  {selectedGeofence.type === "circle"
+                    ? `Raio ${(selectedGeofence.radius || 0).toFixed(0)} m`
+                    : `${selectedGeofence.points?.length || 0} vértices`}
+                </span>
+                <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>
+                  Remover
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-white/60">Selecione uma cerca ou desenhe uma nova para editar.</p>
+          )}
+
+        </div>
+      </div>
+
+      <div className="floating-toolbar">
+        <button
+          type="button"
+          className={`map-tool-button ${drawMode === "polygon" ? "is-active" : ""}`}
+          onClick={() => startDrawing("polygon")}
+          title="Desenhar polígono"
+        >
+          <MousePointer2 size={16} />
+        </button>
+        <button
+          type="button"
+          className={`map-tool-button ${drawMode === "circle" ? "is-active" : ""}`}
+          onClick={() => startDrawing("circle")}
+          title="Desenhar círculo"
+        >
+          <CircleIcon size={16} />
+        </button>
+        {drawMode && (
+          <button type="button" className="map-tool-button" onClick={resetDrafts} title="Encerrar desenho">
+            <X size={16} />
+          </button>
+        )}
+        <button
+          type="button"
+          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleSave}
+          disabled={!hasUnsavedChanges || isBusy}
+          title="Salvar cercas"
+        >
+          {saving ? <Undo2 size={16} className="animate-spin" /> : <Save size={16} />}
+        </button>
+        <button
+          type="button"
+          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
+          onClick={handleCancelChanges}
+          disabled={!hasUnsavedChanges}
+          title="Cancelar mudanças"
+        >
+          <Undo2 size={16} />
+        </button>
+        <button
+          type="button"
+          className="map-tool-button"
+          onClick={() => importInputRef.current?.click()}
+          title="Importar KML"
+        >
+          <FileUp size={16} />
+        </button>
+        <button type="button" className="map-tool-button" onClick={handleExport} title="Exportar KML">
+          <Download size={16} />
+        </button>
       </div>
 
       <input ref={importInputRef} type="file" accept=".kml" className="hidden" onChange={handleImportFile} />
