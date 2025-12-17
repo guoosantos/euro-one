@@ -198,6 +198,7 @@ export default function Sidebar() {
     },
     { to: "/routes", label: "Rota Embarcada", icon: Route },
     { to: "/geofences", label: "Cercas", icon: Map },
+    { to: "/itineraries", label: "Itinerários", icon: Map },
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
 

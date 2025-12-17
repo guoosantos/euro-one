@@ -53,6 +53,7 @@ import Tasks from "./pages/Tasks";
 import TaskForm from "./pages/TaskForm";
 import TaskDetails from "./pages/TaskDetails";
 import Crm from "./pages/Crm";
+import Itineraries from "./pages/Itineraries.jsx";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true, requireTenant: true },
@@ -82,6 +83,7 @@ export const routeConfig = [
   { path: "/tasks/:id", element: TaskDetails, title: "Detalhes da task", requireTenant: true },
   { path: "/geofences", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/cercas", element: Geofences, title: "Cercas", requireTenant: true },
+  { path: "/itineraries", element: Itineraries, title: "Itinerários", requireTenant: true },
   { path: "/events", element: Events, title: "Eventos", requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true },

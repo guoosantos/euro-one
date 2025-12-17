@@ -346,6 +346,48 @@ html, body, #root { height: 100%; }
   border-radius: 16px;
 }
 
+.map-compact-input {
+  height: 36px !important;
+  font-size: 13px !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  border-radius: 10px !important;
+}
+
+.map-search-form {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+  max-width: 520px;
+}
+
+.map-search-input {
+  height: 40px;
+  font-size: 14px;
+  border-radius: 12px;
+  background: rgba(6, 12, 20, 0.82);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.map-search-input:focus {
+  border-color: rgba(56, 189, 248, 0.7);
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+}
+
+.map-search-suggestions {
+  position: absolute;
+  z-index: 1200;
+  top: calc(100% + 8px);
+  width: min(640px, 100%);
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(12, 16, 24, 0.95);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.4);
+}
+
 .floating-top-bar {
   position: absolute;
   top: 14px;

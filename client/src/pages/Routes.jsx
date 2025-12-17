@@ -254,7 +254,7 @@ function WaypointInput({ label, placeholder, value, onChange }) {
     <div className="relative">
       <label className="text-xs font-semibold text-white/70">{label}</label>
       <input
-        className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+        className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-[13px] text-white focus:border-primary focus:outline-none"
         placeholder={placeholder}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
@@ -384,6 +384,27 @@ export default function RoutesPage() {
     setDraftRoute(normalized);
     setBaselineRoute(normalized);
     setActiveRouteId(normalized.id || null);
+  };
+
+  const handleDeleteRoute = async (id) => {
+    if (!id) return;
+    if (!window.confirm("Excluir esta rota?")) return;
+    try {
+      await api.delete(`${API_ROUTES.routes}/${id}`);
+      setRoutes((current) => current.filter((item) => String(item.id) !== String(id)));
+      if (activeRouteId === id) {
+        handleNewRoute();
+      }
+    } catch (error) {
+      console.error(error);
+      alert(error?.message || "Não foi possível remover a rota.");
+    }
+  };
+
+  const handleExportSingle = (route) => {
+    if (!route) return;
+    const kml = exportRoutesToKml([route]);
+    downloadKml(`${route.name || "rota"}.kml`, kml);
   };
 
   const handleNewRoute = () => {
@@ -634,6 +655,7 @@ export default function RoutesPage() {
             label="Nome"
             value={draftRoute.name}
             onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+            className="map-compact-input"
           />
 
           <div className="grid gap-3 md:grid-cols-2">
@@ -718,12 +740,14 @@ export default function RoutesPage() {
                 type="datetime-local"
                 value={historyForm.from}
                 onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
+                className="map-compact-input"
               />
               <Input
                 label="Fim"
                 type="datetime-local"
                 value={historyForm.to}
                 onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
+                className="map-compact-input"
               />
             </div>
             <Button type="submit" disabled={loadingHistory || !historyForm.deviceId}>
@@ -749,8 +773,29 @@ export default function RoutesPage() {
               }`}
               onClick={() => handleSelectRoute(route)}
             >
-              <p className="text-sm font-semibold text-white">{route.name}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">{route.name}</p>
+                {route.updatedAt && (
+                  <span className="text-[11px] text-white/60">
+                    {new Date(route.updatedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-white/60">{route.points?.length || 0} pontos</p>
+              <div className="mt-1 flex gap-2">
+                <Button size="xs" variant="secondary" onClick={(event) => {
+                  event.stopPropagation();
+                  handleDeleteRoute(route.id);
+                }}>
+                  Excluir
+                </Button>
+                <Button size="xs" variant="ghost" onClick={(event) => {
+                  event.stopPropagation();
+                  handleExportSingle(route);
+                }}>
+                  Exportar
+                </Button>
+              </div>
             </button>
           ))}
         </div>

@@ -27,6 +27,8 @@ import geofenceGroupRoutes from "./routes/geofence-groups.js";
 import geofenceRoutes from "./routes/geofences.js";
 import routeRoutes from "./routes/route.js";
 import proxyRoutes from "./routes/proxy.js";
+import itineraryRoutes from "./routes/itineraries.js";
+import euroRoutes from "./routes/euro-routes.js";
 
 
 
@@ -99,6 +101,8 @@ app.use("/api", mediaRoutes);
 app.use("/api", traccarDbRoutes);
 app.use("/api", geocodeRoutes);
 app.use("/api", proxyRoutes);
+app.use("/api", itineraryRoutes);
+app.use("/api", euroRoutes);
 
 app.use("/api", geofenceGroupRoutes);
 

@@ -173,10 +173,12 @@ export default function Geofences() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [deletedIds, setDeletedIds] = useState(new Set());
   const [selectedId, setSelectedId] = useState(null);
+  const [hiddenIds, setHiddenIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [geofenceFilter, setGeofenceFilter] = useState("");
 
   const {
     geofences: remoteGeofences,
@@ -188,7 +190,7 @@ export default function Geofences() {
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
 
-  const { suggestions, isSearching, searchRegion, clearSuggestions, error: geocodeError } = useGeocodeSearch();
+  const { suggestions, isSearching, searchRegion, clearSuggestions, previewSuggestions, error: geocodeError } = useGeocodeSearch();
 
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
@@ -219,6 +221,7 @@ export default function Geofences() {
     setLocalGeofences(remoteGeofences);
     setBaselineGeofences(remoteGeofences);
     setDeletedIds(new Set());
+    setHiddenIds(new Set());
     setSelectedId((current) => current || remoteGeofences[0]?.id || null);
   }, [remoteGeofences, hasUnsavedChanges]);
 
@@ -346,6 +349,7 @@ export default function Geofences() {
   const handleCancelChanges = useCallback(() => {
     setLocalGeofences(baselineGeofences);
     setDeletedIds(new Set());
+    setHiddenIds(new Set());
     setHasUnsavedChanges(false);
     setStatus("");
     setSelectedId(baselineGeofences[0]?.id || null);
@@ -496,6 +500,34 @@ export default function Geofences() {
     return points;
   }, [drawMode, draftPolygon, hoverPoint]);
 
+  const visibleGeofences = useMemo(
+    () => activeGeofences.filter((geo) => !hiddenIds.has(geo.id)),
+    [activeGeofences, hiddenIds],
+  );
+
+  const filteredGeofences = useMemo(() => {
+    const term = geofenceFilter.trim().toLowerCase();
+    if (!term) return activeGeofences;
+    return activeGeofences.filter((geo) => geo.name?.toLowerCase().includes(term));
+  }, [activeGeofences, geofenceFilter]);
+
+  const toggleVisibility = useCallback((id) => {
+    setHiddenIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const markVisible = useCallback((ids = []) => {
+    setHiddenIds((current) => {
+      const next = new Set(current);
+      ids.forEach((id) => next.delete(id));
+      return next;
+    });
+  }, []);
+
   const isBusy = loading || saving;
 
   return (
@@ -517,7 +549,7 @@ export default function Geofences() {
 
           <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
 
-          {activeGeofences.map((geo) => {
+          {visibleGeofences.map((geo) => {
             if (geo.type === "circle") {
               if (!geo.center || !geo.radius) return null;
               return (
@@ -632,20 +664,20 @@ export default function Geofences() {
           </div>
 
           <div className="relative flex w-full flex-wrap items-center gap-2">
-            <form onSubmit={handleSearchSubmit} className="relative flex-1 min-w-[260px]">
+            <form onSubmit={handleSearchSubmit} className="map-search-form">
               <Input
                 value={searchQuery}
                 onChange={handleSearchChange}
                 placeholder="Buscar endereço ou coordenada"
                 icon={Search}
-                className="bg-black/70 pr-12 backdrop-blur"
+                className="map-search-input pr-12"
               />
               <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
                 {isSearching ? "Buscando..." : geocodeError?.message || ""}
               </div>
             </form>
             {suggestions.length > 0 && (
-              <div className="absolute z-20 mt-2 w-full max-w-xl overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]/95 backdrop-blur">
+              <div className="map-search-suggestions">
                 {suggestions.map((item) => (
                   <button
                     key={item.id}
@@ -681,20 +713,32 @@ export default function Geofences() {
           <div className="space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.08em] text-white/60">Selecionar</p>
             <div className="space-y-2">
-              {activeGeofences.map((geo) => (
-                <button
-                  key={geo.id}
-                  type="button"
-                  onClick={() => setSelectedId(geo.id)}
-                  className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${selectedId === geo.id ? "border-primary/50 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"}`}
-                >
-                  <span className="flex items-center gap-2">
-                    <span className="h-3 w-3 rounded-full" style={{ background: geo.color || "#22c55e" }} />
-                    {geo.name}
-                  </span>
-                  <span className="text-[11px] text-white/60">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
-                </button>
-              ))}
+              {filteredGeofences.map((geo) => {
+                const visible = !hiddenIds.has(geo.id);
+                return (
+                  <button
+                    key={geo.id}
+                    type="button"
+                    onClick={() => setSelectedId(geo.id)}
+                    className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left text-sm transition ${selectedId === geo.id ? "border-primary/50 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"}`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="h-3 w-3 rounded-full" style={{ background: geo.color || "#22c55e" }} />
+                      {geo.name}
+                    </span>
+                    <span className="flex items-center gap-2 text-[11px] text-white/60">
+                      <input
+                        type="checkbox"
+                        checked={visible}
+                        onChange={() => toggleVisibility(geo.id)}
+                        className="h-3 w-3 rounded border-white/40 bg-transparent accent-primary"
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                      {geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}
+                    </span>
+                  </button>
+                );
+              })}
               {activeGeofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca carregada.</p>}
             </div>
           </div>
@@ -718,6 +762,9 @@ export default function Geofences() {
                 </span>
                 <Button size="sm" variant="ghost" onClick={handleRemoveSelected}>
                   Remover
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => markVisible([selectedGeofence.id])}>
+                  Mostrar
                 </Button>
               </div>
             </div>

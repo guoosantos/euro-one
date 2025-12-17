@@ -97,6 +97,23 @@ export function buildRoutesKml(routes = []) {
   return buildDocument(placemarks);
 }
 
+export function buildItineraryKml({ name = "Itinerário", geofences = [], routes = [] }) {
+  const fencesKml = buildGeofencesKml(geofences);
+  const routesKml = buildRoutesKml(routes);
+  const fencePlacemarks = fencesKml.replace(XML_HEADER, "").replace("<kml xmlns=\"http://www.opengis.net/kml/2.2\">", "").replace("</kml>", "");
+  const routePlacemarks = routesKml.replace(XML_HEADER, "").replace("<kml xmlns=\"http://www.opengis.net/kml/2.2\">", "").replace("</kml>", "");
+  return [
+    XML_HEADER,
+    '<kml xmlns="http://www.opengis.net/kml/2.2">',
+    "<Document>",
+    `<name>${name}</name>`,
+    fencePlacemarks.replace("<Document>", "").replace("</Document>", ""),
+    routePlacemarks.replace("<Document>", "").replace("</Document>", ""),
+    "</Document>",
+    "</kml>",
+  ].join("");
+}
+
 function parseCoordinates(rawText = "") {
   if (!rawText) return [];
   return rawText
