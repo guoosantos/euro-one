@@ -2,132 +2,114 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
-import { getClientById } from "../models/client.js";
-import { getPrisma } from "../services/prisma.js";
+
+import { createGeofence, deleteGeofence, getGeofenceById, listGeofences, updateGeofence } from "../models/geofence.js";
+import { listGeofenceGroups } from "../models/geofence-group.js";
+import { buildGeofencesKml, parseGeofencePlacemarks } from "../utils/kml.js";
+
 
 const router = express.Router();
 
 router.use(authenticate);
 
-const ALLOWED_TYPES = new Set(["polygon", "circle"]);
 
-function ensurePrisma() {
-  try {
-    return getPrisma();
-  } catch (error) {
-    throw createError(503, "Banco de dados indisponível para geofences.");
-  }
-}
-
-function normalizePoint(raw) {
-  if (!raw) return null;
-  if (Array.isArray(raw) && raw.length >= 2) {
-    const [lat, lng] = raw;
-    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
-      return [Number(lat), Number(lng)];
-    }
-  }
-  if (typeof raw === "object") {
-    const lat = raw.lat ?? raw.latitude;
-    const lng = raw.lng ?? raw.lon ?? raw.longitude;
-    if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
-      return [Number(lat), Number(lng)];
-    }
-  }
-  return null;
-}
-
-function normalizePoints(list) {
-  if (!Array.isArray(list)) return [];
-  return list
-    .map((item) => normalizePoint(item))
-    .filter(Boolean);
-}
-
-function normalizeCenter(value) {
-  const resolved = normalizePoint(value);
-  if (!resolved) return null;
-  const [lat, lng] = resolved;
-  return { lat, lng };
-}
-
-function normalizeGeometry(payload, existing = null) {
-  const type = String(payload?.type ?? payload?.shapeType ?? existing?.type ?? "polygon").toLowerCase();
-  if (!ALLOWED_TYPES.has(type)) {
-    throw createError(400, "Tipo de geofence inválido. Use polygon ou circle.");
-  }
-
-  const basePoints = payload?.points ?? existing?.points ?? [];
-  const points = type === "polygon" ? normalizePoints(basePoints) : [];
-  const centerPayload = payload?.center ?? payload?.centroid ?? existing?.center ?? null;
-  const center = normalizeCenter(centerPayload);
-  const radiusValue = payload?.radius ?? existing?.radius ?? payload?.area ?? null;
-  const radius = radiusValue === null || radiusValue === undefined ? null : Number(radiusValue);
-
-  if (type === "polygon" && points.length < 3) {
-    throw createError(400, "Polígonos precisam de pelo menos 3 pontos.");
-  }
-  if (type === "circle") {
-    if (!center) {
-      throw createError(400, "Centro é obrigatório para círculos.");
-    }
-    if (!Number.isFinite(radius) || radius <= 0) {
-      throw createError(400, "Raio inválido para círculo.");
-    }
-  }
-
-  return { type, points, center, radius: type === "circle" ? radius : null };
-}
-
-function serializeGeofence(record) {
-  if (!record) return null;
-  const centerObj = record.center && typeof record.center === "object"
-    ? { lat: Number(record.center.lat ?? record.center.latitude ?? 0), lng: Number(record.center.lng ?? record.center.lon ?? record.center.longitude ?? 0) }
-    : null;
-
-  return {
-    id: record.id,
-    clientId: record.clientId,
-    name: record.name,
-    description: record.description,
-    type: record.type,
-    color: record.color,
-    points: normalizePoints(record.points),
-    center: centerObj,
-    radius: record.radius ?? null,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  };
-}
-
-function resolveClientId(req, payload) {
+function resolveClientId(req, provided) {
   if (req.user.role === "admin") {
-    return payload?.clientId || req.query?.clientId || req.user.clientId || null;
+    return provided || req.query?.clientId || req.user.clientId || null;
   }
   return req.user.clientId || null;
 }
 
-function assertClientAccess(user, targetClientId) {
+function ensureSameTenant(user, clientId) {
   if (user.role === "admin") return;
-  if (!user.clientId || String(user.clientId) !== String(targetClientId)) {
-    throw createError(403, "Operação não permitida para este cliente.");
+  if (!user.clientId || String(user.clientId) !== String(clientId)) {
+    throw createError(403, "Operação não permitida para este cliente");
   }
 }
 
-router.get("/geofences", async (req, res, next) => {
+router.get("/geofences/export/kml", async (req, res, next) => {
   try {
-    const prisma = ensurePrisma();
-    const clientId = resolveClientId(req, req.query);
-    if (!clientId) {
-      return res.json({ geofences: [] });
+    const targetClientId = resolveClientId(req, req.query?.clientId);
+    if (!targetClientId) {
+      throw createError(400, "clientId é obrigatório para exportar");
+    }
+    const geofences = await listGeofences({ clientId: targetClientId });
+    const kml = buildGeofencesKml(geofences);
+    res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml");
+    return res.send(kml);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/geofences/import/kml", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const { kml, clientId: providedClientId, groupId = null, color = null } = req.body || {};
+    const targetClientId = resolveClientId(req, providedClientId);
+    if (!targetClientId) {
+      throw createError(400, "clientId é obrigatório");
+    }
+    if (!kml) {
+      throw createError(400, "Arquivo KML é obrigatório");
+    }
+    if (groupId) {
+      const groups = await listGeofenceGroups({ clientId: targetClientId });
+      const exists = groups.some((group) => String(group.id) === String(groupId));
+      if (!exists) {
+        throw createError(400, "Grupo de geofence inválido para este cliente");
+      }
     }
 
-    const geofences = await prisma.geofence.findMany({
-      where: { clientId: String(clientId) },
-      orderBy: { updatedAt: "desc" },
-    });
+    const placemarks = parseGeofencePlacemarks(kml);
+    if (!placemarks.length) {
+      throw createError(400, "Nenhuma geometria válida encontrada no KML");
+    }
 
-    return res.json({ geofences: geofences.map(serializeGeofence) });
+    const created = [];
+    for (const placemark of placemarks) {
+      const geofence = await createGeofence({
+        clientId: targetClientId,
+        groupId,
+        name: placemark.name,
+        type: "polygon",
+        points: placemark.points,
+        color,
+      });
+      created.push(geofence);
+    }
+
+    return res.status(201).json({ geofences: created, imported: created.length });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/geofences", async (req, res, next) => {
+  try {
+    const targetClientId = resolveClientId(req, req.query?.clientId);
+    if (!targetClientId && req.user.role !== "admin") {
+      return res.json({ geofences: [] });
+    }
+    const { groupId } = req.query || {};
+    const geofences = await listGeofences({
+      ...(targetClientId ? { clientId: targetClientId } : {}),
+      ...(groupId ? { groupId } : {}),
+    });
+    return res.json({ geofences });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/geofences/:id", async (req, res, next) => {
+  try {
+    const geofence = await getGeofenceById(req.params.id);
+    if (!geofence) {
+      throw createError(404, "Geofence não encontrada");
+    }
+    ensureSameTenant(req.user, geofence.clientId);
+    return res.json({ geofence });
+
   } catch (error) {
     return next(error);
   }
@@ -135,6 +117,7 @@ router.get("/geofences", async (req, res, next) => {
 
 router.post("/geofences", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+
     const prisma = ensurePrisma();
     const clientId = resolveClientId(req, req.body);
     if (!clientId) {
@@ -165,6 +148,7 @@ router.post("/geofences", requireRole("manager", "admin"), async (req, res, next
     });
 
     return res.status(201).json({ geofence: serializeGeofence(created) });
+
   } catch (error) {
     return next(error);
   }
@@ -172,40 +156,21 @@ router.post("/geofences", requireRole("manager", "admin"), async (req, res, next
 
 router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const prisma = ensurePrisma();
-    const { id } = req.params;
-    const existing = await prisma.geofence.findUnique({ where: { id } });
+
+    const existing = await getGeofenceById(req.params.id);
     if (!existing) {
       throw createError(404, "Geofence não encontrada");
     }
-
-    assertClientAccess(req.user, existing.clientId);
-    const geometry = normalizeGeometry(req.body || {}, existing);
-
-    let nextClientId = existing.clientId;
-    if (req.user.role === "admin" && req.body?.clientId) {
-      const client = getClientById(req.body.clientId);
-      if (!client) {
-        throw createError(404, "Cliente não encontrado");
-      }
-      nextClientId = req.body.clientId;
+    ensureSameTenant(req.user, existing.clientId);
+    if (req.user.role !== "admin" && req.body?.clientId && String(req.body.clientId) !== String(existing.clientId)) {
+      throw createError(403, "Não é permitido mover geofences para outro cliente");
     }
-
-    const updated = await prisma.geofence.update({
-      where: { id },
-      data: {
-        clientId: String(nextClientId),
-        name: req.body?.name ? String(req.body.name).trim() : existing.name,
-        description: req.body?.description?.trim?.() ?? existing.description,
-        type: geometry.type,
-        color: req.body?.color ?? existing.color,
-        points: geometry.points,
-        center: geometry.center,
-        radius: geometry.radius,
-      },
+    const geofence = await updateGeofence(req.params.id, {
+      ...req.body,
+      clientId: req.user.role === "admin" ? req.body?.clientId || existing.clientId : existing.clientId,
     });
+    return res.json({ geofence });
 
-    return res.json({ geofence: serializeGeofence(updated) });
   } catch (error) {
     return next(error);
   }
@@ -213,15 +178,14 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
 
 router.delete("/geofences/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const prisma = ensurePrisma();
-    const { id } = req.params;
-    const existing = await prisma.geofence.findUnique({ where: { id } });
-    if (!existing) {
-      return res.status(204).send();
-    }
 
-    assertClientAccess(req.user, existing.clientId);
-    await prisma.geofence.delete({ where: { id } });
+    const existing = await getGeofenceById(req.params.id);
+    if (!existing) {
+      throw createError(404, "Geofence não encontrada");
+    }
+    ensureSameTenant(req.user, existing.clientId);
+    await deleteGeofence(req.params.id);
+
     return res.status(204).send();
   } catch (error) {
     return next(error);

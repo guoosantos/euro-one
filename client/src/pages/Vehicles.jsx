@@ -1,31 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 import PageHeader from "../ui/PageHeader";
 import Input from "../ui/Input";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Modal from "../ui/Modal";
-import { Search } from "lucide-react";
+import { MapPin, Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
 import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.jsx";
-import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
-
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch (_error) {
-    return String(value);
-  }
-}
+import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 
 export default function Vehicles() {
   const { tenantId, user } = useTenant();
   const { t, locale } = useTranslation();
-  const { positions } = useLivePositions();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,6 +27,7 @@ export default function Vehicles() {
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState("new");
   const [selected, setSelected] = useState(null);
+  const [mapTarget, setMapTarget] = useState(null);
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -72,6 +65,22 @@ export default function Vehicles() {
     }
   }, [resolvedClientId, user]);
 
+  const trackedDeviceIds = useMemo(
+    () =>
+      vehicles
+        .map((vehicle) =>
+          toDeviceKey(
+            vehicle.device?.traccarId ?? vehicle.device?.id ?? vehicle.deviceId ?? vehicle.device?.uniqueId ?? vehicle.device_id,
+          ),
+        )
+        .filter(Boolean),
+    [vehicles],
+  );
+
+  const { getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, getDeviceStatus } = useTraccarDevices({
+    deviceIds: trackedDeviceIds,
+  });
+
   const filteredVehicles = useMemo(() => {
     if (!query.trim()) return vehicles;
     const term = query.trim().toLowerCase();
@@ -97,9 +106,27 @@ export default function Vehicles() {
   const tableColumns = useMemo(
     () => [
       ...telemetryColumns,
-      { key: "statusLive", label: "Status online", render: (row) => getDeviceStatus(row.raw) },
-      { key: "lastSeen", label: "Último ping", render: (row) => getDeviceLastSeen(row.raw) },
-      { key: "lastPosition", label: "Última posição", render: (row) => getDeviceCoordinates(row.raw) },
+      { key: "statusLive", label: "Status online", render: (row) => row.statusLive },
+      { key: "lastSeen", label: "Último ping", render: (row) => row.lastSeen },
+      {
+        key: "lastPosition",
+        label: "Última posição",
+        render: (row) => (
+          <div className="flex items-center gap-2">
+            <span>{row.coordinates}</span>
+            {row.latestPosition && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={MapPin}
+                onClick={() => setMapTarget({ vehicle: row.raw, position: row.latestPosition })}
+              >
+                Ver no mapa
+              </Button>
+            )}
+          </div>
+        ),
+      },
       { key: "driver", label: t("monitoring.columns.driver") || "Motorista", render: (row) => row.driver || "—" },
       {
         key: "actions",
@@ -111,22 +138,8 @@ export default function Vehicles() {
         ),
       },
     ],
-    [getDeviceCoordinates, getDeviceLastSeen, getDeviceStatus, openModal, t, telemetryColumns],
+    [openModal, setMapTarget, t, telemetryColumns],
   );
-
-  const latestPositionByDevice = useMemo(() => {
-    const map = new Map();
-    (Array.isArray(positions) ? positions : []).forEach((position) => {
-      const key = toDeviceKey(position?.deviceId ?? position?.device_id ?? position?.deviceID ?? position?.deviceid);
-      if (!key) return;
-      const time = Date.parse(position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.time ?? 0);
-      const existing = map.get(key);
-      if (!existing || (!Number.isNaN(time) && time > existing.time)) {
-        map.set(key, { ...position, parsedTime: time });
-      }
-    });
-    return map;
-  }, [positions]);
 
   const availableDevices = useMemo(() => {
     const currentDeviceId = form.deviceId;
@@ -136,40 +149,6 @@ export default function Vehicles() {
       return device.vehicleId === currentDeviceId || device.internalId === currentDeviceId;
     });
   }, [devices, form.deviceId]);
-
-  function getLatestPosition(vehicle) {
-    const key = toDeviceKey(
-      vehicle.device?.traccarId ?? vehicle.device?.id ?? vehicle.deviceId ?? vehicle.device?.uniqueId ?? vehicle.device_id,
-    );
-    if (!key) return null;
-    return latestPositionByDevice.get(key) || null;
-  }
-
-  function getDeviceStatus(vehicle) {
-    const position = getLatestPosition(vehicle);
-    if (position?.parsedTime) {
-      const isOnline = Date.now() - position.parsedTime < 5 * 60 * 1000;
-      return isOnline ? "Online" : "Offline";
-    }
-    return vehicle.connectionStatusLabel || vehicle.status || "—";
-  }
-
-  function getDeviceLastSeen(vehicle) {
-    const position = getLatestPosition(vehicle);
-    const timestamp = position?.parsedTime || Date.parse(vehicle.lastCommunication || vehicle.serverTime || 0);
-    if (!timestamp || Number.isNaN(timestamp)) return "—";
-    return new Date(timestamp).toLocaleString();
-  }
-
-  function getDeviceCoordinates(vehicle) {
-    const position = getLatestPosition(vehicle);
-    const lat = Number(position?.latitude ?? position?.lat);
-    const lon = Number(position?.longitude ?? position?.lon);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-    }
-    return "—";
-  }
 
   function openModal(modeType, vehicle = null) {
     setMode(modeType);
@@ -285,6 +264,10 @@ export default function Vehicles() {
                 filteredVehicles.map((vehicle) => (
                   <tr key={vehicle.id} className="hover:bg-white/5">
                     {tableColumns.map((column) => {
+                      const latestPosition = getDevicePosition(vehicle);
+                      const statusLive = getDeviceStatus(vehicle, latestPosition);
+                      const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
+                      const coordinates = getDeviceCoordinates(vehicle, latestPosition);
                       const row = {
                         vehicleName: vehicle.name,
                         plate: vehicle.plate,
@@ -296,6 +279,10 @@ export default function Vehicles() {
                         lastCommunication: vehicle.lastCommunication,
                         connectionStatusLabel: vehicle.connectionStatusLabel,
                         driver: vehicle.driver,
+                        latestPosition,
+                        statusLive,
+                        lastSeen,
+                        coordinates,
                         raw: vehicle,
                       };
                       return (
@@ -378,6 +365,44 @@ export default function Vehicles() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(mapTarget)}
+        onClose={() => setMapTarget(null)}
+        title={mapTarget?.vehicle?.name || mapTarget?.vehicle?.plate || "Posição"}
+        width="max-w-4xl"
+      >
+        {mapTarget?.position ? (
+          <div className="h-[420px] overflow-hidden rounded-xl">
+            <MapContainer
+              center={[
+                Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
+                Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+              ]}
+              zoom={15}
+              style={{ height: "100%", width: "100%" }}
+            >
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+              <Marker
+                position={[
+                  Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
+                  Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+                ]}
+              >
+                <Popup>
+                  <div className="space-y-1 text-sm">
+                    <div className="font-semibold">{mapTarget.vehicle?.name || mapTarget.vehicle?.plate}</div>
+                    <div>{getDeviceCoordinates(mapTarget.vehicle, mapTarget.position)}</div>
+                    <div>{getDeviceLastSeen(mapTarget.vehicle, mapTarget.position)}</div>
+                  </div>
+                </Popup>
+              </Marker>
+            </MapContainer>
+          </div>
+        ) : (
+          <p className="text-sm text-white/70">Sem posição recente para este veículo.</p>
+        )}
       </Modal>
     </div>
   );
