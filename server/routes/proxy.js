@@ -112,16 +112,49 @@ function respondDeviceNotFound(res) {
   });
 }
 
+function extractBatteryLevel(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const batteryKeys = ["batteryLevel", "battery", "batteryPercent", "battery_percentage", "bateria"];
+  for (const key of batteryKeys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function extractIgnition(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const raw =
+    attributes.ignition ?? attributes.Ignition ?? attributes.ign ?? attributes.keyIgnition ?? attributes["Ignition"];
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "boolean") return raw;
+  if (typeof raw === "number") return raw !== 0;
+  if (typeof raw === "string") {
+    const normalized = raw.trim().toLowerCase();
+    return ["true", "1", "on", "yes"].includes(normalized);
+  }
+  return null;
+}
+
 function normalisePosition(position) {
   if (!position) return null;
+  const attributes = position.attributes || {};
+  const fixTime = position.fixTime || position.deviceTime || position.serverTime || null;
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
     latitude: position.latitude ?? null,
     longitude: position.longitude ?? null,
     speed: position.speed ?? null,
     course: position.course ?? null,
-    timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
+    timestamp: fixTime || position.serverTime || position.deviceTime || null,
+    fixTime: position.fixTime || null,
+    deviceTime: position.deviceTime || null,
+    serverTime: position.serverTime || null,
     address: position.address || "Endereço não disponível",
+    attributes,
+    batteryLevel: extractBatteryLevel(attributes),
+    ignition: extractIgnition(attributes),
   };
 }
 
@@ -171,6 +204,49 @@ function resolveDeviceIdsToQuery(req) {
   }
 
   return { clientId, deviceIdsToQuery };
+}
+
+function buildDeviceLookup(clientDevices = [], metadata = []) {
+  const metadataById = new Map((metadata || []).map((item) => [String(item.id), item]));
+  const devicesByTraccarId = new Map(
+    (clientDevices || [])
+      .filter((device) => device?.traccarId != null)
+      .map((device) => [String(device.traccarId), device]),
+  );
+  return { metadataById, devicesByTraccarId };
+}
+
+function buildDeviceInfo(device, metadata, fallbackId) {
+  if (!device && !metadata && !fallbackId) return null;
+  const id = device?.traccarId ? String(device.traccarId) : device?.id ? String(device.id) : String(fallbackId || "");
+  const uniqueId = metadata?.uniqueId || device?.uniqueId || null;
+  const lastUpdate = metadata?.lastUpdate || null;
+  return {
+    id,
+    name: metadata?.name || device?.name || device?.uniqueId || id,
+    uniqueId,
+    status: metadata?.status || null,
+    lastUpdate,
+  };
+}
+
+function decoratePositionWithDevice(position, lookup) {
+  if (!position) return null;
+  const { metadataById, devicesByTraccarId } = lookup || {};
+  const metadata = metadataById?.get(String(position.deviceId));
+  const device = devicesByTraccarId?.get(String(position.deviceId));
+  const batteryLevel = extractBatteryLevel(position.attributes);
+  const ignition = extractIgnition(position.attributes);
+  const lastCommunication =
+    position.serverTime || position.deviceTime || position.fixTime || metadata?.lastUpdate || null;
+
+  return {
+    ...position,
+    device: buildDeviceInfo(device, metadata, position.deviceId),
+    lastCommunication,
+    batteryLevel,
+    ignition,
+  };
 }
 
 function pickTripAddress(trip, prefix) {
@@ -450,6 +526,10 @@ async function handleEventsReport(req, res, next) {
     const to = parseDateOrThrow(req.query?.to ?? now.toISOString(), "to");
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
 
+    const devices = listDevices({ clientId });
+    const metadata = await fetchDevicesMetadata();
+    const lookup = buildDeviceLookup(devices, metadata);
+
     const events = await fetchEvents(deviceIdsToQuery, from, to, limit);
     const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
@@ -458,18 +538,34 @@ async function handleEventsReport(req, res, next) {
     const eventsWithAddress = events.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
       const formattedAddress = position ? formatAddress(position.address) : null;
+      const decoratedPosition = position ? decoratePositionWithDevice(position, lookup) : null;
+      const device = buildDeviceInfo(
+        lookup.devicesByTraccarId?.get(String(event.deviceId)),
+        lookup.metadataById?.get(String(event.deviceId)),
+        event.deviceId,
+      );
+      const batteryLevel =
+        decoratedPosition?.batteryLevel ?? extractBatteryLevel(position?.attributes) ?? extractBatteryLevel(event.attributes);
+      const ignition =
+        decoratedPosition?.ignition ?? extractIgnition(position?.attributes) ?? extractIgnition(event.attributes);
+      const lastCommunication =
+        decoratedPosition?.lastCommunication || device?.lastUpdate || position?.serverTime || position?.deviceTime || null;
       return {
         ...event,
-        position,
-        latitude: position?.latitude,
-        longitude: position?.longitude,
-        address: formattedAddress || position?.address || event.address || null,
+        position: decoratedPosition || position,
+        latitude: decoratedPosition?.latitude ?? position?.latitude,
+        longitude: decoratedPosition?.longitude ?? position?.longitude,
+        address: formattedAddress || decoratedPosition?.address || position?.address || event.address || null,
+        device,
+        lastCommunication,
+        batteryLevel,
+        ignition,
       };
     });
 
     const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events: eventsWithAddress };
 
-    return res.status(200).json({ data, error: null });
+    return res.status(200).json({ data, events: eventsWithAddress, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -513,7 +609,7 @@ router.get("/telemetry", async (req, res) => {
 
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
 
-    return res.status(200).json({ data, error: null });
+    return res.status(200).json({ data, positions: data, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -535,15 +631,77 @@ router.get("/devices", async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const devices = listDevices({ clientId });
-    const metadata = await fetchDevicesMetadata();
+    let metadata = [];
+    let metadataError = null;
+    let fallbackDevicesFromTraccar = null;
+    try {
+      metadata = await fetchDevicesMetadata();
+    } catch (error) {
+      metadataError = error;
+    }
+
+    if (metadataError) {
+      try {
+        const response = await traccarProxy("get", "/devices", { asAdmin: true, context: req });
+        const list = Array.isArray(response?.devices)
+          ? response.devices
+          : Array.isArray(response?.data)
+          ? response.data
+          : Array.isArray(response)
+          ? response
+          : [];
+
+        if (!Array.isArray(list) || response?.ok === false || response?.error) {
+          const error = buildTraccarUnavailableError(response?.error || response, { stage: "devices-fallback" });
+          return res
+            .status(error.status || error.statusCode || 503)
+            .json({ code: error.code, message: error.message });
+        }
+
+        fallbackDevicesFromTraccar = list;
+        metadata = list.map((item) => ({
+          id: item.id,
+          uniqueId: item.uniqueId ?? null,
+          name: item.name ?? null,
+          lastUpdate: item.lastUpdate ?? item.lastCommunication ?? null,
+          disabled: Boolean(item.disabled),
+          status: item.status || null,
+        }));
+      } catch (fallbackError) {
+        const error = buildTraccarUnavailableError(fallbackError, { stage: "devices-fallback" });
+        return res
+          .status(error.status || error.statusCode || 503)
+          .json({ code: error.code, message: error.message });
+      }
+    }
+    const traccarIds = (devices.length ? devices : metadata)
+      .map((device) => (device?.traccarId != null ? String(device.traccarId) : device?.id != null ? String(device.id) : null))
+      .filter(Boolean);
+    const latestPositions = traccarIds.length ? await fetchLatestPositionsWithFallback(traccarIds, clientId) : [];
+
+    const positionByDevice = new Map((latestPositions || []).map((position) => [String(position.deviceId), position]));
 
     const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
     const traccarByUniqueId = new Map(metadata.map((item) => [String(item.uniqueId || ""), item]));
 
-    const data = devices.map((device) => {
+    const sourceDevices =
+      devices.length || !metadata.length
+        ? devices
+        : metadata.map((item) => ({
+            id: item.id != null ? String(item.id) : null,
+            traccarId: item.id != null ? String(item.id) : null,
+            name: item.name || item.uniqueId,
+            uniqueId: item.uniqueId || null,
+          }));
+
+    const data = sourceDevices.map((device) => {
       const metadataMatch =
         (device.traccarId && traccarById.get(String(device.traccarId))) ||
         (device.uniqueId && traccarByUniqueId.get(String(device.uniqueId)));
+      const position = positionByDevice.get(String(metadataMatch?.id || device.traccarId));
+      const attributes = position?.attributes || {};
+      const batteryLevel = extractBatteryLevel(attributes);
+      const ignition = extractIgnition(attributes);
 
       return {
         id: device.traccarId ? String(device.traccarId) : String(device.id),
@@ -551,10 +709,35 @@ router.get("/devices", async (req, res, next) => {
         uniqueId: metadataMatch?.uniqueId || device.uniqueId || null,
         status: metadataMatch?.status || null,
         lastUpdate: metadataMatch?.lastUpdate || null,
+        lastCommunication:
+          position?.serverTime || position?.deviceTime || position?.fixTime || metadataMatch?.lastUpdate || null,
+        lastPosition: (() => {
+          if (!position) return null;
+          return {
+            latitude: position.latitude ?? null,
+            longitude: position.longitude ?? null,
+            speed: position.speed ?? null,
+            course: position.course ?? null,
+            fixTime: position.fixTime || null,
+            deviceTime: position.deviceTime || null,
+            serverTime: position.serverTime || null,
+            address: position.address || null,
+            attributes,
+            batteryLevel,
+            ignition,
+          };
+        })(),
+        batteryLevel,
+        ignition,
+        speed: position?.speed ?? null,
       };
     });
 
-    return res.status(200).json({ data, error: null });
+    const responseDevices = !devices.length && metadataError && Array.isArray(fallbackDevicesFromTraccar)
+      ? fallbackDevicesFromTraccar
+      : data;
+
+    return res.status(200).json({ data, devices: responseDevices, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -598,6 +781,9 @@ router.delete("/devices/:id", requireRole("manager", "admin"), async (req, res, 
 router.get("/positions", async (req, res, next) => {
   try {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const devices = listDevices({ clientId });
+    const metadata = await fetchDevicesMetadata();
+    const lookup = buildDeviceLookup(devices, metadata);
 
     const rawFrom = req.query?.from;
     const rawTo = req.query?.to;
@@ -613,7 +799,9 @@ router.get("/positions", async (req, res, next) => {
     const positions = await fetchPositions(deviceIdsToQuery, from, to, { limit });
     const data = await enrichPositionsWithAddresses(positions);
 
-    return res.status(200).json({ data, error: null });
+    const enriched = data.map((position) => decoratePositionWithDevice(position, lookup)).filter(Boolean);
+
+    return res.status(200).json({ data: enriched, positions: enriched, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -640,18 +828,20 @@ router.get("/positions/last", async (req, res) => {
 
   try {
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
+    const devices = listDevices({ clientId });
+    const metadata = await fetchDevicesMetadata();
+    const lookup = buildDeviceLookup(devices, metadata);
     if (requestedIds.length && !deviceIdsToQuery.length) {
       return respondDeviceNotFound(res);
     }
 
-
-
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
 
+    const data = positions
+      .map((position) => decoratePositionWithDevice(normalisePosition(position), lookup))
+      .filter(Boolean);
 
-    const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
-
-    return res.status(200).json({ data, error: null });
+    return res.status(200).json({ data, positions: data, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");

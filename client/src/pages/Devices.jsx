@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { Plus, RefreshCw, Trash2, MapPin } from "lucide-react";
+import { latLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 import Button from "../ui/Button";
@@ -21,6 +22,59 @@ const ICON_TYPES = [
   { value: "tag", label: "Tag / Rastreador pequeno" },
   { value: "watercraft", label: "Jet / Embarcação" },
 ];
+
+function parsePositionTime(position) {
+  if (!position) return null;
+  const time = Date.parse(
+    position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.timestamp ?? position.time ?? 0,
+  );
+  return Number.isNaN(time) ? null : time;
+}
+
+function pickLatestPosition(...positions) {
+  return positions
+    .filter(Boolean)
+    .reduce((latest, current) => {
+      const currentTime = parsePositionTime(current);
+      if (!latest) return { ...current, parsedTime: currentTime };
+      const latestTime = parsePositionTime(latest);
+      if (currentTime !== null && (latestTime === null || currentTime > latestTime)) {
+        return { ...current, parsedTime: currentTime };
+      }
+      return latest;
+    }, null);
+}
+
+function formatDate(value) {
+  const parsed = Date.parse(value || 0);
+  if (!value || Number.isNaN(parsed)) return null;
+  return new Date(parsed).toLocaleString();
+}
+
+function formatBattery(position) {
+  if (!position) return "—";
+  const battery =
+    position.batteryLevel ?? position.attributes?.batteryLevel ?? position.attributes?.battery ?? position.battery;
+  if (battery === undefined || battery === null) return "—";
+  if (typeof battery === "number" && !Number.isNaN(battery)) return `${battery}%`;
+  return String(battery);
+}
+
+function formatPositionTimestamps(position) {
+  if (!position) return "—";
+  const parts = [];
+  const gpsTime = formatDate(position.fixTime);
+  if (gpsTime) parts.push(`GPS: ${gpsTime}`);
+  const deviceTime = formatDate(position.deviceTime);
+  if (deviceTime && deviceTime !== gpsTime) parts.push(`Dispositivo: ${deviceTime}`);
+  const serverTime = formatDate(position.serverTime);
+  if (serverTime && serverTime !== gpsTime && serverTime !== deviceTime) parts.push(`Servidor: ${serverTime}`);
+  const eventTime = formatDate(position.eventTime || position.eventtime);
+  if (eventTime) parts.push(`Evento: ${eventTime}`);
+  const timestampTime = formatDate(position.timestamp);
+  if (!parts.length && timestampTime) parts.push(`Timestamp: ${timestampTime}`);
+  return parts.length ? parts.join(" · ") : "—";
+}
 
 function statusBadge(device) {
   if (!device) return "—";
@@ -122,15 +176,16 @@ export default function Devices() {
   });
   const [query, setQuery] = useState("");
   const [mapTarget, setMapTarget] = useState(null);
+  const mapRef = useRef(null);
 
   const positionMap = useMemo(() => {
     const map = new Map();
     (Array.isArray(positions) ? positions : []).forEach((position) => {
       const key = toDeviceKey(position?.deviceId ?? position?.device_id ?? position?.deviceID ?? position?.deviceid);
       if (!key) return;
-      const time = Date.parse(position.fixTime ?? position.deviceTime ?? position.serverTime ?? position.time ?? 0);
+      const time = parsePositionTime(position);
       const existing = map.get(key);
-      if (!existing || (!Number.isNaN(time) && time > existing.time)) {
+      if (!existing || (time !== null && (existing.parsedTime === undefined || time > existing.parsedTime))) {
         map.set(key, { ...position, parsedTime: time });
       }
     });
@@ -164,6 +219,18 @@ export default function Devices() {
       load();
     }
   }, [resolvedClientId, user]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const target = mapTarget?.position;
+    if (!map || !target) return;
+    const lat = Number(target.latitude ?? target.lat ?? target.latitute);
+    const lng = Number(target.longitude ?? target.lon ?? target.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const bounds = latLngBounds([[lat, lng]]);
+    map.fitBounds(bounds.pad(0.02), { maxZoom: 16 });
+    setTimeout(() => map.invalidateSize(), 50);
+  }, [mapTarget]);
 
   const modeloById = useMemo(() => {
     const map = new Map();
@@ -204,17 +271,18 @@ export default function Devices() {
     filteredDevices.forEach((device) => {
       const key = toDeviceKey(device.traccarId ?? device.id ?? device.uniqueId ?? device.internalId);
       if (!key) return;
-      const pos = positionMap.get(key);
-      if (pos) {
-        map.set(device.id || key, pos);
+      const livePosition = positionMap.get(key);
+      const fallbackPosition = device.lastPosition || device.position || device.latestPosition;
+      const latest = pickLatestPosition(livePosition, fallbackPosition);
+      if (latest) {
+        const parsedTime = latest.parsedTime ?? parsePositionTime(latest);
+        map.set(device.id || key, { ...latest, parsedTime });
       }
     });
     return map;
   }, [filteredDevices, positionMap]);
 
-  function getStatus(device) {
-    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
-    const position = latestPositionByDevice.get(key);
+  function getStatus(device, position) {
     if (position?.parsedTime) {
       const freshness = Date.now() - position.parsedTime;
       const isOnline = freshness < 5 * 60 * 1000;
@@ -223,9 +291,7 @@ export default function Devices() {
     return statusBadge(device);
   }
 
-  function formatPosition(device) {
-    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
-    const position = latestPositionByDevice.get(key);
+  function formatPosition(position) {
     if (!position) return "—";
     const lat = Number(position.latitude ?? position.lat ?? position.latitute);
     const lon = Number(position.longitude ?? position.lon ?? position.lng);
@@ -235,21 +301,25 @@ export default function Devices() {
     return "—";
   }
 
-  function formatSpeed(device) {
-    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
-    const position = latestPositionByDevice.get(key);
+  function formatSpeed(position) {
     if (!position?.speed) return "0 km/h";
     const speedKmh = Number(position.speed) * 1.852 || Number(position.speed);
     if (!Number.isFinite(speedKmh)) return "—";
     return `${speedKmh.toFixed(1)} km/h`;
   }
 
-  function formatLastCommunication(device) {
-    const key = device.id || toDeviceKey(device.traccarId ?? device.uniqueId ?? device.internalId);
-    const position = latestPositionByDevice.get(key);
-    const time = position?.parsedTime || Date.parse(device.lastCommunication || device.lastUpdate || 0);
-    if (!time || Number.isNaN(time)) return "—";
-    return new Date(time).toLocaleString();
+  function formatLastCommunication(position, device) {
+    const timestamp =
+      position?.lastCommunication ||
+      position?.timestamp ||
+      position?.fixTime ||
+      position?.deviceTime ||
+      position?.serverTime ||
+      device?.lastCommunication ||
+      device?.lastUpdate ||
+      null;
+    const formatted = formatDate(timestamp);
+    return formatted || "—";
   }
 
   function resetDeviceForm() {
@@ -469,10 +539,13 @@ export default function Devices() {
                       <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
                         <td className="px-4 py-3 text-white">{device.name || "—"}</td>
                         <td className="px-4 py-3">{device.uniqueId || "—"}</td>
-                        <td className="px-4 py-3">{getStatus(device)}</td>
-                        <td className="px-4 py-3">{formatLastCommunication(device)}</td>
+                        <td className="px-4 py-3">{getStatus(device, latestPosition)}</td>
+                        <td className="px-4 py-3">
+                          <div>{formatLastCommunication(latestPosition, device)}</div>
+                          <div className="text-xs text-white/60">{formatPositionTimestamps(latestPosition)}</div>
+                        </td>
                         <td className="px-4 py-3 flex items-center gap-2">
-                          <span>{formatPosition(device)}</span>
+                          <span>{formatPosition(latestPosition)}</span>
                           {latestPosition && (
                             <Button
                               size="sm"
@@ -484,14 +557,12 @@ export default function Devices() {
                             </Button>
                           )}
                         </td>
-                        <td className="px-4 py-3">{formatSpeed(device)}</td>
+                        <td className="px-4 py-3">{formatSpeed(latestPosition)}</td>
                         <td className="px-4 py-3">
-                          {latestPosition?.attributes?.batteryLevel
-                            ? `${latestPosition.attributes.batteryLevel}%`
-                            : "—"}
-                          {typeof latestPosition?.attributes?.ignition !== "undefined" && (
+                          {formatBattery(latestPosition)}
+                          {typeof (latestPosition?.ignition ?? latestPosition?.attributes?.ignition) !== "undefined" && (
                             <span className="ml-2 rounded-full bg-white/10 px-2 py-1 text-xs">
-                              {latestPosition.attributes.ignition ? "Ignição ON" : "Ignição OFF"}
+                              {latestPosition?.ignition ?? latestPosition?.attributes?.ignition ? "Ignição ON" : "Ignição OFF"}
                             </span>
                           )}
                         </td>
@@ -714,23 +785,28 @@ export default function Devices() {
             <MapContainer
               center={[
                 Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
-                Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+                Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
               ]}
               zoom={15}
               style={{ height: "100%", width: "100%" }}
+              whenCreated={(map) => {
+                mapRef.current = map;
+                setTimeout(() => map.invalidateSize(), 50);
+              }}
             >
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
               <Marker
                 position={[
                   Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
-                  Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
+                  Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
                 ]}
               >
                 <Popup>
                   <div className="space-y-1 text-sm">
                     <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
-                    <div>{formatPosition(mapTarget.device)}</div>
-                    <div>{formatLastCommunication(mapTarget.device)}</div>
+                    <div>{formatPosition(mapTarget.position)}</div>
+                    <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
+                    <div>{formatLastCommunication(mapTarget.position, mapTarget.device)}</div>
                   </div>
                 </Popup>
               </Marker>
