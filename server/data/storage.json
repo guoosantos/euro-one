@@ -29,6 +29,45 @@
       },
       "createdAt": "2025-11-19T21:35:10.395Z",
       "updatedAt": "2025-11-19T21:36:04.859Z"
+    },
+    {
+      "id": "25130372-76f0-413c-a421-a0169bb75936",
+      "clientId": "cea87327-b7ff-4952-b1dd-10dd284d535a",
+      "name": "teste",
+      "uniqueId": "123345",
+      "modelId": null,
+      "traccarId": "10",
+      "chipId": null,
+      "vehicleId": null,
+      "attributes": {},
+      "createdAt": "2025-12-17T15:41:51.410Z",
+      "updatedAt": "2025-12-17T15:41:51.410Z"
+    },
+    {
+      "id": "6c2bdd37-e04d-4124-86e2-3d1d4d3fa37e",
+      "clientId": "cea87327-b7ff-4952-b1dd-10dd284d535a",
+      "name": "XIRGO XG3792",
+      "uniqueId": "863740067892106",
+      "modelId": null,
+      "traccarId": null,
+      "chipId": null,
+      "vehicleId": null,
+      "attributes": {},
+      "createdAt": "2025-12-16T19:00:50.842Z",
+      "updatedAt": "2025-12-16T19:00:50.842Z"
+    },
+    {
+      "id": "5",
+      "clientId": "cea87327-b7ff-4952-b1dd-10dd284d535a",
+      "name": "STM6B75",
+      "uniqueId": "868022035781504",
+      "modelId": null,
+      "traccarId": "1",
+      "chipId": null,
+      "vehicleId": null,
+      "attributes": {},
+      "createdAt": "2025-12-05T00:23:31.490Z",
+      "updatedAt": "2025-12-05T00:23:31.490Z"
     }
   ],
   "users": [
@@ -4154,5 +4193,9 @@
   ],
   "crmActivities": [],
   "crmReminders": [],
-  "stock-items": []
+  "stock-items": [],
+  "geofenceGroups": [],
+  "geofenceGroupAssignments": [],
+  "routes": [],
+  "itineraries": []
 }
