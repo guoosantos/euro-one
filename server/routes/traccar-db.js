@@ -5,7 +5,12 @@ import { authenticate } from "../middleware/auth.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
 import { resolveClientId } from "../middleware/client.js";
 import { findDeviceByTraccarIdInDb, listDevices, listDevicesFromDb } from "../models/device.js";
-import { fetchEvents, fetchPositions, fetchTrips, isTraccarDbConfigured } from "../services/traccar-db.js";
+import {
+  fetchEventsWithFallback,
+  fetchPositions,
+  fetchTrips,
+  isTraccarDbConfigured,
+} from "../services/traccar-db.js";
 import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
 
 const router = express.Router();
@@ -236,11 +241,14 @@ router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, re
 });
 
 /**
- * Eventos – continuam usando o serviço baseado no banco do Traccar
+ * Eventos – prioriza banco do Traccar com fallback via API HTTP quando necessário
  */
 router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) => {
   try {
-    ensureDbReady();
+    const dbConfigured = isTraccarDbConfigured();
+    if (dbConfigured) {
+      ensureDbReady();
+    }
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
     const requestedDevices = Array.isArray(req.query.deviceIds)
       ? req.query.deviceIds
@@ -279,7 +287,7 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
     const to = parseDate(req.query.to, "to");
     const limit = Number(req.query.limit) || 50;
 
-    const events = await fetchEvents(deviceIdsToQuery, from, to, limit);
+    const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
     res.json({
       data: { deviceIds: deviceIdsToQuery, from, to, events },
       error: null,

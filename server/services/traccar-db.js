@@ -7,7 +7,12 @@
 import createError from "http-errors";
 
 import { config } from "../config.js";
-import { buildTraccarUnavailableError, getLastPositions } from "./traccar.js";
+import {
+  buildTraccarUnavailableError,
+  getLastPositions,
+  resolveTraccarApiUrl,
+  traccarProxy,
+} from "./traccar.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -16,6 +21,7 @@ const DEVICE_TABLE = "tc_devices";
 
 let dbPool = null;
 let testOverrides = null;
+const fallbackLogThrottle = new Map();
 
 const DIALECTS = {
   mysql: {
@@ -75,6 +81,14 @@ function resolveDialect() {
 function isTraccarDbConfigured() {
   if (testOverrides?.pool || testOverrides?.dialect) return true;
   return Boolean(config.traccar.db.client && config.traccar.db.host && config.traccar.db.name);
+}
+
+function logFallback(stage, url, context = {}) {
+  const now = Date.now();
+  const last = fallbackLogThrottle.get(stage) || 0;
+  if (now - last < 5000) return;
+  fallbackLogThrottle.set(stage, now);
+  console.info(`[traccar-db] fallback ${stage}`, { url, ...context });
 }
 
 async function getPool() {
@@ -175,6 +189,20 @@ function normalisePositionRow(row) {
     network: parseJson(row.network),
     address: row.address ? String(row.address) : "Endereço não disponível",
     attributes,
+  };
+}
+
+function normaliseEventRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    type: row.type ?? null,
+    eventTime: normaliseDate(row.eventtime ?? row.eventTime),
+    serverTime: normaliseDate(row.servertime ?? row.serverTime),
+    deviceId: row.deviceid ?? row.deviceId ?? null,
+    positionId: row.positionid ?? row.positionId ?? null,
+    geofenceId: row.geofenceid ?? row.geofenceId ?? null,
+    attributes: parseJson(row.attributes),
   };
 }
 
@@ -384,9 +412,14 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
 
 
 
-async function fetchLatestPositionsFromApi(deviceIds = []) {
+async function fetchLatestPositionsFromApi(deviceIds = [], context = {}) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
+
+  const targetUrl = resolveTraccarApiUrl("/positions/last", { deviceId: filtered });
+  if (targetUrl) {
+    logFallback("http-last-positions", targetUrl, { deviceCount: filtered.length, ...context });
+  }
 
   const response = await getLastPositions(null, filtered, { asAdmin: true });
   const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
@@ -405,27 +438,26 @@ async function fetchLatestPositionsFromApi(deviceIds = []) {
 }
 
 export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId = null) {
-
-
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   let lastError = null;
 
-  if (isTraccarDbConfigured()) {
+  const dbConfigured = isTraccarDbConfigured();
+
+  if (dbConfigured) {
     try {
       return await fetchLatestPositions(filtered, clientId);
     } catch (error) {
       lastError = error;
     }
-  } else if (!filtered.length) {
-    return [];
+  } else {
+    if (!filtered.length) {
+      return [];
+    }
+    console.warn("[traccar-db] Banco do Traccar não configurado; usando API HTTP para últimas posições.");
   }
 
   try {
-
-
-    return await fetchLatestPositionsFromApi(filtered);
-
-
+    return await fetchLatestPositionsFromApi(filtered, { reason: dbConfigured ? "db-error" : "db-not-configured" });
   } catch (fallbackError) {
     if (lastError) {
       fallbackError.cause = lastError;
@@ -516,16 +548,62 @@ export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
   `;
 
   const rows = (await queryTraccarDb(sql, params)) || [];
-  return rows.map((row) => ({
-    id: row.id,
-    type: row.type,
-    eventTime: normaliseDate(row.eventtime ?? row.eventTime),
-    serverTime: normaliseDate(row.servertime ?? row.serverTime),
-    deviceId: row.deviceid ?? row.deviceId ?? null,
-    positionId: row.positionid ?? row.positionId ?? null,
-    geofenceId: row.geofenceid ?? row.geofenceId ?? null,
-    attributes: parseJson(row.attributes),
-  }));
+  return rows.map(normaliseEventRow).filter((event) => event && event.deviceId !== null);
+}
+
+async function fetchEventsFromApi(deviceIds = [], from, to, limit = 50, context = {}) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length) return [];
+
+  const params = {};
+  if (filtered.length) params.deviceId = filtered;
+  if (from) params.from = from;
+  if (to) params.to = to;
+  if (limit) params.limit = limit;
+
+  const targetUrl = resolveTraccarApiUrl("/events", params);
+  if (targetUrl) {
+    logFallback("http-events", targetUrl, { deviceCount: filtered.length, ...context });
+  }
+
+  const response = await traccarProxy("get", "/events", { params, asAdmin: true });
+  if (response?.ok === false) {
+    const status = Number(response?.error?.code || response?.status);
+    throw buildTraccarUnavailableError(
+      createError(Number.isFinite(status) ? status : 503, response?.error?.message || TRACCAR_UNAVAILABLE_MESSAGE),
+      { stage: "http-events", response: response?.error },
+    );
+  }
+
+  const payload = Array.isArray(response) ? response : response?.events || response?.data || [];
+  return payload.map(normaliseEventRow).filter(Boolean);
+}
+
+export async function fetchEventsWithFallback(deviceIds = [], from, to, limit = 50) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  let lastError = null;
+  const dbConfigured = isTraccarDbConfigured();
+
+  if (dbConfigured) {
+    try {
+      return await fetchEvents(filtered, from, to, limit);
+    } catch (error) {
+      lastError = error;
+    }
+  } else if (!filtered.length) {
+    return [];
+  } else {
+    console.warn("[traccar-db] Banco do Traccar não configurado; usando API HTTP para eventos.");
+  }
+
+  try {
+    return await fetchEventsFromApi(filtered, from, to, limit, { reason: dbConfigured ? "db-error" : "db-not-configured" });
+  } catch (fallbackError) {
+    if (lastError) {
+      fallbackError.cause = lastError;
+    }
+    throw fallbackError;
+  }
 }
 
 export async function fetchPositionsByIds(positionIds = []) {
