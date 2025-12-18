@@ -9,9 +9,9 @@ async function bootstrap() {
 
   const [
     { default: app },
-    { initializeTraccarAdminSession },
+    { describeTraccarMode, initializeTraccarAdminSession },
     { startTraccarSyncJob },
-    { fetchLatestPositionsWithFallback },
+    { fetchLatestPositionsWithFallback, isTraccarDbConfigured },
     { listDevices },
     { config },
   ] = await Promise.all([
@@ -30,6 +30,14 @@ async function bootstrap() {
   const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
   let stopSync;
   let telemetryInterval;
+
+  const traccarMode = describeTraccarMode({ traccarDbConfigured: isTraccarDbConfigured() });
+  console.info("[startup] Traccar mode", {
+    apiBaseUrl: traccarMode.apiBaseUrl,
+    traccarConfigured: traccarMode.traccarConfigured,
+    traccarDbConfigured: traccarMode.traccarDbConfigured,
+    adminAuth: traccarMode.adminAuth,
+  });
 
   const extractTokenFromRequest = (req) => {
     const authHeader = req.headers?.authorization;

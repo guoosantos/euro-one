@@ -1,18 +1,38 @@
 import createError from "http-errors";
 
-import { config } from "../config.js";
+import { config, normaliseTraccarBaseUrl } from "../config.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Não foi possível consultar o Traccar";
 let traccarAvailable = false;
 let warnedMissingConfig = false;
+let warnedBaseUrlWithApi = false;
+
+function sanitiseBaseUrl(raw) {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return { url: null, removedApi: false };
+  const removedApi = /\/api\/?$/i.test(trimmed.replace(/\/+$/, ""));
+  return {
+    url: normaliseTraccarBaseUrl(trimmed),
+    removedApi,
+  };
+}
 
 function getBaseUrl() {
   const raw = process.env.TRACCAR_BASE_URL || config.traccar.baseUrl || "";
-  const trimmed = String(raw || "").trim();
-  return trimmed ? trimmed.replace(/\/$/, "") : null;
+  const { url, removedApi } = sanitiseBaseUrl(raw);
+
+  if (removedApi && !warnedBaseUrlWithApi) {
+    warnedBaseUrlWithApi = true;
+    console.warn("[traccar] TRACCAR_BASE_URL informado com /api; normalizado para evitar /api/api.", {
+      raw,
+      normalised: url,
+    });
+  }
+
+  return url;
 }
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   const base = getBaseUrl();
   return base ? `${base}/api` : null;
 }
@@ -56,6 +76,12 @@ function buildUrl(base, path, params) {
   }
 
   return url.toString();
+}
+
+export function resolveTraccarApiUrl(path, params) {
+  const apiBaseUrl = getApiBaseUrl();
+  if (!apiBaseUrl) return null;
+  return buildUrl(apiBaseUrl, path, params);
 }
 
 function resolveStatus(error) {
@@ -606,6 +632,16 @@ export async function getTraccarApiHealth() {
 
 export async function getTraccarHealth() {
   return getTraccarApiHealth();
+}
+
+export function describeTraccarMode({ traccarDbConfigured } = {}) {
+  const apiBaseUrl = getApiBaseUrl();
+  return {
+    traccarConfigured: Boolean(apiBaseUrl),
+    apiBaseUrl,
+    adminAuth: describeAdminAuth(),
+    traccarDbConfigured: Boolean(traccarDbConfigured),
+  };
 }
 
 // Funções utilitárias específicas
