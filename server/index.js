@@ -170,12 +170,17 @@ async function bootstrap() {
   });
 
   try {
-    await initializeTraccarAdminSession();
+    const traccarInit = await initializeTraccarAdminSession();
+    if (traccarInit?.ok) {
+      stopSync = startTraccarSyncJob();
+    } else {
+      console.warn("Sincronização automática do Traccar não iniciada no startup.", traccarInit?.reason || "");
+      stopSync = () => {};
+    }
   } catch (error) {
+    stopSync = () => {};
     console.warn("Não foi possível inicializar a sessão administrativa do Traccar", error?.message || error);
   }
-
-  stopSync = startTraccarSyncJob();
 
   telemetryInterval = setInterval(() => {
     void dispatchTelemetry();

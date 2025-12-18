@@ -15,10 +15,16 @@ function toArray(value) {
     .filter(Boolean);
 }
 
+function normaliseUrl(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  return trimmed ? trimmed.replace(/\/$/, "") : null;
+}
+
 export const config = {
   port: toNumber(process.env.PORT, 3001),
   traccar: {
-    baseUrl: (process.env.TRACCAR_BASE_URL || "http://localhost:8082").replace(/\/$/, ""),
+    baseUrl: normaliseUrl(process.env.TRACCAR_BASE_URL),
     adminUser: process.env.TRACCAR_ADMIN_USER || null,
     adminPassword: process.env.TRACCAR_ADMIN_PASSWORD || null,
     adminToken: process.env.TRACCAR_ADMIN_TOKEN || null,
