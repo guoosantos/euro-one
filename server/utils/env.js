@@ -6,11 +6,9 @@ let loaded = false;
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const envSearchPaths = [
-  resolve(moduleDir, "..", ".env"),
-  resolve(moduleDir, "..", "..", ".env"),
-  resolve(moduleDir, ".env"),
   resolve(process.cwd(), ".env"),
-  resolve(process.cwd(), "..", ".env"),
+  resolve(moduleDir, "..", ".env"),
+  resolve(moduleDir, ".env"),
 ];
 
 function applyEnv(content) {
@@ -42,15 +40,10 @@ function resolveEnvPath() {
 
 export async function loadEnv() {
   if (loaded) return;
-  const envPath = resolveEnvPath();
   try {
     const dotenv = await import("dotenv");
     if (dotenv?.config) {
-      if (envPath) {
-        dotenv.config({ path: envPath });
-      } else {
-        dotenv.config();
-      }
+      dotenv.config();
       loaded = true;
       return;
     }
@@ -60,6 +53,7 @@ export async function loadEnv() {
     }
   }
 
+  const envPath = resolveEnvPath();
   if (!envPath) {
     loaded = true;
     return;

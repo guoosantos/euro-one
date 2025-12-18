@@ -15,21 +15,10 @@ function toArray(value) {
     .filter(Boolean);
 }
 
-function normaliseTraccarBaseUrl(value) {
-  if (!value) return null;
-  const trimmed = String(value).trim();
-  if (!trimmed) return null;
-
-  const withoutTrailingSlash = trimmed.replace(/\/+$/, "");
-  const withoutApiSuffix = withoutTrailingSlash.replace(/\/api$/i, "");
-  const finalUrl = withoutApiSuffix.replace(/\/+$/, "");
-  return finalUrl || null;
-}
-
 export const config = {
   port: toNumber(process.env.PORT, 3001),
   traccar: {
-    baseUrl: normaliseTraccarBaseUrl(process.env.TRACCAR_BASE_URL),
+    baseUrl: (process.env.TRACCAR_BASE_URL || "http://localhost:8082").replace(/\/$/, ""),
     adminUser: process.env.TRACCAR_ADMIN_USER || null,
     adminPassword: process.env.TRACCAR_ADMIN_PASSWORD || null,
     adminToken: process.env.TRACCAR_ADMIN_TOKEN || null,
@@ -51,7 +40,5 @@ export const config = {
     origins: toArray(process.env.ALLOWED_ORIGINS || "http://localhost:5173"),
   },
 };
-
-export { normaliseTraccarBaseUrl };
 
 export default config;

@@ -1,59 +1,11 @@
 import createError from "http-errors";
 
-import { config, normaliseTraccarBaseUrl } from "../config.js";
+import { config } from "../config.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Não foi possível consultar o Traccar";
-let traccarAvailable = false;
-let warnedMissingConfig = false;
-let warnedBaseUrlWithApi = false;
 
-function sanitiseBaseUrl(raw) {
-  const trimmed = String(raw || "").trim();
-  if (!trimmed) return { url: null, removedApi: false };
-  const removedApi = /\/api\/?$/i.test(trimmed.replace(/\/+$/, ""));
-  return {
-    url: normaliseTraccarBaseUrl(trimmed),
-    removedApi,
-  };
-}
-
-function getBaseUrl() {
-  const raw = process.env.TRACCAR_BASE_URL || config.traccar.baseUrl || "";
-  const { url, removedApi } = sanitiseBaseUrl(raw);
-
-  if (removedApi && !warnedBaseUrlWithApi) {
-    warnedBaseUrlWithApi = true;
-    console.warn("[traccar] TRACCAR_BASE_URL informado com /api; normalizado para evitar /api/api.", {
-      raw,
-      normalised: url,
-    });
-  }
-
-  return url;
-}
-
-export function getApiBaseUrl() {
-  const base = getBaseUrl();
-  return base ? `${base}/api` : null;
-}
-
-export function isTraccarConfigured() {
-  return Boolean(getBaseUrl());
-}
-
-export function isTraccarAvailable() {
-  return isTraccarConfigured() && traccarAvailable;
-}
-
-function setTraccarAvailability(available) {
-  traccarAvailable = Boolean(available);
-}
-
-function warnMissingTraccarConfig() {
-  if (warnedMissingConfig) return;
-  warnedMissingConfig = true;
-  console.warn("TRACCAR_BASE_URL não configurada; integração com Traccar desativada.");
-}
+// Garante que nunca termina com / e sempre aponta para /api
+const BASE_URL = `${(process.env.TRACCAR_BASE_URL || config.traccar.baseUrl || "").replace(/\/$/, "")}/api`;
 
 /**
  * Constrói a URL final SEM perder o "/api"
@@ -76,12 +28,6 @@ function buildUrl(base, path, params) {
   }
 
   return url.toString();
-}
-
-export function resolveTraccarApiUrl(path, params) {
-  const apiBaseUrl = getApiBaseUrl();
-  if (!apiBaseUrl) return null;
-  return buildUrl(apiBaseUrl, path, params);
 }
 
 function resolveStatus(error) {
@@ -116,17 +62,9 @@ async function requestTraccar(path, options = {}) {
     headers = {},
     responseType = "json",
     timeout = 5_000,
-    maxAttempts = 3,
   } = options;
 
-  const apiBaseUrl = getApiBaseUrl();
-  if (!apiBaseUrl) {
-    warnMissingTraccarConfig();
-    setTraccarAvailability(false);
-    throw buildTraccarUnavailableError(new Error("Traccar não configurado"), { stage: "config" });
-  }
-
-  const url = buildUrl(apiBaseUrl, path, params);
+  const url = buildUrl(BASE_URL, path, params);
   const resolvedHeaders = new Headers({ Accept: "application/json", ...headers });
   const init = { method: method.toUpperCase(), headers: resolvedHeaders };
 
@@ -147,6 +85,7 @@ async function requestTraccar(path, options = {}) {
   }
 
   let attempt = 0;
+  const maxAttempts = 3; // 1 tentativa inicial + 2 retries
   const transientStatus = [502, 503, 504];
   const transientCodes = ["ECONNRESET", "ETIMEDOUT", "ECONNREFUSED"];
 
@@ -177,12 +116,7 @@ async function requestTraccar(path, options = {}) {
       }
 
       if (response.ok) {
-        setTraccarAvailability(true);
         return { ok: true, status: response.status, headers: rawHeaders, data: payload };
-      }
-
-      if (response.status < 500) {
-        setTraccarAvailability(true);
       }
 
       const errorMessage =
@@ -204,10 +138,6 @@ async function requestTraccar(path, options = {}) {
         await new Promise((resolve) => setTimeout(resolve, backoff));
         attempt += 1;
         continue;
-      }
-
-      if (response.status >= 500) {
-        setTraccarAvailability(false);
       }
 
       return errorResult;
@@ -234,7 +164,6 @@ async function requestTraccar(path, options = {}) {
         continue;
       }
 
-      setTraccarAvailability(false);
       return errorResult;
     }
   }
@@ -248,7 +177,6 @@ export function buildTraccarUnavailableError(reason, context = {}) {
 
   const statusLabel = context?.status || statusFromReason || reason?.code;
   const messageSuffix = statusLabel ? ` (${statusLabel})` : "";
-  setTraccarAvailability(false);
   const error = createError(status, `${TRACCAR_UNAVAILABLE_MESSAGE}${messageSuffix}`);
   error.code = "TRACCAR_UNAVAILABLE";
   error.isTraccarError = true;
@@ -433,11 +361,6 @@ export function describeAdminAuth() {
 }
 
 export async function loginTraccar(email, password) {
-  if (!isTraccarConfigured()) {
-    warnMissingTraccarConfig();
-    throw buildTraccarUnavailableError(new Error("Traccar não configurado"), { endpoint: "/session" });
-  }
-
   const response = await requestTraccar("/session", {
     method: "POST",
     data: new URLSearchParams({ email, password }),
@@ -474,26 +397,22 @@ export async function loginTraccar(email, password) {
  * Proxy genérico para repassar chamadas ao Traccar e devolver apenas o data.
  */
 export async function traccarProxy(method, url, { context, params, data, asAdmin = false } = {}) {
-  try {
-    const response = await traccarRequest(
-      {
-        method,
-        url,
-        params,
-        data,
-      },
-      asAdmin ? null : context,
-      { asAdmin },
-    );
+  const response = await traccarRequest(
+    {
+      method,
+      url,
+      params,
+      data,
+    },
+    asAdmin ? null : context,
+    { asAdmin },
+  );
 
-    if (response?.ok) {
-      return response.data;
-    }
-
-    return response;
-  } catch (error) {
-    throw buildTraccarUnavailableError(error, { endpoint: url });
+  if (response?.ok) {
+    return response.data;
   }
+
+  return response;
 }
 
 /**
@@ -502,18 +421,11 @@ export async function traccarProxy(method, url, { context, params, data, asAdmin
  * valida conexão usando as credenciais configuradas.
  */
 export async function initializeTraccarAdminSession() {
-  if (!isTraccarConfigured()) {
-    warnMissingTraccarConfig();
-    setTraccarAvailability(false);
-    return { ok: false, reason: "not-configured" };
-  }
-
   const { adminUser, adminPassword, adminToken } = config.traccar;
 
   if (!adminToken && (!adminUser || !adminPassword)) {
     console.warn("Credenciais administrativas do Traccar não configuradas");
-    setTraccarAvailability(false);
-    return { ok: false, reason: "missing-credentials" };
+    return;
   }
 
   if (adminUser && adminPassword) {
@@ -532,13 +444,11 @@ export async function initializeTraccarAdminSession() {
         const ping = await traccarAdminRequest({
           method: "GET",
           url: "/server",
-          timeout: 3000,
         });
 
         if (ping?.ok) {
-          setTraccarAvailability(true);
           console.log("Conectado ao Traccar como administrador usando sessão dedicada.");
-          return { ok: true, mode: "session" };
+          return;
         }
       }
     } catch (error) {
@@ -554,13 +464,11 @@ export async function initializeTraccarAdminSession() {
     const check = await traccarAdminRequest({
       method: "GET",
       url: "/server",
-      timeout: 3000,
     });
 
     if (check?.ok) {
-      setTraccarAvailability(true);
       console.log("Conectado ao Traccar como administrador usando credenciais configuradas.");
-      return { ok: true, mode: "credentials" };
+      return;
     }
 
     console.warn(
@@ -575,73 +483,38 @@ export async function initializeTraccarAdminSession() {
       error?.message || error,
     );
   }
-
-  setTraccarAvailability(false);
-  return { ok: false, reason: "unreachable" };
 }
 
 export async function getTraccarApiHealth() {
   const authStrategy = describeAdminAuth();
   const sessionActive = Boolean(getAdminSessionCookie());
 
-  if (!isTraccarConfigured()) {
-    warnMissingTraccarConfig();
+  const response = await traccarAdminRequest({
+    method: "GET",
+    url: "/server",
+  });
+
+  if (response?.ok) {
     return {
-      ok: false,
-      message: "Traccar não configurado",
-      code: 503,
+      ok: true,
+      message: "API HTTP do Traccar acessível.",
       authStrategy,
-      sessionActive: false,
+      sessionActive,
+      server: response.data,
     };
   }
 
-  try {
-    const response = await traccarAdminRequest({
-      method: "GET",
-      url: "/server",
-      timeout: 3000,
-    });
-
-    if (response?.ok) {
-      return {
-        ok: true,
-        message: "API HTTP do Traccar acessível.",
-        authStrategy,
-        sessionActive,
-        server: response.data,
-      };
-    }
-
-    return {
-      ok: false,
-      authStrategy,
-      sessionActive,
-      message: response?.error?.message || "Falha ao consultar servidor do Traccar",
-      code: response?.error?.code || 503,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      authStrategy,
-      sessionActive,
-      message: error?.message || "Falha ao consultar servidor do Traccar",
-      code: error?.status || error?.statusCode || 503,
-    };
-  }
+  return {
+    ok: false,
+    authStrategy,
+    sessionActive,
+    message: response?.error?.message || "Falha ao consultar servidor do Traccar",
+    code: response?.error?.code || 503,
+  };
 }
 
 export async function getTraccarHealth() {
   return getTraccarApiHealth();
-}
-
-export function describeTraccarMode({ traccarDbConfigured } = {}) {
-  const apiBaseUrl = getApiBaseUrl();
-  return {
-    traccarConfigured: Boolean(apiBaseUrl),
-    apiBaseUrl,
-    adminAuth: describeAdminAuth(),
-    traccarDbConfigured: Boolean(traccarDbConfigured),
-  };
 }
 
 // Funções utilitárias específicas
@@ -667,3 +540,4 @@ export async function getEvents(context, params) {
 export async function getServerHealth() {
   return getTraccarHealth();
 }
+
