@@ -28,7 +28,6 @@ const initialState = {
   theme: "dark",
   locale: "pt-BR",
   monitoringTopbarVisible: true,
-  geofencesTopbarVisible: true,
   ...loadState(),
 };
 
@@ -38,7 +37,6 @@ function persistNextState(nextState) {
     locale: nextState.locale,
     sidebarCollapsed: nextState.sidebarCollapsed,
     monitoringTopbarVisible: nextState.monitoringTopbarVisible,
-    geofencesTopbarVisible: nextState.geofencesTopbarVisible,
   });
 }
 
@@ -93,13 +91,6 @@ export const useUI = create((set, get) => ({
     set((state) => {
       const value = visible !== false;
       const next = { ...state, monitoringTopbarVisible: value };
-      persistNextState(next);
-      return next;
-    }),
-  setGeofencesTopbarVisible: (visible) =>
-    set((state) => {
-      const value = visible !== false;
-      const next = { ...state, geofencesTopbarVisible: value };
       persistNextState(next);
       return next;
     }),

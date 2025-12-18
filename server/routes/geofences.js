@@ -16,11 +16,6 @@ router.use(authenticate);
 function handlePrismaFailure(error, req, res, next) {
   const message = error?.message || "Erro ao acessar geofences";
   const isMissingTable = error?.code === "P2021" || /does not exist/i.test(message || "");
-  const initializationCodes = new Set(["P1000", "P1001", "P1002", "P1003", "P1008", "P1009", "P1010", "P1011", "P1012", "P1013"]);
-  const isInitializationError =
-    initializationCodes.has(error?.code) ||
-    error?.name === "PrismaClientInitializationError" ||
-    error?.name === "PrismaClientRustPanicError";
 
   if (isMissingTable) {
     console.error("Geofences indisponíveis (migration pendente)", error);
@@ -31,22 +26,13 @@ function handlePrismaFailure(error, req, res, next) {
       .status(503)
       .json({ message: "Banco não preparado para geofences (migrations pendentes)" });
   }
-  if (isInitializationError) {
-    console.error("Prisma não inicializado para geofences", error);
-    return res
-      .status(503)
-      .json({
-        message: "Banco de dados indisponível para geofences. Verifique as credenciais, rode prisma generate e migrações.",
-        code: error?.code || "PRISMA_INIT_ERROR",
-      });
-  }
   const status = error?.status || error?.statusCode;
   if (status) {
     return res.status(status).json({ message, code: error?.code || "GEOFENCE_ERROR" });
   }
 
   console.error("[geofences] erro inesperado", error);
-  return res.status(503).json({ message: "Não foi possível processar a geofence.", code: "GEOFENCE_ERROR" });
+  return res.status(400).json({ message: "Não foi possível processar a geofence.", code: "GEOFENCE_ERROR" });
 }
 
 function resolveClientId(req, provided) {
