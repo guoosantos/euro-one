@@ -9,7 +9,7 @@ import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../s
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import {
   fetchDevicesMetadata,
-  fetchEventsWithFallback,
+  fetchEvents,
   fetchLatestPositions,
   fetchLatestPositionsWithFallback,
   fetchPositions,
@@ -531,7 +531,7 @@ async function handleEventsReport(req, res, next) {
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
 
-    const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
+    const events = await fetchEvents(deviceIdsToQuery, from, to, limit);
     const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
     const positionMap = new Map(positions.map((position) => [position.id, position]));
