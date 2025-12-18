@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { traccarProxy } from "./traccar.js";
+import { isTraccarAvailable, isTraccarConfigured, traccarProxy } from "./traccar.js";
 
 const caches = {
   devices: new Map(),
@@ -7,6 +7,7 @@ const caches = {
   drivers: new Map(),
   geofences: new Map(),
 };
+let warnedUnavailable = false;
 
 const syncState = {
   lastRunAt: null,
@@ -60,15 +61,46 @@ async function syncAllResources() {
 }
 
 export async function syncTraccarResources() {
+  if (!isTraccarConfigured()) {
+    console.warn("Traccar não configurado; sincronização ignorada.");
+    return [];
+  }
+  if (!isTraccarAvailable()) {
+    console.warn("Traccar indisponível; sincronização ignorada.");
+    return [];
+  }
   return syncAllResources();
 }
 
 export function startTraccarSyncJob() {
+  if (!isTraccarConfigured()) {
+    console.warn("Traccar não configurado; sincronização automática desativada.");
+    return () => {};
+  }
+
+  if (!isTraccarAvailable()) {
+    console.warn("Traccar indisponível; sincronização automática não será iniciada agora.");
+    return () => {};
+  }
+
   const intervalMs = Number(config.traccar.syncIntervalMs || 300_000);
   let timer = null;
 
   async function run() {
     syncState.lastRunAt = new Date().toISOString();
+    if (!isTraccarAvailable()) {
+      if (!warnedUnavailable) {
+        console.warn("Traccar indisponível; aguardando para retomar a sincronização automática.");
+        warnedUnavailable = true;
+      }
+      syncState.lastError = {
+        at: syncState.lastRunAt,
+        resources: [{ key: "traccar", error: "Serviço indisponível" }],
+      };
+      return;
+    }
+
+    warnedUnavailable = false;
 
     const results = await syncAllResources();
 

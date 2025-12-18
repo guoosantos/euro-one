@@ -7,6 +7,8 @@ let loaded = false;
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const envSearchPaths = [
   resolve(process.cwd(), ".env"),
+  resolve(process.cwd(), "..", ".env"),
+  resolve(moduleDir, "..", "..", ".env"),
   resolve(moduleDir, "..", ".env"),
   resolve(moduleDir, ".env"),
 ];

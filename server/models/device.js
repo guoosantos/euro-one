@@ -8,6 +8,14 @@ const STORAGE_KEY = "devices";
 const devices = new Map();
 const byUniqueId = new Map();
 const byTraccarId = new Map();
+const missingClients = new Set();
+const duplicateUniqueWarnings = new Set();
+
+function logOnce(target, key, message, payload) {
+  if (target.has(key)) return;
+  target.add(key);
+  console.warn(message, payload);
+}
 
 function buildDeviceConflictError(existing, uniqueId) {
   const error = createError(409, "Equipamento já existe no Euro One");
@@ -117,7 +125,25 @@ async function syncDeviceToPrisma(record) {
 
     const client = await prisma.client.findUnique({ where: { id: clientId } });
     if (!client) {
-      console.warn("[devices] cliente não encontrado para sincronizar", { clientId, uniqueId });
+      logOnce(missingClients, clientId, "[devices] cliente não encontrado para sincronizar", {
+        clientId,
+        uniqueId,
+      });
+      return;
+    }
+
+    const existing = await prisma.device.findFirst({
+      where: { uniqueId: { equals: uniqueId, mode: "insensitive" } },
+    });
+
+    if (existing && String(existing.clientId) !== clientId) {
+      const warningKey = `${uniqueId}:${clientId}:${existing.clientId}`;
+      logOnce(duplicateUniqueWarnings, warningKey, "[devices] uniqueId já associado a outro cliente, ignorando sync", {
+        clientId,
+        uniqueId,
+        existingClientId: existing.clientId,
+        existingId: existing.id,
+      });
       return;
     }
 
@@ -139,30 +165,38 @@ async function syncDeviceToPrisma(record) {
       }
     }
 
+    const payload = {
+      clientId,
+      name: record.name,
+      uniqueId,
+      modelId,
+      traccarId: record.traccarId ? String(record.traccarId) : null,
+      chipId: record.chipId ? String(record.chipId) : null,
+      vehicleId: record.vehicleId ? String(record.vehicleId) : null,
+      attributes: record.attributes || {},
+    };
+
+    if (existing) {
+      await prisma.device.update({
+        where: { id: existing.id },
+        data: {
+          ...payload,
+          updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
+        },
+      });
+      return;
+    }
+
     await prisma.device.upsert({
       where: { uniqueId },
       create: {
         id: record.id,
-        clientId,
-        name: record.name,
-        uniqueId,
-        modelId,
-        traccarId: record.traccarId ? String(record.traccarId) : null,
-        chipId: record.chipId ? String(record.chipId) : null,
-        vehicleId: record.vehicleId ? String(record.vehicleId) : null,
-        attributes: record.attributes || {},
+        ...payload,
         createdAt: record.createdAt ? new Date(record.createdAt) : new Date(),
         updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
       },
       update: {
-        clientId,
-        name: record.name,
-        uniqueId,
-        modelId,
-        traccarId: record.traccarId ? String(record.traccarId) : null,
-        chipId: record.chipId ? String(record.chipId) : null,
-        vehicleId: record.vehicleId ? String(record.vehicleId) : null,
-        attributes: record.attributes || {},
+        ...payload,
         updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
       },
     });
