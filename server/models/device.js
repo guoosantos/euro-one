@@ -96,25 +96,57 @@ export function findDeviceByTraccarId(traccarId) {
 
 export async function findDeviceByUniqueIdInDb(uniqueId, { clientId, matchAnyClient = false } = {}) {
   if (!isPrismaReady() || !uniqueId) return null;
-  return prisma.device.findFirst({
-    where: {
-      uniqueId: { equals: String(uniqueId), mode: "insensitive" },
-      ...(clientId && !matchAnyClient ? { clientId: String(clientId) } : {}),
-    },
-  });
+  try {
+    return await prisma.device.findFirst({
+      where: {
+        uniqueId: { equals: String(uniqueId), mode: "insensitive" },
+        ...(clientId && !matchAnyClient ? { clientId: String(clientId) } : {}),
+      },
+    });
+  } catch (error) {
+    console.warn("[devices] falha ao consultar dispositivo por uniqueId", error?.message || error);
+    return null;
+  }
 }
 
 async function syncDeviceToPrisma(record) {
-  if (!isPrismaReady() || !record?.id) return;
+  if (!isPrismaReady() || !record?.id || !record?.uniqueId) return;
   try {
+    const clientId = String(record.clientId);
+    const uniqueId = String(record.uniqueId);
+
+    const client = await prisma.client.findUnique({ where: { id: clientId } });
+    if (!client) {
+      console.warn("[devices] cliente não encontrado para sincronizar", { clientId, uniqueId });
+      return;
+    }
+
+    let modelId = record.modelId ? String(record.modelId) : null;
+    if (modelId) {
+      try {
+        const model = await prisma.model.findUnique({ where: { id: modelId } });
+        if (!model || (model.clientId && String(model.clientId) !== clientId)) {
+          console.warn("[devices] modelo inexistente ou de outro cliente; removendo referência", {
+            modelId,
+            clientId,
+            uniqueId,
+          });
+          modelId = null;
+        }
+      } catch (modelError) {
+        console.warn("[devices] falha ao validar modelo antes do sync", modelError?.message || modelError);
+        modelId = null;
+      }
+    }
+
     await prisma.device.upsert({
-      where: { id: record.id },
+      where: { uniqueId },
       create: {
         id: record.id,
-        clientId: String(record.clientId),
+        clientId,
         name: record.name,
-        uniqueId: record.uniqueId,
-        modelId: record.modelId ? String(record.modelId) : null,
+        uniqueId,
+        modelId,
         traccarId: record.traccarId ? String(record.traccarId) : null,
         chipId: record.chipId ? String(record.chipId) : null,
         vehicleId: record.vehicleId ? String(record.vehicleId) : null,
@@ -123,10 +155,10 @@ async function syncDeviceToPrisma(record) {
         updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
       },
       update: {
-        clientId: String(record.clientId),
+        clientId,
         name: record.name,
-        uniqueId: record.uniqueId,
-        modelId: record.modelId ? String(record.modelId) : null,
+        uniqueId,
+        modelId,
         traccarId: record.traccarId ? String(record.traccarId) : null,
         chipId: record.chipId ? String(record.chipId) : null,
         vehicleId: record.vehicleId ? String(record.vehicleId) : null,
@@ -293,12 +325,17 @@ export function clearDeviceVehicle(deviceId) {
 
 export async function findDeviceByTraccarIdInDb(traccarId, { clientId } = {}) {
   if (traccarId === null || traccarId === undefined) return null;
-  return prisma.device.findFirst({
-    where: {
-      traccarId: String(traccarId),
-      ...(clientId ? { clientId: String(clientId) } : {}),
-    },
-  });
+  try {
+    return await prisma.device.findFirst({
+      where: {
+        traccarId: String(traccarId),
+        ...(clientId ? { clientId: String(clientId) } : {}),
+      },
+    });
+  } catch (error) {
+    console.warn("[devices] falha ao consultar dispositivo por traccarId", error?.message || error);
+    return null;
+  }
 }
 
 export async function listDevicesFromDb({ clientId } = {}) {
