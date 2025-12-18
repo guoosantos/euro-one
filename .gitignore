@@ -32,3 +32,4 @@ Thumbs.db
 
 # PM2
 .pids
+server/data/storage.json
