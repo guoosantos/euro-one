@@ -21,8 +21,6 @@ logs/
 .env.development
 .env.production
 .env.test
-server/.env
-client/.env
 
 # VSCode / editor
 .vscode/

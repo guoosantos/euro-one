@@ -23,10 +23,11 @@ model Client {
   groups   Group[]
   models   Model[]
   prefs    UserPreference[]
-
-  routes         Route[]
-  geofences      Geofence[]
+  geofences Geofence[]
   geofenceGroups GeofenceGroup[]
+
+  routes   Route[]
+
 }
 
 model User {
@@ -165,8 +166,35 @@ model Geofence {
 
   client Client         @relation(fields: [clientId], references: [id])
   group  GeofenceGroup? @relation(fields: [groupId], references: [id])
+}
 
-  @@map("geofence")
+model Route {
+  id          String   @id @default(uuid())
+  clientId    String
+  name        String
+  description String?
+  color       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client Client       @relation(fields: [clientId], references: [id])
+  points RoutePoint[]
+
+  @@index([clientId])
+}
+
+model RoutePoint {
+  id        String   @id @default(uuid())
+  routeId   String
+  latitude  Float
+  longitude Float
+  order     Int
+  createdAt DateTime @default(now())
+
+  route Route @relation(fields: [routeId], references: [id])
+
+  @@index([routeId])
+  @@unique([routeId, order])
 }
 
 model CrmClient {
@@ -314,51 +342,17 @@ model TaskTemplate {
   updatedAt   DateTime @updatedAt
 }
 
-model Route {
-  id          String   @id @default(uuid())
-  clientId    String
-  name        String
-  description String?
-  color       String?
-  mode        String   @default("car")
-  metadata    Json     @default("{}")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 
-  client Client       @relation(fields: [clientId], references: [id])
-  points RoutePoint[]
-
-  @@index([clientId], map: "route_clientId_idx")
-  @@map("route")
-}
-
-model RoutePoint {
-  id        String   @id @default(uuid())
-  routeId   String
-  latitude  Float
-  longitude Float
-  order     Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  route Route @relation(fields: [routeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@unique([routeId, order], map: "route_point_routeId_order_key")
-  @@index([routeId], map: "route_point_routeId_idx")
-  @@map("route_point")
-}
 
 model GeofenceGroup {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   clientId    String
   name        String
   color       String?
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   client    Client     @relation(fields: [clientId], references: [id])
   geofences Geofence[]
-
-  @@map("geofence_group")
 }

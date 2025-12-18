@@ -7,13 +7,6 @@ import prisma from "../services/prisma.js";
 
 const STORAGE_KEY = "routes";
 const routes = new Map();
-const missingClients = new Set();
-
-function logOnce(target, key, message, payload) {
-  if (target.has(key)) return;
-  target.add(key);
-  console.warn(message, payload);
-}
 
 function isPrismaReady() {
   return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
@@ -39,11 +32,6 @@ function normalisePoint(point) {
 function normalisePoints(points) {
   if (!Array.isArray(points)) return [];
   return points.map(normalisePoint).filter(Boolean);
-}
-
-function isRoutePointsRelationError(error) {
-  const message = error?.message || "";
-  return message.includes("Unknown field `points`") || message.includes("Unknown field 'points'") || message.includes("points` for include");
 }
 
 function persist(record, { skipSync = false } = {}) {
@@ -92,15 +80,6 @@ async function syncRouteToPrisma(record) {
   };
 
   try {
-    const client = await prisma.client.findUnique({ where: { id: data.clientId } });
-    if (!client) {
-      logOnce(missingClients, data.clientId, "[routes] cliente não encontrado para sincronizar rota", {
-        routeId: record.id,
-        clientId: data.clientId,
-      });
-      return;
-    }
-
     await prisma.$transaction([
       prisma.route.upsert({
         where: { id: record.id },
@@ -132,41 +111,20 @@ async function syncRouteToPrisma(record) {
 async function hydrateFromPrisma() {
   if (!isPrismaReady()) return;
   try {
-    let dbRoutes = [];
-    let pointsByRouteId = new Map();
-
-    try {
-      dbRoutes = await prisma.route.findMany({
-        include: { points: true },
-      });
-    } catch (error) {
-      if (!isRoutePointsRelationError(error)) {
-        throw error;
-      }
-      console.warn("[routes] relação de pontos indisponível, buscando tabela route_point diretamente", error?.message || error);
-      dbRoutes = await prisma.route.findMany();
-      const routePoints = await prisma.routePoint.findMany();
-      pointsByRouteId = routePoints.reduce((acc, point) => {
-        const routeId = String(point.routeId);
-        const list = acc.get(routeId) || [];
-        list.push(point);
-        acc.set(routeId, list);
-        return acc;
-      }, new Map());
-    }
-
+    const dbRoutes = await prisma.route.findMany({
+      include: { points: true },
+    });
     dbRoutes.forEach((route) => {
       if (!route?.id) return;
-      const routePoints = (route.points || pointsByRouteId.get(String(route.id)) || []).sort(
-        (a, b) => (a.order ?? 0) - (b.order ?? 0),
-      );
       const normalised = {
         id: String(route.id),
         clientId: String(route.clientId),
         name: route.name,
         mode: route.mode || "car",
         metadata: route.metadata || {},
-        points: routePoints.map((point) => [point.latitude, point.longitude]),
+        points: (route.points || [])
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map((point) => [point.latitude, point.longitude]),
         createdAt: route.createdAt ? new Date(route.createdAt).toISOString() : new Date().toISOString(),
         updatedAt: route.updatedAt ? new Date(route.updatedAt).toISOString() : new Date().toISOString(),
       };
@@ -250,3 +208,4 @@ export async function updateRoute(id, updates = {}) {
   void syncRouteToPrisma(stored);
   return stored;
 }
+
