@@ -6,6 +6,9 @@ function ensurePrisma() {
   if (!prisma) {
     throw createError(503, "Banco de dados indisponível");
   }
+  if (!prisma.geofence) {
+    throw createError(503, "Prisma Client sem o modelo Geofence. Rode prisma generate e redeploy.");
+  }
 }
 
 function clampCoordinate(value, min, max) {

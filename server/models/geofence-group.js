@@ -3,12 +3,20 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
+import prisma from "../services/prisma.js";
 
 const GROUP_STORAGE_KEY = "geofenceGroups";
 const ASSIGNMENT_STORAGE_KEY = "geofenceGroupAssignments";
 
 const geofenceGroups = new Map();
 const assignments = new Map();
+
+function ensurePrismaGroupModel() {
+  if (!prisma) return;
+  if (!prisma.geofenceGroup) {
+    throw createError(503, "Prisma Client sem o modelo GeofenceGroup. Rode prisma generate e redeploy.");
+  }
+}
 
 function clone(record) {
   return record ? { ...record, geofenceIds: record.geofenceIds ? [...record.geofenceIds] : undefined } : null;
@@ -77,12 +85,14 @@ function attachGeofences(group) {
 }
 
 export function listGeofenceGroups({ clientId, includeGeofences = false } = {}) {
+  ensurePrismaGroupModel();
   const collection = filterGroupsByClient(Array.from(geofenceGroups.values()), clientId);
   const groups = includeGeofences ? collection.map((item) => attachGeofences(item)) : collection;
   return groups.map((item) => clone(item) || item);
 }
 
 export function getGeofenceGroupById(id, { includeGeofences = false } = {}) {
+  ensurePrismaGroupModel();
   const record = geofenceGroups.get(String(id));
   if (!record) return null;
   return clone(includeGeofences ? attachGeofences(record) : record);
@@ -97,6 +107,7 @@ export function getGroupIdsForGeofence(geofenceId, { clientId } = {}) {
 }
 
 export function createGeofenceGroup({ name, clientId, color = null, description = null }) {
+  ensurePrismaGroupModel();
   if (!name) {
     throw createError(400, "Nome é obrigatório");
   }
@@ -120,6 +131,7 @@ export function createGeofenceGroup({ name, clientId, color = null, description 
 }
 
 export function updateGeofenceGroup(id, updates = {}) {
+  ensurePrismaGroupModel();
   const record = geofenceGroups.get(String(id));
   if (!record) {
     throw createError(404, "Grupo de geofence não encontrado");
@@ -147,6 +159,7 @@ export function updateGeofenceGroup(id, updates = {}) {
 }
 
 export function deleteGeofenceGroup(id) {
+  ensurePrismaGroupModel();
   const record = geofenceGroups.get(String(id));
   if (!record) {
     throw createError(404, "Grupo de geofence não encontrado");
@@ -183,6 +196,7 @@ export function deleteGeofenceGroupsByClientId(clientId) {
 }
 
 export function setGeofencesForGroup(groupId, geofenceIds = [], { clientId } = {}) {
+  ensurePrismaGroupModel();
   const record = geofenceGroups.get(String(groupId));
   if (!record) {
     throw createError(404, "Grupo de geofence não encontrado");
@@ -215,4 +229,3 @@ export function setGeofencesForGroup(groupId, geofenceIds = [], { clientId } = {
   syncStorage();
   return attachGeofences(record);
 }
-
