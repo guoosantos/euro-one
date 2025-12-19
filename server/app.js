@@ -29,6 +29,7 @@ import routeRoutes from "./routes/route.js";
 import proxyRoutes from "./routes/proxy.js";
 import itineraryRoutes from "./routes/itineraries.js";
 import euroRoutes from "./routes/euro-routes.js";
+import trackerMappingRoutes from "./routes/tracker-mappings.js";
 
 
 
@@ -99,6 +100,7 @@ app.use("/api", exportRoutes);
 app.use("/api", preferencesRoutes);
 app.use("/api", mediaRoutes);
 app.use("/api", traccarDbRoutes);
+app.use("/api", trackerMappingRoutes);
 app.use("/api", geocodeRoutes);
 app.use("/api", proxyRoutes);
 app.use("/api", itineraryRoutes);

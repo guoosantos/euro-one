@@ -361,6 +361,7 @@ export default function Geofences() {
   const [colorSeed, setColorSeed] = useState(0);
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
+  const [searchMarker, setSearchMarker] = useState(null);
 
   const {
     geofences: remoteGeofences,
@@ -703,6 +704,7 @@ export default function Geofences() {
       const best = await searchRegion(searchQuery);
       if (best?.lat && best?.lng) {
         flyTo(best.lat, best.lng, best.boundingBox);
+        setSearchMarker([best.lat, best.lng]);
         clearSuggestions();
       }
     },
@@ -713,6 +715,7 @@ export default function Geofences() {
     (item) => {
       setSearchQuery(item.concise || item.label || "");
       flyTo(item.lat, item.lng, item.boundingBox);
+      setSearchMarker([item.lat, item.lng]);
       clearSuggestions();
     },
     [clearSuggestions, flyTo],
@@ -894,6 +897,14 @@ export default function Geofences() {
               radius={draftRadius}
               pathOptions={{ color: "#38bdf8", dashArray: "8 6", weight: 2, fillOpacity: 0.08 }}
             />
+          )}
+
+          {searchMarker && (
+            <Marker position={searchMarker}>
+              <Tooltip direction="top" sticky>
+                Endereço encontrado
+              </Tooltip>
+            </Marker>
           )}
 
           {selectedGeofence && (

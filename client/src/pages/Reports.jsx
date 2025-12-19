@@ -1,30 +1,67 @@
-import React, { useMemo, useState } from "react";
-import useDevices from "../lib/hooks/useDevices";
+import React, { useEffect, useState } from "react";
+import { CoreApi } from "../lib/coreApi";
 import { useReports } from "../lib/hooks/useReports";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 export default function Reports() {
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const { tenantId } = useTenant();
+  const [vehicles, setVehicles] = useState([]);
+  const [loadingVehicles, setLoadingVehicles] = useState(false);
+  const [vehiclesError, setVehiclesError] = useState(null);
   const { data, loading, error, generateTripsReport, downloadTripsCsv } = useReports();
 
-  const [deviceId, setDeviceId] = useState("");
+  const [vehicleIds, setVehicleIds] = useState([]);
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
   const [downloading, setDownloading] = useState(false);
 
+  useEffect(() => {
+    if (!vehicleIds.length && vehicles.length === 1) {
+      setVehicleIds([vehicles[0].id]);
+    }
+  }, [vehicleIds.length, vehicles]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadVehicles() {
+      setLoadingVehicles(true);
+      setVehiclesError(null);
+      try {
+        const response = await CoreApi.listVehicles(tenantId ? { clientId: tenantId } : undefined);
+        if (cancelled) return;
+        const list = Array.isArray(response) ? response : [];
+        const withTracker = list.filter((vehicle) => (vehicle.deviceCount || vehicle.devices?.length || vehicle.device ? 1 : 0));
+        setVehicles(withTracker);
+      } catch (requestError) {
+        if (!cancelled) {
+          setVehiclesError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingVehicles(false);
+        }
+      }
+    }
+
+    loadVehicles();
+    return () => {
+      cancelled = true;
+    };
+  }, [tenantId]);
+
   async function handleGenerate(event) {
     event.preventDefault();
     setFeedback(null);
-    const validationMessage = validateFields({ deviceId, from, to });
+    const validationMessage = validateFields({ vehicleIds, from, to });
     if (validationMessage) {
       setFormError(validationMessage);
       return;
     }
     setFormError("");
     try {
-      await generateTripsReport({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      await generateTripsReport({ vehicleIds, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
       setFeedback({ type: "success", message: "Relatório criado com sucesso." });
     } catch (requestError) {
       setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
@@ -32,7 +69,7 @@ export default function Reports() {
   }
 
   async function handleDownload() {
-    const validationMessage = validateFields({ deviceId, from, to });
+    const validationMessage = validateFields({ vehicleIds, from, to });
     if (validationMessage) {
       setFormError(validationMessage);
       return;
@@ -40,7 +77,7 @@ export default function Reports() {
     setFormError("");
     setDownloading(true);
     try {
-      await downloadTripsCsv({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      await downloadTripsCsv({ vehicleIds, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
       setFeedback({ type: "success", message: "Exportação iniciada com sucesso." });
     } catch (requestError) {
       setFeedback({ type: "error", message: requestError?.message ?? "Erro ao exportar CSV." });
@@ -62,22 +99,27 @@ export default function Reports() {
 
         <form onSubmit={handleGenerate} className="grid gap-4 md:grid-cols-4">
           <label className="text-sm md:col-span-2">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Veículo</span>
+            <span className="block text-xs uppercase tracking-wide opacity-60">Veículos</span>
             <select
+              multiple
               required
-              value={deviceId}
-              onChange={(event) => setDeviceId(event.target.value)}
+              value={vehicleIds}
+              onChange={(event) =>
+                setVehicleIds(Array.from(event.target.selectedOptions).map((option) => option.value).filter(Boolean))
+              }
               className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
             >
-              <option value="" disabled>
-                Selecione um dispositivo
-              </option>
-              {devices.map((device) => (
-                <option key={device.id ?? device.deviceId ?? device.uniqueId} value={device.id ?? device.deviceId ?? device.uniqueId}>
-                  {device.name ?? device.uniqueId ?? device.id}
+              {vehicles.map((vehicle) => (
+                <option key={vehicle.id} value={vehicle.id}>
+                  {vehicle.plate || vehicle.name || vehicle.id}
                 </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-white/60">Segure Ctrl ou Cmd para selecionar mais de um veículo.</p>
+            {loadingVehicles && <p className="mt-1 text-xs text-white/60">Carregando veículos…</p>}
+            {vehiclesError && (
+              <p className="mt-1 text-xs text-red-300">{vehiclesError.message || "Erro ao carregar veículos"}</p>
+            )}
           </label>
 
           <label className="text-sm">
@@ -103,7 +145,7 @@ export default function Reports() {
           <div className="flex items-center gap-2 md:col-span-4">
             <button
               type="submit"
-              disabled={loading || !deviceId}
+              disabled={loading || loadingVehicles || !vehicleIds.length}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
             >
               {loading ? "Gerando…" : "Gerar relatório"}
@@ -111,7 +153,7 @@ export default function Reports() {
             <button
               type="button"
               onClick={handleDownload}
-              disabled={loading || downloading || !deviceId}
+              disabled={loading || downloading || loadingVehicles || !vehicleIds.length}
               className="rounded-lg border border-border px-4 py-2 text-sm font-medium hover:bg-white/10 disabled:opacity-60"
             >
               {downloading ? "Preparando…" : "Exportar CSV"}
@@ -196,8 +238,8 @@ function formatDate(value) {
   }
 }
 
-function validateFields({ deviceId, from, to }) {
-  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+function validateFields({ vehicleIds, from, to }) {
+  if (!Array.isArray(vehicleIds) || vehicleIds.length === 0) return "Selecione pelo menos um veículo para gerar o relatório.";
   if (!from || !to) return "Preencha as datas de início e fim.";
   const fromDate = new Date(from);
   const toDate = new Date(to);

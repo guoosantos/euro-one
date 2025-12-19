@@ -204,6 +204,7 @@ export default function Sidebar() {
 
   const adminLinks = [
     ...(canManageUsers ? [clientLink, userLink] : []),
+    ...(role === "admin" ? [{ to: "/tracker-management", label: "Gerenciar rastreador", icon: Cpu }] : []),
   ];
 
   const euroCanLinks = [

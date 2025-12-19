@@ -15,6 +15,7 @@ import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
+import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import prisma from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -60,6 +61,7 @@ const defaultDeps = {
   fetchLatestPositionsWithFallback: traccarDbService.fetchLatestPositionsWithFallback,
   fetchDevicesMetadata: traccarDbService.fetchDevicesMetadata,
   isTraccarDbConfigured: traccarDbService.isTraccarDbConfigured,
+  listTelemetryFieldMappings,
   ensureTraccarRegistryConsistency,
   getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
   enrichPositionsWithAddresses: addressUtils.enrichPositionsWithAddresses,
@@ -78,6 +80,26 @@ function normaliseList(payload, keys = []) {
     if (Array.isArray(payload?.[key])) return payload[key];
   }
   return [];
+}
+
+function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
+  const protocolKey = protocol ? String(protocol).toLowerCase() : null;
+  return mappings.filter((mapping) => {
+    const deviceMatches = !mapping.deviceId || String(mapping.deviceId) === String(deviceId);
+    const protocolMatches =
+      !mapping.protocol || !protocolKey || String(mapping.protocol).toLowerCase() === protocolKey;
+    return deviceMatches && protocolMatches;
+  });
+}
+
+function buildMappedAttributes(rawAttributes = {}, mappings = []) {
+  if (!rawAttributes || typeof rawAttributes !== "object") return {};
+  const result = {};
+  mappings.forEach((mapping) => {
+    if (!Object.prototype.hasOwnProperty.call(rawAttributes, mapping.key)) return;
+    result[mapping.label] = rawAttributes[mapping.key];
+  });
+  return result;
 }
 
 export function filterValidPositionIds(positionIds) {
@@ -215,6 +237,22 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
   });
 }
 
+function normaliseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1" || value === "true" || value === "on") return true;
+  if (value === 0 || value === "0" || value === "false" || value === "off") return false;
+  return null;
+}
+
+function pickNumber(...candidates) {
+  for (const value of candidates) {
+    if (value === null || value === undefined) continue;
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
   const attrs = position.attributes || {};
@@ -225,25 +263,47 @@ function normaliseTelemetryPosition(position) {
       : rawAddress
       ? { formatted: rawAddress }
       : null;
+
+  const altitude = position.altitude ?? attrs.altitude ?? null;
+  const speed = pickNumber(position.speed, attrs.speed);
+  const course = pickNumber(position.course, attrs.course);
+  const accuracy = pickNumber(position.accuracy, attrs.accuracy, attrs.precision);
+  const timestamp = position.serverTime || position.deviceTime || position.fixTime || attrs.timestamp || null;
+  const serverTime = position.serverTime || attrs.serverTime || null;
+  const deviceTime = position.deviceTime || attrs.deviceTime || null;
+  const fixTime = position.fixTime || attrs.fixTime || attrs.time || null;
+
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
-    latitude: position.latitude ?? null,
-    longitude: position.longitude ?? null,
-    speed: position.speed ?? null,
-    course: position.course ?? null,
-    timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
-    serverTime: position.serverTime || null,
-    deviceTime: position.deviceTime || null,
-    fixTime: position.fixTime || null,
-    altitude: position.altitude ?? null,
-    accuracy: position.accuracy ?? null,
-    valid: position.valid ?? null,
+    latitude: position.latitude ?? attrs.latitude ?? attrs.lat ?? null,
+    longitude: position.longitude ?? attrs.longitude ?? attrs.lon ?? attrs.lng ?? null,
+    speed,
+    course,
+    timestamp,
+    serverTime,
+    deviceTime,
+    fixTime,
+    altitude,
+    accuracy,
+    valid: position.valid ?? attrs.valid ?? null,
     protocol: position.protocol || attrs.protocol || null,
     network: position.network || null,
     address: resolvedAddress || { formatted: "Endereço não disponível" },
 
-    attributes: position.attributes || {},
+    ignition: normaliseBoolean(attrs.ignition),
+    batteryLevel: pickNumber(attrs.batteryLevel, attrs.battery, attrs.battery_level),
+    rssi: pickNumber(attrs.rssi, attrs.signal),
+    charge: normaliseBoolean(attrs.charge),
+    blocked: normaliseBoolean(attrs.blocked ?? attrs.block),
+    adc1: pickNumber(attrs.adc1, attrs.analog1),
+    totalDistance: pickNumber(position.totalDistance, attrs.totalDistance, attrs.odometer, attrs.distanceTotal),
+    hours: pickNumber(attrs.hours, attrs.engineHours),
+    motion: normaliseBoolean(attrs.motion),
+    status: attrs.status ?? position.status ?? null,
+    type: position.type || attrs.type || null,
 
+    attributes: position.attributes || {},
+    rawAttributes: position.attributes || {},
   };
 }
 
@@ -448,21 +508,53 @@ function buildChipResponse(chip, { deviceMap, vehicleMap }) {
   };
 }
 
+function selectPrincipalDevice(devices = [], traccarById = new Map()) {
+  let selected = null;
+  let latest = -Infinity;
+
+  devices.forEach((device) => {
+    const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
+    const referenceTime =
+      traccarDevice?.lastUpdate || device?.lastUpdate || device?.updatedAt || device?.createdAt || Date.now();
+    const timestamp = new Date(referenceTime).getTime();
+    if (!Number.isFinite(timestamp)) return;
+    if (!selected || timestamp > latest) {
+      selected = device;
+      latest = timestamp;
+    }
+  });
+
+  return selected || devices[0] || null;
+}
+
 function buildVehicleResponse(vehicle, context) {
   const { deviceMap, traccarById } = context;
-  const device = vehicle.deviceId ? deviceMap.get(vehicle.deviceId) : null;
-  const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
+  const linkedDevices = Array.from(deviceMap.values()).filter(
+    (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
+  );
+
+  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById);
+  const traccarDevice = principalDevice?.traccarId ? traccarById.get(String(principalDevice.traccarId)) : null;
   const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
+
   return {
     ...vehicle,
-    device: device
+    device: principalDevice
       ? {
-          id: device.id,
-          uniqueId: device.uniqueId,
-          name: device.name,
-          traccarId: device.traccarId ? String(device.traccarId) : null,
+          id: principalDevice.id,
+          uniqueId: principalDevice.uniqueId,
+          name: principalDevice.name,
+          traccarId: principalDevice.traccarId ? String(principalDevice.traccarId) : null,
         }
       : null,
+    devices: linkedDevices.map((item) => ({
+      id: item.id,
+      uniqueId: item.uniqueId,
+      name: item.name,
+      traccarId: item.traccarId ? String(item.traccarId) : null,
+      vehicleId: item.vehicleId || null,
+    })),
+    deviceCount: linkedDevices.length,
     connectionStatus,
     connectionStatusLabel,
     lastCommunication,
@@ -526,13 +618,6 @@ function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
   const device = deps.getDeviceById(deviceId);
   ensureSameClient(device, clientId, "Equipamento não encontrado");
 
-  if (vehicle.deviceId && vehicle.deviceId !== device.id) {
-    const previousDevice = deps.getDeviceById(vehicle.deviceId);
-    if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
-      deps.updateDevice(previousDevice.id, { vehicleId: null });
-    }
-  }
-
   if (device.vehicleId && device.vehicleId !== vehicle.id) {
     const previousVehicle = deps.getVehicleById(device.vehicleId);
     if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
@@ -547,12 +632,12 @@ function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
 function detachVehicle(clientId, vehicleId) {
   const vehicle = deps.getVehicleById(vehicleId);
   ensureSameClient(vehicle, clientId, "Veículo não encontrado");
-  if (vehicle.deviceId) {
-    const device = deps.getDeviceById(vehicle.deviceId);
-    if (device && String(device.clientId) === String(clientId)) {
-      deps.updateDevice(device.id, { vehicleId: null });
-    }
-  }
+
+  const devices = deps.listDevices({ clientId });
+  devices
+    .filter((device) => device.vehicleId === vehicle.id)
+    .forEach((device) => deps.updateDevice(device.id, { vehicleId: null }));
+
   deps.updateVehicle(vehicle.id, { deviceId: null });
 }
 
@@ -770,11 +855,16 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
     const prismaFilter = clientId ? { clientId: String(clientId) } : {};
     let devices = [];
+    let vehicleMap = new Map();
+    let clientMap = new Map();
 
     if (isPrismaReady()) {
       try {
         // 🔄 atualizado: buscar devices direto do Postgres
-        devices = await prisma.device.findMany({ where: prismaFilter });
+        devices = await prisma.device.findMany({
+          where: prismaFilter,
+          include: { vehicle: true, client: true },
+        });
       } catch (prismaError) {
         logTelemetryWarning("devices-db", prismaError);
       }
@@ -782,6 +872,33 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
     if (!devices.length) {
       devices = deps.listDevices({ clientId });
+    }
+
+    if (isPrismaReady()) {
+      try {
+        const vehicleIds = devices.map((device) => device?.vehicleId).filter(Boolean);
+        if (vehicleIds.length) {
+          const vehicles = await prisma.vehicle.findMany({ where: { id: { in: Array.from(new Set(vehicleIds)) } } });
+          vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
+        }
+
+        const clientIds = devices.map((device) => device?.clientId).filter(Boolean);
+        if (clientIds.length) {
+          const clients = await prisma.client.findMany({ where: { id: { in: Array.from(new Set(clientIds)) } } });
+          clientMap = new Map(clients.map((client) => [client.id, client]));
+        }
+      } catch (mapError) {
+        logTelemetryWarning("devices-metadata", mapError);
+      }
+    }
+
+    let telemetryMappings = [];
+    if (deps.listTelemetryFieldMappings) {
+      try {
+        telemetryMappings = await deps.listTelemetryFieldMappings({ clientId });
+      } catch (mappingError) {
+        logTelemetryWarning("tracker-mappings", mappingError);
+      }
     }
 
     const allowedDeviceIds = devices
@@ -828,7 +945,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const devicesByTraccarId = new Map(
       devices
         .filter((device) => device?.traccarId != null)
-        .map((device) => [String(device.traccarId), device]),
+        .map((device) => {
+          const mergedVehicle = device.vehicle || vehicleMap.get(device.vehicleId) || null;
+          const mergedClient = device.client || clientMap.get(device.clientId) || null;
+          return [String(device.traccarId), { ...device, vehicle: mergedVehicle, client: mergedClient }];
+        }),
     );
 
     const telemetry = [];
@@ -877,8 +998,19 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
           })
         : null;
 
+      const attributesSource =
+        normalisedPosition?.rawAttributes || normalisedPosition?.attributes || position?.attributes || {};
+      const applicableMappings = filterMappingsForDevice(telemetryMappings, {
+        deviceId,
+        protocol: normalisedPosition?.protocol || deviceMetadata?.protocol,
+      });
+      const mappedAttributes = buildMappedAttributes(attributesSource, applicableMappings);
+      const positionWithMapping = normalisedPosition ? { ...normalisedPosition, mappedAttributes } : null;
+
       const deviceMetadata = metadataById.get(String(deviceId));
       const deviceMatch = devicesByTraccarId.get(String(deviceId));
+      const vehicle = deviceMatch?.vehicle || vehicleMap.get(deviceMatch?.vehicleId);
+      const client = deviceMatch?.client || clientMap.get(deviceMatch?.clientId);
 
       const device = {
         id: String(deviceId),
@@ -888,9 +1020,23 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
       };
 
-      if (normalisedPosition) {
-        telemetry.push({ device, position: normalisedPosition, lastEvent: null });
-      }
+      const telemetryEntry = {
+        vehicleId: vehicle?.id ?? deviceMatch?.vehicleId ?? null,
+        vehicleName: vehicle?.name ?? vehicle?.plate ?? null,
+        plate: vehicle?.plate ?? null,
+        clientId: client?.id ?? deviceMatch?.clientId ?? null,
+        clientName: client?.name ?? client?.companyName ?? null,
+        principalDeviceId: String(deviceId),
+        deviceId: String(deviceId),
+        traccarId: String(deviceId),
+        deviceName: device.name,
+        device,
+        position: positionWithMapping,
+        rawAttributes: attributesSource,
+        lastEvent: null,
+      };
+
+      telemetry.push(telemetryEntry);
     }
 
     if (typeof deps.traccarProxy === "function") {
