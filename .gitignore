@@ -34,3 +34,8 @@ Thumbs.db
 
 # PM2
 .pids
+
+# runtime / local storage
+server/data/storage.json
+server/data/storage.json.bak_*
+tatus
