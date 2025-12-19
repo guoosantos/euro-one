@@ -215,9 +215,26 @@ function respondBadRequest(res, message = "Parâmetros inválidos.") {
   });
 }
 
+const toBoolean = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalised = value.trim().toLowerCase();
+    if (["1", "true", "on", "yes"].includes(normalised)) return true;
+    if (["0", "false", "off", "no"].includes(normalised)) return false;
+  }
+  return null;
+};
+
+const toNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+};
+
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
-  const attrs = position.attributes || {};
+  const attrs = typeof position.attributes === "object" && position.attributes !== null ? position.attributes : {};
   const rawAddress = position.address;
   const resolvedAddress =
     rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)
@@ -225,11 +242,32 @@ function normaliseTelemetryPosition(position) {
       : rawAddress
       ? { formatted: rawAddress }
       : null;
+
+  const ignition = toBoolean(position.ignition ?? attrs.ignition ?? attrs.ign);
+  const blocked = toBoolean(position.blocked ?? attrs.blocked ?? attrs.immobilized ?? attrs.immobilizer);
+  const motion = toBoolean(position.motion ?? attrs.motion);
+  const charge = toNumber(position.charge ?? attrs.charge ?? attrs.charger ?? attrs.batteryCharge);
+  const batteryLevel = toNumber(position.batteryLevel ?? attrs.batteryLevel ?? attrs.battery ?? attrs.power);
+  const rssi = toNumber(position.rssi ?? attrs.rssi ?? attrs.signalStrength ?? attrs.signal);
+  const totalDistance = toNumber(
+    position.totalDistance ??
+      position.odometer ??
+      attrs.totalDistance ??
+      attrs.odometer ??
+      attrs.distance ??
+      attrs.mileage,
+  );
+  const distance = toNumber(position.distance ?? attrs.distance);
+  const hours = toNumber(position.hours ?? attrs.hours ?? attrs.engineHours ?? attrs.hourmeter);
+  const speed = toNumber(position.speed ?? attrs.speed);
+  const status = position.status ?? attrs.status ?? null;
+  const type = position.type ?? attrs.type ?? null;
+
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
     latitude: position.latitude ?? null,
     longitude: position.longitude ?? null,
-    speed: position.speed ?? null,
+    speed,
     course: position.course ?? null,
     timestamp: position.serverTime || position.deviceTime || position.fixTime || null,
     serverTime: position.serverTime || null,
@@ -242,7 +280,21 @@ function normaliseTelemetryPosition(position) {
     network: position.network || null,
     address: resolvedAddress || { formatted: "Endereço não disponível" },
 
-    attributes: position.attributes || {},
+    ignition,
+    batteryLevel,
+    rssi,
+    charge,
+    blocked,
+    distance,
+    totalDistance,
+    odometer: totalDistance,
+    hours,
+    motion,
+    status,
+    type,
+
+    attributes: attrs,
+    rawAttributes: attrs,
 
   };
 }
@@ -774,7 +826,13 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     if (isPrismaReady()) {
       try {
         // 🔄 atualizado: buscar devices direto do Postgres
-        devices = await prisma.device.findMany({ where: prismaFilter });
+        devices = await prisma.device.findMany({
+          where: prismaFilter,
+          include: {
+            vehicle: { include: { client: true } },
+            client: true,
+          },
+        });
       } catch (prismaError) {
         logTelemetryWarning("devices-db", prismaError);
       }
@@ -880,12 +938,38 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       const deviceMetadata = metadataById.get(String(deviceId));
       const deviceMatch = devicesByTraccarId.get(String(deviceId));
 
+      const vehicle = deviceMatch?.vehicle
+        ? {
+            id: String(deviceMatch.vehicle.id),
+            name: deviceMatch.vehicle.name || null,
+            plate: deviceMatch.vehicle.plate || null,
+            clientId: deviceMatch.vehicle.clientId ? String(deviceMatch.vehicle.clientId) : null,
+            client: deviceMatch.vehicle.client
+              ? { id: String(deviceMatch.vehicle.client.id), name: deviceMatch.vehicle.client.name }
+              : null,
+          }
+        : null;
+
+      const clientInfo = deviceMatch?.client
+        ? { id: String(deviceMatch.client.id), name: deviceMatch.client.name }
+        : vehicle?.client || null;
+
       const device = {
         id: String(deviceId),
+        traccarId: String(deviceId),
         name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || String(deviceId),
+        alias: deviceMatch?.alias || null,
         uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
         status: deviceMetadata?.status || "unknown",
         lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
+        plate: vehicle?.plate || deviceMatch?.plate || deviceMatch?.registrationNumber || null,
+        registrationNumber: vehicle?.plate || deviceMatch?.registrationNumber || null,
+        vehicleId: vehicle?.id || null,
+        vehicle: vehicle || undefined,
+        clientId: clientInfo?.id || deviceMatch?.clientId || deviceMatch?.client_id || null,
+        client: clientInfo?.name || null,
+        clientName: clientInfo?.name || null,
+        attributes: deviceMatch?.attributes || {},
       };
 
       if (normalisedPosition) {
