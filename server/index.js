@@ -93,7 +93,7 @@ async function bootstrap() {
       if (!deviceIds.length) return;
 
       // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
-      const positions = await fetchLatestPositionsWithFallback(deviceIds, clientId);
+      const positions = await fetchLatestPositionsWithFallback(deviceIds, null);
       const payload = JSON.stringify({
         type: "positions",
         data: normalisePositionMessage(positions),

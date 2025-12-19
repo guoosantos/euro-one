@@ -841,7 +841,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
 
 
-    let latestPositions = await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+    let latestPositions = await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
 
 
 

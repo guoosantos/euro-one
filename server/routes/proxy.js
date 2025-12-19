@@ -605,7 +605,7 @@ router.get("/telemetry", async (req, res) => {
 
 
 
-    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
 
 
     const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
@@ -678,7 +678,7 @@ router.get("/devices", async (req, res, next) => {
     const traccarIds = (devices.length ? devices : metadata)
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : device?.id != null ? String(device.id) : null))
       .filter(Boolean);
-    const latestPositions = traccarIds.length ? await fetchLatestPositionsWithFallback(traccarIds, clientId) : [];
+    const latestPositions = traccarIds.length ? await fetchLatestPositionsWithFallback(traccarIds, null) : [];
 
     const positionByDevice = new Map((latestPositions || []).map((position) => [String(position.deviceId), position]));
 
@@ -836,7 +836,7 @@ router.get("/positions/last", async (req, res) => {
       return respondDeviceNotFound(res);
     }
 
-    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, clientId);
+    const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
 
     const data = positions
       .map((position) => decoratePositionWithDevice(normalisePosition(position), lookup))
