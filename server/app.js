@@ -29,6 +29,7 @@ import routeRoutes from "./routes/route.js";
 import proxyRoutes from "./routes/proxy.js";
 import itineraryRoutes from "./routes/itineraries.js";
 import euroRoutes from "./routes/euro-routes.js";
+import xdmRoutes from "./routes/xdm.js";
 
 
 
@@ -103,6 +104,7 @@ app.use("/api", geocodeRoutes);
 app.use("/api", proxyRoutes);
 app.use("/api", itineraryRoutes);
 app.use("/api", euroRoutes);
+app.use("/api", xdmRoutes);
 
 app.use("/api", geofenceGroupRoutes);
 

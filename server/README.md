@@ -17,6 +17,12 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `TRACCAR_DB_NAME`: nome do banco Traccar.
 - `JWT_SECRET` / `JWT_EXPIRES_IN`: assinatura e expiração dos tokens.
 - `ALLOWED_ORIGINS`: lista separada por vírgulas de origens autorizadas no CORS.
+- **Integração XDM (geozones/configs de rastreadores):**
+  - `XDM_BASE_URL`: URL base do XDM (ex.: `https://xdm.suaempresa.com`).
+  - `XDM_API_TOKEN` ou `XDM_API_KEY`: credencial usada no header `Authorization` (Bearer por padrão).
+  - `XDM_TIMEOUT_MS`: timeout das chamadas ao XDM (padrão `10000`).
+  - `XDM_RETRY_ATTEMPTS`: número de tentativas ao chamar o XDM (padrão `2`).
+  - `XDM_RETRY_DELAY_MS`: intervalo inicial entre tentativas (padrão `300`).
 
 ## Diferença entre leitura via DB e escrita via API
 
