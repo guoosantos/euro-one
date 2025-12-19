@@ -228,7 +228,10 @@ export function TenantProvider({ children }) {
   }, [user, tenants]);
 
   const value = useMemo(() => {
-    const tenant = tenants.find((item) => item.id === tenantId) ?? tenants[0] ?? null;
+    const isAdmin = user?.role === "admin";
+    const tenant =
+      tenants.find((item) => item.id === tenantId) ??
+      (isAdmin && !tenantId ? { id: null, name: "Todos os clientes", segment: "Todas as frotas" } : tenants[0] ?? null);
     return {
       tenantId,
       setTenantId,
@@ -243,7 +246,7 @@ export function TenantProvider({ children }) {
       error,
       refreshClients,
       isAuthenticated: Boolean(token && user),
-      hasAdminAccess: user?.role === "admin",
+      hasAdminAccess: isAdmin,
       role: user?.role ?? "guest",
     };
   }, [tenantId, tenants, user, token, login, logout, loading, error, initialising, refreshClients]);

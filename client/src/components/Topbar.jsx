@@ -23,7 +23,7 @@ export function Topbar({ title }) {
   const theme = useUI((state) => state.theme);
   const toggleTheme = useUI((state) => state.toggleTheme);
   const setLocale = useUI((state) => state.setLocale);
-  const { tenantId, setTenantId, tenant, tenants } = useTenant();
+  const { tenantId, setTenantId, tenant, tenants, hasAdminAccess } = useTenant();
   const navigate = useNavigate();
   const { locale } = useTranslation();
 
@@ -33,6 +33,11 @@ export function Topbar({ title }) {
   const { data: devices = [] } = useDevices();
   const { data: positions = [] } = useLivePositions();
   const { events: recentEvents } = useEvents({ limit: 3 });
+
+  const tenantOptions = useMemo(
+    () => (hasAdminAccess ? [{ id: "", name: "Todos os clientes" }, ...tenants] : tenants),
+    [hasAdminAccess, tenants],
+  );
 
   const fleetIndex = useMemo(() => {
     const { rows } = buildFleetState(devices, positions, { tenantId });
@@ -141,11 +146,12 @@ export function Topbar({ title }) {
         <div className="flex items-center gap-2">
           <select
             value={tenantId ?? ""}
-            onChange={(event) => setTenantId(event.target.value)}
-            className="hidden h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none md:block"
+            onChange={(event) => setTenantId(event.target.value || null)}
+            disabled={!hasAdminAccess || tenantOptions.length <= 1}
+            className="hidden h-11 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white hover:border-primary/40 focus:border-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-60 md:block"
           >
-            {tenants.map((item) => (
-              <option key={item.id} value={item.id}>
+            {tenantOptions.map((item) => (
+              <option key={item.id ?? "all"} value={item.id ?? ""}>
                 {item.name}
               </option>
             ))}

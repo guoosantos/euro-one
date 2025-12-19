@@ -11,6 +11,10 @@ import {
 
 const FALLBACK = "—";
 
+function getAttributes(row) {
+  return row?.position?.rawAttributes || row?.position?.attributes || row?.device?.attributes || row?.rawAttributes || {};
+}
+
 export const TELEMETRY_COLUMNS = [
   {
     key: "vehicle",
@@ -22,25 +26,30 @@ export const TELEMETRY_COLUMNS = [
     key: "client",
     labelKey: "monitoring.columns.client",
     defaultVisible: false,
-    getValue: (row) =>
-      row.device?.client ||
-      row.device?.customer ||
-      row.device?.customerName ||
-      row.device?.attributes?.client ||
-      row.device?.attributes?.customer ||
-      FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return (
+        row.clientName ||
+        row.device?.client ||
+        row.device?.customer ||
+        row.device?.customerName ||
+        attributes.client ||
+        attributes.customer ||
+        FALLBACK
+      );
+    },
   },
   {
     key: "plate",
     labelKey: "monitoring.columns.plate",
     defaultVisible: true,
-    getValue: (row) => row.plate || row.vehicle?.plate || FALLBACK,
+    getValue: (row) => row.plate || row.vehicle?.plate || row.vehicleName || FALLBACK,
   },
   {
     key: "deviceId",
     labelKey: "monitoring.columns.deviceId",
     defaultVisible: true,
-    getValue: (row) => row.deviceId || row.traccarId || row.device?.traccarId || FALLBACK,
+    getValue: (row) => row.principalDeviceId || row.deviceId || row.traccarId || row.device?.traccarId || FALLBACK,
   },
   {
     key: "id",
@@ -52,7 +61,10 @@ export const TELEMETRY_COLUMNS = [
     key: "protocol",
     labelKey: "monitoring.columns.protocol",
     defaultVisible: true,
-    getValue: (row) => row.position?.protocol || row.device?.protocol || FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.protocol || row.device?.protocol || attributes.protocol || FALLBACK;
+    },
   },
   {
     key: "serverTime",
@@ -84,8 +96,10 @@ export const TELEMETRY_COLUMNS = [
     key: "lastEvent",
     labelKey: "monitoring.columns.lastEvent",
     defaultVisible: true,
-    getValue: (row) =>
-      row.lastEventName || row.lastEvent?.type || row.lastEvent?.attributes?.alarm || row.position?.type || FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.lastEventName || row.lastEvent?.type || row.lastEvent?.attributes?.alarm || row.position?.type || attributes.type || FALLBACK;
+    },
   },
   {
     key: "valid",
@@ -108,6 +122,8 @@ export const TELEMETRY_COLUMNS = [
         row.position?.latitude,
         row.position?.lat,
         row.position?.attributes?.latitude,
+        row.position?.rawAttributes?.latitude,
+        row.position?.rawAttributes?.lat,
       ]);
       return Number.isFinite(value) ? value.toFixed(5) : FALLBACK;
     },
@@ -123,6 +139,9 @@ export const TELEMETRY_COLUMNS = [
         row.position?.longitude,
         row.position?.lon,
         row.position?.attributes?.longitude,
+        row.position?.rawAttributes?.longitude,
+        row.position?.rawAttributes?.lon,
+        row.position?.rawAttributes?.lng,
       ]);
       return Number.isFinite(value) ? value.toFixed(5) : FALLBACK;
     },
@@ -131,7 +150,11 @@ export const TELEMETRY_COLUMNS = [
     key: "altitude",
     labelKey: "monitoring.columns.altitude",
     defaultVisible: false,
-    getValue: (row) => row.position?.altitude ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      const value = row.position?.altitude ?? attributes.altitude;
+      return value ?? FALLBACK;
+    },
   },
   {
     key: "speed",
@@ -146,7 +169,10 @@ export const TELEMETRY_COLUMNS = [
     key: "course",
     labelKey: "monitoring.columns.course",
     defaultVisible: false,
-    getValue: (row) => row.position?.course ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.course ?? attributes.course ?? FALLBACK;
+    },
   },
   {
     key: "address",
@@ -162,7 +188,10 @@ export const TELEMETRY_COLUMNS = [
     key: "accuracy",
     labelKey: "monitoring.columns.accuracy",
     defaultVisible: false,
-    getValue: (row) => row.position?.accuracy ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.accuracy ?? attributes.accuracy ?? FALLBACK;
+    },
   },
   {
     key: "geofenceIds",
@@ -182,10 +211,25 @@ export const TELEMETRY_COLUMNS = [
     },
   },
   {
+    key: "mappedAttributes",
+    labelKey: "monitoring.columns.customTelemetry",
+    defaultVisible: false,
+    getValue: (row) => {
+      const entries = Object.entries(row.position?.mappedAttributes || {});
+      if (!entries.length) return FALLBACK;
+      return entries
+        .map(([label, value]) => `${label}: ${value}`)
+        .join(" · ");
+    },
+  },
+  {
     key: "type",
     labelKey: "monitoring.columns.type",
     defaultVisible: false,
-    getValue: (row) => row.position?.type ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.type ?? attributes.type ?? FALLBACK;
+    },
   },
   {
     key: "status",
@@ -217,7 +261,10 @@ export const TELEMETRY_COLUMNS = [
     key: "charge",
     labelKey: "monitoring.columns.charge",
     defaultVisible: false,
-    getValue: (row) => row.position?.charge ?? row.position?.attributes?.charge ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.charge ?? attributes.charge ?? FALLBACK;
+    },
   },
   {
     key: "blocked",
@@ -226,14 +273,18 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row, helpers = {}) => {
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
-      return row.position?.blocked ? yes : no;
+      const attributes = getAttributes(row);
+      return row.position?.blocked || attributes.blocked ? yes : no;
     },
   },
   {
     key: "batteryLevel",
     labelKey: "monitoring.columns.batteryLevel",
     defaultVisible: false,
-    getValue: (row) => row.position?.batteryLevel ?? row.position?.attributes?.batteryLevel ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.batteryLevel ?? attributes.batteryLevel ?? attributes.battery ?? FALLBACK;
+    },
   },
   {
     key: "faceRecognition",
@@ -260,19 +311,28 @@ export const TELEMETRY_COLUMNS = [
     key: "rssi",
     labelKey: "monitoring.columns.rssi",
     defaultVisible: false,
-    getValue: (row) => row.position?.rssi ?? row.position?.attributes?.rssi ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.rssi ?? attributes.rssi ?? FALLBACK;
+    },
   },
   {
     key: "distance",
     labelKey: "monitoring.columns.distance",
     defaultVisible: false,
-    getValue: (row) => row.position?.distance ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.distance ?? attributes.distance ?? FALLBACK;
+    },
   },
   {
     key: "totalDistance",
     labelKey: "monitoring.columns.totalDistance",
     defaultVisible: false,
-    getValue: (row) => row.position?.totalDistance ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.totalDistance ?? attributes.totalDistance ?? attributes.odometer ?? FALLBACK;
+    },
   },
   {
     key: "motion",
@@ -281,14 +341,18 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row, helpers = {}) => {
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
-      return row.position?.motion ? yes : no;
+      const attributes = getAttributes(row);
+      return row.position?.motion || attributes.motion ? yes : no;
     },
   },
   {
     key: "hours",
     labelKey: "monitoring.columns.hours",
     defaultVisible: false,
-    getValue: (row) => row.position?.hours ?? row.position?.attributes?.hours ?? FALLBACK,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      return row.position?.hours ?? attributes.hours ?? FALLBACK;
+    },
   },
   {
     key: "notes",

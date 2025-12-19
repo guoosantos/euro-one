@@ -71,6 +71,12 @@ export const API_ROUTES = {
       summary: "traccar/reports/summary",
     },
   },
+  tracker: {
+    devices: "tracker/devices",
+    mappings: "tracker/mappings",
+    telemetryMappings: "tracker/mappings/telemetry",
+    eventMappings: "tracker/mappings/events",
+  },
 };
 
 export default API_ROUTES;

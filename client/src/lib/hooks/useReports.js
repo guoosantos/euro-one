@@ -46,12 +46,23 @@ export function useReports() {
     }
   }, [persistData]);
 
-  const generateTripsReport = useCallback(async ({ deviceId, from, to, type = "all" }) => {
+  const generateTripsReport = useCallback(async ({ deviceId, deviceIds, vehicleId, vehicleIds, from, to, type = "all" }) => {
     setLoading(true);
     setError(null);
     try {
-      if (!deviceId) {
-        const validationError = new Error("Selecione um dispositivo para gerar o relatório.");
+      const resolvedVehicleIds = Array.isArray(vehicleIds)
+        ? vehicleIds.filter(Boolean)
+        : vehicleId
+          ? [vehicleId]
+          : [];
+      const resolvedDeviceIds = Array.isArray(deviceIds)
+        ? deviceIds.filter(Boolean)
+        : deviceId
+          ? [deviceId]
+          : [];
+
+      if (!resolvedVehicleIds.length && !resolvedDeviceIds.length) {
+        const validationError = new Error("Selecione um veículo para gerar o relatório.");
         setError(validationError);
         throw validationError;
       }
@@ -60,7 +71,13 @@ export function useReports() {
         setError(validationError);
         throw validationError;
       }
-      const payload = { deviceId, from, to, type };
+      const payload = { from, to, type };
+      if (resolvedVehicleIds.length) {
+        payload.vehicleIds = resolvedVehicleIds.join(",");
+      }
+      if (resolvedDeviceIds.length) {
+        payload.deviceIds = resolvedDeviceIds.join(",");
+      }
 
       const { data: response, error } = await safeApi.get(API_ROUTES.traccar.reports.trips, { params: payload });
       if (error) {
@@ -84,14 +101,32 @@ export function useReports() {
     }
   }, [normalizeTrips, persistData]);
 
-  const downloadTripsCsv = useCallback(async ({ deviceId, from, to, type = "all" }) => {
-    if (!deviceId) {
-      throw new Error("Selecione um dispositivo para exportar o relatório.");
+  const downloadTripsCsv = useCallback(async ({ deviceId, deviceIds, vehicleId, vehicleIds, from, to, type = "all" }) => {
+    const resolvedVehicleIds = Array.isArray(vehicleIds)
+      ? vehicleIds.filter(Boolean)
+      : vehicleId
+        ? [vehicleId]
+        : [];
+    const resolvedDeviceIds = Array.isArray(deviceIds)
+      ? deviceIds.filter(Boolean)
+      : deviceId
+        ? [deviceId]
+        : [];
+
+    if (!resolvedVehicleIds.length && !resolvedDeviceIds.length) {
+      throw new Error("Selecione um veículo para exportar o relatório.");
     }
     if (!from || !to) {
       throw new Error("Informe as datas de início e fim para exportar o relatório.");
     }
-    const payload = { deviceId, from, to, type, format: "csv" };
+    const payload = { from, to, type, format: "csv" };
+    if (resolvedVehicleIds.length) {
+      payload.vehicleIds = resolvedVehicleIds.join(",");
+    }
+    if (resolvedDeviceIds.length) {
+      payload.deviceIds = resolvedDeviceIds.join(",");
+    }
+
     const response = await api.get(API_ROUTES.reports.trips, { params: payload, responseType: "blob" });
     if (typeof document === "undefined") {
       return response?.data ?? null;
@@ -102,7 +137,9 @@ export function useReports() {
     anchor.href = url;
     const fromLabel = new Date(from).toISOString();
     const toLabel = new Date(to).toISOString();
-    const fileDevice = String(deviceId || "device").replace(/[^a-zA-Z0-9-_]/g, "-");
+    const selectionLabel =
+      resolvedVehicleIds.join("-") || resolvedDeviceIds.join("-") || deviceId || vehicleId || "seleção";
+    const fileDevice = String(selectionLabel || "device").replace(/[^a-zA-Z0-9-_]/g, "-");
     const sanitize = (value) => String(value).replace(/[:\s]/g, "-").replace(/[^a-zA-Z0-9-_.]/g, "-");
     anchor.download = `trips-${fileDevice}-${sanitize(fromLabel)}-${sanitize(toLabel)}.csv`;
     anchor.click();

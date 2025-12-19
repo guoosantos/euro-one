@@ -362,3 +362,37 @@ model GeofenceGroup {
 
   @@map("geofence_group")
 }
+
+model TelemetryFieldMapping {
+  id        String   @id @default(uuid())
+  clientId  String
+  deviceId  String?
+  protocol  String?
+  key       String
+  label     String
+  dataType  String  @default("string")
+  unit      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
+  device Device? @relation(fields: [deviceId], references: [id])
+
+  @@unique([clientId, deviceId, protocol, key])
+}
+
+model EventMapping {
+  id        String   @id @default(uuid())
+  clientId  String
+  deviceId  String?
+  protocol  String?
+  eventKey  String
+  label     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
+  device Device? @relation(fields: [deviceId], references: [id])
+
+  @@unique([clientId, deviceId, protocol, eventKey])
+}

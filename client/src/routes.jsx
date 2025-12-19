@@ -54,6 +54,7 @@ import TaskForm from "./pages/TaskForm";
 import TaskDetails from "./pages/TaskDetails";
 import Crm from "./pages/Crm";
 import Itineraries from "./pages/Itineraries.jsx";
+import TrackerManagement from "./pages/TrackerManagement.jsx";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true, requireTenant: true },
@@ -84,6 +85,13 @@ export const routeConfig = [
   { path: "/geofences", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/cercas", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/itineraries", element: Itineraries, title: "Itinerários", requireTenant: true },
+  {
+    path: "/tracker-management",
+    element: TrackerManagement,
+    title: "Gerenciar rastreador",
+    requireTenant: true,
+    roles: ["admin"],
+  },
   { path: "/events", element: Events, title: "Eventos", requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true },
