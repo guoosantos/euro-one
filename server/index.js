@@ -9,9 +9,9 @@ async function bootstrap() {
 
   const [
     { default: app },
-    { describeTraccarMode, initializeTraccarAdminSession },
+    { initializeTraccarAdminSession },
     { startTraccarSyncJob },
-    { fetchLatestPositionsWithFallback, isTraccarDbConfigured },
+    { fetchLatestPositionsWithFallback },
     { listDevices },
     { config },
   ] = await Promise.all([
@@ -30,14 +30,6 @@ async function bootstrap() {
   const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
   let stopSync;
   let telemetryInterval;
-
-  const traccarMode = describeTraccarMode({ traccarDbConfigured: isTraccarDbConfigured() });
-  console.info("[startup] Traccar mode", {
-    apiBaseUrl: traccarMode.apiBaseUrl,
-    traccarConfigured: traccarMode.traccarConfigured,
-    traccarDbConfigured: traccarMode.traccarDbConfigured,
-    adminAuth: traccarMode.adminAuth,
-  });
 
   const extractTokenFromRequest = (req) => {
     const authHeader = req.headers?.authorization;
@@ -178,17 +170,12 @@ async function bootstrap() {
   });
 
   try {
-    const traccarInit = await initializeTraccarAdminSession();
-    if (traccarInit?.ok) {
-      stopSync = startTraccarSyncJob();
-    } else {
-      console.warn("Sincronização automática do Traccar não iniciada no startup.", traccarInit?.reason || "");
-      stopSync = () => {};
-    }
+    await initializeTraccarAdminSession();
   } catch (error) {
-    stopSync = () => {};
     console.warn("Não foi possível inicializar a sessão administrativa do Traccar", error?.message || error);
   }
+
+  stopSync = startTraccarSyncJob();
 
   telemetryInterval = setInterval(() => {
     void dispatchTelemetry();

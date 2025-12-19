@@ -7,8 +7,8 @@ import {
   Download,
   Eye,
   FileUp,
-  LayoutGrid,
   MousePointer2,
+  PanelLeft,
   PanelRight,
   Pencil,
   RefreshCw,
@@ -17,14 +17,11 @@ import {
   Trash2,
   Undo2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
-import { useUI } from "../lib/store.js";
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 
@@ -357,10 +354,7 @@ export default function Geofences() {
   const [searchQuery, setSearchQuery] = useState("");
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
-  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [colorSeed, setColorSeed] = useState(0);
-  const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
-  const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
 
   const {
     geofences: remoteGeofences,
@@ -391,15 +385,6 @@ export default function Geofences() {
     [activeGeofences, selectedId],
   );
 
-  const invalidateMapSize = useCallback(() => {
-    if (!mapRef.current) return;
-    setTimeout(() => {
-      if (mapRef.current) {
-        mapRef.current.invalidateSize();
-      }
-    }, 80);
-  }, []);
-
   useEffect(() => {
     if (!selectedGeofence || !mapRef.current) return;
     const map = mapRef.current;
@@ -410,10 +395,6 @@ export default function Geofences() {
       map.flyTo(selectedGeofence.center, Math.max(map.getZoom(), 14));
     }
   }, [selectedGeofence]);
-
-  useEffect(() => {
-    invalidateMapSize();
-  }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
 
   useEffect(() => {
     if (hasUnsavedChanges) return;
@@ -440,7 +421,6 @@ export default function Geofences() {
 
   const handleMapClick = useCallback(
     (latlng) => {
-      setLayoutMenuOpen(false);
       const point = [latlng.lat, latlng.lng];
       if (drawMode === "polygon") {
         if (draftPolygon.length >= 3 && distanceBetween(draftPolygon[0], point) < 12) {
@@ -679,22 +659,20 @@ export default function Geofences() {
     const map = mapRef.current;
     if (!map) return;
     if (Array.isArray(bounds) && bounds.length === 4) {
-      const south = Number(bounds[0]);
-      const north = Number(bounds[1]);
-      const west = Number(bounds[2]);
-      const east = Number(bounds[3]);
-      if ([south, north, west, east].every((value) => Number.isFinite(value))) {
-        map.fitBounds(
-          L.latLngBounds(
-            L.latLng(south, west),
-            L.latLng(north, east),
-          ),
-          { padding: [32, 32] },
-        );
-        return;
-      }
+      const [[south, west], [north, east]] = [
+        [Number(bounds[0]), Number(bounds[2])],
+        [Number(bounds[1]), Number(bounds[3])],
+      ];
+      map.fitBounds(
+        L.latLngBounds(
+          L.latLng(south, west),
+          L.latLng(north, east),
+        ),
+        { padding: [32, 32] },
+      );
+      return;
     }
-    map.flyTo([lat, lng], 15);
+    map.flyTo([lat, lng], 14);
   }, []);
 
   const handleSearchSubmit = useCallback(
@@ -717,28 +695,6 @@ export default function Geofences() {
     },
     [clearSuggestions, flyTo],
   );
-
-  const handleToggleTopbar = useCallback(() => {
-    setGeofencesTopbarVisible(!geofencesTopbarVisible);
-    setLayoutMenuOpen(false);
-  }, [geofencesTopbarVisible, setGeofencesTopbarVisible]);
-
-  const handleTogglePanel = useCallback(() => {
-    setPanelOpen((open) => !open);
-    setLayoutMenuOpen(false);
-  }, []);
-
-  const handleZoomIn = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    map.zoomIn();
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    map.zoomOut();
-  }, []);
 
   const focusOnGeofence = useCallback(
     (geo) => {
@@ -801,11 +757,9 @@ export default function Geofences() {
           center={mapCenter}
           zoom={13}
           scrollWheelZoom
-          zoomControl={false}
           className="h-full w-full"
           whenCreated={(map) => {
             mapRef.current = map;
-            setTimeout(() => map.invalidateSize(), 120);
           }}
         >
           <TileLayer
@@ -917,26 +871,11 @@ export default function Geofences() {
       />
 
       <div className="floating-toolbar">
-        <div className="relative">
-          <ToolbarButton
-            icon={LayoutGrid}
-            onClick={() => setLayoutMenuOpen((open) => !open)}
-            title="Layout e visibilidade"
-            className={layoutMenuOpen ? "is-active" : ""}
-          />
-          {layoutMenuOpen && (
-            <div className="layout-popover">
-              <label className="layout-toggle">
-                <input type="checkbox" checked={geofencesTopbarVisible} onChange={handleToggleTopbar} />
-                <span>Mostrar Topbar</span>
-              </label>
-              <label className="layout-toggle">
-                <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
-                <span>Mostrar painel de cercas</span>
-              </label>
-            </div>
-          )}
-        </div>
+        <ToolbarButton
+          icon={panelOpen ? PanelRight : PanelLeft}
+          onClick={() => setPanelOpen((open) => !open)}
+          title={panelOpen ? "Recolher painel" : "Mostrar painel"}
+        />
         <ToolbarButton
           icon={MousePointer2}
           active={drawMode === "polygon"}
@@ -977,8 +916,6 @@ export default function Geofences() {
           title="Importar KML"
         />
         <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
-        <ToolbarButton icon={ZoomIn} onClick={handleZoomIn} title="Aproximar mapa" />
-        <ToolbarButton icon={ZoomOut} onClick={handleZoomOut} title="Afastar mapa" />
       </div>
 
       <div className="geofence-status-stack">

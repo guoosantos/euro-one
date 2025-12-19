@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { API_ROUTES } from "../api-routes.js";
 import { approximateCirclePoints } from "../kml.js";
@@ -77,8 +77,6 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [version, setVersion] = useState(0);
-  const [autoRefreshPaused, setAutoRefreshPaused] = useState(false);
-  const hasNotifiedError = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,8 +90,6 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       });
       if (aborted || cancelled) return;
 
-      let shouldPause = false;
-
       if (requestError) {
         const friendly = new Error(
           requestError?.message || "Não foi possível carregar cercas. Verifique o tenant ou tente novamente.",
@@ -101,28 +97,14 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
         if (status) {
           friendly.status = status;
         }
-        if (status && status >= 400 && status < 500) {
-          friendly.permanent = true;
-        }
         setError(friendly);
         setGeofences([]);
-        if ((status && status >= 500) || friendly.permanent) {
-          shouldPause = true;
-          setAutoRefreshPaused(true);
-          if (!hasNotifiedError.current && typeof window !== "undefined") {
-            window.alert(friendly.message);
-          }
-          hasNotifiedError.current = true;
-        }
       } else {
-        hasNotifiedError.current = false;
-        setAutoRefreshPaused(false);
-        setError(null);
         setGeofences(normaliseGeofences(data));
       }
 
       setLoading(false);
-      if (!cancelled && autoRefreshMs && !autoRefreshPaused && !shouldPause) {
+      if (!cancelled && autoRefreshMs) {
         timer = setTimeout(fetchGeofences, autoRefreshMs);
       }
     }
@@ -133,11 +115,9 @@ export function useGeofences({ autoRefreshMs = 60_000 } = {}) {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [autoRefreshMs, tenantId, version, autoRefreshPaused]);
+  }, [autoRefreshMs, tenantId, version]);
 
   const refresh = useCallback(() => {
-    setAutoRefreshPaused(false);
-    hasNotifiedError.current = false;
     setVersion((value) => value + 1);
   }, []);
 
