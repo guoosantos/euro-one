@@ -39,14 +39,6 @@ export const config = {
   cors: {
     origins: toArray(process.env.ALLOWED_ORIGINS || "http://localhost:5173"),
   },
-  xdm: {
-    baseUrl: (process.env.XDM_BASE_URL || "").replace(/\/$/, ""),
-    apiKey: process.env.XDM_API_KEY || null,
-    apiToken: process.env.XDM_API_TOKEN || null,
-    timeoutMs: toNumber(process.env.XDM_TIMEOUT_MS, 10_000),
-    retryAttempts: toNumber(process.env.XDM_RETRY_ATTEMPTS, 2),
-    retryDelayMs: toNumber(process.env.XDM_RETRY_DELAY_MS, 300),
-  },
 };
 
 export default config;

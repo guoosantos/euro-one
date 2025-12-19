@@ -85,13 +85,7 @@ export const TELEMETRY_COLUMNS = [
     labelKey: "monitoring.columns.lastEvent",
     defaultVisible: true,
     getValue: (row) =>
-      row.lastEventName ||
-      row.lastEvent?.type ||
-      row.lastEvent?.attributes?.alarm ||
-      row.position?.type ||
-      row.position?.rawAttributes?.type ||
-      row.position?.rawAttributes?.alarm ||
-      FALLBACK,
+      row.lastEventName || row.lastEvent?.type || row.lastEvent?.attributes?.alarm || row.position?.type || FALLBACK,
   },
   {
     key: "valid",
@@ -191,7 +185,7 @@ export const TELEMETRY_COLUMNS = [
     key: "type",
     labelKey: "monitoring.columns.type",
     defaultVisible: false,
-    getValue: (row) => row.position?.type ?? row.position?.rawAttributes?.type ?? FALLBACK,
+    getValue: (row) => row.position?.type ?? FALLBACK,
   },
   {
     key: "status",
@@ -223,10 +217,7 @@ export const TELEMETRY_COLUMNS = [
     key: "charge",
     labelKey: "monitoring.columns.charge",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.charge ?? attrs.charge ?? attrs.charger ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.charge ?? row.position?.attributes?.charge ?? FALLBACK,
   },
   {
     key: "blocked",
@@ -235,19 +226,14 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row, helpers = {}) => {
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      const blocked = row.position?.blocked ?? attrs.blocked ?? attrs.immobilized ?? attrs.immobilizer;
-      return blocked ? yes : no;
+      return row.position?.blocked ? yes : no;
     },
   },
   {
     key: "batteryLevel",
     labelKey: "monitoring.columns.batteryLevel",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.batteryLevel ?? attrs.batteryLevel ?? attrs.battery ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.batteryLevel ?? row.position?.attributes?.batteryLevel ?? FALLBACK,
   },
   {
     key: "faceRecognition",
@@ -274,28 +260,19 @@ export const TELEMETRY_COLUMNS = [
     key: "rssi",
     labelKey: "monitoring.columns.rssi",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.rssi ?? attrs.rssi ?? attrs.signalStrength ?? attrs.signal ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.rssi ?? row.position?.attributes?.rssi ?? FALLBACK,
   },
   {
     key: "distance",
     labelKey: "monitoring.columns.distance",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.distance ?? attrs.distance ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.distance ?? FALLBACK,
   },
   {
     key: "totalDistance",
     labelKey: "monitoring.columns.totalDistance",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.totalDistance ?? attrs.totalDistance ?? attrs.odometer ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.totalDistance ?? FALLBACK,
   },
   {
     key: "motion",
@@ -304,19 +281,14 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row, helpers = {}) => {
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      const motion = row.position?.motion ?? attrs.motion;
-      return motion ? yes : no;
+      return row.position?.motion ? yes : no;
     },
   },
   {
     key: "hours",
     labelKey: "monitoring.columns.hours",
     defaultVisible: false,
-    getValue: (row) => {
-      const attrs = row.position?.rawAttributes || row.position?.attributes || {};
-      return row.position?.hours ?? attrs.hours ?? attrs.engineHours ?? attrs.hourmeter ?? FALLBACK;
-    },
+    getValue: (row) => row.position?.hours ?? row.position?.attributes?.hours ?? FALLBACK,
   },
   {
     key: "notes",
