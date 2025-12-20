@@ -1,18 +1,25 @@
-# Fluxo de veículo, chip e equipamento
+# Fluxo por veículo (placa) no Euro One
 
-## Criação e vinculação
-- **Equipamento (device)**: criado no Euro One e replicado no Traccar (tc_devices). Pode ter chip vinculado.
-- **Chip**: criado apenas no Postgres (Euro One) e pode ser associado a um equipamento.
-- **Veículo (placa)**: cadastrado no Euro One com `clientId` do dono.
-- **Vínculos**:
-  - Equipamento → Veículo (campo `vehicleId` / relação principal usada no monitoramento).
-  - Chip → Equipamento (`chipId` no device e `deviceId` no chip).
+## Princípios
+- Toda visualização e monitoramento acontecem por **veículo/placa**, não por equipamento isolado.
+- Um veículo só aparece para o cliente (listas, monitoramento, relatórios) quando:
+  - existe cadastrado no Postgres **e**
+  - possui pelo menos um equipamento vinculado.
+- Se não houver equipamento vinculado, o veículo é apenas um cadastro administrativo e fica oculto para o cliente até que o vínculo seja feito.
 
-## Visualização por placa
-- Monitoramento e relatórios listam **veículos**. O dispositivo principal é escolhido pela posição mais recente (`deviceTime`).
-- Um veículo pode ter múltiplos devices reportando na mesma placa. A camada de visualização usa o mais recente e mantém os demais como alternativos.
-- Veículos sem equipamento podem ser cadastrados, mas não aparecem no monitoramento até terem ao menos um device vinculado.
+## Fluxo obrigatório
+1. **Criar equipamento (device)** no Euro One — cria automaticamente no Traccar e começa a reportar.
+2. **Criar chip** — permanece apenas no Postgres.
+3. **Vincular chip → device** no Postgres.
+4. **Criar veículo (placa)** no Postgres já escolhendo o **cliente dono (clientId)**.
+5. **Vincular device → veículo** no Postgres.
+6. Visualização/monitoramento/relatórios sempre usam a placa; a telemetria vem do(s) device(s) vinculados.
 
-## Multi-tenant
-- Usuários comuns só acessam recursos do próprio `clientId`.
-- Administradores podem listar e filtrar por qualquer cliente, mantendo validações de permissão em cada operação (vehicles, devices, chips e geofences).
+## Múltiplos devices por placa
+- Um veículo pode ter mais de um equipamento.
+- O **device principal** é escolhido automaticamente pelo último sinal recebido (`deviceTime` > `fixTime` > `serverTime`).
+- O principal é usado como fonte padrão de telemetria/posição no monitoramento e nas telas de detalhes.
+
+## Permissões
+- **Cliente**: vê somente os veículos do próprio `clientId`, em modo leitura e apenas quando possuem equipamento vinculado.
+- **Admin/Euro**: pode ver e editar, inclusive veículos ainda sem equipamento (para vincular), e possui aba extra de administração na página do veículo.

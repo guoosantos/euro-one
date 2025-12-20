@@ -82,6 +82,10 @@ function normaliseList(payload, keys = []) {
   return [];
 }
 
+function isTruthyParam(value) {
+  return value === true || value === "true" || value === "1" || value === 1;
+}
+
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
   const protocolKey = protocol ? String(protocol).toLowerCase() : null;
   return mappings.filter((mapping) => {
@@ -508,14 +512,22 @@ function buildChipResponse(chip, { deviceMap, vehicleMap }) {
   };
 }
 
-function selectPrincipalDevice(devices = [], traccarById = new Map()) {
+function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsByDeviceId = new Map()) {
   let selected = null;
   let latest = -Infinity;
 
   devices.forEach((device) => {
     const traccarDevice = device?.traccarId ? traccarById.get(String(device.traccarId)) : null;
+    const position = device?.traccarId ? positionsByDeviceId.get(String(device.traccarId)) : null;
     const referenceTime =
-      traccarDevice?.lastUpdate || device?.lastUpdate || device?.updatedAt || device?.createdAt || Date.now();
+      position?.deviceTime ||
+      position?.fixTime ||
+      position?.serverTime ||
+      traccarDevice?.lastUpdate ||
+      device?.lastUpdate ||
+      device?.updatedAt ||
+      device?.createdAt ||
+      Date.now();
     const timestamp = new Date(referenceTime).getTime();
     if (!Number.isFinite(timestamp)) return;
     if (!selected || timestamp > latest) {
@@ -528,14 +540,17 @@ function selectPrincipalDevice(devices = [], traccarById = new Map()) {
 }
 
 function buildVehicleResponse(vehicle, context) {
-  const { deviceMap, traccarById } = context;
+  const { deviceMap, traccarById, positionsByDeviceId = new Map() } = context;
   const linkedDevices = Array.from(deviceMap.values()).filter(
     (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
   );
 
-  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById);
+  const principalDevice = selectPrincipalDevice(linkedDevices, traccarById, positionsByDeviceId);
   const traccarDevice = principalDevice?.traccarId ? traccarById.get(String(principalDevice.traccarId)) : null;
   const { connectionStatus, connectionStatusLabel, lastCommunication } = resolveConnection(traccarDevice);
+  const principalPosition = principalDevice?.traccarId
+    ? positionsByDeviceId.get(String(principalDevice.traccarId)) || null
+    : null;
 
   return {
     ...vehicle,
@@ -545,6 +560,7 @@ function buildVehicleResponse(vehicle, context) {
           uniqueId: principalDevice.uniqueId,
           name: principalDevice.name,
           traccarId: principalDevice.traccarId ? String(principalDevice.traccarId) : null,
+          position: principalPosition,
         }
       : null,
     devices: linkedDevices.map((item) => ({
@@ -1434,7 +1450,7 @@ router.delete("/chips/:id", deps.requireRole("manager", "admin"), resolveClientM
   }
 });
 
-router.get("/vehicles", (req, res, next) => {
+router.get("/vehicles", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const vehicles = deps.listVehicles({ clientId });
@@ -1443,7 +1459,53 @@ router.get("/vehicles", (req, res, next) => {
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
 
-    const response = vehicles.map((vehicle) => buildVehicleResponse(vehicle, { deviceMap, traccarById }));
+    const includeUnlinked =
+      (req.user?.role === "admin" || req.user?.role === "manager") && isTruthyParam(req.query?.includeUnlinked);
+    const onlyLinked = !includeUnlinked || isTruthyParam(req.query?.onlyLinked);
+
+    const linkedVehicleIds = new Set(
+      devices
+        .filter((device) => device?.vehicleId)
+        .map((device) => String(device.vehicleId))
+        .filter(Boolean),
+    );
+    const knownDeviceIds = new Set(devices.map((device) => String(device.id)).filter(Boolean));
+
+    let positionsByDeviceId = new Map();
+    const traccarIdsToQuery = Array.from(
+      new Set(devices.map((device) => (device?.traccarId != null ? String(device.traccarId) : null)).filter(Boolean)),
+    );
+
+    if (traccarIdsToQuery.length) {
+      try {
+        const latestPositions = await deps.fetchLatestPositionsWithFallback(traccarIdsToQuery, null);
+        positionsByDeviceId = new Map(
+          (Array.isArray(latestPositions) ? latestPositions : [])
+            .map((position) => {
+              const key = String(
+                position.deviceId || position.deviceid || position.device?.id || position.id || position?.uniqueId || "",
+              );
+              return key ? [key, position] : null;
+            })
+            .filter(Boolean),
+        );
+      } catch (positionsError) {
+        logTelemetryWarning("vehicles-positions", positionsError);
+      }
+    }
+
+    const vehiclesToExpose = onlyLinked
+      ? vehicles.filter((vehicle) => {
+          const vehicleId = String(vehicle.id);
+          const hasDevice = linkedVehicleIds.has(vehicleId);
+          const matchesDeviceId = vehicle.deviceId ? knownDeviceIds.has(String(vehicle.deviceId)) : false;
+          return hasDevice || matchesDeviceId;
+        })
+      : vehicles;
+
+    const response = vehiclesToExpose.map((vehicle) =>
+      buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId }),
+    );
     res.json({ vehicles: response });
   } catch (error) {
     next(error);

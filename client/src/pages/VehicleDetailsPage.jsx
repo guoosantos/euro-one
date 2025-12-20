@@ -339,7 +339,12 @@ export default function VehicleDetailsPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+      const params = resolvedClientId ? { clientId: resolvedClientId } : {};
+      if (isAdmin) {
+        params.includeUnlinked = true;
+      } else {
+        params.onlyLinked = true;
+      }
       const [vehicleList, deviceList, chipList, clientList] = await Promise.all([
         CoreApi.listVehicles(params),
         CoreApi.listDevices(params),
@@ -444,6 +449,13 @@ export default function VehicleDetailsPage() {
 
       {!loading && !vehicle && (
         <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">Veículo não encontrado.</div>
+      )}
+
+      {!loading && vehicle && vehicle.deviceCount === 0 && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+          Este veículo ainda não possui equipamento vinculado. Ele não aparecerá em monitoramento ou relatórios até que um
+          rastreador seja associado.
+        </div>
       )}
 
       {detailedVehicle && (
