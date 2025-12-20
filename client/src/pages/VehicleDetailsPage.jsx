@@ -22,6 +22,8 @@ function AdminBindingsTab({
   onSaveVehicle,
   saving,
   onBindChip,
+  linkedDevices,
+  autoPrimaryDeviceId,
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -36,6 +38,7 @@ function AdminBindingsTab({
   });
   const [chipDeviceId, setChipDeviceId] = useState("");
   const [chipId, setChipId] = useState("");
+  const [autoPrimary, setAutoPrimary] = useState(true);
 
   useEffect(() => {
     if (!vehicle) return;
@@ -52,6 +55,7 @@ function AdminBindingsTab({
     });
     setChipDeviceId(vehicle.device?.id || "");
     setChipId(chips.find((chip) => chip.deviceId === vehicle.device?.id)?.id || "");
+    setAutoPrimary(!vehicle.device?.id);
   }, [chips, tenantId, user?.clientId, vehicle]);
 
   const handleSubmit = async (event) => {
@@ -68,7 +72,7 @@ function AdminBindingsTab({
       type: form.type?.trim() || undefined,
       status: form.status || undefined,
       notes: form.notes?.trim() || undefined,
-      deviceId: form.deviceId || null,
+      deviceId: autoPrimary ? null : form.deviceId || null,
       clientId: form.clientId || vehicle.clientId,
     });
   };
@@ -122,20 +126,45 @@ function AdminBindingsTab({
               </select>
             </div>
           )}
-          <div className="md:col-span-2">
-            <label className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamento principal</label>
-            <select
-              value={form.deviceId}
-              onChange={(event) => setForm((prev) => ({ ...prev, deviceId: event.target.value }))}
-              className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            >
-              <option value="">Sem rastreador</option>
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name || device.uniqueId || device.id}
-                </option>
-              ))}
-            </select>
+          <div className="md:col-span-2 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamento principal</label>
+              <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+                <input
+                  type="checkbox"
+                  checked={autoPrimary}
+                  onChange={(event) => {
+                    const enabled = event.target.checked;
+                    setAutoPrimary(enabled);
+                    if (enabled) {
+                      setForm((prev) => ({ ...prev, deviceId: "" }));
+                    }
+                  }}
+                />
+                <span>Automático (último sinal)</span>
+              </label>
+            </div>
+            {!autoPrimary && (
+              <select
+                value={form.deviceId}
+                onChange={(event) => setForm((prev) => ({ ...prev, deviceId: event.target.value }))}
+                className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="">Sem rastreador</option>
+                {devices.map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.name || device.uniqueId || device.id}
+                  </option>
+                ))}
+              </select>
+            )}
+            {autoPrimary && (
+              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                {autoPrimaryDeviceId
+                  ? `Selecionado automaticamente: ${autoPrimaryDeviceId} (mais recente)`
+                  : "Nenhum equipamento com posição recente"}
+              </div>
+            )}
           </div>
           <div className="md:col-span-2">
             <label className="text-xs uppercase tracking-[0.12em] text-white/60">Observações</label>
@@ -188,6 +217,49 @@ function AdminBindingsTab({
           </div>
         </form>
       </div>
+
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamentos vinculados</p>
+          <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">{linkedDevices.length} itens</span>
+        </div>
+        <div className="mt-2 space-y-2">
+          {linkedDevices.length === 0 && <p className="text-xs text-white/60">Nenhum equipamento vinculado.</p>}
+          {linkedDevices.map((device) => (
+            <div
+              key={device.id}
+              className="flex flex-col gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
+            >
+              <div className="flex items-center justify-between gap-2 text-sm font-semibold">
+                <span>{device.name || device.uniqueId || device.id}</span>
+                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-white/70">
+                  {device.id === form.deviceId
+                    ? "Principal (manual)"
+                    : device.id === autoPrimaryDeviceId && autoPrimary
+                      ? "Principal (auto)"
+                      : "Secundário"}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-white/70">
+                <span className="rounded bg-white/5 px-2 py-0.5 text-[11px]">{device.lastSeen || "Sem comunicação"}</span>
+                {device.coordinates && (
+                  <span className="text-[11px] text-white/60">{device.coordinates}</span>
+                )}
+                <button
+                  type="button"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-white/80 transition hover:border-primary/50 hover:text-white"
+                  onClick={() => {
+                    setAutoPrimary(false);
+                    setForm((prev) => ({ ...prev, deviceId: device.id }));
+                  }}
+                >
+                  Definir como principal
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -205,7 +277,7 @@ export default function VehicleDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  const isAdmin = user?.role === "admin";
+  const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantId || user?.clientId || null;
 
   const trackedDeviceIds = useMemo(() => {
@@ -243,6 +315,25 @@ export default function VehicleDetailsPage() {
       coordinatesLabel: getDeviceCoordinates(vehicle, position),
     };
   }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, getDeviceStatus, vehicle]);
+
+  const linkedDevices = useMemo(() => {
+    const list = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
+    return list
+      .map((device) => {
+        const position = getDevicePosition(device) || {};
+        const lastSeen = getDeviceLastSeen(device, position);
+        const coordinates = getDeviceCoordinates(device, position);
+        const lastUpdate = position.deviceTime || position.fixTime || position.serverTime || device.updatedAt;
+        return { ...device, position, lastSeen, coordinates, lastUpdate };
+      })
+      .sort((a, b) => {
+        const aTime = a.lastUpdate ? new Date(a.lastUpdate).getTime() : 0;
+        const bTime = b.lastUpdate ? new Date(b.lastUpdate).getTime() : 0;
+        return bTime - aTime;
+      });
+  }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, vehicle]);
+
+  const autoPrimaryDeviceId = linkedDevices[0]?.id || null;
 
   const loadData = async () => {
     setLoading(true);
@@ -310,11 +401,21 @@ export default function VehicleDetailsPage() {
               onSaveVehicle={handleSaveVehicle}
               saving={saving}
               onBindChip={handleBindChip}
+              linkedDevices={linkedDevices}
+              autoPrimaryDeviceId={autoPrimaryDeviceId}
             />
           ),
         },
       ]
     : [];
+
+  const pageTabs = useMemo(
+    () => [
+      { id: "status", label: "Status" },
+      { id: "info", label: "Informações" },
+    ],
+    [],
+  );
 
   return (
     <div className="space-y-4">
@@ -346,7 +447,7 @@ export default function VehicleDetailsPage() {
       )}
 
       {detailedVehicle && (
-        <VehicleDetailsDrawer vehicle={detailedVehicle} variant="page" extraTabs={adminTabs} />
+        <VehicleDetailsDrawer vehicle={detailedVehicle} variant="page" extraTabs={adminTabs} baseTabs={pageTabs} />
       )}
     </div>
   );

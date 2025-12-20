@@ -2,21 +2,27 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "../../lib/i18n.js";
 
-export default function VehicleDetailsDrawer({ vehicle, onClose, variant = "drawer", extraTabs = [] }) {
+export default function VehicleDetailsDrawer({
+  vehicle,
+  onClose,
+  variant = "drawer",
+  extraTabs = [],
+  baseTabs: baseTabsOverride = null,
+}) {
   const { t } = useTranslation();
-  const baseTabs = useMemo(
+  const defaultTabs = useMemo(
     () => [
       { id: "status", label: "Status" },
+      { id: "info", label: "Informações" },
       { id: "trips", label: "Trajetos" },
       { id: "events", label: "Eventos" },
       { id: "cameras", label: "Câmeras" },
-      { id: "info", label: "Informações" },
       { id: "commands", label: "Enviar comando" },
     ],
     [],
   );
 
-  const tabs = useMemo(() => [...baseTabs, ...extraTabs], [baseTabs, extraTabs]);
+  const tabs = useMemo(() => [...(baseTabsOverride || defaultTabs), ...extraTabs], [baseTabsOverride, defaultTabs, extraTabs]);
   const [activeTab, setActiveTab] = useState(() => tabs[0]?.id || "status");
 
   useEffect(() => {
@@ -30,6 +36,12 @@ export default function VehicleDetailsDrawer({ vehicle, onClose, variant = "draw
   const { device = {}, position } = vehicle;
   const address = vehicle.address || position?.address;
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
+  const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || vehicle.lastUpdate;
+
+  const statusLabel = vehicle.statusLabel || (latestPosition ? "Com sinal" : "Sem comunicação");
+  const lastUpdateLabel = latestPosition
+    ? new Date(latestPosition).toLocaleString()
+    : vehicle.lastSeen || "Sem última posição";
 
   const renderContent = () => {
     if (activeTab === "status") {
@@ -39,16 +51,8 @@ export default function VehicleDetailsDrawer({ vehicle, onClose, variant = "draw
             <Detail label="Placa" value={vehicle.plate} />
             <Detail label="ID do dispositivo" value={vehicle.deviceId || device.id} />
             <Detail label="Velocidade" value={`${vehicle.speed ?? position?.speed ?? 0} km/h`} />
-            <Detail
-              label="Última posição"
-              value={
-                vehicle.lastUpdate
-                  ? new Date(vehicle.lastUpdate).toLocaleString()
-                  : position?.fixTime
-                    ? new Date(position.fixTime).toLocaleString()
-                    : "—"
-              }
-            />
+            <Detail label="Última posição" value={lastUpdateLabel} />
+            <Detail label="Status" value={statusLabel} />
             <Detail label="Endereço" value={formatAddress(address, vehicle.lat, vehicle.lng)} />
           </Section>
           <Section title="Sensores" muted>
