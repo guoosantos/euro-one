@@ -10,6 +10,16 @@ const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 15;
 
 const markerIconCache = new Map();
+const ADDRESS_PIN_ICON = L.divIcon({
+  className: "address-pin",
+  html: `
+    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:20px;height:20px;">
+      <div style="width:14px;height:14px;border-radius:9999px;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,0.8);border:2px solid white;"></div>
+    </div>
+  `,
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+});
 
 const ICON_SYMBOLS = {
   car: "🚗",
@@ -263,18 +273,21 @@ function AddressMarker({ marker }) {
   if (!marker || !Number.isFinite(marker.lat) || !Number.isFinite(marker.lng)) return null;
 
   return (
-    <CircleMarker
-      center={[marker.lat, marker.lng]}
-      radius={8}
-      pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.28, weight: 2 }}
-    >
-      <Tooltip direction="top" offset={[0, -6]} opacity={0.9} className="monitoring-popup">
-        <div className="text-xs text-white/80">
-          <div className="font-semibold text-white">{marker.label || "Ponto de referência"}</div>
-          <div className="text-white/60">Toque para centralizar</div>
-        </div>
-      </Tooltip>
-    </CircleMarker>
+    <>
+      <CircleMarker
+        center={[marker.lat, marker.lng]}
+        radius={8}
+        pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee", fillOpacity: 0.28, weight: 2 }}
+      >
+        <Tooltip direction="top" offset={[0, -6]} opacity={0.9} className="monitoring-popup">
+          <div className="text-xs text-white/80">
+            <div className="font-semibold text-white">{marker.label || "Ponto de referência"}</div>
+            <div className="text-white/60">Toque para centralizar</div>
+          </div>
+        </Tooltip>
+      </CircleMarker>
+      <Marker position={[marker.lat, marker.lng]} icon={ADDRESS_PIN_ICON} />
+    </>
   );
 }
 
