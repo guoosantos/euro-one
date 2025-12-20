@@ -26,8 +26,6 @@ export default function Vehicles() {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [mode, setMode] = useState("new");
-  const [selected, setSelected] = useState(null);
   const [mapTarget, setMapTarget] = useState(null);
   const [form, setForm] = useState({
     name: "",
@@ -46,7 +44,12 @@ export default function Vehicles() {
     setLoading(true);
     setError(null);
     try {
-      const clientParams = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+      const clientParams = resolvedClientId ? { clientId: resolvedClientId } : {};
+      if (user?.role === "admin" || user?.role === "manager") {
+        clientParams.includeUnlinked = true;
+      } else {
+        clientParams.onlyLinked = true;
+      }
       const [vehicleList, deviceList] = await Promise.all([
         CoreApi.listVehicles(clientParams),
         CoreApi.listDevices(clientParams),
@@ -154,24 +157,8 @@ export default function Vehicles() {
     });
   }, [devices, form.deviceId]);
 
-  function openModal(modeType, vehicle = null) {
-    setMode(modeType);
-    if (modeType === "edit" && vehicle) {
-      setSelected(vehicle);
-      setForm({
-        name: vehicle.name || "",
-        plate: vehicle.plate || "",
-        driver: vehicle.driver || "",
-        group: vehicle.group || "",
-        type: vehicle.type || "",
-        status: vehicle.status || "ativo",
-        notes: vehicle.notes || "",
-        deviceId: vehicle.device?.id || "",
-      });
-    } else {
-      setSelected(null);
-      setForm({ name: "", plate: "", driver: "", group: "", type: "", status: "ativo", notes: "", deviceId: "" });
-    }
+  function openModal() {
+    setForm({ name: "", plate: "", driver: "", group: "", type: "", status: "ativo", notes: "", deviceId: "" });
     setOpen(true);
   }
 
@@ -183,31 +170,17 @@ export default function Vehicles() {
     }
     setSaving(true);
     try {
-      if (mode === "edit" && selected) {
-        await CoreApi.updateVehicle(selected.id, {
-          name: form.name?.trim() || undefined,
-          plate: form.plate.trim(),
-          driver: form.driver?.trim() || undefined,
-          group: form.group?.trim() || undefined,
-          type: form.type?.trim() || undefined,
-          status: form.status || undefined,
-          notes: form.notes?.trim() || undefined,
-          deviceId: form.deviceId || null,
-          clientId: tenantId || user?.clientId,
-        });
-      } else {
-        await CoreApi.createVehicle({
-          name: form.name?.trim() || undefined,
-          plate: form.plate.trim(),
-          driver: form.driver?.trim() || undefined,
-          group: form.group?.trim() || undefined,
-          type: form.type?.trim() || undefined,
-          status: form.status || undefined,
-          notes: form.notes?.trim() || undefined,
-          deviceId: form.deviceId || undefined,
-          clientId: tenantId || user?.clientId,
-        });
-      }
+      await CoreApi.createVehicle({
+        name: form.name?.trim() || undefined,
+        plate: form.plate.trim(),
+        driver: form.driver?.trim() || undefined,
+        group: form.group?.trim() || undefined,
+        type: form.type?.trim() || undefined,
+        status: form.status || undefined,
+        notes: form.notes?.trim() || undefined,
+        deviceId: form.deviceId || undefined,
+        clientId: tenantId || user?.clientId,
+      });
       setOpen(false);
       await load();
     } catch (requestError) {
@@ -219,7 +192,7 @@ export default function Vehicles() {
 
   return (
     <div className="space-y-5">
-      <PageHeader title="Veículos" right={<Button onClick={() => openModal("new")}>+ Novo veículo</Button>} />
+      <PageHeader title="Veículos" right={<Button onClick={openModal}>+ Novo veículo</Button>} />
 
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
@@ -302,7 +275,7 @@ export default function Vehicles() {
         </div>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={mode === "edit" ? "Editar veículo" : "Novo veículo"} width="max-w-3xl">
+      <Modal open={open} onClose={() => setOpen(false)} title="Novo veículo" width="max-w-3xl">
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
             <Input
