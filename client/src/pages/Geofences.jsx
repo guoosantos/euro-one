@@ -416,6 +416,16 @@ export default function Geofences() {
   }, [selectedGeofence]);
 
   useEffect(() => {
+    if (!searchMarker || !mapRef.current) return;
+    const { lat, lng } = searchMarker;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    const map = mapRef.current;
+    const targetZoom = Math.max(map.getZoom?.() ?? SEARCH_FOCUS_ZOOM, SEARCH_FOCUS_ZOOM);
+    map.stop?.();
+    map.flyTo([lat, lng], targetZoom, { duration: 0.45, easeLinearity: 0.25 });
+  }, [searchMarker]);
+
+  useEffect(() => {
     invalidateMapSize();
   }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
 
@@ -605,7 +615,9 @@ export default function Geofences() {
       type: geo.type,
       color: geo.color,
       points: [],
-      center: { lat: circle.center[0], lng: circle.center[1] },
+      center: [circle.center[0], circle.center[1]],
+      centerLat: circle.center[0],
+      centerLng: circle.center[1],
       radius: circle.radius,
     };
   }, []);
