@@ -239,7 +239,7 @@ export async function createGeofence({
         type: "circle",
         center: [geometry.centerLat, geometry.centerLng],
         radius: geometry.radius,
-      } satisfies Record<string, unknown>);
+      });
   }
 
   const geofence = await prisma.geofence.create({ data: payload });

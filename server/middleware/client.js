@@ -54,3 +54,11 @@ export function resolveClientIdMiddleware(req, res, next) {
 }
 
 export default resolveClientIdMiddleware;
+
+export function ensureSameTenant(user, clientId) {
+  if (!clientId) return;
+  if (user?.role === "admin") return;
+  if (!user?.clientId || String(user.clientId) !== String(clientId)) {
+    throw createError(403, "Operação não permitida para este cliente");
+  }
+}

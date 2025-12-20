@@ -1,6 +1,5 @@
 import jwt from "jsonwebtoken";
 import createError from "http-errors";
-
 import { config } from "../config.js";
 
 export function signSession(payload) {
@@ -18,11 +17,29 @@ function extractToken(req) {
   return null;
 }
 
+// Rotas públicas (NUNCA podem exigir token)
+const PUBLIC_PATHS = [
+  "/api/login",
+  "/api/health",
+  "/health",
+];
+
+function isPublicPath(req) {
+  const url = req.originalUrl || req.url || "";
+  return PUBLIC_PATHS.some((p) => url === p || url.startsWith(p + "/"));
+}
+
 export function authenticate(req, _res, next) {
+  // Libera rotas públicas
+  if (isPublicPath(req)) {
+    return next();
+  }
+
   const token = extractToken(req);
   if (!token) {
     return next(createError(401, "Token ausente"));
   }
+
   try {
     const decoded = jwt.verify(token, config.jwt.secret);
     req.sessionToken = token;
