@@ -2,6 +2,12 @@ import createError from "http-errors";
 
 import prisma from "../services/prisma.js";
 
+function validationError(message) {
+  const error = createError(422, message);
+  error.code = "GEOFENCE_VALIDATION";
+  return error;
+}
+
 function ensurePrisma() {
   if (!prisma) {
     throw createError(503, "Banco de dados indisponível");
@@ -72,6 +78,10 @@ function buildArea(points = []) {
 function mapGeofence(record) {
   if (!record) return null;
   const points = normalizePointList(record.points || []);
+  const center =
+    Number.isFinite(record.centerLat) && Number.isFinite(record.centerLng)
+      ? [record.centerLat, record.centerLng]
+      : null;
   return {
     id: record.id,
     clientId: record.clientId,
@@ -83,8 +93,12 @@ function mapGeofence(record) {
     radius: record.radius,
     latitude: record.centerLat,
     longitude: record.centerLng,
+    center,
     area: buildArea(points),
     points,
+    geometryJson: record.geometryJson || null,
+    kml: record.kml || null,
+    createdByUserId: record.createdByUserId || null,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -93,7 +107,7 @@ function mapGeofence(record) {
 function normalizeType(type) {
   const value = String(type || "").toLowerCase();
   if (value === "circle" || value === "polygon") return value;
-  throw createError(400, "Tipo de geofence inválido");
+  throw validationError("Tipo de geofence inválido");
 }
 
 function resolveCircleGeometry(payload, fallback = {}) {
@@ -110,10 +124,10 @@ function resolveCircleGeometry(payload, fallback = {}) {
   );
 
   if (latitude === null || longitude === null) {
-    throw createError(400, "latitude/longitude são obrigatórios para círculo");
+    throw validationError("latitude/longitude são obrigatórios para círculo");
   }
   if (!Number.isFinite(radius) || radius <= 0) {
-    throw createError(400, "radius é obrigatório para círculo");
+    throw validationError("radius é obrigatório para círculo");
   }
 
   return { radius, centerLat: latitude, centerLng: longitude };
@@ -150,13 +164,16 @@ export async function createGeofence({
   centerLng = null,
   points = null,
   area = null,
+  geometryJson = null,
+  kml = null,
+  createdByUserId = null,
 }) {
   ensurePrisma();
   if (!clientId) {
-    throw createError(400, "clientId é obrigatório");
+    throw validationError("clientId é obrigatório");
   }
   if (!name) {
-    throw createError(400, "Nome é obrigatório");
+    throw validationError("Nome é obrigatório");
   }
 
   const normalizedType = normalizeType(type);
@@ -174,14 +191,18 @@ export async function createGeofence({
     centerLat: null,
     centerLng: null,
     radius: null,
+    geometryJson: geometryJson || null,
+    kml: kml || null,
+    createdByUserId: createdByUserId || null,
   };
 
   if (normalizedType === "polygon") {
     const resolvedPoints = normalizePoints({ points, area });
     if (resolvedPoints.length < 3) {
-      throw createError(400, "Polígono deve ter ao menos 3 pontos");
+      throw validationError("Polígono deve ter ao menos 3 pontos");
     }
     payload.points = resolvedPoints;
+    payload.geometryJson = payload.geometryJson || { type: "polygon", points: resolvedPoints };
   } else {
     const geometry = resolveCircleGeometry(
       { center, radius, latitude, longitude, centerLat, centerLng },
@@ -190,6 +211,13 @@ export async function createGeofence({
     payload.centerLat = geometry.centerLat;
     payload.centerLng = geometry.centerLng;
     payload.radius = geometry.radius;
+    payload.geometryJson =
+      payload.geometryJson ||
+      ({
+        type: "circle",
+        center: [geometry.centerLat, geometry.centerLng],
+        radius: geometry.radius,
+      } satisfies Record<string, unknown>);
   }
 
   const geofence = await prisma.geofence.create({ data: payload });
@@ -221,18 +249,26 @@ export async function updateGeofence(id, updates = {}) {
     description: Object.prototype.hasOwnProperty.call(updates, "description") ? updates.description || null : existing.description,
     color: Object.prototype.hasOwnProperty.call(updates, "color") ? updates.color || null : existing.color,
     type: nextType,
+    kml: Object.prototype.hasOwnProperty.call(updates, "kml") ? updates.kml || null : existing.kml,
+    geometryJson: Object.prototype.hasOwnProperty.call(updates, "geometryJson")
+      ? updates.geometryJson || null
+      : existing.geometryJson,
+    createdByUserId: updates.createdByUserId || existing.createdByUserId || null,
   };
 
   if (nextType === "polygon") {
     const resolvedPoints = normalizePoints({ points: updates.points, area: updates.area });
     const pointsToPersist = resolvedPoints.length ? resolvedPoints : normalizePointList(existing.points || []);
     if (pointsToPersist.length < 3) {
-      throw createError(400, "Polígono deve ter ao menos 3 pontos");
+      throw validationError("Polígono deve ter ao menos 3 pontos");
     }
     data.points = pointsToPersist;
     data.centerLat = null;
     data.centerLng = null;
     data.radius = null;
+    if (!data.geometryJson) {
+      data.geometryJson = { type: "polygon", points: pointsToPersist };
+    }
   } else {
     const geometry = resolveCircleGeometry(
       { ...updates, centerLat: updates.centerLat ?? updates.latitude, centerLng: updates.centerLng ?? updates.longitude },
@@ -242,6 +278,9 @@ export async function updateGeofence(id, updates = {}) {
     data.centerLng = geometry.centerLng;
     data.radius = geometry.radius;
     data.points = [];
+    if (!data.geometryJson) {
+      data.geometryJson = { type: "circle", center: [geometry.centerLat, geometry.centerLng], radius: geometry.radius };
+    }
   }
 
   const geofence = await prisma.geofence.update({

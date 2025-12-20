@@ -55,6 +55,7 @@ import TaskDetails from "./pages/TaskDetails";
 import Crm from "./pages/Crm";
 import Itineraries from "./pages/Itineraries.jsx";
 import TrackerManagement from "./pages/TrackerManagement.jsx";
+import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true, requireTenant: true },
@@ -73,7 +74,9 @@ export const routeConfig = [
   { path: "/devices/import", element: DeviceImport, title: "Importar dispositivos", requireTenant: true },
   { path: "/commands", element: Commands, title: "Comandos", requireTenant: true },
   { path: "/vehicles", element: Vehicles, title: "Frota", requireTenant: true },
+  { path: "/vehicles/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true },
   { path: "/veiculos", element: Vehicles, title: "Frota", requireTenant: true },
+  { path: "/veiculos/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true },
   { path: "/groups", element: Groups, title: "Grupos", requireTenant: true },
   { path: "/drivers", element: Drivers, title: "Motoristas", requireTenant: true },
   { path: "/documents", element: Docs, title: "Documentos", requireTenant: true },

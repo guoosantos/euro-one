@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -132,13 +133,16 @@ export default function Vehicles() {
         key: "actions",
         label: t("monitoring.columns.actions"),
         render: (row) => (
-          <Button onClick={() => openModal("edit", row.raw)} className="border border-white/10 bg-white/10 hover:bg-white/20">
+          <Link
+            to={`/vehicles/${row.raw.id}`}
+            className="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:border-white/30 hover:bg-white/20"
+          >
             {t("common.edit") || "Editar"}
-          </Button>
+          </Link>
         ),
       },
     ],
-    [openModal, setMapTarget, t, telemetryColumns],
+    [setMapTarget, t, telemetryColumns],
   );
 
   const availableDevices = useMemo(() => {
