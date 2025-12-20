@@ -25,6 +25,7 @@ import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 
@@ -363,6 +364,7 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
+  const { tenantId, user } = useTenant();
 
   const {
     geofences: remoteGeofences,
@@ -614,7 +616,12 @@ export default function Geofences() {
     setStatus("Sincronizando cercas...");
     try {
       for (const geo of activeGeofences) {
-        const payload = buildPayload(geo);
+        const clientId = tenantId || user?.clientId || null;
+        if (!clientId) {
+          throw new Error("Selecione um cliente antes de salvar a cerca.");
+        }
+
+        const payload = { ...buildPayload(geo), clientId };
         if (!geo.id || geo.id.startsWith("local-") || geo.id.startsWith("kml-")) {
           await createGeofence(payload);
         } else {
@@ -628,12 +635,13 @@ export default function Geofences() {
       setStatus("Cercas salvas com sucesso.");
       resetDrafts();
     } catch (error) {
+      const message = error?.response?.data?.message || error?.message || "Falha ao salvar cercas.";
       setUiError(error);
-      setStatus(error?.message || "Falha ao salvar cercas.");
+      setStatus(message);
     } finally {
       setSaving(false);
     }
-  }, [activeGeofences, buildPayload, createGeofence, refresh, resetDrafts, updateGeofence]);
+  }, [activeGeofences, buildPayload, createGeofence, refresh, resetDrafts, tenantId, updateGeofence, user?.clientId]);
 
   const handleExport = useCallback(() => {
     const kml = geofencesToKml(activeGeofences);
@@ -696,7 +704,38 @@ export default function Geofences() {
         return;
       }
     }
-    map.flyTo([lat, lng], Math.max(map.getZoom(), SEARCH_FOCUS_ZOOM));
+    map.stop?.();
+    map.setView([lat, lng], SEARCH_FOCUS_ZOOM, { animate: true });
+  }, []);
+
+  const focusSearchResult = useCallback(
+    (payload = null) => {
+      const map = mapRef.current;
+      if (!payload || !map) return;
+
+      const lat = Number(payload.lat);
+      const lng = Number(payload.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+      flyTo(lat, lng, payload.boundingBox || payload.bounds);
+      setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
+      clearSuggestions();
+    },
+    [clearSuggestions, flyTo],
+  );
+
+  const parseCoordinates = useCallback((term) => {
+    if (!term) return null;
+    const parts = term
+      .replace(/;/g, ",")
+      .trim()
+      .split(/[\s,]+/)
+      .map((value) => Number(value.trim()))
+      .filter((num) => Number.isFinite(num));
+    if (parts.length < 2) return null;
+    const [lat, lng] = parts;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+    return { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
   }, []);
 
   const handleSearchSubmit = useCallback(
@@ -704,22 +743,24 @@ export default function Geofences() {
       event.preventDefault();
       const best = await searchRegion(searchQuery);
       if (best?.lat && best?.lng) {
-        flyTo(best.lat, best.lng, best.boundingBox);
-        setSearchMarker([best.lat, best.lng]);
-        clearSuggestions();
+        focusSearchResult(best);
+        return;
+      }
+
+      const manual = parseCoordinates(searchQuery);
+      if (manual) {
+        focusSearchResult(manual);
       }
     },
-    [clearSuggestions, flyTo, searchQuery, searchRegion],
+    [focusSearchResult, parseCoordinates, searchQuery, searchRegion],
   );
 
   const handleSuggestionSelect = useCallback(
     (item) => {
       setSearchQuery(item.concise || item.label || "");
-      flyTo(item.lat, item.lng, item.boundingBox);
-      setSearchMarker([item.lat, item.lng]);
-      clearSuggestions();
+      focusSearchResult(item);
     },
-    [clearSuggestions, flyTo],
+    [focusSearchResult],
   );
 
   const handleToggleTopbar = useCallback(() => {
@@ -821,7 +862,7 @@ export default function Geofences() {
 
           {searchMarker && (
             <CircleMarker
-              center={searchMarker}
+              center={[searchMarker.lat, searchMarker.lng]}
               radius={9}
               pathOptions={{ color: "#0ea5e9", fillColor: "#38bdf8", fillOpacity: 0.35, weight: 2 }}
             />
@@ -909,9 +950,9 @@ export default function Geofences() {
           )}
 
           {searchMarker && (
-            <Marker position={searchMarker}>
+            <Marker position={[searchMarker.lat, searchMarker.lng]}>
               <Tooltip direction="top" sticky>
-                Endereço encontrado
+                {searchMarker.label || "Endereço encontrado"}
               </Tooltip>
             </Marker>
           )}

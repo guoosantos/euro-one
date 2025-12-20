@@ -854,43 +854,41 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
     const prismaFilter = clientId ? { clientId: String(clientId) } : {};
-    let devices = [];
-    let vehicleMap = new Map();
+    let vehicles = [];
     let clientMap = new Map();
 
     if (isPrismaReady()) {
       try {
-        // 🔄 atualizado: buscar devices direto do Postgres
-        devices = await prisma.device.findMany({
+        // 🔄 atualizado: buscar veículos e devices direto do Postgres para manter a visão por placa
+        vehicles = await prisma.vehicle.findMany({
           where: prismaFilter,
-          include: { vehicle: true, client: true },
+          include: { devices: true, client: true },
         });
-      } catch (prismaError) {
-        logTelemetryWarning("devices-db", prismaError);
-      }
-    }
-
-    if (!devices.length) {
-      devices = deps.listDevices({ clientId });
-    }
-
-    if (isPrismaReady()) {
-      try {
-        const vehicleIds = devices.map((device) => device?.vehicleId).filter(Boolean);
-        if (vehicleIds.length) {
-          const vehicles = await prisma.vehicle.findMany({ where: { id: { in: Array.from(new Set(vehicleIds)) } } });
-          vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
-        }
-
-        const clientIds = devices.map((device) => device?.clientId).filter(Boolean);
+        const clientIds = vehicles.map((vehicle) => vehicle?.clientId).filter(Boolean);
         if (clientIds.length) {
           const clients = await prisma.client.findMany({ where: { id: { in: Array.from(new Set(clientIds)) } } });
           clientMap = new Map(clients.map((client) => [client.id, client]));
         }
-      } catch (mapError) {
-        logTelemetryWarning("devices-metadata", mapError);
+      } catch (prismaError) {
+        logTelemetryWarning("vehicles-db", prismaError);
       }
     }
+
+    if (!vehicles.length) {
+      vehicles = deps.listVehicles({ clientId });
+    }
+
+    const devices = vehicles.flatMap((vehicle) =>
+      (vehicle.devices || []).map((device) => ({
+        ...device,
+        vehicleId: device.vehicleId || vehicle.id,
+        vehicle,
+        clientId: device.clientId || vehicle.clientId,
+      })),
+    );
+
+    const deviceMap = new Map(devices.map((device) => [String(device.traccarId || device.id || device.uniqueId), device]));
+    const vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
 
     let telemetryMappings = [];
     if (deps.listTelemetryFieldMappings) {
@@ -947,7 +945,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         .filter((device) => device?.traccarId != null)
         .map((device) => {
           const mergedVehicle = device.vehicle || vehicleMap.get(device.vehicleId) || null;
-          const mergedClient = device.client || clientMap.get(device.clientId) || null;
+          const mergedClient = device.client || clientMap.get(device.clientId) || clientMap.get(mergedVehicle?.clientId) || null;
           return [String(device.traccarId), { ...device, vehicle: mergedVehicle, client: mergedClient }];
         }),
     );
@@ -986,10 +984,29 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
     const positionByDevice = new Map((latestPositions || []).map((item) => [String(item.deviceId), item]));
 
+    const pickPositionTimestamp = (pos) =>
+      Date.parse(pos?.serverTime || pos?.deviceTime || pos?.fixTime || pos?.timestamp || 0) || 0;
 
-    for (const deviceId of deviceIdsToQuery) {
-      const position = positionByDevice.get(String(deviceId));
+    for (const vehicle of vehicles) {
+      const linkedDevices = (vehicle.devices && vehicle.devices.length
+        ? vehicle.devices
+        : devices.filter((device) => String(device.vehicleId) === String(vehicle.id)))
+        .filter((device) => device?.traccarId != null);
 
+      const best = linkedDevices.reduce(
+        (acc, device) => {
+          const position = positionByDevice.get(String(device.traccarId));
+          const timestamp = pickPositionTimestamp(position);
+          if (!acc || timestamp > acc.timestamp) {
+            return { device, position, timestamp };
+          }
+          return acc;
+        },
+        null,
+      );
+
+      const principalDevice = best?.device || linkedDevices[0] || null;
+      const position = best?.position || null;
 
       const normalisedPosition = position
         ? normaliseTelemetryPosition({
@@ -1001,39 +1018,46 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       const attributesSource =
         normalisedPosition?.rawAttributes || normalisedPosition?.attributes || position?.attributes || {};
       const applicableMappings = filterMappingsForDevice(telemetryMappings, {
-        deviceId,
-        protocol: normalisedPosition?.protocol || deviceMetadata?.protocol,
+        deviceId: principalDevice?.traccarId || principalDevice?.id,
+        protocol: normalisedPosition?.protocol || metadataById.get(String(principalDevice?.traccarId))?.protocol,
       });
       const mappedAttributes = buildMappedAttributes(attributesSource, applicableMappings);
       const positionWithMapping = normalisedPosition ? { ...normalisedPosition, mappedAttributes } : null;
 
-      const deviceMetadata = metadataById.get(String(deviceId));
-      const deviceMatch = devicesByTraccarId.get(String(deviceId));
-      const vehicle = deviceMatch?.vehicle || vehicleMap.get(deviceMatch?.vehicleId);
-      const client = deviceMatch?.client || clientMap.get(deviceMatch?.clientId);
+      const deviceMetadata = metadataById.get(String(principalDevice?.traccarId || principalDevice?.id)) || null;
+      const deviceMatch = principalDevice ? devicesByTraccarId.get(String(principalDevice.traccarId || principalDevice.id)) : null;
+      const client = clientMap.get(vehicle.clientId) || deviceMatch?.client || clientMap.get(deviceMatch?.clientId) || null;
 
-      const device = {
-        id: String(deviceId),
-        name: deviceMetadata?.name || deviceMatch?.name || deviceMatch?.uniqueId || String(deviceId),
-        uniqueId: deviceMetadata?.uniqueId || deviceMatch?.uniqueId || null,
-        status: deviceMetadata?.status || "unknown",
-        lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
-      };
+      const device = principalDevice
+        ? {
+            id: String(principalDevice.traccarId || principalDevice.id),
+            name: deviceMetadata?.name || principalDevice?.name || principalDevice?.uniqueId || String(principalDevice?.id),
+            uniqueId: deviceMetadata?.uniqueId || principalDevice?.uniqueId || null,
+            status: deviceMetadata?.status || "unknown",
+            lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
+          }
+        : null;
 
       const telemetryEntry = {
         vehicleId: vehicle?.id ?? deviceMatch?.vehicleId ?? null,
         vehicleName: vehicle?.name ?? vehicle?.plate ?? null,
         plate: vehicle?.plate ?? null,
-        clientId: client?.id ?? deviceMatch?.clientId ?? null,
+        clientId: client?.id ?? deviceMatch?.clientId ?? vehicle?.clientId ?? null,
         clientName: client?.name ?? client?.companyName ?? null,
-        principalDeviceId: String(deviceId),
-        deviceId: String(deviceId),
-        traccarId: String(deviceId),
-        deviceName: device.name,
+        principalDeviceId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
+        deviceId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
+        traccarId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
+        deviceName: device?.name || null,
         device,
         position: positionWithMapping,
         rawAttributes: attributesSource,
         lastEvent: null,
+        devices: linkedDevices.map((item) => ({
+          id: String(item.traccarId || item.id),
+          vehicleId: item.vehicleId || vehicle.id,
+          uniqueId: item.uniqueId || item.id,
+          name: item.name || item.uniqueId || item.id,
+        })),
       };
 
       telemetry.push(telemetryEntry);
