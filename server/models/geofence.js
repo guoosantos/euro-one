@@ -112,13 +112,35 @@ function normalizeType(type) {
 
 function resolveCircleGeometry(payload, fallback = {}) {
   const radius = Number(payload.radius ?? fallback.radius ?? 0);
+  const centerPayload = payload.center || {};
+  const fallbackCenter = fallback.center || {};
   const latitude = clampCoordinate(
-    payload.centerLat ?? payload.latitude ?? payload.center?.[0] ?? fallback.centerLat ?? fallback.latitude ?? fallback.center?.[0],
+    payload.centerLat ??
+      payload.latitude ??
+      payload.center?.[0] ??
+      centerPayload.lat ??
+      centerPayload.latitude ??
+      fallback.centerLat ??
+      fallback.latitude ??
+      fallback.center?.[0] ??
+      fallbackCenter.lat ??
+      fallbackCenter.latitude,
     -90,
     90,
   );
   const longitude = clampCoordinate(
-    payload.centerLng ?? payload.longitude ?? payload.center?.[1] ?? fallback.centerLng ?? fallback.longitude ?? fallback.center?.[1],
+    payload.centerLng ??
+      payload.longitude ??
+      payload.center?.[1] ??
+      centerPayload.lng ??
+      centerPayload.lon ??
+      centerPayload.longitude ??
+      fallback.centerLng ??
+      fallback.longitude ??
+      fallback.center?.[1] ??
+      fallbackCenter.lng ??
+      fallbackCenter.lon ??
+      fallbackCenter.longitude,
     -180,
     180,
   );
