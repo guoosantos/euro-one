@@ -30,6 +30,7 @@ import Input from "../ui/Input.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
+const SEARCH_FOCUS_ZOOM = 17;
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -695,7 +696,7 @@ export default function Geofences() {
         return;
       }
     }
-    map.flyTo([lat, lng], 15);
+    map.flyTo([lat, lng], Math.max(map.getZoom(), SEARCH_FOCUS_ZOOM));
   }, []);
 
   const handleSearchSubmit = useCallback(
@@ -816,7 +817,15 @@ export default function Geofences() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
 
-          <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
+        <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
+
+          {searchMarker && (
+            <CircleMarker
+              center={searchMarker}
+              radius={9}
+              pathOptions={{ color: "#0ea5e9", fillColor: "#38bdf8", fillOpacity: 0.35, weight: 2 }}
+            />
+          )}
 
           {visibleGeofences.map((geo) => {
             if (geo.type === "circle") {

@@ -156,6 +156,9 @@ model Geofence {
   description String?
   type        String
   color       String?
+  geometryJson Json?
+  kml         String?
+  createdByUserId String?
   points      Json?
   centerLat   Float?
   centerLng   Float?
@@ -163,8 +166,9 @@ model Geofence {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  client Client         @relation(fields: [clientId], references: [id])
-  group  GeofenceGroup? @relation(fields: [groupId], references: [id])
+  client    Client         @relation(fields: [clientId], references: [id])
+  group     GeofenceGroup? @relation(fields: [groupId], references: [id])
+  createdBy User?          @relation(fields: [createdByUserId], references: [id])
 
   @@map("geofence")
 }

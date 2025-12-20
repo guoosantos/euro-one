@@ -11,6 +11,35 @@ const ACCEPT_LANGUAGE = "pt-BR";
 const UNAUTHORIZED_COOLDOWN_MS = 3 * 60 * 1000; // aguarda antes de novas tentativas
 const UNAVAILABLE_MESSAGE = "Endereço indisponível — faça login novamente";
 
+function parseCoordinateQuery(term) {
+  if (!term) return null;
+  const normalised = term.replace(/;/g, ",").trim();
+  const parts = normalised
+    .split(/[\s,]+/)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const [latRaw, lngRaw] = parts;
+  const lat = Number(latRaw);
+  const lng = Number(lngRaw);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
+
+  const padding = 0.01;
+  const boundingBox = [lat - padding, lat + padding, lng - padding, lng + padding];
+  const label = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+
+  return {
+    id: label,
+    lat,
+    lng,
+    label,
+    concise: label,
+    boundingBox,
+    score: 1_000_000,
+  };
+}
+
 export default function useGeocodeSearch() {
   const [isSearching, setIsSearching] = useState(false);
   const [lastResult, setLastResult] = useState(null);
@@ -187,6 +216,15 @@ export default function useGeocodeSearch() {
     const term = query?.trim();
     if (!term || term.length < MIN_QUERY_LENGTH) return null;
 
+    const coordinateResult = parseCoordinateQuery(term);
+    if (coordinateResult) {
+      setSuggestions([coordinateResult]);
+      setLastResult(coordinateResult);
+      setCache(term.toLowerCase(), { list: [coordinateResult], best: coordinateResult });
+      setError(null);
+      return coordinateResult;
+    }
+
     const cached = getCached(term.toLowerCase());
     if (cached) {
       setSuggestions(cached.list);
@@ -235,6 +273,15 @@ export default function useGeocodeSearch() {
     if (!term || term.length < MIN_QUERY_LENGTH) {
       clearSuggestions();
       return [];
+    }
+
+    const coordinateResult = parseCoordinateQuery(term);
+    if (coordinateResult) {
+      setSuggestions([coordinateResult]);
+      setLastResult(coordinateResult);
+      setCache(term.toLowerCase(), { list: [coordinateResult], best: coordinateResult });
+      setError(null);
+      return [coordinateResult];
     }
 
     const cached = getCached(term.toLowerCase());

@@ -69,7 +69,7 @@ router.get("/geofences/export/kml", async (req, res, next) => {
   try {
     const targetClientId = resolveClientId(req, req.query?.clientId);
     if (!targetClientId) {
-      throw createError(400, "clientId é obrigatório para exportar");
+      throw createError(422, "clientId é obrigatório para exportar");
     }
     const geofences = await listGeofences({ clientId: targetClientId });
     const kml = buildGeofencesKml(geofences);
@@ -85,10 +85,10 @@ router.post("/geofences/import/kml", requireRole("manager", "admin"), async (req
     const { kml, clientId: providedClientId, groupId = null, color = null } = req.body || {};
     const targetClientId = resolveClientId(req, providedClientId);
     if (!targetClientId) {
-      throw createError(400, "clientId é obrigatório");
+      throw createError(422, "clientId é obrigatório");
     }
     if (!kml) {
-      throw createError(400, "Arquivo KML é obrigatório");
+      throw createError(422, "Arquivo KML é obrigatório");
     }
     if (groupId) {
       const groups = await listGeofenceGroups({ clientId: targetClientId });
@@ -158,14 +158,14 @@ router.post("/geofences", requireRole("manager", "admin"), async (req, res, next
   try {
     const clientId = resolveClientId(req, req.body?.clientId);
     if (!clientId) {
-      throw createError(400, "clientId é obrigatório");
+      throw createError(422, "clientId é obrigatório");
     }
 
     if (req.user.role !== "admin" && (!req.user.clientId || String(req.user.clientId) !== String(clientId))) {
       throw createError(403, "Operação não permitida para este cliente");
     }
 
-    const geofence = await createGeofence({ ...req.body, clientId });
+    const geofence = await createGeofence({ ...req.body, clientId, createdByUserId: req.user?.id || null });
 
     return res.status(201).json({ geofence });
   } catch (error) {
@@ -187,6 +187,7 @@ router.put("/geofences/:id", requireRole("manager", "admin"), async (req, res, n
     const geofence = await updateGeofence(req.params.id, {
       ...req.body,
       clientId: req.user.role === "admin" ? req.body?.clientId || existing.clientId : existing.clientId,
+      createdByUserId: req.user?.id || existing.createdByUserId || null,
     });
     return res.json({ geofence });
 
