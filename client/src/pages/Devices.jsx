@@ -1,6 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import { Plus, RefreshCw, Trash2, MapPin } from "lucide-react";
+import {
+  Battery,
+  Clock3,
+  Download,
+  EllipsisVertical,
+  Link2,
+  MapPin,
+  Plus,
+  Power,
+  RefreshCw,
+  Search,
+  SignalMedium,
+  Trash2,
+  Unlink,
+  Wifi,
+  X,
+} from "lucide-react";
 import { latLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -32,20 +49,6 @@ function parsePositionTime(position) {
   return Number.isNaN(time) ? null : time;
 }
 
-function pickLatestPosition(...positions) {
-  return positions
-    .filter(Boolean)
-    .reduce((latest, current) => {
-      const currentTime = parsePositionTime(current);
-      if (!latest) return { ...current, parsedTime: currentTime };
-      const latestTime = parsePositionTime(latest);
-      if (currentTime !== null && (latestTime === null || currentTime > latestTime)) {
-        return { ...current, parsedTime: currentTime };
-      }
-      return latest;
-    }, null);
-}
-
 function formatDate(value) {
   const parsed = Date.parse(value || 0);
   if (!value || Number.isNaN(parsed)) return null;
@@ -75,23 +78,6 @@ function formatPositionTimestamps(position) {
   const timestampTime = formatDate(position.timestamp);
   if (!parts.length && timestampTime) parts.push(`Timestamp: ${timestampTime}`);
   return parts.length ? parts.join(" · ") : "—";
-}
-
-function statusBadge(device) {
-  if (!device) return "—";
-  if (device.statusLabel) return device.statusLabel;
-  const usage = device.usageStatusLabel || (device.vehicleId ? "Ativo" : "Estoque");
-  const connection =
-    device.connectionStatusLabel ||
-    (device.connectionStatus === "online"
-      ? "Online"
-      : device.connectionStatus === "offline"
-      ? "Offline"
-      : device.connectionStatus === "never"
-      ? "Nunca conectado"
-      : "");
-  if (!connection) return usage;
-  return `${usage} (${connection})`;
 }
 
 function ModelCards({ models }) {
@@ -143,11 +129,233 @@ function ModelCards({ models }) {
   );
 }
 
+function DeviceRow({
+  device,
+  traccarDevice,
+  model,
+  chip,
+  vehicle,
+  position,
+  status,
+  batteryLabel,
+  ignitionLabel,
+  showSpeed,
+  showChip,
+  showIgnition,
+  speedLabel,
+  onMap,
+  onLink,
+  onUnlink,
+  onEdit,
+  onDelete,
+  positionLabel,
+  lastCommunication,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const toggleMenu = () => setMenuOpen((value) => !value);
+
+  return (
+    <tr className="hover:bg-white/5">
+      <td className="px-4 py-3">
+        <div className="font-semibold text-white">{device.name || traccarDevice?.name || "—"}</div>
+        <div className="text-xs text-white/50">IMEI {device.uniqueId || traccarDevice?.uniqueId || "—"}</div>
+      </td>
+      <td className="px-4 py-3">
+        <StatusPill meta={status} />
+      </td>
+      <td className="px-4 py-3">
+        <div className="text-white">{lastCommunication}</div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span>{positionLabel}</span>
+          {position && (
+            <button
+              type="button"
+              onClick={onMap}
+              className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white hover:border-primary"
+            >
+              <MapPin className="h-3 w-3" />
+              Ver
+            </button>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        {vehicle ? (
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs">
+            <Link2 className="h-3 w-3" />
+            <div className="text-white">
+              <div className="font-medium">{vehicle.plate || vehicle.name || "Veículo"}</div>
+              <div className="text-[11px] text-white/60">{vehicle.clientName || "Vinculado"}</div>
+            </div>
+          </div>
+        ) : (
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
+            <X className="h-3 w-3" />
+            <span>Não vinculado</span>
+            <button
+              type="button"
+              onClick={onLink}
+              className="ml-2 rounded-md border border-primary/50 bg-primary/10 px-2 py-1 text-[11px] font-medium text-white"
+            >
+              Vincular
+            </button>
+          </div>
+        )}
+      </td>
+      {showChip && (
+        <td className="px-4 py-3">
+          <div className="space-y-1 text-sm">
+            <div className="text-white">{chip?.iccid || chip?.phone || "Sem chip"}</div>
+            {chip?.carrier && <div className="text-xs text-white/60">{chip.carrier}</div>}
+          </div>
+        </td>
+      )}
+      {showSpeed && (
+        <td className="px-4 py-3">
+          <span>{speedLabel}</span>
+        </td>
+      )}
+      {showIgnition && (
+        <td className="px-4 py-3 space-y-1">
+          <div className="flex items-center gap-2">
+            <Battery className="h-4 w-4 text-white/60" />
+            <span>{batteryLabel}</span>
+          </div>
+          {ignitionLabel && (
+            <div className="flex items-center gap-2 text-xs">
+              <Power className="h-3 w-3 text-white/60" />
+              <span className="rounded-full bg-white/10 px-2 py-0.5">{ignitionLabel}</span>
+            </div>
+          )}
+          {model?.name && <div className="text-[11px] text-white/50">{model.name}</div>}
+        </td>
+      )}
+      <td className="px-4 py-3 text-right">
+        <div className="relative inline-block text-left">
+          <button
+            type="button"
+            onClick={toggleMenu}
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+            aria-label="Ações"
+          >
+            <EllipsisVertical className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-xl border border-white/10 bg-[#0f141c] shadow-xl">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                onClick={() => {
+                  onEdit?.();
+                  setMenuOpen(false);
+                }}
+              >
+                ✏️ Editar
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                onClick={() => {
+                  onLink?.();
+                  setMenuOpen(false);
+                }}
+              >
+                🔗 Vincular veículo
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                onClick={() => {
+                  onUnlink?.();
+                  setMenuOpen(false);
+                }}
+              >
+                <Unlink className="h-4 w-4" />
+                Desvincular
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                onClick={() => {
+                  onMap?.();
+                  setMenuOpen(false);
+                }}
+              >
+                <MapPin className="h-4 w-4" />
+                Ver no mapa
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10"
+                onClick={() => {
+                  onDelete?.();
+                  setMenuOpen(false);
+                }}
+              >
+                <Trash2 className="h-4 w-4" />
+                Remover
+              </button>
+            </div>
+          )}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function StatusPill({ meta }) {
+  if (!meta) return <span className="rounded-full bg-white/5 px-3 py-1 text-xs text-white/70">—</span>;
+  const tone =
+    meta.tone === "success"
+      ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-50"
+      : meta.tone === "warning"
+      ? "bg-amber-500/20 border-amber-500/40 text-amber-50"
+      : "bg-white/10 border-white/20 text-white/80";
+  const Icon = meta.icon || Wifi;
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${tone}`}>
+      <Icon className="h-3.5 w-3.5" />
+      {meta.label}
+    </span>
+  );
+}
+
+function Drawer({ open, onClose, title, description, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[9998] flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Equipamentos</p>
+            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            {description && <p className="text-sm text-white/60">{description}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="h-[calc(100%-80px)] overflow-y-auto px-6 py-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function Devices() {
   const { tenantId, user } = useTenant();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { positions } = useLivePositions();
   const { byId: traccarById, byUniqueId: traccarByUniqueId, loading: traccarLoading } = useTraccarDevices();
-  const [tab, setTab] = useState("lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [chips, setChips] = useState([]);
@@ -157,11 +365,27 @@ export default function Devices() {
   const [savingDevice, setSavingDevice] = useState(false);
   const [savingModel, setSavingModel] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [showDeviceModal, setShowDeviceModal] = useState(false);
+  const [showDeviceDrawer, setShowDeviceDrawer] = useState(false);
   const [conflictDevice, setConflictDevice] = useState(null);
   const [linkTarget, setLinkTarget] = useState(null);
   const [linkVehicleId, setLinkVehicleId] = useState("");
   const [linkQuery, setLinkQuery] = useState("");
+  const [filters, setFilters] = useState({
+    status: "all",
+    link: "all",
+    model: "all",
+  });
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState({
+    speed: true,
+    chip: true,
+    ignition: true,
+  });
+  const [syncing, setSyncing] = useState(false);
+  const [drawerTab, setDrawerTab] = useState("geral");
+  const [initializedFromSearch, setInitializedFromSearch] = useState(false);
+  const [creatingVehicle, setCreatingVehicle] = useState(false);
+  const [vehicleForm, setVehicleForm] = useState({ plate: "", name: "" });
 
   const resolvedClientId = tenantId || user?.clientId || null;
 
@@ -256,6 +480,32 @@ export default function Devices() {
   }, [resolvedClientId, user]);
 
   useEffect(() => {
+    if (initializedFromSearch) return;
+    const params = new URLSearchParams(location.search);
+    const linkParam = params.get("link");
+    if (linkParam && ["all", "linked", "unlinked"].includes(linkParam)) {
+      setFilters((current) => ({ ...current, link: linkParam }));
+      setInitializedFromSearch(true);
+    } else if (!initializedFromSearch) {
+      setInitializedFromSearch(true);
+    }
+  }, [initializedFromSearch, location.search]);
+
+  useEffect(() => {
+    if (!initializedFromSearch) return;
+    const params = new URLSearchParams(location.search);
+    if (filters.link === "all") {
+      params.delete("link");
+    } else {
+      params.set("link", filters.link);
+    }
+    const nextSearch = params.toString() ? `?${params.toString()}` : "";
+    if (nextSearch !== location.search) {
+      navigate({ search: nextSearch }, { replace: true });
+    }
+  }, [filters.link, initializedFromSearch, location.search, navigate]);
+
+  useEffect(() => {
     const map = mapRef.current;
     const target = mapTarget?.position;
     if (!map || !target) return;
@@ -289,6 +539,13 @@ export default function Devices() {
       label: chip.iccid || chip.phone || chip.device?.uniqueId || chip.id,
     }));
   }, [chips]);
+  const chipById = useMemo(() => {
+    const map = new Map();
+    chips.forEach((chip) => {
+      if (chip?.id) map.set(chip.id, chip);
+    });
+    return map;
+  }, [chips]);
 
   const vehicleOptions = useMemo(() => {
     return vehicles.map((vehicle) => ({
@@ -296,31 +553,127 @@ export default function Devices() {
       label: vehicle.name || vehicle.plate || vehicle.id,
     }));
   }, [vehicles]);
-
-  const filteredDevices = useMemo(() => {
-    if (!query.trim()) return devices;
-    const term = query.trim().toLowerCase();
-    return devices.filter((device) =>
-      [device.name, device.uniqueId, device.imei]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(term)),
-    );
-  }, [devices, query]);
+  const vehicleById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      if (vehicle?.id) map.set(vehicle.id, vehicle);
+    });
+    return map;
+  }, [vehicles]);
 
   const latestPositionByDevice = useMemo(() => {
     const map = new Map();
-    filteredDevices.forEach((device) => {
+    devices.forEach((device) => {
       const key = deviceKey(device);
       if (!key) return;
-
       const pos = positionMap.get(key);
       if (pos) {
         map.set(key, pos);
-
       }
     });
     return map;
-  }, [filteredDevices, positionMap]);
+  }, [devices, positionMap]);
+
+  function relativeTimeFromNow(timestamp) {
+    if (!timestamp) return null;
+    const diff = Date.now() - timestamp;
+    if (diff < 60 * 1000) return "agora";
+    const minutes = Math.round(diff / (60 * 1000));
+    if (minutes < 60) return `há ${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 48) return `há ${hours} h`;
+    const days = Math.round(hours / 24);
+    return `há ${days} d`;
+  }
+
+  function formatPositionSummary(position) {
+    if (!position) return "—";
+    const address = position.address || position.attributes?.address;
+    if (address) return address;
+    const lat = Number(position.latitude ?? position.lat ?? position.latitute);
+    const lon = Number(position.longitude ?? position.lon ?? position.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lon)) {
+      return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
+    }
+    return "—";
+  }
+
+  function latestTelemetry(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const traccarDevice = traccarDeviceFor(device);
+    const positionTime = position?.parsedTime || null;
+    const statusTime = parseTimestamp(traccarDevice?.lastUpdate || traccarDevice?.lastCommunication);
+    const deviceTime = parseTimestamp(device.lastCommunication || device.lastUpdate);
+    const latestTime = Math.max(positionTime || 0, statusTime || 0, deviceTime || 0);
+    return { position, latestTime: latestTime || null, traccarDevice };
+  }
+
+  function statusMeta(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const traccarDevice = traccarDeviceFor(device);
+    const positionTime = position?.parsedTime || null;
+    const statusTime = parseTimestamp(traccarDevice?.lastUpdate || traccarDevice?.lastCommunication);
+    const deviceTime = parseTimestamp(device.lastCommunication || device.lastUpdate);
+    const latestTime = Math.max(positionTime || 0, statusTime || 0, deviceTime || 0);
+    if (!latestTime) {
+      return { code: ">24h", label: "Sem comunicação", tone: "muted", icon: Clock3 };
+    }
+    const diff = Date.now() - latestTime;
+    const hours = diff / (1000 * 60 * 60);
+    if (hours <= 0.083) {
+      return { code: "online", label: "Online", tone: "success", icon: Wifi };
+    }
+    if (hours <= 1) {
+      return { code: "offline", label: "Offline", tone: "warning", icon: SignalMedium };
+    }
+    if (hours <= 6) {
+      return { code: "1-6h", label: "Sem transmissão 1–6h", tone: "warning", icon: Clock3 };
+    }
+    if (hours <= 24) {
+      return { code: "6-24h", label: "Sem transmissão 6–24h", tone: "muted", icon: Clock3 };
+    }
+    return { code: ">24h", label: ">24h sem transmissão", tone: "muted", icon: Clock3 };
+  }
+
+  const filteredDevices = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return devices.filter((device) => {
+      const chip = chipById.get(device.chipId) || device.chip;
+      const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+      const model = modeloById.get(device.modelId) || null;
+
+      if (term) {
+        const haystack = [
+          device.name,
+          device.uniqueId,
+          device.imei,
+          chip?.iccid,
+          chip?.phone,
+          vehicle?.plate,
+          vehicle?.name,
+          model?.name,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        const matches = haystack.some((value) => value.includes(term));
+        if (!matches) return false;
+      }
+
+      if (filters.link === "linked" && !device.vehicleId && !device.vehicle) return false;
+      if (filters.link === "unlinked" && (device.vehicleId || device.vehicle)) return false;
+
+      if (filters.model !== "all" && String(device.modelId || "") !== String(filters.model)) return false;
+
+      if (filters.status !== "all") {
+        const meta = statusMeta(device);
+        if (meta.code !== filters.status) return false;
+      }
+
+      return true;
+    });
+  }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, vehicleById]);
 
 
   function parseTimestamp(value) {
@@ -330,36 +683,14 @@ export default function Devices() {
   }
 
   function getStatus(device) {
-    const key = deviceKey(device);
-    const position = latestPositionByDevice.get(key);
-    const traccarDevice = traccarDeviceFor(device);
-    const positionFresh = position?.parsedTime ? Date.now() - position.parsedTime : null;
-    if (positionFresh != null) {
-      const isOnline = positionFresh < 5 * 60 * 1000;
-
-      return isOnline ? "Online" : "Offline";
-    }
-    if (traccarDevice?.status) {
-      const status = String(traccarDevice.status).toLowerCase();
-      if (status === "online") return "Online";
-      if (status === "offline") return "Offline";
-      if (status === "unknown") return "Desconhecido";
-    }
-    return statusBadge(device);
+    return statusMeta(device);
   }
 
 
   function formatPosition(device) {
     const key = deviceKey(device);
     const position = latestPositionByDevice.get(key);
-
-    if (!position) return "—";
-    const lat = Number(position.latitude ?? position.lat ?? position.latitute);
-    const lon = Number(position.longitude ?? position.lon ?? position.lng);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
-    }
-    return "—";
+    return formatPositionSummary(position);
   }
 
 
@@ -375,15 +706,10 @@ export default function Devices() {
 
 
   function formatLastCommunication(device) {
-    const key = deviceKey(device);
-    const position = latestPositionByDevice.get(key);
-    const traccarDevice = traccarDeviceFor(device);
-    const positionTime = position?.parsedTime || null;
-    const statusTime = parseTimestamp(traccarDevice?.lastUpdate || traccarDevice?.lastCommunication);
-    const deviceTime = parseTimestamp(device.lastCommunication || device.lastUpdate);
-    const latestTime = Math.max(positionTime || 0, statusTime || 0, deviceTime || 0);
+    const { latestTime } = latestTelemetry(device);
     if (!latestTime) return "—";
-    return new Date(latestTime).toLocaleString();
+    const relative = relativeTimeFromNow(latestTime);
+    return `${new Date(latestTime).toLocaleString()}${relative ? ` · ${relative}` : ""}`;
   }
 
   function formatBattery(device) {
@@ -454,8 +780,8 @@ export default function Devices() {
       }
       await load();
       resetDeviceForm();
-      setShowDeviceModal(false);
-      setTab("lista");
+      setShowDeviceDrawer(false);
+      setDrawerTab("geral");
     } catch (requestError) {
       const isConflict = requestError?.response?.status === 409;
       const code = requestError?.response?.data?.code;
@@ -467,7 +793,7 @@ export default function Devices() {
             item.id === existingId ||
             (item.uniqueId && uniqueId && String(item.uniqueId).toLowerCase() === uniqueId.toLowerCase()),
         );
-        setShowDeviceModal(false);
+        setShowDeviceDrawer(false);
         setConflictDevice({
           uniqueId,
           deviceId: match?.id || existingId || null,
@@ -543,7 +869,6 @@ export default function Devices() {
       });
       await load();
       setModelForm({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
-      setTab("modelos");
       showToast("Modelo salvo com sucesso", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao cadastrar modelo", "error");
@@ -562,8 +887,10 @@ export default function Devices() {
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
     });
-    setShowDeviceModal(true);
-    setTab("cadastro");
+    setDrawerTab("geral");
+    setLinkTarget(device);
+    setLinkVehicleId(device.vehicleId || "");
+    setShowDeviceDrawer(true);
   }
 
   function handleGoToExistingDevice() {
@@ -577,7 +904,6 @@ export default function Devices() {
     if (match) {
       openEditDevice(match);
     } else {
-      setTab("lista");
       void load();
     }
     setConflictDevice(null);
@@ -607,19 +933,27 @@ export default function Devices() {
 
   async function handleLinkToVehicle(event) {
     event.preventDefault();
-    if (!linkTarget || !linkVehicleId) return;
+    if (!linkVehicleId) return;
+    const targetDevice =
+      linkTarget ||
+      devices.find((item) => item.id === editingId) ||
+      devices.find((item) => item.uniqueId === deviceForm.uniqueId);
+    if (!targetDevice) {
+      showToast("Selecione um equipamento para vincular", "error");
+      return;
+    }
     try {
       const vehicle = vehicles.find((item) => String(item.id) === String(linkVehicleId));
-      const targetClientId = vehicle?.clientId || linkTarget?.clientId || tenantId || user?.clientId || "";
+      const targetClientId = vehicle?.clientId || targetDevice?.clientId || tenantId || user?.clientId || "";
       if (!targetClientId) {
         showToast("Selecione um cliente antes de vincular", "error");
         return;
       }
-      if (vehicle?.clientId && linkTarget?.clientId && String(vehicle.clientId) !== String(linkTarget.clientId)) {
+      if (vehicle?.clientId && targetDevice?.clientId && String(vehicle.clientId) !== String(targetDevice.clientId)) {
         showToast("Equipamento e veículo pertencem a clientes diferentes", "error");
         return;
       }
-      await CoreApi.linkDeviceToVehicle(linkVehicleId, linkTarget.id, { clientId: targetClientId });
+      await CoreApi.linkDeviceToVehicle(linkVehicleId, targetDevice.id, { clientId: targetClientId });
       await load();
       setLinkTarget(null);
       setLinkVehicleId("");
@@ -627,6 +961,37 @@ export default function Devices() {
       showToast("Equipamento vinculado ao veículo com sucesso", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao vincular equipamento", "error");
+    }
+  }
+
+  async function handleCreateVehicle(event) {
+    event.preventDefault();
+    if (!vehicleForm.plate.trim() && !vehicleForm.name.trim()) {
+      showToast("Informe placa ou nome do veículo", "error");
+      return;
+    }
+    try {
+      const clientId = tenantId || user?.clientId || linkTarget?.clientId || null;
+      if (!clientId) {
+        showToast("Selecione um cliente para criar veículo", "error");
+        return;
+      }
+      setCreatingVehicle(true);
+      const payload = {
+        plate: vehicleForm.plate.trim() || undefined,
+        name: vehicleForm.name.trim() || undefined,
+        clientId,
+      };
+      const created = await CoreApi.createVehicle(payload);
+      await load();
+      if (created?.id) {
+        setLinkVehicleId(created.id);
+      }
+      showToast("Veículo criado", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Falha ao criar veículo", "error");
+    } finally {
+      setCreatingVehicle(false);
     }
   }
 
@@ -647,6 +1012,73 @@ export default function Devices() {
     }
   }
 
+  async function handleSyncDevices() {
+    const clientId = tenantId || user?.clientId || null;
+    setSyncing(true);
+    try {
+      await CoreApi.syncDevicesFromTraccar(clientId ? { clientId } : undefined);
+      await load();
+      showToast("Sincronização com o Traccar iniciada", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Falha ao sincronizar com o Traccar", "error");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
+  function toggleColumn(key) {
+    setVisibleColumns((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function handleExportCsv() {
+    if (!filteredDevices.length) return;
+    const headers = [
+      "Nome",
+      "IMEI",
+      "Status",
+      "Última comunicação",
+      "Última posição",
+      "Veículo",
+      "Chip",
+      "Modelo",
+      "Bateria",
+      "Ignição",
+    ];
+    const rows = filteredDevices.map((device) => {
+      const meta = statusMeta(device);
+      const chip = chipById.get(device.chipId) || device.chip;
+      const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+      const model = modeloById.get(device.modelId) || {};
+      return [
+        device.name || "",
+        device.uniqueId || "",
+        meta.label,
+        formatLastCommunication(device),
+        formatPosition(device),
+        vehicle?.plate || vehicle?.name || "",
+        chip?.iccid || chip?.phone || "",
+        model?.name || "",
+        formatBattery(device),
+        formatIgnition(device) || "",
+      ]
+        .map((value) => `"${String(value ?? "").replace(/"/g, '""')}"`)
+        .join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "equipamentos.csv";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }
+
+  const tableColCount =
+    6 + (visibleColumns.chip ? 1 : 0) + (visibleColumns.speed ? 1 : 0) + (visibleColumns.ignition ? 1 : 0);
+
   return (
     <div className="space-y-6">
       {toast && (
@@ -660,364 +1092,567 @@ export default function Devices() {
           {toast.message}
         </div>
       )}
-      <PageHeader
-        title="Equipamentos"
-        description="Cadastre e vincule rastreadores a chips e veículos do tenant atual."
-        right={
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={load} icon={RefreshCw}>
-              Atualizar
+
+      <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
+        <PageHeader
+          title="Equipamentos"
+          description="Dispositivos cadastrados e status de telemetria"
+          right={
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                onClick={handleSyncDevices}
+                className="inline-flex items-center gap-2"
+                disabled={syncing}
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>{syncing ? "Sincronizando…" : "Sincronizar Traccar"}</span>
+              </Button>
+              <Button
+                onClick={() => {
+                  resetDeviceForm();
+                  setEditingId(null);
+                  setDrawerTab("geral");
+                  setShowDeviceDrawer(true);
+                }}
+                className="inline-flex items-center gap-2"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Novo equipamento</span>
+              </Button>
+            </div>
+          }
+        />
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[240px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Buscar por nome, IMEI, chip, placa"
+              className="w-full rounded-lg border border-white/10 bg-white/10 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/50 focus:border-primary focus:outline-none"
+            />
+          </div>
+          <select
+            value={filters.link}
+            onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
+            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+          >
+            <option value="all">Vínculo: Todos</option>
+            <option value="linked">Vínculo: Vinculados</option>
+            <option value="unlinked">Vínculo: Não vinculados</option>
+          </select>
+          <select
+            value={filters.status}
+            onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+          >
+            <option value="all">Status: Todos</option>
+            <option value="online">Online</option>
+            <option value="offline">Offline</option>
+            <option value="1-6h">Sem transmissão 1–6h</option>
+            <option value="6-24h">Sem transmissão 6–24h</option>
+            <option value=">24h">>24h</option>
+          </select>
+          <select
+            value={filters.model}
+            onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
+            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+          >
+            <option value="all">Modelo/Tipo</option>
+            {models.map((model) => (
+              <option key={model.id} value={model.id}>
+                {model.name} · {model.brand}
+              </option>
+            ))}
+          </select>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-white/60">
+              {filteredDevices.length} de {devices.length} equipamentos
+            </span>
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-2"
+              onClick={handleExportCsv}
+              disabled={!filteredDevices.length}
+            >
+              <Download className="h-4 w-4" />
+              <span>Exportar CSV</span>
             </Button>
-            <Button onClick={() => setShowDeviceModal(true)} icon={Plus}>
-              Novo equipamento
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-2"
+              onClick={() => setShowColumnPicker((prev) => !prev)}
+            >
+              <SignalMedium className="h-4 w-4" />
+              <span>Exibir colunas</span>
             </Button>
           </div>
-        }
-      />
+        </div>
 
-      <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-4">
-        <Input
-          label="Buscar por nome ou IMEI"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Digite parte do nome ou IMEI"
-        />
-      </div>
-
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => setTab("lista")}
-          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "lista" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
-        >
-          Lista
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            resetDeviceForm();
-            setTab("cadastro");
-            setShowDeviceModal(true);
-          }}
-          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "cadastro" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
-        >
-          Cadastro
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("modelos")}
-          className={`rounded-xl px-4 py-2 text-sm font-medium ${tab === "modelos" ? "bg-white/20 text-white" : "bg-white/10 text-white/70"}`}
-        >
-          Modelos & Portas
-        </button>
+        {showColumnPicker && (
+          <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.speed}
+                onChange={() => toggleColumn("speed")}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Velocidade
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.chip}
+                onChange={() => toggleColumn("chip")}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Chip
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.ignition}
+                onChange={() => toggleColumn("ignition")}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Bateria / Ignição
+            </label>
+          </div>
+        )}
       </div>
 
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      {tab === "lista" && (
-        <div className="rounded-2xl border border-white/10 bg-white/5">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm text-white/80">
-              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
+      <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm text-white/80">
+            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+              <tr>
+                <th className="px-4 py-3 text-left">Nome / IMEI</th>
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Última comunicação</th>
+                <th className="px-4 py-3 text-left">Última posição</th>
+                <th className="px-4 py-3 text-left">Vínculo</th>
+                {visibleColumns.chip && <th className="px-4 py-3 text-left">Chip</th>}
+                {visibleColumns.speed && <th className="px-4 py-3 text-left">Vel.</th>}
+                {visibleColumns.ignition && <th className="px-4 py-3 text-left">Bateria / Ignição</th>}
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {(loading || traccarLoading) && (
                 <tr>
-                  <th className="px-4 py-3 text-left">Nome</th>
-                  <th className="px-4 py-3 text-left">IMEI</th>
-                  <th className="px-4 py-3 text-left">Status</th>
-                  <th className="px-4 py-3 text-left">Vínculo</th>
-                  <th className="px-4 py-3 text-left">Última comunicação</th>
-                  <th className="px-4 py-3 text-left">Última posição</th>
-                  <th className="px-4 py-3 text-left">Velocidade</th>
-                  <th className="px-4 py-3 text-left">Bateria / Ignição</th>
-                  <th className="px-4 py-3 text-left">Chip</th>
-                  <th className="px-4 py-3 text-left">Veículo</th>
-                  <th className="px-4 py-3 text-left">Ações</th>
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
+                    Carregando equipamentos…
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {(loading || traccarLoading) && (
-                  <tr>
-                    <td colSpan={11} className="px-4 py-6 text-center text-white/60">
-                      Carregando equipamentos…
-                    </td>
-                  </tr>
-                )}
-                {!loading && !traccarLoading && filteredDevices.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="px-4 py-6 text-center text-white/60">
-                      Nenhum equipamento cadastrado.
-                    </td>
-                  </tr>
-                )}
-                {!loading &&
-                  filteredDevices.map((device) => {
-                    const modelo = modeloById.get(device.modelId) || null;
-                    const chip = chips.find((item) => item.id === device.chipId) || device.chip;
-                    const vehicle = vehicles.find((item) => item.id === device.vehicleId) || device.vehicle;
-                    const latestPosition = latestPositionByDevice.get(deviceKey(device));
-                    const ignitionLabel = formatIgnition(device);
-                    const batteryLabel = formatBattery(device);
-                    const traccarDevice = traccarDeviceFor(device);
-                    const linkLabel = vehicle
-                      ? `Vinculado ao veículo ${vehicle.name || vehicle.plate || vehicle.id}`
-                      : "Não vinculado";
-                    return (
-                      <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
-
-                        <td className="px-4 py-3 text-white">{device.name || traccarDevice?.name || "—"}</td>
-                        <td className="px-4 py-3">{device.uniqueId || traccarDevice?.uniqueId || "—"}</td>
-                        <td className="px-4 py-3">{getStatus(device)}</td>
-                        <td className="px-4 py-3">{linkLabel}</td>
-                        <td className="px-4 py-3">{formatLastCommunication(device)}</td>
-
-                        <td className="px-4 py-3 flex items-center gap-2">
-                          <span>{formatPosition(latestPosition)}</span>
-                          {latestPosition && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              icon={MapPin}
-                              onClick={() => setMapTarget({ device, position: latestPosition })}
-                            >
-                              Ver no mapa
-                            </Button>
-                          )}
-                        </td>
-
-                        <td className="px-4 py-3">{formatSpeed(device)}</td>
-                        <td className="px-4 py-3 space-x-2">
-                          <span>{batteryLabel}</span>
-                          {ignitionLabel && (
-                            <span className="rounded-full bg-white/10 px-2 py-1 text-xs">{ignitionLabel}</span>
-
-                          )}
-                        </td>
-                        <td className="px-4 py-3">{chip?.iccid || chip?.phone || "—"}</td>
-                        <td className="px-4 py-3">{vehicle?.name || vehicle?.plate || "—"}</td>
-                        <td className="px-4 py-3 space-x-2 whitespace-nowrap">
-                          <Button size="sm" variant="ghost" onClick={() => setLinkTarget(device)}>
-                            Vincular a veículo
-                          </Button>
-                          {vehicle?.id && (
-                            <Button size="sm" variant="ghost" onClick={() => handleUnlinkFromVehicle(device)}>
-                              Desvincular
-                            </Button>
-                          )}
-                          <Button size="sm" variant="ghost" onClick={() => openEditDevice(device)}>
-                            Editar
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => handleDeleteDevice(device.id)} icon={Trash2}>
-                            Remover
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {tab === "modelos" && (
-        <div className="space-y-5">
-          <form onSubmit={handleCreateModel} className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-6 md:grid-cols-2">
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-white/70">Nome *</span>
-              <input
-                type="text"
-                value={modelForm.name}
-                onChange={(event) => setModelForm((current) => ({ ...current, name: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex.: TK-303"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-white/70">Fabricante *</span>
-              <input
-                type="text"
-                value={modelForm.brand}
-                onChange={(event) => setModelForm((current) => ({ ...current, brand: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex.: Queclink"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-white/70">Protocolo</span>
-              <input
-                type="text"
-                value={modelForm.protocol}
-                onChange={(event) => setModelForm((current) => ({ ...current, protocol: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex.: TK103"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm">
-              <span className="text-white/70">Conectividade</span>
-              <input
-                type="text"
-                value={modelForm.connectivity}
-                onChange={(event) => setModelForm((current) => ({ ...current, connectivity: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex.: GSM/GPRS"
-              />
-            </label>
-
-            <div className="md:col-span-2 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-white">Portas</span>
-                <button
-                  type="button"
-                  onClick={addPort}
-                  className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-                >
-                  + Adicionar porta
-                </button>
-              </div>
-              <div className="space-y-3">
-                {(modelForm.ports || []).map((port, index) => (
-                  <div key={`port-${index}`} className="grid gap-3 md:grid-cols-5">
-                    <div className="md:col-span-3">
-                      <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
-                        Nome
-                        <input
-                          type="text"
-                          value={port.label}
-                          onChange={(event) => updateModelPort(index, "label", event.target.value)}
-                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                          placeholder="Ex.: Ignição"
-                        />
-                      </label>
-                    </div>
-                    <div className="md:col-span-2">
-                      <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
-                        Tipo
-                        <select
-                          value={port.type}
-                          onChange={(event) => updateModelPort(index, "type", event.target.value)}
-                          className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              )}
+              {!loading && !traccarLoading && filteredDevices.length === 0 && (
+                <tr>
+                  <td colSpan={tableColCount} className="px-4 py-10 text-center text-white/60">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-white">Nenhum resultado</p>
+                      <p className="text-xs text-white/60">
+                        Ajuste filtros ou cadastre um novo equipamento.
+                      </p>
+                      <div className="flex justify-center gap-2 text-xs">
+                        <Button
+                          variant="ghost"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => {
+                            setFilters({ status: "all", link: "all", model: "all" });
+                            setQuery("");
+                          }}
                         >
-                          <option value="digital">Digital</option>
-                          <option value="analógica">Analógica</option>
-                          <option value="saida">Saída</option>
-                          <option value="entrada">Entrada</option>
-                        </select>
-                      </label>
+                          <RefreshCw className="h-4 w-4" />
+                          Limpar filtros
+                        </Button>
+                        <Button
+                          className="inline-flex items-center gap-2"
+                          onClick={() => {
+                            resetDeviceForm();
+                            setEditingId(null);
+                            setDrawerTab("geral");
+                            setShowDeviceDrawer(true);
+                          }}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Cadastrar novo
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-end justify-end">
-                      <button
-                        type="button"
-                        onClick={() => removePort(index)}
-                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
-                        disabled={(modelForm.ports || []).length <= 1}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                filteredDevices.map((device) => {
+                  const modelo = modeloById.get(device.modelId) || null;
+                  const chip = chips.find((item) => item.id === device.chipId) || device.chip;
+                  const vehicle = vehicles.find((item) => item.id === device.vehicleId) || device.vehicle;
+                  const position = latestPositionByDevice.get(deviceKey(device));
+                  const meta = statusMeta(device);
+                  const ignitionLabel = formatIgnition(device);
+                  const batteryLabel = formatBattery(device);
+                  const traccarDevice = traccarDeviceFor(device);
+                  return (
+                    <DeviceRow
+                      key={device.internalId || device.id || device.uniqueId}
+                      device={device}
+                      traccarDevice={traccarDevice}
+                      model={modelo}
+                      chip={chip}
+                      vehicle={vehicle}
+                      position={position}
+                      status={meta}
+                      batteryLabel={batteryLabel}
+                      ignitionLabel={ignitionLabel}
+                      speedLabel={formatSpeed(device)}
+                      showSpeed={visibleColumns.speed}
+                      showChip={visibleColumns.chip}
+                      showIgnition={visibleColumns.ignition}
+                      onMap={() => position && setMapTarget({ device, position })}
+                      onLink={() => {
+                        setLinkTarget(device);
+                        setLinkVehicleId(device.vehicleId || "");
+                      }}
+                      onUnlink={() => handleUnlinkFromVehicle(device)}
+                      onEdit={() => openEditDevice(device)}
+                      onDelete={() => handleDeleteDevice(device.id)}
+                      onQuickLink={() => {
+                        setLinkTarget(device);
+                        setLinkVehicleId(device.vehicleId || "");
+                      }}
+                      positionLabel={formatPositionSummary(position)}
+                      lastCommunication={formatLastCommunication(device)}
+                    />
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
-            <div className="md:col-span-2">
+      <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0d131c]/70 p-6 shadow-lg">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Catálogo</p>
+            <h3 className="text-lg font-semibold text-white">Modelos e portas</h3>
+            <p className="text-sm text-white/60">Mantenha o cadastro de modelos consistente para vincular IO e protocolos.</p>
+          </div>
+          <Button className="inline-flex items-center gap-2" onClick={addPort}>
+            <Plus className="h-4 w-4" />
+            <span>Adicionar porta</span>
+          </Button>
+        </div>
+
+        <form onSubmit={handleCreateModel} className="grid gap-4 rounded-xl border border-white/10 bg-white/5 p-4 md:grid-cols-2">
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">Nome *</span>
+            <input
+              type="text"
+              value={modelForm.name}
+              onChange={(event) => setModelForm((current) => ({ ...current, name: event.target.value }))}
+              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: TK-303"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">Fabricante *</span>
+            <input
+              type="text"
+              value={modelForm.brand}
+              onChange={(event) => setModelForm((current) => ({ ...current, brand: event.target.value }))}
+              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: Queclink"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">Protocolo</span>
+            <input
+              type="text"
+              value={modelForm.protocol}
+              onChange={(event) => setModelForm((current) => ({ ...current, protocol: event.target.value }))}
+              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: TK103"
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm">
+            <span className="text-white/70">Conectividade</span>
+            <input
+              type="text"
+              value={modelForm.connectivity}
+              onChange={(event) => setModelForm((current) => ({ ...current, connectivity: event.target.value }))}
+              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+              placeholder="Ex.: GSM/GPRS"
+            />
+          </label>
+
+          <div className="md:col-span-2 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-white">Portas</span>
               <button
-                type="submit"
-                disabled={savingModel}
-                className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20 disabled:opacity-60"
+                type="button"
+                onClick={addPort}
+                className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
               >
-                {savingModel ? "Salvando…" : "Salvar modelo"}
+                + Adicionar porta
               </button>
             </div>
-          </form>
+            <div className="space-y-3">
+              {(modelForm.ports || []).map((port, index) => (
+                <div key={`port-${index}`} className="grid gap-3 md:grid-cols-5">
+                  <div className="md:col-span-3">
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
+                      Nome
+                      <input
+                        type="text"
+                        value={port.label}
+                        onChange={(event) => updateModelPort(index, "label", event.target.value)}
+                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                        placeholder="Ex.: Ignição"
+                      />
+                    </label>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
+                      Tipo
+                      <select
+                        value={port.type}
+                        onChange={(event) => updateModelPort(index, "type", event.target.value)}
+                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
+                      >
+                        <option value="digital">Digital</option>
+                        <option value="analógica">Analógica</option>
+                        <option value="saida">Saída</option>
+                        <option value="entrada">Entrada</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="flex items-end justify-end">
+                    <button
+                      type="button"
+                      onClick={() => removePort(index)}
+                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
+                      disabled={(modelForm.ports || []).length <= 1}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
 
-          <ModelCards models={models} />
-        </div>
-      )}
-
-      <Modal open={showDeviceModal} onClose={() => setShowDeviceModal(false)} title={editingId ? "Editar equipamento" : "Novo equipamento"} width="max-w-3xl">
-        <form onSubmit={handleSaveDevice} className="grid gap-4 md:grid-cols-2">
-          <Input
-            label="Nome (opcional)"
-            value={deviceForm.name}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, name: event.target.value }))}
-            placeholder="Ex.: Rastreador Van 12"
-          />
-          <Input
-            label="IMEI / uniqueId *"
-            required
-            value={deviceForm.uniqueId}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, uniqueId: event.target.value }))}
-            placeholder="Ex.: 866512345678901"
-          />
-          <Select
-            label="Modelo"
-            value={deviceForm.modelId}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, modelId: event.target.value }))}
-          >
-            <option value="">— Selecione —</option>
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name} · {model.brand}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Tipo de ícone no mapa"
-            value={deviceForm.iconType}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, iconType: event.target.value }))}
-          >
-            <option value="">Padrão</option>
-            {ICON_TYPES.map((icon) => (
-              <option key={icon.value} value={icon.value}>
-                {icon.label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Chip vinculado"
-            value={deviceForm.chipId}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, chipId: event.target.value }))}
-          >
-            <option value="">— Sem chip —</option>
-            {chipOptions.map((chip) => (
-              <option key={chip.value} value={chip.value}>
-                {chip.label}
-              </option>
-            ))}
-          </Select>
-          <Select
-            label="Veículo"
-            value={deviceForm.vehicleId}
-            onChange={(event) => setDeviceForm((current) => ({ ...current, vehicleId: event.target.value }))}
-          >
-            <option value="">— Sem veículo —</option>
-            {vehicleOptions.map((vehicle) => (
-              <option key={vehicle.value} value={vehicle.value}>
-                {vehicle.label}
-              </option>
-            ))}
-          </Select>
           <div className="md:col-span-2 flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => setShowDeviceModal(false)}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={savingDevice}>
-              {savingDevice ? "Salvando…" : editingId ? "Atualizar" : "Salvar"}
+            <Button
+              type="submit"
+              disabled={savingModel}
+              className="inline-flex items-center gap-2"
+            >
+              {savingModel ? "Salvando…" : "Salvar modelo"}
             </Button>
           </div>
         </form>
-      </Modal>
 
-      <Modal
+        <ModelCards models={models} />
+      </div>
+
+      <Drawer
+        open={showDeviceDrawer}
+        onClose={() => setShowDeviceDrawer(false)}
+        title={editingId ? "Editar equipamento" : "Novo equipamento"}
+        description="Edite dados gerais, vínculos e telemetria em um layout lateral."
+      >
+        <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {["geral", "vinculos", "telemetria", "acoes"].map((key) => (
+            <button
+              key={key}
+              onClick={() => setDrawerTab(key)}
+              className={`rounded-md px-3 py-2 transition ${drawerTab === key ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"}`}
+            >
+              {key === "geral" && "Geral"}
+              {key === "vinculos" && "Vínculos"}
+              {key === "telemetria" && "Telemetria"}
+              {key === "acoes" && "Ações"}
+            </button>
+          ))}
+        </div>
+
+        {drawerTab === "geral" && (
+          <form onSubmit={handleSaveDevice} className="grid gap-4 md:grid-cols-2">
+            <Input
+              label="Nome (opcional)"
+              value={deviceForm.name}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, name: event.target.value }))}
+              placeholder="Ex.: Rastreador Van 12"
+            />
+            <Input
+              label="IMEI / uniqueId *"
+              required
+              value={deviceForm.uniqueId}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, uniqueId: event.target.value }))}
+              placeholder="Ex.: 866512345678901"
+            />
+            <Select
+              label="Modelo"
+              value={deviceForm.modelId}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, modelId: event.target.value }))}
+            >
+              <option value="">— Selecione —</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} · {model.brand}
+                </option>
+              ))}
+            </Select>
+            <Select
+              label="Tipo de ícone no mapa"
+              value={deviceForm.iconType}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, iconType: event.target.value }))}
+            >
+              <option value="">Padrão</option>
+              {ICON_TYPES.map((icon) => (
+                <option key={icon.value} value={icon.value}>
+                  {icon.label}
+                </option>
+              ))}
+            </Select>
+            <div className="md:col-span-2 flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingDevice}>
+                {savingDevice ? "Salvando…" : editingId ? "Atualizar" : "Salvar"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {drawerTab === "vinculos" && (
+          <form onSubmit={handleLinkToVehicle} className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-2">
+              <Select
+                label="Chip vinculado"
+                value={deviceForm.chipId}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, chipId: event.target.value }))}
+              >
+                <option value="">— Sem chip —</option>
+                {chipOptions.map((chip) => (
+                  <option key={chip.value} value={chip.value}>
+                    {chip.label}
+                  </option>
+                ))}
+              </Select>
+              <div className="space-y-2">
+                <label className="text-xs uppercase tracking-[0.1em] text-white/60">Buscar placa/veículo</label>
+                <input
+                  value={linkQuery}
+                  onChange={(event) => setLinkQuery(event.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  placeholder="Digite a placa ou nome"
+                />
+              </div>
+              <div className="md:col-span-2 space-y-2">
+                <label className="text-xs uppercase tracking-[0.1em] text-white/60">Selecionar veículo</label>
+                <select
+                  value={linkVehicleId}
+                  onChange={(event) => setLinkVehicleId(event.target.value)}
+                  className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+                  required
+                >
+                  <option value="">— Escolha um veículo —</option>
+                  {linkVehicleOptions.map((vehicle) => (
+                    <option key={vehicle.value} value={vehicle.value}>
+                      {vehicle.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="grid gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-[0.1em] text-white/60">Criar veículo rápido</span>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                <Input
+                  label="Placa"
+                  value={vehicleForm.plate}
+                  onChange={(event) => setVehicleForm((current) => ({ ...current, plate: event.target.value }))}
+                  placeholder="ABC1D23"
+                />
+                <Input
+                  label="Nome / Descrição"
+                  value={vehicleForm.name}
+                  onChange={(event) => setVehicleForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="Frota / apelido"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button type="button" variant="ghost" onClick={handleCreateVehicle} disabled={creatingVehicle}>
+                  {creatingVehicle ? "Criando…" : "Criar veículo"}
+                </Button>
+              </div>
+            </div>
+            <div className="flex justify-between gap-2">
+              <div />
+              <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+                  Fechar
+                </Button>
+                <Button type="submit" disabled={!linkVehicleId}>
+                  Vincular
+                </Button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {drawerTab === "telemetria" && (
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Última comunicação</span>
+              <span className="text-sm text-white">{formatLastCommunication(deviceForm)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Posição</span>
+              <span className="text-sm text-white">{formatPosition(deviceForm)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Status</span>
+              <StatusPill meta={statusMeta(deviceForm)} />
+            </div>
+          </div>
+        )}
+
+        {drawerTab === "acoes" && (
+          <div className="space-y-3">
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-2 text-red-200 hover:text-white"
+              onClick={() => handleDeleteDevice(editingId)}
+              disabled={!editingId}
+            >
+              <Trash2 className="h-4 w-4" />
+              Remover equipamento
+            </Button>
+          </div>
+        )}
+      </Drawer>
+
+      <Drawer
         open={Boolean(linkTarget)}
         onClose={() => {
           setLinkTarget(null);
           setLinkVehicleId("");
           setLinkQuery("");
         }}
-        title={linkTarget ? `Vincular ${linkTarget.name || linkTarget.uniqueId || "equipamento"}` : "Vincular equipamento"}
-        width="max-w-xl"
+        title="Vincular veículo"
+        description="Associe rapidamente o equipamento a um veículo."
       >
         <form onSubmit={handleLinkToVehicle} className="space-y-3">
           <div className="space-y-2">
@@ -1045,16 +1680,43 @@ export default function Devices() {
               ))}
             </select>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" onClick={() => { setLinkTarget(null); setLinkVehicleId(""); setLinkQuery(""); }}>
-              Cancelar
-            </Button>
-            <Button type="submit" disabled={!linkVehicleId}>
-              Vincular
-            </Button>
+          <div className="grid gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-[0.1em] text-white/60">Criar veículo rápido</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Input
+                label="Placa"
+                value={vehicleForm.plate}
+                onChange={(event) => setVehicleForm((current) => ({ ...current, plate: event.target.value }))}
+                placeholder="ABC1D23"
+              />
+              <Input
+                label="Nome / Descrição"
+                value={vehicleForm.name}
+                onChange={(event) => setVehicleForm((current) => ({ ...current, name: event.target.value }))}
+                placeholder="Frota / apelido"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={handleCreateVehicle} disabled={creatingVehicle}>
+                {creatingVehicle ? "Criando…" : "Criar veículo"}
+              </Button>
+            </div>
+          </div>
+          <div className="flex justify-between gap-2">
+            <div />
+            <div className="flex gap-2">
+              <Button type="button" variant="ghost" onClick={() => { setLinkTarget(null); setLinkVehicleId(""); setLinkQuery(""); }}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={!linkVehicleId}>
+                Vincular
+              </Button>
+            </div>
           </div>
         </form>
-      </Modal>
+      </Drawer>
 
       <Modal
         open={Boolean(conflictDevice)}
@@ -1107,13 +1769,13 @@ export default function Devices() {
                 ]}
               >
                 <Popup>
-                  <div className="space-y-1 text-sm">
-                    <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
-                    <div>{formatPosition(mapTarget.position)}</div>
-                    <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
-                    <div>{formatLastCommunication(mapTarget.position, mapTarget.device)}</div>
-                  </div>
-                </Popup>
+                    <div className="space-y-1 text-sm">
+                      <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
+                      <div>{formatPositionSummary(mapTarget.position)}</div>
+                      <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
+                      <div>{formatLastCommunication(mapTarget.device || {})}</div>
+                    </div>
+                  </Popup>
               </Marker>
             </MapContainer>
           </div>
