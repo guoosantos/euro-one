@@ -17,7 +17,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 
 export default function Vehicles() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, user, tenants, hasAdminAccess } = useTenant();
   const { t, locale } = useTranslation();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
@@ -36,6 +36,7 @@ export default function Vehicles() {
     status: "ativo",
     notes: "",
     deviceId: "",
+    clientId: tenantId || user?.clientId || "",
   });
 
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -150,15 +151,33 @@ export default function Vehicles() {
 
   const availableDevices = useMemo(() => {
     const currentDeviceId = form.deviceId;
+    const targetClientId = hasAdminAccess ? form.clientId || tenantId || "" : resolvedClientId;
+    if (hasAdminAccess && !targetClientId) {
+      return [];
+    }
     return devices.filter((device) => {
+      if (hasAdminAccess && targetClientId && String(device.clientId) !== String(targetClientId)) {
+        return false;
+      }
       if (!device.vehicleId) return true;
       if (!currentDeviceId) return false;
       return device.vehicleId === currentDeviceId || device.internalId === currentDeviceId;
     });
-  }, [devices, form.deviceId]);
+  }, [devices, form.clientId, form.deviceId, hasAdminAccess, resolvedClientId, tenantId]);
 
   function openModal() {
-    setForm({ name: "", plate: "", driver: "", group: "", type: "", status: "ativo", notes: "", deviceId: "" });
+    const nextClientId = hasAdminAccess ? tenantId || "" : resolvedClientId || "";
+    setForm({
+      name: "",
+      plate: "",
+      driver: "",
+      group: "",
+      type: "",
+      status: "ativo",
+      notes: "",
+      deviceId: "",
+      clientId: nextClientId,
+    });
     setOpen(true);
   }
 
@@ -166,6 +185,11 @@ export default function Vehicles() {
     event.preventDefault();
     if (!form.plate.trim()) {
       alert("Informe a placa do veículo");
+      return;
+    }
+    const clientId = hasAdminAccess ? form.clientId || tenantId || "" : tenantId || user?.clientId;
+    if (!clientId) {
+      alert("Selecione o cliente para salvar o veículo");
       return;
     }
     setSaving(true);
@@ -179,7 +203,7 @@ export default function Vehicles() {
         status: form.status || undefined,
         notes: form.notes?.trim() || undefined,
         deviceId: form.deviceId || undefined,
-        clientId: tenantId || user?.clientId,
+        clientId,
       });
       setOpen(false);
       await load();
@@ -304,6 +328,24 @@ export default function Vehicles() {
               value={form.type}
               onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
             />
+            {hasAdminAccess && (
+              <div className="md:col-span-2">
+                <label className="text-xs uppercase tracking-[0.12em] text-white/60">Cliente</label>
+                <select
+                  value={form.clientId}
+                  onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value }))}
+                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                  required
+                >
+                  <option value="">Selecione o cliente</option>
+                  {tenants.map((tenant) => (
+                    <option key={tenant.id || "all"} value={tenant.id || ""}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <select
               value={form.status}
               onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
