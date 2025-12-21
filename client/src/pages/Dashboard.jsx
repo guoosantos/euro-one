@@ -169,6 +169,13 @@ export default function Dashboard() {
 
   const positions = useMemo(() => positionsByDeviceId ?? {}, [positionsByDeviceId]);
 
+  const monitoredVehiclesCount = useMemo(() => {
+    const linkedVehicles = devices
+      .map((device) => device.vehicleId ?? device.vehicle?.id ?? device.vehicle_id ?? null)
+      .filter(Boolean);
+    return new Set(linkedVehicles).size;
+  }, [devices]);
+
   const summary = useMemo(() => {
     const list = toArray(positions);
     const totalDistance = list.reduce((acc, item) => acc + kmFromPosition(item), 0);
@@ -277,7 +284,7 @@ export default function Dashboard() {
         node: (
           <DashboardStat
             title="Veículos monitorados"
-            value={loadingDevices ? "…" : devices.length}
+            value={loadingDevices ? "…" : monitoredVehiclesCount}
             hint="Conexões ativas com o Traccar"
           />
         ),

@@ -25,6 +25,7 @@ export const CoreApi = {
     return Array.isArray(data?.models) ? data.models : normaliseDevices(data);
   },
   createModel: (payload) => http("models", { method: "POST", payload }),
+  updateModel: (id, payload) => http(`models/${id}`, { method: "PUT", payload }),
   listDevices: async (params) => {
     const data = await http("devices", { params });
     return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);

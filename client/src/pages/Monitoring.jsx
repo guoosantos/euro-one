@@ -287,7 +287,7 @@ export default function Monitoring() {
   const [searchParams] = useSearchParams();
 
   const { tenantId, user } = useTenant();
-  const { telemetry, loading } = useTelemetry();
+  const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
 
@@ -460,14 +460,9 @@ export default function Monitoring() {
 
   const isLinkedToVehicle = useCallback((device) => {
     if (!device) return false;
-    const plate = (device.plate ?? device.registrationNumber ?? "").trim();
     const vehicleId =
-      device.vehicleId ??
-      device.vehicle_id ??
-      device.vehicle?.id ??
-      device.vehicle?.vehicleId ??
-      device.vehicleIdTraccar;
-    return Boolean(plate || vehicleId || device.vehicle);
+      device.vehicleId ?? device.vehicle?.id ?? device.vehicle_id ?? device.vehicle?.vehicleId ?? null;
+    return Boolean(vehicleId);
   }, []);
 
   const linkedTelemetry = useMemo(
