@@ -1,6 +1,7 @@
 import createError from "http-errors";
 
 import { listDevices } from "../models/device.js";
+import { listVehicles } from "../models/vehicle.js";
 import { getClientById } from "../models/client.js";
 
 export function resolveAllowedDeviceIds(req) {
@@ -115,39 +116,110 @@ export function enforceClientGroupInQuery(req, target = req.query) {
 
 export function normalizeReportDeviceIds(params = {}) {
   const ids = extractDeviceIds(params);
-  if (!ids.length) return params;
+  const vehiclesFromParams = [];
+  const pushVehicleValue = (entry) => {
+    if (entry === undefined || entry === null) return;
+    if (Array.isArray(entry)) {
+      entry.forEach(pushVehicleValue);
+      return;
+    }
+    const value = String(entry).trim();
+    if (!value) return;
+    value.split(",").forEach((part) => {
+      const token = String(part).trim();
+      if (token) vehiclesFromParams.push(token);
+    });
+  };
+  pushVehicleValue(params.vehicleId);
+  pushVehicleValue(params.vehicleIds);
+  pushVehicleValue(params.plate);
+  pushVehicleValue(params.plates);
+
+  if (!ids.length && !vehiclesFromParams.length) return params;
 
   const allNumeric = ids.every((v) => /^\d+$/.test(String(v)));
-  if (allNumeric) return params;
+  if (allNumeric && !vehiclesFromParams.length) return params;
 
   const allDevices = listDevices() || [];
+  const allVehicles = listVehicles() || [];
+
   const byInternalId = new Map();
+  const byVehicleId = new Map();
+  const byPlate = new Map();
+
   allDevices.forEach((d) => {
     if (d?.id) {
       byInternalId.set(String(d.id), d);
     }
+    if (d?.vehicleId) {
+      const key = String(d.vehicleId);
+      const current = byVehicleId.get(key) || [];
+      current.push(d);
+      byVehicleId.set(key, current);
+    }
   });
 
-  const traccarIds = [];
+  allVehicles.forEach((v) => {
+    if (v?.id) {
+      const vehicleId = String(v.id);
+      if (!byVehicleId.has(vehicleId)) {
+        byVehicleId.set(vehicleId, []);
+      }
+    }
+    if (v?.plate) {
+      byPlate.set(String(v.plate).toLowerCase(), v);
+    }
+  });
+
+  const traccarIds = new Set();
   ids.forEach((v) => {
     const s = String(v);
     if (/^\d+$/.test(s)) {
-      traccarIds.push(s);
+      traccarIds.add(s);
       return;
     }
     const dev = byInternalId.get(s);
     if (dev?.traccarId) {
-      traccarIds.push(String(dev.traccarId));
+      traccarIds.add(String(dev.traccarId));
     }
   });
 
-  if (!traccarIds.length) {
+  vehiclesFromParams.forEach((token) => {
+    const normalized = String(token).trim();
+    if (!normalized) return;
+
+    const vehicle =
+      byPlate.get(normalized.toLowerCase()) ||
+      allVehicles.find((v) => String(v.id) === normalized) ||
+      null;
+
+    if (!vehicle) return;
+    const attachedDevices = byVehicleId.get(String(vehicle.id)) || [];
+    attachedDevices.forEach((device) => {
+      if (device?.traccarId) {
+        traccarIds.add(String(device.traccarId));
+      } else if (device?.id) {
+        traccarIds.add(String(device.id));
+      }
+    });
+    if (vehicle.deviceId && byInternalId.has(String(vehicle.deviceId))) {
+      const primary = byInternalId.get(String(vehicle.deviceId));
+      if (primary?.traccarId) {
+        traccarIds.add(String(primary.traccarId));
+      } else if (primary?.id) {
+        traccarIds.add(String(primary.id));
+      }
+    }
+  });
+
+  if (!traccarIds.size) {
     return params;
   }
 
   const next = { ...params };
-  next.deviceId = traccarIds;
-  next.deviceIds = traccarIds;
+  const list = Array.from(traccarIds);
+  next.deviceId = list;
+  next.deviceIds = list;
   return next;
 }
 

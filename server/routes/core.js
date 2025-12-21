@@ -886,6 +886,16 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const hasVehicleFilter = requestedVehicleIds.length > 0 || requestedPlates.length > 0;
 
     const prismaFilter = clientId ? { clientId: String(clientId) } : {};
+    const deviceRegistry = deps.listDevices({ clientId });
+    const deviceById = new Map(deviceRegistry.map((device) => [String(device.id), device]));
+    const devicesByVehicleId = new Map();
+    deviceRegistry.forEach((device) => {
+      if (!device?.vehicleId) return;
+      const vehicleId = String(device.vehicleId);
+      const current = devicesByVehicleId.get(vehicleId) || [];
+      current.push(device);
+      devicesByVehicleId.set(vehicleId, current);
+    });
     let vehicles = [];
     let clientMap = new Map();
 
@@ -910,13 +920,30 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       vehicles = deps.listVehicles({ clientId });
     }
 
-    const vehiclesPool = hasVehicleFilter
+    vehicles = vehicles.map((vehicle) => {
+      const attachedDevices =
+        (Array.isArray(vehicle.devices) && vehicle.devices.length
+          ? vehicle.devices
+          : devicesByVehicleId.get(String(vehicle.id)) || []);
+      const primaryDevice =
+        vehicle.deviceId && deviceById.has(String(vehicle.deviceId))
+          ? deviceById.get(String(vehicle.deviceId))
+          : null;
+      const devices = primaryDevice && !attachedDevices.some((item) => String(item.id) === String(primaryDevice.id))
+        ? [...attachedDevices, primaryDevice]
+        : attachedDevices;
+      return { ...vehicle, devices };
+    });
+
+    const filteredVehicles = hasVehicleFilter
       ? vehicles.filter((vehicle) => {
           const idMatch = requestedVehicleIds.includes(String(vehicle.id));
           const plateMatch = vehicle?.plate ? requestedPlates.includes(String(vehicle.plate).trim().toLowerCase()) : false;
           return idMatch || plateMatch;
         })
       : vehicles;
+
+    const vehiclesPool = filteredVehicles.filter((vehicle) => Array.isArray(vehicle.devices) && vehicle.devices.length > 0);
 
     if (!vehiclesPool.length) {
       const emptyWarnings = hasVehicleFilter
@@ -992,15 +1019,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     }
 
     const metadataById = new Map(metadata.map((item) => [String(item.id), item]));
-    const devicesByTraccarId = new Map(
-      devices
-        .filter((device) => device?.traccarId != null)
-        .map((device) => {
-          const mergedVehicle = device.vehicle || vehicleMap.get(device.vehicleId) || null;
-          const mergedClient = device.client || clientMap.get(device.clientId) || clientMap.get(mergedVehicle?.clientId) || null;
-          return [String(device.traccarId), { ...device, vehicle: mergedVehicle, client: mergedClient }];
-        }),
-    );
+    const devicesByTraccarId = new Map();
 
     const telemetry = [];
     const warnings = [];
@@ -1045,13 +1064,49 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         : devices.filter((device) => String(device.vehicleId) === String(vehicle.id)))
         .filter((device) => device?.traccarId != null);
 
+      const decoratedDevices = linkedDevices.map((device) => {
+        const traccarId = device.traccarId != null ? String(device.traccarId) : null;
+        const rawPosition = traccarId ? positionByDevice.get(traccarId) : null;
+        const normalisedPosition = rawPosition
+          ? normaliseTelemetryPosition({
+              ...rawPosition,
+              timestamp: rawPosition.serverTime || rawPosition.deviceTime || rawPosition.fixTime,
+            })
+          : null;
+        const lastUpdate =
+          normalisedPosition?.timestamp ||
+          rawPosition?.serverTime ||
+          rawPosition?.deviceTime ||
+          rawPosition?.fixTime ||
+          device.lastUpdate ||
+          device.updatedAt ||
+          null;
+        const mergedVehicle = device.vehicle || vehicleMap.get(device.vehicleId) || vehicle || null;
+        const mergedClient = device.client || clientMap.get(device.clientId) || clientMap.get(mergedVehicle?.clientId) || null;
+
+        if (traccarId && !devicesByTraccarId.has(traccarId)) {
+          devicesByTraccarId.set(traccarId, { ...device, vehicle: mergedVehicle, client: mergedClient });
+        }
+
+        return {
+          ...device,
+          id: device.id ? String(device.id) : device.id,
+          traccarId,
+          vehicle: mergedVehicle,
+          client: mergedClient,
+          position: normalisedPosition,
+          rawPosition,
+          lastUpdate,
+        };
+      });
+
       if (!linkedDevices.length) {
         continue;
       }
 
-      const best = linkedDevices.reduce(
+      const best = decoratedDevices.reduce(
         (acc, device) => {
-          const position = positionByDevice.get(String(device.traccarId));
+          const position = device.position || device.rawPosition;
           const timestamp = pickPositionTimestamp(position);
           if (!acc || timestamp > acc.timestamp) {
             return { device, position, timestamp };
@@ -1061,7 +1116,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         null,
       );
 
-      const principalDevice = best?.device || linkedDevices[0] || null;
+      const principalDevice = best?.device || decoratedDevices[0] || null;
       const position = best?.position || null;
 
       const normalisedPosition = position
@@ -1072,7 +1127,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         : null;
 
       const attributesSource =
-        normalisedPosition?.rawAttributes || normalisedPosition?.attributes || position?.attributes || {};
+        normalisedPosition?.rawAttributes ||
+        normalisedPosition?.attributes ||
+        position?.attributes ||
+        best?.device?.rawPosition?.attributes ||
+        {};
       const applicableMappings = filterMappingsForDevice(telemetryMappings, {
         deviceId: principalDevice?.traccarId || principalDevice?.id,
         protocol: normalisedPosition?.protocol || metadataById.get(String(principalDevice?.traccarId))?.protocol,
@@ -1101,6 +1160,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         clientId: client?.id ?? deviceMatch?.clientId ?? vehicle?.clientId ?? null,
         clientName: client?.name ?? client?.companyName ?? null,
         principalDeviceId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
+        principalDeviceInternalId: principalDevice?.id ? String(principalDevice.id) : null,
         deviceId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
         traccarId: principalDevice?.traccarId ? String(principalDevice.traccarId) : principalDevice?.id || null,
         deviceName: device?.name || null,
@@ -1108,11 +1168,15 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         position: positionWithMapping,
         rawAttributes: attributesSource,
         lastEvent: null,
-        devices: linkedDevices.map((item) => ({
+        devices: decoratedDevices.map((item) => ({
           id: String(item.traccarId || item.id),
+          internalId: item.id ? String(item.id) : null,
           vehicleId: item.vehicleId || vehicle.id,
           uniqueId: item.uniqueId || item.id,
           name: item.name || item.uniqueId || item.id,
+          traccarId: item.traccarId,
+          position: item.position,
+          lastUpdate: item.lastUpdate,
         })),
       };
 
@@ -1160,6 +1224,18 @@ router.get("/devices", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
+    const models = deps.listModels({ clientId, includeGlobal: true });
+    const chips = deps.listChips({ clientId });
+    const vehicles = deps.listVehicles({ clientId });
+    const modelMap = new Map(models.map((item) => [item.id, item]));
+    const chipMap = new Map(chips.map((item) => [item.id, item]));
+    const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
+    const metadata = (await deps.fetchDevicesMetadata()) || [];
+    const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
+    const traccarByUniqueId = new Map(
+      metadata.filter((item) => item.uniqueId).map((item) => [String(item.uniqueId), item]),
+    );
+
     // 🔄 atualizado: devices direto do Postgres (Prisma), com fallback para storage legado
     let devices = [];
     if (isPrismaReady()) {
@@ -1176,26 +1252,29 @@ router.get("/devices", async (req, res, next) => {
       devices = deps.listDevices({ clientId });
     }
 
-    const metadata = await deps.fetchDevicesMetadata();
+    const response = devices.map((device) =>
+      buildDeviceResponse(
+        {
+          ...device,
+          id: String(device.id),
+          clientId: device.clientId ? String(device.clientId) : null,
+          modelId: device.modelId ? String(device.modelId) : null,
+          traccarId: device.traccarId ? String(device.traccarId) : null,
+          chipId: device.chipId ? String(device.chipId) : null,
+          vehicleId: device.vehicleId ? String(device.vehicleId) : null,
+          attributes: device.attributes || {},
+        },
+        {
+          modelMap,
+          chipMap,
+          vehicleMap,
+          traccarById,
+          traccarByUnique: traccarByUniqueId,
+        },
+      ),
+    );
 
-    const traccarById = new Map(metadata.map((item) => [String(item.id), item]));
-    const traccarByUniqueId = new Map(metadata.map((item) => [String(item.uniqueId || ""), item]));
-
-    const response = devices.map((device) => {
-      const metadataMatch =
-        (device.traccarId && traccarById.get(String(device.traccarId))) ||
-        (device.uniqueId && traccarByUniqueId.get(String(device.uniqueId)));
-
-      return {
-        id: device.traccarId ? String(device.traccarId) : String(device.id),
-        name: metadataMatch?.name || device.name || device.uniqueId || String(device.id),
-        uniqueId: metadataMatch?.uniqueId || device.uniqueId || null,
-        status: metadataMatch?.status || null,
-        lastUpdate: metadataMatch?.lastUpdate || null,
-      };
-    });
-
-    return res.status(200).json({ data: response, error: null });
+    return res.status(200).json({ devices: response, data: response, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");

@@ -183,6 +183,8 @@ export default function Devices() {
   const [query, setQuery] = useState("");
   const [mapTarget, setMapTarget] = useState(null);
   const mapRef = useRef(null);
+  const toastTimeoutRef = useRef(null);
+  const [toast, setToast] = useState(null);
 
   const positionMap = useMemo(() => {
     const map = new Map();
@@ -197,6 +199,20 @@ export default function Devices() {
     });
     return map;
   }, [positions]);
+
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
+
+  function showToast(message, type = "info") {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 4000);
+  }
 
   const deviceKey = (device) => toDeviceKey(device?.traccarId ?? device?.id ?? device?.internalId ?? device?.uniqueId);
 
@@ -404,7 +420,7 @@ export default function Devices() {
   async function handleSaveDevice(event) {
     event.preventDefault();
     if (!deviceForm.uniqueId.trim()) {
-      alert("Informe o IMEI / uniqueId");
+      showToast("Informe o IMEI / uniqueId", "error");
       return;
     }
     setSavingDevice(true);
@@ -421,11 +437,14 @@ export default function Devices() {
       };
       if (editingId) {
         await CoreApi.updateDevice(editingId, payload);
+        showToast("Equipamento atualizado com sucesso", "success");
       } else {
         const response = await CoreApi.createDevice(payload);
         const upserted = response?.device && response?.upserted;
         if (upserted) {
-          alert("Equipamento já existia e foi sincronizado com sucesso.");
+          showToast("Equipamento já existia e foi sincronizado com sucesso.", "success");
+        } else {
+          showToast("Equipamento criado com sucesso", "success");
         }
       }
       await load();
@@ -452,7 +471,7 @@ export default function Devices() {
         return;
       }
 
-      alert(requestError?.message || "Falha ao salvar equipamento");
+      showToast(requestError?.message || "Falha ao salvar equipamento", "error");
     } finally {
       setSavingDevice(false);
     }
@@ -464,8 +483,9 @@ export default function Devices() {
     try {
       await CoreApi.deleteDevice(id, { clientId: tenantId || user?.clientId });
       await load();
+      showToast("Equipamento removido", "success");
     } catch (requestError) {
-      alert(requestError?.message || "Não foi possível remover o equipamento");
+      showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
     }
   }
 
@@ -494,7 +514,7 @@ export default function Devices() {
   async function handleCreateModel(event) {
     event.preventDefault();
     if (!modelForm.name.trim() || !modelForm.brand.trim()) {
-      alert("Informe nome e fabricante");
+      showToast("Informe nome e fabricante", "error");
       return;
     }
     setSavingModel(true);
@@ -514,8 +534,9 @@ export default function Devices() {
       await load();
       setModelForm({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
       setTab("modelos");
+      showToast("Modelo salvo com sucesso", "success");
     } catch (requestError) {
-      alert(requestError?.message || "Falha ao cadastrar modelo");
+      showToast(requestError?.message || "Falha ao cadastrar modelo", "error");
     } finally {
       setSavingModel(false);
     }
@@ -578,8 +599,9 @@ export default function Devices() {
       setLinkTarget(null);
       setLinkVehicleId("");
       setLinkQuery("");
+      showToast("Equipamento vinculado ao veículo com sucesso", "success");
     } catch (requestError) {
-      alert(requestError?.message || "Falha ao vincular equipamento");
+      showToast(requestError?.message || "Falha ao vincular equipamento", "error");
     }
   }
 
@@ -588,13 +610,25 @@ export default function Devices() {
     try {
       await CoreApi.unlinkDeviceFromVehicle(device.vehicleId, device.id, { clientId: tenantId || user?.clientId });
       await load();
+      showToast("Equipamento desvinculado do veículo", "success");
     } catch (requestError) {
-      alert(requestError?.message || "Falha ao desvincular equipamento");
+      showToast(requestError?.message || "Falha ao desvincular equipamento", "error");
     }
   }
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div
+          className={`fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg ${
+            toast.type === "error"
+              ? "border-red-500/40 bg-red-500/20 text-red-50"
+              : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50"
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
       <PageHeader
         title="Equipamentos"
         description="Cadastre e vincule rastreadores a chips e veículos do tenant atual."

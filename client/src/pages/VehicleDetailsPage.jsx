@@ -24,6 +24,11 @@ function AdminBindingsTab({
   onBindChip,
   linkedDevices,
   autoPrimaryDeviceId,
+  linkingDeviceId,
+  setLinkingDeviceId,
+  availableDevices,
+  onLinkDevice,
+  onUnlinkDevice,
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -236,7 +241,7 @@ function AdminBindingsTab({
               </option>
             ))}
           </select>
-          <Button type="button" disabled={!linkingDeviceId || saving} onClick={handleLinkDevice}>
+          <Button type="button" disabled={!linkingDeviceId || saving} onClick={onLinkDevice}>
             Adicionar equipamento
           </Button>
         </div>
@@ -262,7 +267,7 @@ function AdminBindingsTab({
                 {device.coordinates && (
                   <span className="text-[11px] text-white/60">{device.coordinates}</span>
                 )}
-                <Button size="xs" variant="ghost" onClick={() => handleUnlinkDevice(device.id)}>
+                <Button size="xs" variant="ghost" onClick={() => onUnlinkDevice(device.id)}>
                   Desvincular
                 </Button>
                 <button
@@ -460,6 +465,11 @@ export default function VehicleDetailsPage() {
               onBindChip={handleBindChip}
               linkedDevices={linkedDevices}
               autoPrimaryDeviceId={autoPrimaryDeviceId}
+              linkingDeviceId={linkingDeviceId}
+              setLinkingDeviceId={setLinkingDeviceId}
+              availableDevices={availableDevices}
+              onLinkDevice={handleLinkDevice}
+              onUnlinkDevice={handleUnlinkDevice}
             />
           ),
         },
