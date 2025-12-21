@@ -361,8 +361,13 @@ export default function VehicleDetailsPage() {
 
   const autoPrimaryDeviceId = linkedDevices[0]?.id || null;
   const availableDevices = useMemo(
-    () => devices.filter((device) => !device.vehicleId || String(device.vehicleId) === String(vehicle?.id)),
-    [devices, vehicle?.id],
+    () =>
+      devices.filter((device) => {
+        const sameVehicle = !device.vehicleId || String(device.vehicleId) === String(vehicle?.id);
+        const sameClient = !vehicle?.clientId || String(device.clientId) === String(vehicle.clientId);
+        return sameVehicle && sameClient;
+      }),
+    [devices, vehicle?.clientId, vehicle?.id],
   );
 
   const loadData = async () => {
@@ -396,9 +401,21 @@ export default function VehicleDetailsPage() {
 
   const handleLinkDevice = async () => {
     if (!vehicle || !linkingDeviceId) return;
+    const device =
+      devices.find((item) => String(item.id) === String(linkingDeviceId)) ||
+      availableDevices.find((item) => String(item.id) === String(linkingDeviceId));
+    const targetClientId = vehicle?.clientId || device?.clientId || resolvedClientId;
+    if (!targetClientId) {
+      alert("Selecione o cliente antes de vincular o equipamento");
+      return;
+    }
+    if (vehicle?.clientId && device?.clientId && String(vehicle.clientId) !== String(device.clientId)) {
+      alert("Equipamento pertence a outro cliente. Ajuste o tenant antes de continuar.");
+      return;
+    }
     setSaving(true);
     try {
-      await CoreApi.linkDeviceToVehicle(vehicle.id, linkingDeviceId, { clientId: resolvedClientId });
+      await CoreApi.linkDeviceToVehicle(vehicle.id, linkingDeviceId, { clientId: targetClientId });
       setLinkingDeviceId("");
       await loadData();
     } catch (requestError) {
@@ -410,9 +427,17 @@ export default function VehicleDetailsPage() {
 
   const handleUnlinkDevice = async (deviceId) => {
     if (!vehicle || !deviceId) return;
+    const device =
+      linkedDevices.find((item) => String(item.id) === String(deviceId)) ||
+      devices.find((item) => String(item.id) === String(deviceId));
+    const targetClientId = vehicle?.clientId || device?.clientId || resolvedClientId;
+    if (!targetClientId) {
+      alert("Selecione o cliente antes de desvincular o equipamento");
+      return;
+    }
     setSaving(true);
     try {
-      await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, { clientId: resolvedClientId });
+      await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, { clientId: targetClientId });
       await loadData();
     } catch (requestError) {
       alert(requestError?.message || "Não foi possível desvincular o equipamento");
@@ -427,9 +452,14 @@ export default function VehicleDetailsPage() {
 
   const handleSaveVehicle = async (payload) => {
     if (!vehicle) return;
+    const clientId = payload.clientId || vehicle.clientId || resolvedClientId;
+    if (!clientId) {
+      alert("Selecione o cliente antes de salvar o veículo");
+      return;
+    }
     setSaving(true);
     try {
-      await CoreApi.updateVehicle(vehicle.id, payload);
+      await CoreApi.updateVehicle(vehicle.id, { ...payload, clientId });
       await loadData();
     } catch (requestError) {
       alert(requestError?.message || "Falha ao salvar veículo");
@@ -439,8 +469,13 @@ export default function VehicleDetailsPage() {
   };
 
   const handleBindChip = async ({ chipId, deviceId, clientId }) => {
+    const resolved = clientId || vehicle?.clientId || resolvedClientId;
+    if (!resolved) {
+      alert("Selecione o cliente antes de vincular o chip");
+      return;
+    }
     try {
-      await CoreApi.updateChip(chipId, { deviceId, clientId });
+      await CoreApi.updateChip(chipId, { deviceId, clientId: resolved });
       await loadData();
     } catch (requestError) {
       alert(requestError?.message || "Falha ao vincular chip");

@@ -584,15 +584,26 @@ function ensureSameClient(resource, clientId, message) {
   }
 }
 
+function resolveLinkClientId(clientId, ...resources) {
+  if (clientId != null) return clientId;
+  for (const resource of resources) {
+    if (resource?.clientId != null) {
+      return resource.clientId;
+    }
+  }
+  return clientId;
+}
+
 function linkChipToDevice(clientId, chipId, deviceId) {
   const chip = deps.getChipById(chipId);
-  ensureSameClient(chip, clientId, "Chip não encontrado");
   const device = deps.getDeviceById(deviceId);
-  ensureSameClient(device, clientId, "Equipamento não encontrado");
+  const resolvedClientId = resolveLinkClientId(clientId, chip, device);
+  ensureSameClient(chip, resolvedClientId, "Chip não encontrado");
+  ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
 
   if (device.chipId && device.chipId !== chip.id) {
     const previousChip = deps.getChipById(device.chipId);
-    if (previousChip && String(previousChip.clientId) === String(clientId)) {
+    if (previousChip && String(previousChip.clientId) === String(resolvedClientId)) {
       deps.updateChip(previousChip.id, {
         deviceId: null,
         status: previousChip.status === "Vinculado" ? "Disponível" : previousChip.status,
@@ -602,7 +613,7 @@ function linkChipToDevice(clientId, chipId, deviceId) {
 
   if (chip.deviceId && chip.deviceId !== device.id) {
     const previousDevice = deps.getDeviceById(chip.deviceId);
-    if (previousDevice && String(previousDevice.clientId) === String(clientId)) {
+    if (previousDevice && String(previousDevice.clientId) === String(resolvedClientId)) {
       deps.updateDevice(previousDevice.id, { chipId: null });
     }
   }
@@ -616,12 +627,11 @@ function linkChipToDevice(clientId, chipId, deviceId) {
 
 function detachChip(clientId, chipId) {
   const chip = deps.getChipById(chipId);
-  ensureSameClient(chip, clientId, "Chip não encontrado");
-  if (chip.deviceId) {
-    const device = deps.getDeviceById(chip.deviceId);
-    if (device && String(device.clientId) === String(clientId)) {
-      deps.updateDevice(device.id, { chipId: null });
-    }
+  const device = chip?.deviceId ? deps.getDeviceById(chip.deviceId) : null;
+  const resolvedClientId = resolveLinkClientId(clientId, chip, device);
+  ensureSameClient(chip, resolvedClientId, "Chip não encontrado");
+  if (chip.deviceId && device && String(device.clientId) === String(resolvedClientId)) {
+    deps.updateDevice(device.id, { chipId: null });
   }
   deps.updateChip(chip.id, {
     deviceId: null,
@@ -631,13 +641,14 @@ function detachChip(clientId, chipId) {
 
 function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
   const vehicle = deps.getVehicleById(vehicleId);
-  ensureSameClient(vehicle, clientId, "Veículo não encontrado");
   const device = deps.getDeviceById(deviceId);
-  ensureSameClient(device, clientId, "Equipamento não encontrado");
+  const resolvedClientId = resolveLinkClientId(clientId, vehicle, device);
+  ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
+  ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
 
   if (device.vehicleId && device.vehicleId !== vehicle.id) {
     const previousVehicle = deps.getVehicleById(device.vehicleId);
-    if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
+    if (previousVehicle && String(previousVehicle.clientId) === String(resolvedClientId)) {
       deps.updateVehicle(previousVehicle.id, { deviceId: null });
     }
   }
@@ -648,9 +659,9 @@ function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
 
 function detachVehicle(clientId, vehicleId) {
   const vehicle = deps.getVehicleById(vehicleId);
-  ensureSameClient(vehicle, clientId, "Veículo não encontrado");
-
-  const devices = deps.listDevices({ clientId });
+  const devices = deps.listDevices({ clientId: resolveLinkClientId(clientId, vehicle) });
+  const resolvedClientId = resolveLinkClientId(clientId, vehicle, ...devices);
+  ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
   devices
     .filter((device) => device.vehicleId === vehicle.id)
     .forEach((device) => deps.updateDevice(device.id, { vehicleId: null }));
@@ -1666,10 +1677,17 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
 router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const { vehicleId, deviceId } = req.params;
-    const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
-    linkDeviceToVehicle(clientId, vehicleId, deviceId);
-    const vehicles = deps.listVehicles({ clientId });
-    const devices = deps.listDevices({ clientId });
+    const clientId = deps.resolveClientId(
+      req,
+      req.body?.clientId || req.query?.clientId || req.clientId,
+      { required: req.user.role !== "admin" },
+    );
+    const vehicle = deps.getVehicleById(vehicleId);
+    const device = deps.getDeviceById(deviceId);
+    const resolvedClientId = resolveLinkClientId(clientId, vehicle, device);
+    linkDeviceToVehicle(resolvedClientId, vehicleId, deviceId);
+    const vehicles = deps.listVehicles({ clientId: resolvedClientId });
+    const devices = deps.listDevices({ clientId: resolvedClientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const response = buildVehicleResponse(deps.getVehicleById(vehicleId), {
@@ -1685,18 +1703,23 @@ router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager"
 router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const { vehicleId, deviceId } = req.params;
-    const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const clientId = deps.resolveClientId(
+      req,
+      req.body?.clientId || req.query?.clientId || req.clientId,
+      { required: req.user.role !== "admin" },
+    );
     const vehicle = deps.getVehicleById(vehicleId);
-    ensureSameClient(vehicle, clientId, "Veículo não encontrado");
     const device = deps.getDeviceById(deviceId);
-    ensureSameClient(device, clientId, "Equipamento não encontrado");
+    const resolvedClientId = resolveLinkClientId(clientId, vehicle, device);
+    ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
+    ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
     if (device.vehicleId && String(device.vehicleId) === String(vehicle.id)) {
       deps.updateDevice(device.id, { vehicleId: null });
     }
     if (vehicle.deviceId && String(vehicle.deviceId) === String(device.id)) {
       deps.updateVehicle(vehicle.id, { deviceId: null });
     }
-    const devices = deps.listDevices({ clientId });
+    const devices = deps.listDevices({ clientId: resolvedClientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const response = buildVehicleResponse(deps.getVehicleById(vehicle.id), {

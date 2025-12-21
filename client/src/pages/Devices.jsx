@@ -423,6 +423,11 @@ export default function Devices() {
       showToast("Informe o IMEI / uniqueId", "error");
       return;
     }
+    const clientId = tenantId || user?.clientId || "";
+    if (!clientId) {
+      showToast("Selecione um cliente para salvar o equipamento", "error");
+      return;
+    }
     setSavingDevice(true);
     try {
       const payload = {
@@ -433,7 +438,7 @@ export default function Devices() {
         attributes: deviceForm.iconType ? { iconType: deviceForm.iconType } : undefined,
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
-        clientId: tenantId || user?.clientId,
+        clientId,
       };
       if (editingId) {
         await CoreApi.updateDevice(editingId, payload);
@@ -480,8 +485,13 @@ export default function Devices() {
   async function handleDeleteDevice(id) {
     if (!id) return;
     if (!window.confirm("Remover este equipamento?")) return;
+    const clientId = tenantId || user?.clientId || "";
+    if (!clientId) {
+      showToast("Selecione um cliente para remover o equipamento", "error");
+      return;
+    }
     try {
-      await CoreApi.deleteDevice(id, { clientId: tenantId || user?.clientId });
+      await CoreApi.deleteDevice(id, { clientId });
       await load();
       showToast("Equipamento removido", "success");
     } catch (requestError) {
@@ -575,7 +585,12 @@ export default function Devices() {
 
   const linkVehicleOptions = useMemo(() => {
     const search = linkQuery.trim().toLowerCase();
-    const list = vehicles.map((vehicle) => ({
+    const filteredVehicles = vehicles.filter((vehicle) => {
+      if (tenantId) return String(vehicle.clientId) === String(tenantId);
+      if (linkTarget?.clientId) return String(vehicle.clientId) === String(linkTarget.clientId);
+      return true;
+    });
+    const list = filteredVehicles.map((vehicle) => ({
       value: vehicle.id,
       label: `${vehicle.plate || vehicle.name || vehicle.id}${vehicle.clientName ? ` · ${vehicle.clientName}` : ""}`,
       plate: vehicle.plate || "",
@@ -588,13 +603,23 @@ export default function Devices() {
         vehicle.name.toLowerCase().includes(search) ||
         vehicle.label.toLowerCase().includes(search),
     );
-  }, [linkQuery, vehicles]);
+  }, [linkQuery, linkTarget?.clientId, tenantId, vehicles]);
 
   async function handleLinkToVehicle(event) {
     event.preventDefault();
     if (!linkTarget || !linkVehicleId) return;
     try {
-      await CoreApi.linkDeviceToVehicle(linkVehicleId, linkTarget.id, { clientId: tenantId || user?.clientId });
+      const vehicle = vehicles.find((item) => String(item.id) === String(linkVehicleId));
+      const targetClientId = vehicle?.clientId || linkTarget?.clientId || tenantId || user?.clientId || "";
+      if (!targetClientId) {
+        showToast("Selecione um cliente antes de vincular", "error");
+        return;
+      }
+      if (vehicle?.clientId && linkTarget?.clientId && String(vehicle.clientId) !== String(linkTarget.clientId)) {
+        showToast("Equipamento e veículo pertencem a clientes diferentes", "error");
+        return;
+      }
+      await CoreApi.linkDeviceToVehicle(linkVehicleId, linkTarget.id, { clientId: targetClientId });
       await load();
       setLinkTarget(null);
       setLinkVehicleId("");
@@ -608,7 +633,13 @@ export default function Devices() {
   async function handleUnlinkFromVehicle(device) {
     if (!device?.vehicleId) return;
     try {
-      await CoreApi.unlinkDeviceFromVehicle(device.vehicleId, device.id, { clientId: tenantId || user?.clientId });
+      const vehicle = vehicles.find((item) => String(item.id) === String(device.vehicleId)) || device.vehicle;
+      const targetClientId = vehicle?.clientId || device?.clientId || tenantId || user?.clientId || "";
+      if (!targetClientId) {
+        showToast("Selecione um cliente antes de desvincular", "error");
+        return;
+      }
+      await CoreApi.unlinkDeviceFromVehicle(device.vehicleId, device.id, { clientId: targetClientId });
       await load();
       showToast("Equipamento desvinculado do veículo", "success");
     } catch (requestError) {
