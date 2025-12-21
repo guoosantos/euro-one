@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -9,6 +9,7 @@ import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnS
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
+import DataState from "../ui/DataState.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
@@ -457,7 +458,24 @@ export default function Monitoring() {
     source: item,
   })), [safeTelemetry]);
 
-  const vehicleOptions = useMemo(() => normalizedTelemetry.map(({ device }) => {
+  const isLinkedToVehicle = useCallback((device) => {
+    if (!device) return false;
+    const plate = (device.plate ?? device.registrationNumber ?? "").trim();
+    const vehicleId =
+      device.vehicleId ??
+      device.vehicle_id ??
+      device.vehicle?.id ??
+      device.vehicle?.vehicleId ??
+      device.vehicleIdTraccar;
+    return Boolean(plate || vehicleId || device.vehicle);
+  }, []);
+
+  const linkedTelemetry = useMemo(
+    () => normalizedTelemetry.filter(({ device }) => isLinkedToVehicle(device)),
+    [isLinkedToVehicle, normalizedTelemetry],
+  );
+
+  const vehicleOptions = useMemo(() => linkedTelemetry.map(({ device }) => {
     const name = device.name ?? device.alias ?? "";
     const plate = device.plate ?? device.registrationNumber ?? "";
     const identifier = device.identifier ?? device.uniqueId ?? "";
@@ -465,7 +483,7 @@ export default function Monitoring() {
     const description = plate && name ? `${plate} · ${name}` : plate || name || identifier;
     const searchValue = `${label} ${plate} ${identifier}`.toLowerCase();
     return { type: "vehicle", deviceId: getDeviceKey(device), label, description, searchValue };
-  }), [normalizedTelemetry]);
+  }), [linkedTelemetry]);
 
   const vehicleSuggestions = useMemo(() => {
     const term = vehicleQuery.toLowerCase().trim();
@@ -487,9 +505,9 @@ export default function Monitoring() {
 
   const searchFiltered = useMemo(() => {
     const term = vehicleQuery.toLowerCase().trim();
-    if (!term) return normalizedTelemetry;
+    if (!term) return linkedTelemetry;
 
-    return normalizedTelemetry.filter(({ device }) => {
+    return linkedTelemetry.filter(({ device }) => {
       const name = (device.name ?? device.alias ?? "").toLowerCase();
       const plate = (device.plate ?? device.registrationNumber ?? "").toLowerCase();
       const identifier = (device.identifier ?? device.uniqueId ?? "").toLowerCase();
@@ -501,7 +519,7 @@ export default function Monitoring() {
         deviceKey.includes(term)
       );
     });
-  }, [normalizedTelemetry, vehicleQuery]);
+  }, [linkedTelemetry, vehicleQuery]);
 
   const filteredDevices = useMemo(() => {
     const now = Date.now();
@@ -1046,6 +1064,8 @@ export default function Monitoring() {
   );
 
   const totalRows = displayRows.length;
+  const hasLinkedVehicles = linkedTelemetry.length > 0;
+  const showNoLinkedState = !loading && !hasLinkedVehicles;
   const effectivePageSize = pageSize === "all" ? totalRows || 1 : pageSize;
   const totalPages = pageSize === "all" ? 1 : Math.max(1, Math.ceil(totalRows / pageSize));
   const safePageIndex = Math.min(pageIndex, Math.max(totalPages - 1, 0));
@@ -1067,6 +1087,34 @@ export default function Monitoring() {
     if (layoutVisibility.showTable) return "minmax(0, 1fr)";
     return "1fr";
   }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight, tableHeightPercent]);
+
+  if (showNoLinkedState) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-6 bg-[#0b0f17] px-6 py-10 text-white">
+        <DataState
+          tone="muted"
+          state="info"
+          title="Nenhum veículo vinculado para monitoramento"
+          description="Somente veículos com equipamento vinculado aparecem na lista e no mapa."
+          action={(
+            <Link
+              to="/equipamentos?link=unlinked"
+              className="inline-flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.1em] text-white hover:border-primary/60"
+            >
+              Vincular equipamento a um veículo
+            </Link>
+          )}
+        />
+        <button
+          type="button"
+          onClick={reload}
+          className="text-xs text-white/70 underline underline-offset-4 hover:text-white"
+        >
+          Atualizar telemetria
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div
