@@ -57,6 +57,12 @@ function persist(record, { skipSync = false } = {}) {
   return clone(record);
 }
 
+function findDeviceRecord(id) {
+  if (id === null || id === undefined) return null;
+  const key = String(id);
+  return devices.get(key) || byTraccarId.get(key) || null;
+}
+
 function removeIndexes(record) {
   if (!record) return;
   if (record.uniqueId) {
@@ -86,7 +92,7 @@ export function listDevices({ clientId } = {}) {
 }
 
 export function getDeviceById(id) {
-  const record = devices.get(String(id));
+  const record = findDeviceRecord(id);
   return clone(record);
 }
 
@@ -286,7 +292,7 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
 }
 
 export function updateDevice(id, updates = {}) {
-  const record = devices.get(String(id));
+  const record = findDeviceRecord(id);
   if (!record) {
     throw createError(404, "Equipamento não encontrado");
   }
@@ -322,7 +328,7 @@ export function updateDevice(id, updates = {}) {
 }
 
 export function deleteDevice(id) {
-  const record = devices.get(String(id));
+  const record = findDeviceRecord(id);
   if (!record) {
     throw createError(404, "Equipamento não encontrado");
   }
@@ -334,7 +340,7 @@ export function deleteDevice(id) {
 }
 
 export function clearDeviceChip(deviceId) {
-  const record = devices.get(String(deviceId));
+  const record = findDeviceRecord(deviceId);
   if (!record) {
     throw createError(404, "Equipamento não encontrado");
   }
@@ -346,7 +352,7 @@ export function clearDeviceChip(deviceId) {
 }
 
 export function clearDeviceVehicle(deviceId) {
-  const record = devices.get(String(deviceId));
+  const record = findDeviceRecord(deviceId);
   if (!record) {
     throw createError(404, "Equipamento não encontrado");
   }

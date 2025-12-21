@@ -33,8 +33,41 @@ export default function VehicleDetailsDrawer({
 
   if (!vehicle) return null;
 
-  const device = vehicle?.device ?? {};
-  const position = vehicle?.position ?? null;
+  const devices = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
+  const [selectedDeviceId, setSelectedDeviceId] = useState(
+    () =>
+      vehicle?.principalDeviceId ||
+      vehicle?.deviceId ||
+      vehicle?.device?.id ||
+      devices[0]?.id ||
+      null,
+  );
+
+  useEffect(() => {
+    setSelectedDeviceId(
+      vehicle?.principalDeviceId ||
+        vehicle?.deviceId ||
+        vehicle?.device?.id ||
+        devices[0]?.id ||
+        null,
+    );
+  }, [devices, vehicle?.device?.id, vehicle?.deviceId, vehicle?.principalDeviceId]);
+
+  const selectedDevice = useMemo(() => {
+    if (!selectedDeviceId) return null;
+    return devices.find(
+      (item) =>
+        String(item.id) === String(selectedDeviceId) ||
+        String(item.traccarId) === String(selectedDeviceId) ||
+        String(item.internalId || "") === String(selectedDeviceId),
+    ) || null;
+  }, [devices, selectedDeviceId]);
+
+  const fallbackDevice = vehicle?.device ?? {};
+  const device = selectedDevice || fallbackDevice;
+  const position = device?.position || vehicle?.position || null;
+  const lat = position?.latitude ?? position?.lat ?? vehicle.lat;
+  const lng = position?.longitude ?? position?.lon ?? vehicle.lng;
   const address = vehicle.address || position?.address;
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
   const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || vehicle.lastUpdate;
@@ -50,11 +83,20 @@ export default function VehicleDetailsDrawer({
         <>
           <Section title="Resumo">
             <Detail label="Placa" value={vehicle.plate} />
-            <Detail label="ID do dispositivo" value={vehicle.deviceId || device.id || "Sem equipamento vinculado"} />
-            <Detail label="Velocidade" value={`${vehicle.speed ?? position?.speed ?? 0} km/h`} />
+            <Detail
+              label="ID do dispositivo"
+              value={
+                device?.traccarId ||
+                device?.id ||
+                vehicle.principalDeviceId ||
+                vehicle.deviceId ||
+                "Sem equipamento vinculado"
+              }
+            />
+            <Detail label="Velocidade" value={`${position?.speed ?? vehicle.speed ?? 0} km/h`} />
             <Detail label="Última posição" value={lastUpdateLabel} />
             <Detail label="Status" value={statusLabel} />
-            <Detail label="Endereço" value={formatAddress(address, vehicle.lat, vehicle.lng)} />
+            <Detail label="Endereço" value={formatAddress(address, lat, lng)} />
           </Section>
           <Section title="Sensores" muted>
             <p className="text-xs text-white/60">Integração com sensores (ignição, bateria, bloqueio) ficará disponível aqui.</p>
@@ -163,9 +205,26 @@ export default function VehicleDetailsDrawer({
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-white/50">{t("monitoring.columns.vehicle")}</p>
-          <h2 className="text-lg font-semibold text-white">{vehicle.deviceName || device?.name || vehicle.plate || "Sem equipamento vinculado"}</h2>
-          <p className="text-xs text-white/60">{vehicle.plate}</p>
-          {!device?.id && <p className="text-[11px] text-yellow-200/80">Sem equipamento vinculado</p>}
+          <h2 className="text-lg font-semibold text-white">{vehicle.plate || vehicle.name || "Sem equipamento vinculado"}</h2>
+          <p className="text-xs text-white/60">{device?.name || device?.uniqueId || vehicle.name || "Fonte: veículo"}</p>
+          {devices.length > 0 ? (
+            <div className="mt-2">
+              <label className="text-[11px] uppercase tracking-[0.12em] text-white/50">Fonte de telemetria</label>
+              <select
+                value={selectedDeviceId || ""}
+                onChange={(event) => setSelectedDeviceId(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              >
+                {devices.map((item) => (
+                  <option key={item.id || item.traccarId || item.uniqueId} value={item.id || item.traccarId || ""}>
+                    {item.name || item.uniqueId || item.id || item.traccarId}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <p className="text-[11px] text-yellow-200/80">Sem equipamento vinculado</p>
+          )}
         </div>
         {onClose && (
           <button
