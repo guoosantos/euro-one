@@ -69,7 +69,7 @@ export const routeConfig = [
   { path: "/equipamentos", element: Devices, title: "Equipamentos", requireTenant: true },
   { path: "/devices/chips", element: Chips, title: "Chips", requireTenant: true },
   { path: "/chips", element: Chips, title: "Chips", requireTenant: true },
-  { path: "/devices/products", element: Products, title: "Produtos", requireTenant: true },
+  { path: "/devices/products", element: Products, title: "Modelos & Portas", requireTenant: true },
   { path: "/devices/stock", element: Stock, title: "Estoque", requireTenant: true },
   { path: "/devices/import", element: DeviceImport, title: "Importar dispositivos", requireTenant: true },
   { path: "/commands", element: Commands, title: "Comandos", requireTenant: true },

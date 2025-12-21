@@ -80,55 +80,6 @@ function formatPositionTimestamps(position) {
   return parts.length ? parts.join(" · ") : "—";
 }
 
-function ModelCards({ models }) {
-  if (!Array.isArray(models) || models.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-sm text-white/70">
-        Nenhum modelo cadastrado ainda.
-      </div>
-    );
-  }
-  return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {models.map((model) => (
-        <div key={model.id} className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <div className="text-lg font-semibold text-white">{model.name}</div>
-          <div className="text-sm text-white/70">{model.brand}</div>
-          <dl className="mt-4 space-y-1 text-sm text-white/70">
-            {model.protocol && (
-              <div>
-                <dt className="font-medium text-white">Protocolo</dt>
-                <dd>{model.protocol}</dd>
-              </div>
-            )}
-            {model.connectivity && (
-              <div>
-                <dt className="font-medium text-white">Conectividade</dt>
-                <dd>{model.connectivity}</dd>
-              </div>
-            )}
-          </dl>
-          <div className="mt-4">
-            <h4 className="text-sm font-semibold text-white">Portas / IO</h4>
-            {Array.isArray(model.ports) && model.ports.length > 0 ? (
-              <ul className="mt-2 space-y-1 text-sm text-white/70">
-                {model.ports.map((port) => (
-                  <li key={port.id || `${port.label}-${port.type}`} className="rounded-lg border border-white/10 bg-white/5 px-3 py-2">
-                    <div className="font-medium text-white">{port.label || "Porta"}</div>
-                    <div className="text-xs uppercase tracking-wide text-white/60">{port.type || "Digital"}</div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-2 text-sm text-white/60">Nenhuma porta cadastrada.</p>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function DeviceRow({
   device,
   traccarDevice,
@@ -363,7 +314,6 @@ export default function Devices() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [savingDevice, setSavingDevice] = useState(false);
-  const [savingModel, setSavingModel] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [showDeviceDrawer, setShowDeviceDrawer] = useState(false);
   const [conflictDevice, setConflictDevice] = useState(null);
@@ -386,6 +336,7 @@ export default function Devices() {
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
   const [creatingVehicle, setCreatingVehicle] = useState(false);
   const [vehicleForm, setVehicleForm] = useState({ plate: "", name: "" });
+  const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const resolvedClientId = tenantId || user?.clientId || null;
 
@@ -396,13 +347,6 @@ export default function Devices() {
     iconType: "",
     chipId: "",
     vehicleId: "",
-  });
-  const [modelForm, setModelForm] = useState({
-    name: "",
-    brand: "",
-    protocol: "",
-    connectivity: "",
-    ports: [{ label: "", type: "digital" }],
   });
   const [query, setQuery] = useState("");
   const [mapTarget, setMapTarget] = useState(null);
@@ -466,6 +410,7 @@ export default function Devices() {
       setModels(Array.isArray(modelList) ? modelList : []);
       setChips(Array.isArray(chipList) ? chipList : []);
       setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
+      setLastSyncAt(new Date());
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar dados"));
     } finally {
@@ -749,7 +694,8 @@ export default function Devices() {
       showToast("Informe o IMEI / uniqueId", "error");
       return;
     }
-    const clientId = tenantId || user?.clientId || "";
+    const currentDevice = editingId ? devices.find((item) => String(item.id) === String(editingId)) : null;
+    const clientId = tenantId || user?.clientId || currentDevice?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para salvar o equipamento", "error");
       return;
@@ -822,58 +768,6 @@ export default function Devices() {
       showToast("Equipamento removido", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
-    }
-  }
-
-  function updateModelPort(index, key, value) {
-    setModelForm((current) => {
-      const ports = Array.isArray(current.ports) ? [...current.ports] : [];
-      ports[index] = { ...ports[index], [key]: value };
-      return { ...current, ports };
-    });
-  }
-
-  function addPort() {
-    setModelForm((current) => ({
-      ...current,
-      ports: [...(current.ports || []), { label: "", type: "digital" }],
-    }));
-  }
-
-  function removePort(index) {
-    setModelForm((current) => ({
-      ...current,
-      ports: (current.ports || []).filter((_, idx) => idx !== index),
-    }));
-  }
-
-  async function handleCreateModel(event) {
-    event.preventDefault();
-    if (!modelForm.name.trim() || !modelForm.brand.trim()) {
-      showToast("Informe nome e fabricante", "error");
-      return;
-    }
-    setSavingModel(true);
-    try {
-      await CoreApi.createModel({
-        name: modelForm.name.trim(),
-        brand: modelForm.brand.trim(),
-        protocol: modelForm.protocol?.trim() || undefined,
-        connectivity: modelForm.connectivity?.trim() || undefined,
-        ports: (modelForm.ports || [])
-          .map((port) => ({
-            label: port.label?.trim() || "Porta",
-            type: port.type?.trim() || "digital",
-          }))
-          .filter((port) => port.label),
-      });
-      await load();
-      setModelForm({ name: "", brand: "", protocol: "", connectivity: "", ports: [{ label: "", type: "digital" }] });
-      showToast("Modelo salvo com sucesso", "success");
-    } catch (requestError) {
-      showToast(requestError?.message || "Falha ao cadastrar modelo", "error");
-    } finally {
-      setSavingModel(false);
     }
   }
 
@@ -1019,6 +913,7 @@ export default function Devices() {
       await CoreApi.syncDevicesFromTraccar(clientId ? { clientId } : undefined);
       await load();
       showToast("Sincronização com o Traccar iniciada", "success");
+      setLastSyncAt(new Date());
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao sincronizar com o Traccar", "error");
     } finally {
@@ -1096,30 +991,35 @@ export default function Devices() {
       <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
         <PageHeader
           title="Equipamentos"
-          description="Dispositivos cadastrados e status de telemetria"
+          description="Cadastro e vínculos com chips/veículos"
           right={
-            <div className="flex gap-2">
-              <Button
-                variant="ghost"
-                onClick={handleSyncDevices}
-                className="inline-flex items-center gap-2"
-                disabled={syncing}
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>{syncing ? "Sincronizando…" : "Sincronizar Traccar"}</span>
-              </Button>
-              <Button
-                onClick={() => {
-                  resetDeviceForm();
-                  setEditingId(null);
-                  setDrawerTab("geral");
-                  setShowDeviceDrawer(true);
-                }}
-                className="inline-flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Novo equipamento</span>
-              </Button>
+            <div className="flex flex-col items-end gap-1 text-right">
+              <div className="flex gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={handleSyncDevices}
+                  className="inline-flex items-center gap-2"
+                  disabled={syncing}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  <span>{syncing ? "Sincronizando…" : "Sincronizar Traccar"}</span>
+                </Button>
+                <Button
+                  onClick={() => {
+                    resetDeviceForm();
+                    setEditingId(null);
+                    setDrawerTab("geral");
+                    setShowDeviceDrawer(true);
+                  }}
+                  className="inline-flex items-center gap-2"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Novo equipamento</span>
+                </Button>
+              </div>
+              <span className="text-[11px] uppercase tracking-[0.12em] text-white/60">
+                Última sincronização: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "—"}
+              </span>
             </div>
           }
         />
@@ -1350,119 +1250,7 @@ export default function Devices() {
           </Button>
         </div>
 
-        <form onSubmit={handleCreateModel} className="grid gap-4 rounded-xl border border-white/10 bg-white/5 p-4 md:grid-cols-2">
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-white/70">Nome *</span>
-            <input
-              type="text"
-              value={modelForm.name}
-              onChange={(event) => setModelForm((current) => ({ ...current, name: event.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-              placeholder="Ex.: TK-303"
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-white/70">Fabricante *</span>
-            <input
-              type="text"
-              value={modelForm.brand}
-              onChange={(event) => setModelForm((current) => ({ ...current, brand: event.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-              placeholder="Ex.: Queclink"
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-white/70">Protocolo</span>
-            <input
-              type="text"
-              value={modelForm.protocol}
-              onChange={(event) => setModelForm((current) => ({ ...current, protocol: event.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-              placeholder="Ex.: TK103"
-            />
-          </label>
-          <label className="flex flex-col gap-2 text-sm">
-            <span className="text-white/70">Conectividade</span>
-            <input
-              type="text"
-              value={modelForm.connectivity}
-              onChange={(event) => setModelForm((current) => ({ ...current, connectivity: event.target.value }))}
-              className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-              placeholder="Ex.: GSM/GPRS"
-            />
-          </label>
-
-          <div className="md:col-span-2 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-white">Portas</span>
-              <button
-                type="button"
-                onClick={addPort}
-                className="rounded-lg border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white hover:bg-white/20"
-              >
-                + Adicionar porta
-              </button>
-            </div>
-            <div className="space-y-3">
-              {(modelForm.ports || []).map((port, index) => (
-                <div key={`port-${index}`} className="grid gap-3 md:grid-cols-5">
-                  <div className="md:col-span-3">
-                    <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
-                      Nome
-                      <input
-                        type="text"
-                        value={port.label}
-                        onChange={(event) => updateModelPort(index, "label", event.target.value)}
-                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                        placeholder="Ex.: Ignição"
-                      />
-                    </label>
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="flex flex-col gap-1 text-xs uppercase tracking-wide text-white/60">
-                      Tipo
-                      <select
-                        value={port.type}
-                        onChange={(event) => updateModelPort(index, "type", event.target.value)}
-                        className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-white focus:border-white/30 focus:outline-none"
-                      >
-                        <option value="digital">Digital</option>
-                        <option value="analógica">Analógica</option>
-                        <option value="saida">Saída</option>
-                        <option value="entrada">Entrada</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="flex items-end justify-end">
-                    <button
-                      type="button"
-                      onClick={() => removePort(index)}
-                      className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/20"
-                      disabled={(modelForm.ports || []).length <= 1}
-                    >
-                      Remover
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="md:col-span-2 flex justify-end gap-2">
-            <Button
-              type="submit"
-              disabled={savingModel}
-              className="inline-flex items-center gap-2"
-            >
-              {savingModel ? "Salvando…" : "Salvar modelo"}
-            </Button>
-          </div>
-        </form>
-
-        <ModelCards models={models} />
-      </div>
-
-      <Drawer
+        <Drawer
         open={showDeviceDrawer}
         onClose={() => setShowDeviceDrawer(false)}
         title={editingId ? "Editar equipamento" : "Novo equipamento"}

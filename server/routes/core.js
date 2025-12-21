@@ -697,6 +697,27 @@ router.post("/models", deps.requireRole("manager", "admin"), (req, res, next) =>
   }
 });
 
+router.put("/models/:id", deps.requireRole("manager", "admin"), (req, res, next) => {
+  try {
+    const existing = deps.getModelById(req.params.id);
+    const clientId = deps.resolveClientId(req, req.body?.clientId ?? existing?.clientId, {
+      required: req.user.role !== "admin",
+    });
+    ensureSameClient(existing, clientId ?? existing?.clientId ?? null, "Modelo não encontrado");
+    const payload = {
+      name: req.body?.name,
+      brand: req.body?.brand,
+      protocol: req.body?.protocol,
+      connectivity: req.body?.connectivity,
+      ports: Array.isArray(req.body?.ports) ? req.body.ports : undefined,
+    };
+    const model = deps.updateModel(req.params.id, payload);
+    res.json({ model });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/devices/import", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
@@ -880,6 +901,9 @@ router.post("/devices/sync", deps.requireRole("manager", "admin"), resolveClient
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const includeUnlinked =
+      ["manager", "admin"].includes(req.user?.role) &&
+      String(req.query?.includeUnlinked).toLowerCase() === "true";
 
     const normaliseIdList = (raw) => {
       if (!raw) return [];
@@ -954,16 +978,19 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         })
       : vehicles;
 
-    const vehiclesPool = filteredVehicles.filter((vehicle) => Array.isArray(vehicle.devices) && vehicle.devices.length > 0);
+    const linkedVehicles = filteredVehicles.filter((vehicle) => Array.isArray(vehicle.devices) && vehicle.devices.length > 0);
+    const vehiclesPool = includeUnlinked ? filteredVehicles : linkedVehicles;
 
     if (!vehiclesPool.length) {
       const emptyWarnings = hasVehicleFilter
         ? [{ stage: "vehicles", message: "Nenhum veículo encontrado para o filtro solicitado." }]
         : [];
-      return res.status(200).json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
+      return res
+        .status(200)
+        .json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
     }
 
-    const devices = vehiclesPool.flatMap((vehicle) =>
+    const devices = linkedVehicles.flatMap((vehicle) =>
       (vehicle.devices || []).map((device) => ({
         ...device,
         vehicleId: device.vehicleId || vehicle.id,
@@ -988,9 +1015,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
       .filter(Boolean);
 
-    if (!allowedDeviceIds.length) {
+    if (!allowedDeviceIds.length && !includeUnlinked) {
       const emptyWarnings = [{ stage: "devices", message: "Nenhum equipamento vinculado encontrado para os veículos." }];
-      return res.status(200).json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
+      return res
+        .status(200)
+        .json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
     }
 
     const rawDeviceIds = req.query?.deviceId || req.query?.deviceIds;
@@ -1042,11 +1071,13 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
 
 
 
-    let latestPositions = await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
+    let latestPositions = allowedDeviceIds.length
+      ? await deps.fetchLatestPositionsWithFallback(deviceIdsToQuery, null)
+      : [];
 
 
 
-    if ((!latestPositions || latestPositions.length === 0) && typeof deps.traccarProxy === "function") {
+    if (allowedDeviceIds.length && (!latestPositions || latestPositions.length === 0) && typeof deps.traccarProxy === "function") {
       try {
         const proxyResponse = await deps.traccarProxy("get", "/positions", {
           params: deviceIdsToQuery.length ? { deviceId: deviceIdsToQuery } : undefined,
@@ -1110,6 +1141,26 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
           lastUpdate,
         };
       });
+
+      if (!linkedDevices.length && includeUnlinked) {
+        telemetry.push({
+          vehicleId: vehicle?.id ?? null,
+          vehicleName: vehicle?.name ?? vehicle?.plate ?? null,
+          plate: vehicle?.plate ?? null,
+          clientId: vehicle?.clientId ?? null,
+          clientName: clientMap.get(vehicle?.clientId)?.name ?? null,
+          principalDeviceId: null,
+          principalDeviceInternalId: null,
+          deviceId: null,
+          traccarId: null,
+          device: null,
+          position: null,
+          rawAttributes: {},
+          lastEvent: null,
+          devices: [],
+        });
+        continue;
+      }
 
       if (!linkedDevices.length) {
         continue;
@@ -1209,10 +1260,18 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       warnings.push({ stage: "positions", message: "Nenhuma posição encontrada para os dispositivos deste cliente." });
     }
 
+    const filteredTelemetry = includeUnlinked
+      ? telemetry
+      : telemetry.filter((item) => {
+          const device = item?.device || item;
+          const vehicleId = device?.vehicleId ?? device?.vehicle?.id ?? null;
+          return Boolean(vehicleId);
+        });
+
     return res.status(200).json({
-      telemetry,
+      telemetry: filteredTelemetry,
       warnings,
-      data: { telemetry, warnings },
+      data: { telemetry: filteredTelemetry, warnings },
       error: null,
     });
   } catch (error) {
@@ -1400,7 +1459,10 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
     if (!device) {
       throw createError(404, "Equipamento não encontrado");
     }
-    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const incomingClientId = deps.resolveClientId(req, req.body?.clientId, {
+      required: req.user.role !== "admin",
+    });
+    const clientId = resolveLinkClientId(incomingClientId, device);
     ensureSameClient(device, clientId, "Equipamento não encontrado");
 
     const payload = { ...req.body };

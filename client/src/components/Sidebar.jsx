@@ -159,7 +159,7 @@ export default function Sidebar() {
   const deviceLinks = [
     { to: "/devices", label: "Equipamentos", icon: Cpu },
     { to: "/devices/chips", label: "Chip", icon: HardDrive },
-    { to: "/devices/products", label: "Produtos", icon: Boxes },
+    { to: "/devices/products", label: "Modelos & Portas", icon: Boxes },
     { to: "/devices/stock", label: "Estoque", icon: Map },
     { to: "/commands", label: "Comandos", icon: Terminal },
   ];
