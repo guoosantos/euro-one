@@ -52,6 +52,10 @@ export const CoreApi = {
   createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
   updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
   deleteVehicle: (id, payload) => http(`vehicles/${id}`, { method: "DELETE", payload }),
+  linkDeviceToVehicle: (vehicleId, deviceId, payload) =>
+    http(`vehicles/${vehicleId}/devices/${deviceId}`, { method: "POST", payload }),
+  unlinkDeviceFromVehicle: (vehicleId, deviceId, params) =>
+    http(`vehicles/${vehicleId}/devices/${deviceId}`, { method: "DELETE", params }),
   listStockItems: (params) => http("stock", { params }).then((data) => data?.items || []),
   createStockItem: (payload) => http("stock", { method: "POST", payload }),
   updateStockItem: (id, payload) => http(`stock/${id}`, { method: "PUT", payload }),

@@ -571,6 +571,7 @@ function buildVehicleResponse(vehicle, context) {
       vehicleId: item.vehicleId || null,
     })),
     deviceCount: linkedDevices.length,
+    position: principalPosition,
     connectionStatus,
     connectionStatusLabel,
     lastCommunication,
@@ -869,6 +870,21 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
+    const normaliseIdList = (raw) => {
+      if (!raw) return [];
+      if (Array.isArray(raw)) return raw;
+      if (typeof raw === "string") return raw.split(",");
+      return [];
+    };
+
+    const requestedVehicleIds = normaliseIdList(req.query?.vehicleIds || req.query?.vehicleId)
+      .map((value) => String(value).trim())
+      .filter(Boolean);
+    const requestedPlates = normaliseIdList(req.query?.plates || req.query?.plate)
+      .map((value) => String(value).trim().toLowerCase())
+      .filter(Boolean);
+    const hasVehicleFilter = requestedVehicleIds.length > 0 || requestedPlates.length > 0;
+
     const prismaFilter = clientId ? { clientId: String(clientId) } : {};
     let vehicles = [];
     let clientMap = new Map();
@@ -894,7 +910,22 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       vehicles = deps.listVehicles({ clientId });
     }
 
-    const devices = vehicles.flatMap((vehicle) =>
+    const vehiclesPool = hasVehicleFilter
+      ? vehicles.filter((vehicle) => {
+          const idMatch = requestedVehicleIds.includes(String(vehicle.id));
+          const plateMatch = vehicle?.plate ? requestedPlates.includes(String(vehicle.plate).trim().toLowerCase()) : false;
+          return idMatch || plateMatch;
+        })
+      : vehicles;
+
+    if (!vehiclesPool.length) {
+      const emptyWarnings = hasVehicleFilter
+        ? [{ stage: "vehicles", message: "Nenhum veículo encontrado para o filtro solicitado." }]
+        : [];
+      return res.status(200).json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
+    }
+
+    const devices = vehiclesPool.flatMap((vehicle) =>
       (vehicle.devices || []).map((device) => ({
         ...device,
         vehicleId: device.vehicleId || vehicle.id,
@@ -904,7 +935,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     );
 
     const deviceMap = new Map(devices.map((device) => [String(device.traccarId || device.id || device.uniqueId), device]));
-    const vehicleMap = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle]));
+    const vehicleMap = new Map(vehiclesPool.map((vehicle) => [vehicle.id, vehicle]));
 
     let telemetryMappings = [];
     if (deps.listTelemetryFieldMappings) {
@@ -918,6 +949,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const allowedDeviceIds = devices
       .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
       .filter(Boolean);
+
+    if (!allowedDeviceIds.length) {
+      const emptyWarnings = [{ stage: "devices", message: "Nenhum equipamento vinculado encontrado para os veículos." }];
+      return res.status(200).json({ telemetry: [], warnings: emptyWarnings, data: { telemetry: [], warnings: emptyWarnings }, error: null });
+    }
 
     const rawDeviceIds = req.query?.deviceId || req.query?.deviceIds;
     const requestedDeviceIds = Array.isArray(rawDeviceIds)
@@ -1003,11 +1039,15 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
     const pickPositionTimestamp = (pos) =>
       Date.parse(pos?.serverTime || pos?.deviceTime || pos?.fixTime || pos?.timestamp || 0) || 0;
 
-    for (const vehicle of vehicles) {
+    for (const vehicle of vehiclesPool) {
       const linkedDevices = (vehicle.devices && vehicle.devices.length
         ? vehicle.devices
         : devices.filter((device) => String(device.vehicleId) === String(vehicle.id)))
         .filter((device) => device?.traccarId != null);
+
+      if (!linkedDevices.length) {
+        continue;
+      }
 
       const best = linkedDevices.reduce(
         (acc, device) => {
@@ -1539,6 +1579,52 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
       traccarById,
     });
     res.status(201).json({ vehicle: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const { vehicleId, deviceId } = req.params;
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    linkDeviceToVehicle(clientId, vehicleId, deviceId);
+    const vehicles = deps.listVehicles({ clientId });
+    const devices = deps.listDevices({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const response = buildVehicleResponse(deps.getVehicleById(vehicleId), {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      traccarById,
+    });
+    res.status(200).json({ vehicle: response });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  try {
+    const { vehicleId, deviceId } = req.params;
+    const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const vehicle = deps.getVehicleById(vehicleId);
+    ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+    const device = deps.getDeviceById(deviceId);
+    ensureSameClient(device, clientId, "Equipamento não encontrado");
+    if (device.vehicleId && String(device.vehicleId) === String(vehicle.id)) {
+      deps.updateDevice(device.id, { vehicleId: null });
+    }
+    if (vehicle.deviceId && String(vehicle.deviceId) === String(device.id)) {
+      deps.updateVehicle(vehicle.id, { deviceId: null });
+    }
+    const devices = deps.listDevices({ clientId });
+    const traccarDevices = deps.getCachedTraccarResources("devices");
+    const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const response = buildVehicleResponse(deps.getVehicleById(vehicle.id), {
+      deviceMap: new Map(devices.map((item) => [item.id, item])),
+      traccarById,
+    });
+    res.status(200).json({ vehicle: response });
   } catch (error) {
     next(error);
   }

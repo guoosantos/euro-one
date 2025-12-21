@@ -42,6 +42,27 @@ function parseIds(value) {
   return [];
 }
 
+function parsePlates(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
+  return [];
+}
+
+const normalisePlate = (plate) => String(plate || "")
+  .trim()
+  .toLowerCase()
+  .replace(/[-\s]/g, "");
+
+function resolveVehicleIdsFromPlates(plates, vehicles) {
+  if (!plates.length) return [];
+  const normalised = plates.map(normalisePlate).filter(Boolean);
+  if (!normalised.length) return [];
+  return vehicles
+    .filter((vehicle) => normalised.includes(normalisePlate(vehicle?.plate)))
+    .map((vehicle) => String(vehicle.id));
+}
+
 function dedupeDevices(devices = []) {
   const seen = new Set();
   const result = [];
@@ -128,10 +149,13 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = listVehicles({ clientId });
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
+    const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
+    const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
     const deviceIds = parseIds(req.query.deviceIds || req.query.deviceId).filter((value) => /^\d+$/.test(value));
 
-    if (!vehicleIds.length && !deviceIds.length) {
+    if (!resolvedVehicleIds.length && !deviceIds.length) {
       return res.status(400).json({
         data: null,
         error: {
@@ -141,12 +165,12 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
       });
     }
 
-    const vehicleMap = new Map(listVehicles({ clientId }).map((item) => [String(item.id), item]));
-    const { allowedDevices, allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds, deviceIds });
+    const vehicleMap = new Map(vehicles.map((item) => [String(item.id), item]));
+    const { allowedDevices, allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
       return res.json({
-        data: { vehicleIds, deviceIds: [], from: null, to: null, trips: [] },
+        data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, trips: [] },
         error: null,
       });
     }
@@ -169,7 +193,7 @@ router.get("/traccar/reports/trips", resolveClientIdMiddleware, async (req, res,
 
     res.json({
       data: {
-        vehicleIds,
+        vehicleIds: resolvedVehicleIds,
         deviceIds: allowedIds,
         from,
         to,
@@ -191,20 +215,23 @@ router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = listVehicles({ clientId });
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
+    const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
+    const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
     const deviceIds = parseIds(req.query.deviceIds || req.query.deviceId).filter((value) => /^\d+$/.test(value));
 
-    if (!vehicleIds.length && !deviceIds.length) {
+    if (!resolvedVehicleIds.length && !deviceIds.length) {
       return res.status(400).json({
         data: null,
         error: { message: "Informe um veículo para gerar o relatório de rotas.", code: "VEHICLE_REQUIRED" },
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
-      return res.json({ data: { vehicleIds, deviceIds: [], from: null, to: null, positions: [] }, error: null });
+      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, positions: [] }, error: null });
     }
 
     const from = parseDate(req.query.from, "from");
@@ -215,13 +242,13 @@ router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res,
 
     const positions = await fetchPositions(allowedIds, from, to);
     if (positions.length) {
-      return res.json({ data: { vehicleIds, deviceIds: allowedIds, from, to, positions }, error: null });
+      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions }, error: null });
     }
 
     // fallback para API HTTP do Traccar se não houver dados no banco
     const response = await requestTraccarReport("/reports/route", { deviceId: allowedIds[0], from, to });
     const payload = Array.isArray(response?.data) ? response.data : response?.data?.data || response?.data || [];
-    return res.json({ data: { vehicleIds, deviceIds: allowedIds, from, to, positions: payload }, error: null });
+    return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions: payload }, error: null });
   } catch (error) {
     next(error);
   }
@@ -235,20 +262,23 @@ router.get("/traccar/reports/stops", resolveClientIdMiddleware, async (req, res,
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = listVehicles({ clientId });
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
+    const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
+    const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
     const deviceIds = parseIds(req.query.deviceIds || req.query.deviceId).filter((value) => /^\d+$/.test(value));
 
-    if (!vehicleIds.length && !deviceIds.length) {
+    if (!resolvedVehicleIds.length && !deviceIds.length) {
       return res.status(400).json({
         data: null,
         error: { message: "Informe um veículo para gerar o relatório de paradas.", code: "VEHICLE_REQUIRED" },
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
-      return res.json({ data: { vehicleIds, deviceIds: [], from: null, to: null, stops: [] }, error: null });
+      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, stops: [] }, error: null });
     }
 
     const from = parseDate(req.query.from, "from");
@@ -264,7 +294,7 @@ router.get("/traccar/reports/stops", resolveClientIdMiddleware, async (req, res,
       aggregatedStops.push(...payload);
     }
 
-    return res.json({ data: { vehicleIds, deviceIds: allowedIds, from, to, stops: aggregatedStops }, error: null });
+    return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, stops: aggregatedStops }, error: null });
   } catch (error) {
     next(error);
   }
@@ -278,20 +308,23 @@ router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, re
     ensureDbReady();
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicles = listVehicles({ clientId });
     const vehicleIds = parseIds(req.query.vehicleIds || req.query.vehicleId);
+    const plateIds = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
+    const resolvedVehicleIds = Array.from(new Set([...vehicleIds, ...plateIds]));
     const deviceIds = parseIds(req.query.deviceIds || req.query.deviceId).filter((value) => /^\d+$/.test(value));
 
-    if (!vehicleIds.length && !deviceIds.length) {
+    if (!resolvedVehicleIds.length && !deviceIds.length) {
       return res.status(400).json({
         data: null,
         error: { message: "Informe um veículo para gerar o relatório de resumo.", code: "VEHICLE_REQUIRED" },
       });
     }
 
-    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds, deviceIds });
+    const { allowedIds } = await resolveAllowedDevices(clientId, { vehicleIds: resolvedVehicleIds, deviceIds });
 
     if (!allowedIds.length) {
-      return res.json({ data: { vehicleIds, deviceIds: [], from: null, to: null, summary: [] }, error: null });
+      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: [], from: null, to: null, summary: [] }, error: null });
     }
 
     const from = parseDate(req.query.from, "from");
@@ -307,7 +340,7 @@ router.get("/traccar/reports/summary", resolveClientIdMiddleware, async (req, re
       aggregatedSummary.push(...payload);
     }
 
-    return res.json({ data: { vehicleIds, deviceIds: allowedIds, from, to, summary: aggregatedSummary }, error: null });
+    return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, summary: aggregatedSummary }, error: null });
   } catch (error) {
     next(error);
   }
@@ -331,6 +364,7 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       ? [req.query.deviceId]
       : [];
 
+    const vehicles = listVehicles({ clientId });
     const requestedVehicles = Array.isArray(req.query.vehicleIds)
       ? req.query.vehicleIds
       : typeof req.query.vehicleIds === "string"
@@ -338,13 +372,16 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
       : req.query.vehicleId
       ? [req.query.vehicleId]
       : [];
+    const plateVehicles = resolveVehicleIdsFromPlates(parsePlates(req.query.plates || req.query.plate), vehicles);
 
     const deviceIds = requestedDevices
       .map((value) => String(value).trim())
       .filter(Boolean)
       .filter((value) => /^\d+$/.test(value));
 
-    const vehicleIds = requestedVehicles.map((value) => String(value).trim()).filter(Boolean);
+    const vehicleIds = Array.from(
+      new Set([...requestedVehicles.map((value) => String(value).trim()).filter(Boolean), ...plateVehicles]),
+    );
 
     const storedDevices = listDevices({ clientId });
     const persistedDevices = await listDevicesFromDb({ clientId });
@@ -371,12 +408,12 @@ router.get("/traccar/events", resolveClientIdMiddleware, async (req, res, next) 
     const deviceIdsToQuery = deviceIds.length ? deviceIds.filter((id) => allowedIds.includes(id)) : allowedIds;
 
     if (!deviceIdsToQuery.length) {
-      return res.json({ data: { deviceIds: [], from, to, events: [] }, error: null });
+      return res.json({ data: { vehicleIds, deviceIds: [], from, to, events: [] }, error: null });
     }
 
     const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
     res.json({
-      data: { deviceIds: deviceIdsToQuery, from, to, events },
+      data: { vehicleIds, deviceIds: deviceIdsToQuery, from, to, events },
       error: null,
     });
   } catch (error) {

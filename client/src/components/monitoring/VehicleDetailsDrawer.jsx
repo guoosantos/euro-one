@@ -33,7 +33,8 @@ export default function VehicleDetailsDrawer({
 
   if (!vehicle) return null;
 
-  const { device = {}, position } = vehicle;
+  const device = vehicle?.device ?? {};
+  const position = vehicle?.position ?? null;
   const address = vehicle.address || position?.address;
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
   const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || vehicle.lastUpdate;
@@ -49,7 +50,7 @@ export default function VehicleDetailsDrawer({
         <>
           <Section title="Resumo">
             <Detail label="Placa" value={vehicle.plate} />
-            <Detail label="ID do dispositivo" value={vehicle.deviceId || device.id} />
+            <Detail label="ID do dispositivo" value={vehicle.deviceId || device.id || "Sem equipamento vinculado"} />
             <Detail label="Velocidade" value={`${vehicle.speed ?? position?.speed ?? 0} km/h`} />
             <Detail label="Última posição" value={lastUpdateLabel} />
             <Detail label="Status" value={statusLabel} />
@@ -66,12 +67,16 @@ export default function VehicleDetailsDrawer({
       return (
         <Section title="Trajetos recentes">
           <p className="text-xs text-white/60">Acesse os trajetos recentes deste veículo.</p>
-          <Link
-            to={`/trips?deviceId=${encodeURIComponent(vehicle.deviceId || device.id || "")}`}
-            className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
-          >
-            Ver trajetos
-          </Link>
+          {device?.id ? (
+            <Link
+              to={`/trips?vehicleId=${encodeURIComponent(vehicle.id || "")}`}
+              className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
+            >
+              Ver trajetos
+            </Link>
+          ) : (
+            <p className="text-xs text-white/50">Sem equipamento vinculado.</p>
+          )}
         </Section>
       );
     }
@@ -138,8 +143,9 @@ export default function VehicleDetailsDrawer({
         <p className="text-xs text-white/60">Fluxo de comandos remoto ficará disponível aqui.</p>
         <button
           type="button"
-          className="inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-white/40"
+          className="inline-flex items-center gap-2 rounded-md border border-white/20 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-white/40 disabled:opacity-50"
           onClick={() => console.info("TODO: integrar fluxo de comandos")}
+          disabled={!device?.id}
         >
           Enviar comando
         </button>
@@ -157,8 +163,9 @@ export default function VehicleDetailsDrawer({
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-white/50">{t("monitoring.columns.vehicle")}</p>
-          <h2 className="text-lg font-semibold text-white">{vehicle.deviceName}</h2>
+          <h2 className="text-lg font-semibold text-white">{vehicle.deviceName || device?.name || vehicle.plate || "Sem equipamento vinculado"}</h2>
           <p className="text-xs text-white/60">{vehicle.plate}</p>
+          {!device?.id && <p className="text-[11px] text-yellow-200/80">Sem equipamento vinculado</p>}
         </div>
         {onClose && (
           <button
