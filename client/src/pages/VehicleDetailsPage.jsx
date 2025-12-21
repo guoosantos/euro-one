@@ -223,6 +223,23 @@ function AdminBindingsTab({
           <p className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamentos vinculados</p>
           <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">{linkedDevices.length} itens</span>
         </div>
+        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
+          <select
+            value={linkingDeviceId}
+            onChange={(event) => setLinkingDeviceId(event.target.value)}
+            className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:max-w-xs"
+          >
+            <option value="">Adicionar equipamento</option>
+            {availableDevices.map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.name || device.uniqueId || device.id}
+              </option>
+            ))}
+          </select>
+          <Button type="button" disabled={!linkingDeviceId || saving} onClick={handleLinkDevice}>
+            Adicionar equipamento
+          </Button>
+        </div>
         <div className="mt-2 space-y-2">
           {linkedDevices.length === 0 && <p className="text-xs text-white/60">Nenhum equipamento vinculado.</p>}
           {linkedDevices.map((device) => (
@@ -245,6 +262,9 @@ function AdminBindingsTab({
                 {device.coordinates && (
                   <span className="text-[11px] text-white/60">{device.coordinates}</span>
                 )}
+                <Button size="xs" variant="ghost" onClick={() => handleUnlinkDevice(device.id)}>
+                  Desvincular
+                </Button>
                 <button
                   type="button"
                   className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-white/80 transition hover:border-primary/50 hover:text-white"
@@ -276,6 +296,7 @@ export default function VehicleDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [linkingDeviceId, setLinkingDeviceId] = useState("");
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -334,6 +355,10 @@ export default function VehicleDetailsPage() {
   }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, vehicle]);
 
   const autoPrimaryDeviceId = linkedDevices[0]?.id || null;
+  const availableDevices = useMemo(
+    () => devices.filter((device) => !device.vehicleId || String(device.vehicleId) === String(vehicle?.id)),
+    [devices, vehicle?.id],
+  );
 
   const loadData = async () => {
     setLoading(true);
@@ -361,6 +386,33 @@ export default function VehicleDetailsPage() {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículo"));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLinkDevice = async () => {
+    if (!vehicle || !linkingDeviceId) return;
+    setSaving(true);
+    try {
+      await CoreApi.linkDeviceToVehicle(vehicle.id, linkingDeviceId, { clientId: resolvedClientId });
+      setLinkingDeviceId("");
+      await loadData();
+    } catch (requestError) {
+      alert(requestError?.message || "Não foi possível vincular o equipamento");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleUnlinkDevice = async (deviceId) => {
+    if (!vehicle || !deviceId) return;
+    setSaving(true);
+    try {
+      await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, { clientId: resolvedClientId });
+      await loadData();
+    } catch (requestError) {
+      alert(requestError?.message || "Não foi possível desvincular o equipamento");
+    } finally {
+      setSaving(false);
     }
   };
 

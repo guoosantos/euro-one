@@ -159,6 +159,9 @@ export default function Devices() {
   const [editingId, setEditingId] = useState(null);
   const [showDeviceModal, setShowDeviceModal] = useState(false);
   const [conflictDevice, setConflictDevice] = useState(null);
+  const [linkTarget, setLinkTarget] = useState(null);
+  const [linkVehicleId, setLinkVehicleId] = useState("");
+  const [linkQuery, setLinkQuery] = useState("");
 
   const resolvedClientId = tenantId || user?.clientId || null;
 
@@ -209,11 +212,15 @@ export default function Devices() {
     setError(null);
     try {
       const clientId = tenantId || user?.clientId;
+      const vehiclesParams = clientId ? { clientId } : {};
+      if (["admin", "manager"].includes(user?.role)) {
+        vehiclesParams.includeUnlinked = true;
+      }
       const [deviceList, modelList, chipList, vehicleList] = await Promise.all([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
         CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),
         CoreApi.listChips(clientId ? { clientId } : undefined),
-        CoreApi.listVehicles(clientId ? { clientId } : undefined),
+        CoreApi.listVehicles(vehiclesParams),
       ]);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
       setModels(Array.isArray(modelList) ? modelList : []);
@@ -243,6 +250,12 @@ export default function Devices() {
     map.fitBounds(bounds.pad(0.02), { maxZoom: 16 });
     setTimeout(() => map.invalidateSize(), 50);
   }, [mapTarget]);
+
+  useEffect(() => {
+    if (linkTarget?.vehicleId) {
+      setLinkVehicleId(linkTarget.vehicleId);
+    }
+  }, [linkTarget]);
 
   const modeloById = useMemo(() => {
     const map = new Map();
@@ -539,6 +552,47 @@ export default function Devices() {
     setConflictDevice(null);
   }
 
+  const linkVehicleOptions = useMemo(() => {
+    const search = linkQuery.trim().toLowerCase();
+    const list = vehicles.map((vehicle) => ({
+      value: vehicle.id,
+      label: `${vehicle.plate || vehicle.name || vehicle.id}${vehicle.clientName ? ` · ${vehicle.clientName}` : ""}`,
+      plate: vehicle.plate || "",
+      name: vehicle.name || "",
+    }));
+    if (!search) return list;
+    return list.filter(
+      (vehicle) =>
+        vehicle.plate.toLowerCase().includes(search) ||
+        vehicle.name.toLowerCase().includes(search) ||
+        vehicle.label.toLowerCase().includes(search),
+    );
+  }, [linkQuery, vehicles]);
+
+  async function handleLinkToVehicle(event) {
+    event.preventDefault();
+    if (!linkTarget || !linkVehicleId) return;
+    try {
+      await CoreApi.linkDeviceToVehicle(linkVehicleId, linkTarget.id, { clientId: tenantId || user?.clientId });
+      await load();
+      setLinkTarget(null);
+      setLinkVehicleId("");
+      setLinkQuery("");
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao vincular equipamento");
+    }
+  }
+
+  async function handleUnlinkFromVehicle(device) {
+    if (!device?.vehicleId) return;
+    try {
+      await CoreApi.unlinkDeviceFromVehicle(device.vehicleId, device.id, { clientId: tenantId || user?.clientId });
+      await load();
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao desvincular equipamento");
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -606,6 +660,7 @@ export default function Devices() {
                   <th className="px-4 py-3 text-left">Nome</th>
                   <th className="px-4 py-3 text-left">IMEI</th>
                   <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Vínculo</th>
                   <th className="px-4 py-3 text-left">Última comunicação</th>
                   <th className="px-4 py-3 text-left">Última posição</th>
                   <th className="px-4 py-3 text-left">Velocidade</th>
@@ -618,14 +673,14 @@ export default function Devices() {
               <tbody className="divide-y divide-white/10">
                 {(loading || traccarLoading) && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-6 text-center text-white/60">
+                    <td colSpan={11} className="px-4 py-6 text-center text-white/60">
                       Carregando equipamentos…
                     </td>
                   </tr>
                 )}
                 {!loading && !traccarLoading && filteredDevices.length === 0 && (
                   <tr>
-                    <td colSpan={10} className="px-4 py-6 text-center text-white/60">
+                    <td colSpan={11} className="px-4 py-6 text-center text-white/60">
                       Nenhum equipamento cadastrado.
                     </td>
                   </tr>
@@ -639,12 +694,16 @@ export default function Devices() {
                     const ignitionLabel = formatIgnition(device);
                     const batteryLabel = formatBattery(device);
                     const traccarDevice = traccarDeviceFor(device);
+                    const linkLabel = vehicle
+                      ? `Vinculado ao veículo ${vehicle.name || vehicle.plate || vehicle.id}`
+                      : "Não vinculado";
                     return (
                       <tr key={device.internalId || device.id || device.uniqueId} className="hover:bg-white/5">
 
                         <td className="px-4 py-3 text-white">{device.name || traccarDevice?.name || "—"}</td>
                         <td className="px-4 py-3">{device.uniqueId || traccarDevice?.uniqueId || "—"}</td>
                         <td className="px-4 py-3">{getStatus(device)}</td>
+                        <td className="px-4 py-3">{linkLabel}</td>
                         <td className="px-4 py-3">{formatLastCommunication(device)}</td>
 
                         <td className="px-4 py-3 flex items-center gap-2">
@@ -672,6 +731,14 @@ export default function Devices() {
                         <td className="px-4 py-3">{chip?.iccid || chip?.phone || "—"}</td>
                         <td className="px-4 py-3">{vehicle?.name || vehicle?.plate || "—"}</td>
                         <td className="px-4 py-3 space-x-2 whitespace-nowrap">
+                          <Button size="sm" variant="ghost" onClick={() => setLinkTarget(device)}>
+                            Vincular a veículo
+                          </Button>
+                          {vehicle?.id && (
+                            <Button size="sm" variant="ghost" onClick={() => handleUnlinkFromVehicle(device)}>
+                              Desvincular
+                            </Button>
+                          )}
                           <Button size="sm" variant="ghost" onClick={() => openEditDevice(device)}>
                             Editar
                           </Button>
@@ -872,6 +939,53 @@ export default function Devices() {
             </Button>
             <Button type="submit" disabled={savingDevice}>
               {savingDevice ? "Salvando…" : editingId ? "Atualizar" : "Salvar"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={Boolean(linkTarget)}
+        onClose={() => {
+          setLinkTarget(null);
+          setLinkVehicleId("");
+          setLinkQuery("");
+        }}
+        title={linkTarget ? `Vincular ${linkTarget.name || linkTarget.uniqueId || "equipamento"}` : "Vincular equipamento"}
+        width="max-w-xl"
+      >
+        <form onSubmit={handleLinkToVehicle} className="space-y-3">
+          <div className="space-y-2">
+            <label className="text-xs uppercase tracking-[0.1em] text-white/60">Buscar placa/veículo</label>
+            <input
+              value={linkQuery}
+              onChange={(event) => setLinkQuery(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+              placeholder="Digite a placa ou nome"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-xs uppercase tracking-[0.1em] text-white/60">Selecionar veículo</label>
+            <select
+              value={linkVehicleId}
+              onChange={(event) => setLinkVehicleId(event.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+              required
+            >
+              <option value="">— Escolha um veículo —</option>
+              {linkVehicleOptions.map((vehicle) => (
+                <option key={vehicle.value} value={vehicle.value}>
+                  {vehicle.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => { setLinkTarget(null); setLinkVehicleId(""); setLinkQuery(""); }}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={!linkVehicleId}>
+              Vincular
             </Button>
           </div>
         </form>
