@@ -212,7 +212,13 @@ async function bootstrap() {
   process.on("SIGINT", shutdown);
 }
 
-bootstrap();
+bootstrap().catch((error) => {
+  console.error("[startup] Falha ao iniciar a API", {
+    message: error?.message || error,
+    stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+  });
+  process.exit(1);
+});
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);
