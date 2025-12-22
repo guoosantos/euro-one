@@ -4,7 +4,7 @@ import { randomUUID } from "crypto";
 
 import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
-import { sanitizeUser, verifyUserCredentials } from "../models/user.js";
+import { sanitizeUser, verifyUserCredentials, findByLogin } from "../models/user.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildTraccarUnavailableError, loginTraccar, isTraccarConfigured } from "../services/traccar.js";
 import { getFallbackClient, getFallbackUser } from "../services/fallback-data.js";
@@ -21,14 +21,31 @@ router.post("/login", async (req, res, next) => {
       throw createError(400, "Login e senha são obrigatórios");
     }
 
-    const user = await verifyUserCredentials(userLogin, userPassword).catch((error) => {
-      if (Number(error?.status || error?.statusCode) === 401) {
-        throw createError(401, "Credenciais inválidas");
-      }
-      throw error;
-    });
-
     await authenticateWithTraccar(userLogin, userPassword);
+
+    let user = null;
+    if (isPrismaAvailable()) {
+      user = await verifyUserCredentials(userLogin, userPassword).catch((error) => {
+        const status = Number(error?.status || error?.statusCode);
+        if (status === 401) {
+          throw createError(401, "Credenciais inválidas");
+        }
+        console.warn("[auth] Falha ao validar credenciais locais, prosseguindo com fallback", error?.message || error);
+        return null;
+      });
+    }
+
+    if (!user) {
+      const localUser =
+        (await findByLogin(userLogin, { includeSensitive: true }).catch(() => null)) || getFallbackUser();
+      user = sanitizeUser({
+        ...localUser,
+        email: localUser.email || userLogin,
+        username: localUser.username || userLogin,
+        role: localUser.role || "admin",
+        clientId: localUser.clientId || getFallbackClient().id,
+      });
+    }
 
     const sanitizedUser = sanitizeUser(user);
     const sessionPayload = await buildSessionPayload(user.id, sanitizedUser.role);
@@ -88,45 +105,54 @@ async function buildSessionPayload(userId, roleHint = null) {
     return { user: resolvedUser, client, clientId: resolvedUser.clientId, clients: [client] };
   }
 
-  const stored = await prisma.user.findUnique({
-    where: { id: String(userId) },
-    include: { client: true },
-  });
-  if (!stored) {
-    throw createError(404, "Usuário não encontrado");
+  try {
+    const stored = await prisma.user.findUnique({
+      where: { id: String(userId) },
+      include: { client: true },
+    });
+
+    if (!stored) {
+      throw createError(404, "Usuário não encontrado");
+    }
+
+    const user = sanitizeUser(stored);
+    const preference = await prisma.userPreference.findUnique({
+      where: { userId: user.id },
+      include: { client: true },
+    });
+
+    const availableClients = user.role === "admin"
+      ? await listClients()
+      : user.client
+        ? [user.client]
+        : [];
+
+    const preferredId = preference?.clientId || user.clientId || availableClients[0]?.id || null;
+    const resolvedClient = availableClients.find((item) => String(item.id) === String(preferredId))
+      || availableClients[0]
+      || null;
+
+    if (!preference && resolvedClient) {
+      await prisma.userPreference
+        .upsert({
+          where: { userId: user.id },
+          update: { clientId: resolvedClient.id, updatedAt: new Date() },
+          create: { id: randomUUID(), userId: user.id, clientId: resolvedClient.id },
+        })
+        .catch(() => null);
+    }
+
+    const resolved = resolvedClient ? { ...resolvedClient } : null;
+    const userWithClient = { ...user, clientId: user.clientId ?? resolved?.id ?? null };
+
+    return { user: userWithClient, client: resolved, clientId: userWithClient.clientId, clients: availableClients };
+  } catch (error) {
+    console.warn("[auth] falha ao construir sessão via Prisma, usando fallback", error?.message || error);
+    const fallbackUser = sanitizeUser(getFallbackUser());
+    const client = getFallbackClient();
+    const resolvedUser = { ...fallbackUser, clientId: fallbackUser.clientId || client.id };
+    return { user: resolvedUser, client, clientId: resolvedUser.clientId, clients: [client] };
   }
-
-  const user = sanitizeUser(stored);
-  const preference = await prisma.userPreference.findUnique({
-    where: { userId: user.id },
-    include: { client: true },
-  });
-
-  const availableClients = user.role === "admin"
-    ? await listClients()
-    : user.client
-      ? [user.client]
-      : [];
-
-  const preferredId = preference?.clientId || user.clientId || availableClients[0]?.id || null;
-  const resolvedClient = availableClients.find((item) => String(item.id) === String(preferredId))
-    || availableClients[0]
-    || null;
-
-  if (!preference && resolvedClient) {
-    await prisma.userPreference
-      .upsert({
-        where: { userId: user.id },
-        update: { clientId: resolvedClient.id, updatedAt: new Date() },
-        create: { id: randomUUID(), userId: user.id, clientId: resolvedClient.id },
-      })
-      .catch(() => null);
-  }
-
-  const resolved = resolvedClient ? { ...resolvedClient } : null;
-  const userWithClient = { ...user, clientId: user.clientId ?? resolved?.id ?? null };
-
-  return { user: userWithClient, client: resolved, clientId: userWithClient.clientId, clients: availableClients };
 }
 
 router.get("/session", authenticate, async (req, res, next) => {

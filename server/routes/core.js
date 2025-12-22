@@ -16,7 +16,7 @@ import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
-import prisma from "../services/prisma.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 
@@ -125,7 +125,7 @@ const registryCache = createTtlCache(30_000);
 const registryCacheKeys = new Set();
 
 function isPrismaReady() {
-  return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
+  return isPrismaAvailable() && Boolean(process.env.DATABASE_URL);
 }
 
 // Estas rotas usam o banco do Traccar como fonte principal de dados (cenário C).

@@ -21,7 +21,7 @@ import { MoveRight, Sparkles } from "lucide-react";
 import useDevices from "../lib/hooks/useDevices";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useReports } from "../lib/hooks/useReports";
-import Card from "../ui/Card.jsx";
+import Card from "../ui/Card";
 import { Badge } from "../ui/shadcn/badge.jsx";
 import { Button } from "../ui/shadcn/button.jsx";
 import { translateEventType } from "../lib/event-translations.js";

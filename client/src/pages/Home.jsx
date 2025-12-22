@@ -9,7 +9,7 @@ import { useEvents } from "../lib/hooks/useEvents";
 import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
-import Card from "../ui/Card.jsx";
+import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
 
