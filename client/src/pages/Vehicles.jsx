@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -8,17 +8,15 @@ import Input from "../ui/Input";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Modal from "../ui/Modal";
-import { MapPin, Search } from "lucide-react";
+import { EllipsisVertical, Link2, Plus, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import { useTranslation } from "../lib/i18n.js";
-import { getTelemetryColumnByKey } from "../features/telemetry/telemetryColumns.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 
 export default function Vehicles() {
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
-  const { t, locale } = useTranslation();
+  const navigate = useNavigate();
   const [vehicles, setVehicles] = useState([]);
   const [devices, setDevices] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -27,6 +25,7 @@ export default function Vehicles() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
+  const [menuOpenId, setMenuOpenId] = useState(null);
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -90,64 +89,26 @@ export default function Vehicles() {
     if (!query.trim()) return vehicles;
     const term = query.trim().toLowerCase();
     return vehicles.filter((vehicle) =>
-      [vehicle.name, vehicle.plate, vehicle.driver, vehicle.group, vehicle.device?.uniqueId]
+      [vehicle.name, vehicle.plate, vehicle.driver, vehicle.group, vehicle.device?.uniqueId, vehicle.device?.name]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term)),
     );
   }, [vehicles, query]);
 
-  const telemetryColumns = useMemo(() => {
-    const keys = ["plate", "vehicle", "deviceId", "protocol", "status", "serverTime"];
-    return keys
-      .map((key) => getTelemetryColumnByKey(key))
-      .filter(Boolean)
-      .map((column) => ({
-        ...column,
-        label: t(column.labelKey),
-        render: (row) => column.getValue(row, { t, locale }),
-      }));
-  }, [locale, t]);
+  const formatOdometer = (value) => {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "—";
+    return `${Intl.NumberFormat("pt-BR").format(Math.round(number))} km`;
+  };
 
-  const tableColumns = useMemo(
-    () => [
-      ...telemetryColumns,
-      { key: "statusLive", label: "Status online", render: (row) => row.statusLive },
-      { key: "lastSeen", label: "Último ping", render: (row) => row.lastSeen },
-      {
-        key: "lastPosition",
-        label: "Última posição",
-        render: (row) => (
-          <div className="flex items-center gap-2">
-            <span>{row.coordinates}</span>
-            {row.latestPosition && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon={MapPin}
-                onClick={() => setMapTarget({ vehicle: row.raw, position: row.latestPosition })}
-              >
-                Ver no mapa
-              </Button>
-            )}
-          </div>
-        ),
-      },
-      { key: "driver", label: t("monitoring.columns.driver") || "Motorista", render: (row) => row.driver || "—" },
-      {
-        key: "actions",
-        label: t("monitoring.columns.actions"),
-        render: (row) => (
-          <Link
-            to={`/vehicles/${row.raw.id}`}
-            className="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:border-white/30 hover:bg-white/20"
-          >
-            {t("common.edit") || "Editar"}
-          </Link>
-        ),
-      },
-    ],
-    [setMapTarget, t, telemetryColumns],
-  );
+  const resolveDeviceId = (vehicle) =>
+    vehicle?.deviceId ||
+    vehicle?.device?.traccarId ||
+    vehicle?.device?.id ||
+    vehicle?.device?.deviceId ||
+    vehicle?.device?.uniqueId ||
+    vehicle?.device_id ||
+    null;
 
   const availableDevices = useMemo(() => {
     const currentDeviceId = form.deviceId;
@@ -180,6 +141,120 @@ export default function Vehicles() {
     });
     setOpen(true);
   }
+
+  async function handleUnlink(vehicle) {
+    const deviceId = resolveDeviceId(vehicle);
+    if (!deviceId || !vehicle?.id) {
+      alert("Nenhum equipamento vinculado a este veículo.");
+      return;
+    }
+    try {
+      setMenuOpenId(null);
+      await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, {});
+      await load();
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao desassociar equipamento.");
+    }
+  }
+
+  async function handleDelete(vehicle) {
+    if (!vehicle?.id) return;
+    const confirmed = window.confirm("Deseja realmente excluir este veículo?");
+    if (!confirmed) return;
+    try {
+      setMenuOpenId(null);
+      await CoreApi.deleteVehicle(vehicle.id);
+      await load();
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao excluir veículo.");
+    }
+  }
+
+  function handleViewDevice(vehicle, latestPosition) {
+    if (latestPosition) {
+      setMapTarget({ vehicle, position: latestPosition });
+      setMenuOpenId(null);
+      return;
+    }
+    const deviceId = resolveDeviceId(vehicle);
+    if (!deviceId) {
+      alert("Nenhum equipamento vinculado para visualizar.");
+      return;
+    }
+    setMenuOpenId(null);
+    navigate(`/equipamentos?deviceId=${encodeURIComponent(deviceId)}`);
+  }
+
+  const renderAssociation = (vehicle, statusLive) => {
+    if (!vehicle.device) {
+      return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
+          <Unlink className="h-4 w-4" />
+          Sem equipamento
+        </div>
+      );
+    }
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white">
+        <Link2 className="h-4 w-4" />
+        <div className="text-left">
+          <div className="font-semibold leading-tight">{vehicle.device.name || vehicle.device.uniqueId}</div>
+          <div className="text-[11px] text-white/60">{statusLive}</div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderActions = (vehicle, latestPosition) => {
+    const isOpen = menuOpenId === vehicle.id;
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setMenuOpenId((current) => (current === vehicle.id ? null : vehicle.id))}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+        >
+          <EllipsisVertical className="h-5 w-5" />
+        </button>
+        {isOpen && (
+          <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#0f141c] text-sm shadow-xl">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpenId(null);
+                navigate(`/vehicles/${vehicle.id}`);
+              }}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
+            >
+              Editar veículo
+            </button>
+            <button
+              type="button"
+              onClick={() => handleViewDevice(vehicle, latestPosition)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
+            >
+              Ver dispositivo
+            </button>
+            <button
+              type="button"
+              onClick={() => handleUnlink(vehicle)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
+            >
+              Desassociar dispositivo
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDelete(vehicle)}
+              className="flex w-full items-center gap-2 px-4 py-3 text-left text-red-300 hover:bg-red-500/10"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir veículo
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   async function handleSave(event) {
     event.preventDefault();
@@ -215,85 +290,102 @@ export default function Vehicles() {
   }
 
   return (
-    <div className="space-y-5">
-      <PageHeader title="Veículos" right={<Button onClick={openModal}>+ Novo veículo</Button>} />
+    <div className="space-y-6">
+      <PageHeader
+        title="Frota"
+        description="Veículos"
+        right={(
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="outline"
+              className="inline-flex items-center gap-2 px-4 py-2"
+              onClick={load}
+            >
+              <RefreshCw className="h-4 w-4" /> Atualizar
+            </Button>
+            <Button className="inline-flex items-center gap-2 px-4 py-2" onClick={openModal}>
+              <Plus className="h-4 w-4" /> Novo veículo
+            </Button>
+          </div>
+        )}
+      />
 
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
       )}
 
-      <Field label="Busca">
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <Field label="">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <Input
             placeholder="Buscar (placa, veículo, motorista, equipamento)"
             icon={Search}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            className="flex-1"
           />
-          <Button onClick={load}>Atualizar</Button>
         </div>
       </Field>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5">
+      <div className="rounded-2xl border border-white/10 bg-[#0f141c] shadow-lg">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
-                {tableColumns.map((column) => (
-                  <th key={column.key} className="px-4 py-3 text-left">
-                    {column.label}
-                  </th>
-                ))}
+                <th className="px-4 py-3 text-left">Associação</th>
+                <th className="px-4 py-3 text-left">Nº Cobli/ID</th>
+                <th className="px-4 py-3 text-left">Placa</th>
+                <th className="px-4 py-3 text-left">Modelo</th>
+                <th className="px-4 py-3 text-left">Motorista</th>
+                <th className="px-4 py-3 text-left">Grupo</th>
+                <th className="px-4 py-3 text-left">Odômetro</th>
+                <th className="px-4 py-3 text-left">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={tableColumns.length} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={8} className="px-4 py-6 text-center text-white/60">
                     Carregando veículos…
                   </td>
                 </tr>
               )}
               {!loading && filteredVehicles.length === 0 && (
                 <tr>
-                  <td colSpan={tableColumns.length} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={8} className="px-4 py-6 text-center text-white/60">
                     Nenhum veículo encontrado.
                   </td>
                 </tr>
               )}
               {!loading &&
-                filteredVehicles.map((vehicle) => (
-                  <tr key={vehicle.id} className="hover:bg-white/5">
-                    {tableColumns.map((column) => {
-                      const latestPosition = getDevicePosition(vehicle);
-                      const statusLive = getDeviceStatus(vehicle, latestPosition);
-                      const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
-                      const coordinates = getDeviceCoordinates(vehicle, latestPosition);
-                      const row = {
-                        vehicleName: vehicle.name,
-                        plate: vehicle.plate,
-                        vehicle,
-                        device: vehicle.device,
-                        deviceId: vehicle.device?.traccarId || vehicle.device?.id || vehicle.device?.uniqueId,
-                        traccarId: vehicle.device?.traccarId,
-                        position: vehicle.device?.position || null,
-                        lastCommunication: vehicle.lastCommunication,
-                        connectionStatusLabel: vehicle.connectionStatusLabel,
-                        driver: vehicle.driver,
-                        latestPosition,
-                        statusLive,
-                        lastSeen,
-                        coordinates,
-                        raw: vehicle,
-                      };
-                      return (
-                        <td key={column.key} className="px-4 py-3 text-left">
-                          {column.render ? column.render(row) : column.getValue?.(row, { t, locale })}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                filteredVehicles.map((vehicle) => {
+                  const latestPosition = getDevicePosition(vehicle);
+                  const statusLive = getDeviceStatus(vehicle, latestPosition);
+                  const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
+                  const coordinates = getDeviceCoordinates(vehicle, latestPosition);
+                  const deviceIdentifier =
+                    vehicle.device?.uniqueId || vehicle.device?.identifier || vehicle.device?.id || "—";
+                  return (
+                    <tr key={vehicle.id} className="hover:bg-white/5">
+                      <td className="px-4 py-4">{renderAssociation(vehicle, statusLive)}</td>
+                      <td className="px-4 py-4">
+                        <div className="space-y-1">
+                          <div className="font-semibold text-white">{deviceIdentifier}</div>
+                          <div className="text-xs text-white/60">{lastSeen}</div>
+                          <div className="text-[11px] text-white/50">{coordinates}</div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
+                        <div className="text-xs text-white/60">{vehicle.name || "—"}</div>
+                      </td>
+                      <td className="px-4 py-4">{vehicle.model?.name || "—"}</td>
+                      <td className="px-4 py-4">{vehicle.driver || "—"}</td>
+                      <td className="px-4 py-4">{vehicle.group || "—"}</td>
+                      <td className="px-4 py-4">{formatOdometer(vehicle.odometer)}</td>
+                      <td className="px-4 py-4 text-right">{renderActions(vehicle, latestPosition)}</td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
