@@ -453,20 +453,57 @@ export default function Monitoring() {
   }, [mapLayerKey]);
 
   // --- Lógica de Dados ---
-  const normalizedTelemetry = useMemo(() => safeTelemetry.map(item => ({
-    device: item.device || item,
-    source: item,
-  })), [safeTelemetry]);
-
-  const isLinkedToVehicle = useCallback((device) => {
-    if (!device) return false;
+  const normalizedTelemetry = useMemo(() => safeTelemetry.map((item) => {
+    const sourceDevice = item.device || item;
     const vehicleId =
-      device.vehicleId ?? device.vehicle?.id ?? device.vehicle_id ?? device.vehicle?.vehicleId ?? null;
-    return Boolean(vehicleId);
+      item.vehicleId ??
+      sourceDevice?.vehicleId ??
+      sourceDevice?.vehicle?.id ??
+      sourceDevice?.vehicle_id ??
+      sourceDevice?.vehicle?.vehicleId ??
+      item.vehicle?.id ??
+      null;
+
+    const vehicle =
+      item.vehicle ||
+      sourceDevice?.vehicle ||
+      (vehicleId
+        ? {
+            id: vehicleId,
+            plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
+            name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
+            clientId: item.clientId ?? sourceDevice?.clientId,
+          }
+        : null);
+
+    const device = {
+      ...sourceDevice,
+      vehicleId,
+      vehicle: vehicle || sourceDevice?.vehicle,
+      plate: sourceDevice?.plate ?? sourceDevice?.registrationNumber ?? item.plate ?? vehicle?.plate,
+      clientId: sourceDevice?.clientId ?? item.clientId ?? vehicle?.clientId,
+    };
+
+    return { device, source: item, vehicle };
+  }), [safeTelemetry]);
+
+  const isLinkedToVehicle = useCallback(({ device, source, vehicle }) => {
+    const fromDevice = device?.vehicleId ?? device?.vehicle?.id ?? device?.vehicle_id ?? device?.vehicle?.vehicleId;
+    const fromSource = source?.vehicleId ?? source?.vehicle?.id ?? source?.vehicle_id ?? source?.vehicle?.vehicleId;
+    const fromNestedDevice = source?.devices?.find((entry) =>
+      entry?.vehicleId || entry?.vehicle_id || entry?.vehicle?.id || entry?.vehicle?.vehicleId,
+    );
+    const fromDevicesList =
+      fromNestedDevice?.vehicleId ||
+      fromNestedDevice?.vehicle_id ||
+      fromNestedDevice?.vehicle?.id ||
+      fromNestedDevice?.vehicle?.vehicleId;
+
+    return Boolean(fromDevice ?? fromSource ?? fromDevicesList ?? vehicle?.id);
   }, []);
 
   const linkedTelemetry = useMemo(
-    () => normalizedTelemetry.filter(({ device }) => isLinkedToVehicle(device)),
+    () => normalizedTelemetry.filter((entry) => isLinkedToVehicle(entry)),
     [isLinkedToVehicle, normalizedTelemetry],
   );
 
