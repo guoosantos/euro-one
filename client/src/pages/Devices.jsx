@@ -1219,10 +1219,6 @@ export default function Devices() {
                       onUnlink={() => handleUnlinkFromVehicle(device)}
                       onEdit={() => openEditDevice(device)}
                       onDelete={() => handleDeleteDevice(device.id)}
-                      onQuickLink={() => {
-                        setLinkTarget(device);
-                        setLinkVehicleId(device.vehicleId || "");
-                      }}
                       positionLabel={formatPositionSummary(position)}
                       lastCommunication={formatLastCommunication(device)}
                     />
