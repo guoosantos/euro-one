@@ -11,17 +11,78 @@ function buildUnavailableError(reason) {
   return error;
 }
 
+function disabledResult(operation) {
+  const op = String(operation);
+  if (op === "findMany" || op === "groupBy") return [];
+  if (op === "count") return 0;
+  if (op.endsWith("Many")) return { count: 0 };
+  return null;
+}
+
+const disabledWarnings = new Set();
+function logDisabled(operation) {
+  const key = String(operation);
+  if (disabledWarnings.has(key)) return;
+  disabledWarnings.add(key);
+  console.warn("[prisma] acesso em modo desativado; retornando mock seguro", { operation: key });
+}
+
+function createDisabledModel(modelName) {
+  const handler = {
+    get(_modelTarget, operation) {
+      if (operation === Symbol.toStringTag) return "PrismaDisabledModel";
+      return async () => {
+        logDisabled(`${modelName}.${String(operation)}`);
+        return disabledResult(operation);
+      };
+    },
+  };
+  return new Proxy({}, handler);
+}
+
+const disabledModels = new Map();
+function getDisabledModel(modelName) {
+  if (!disabledModels.has(modelName)) {
+    disabledModels.set(modelName, createDisabledModel(modelName));
+  }
+  return disabledModels.get(modelName);
+}
+
+const disabledPrismaClient = new Proxy(
+  {},
+  {
+    get(_target, prop) {
+      if (prop === "$transaction") {
+        return async (operations = []) => {
+          logDisabled("$transaction");
+          if (Array.isArray(operations)) {
+            return operations.map((operation) => (typeof operation === "function" ? operation() : null));
+          }
+          return null;
+        };
+      }
+      if (prop === "$connect" || prop === "$disconnect" || prop === "$on") {
+        return async () => {
+          logDisabled(prop);
+          return null;
+        };
+      }
+      return getDisabledModel(String(prop));
+    },
+  },
+);
+
 let PrismaClient;
 try {
   ({ PrismaClient } = await import("@prisma/client"));
-} catch (error) {
+} catch (_error) {
   console.warn("[prisma] pacote @prisma/client indisponível, verifique a instalação e o prisma generate");
 }
 
 const databaseUrl = process.env.DATABASE_URL;
-const prismaEnabled = Boolean(PrismaClient) && Boolean(databaseUrl);
+const hasPrismaConfig = Boolean(PrismaClient) && Boolean(databaseUrl);
 
-if (!prismaEnabled) {
+if (!hasPrismaConfig) {
   const validation = validateEnv(["DATABASE_URL"], { optional: true });
   if (validation.missing.length) {
     console.warn(
@@ -30,26 +91,34 @@ if (!prismaEnabled) {
   }
 }
 
-let prisma = null;
+const prismaState = {
+  client: null,
+  enabled: hasPrismaConfig,
+  reason: null,
+};
+
 function initPrisma() {
-  if (!prismaEnabled) {
+  if (!prismaState.enabled) {
     return null;
   }
 
-  if (prisma) return prisma;
+  if (prismaState.client) return prismaState.client;
 
   try {
-    prisma = new PrismaClient();
-    return prisma;
+    prismaState.client = new PrismaClient();
+    prismaState.reason = null;
+    return prismaState.client;
   } catch (error) {
-    console.error("[prisma] falha ao inicializar PrismaClient", error?.message || error);
-    prisma = null;
-    throw buildUnavailableError(error);
+    prismaState.client = null;
+    prismaState.enabled = false;
+    prismaState.reason = error;
+    console.warn("[prisma] falha ao inicializar PrismaClient, executando em modo desativado", error?.message || error);
+    return null;
   }
 }
 
 export function isPrismaAvailable() {
-  return prismaEnabled;
+  return Boolean(prismaState.client);
 }
 
 export function getPrisma() {
@@ -61,12 +130,9 @@ const prismaProxy = new Proxy(
   {
     get(_target, prop) {
       const client = initPrisma();
-      if (!client) {
-        return () => {
-          throw buildUnavailableError("Prisma desativado (DATABASE_URL ausente ou pacote não instalado)");
-        };
-      }
-      return client[prop];
+      const target = client || disabledPrismaClient;
+      const value = target[prop];
+      return value;
     },
   },
 );

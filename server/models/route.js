@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 
 
 import { loadCollection, saveCollection } from "../services/storage.js";
-import prisma from "../services/prisma.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 
 const STORAGE_KEY = "routes";
 const routes = new Map();
@@ -16,7 +16,7 @@ function logOnce(target, key, message, payload) {
 }
 
 function isPrismaReady() {
-  return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
+  return isPrismaAvailable() && Boolean(process.env.DATABASE_URL);
 }
 
 function clone(record) {

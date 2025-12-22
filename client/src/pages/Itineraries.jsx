@@ -6,8 +6,8 @@ import "leaflet/dist/leaflet.css";
 import useGeofences from "../lib/hooks/useGeofences.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
-import Button from "../ui/Button.jsx";
-import Input from "../ui/Input.jsx";
+import Button from "../ui/Button";
+import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];

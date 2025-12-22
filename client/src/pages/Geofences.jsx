@@ -26,8 +26,8 @@ import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import Button from "../ui/Button.jsx";
-import Input from "../ui/Input.jsx";
+import Button from "../ui/Button";
+import Input from "../ui/Input";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
