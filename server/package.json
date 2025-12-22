@@ -10,7 +10,10 @@
     "lint": "eslint .",
     "test": "node --test",
     "migrate:storage": "node scripts/migrate-storage-to-db.js",
-    "postinstall": ""
+    "prisma:generate": "prisma generate --schema ../prisma/schema.prisma",
+    "prisma:migrate:deploy": "prisma migrate deploy --schema ../prisma/schema.prisma",
+    "prisma:migrate:resolve": "prisma migrate resolve --schema ../prisma/schema.prisma",
+    "postinstall": "npm run prisma:generate"
   },
   "engines": {
     "node": ">=20"
