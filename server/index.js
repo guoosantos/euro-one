@@ -2,10 +2,27 @@ import http from "http";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 
-import { loadEnv } from "./utils/env.js";
+import { loadEnv, validateEnv } from "./utils/env.js";
 
 async function bootstrap() {
   await loadEnv();
+
+  const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
+  if (missing.length) {
+    console.warn(
+      "[startup] Variáveis de ambiente ausentes; verifique o .env antes de subir em produção.",
+      { missing },
+    );
+  }
+
+  if (
+    !process.env.TRACCAR_ADMIN_TOKEN &&
+    (!process.env.TRACCAR_ADMIN_USER || !process.env.TRACCAR_ADMIN_PASSWORD)
+  ) {
+    console.warn(
+      "[startup] Nenhum token ou usuário/senha administrativa do Traccar informado; rotas protegidas podem falhar.",
+    );
+  }
 
   const [
     { default: app },

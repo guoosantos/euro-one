@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Trash } from "lucide-react";
 
-import Button from "../components/Button";
-import Card from "../components/Card";
-import Input from "../components/Input";
+import Button from "../ui/Button";
+import Card from "../ui/Card";
+import Input from "../ui/Input";
 import useTrackerMappings from "../lib/hooks/useTrackerMappings.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 

@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "test": "node --test",
     "migrate:storage": "node scripts/migrate-storage-to-db.js",
-    "postinstall": "prisma generate"
+    "postinstall": ""
   },
   "engines": {
     "node": ">=20"

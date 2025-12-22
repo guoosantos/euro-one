@@ -5,8 +5,9 @@ import { randomUUID } from "crypto";
 import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
 import { sanitizeUser, verifyUserCredentials } from "../models/user.js";
-import prisma from "../services/prisma.js";
-import { buildTraccarUnavailableError, loginTraccar } from "../services/traccar.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { buildTraccarUnavailableError, loginTraccar, isTraccarConfigured } from "../services/traccar.js";
+import { getFallbackClient, getFallbackUser } from "../services/fallback-data.js";
 
 const router = express.Router();
 
@@ -54,6 +55,10 @@ router.post("/login", async (req, res, next) => {
 });
 
 async function authenticateWithTraccar(login, password) {
+  if (!isTraccarConfigured()) {
+    console.warn("[auth] TRACCAR_BASE_URL ausente, pulando validação no Traccar");
+    return { ok: true, skipped: true };
+  }
   try {
     const traccarAuth = await loginTraccar(login, password);
     if (traccarAuth?.ok) {
@@ -70,12 +75,19 @@ async function authenticateWithTraccar(login, password) {
     if (Number(error?.status || error?.statusCode) === 401) {
       throw error;
     }
-
-    throw buildTraccarUnavailableError(error, { endpoint: "/session" });
+    console.warn("[auth] Falha ao validar sessão no Traccar, permitindo login local", error?.message || error);
+    return { ok: false, skipped: true, reason: "traccar-unavailable" };
   }
 }
 
 async function buildSessionPayload(userId, roleHint = null) {
+  if (!isPrismaAvailable()) {
+    const fallbackUser = sanitizeUser(getFallbackUser());
+    const client = getFallbackClient();
+    const resolvedUser = { ...fallbackUser, clientId: fallbackUser.clientId || client.id };
+    return { user: resolvedUser, client, clientId: resolvedUser.clientId, clients: [client] };
+  }
+
   const stored = await prisma.user.findUnique({
     where: { id: String(userId) },
     include: { client: true },

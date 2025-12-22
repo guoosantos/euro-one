@@ -1,11 +1,17 @@
 import createError from "http-errors";
 
-import prisma from "../services/prisma.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 
-function ensurePrisma() {
-  if (!prisma || !prisma.telemetryFieldMapping || !prisma.eventMapping) {
+function ensurePrisma({ allowNull = false } = {}) {
+  if (!isPrismaAvailable()) {
+    if (allowNull) return false;
     throw createError(503, "Banco de dados indisponível para mapeamentos de rastreador");
   }
+  if (!prisma || !prisma.telemetryFieldMapping || !prisma.eventMapping) {
+    if (allowNull) return false;
+    throw createError(503, "Banco de dados indisponível para mapeamentos de rastreador");
+  }
+  return true;
 }
 
 function buildMappingWhere({ clientId, deviceId, protocol, key, eventKey }) {
@@ -18,7 +24,7 @@ function buildMappingWhere({ clientId, deviceId, protocol, key, eventKey }) {
 }
 
 export async function listTelemetryFieldMappings(filters = {}) {
-  ensurePrisma();
+  if (!ensurePrisma({ allowNull: true })) return [];
   const records = await prisma.telemetryFieldMapping.findMany({
     where: buildMappingWhere(filters),
     orderBy: [{ deviceId: "asc" }, { protocol: "asc" }, { key: "asc" }],
@@ -79,7 +85,7 @@ export async function deleteTelemetryFieldMapping(id) {
 }
 
 export async function listEventMappings(filters = {}) {
-  ensurePrisma();
+  if (!ensurePrisma({ allowNull: true })) return [];
   const records = await prisma.eventMapping.findMany({
     where: buildMappingWhere(filters),
     orderBy: [{ deviceId: "asc" }, { protocol: "asc" }, { eventKey: "asc" }],

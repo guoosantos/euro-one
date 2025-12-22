@@ -1,7 +1,8 @@
 import createError from "http-errors";
 import { randomUUID } from "crypto";
 
-import prisma from "../services/prisma.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { getFallbackClient } from "../services/fallback-data.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -14,11 +15,18 @@ function clone(record) {
 }
 
 export async function listClients() {
+  if (!isPrismaAvailable()) {
+    return [getFallbackClient()];
+  }
   const clients = await prisma.client.findMany({ orderBy: { createdAt: "desc" } });
   return clients.map(clone);
 }
 
 export async function getClientById(id) {
+  if (!isPrismaAvailable()) {
+    const fallback = getFallbackClient();
+    return String(id) === String(fallback.id) ? fallback : null;
+  }
   const record = await prisma.client.findUnique({ where: { id: String(id) } });
   return clone(record);
 }

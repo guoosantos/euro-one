@@ -1,15 +1,8 @@
 import createError from "http-errors";
 
-import { loadEnv } from "../utils/env.js";
+import { loadEnv, validateEnv } from "../utils/env.js";
 
 await loadEnv();
-
-function buildMissingEnvError(variable) {
-  const error = createError(500, `Variável de ambiente obrigatória ausente: ${variable}`);
-  error.code = "MISSING_ENV";
-  error.details = { missing: [variable] };
-  return error;
-}
 
 function buildUnavailableError(reason) {
   const error = createError(503, "Banco de dados indisponível ou mal configurado");
@@ -26,14 +19,21 @@ try {
 }
 
 const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) {
-  throw buildMissingEnvError("DATABASE_URL");
+const prismaEnabled = Boolean(PrismaClient) && Boolean(databaseUrl);
+
+if (!prismaEnabled) {
+  const validation = validateEnv(["DATABASE_URL"], { optional: true });
+  if (validation.missing.length) {
+    console.warn(
+      "[prisma] DATABASE_URL ausente; recursos dependentes do banco ficarão indisponíveis.",
+    );
+  }
 }
 
 let prisma = null;
 function initPrisma() {
-  if (!PrismaClient) {
-    throw buildUnavailableError("@prisma/client não foi instalado ou gerado");
+  if (!prismaEnabled) {
+    return null;
   }
 
   if (prisma) return prisma;
@@ -48,6 +48,10 @@ function initPrisma() {
   }
 }
 
+export function isPrismaAvailable() {
+  return prismaEnabled;
+}
+
 export function getPrisma() {
   return initPrisma();
 }
@@ -57,6 +61,11 @@ const prismaProxy = new Proxy(
   {
     get(_target, prop) {
       const client = initPrisma();
+      if (!client) {
+        return () => {
+          throw buildUnavailableError("Prisma desativado (DATABASE_URL ausente ou pacote não instalado)");
+        };
+      }
       return client[prop];
     },
   },
