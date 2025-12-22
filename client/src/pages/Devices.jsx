@@ -974,19 +974,15 @@ export default function Devices() {
   const tableColCount =
     6 + (visibleColumns.chip ? 1 : 0) + (visibleColumns.speed ? 1 : 0) + (visibleColumns.ignition ? 1 : 0);
 
+  const toastClassName =
+    "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+    (toast?.type === "error"
+      ? "border-red-500/40 bg-red-500/20 text-red-50"
+      : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50");
+
   return (
     <div className="space-y-6">
-      {toast && (
-        <div
-          className={`fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg ${
-            toast.type === "error"
-              ? "border-red-500/40 bg-red-500/20 text-red-50"
-              : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50"
-          }`}
-        >
-          {toast.message}
-        </div>
-      )}
+      {toast && <div className={toastClassName}>{toast.message}</div>}
 
       <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
         <PageHeader
@@ -1237,20 +1233,7 @@ export default function Devices() {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-2xl border border-white/10 bg-[#0d131c]/70 p-6 shadow-lg">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Catálogo</p>
-            <h3 className="text-lg font-semibold text-white">Modelos e portas</h3>
-            <p className="text-sm text-white/60">Mantenha o cadastro de modelos consistente para vincular IO e protocolos.</p>
-          </div>
-          <Button className="inline-flex items-center gap-2" onClick={addPort}>
-            <Plus className="h-4 w-4" />
-            <span>Adicionar porta</span>
-          </Button>
-        </div>
-
-        <Drawer
+      <Drawer
         open={showDeviceDrawer}
         onClose={() => setShowDeviceDrawer(false)}
         title={editingId ? "Editar equipamento" : "Novo equipamento"}
@@ -1439,10 +1422,14 @@ export default function Devices() {
           setLinkVehicleId("");
           setLinkQuery("");
         }}
-        title="Vincular veículo"
-        description="Associe rapidamente o equipamento a um veículo."
+        title={linkTarget?.name || linkTarget?.uniqueId || "Vincular equipamento"}
+        description={
+          linkTarget?.vehicle?.plate
+            ? `Equipamento já vinculado a ${linkTarget.vehicle.plate}. Selecione outro veículo para atualizar.`
+            : "Escolha um veículo para vincular ao equipamento."
+        }
       >
-        <form onSubmit={handleLinkToVehicle} className="space-y-3">
+        <form onSubmit={handleLinkToVehicle} className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs uppercase tracking-[0.1em] text-white/60">Buscar placa/veículo</label>
             <input
@@ -1495,7 +1482,15 @@ export default function Devices() {
           <div className="flex justify-between gap-2">
             <div />
             <div className="flex gap-2">
-              <Button type="button" variant="ghost" onClick={() => { setLinkTarget(null); setLinkVehicleId(""); setLinkQuery(""); }}>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setLinkTarget(null);
+                  setLinkVehicleId("");
+                  setLinkQuery("");
+                }}
+              >
                 Cancelar
               </Button>
               <Button type="submit" disabled={!linkVehicleId}>
@@ -1557,13 +1552,13 @@ export default function Devices() {
                 ]}
               >
                 <Popup>
-                    <div className="space-y-1 text-sm">
-                      <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
-                      <div>{formatPositionSummary(mapTarget.position)}</div>
-                      <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
-                      <div>{formatLastCommunication(mapTarget.device || {})}</div>
-                    </div>
-                  </Popup>
+                  <div className="space-y-1 text-sm">
+                    <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
+                    <div>{formatPositionSummary(mapTarget.position)}</div>
+                    <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
+                    <div>{formatLastCommunication(mapTarget.device || {})}</div>
+                  </div>
+                </Popup>
               </Marker>
             </MapContainer>
           </div>
