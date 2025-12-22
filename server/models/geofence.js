@@ -234,12 +234,11 @@ export async function createGeofence({
     payload.centerLng = geometry.centerLng;
     payload.radius = geometry.radius;
     payload.geometryJson =
-      payload.geometryJson ||
-      ({
+      payload.geometryJson || {
         type: "circle",
         center: [geometry.centerLat, geometry.centerLng],
         radius: geometry.radius,
-      } satisfies Record<string, unknown>);
+      };
   }
 
   const geofence = await prisma.geofence.create({ data: payload });
