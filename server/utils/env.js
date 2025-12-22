@@ -40,6 +40,23 @@ function resolveEnvPath() {
   return envSearchPaths.find((candidate) => existsSync(candidate));
 }
 
+export function validateEnv(requiredKeys = [], { optional = false } = {}) {
+  const missing = requiredKeys
+    .map((key) => String(key).trim())
+    .filter(Boolean)
+    .filter((key) => !(key in process.env) || String(process.env[key]).trim() === "");
+
+  if (missing.length && !optional) {
+    const message = `Variáveis obrigatórias ausentes: ${missing.join(", ")}`;
+    const error = new Error(message);
+    error.code = "MISSING_ENV";
+    error.missing = missing;
+    return { ok: false, missing, error };
+  }
+
+  return { ok: true, missing: optional ? missing : [] };
+}
+
 export async function loadEnv() {
   if (loaded) return;
   const envPath = resolveEnvPath();

@@ -2,7 +2,7 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import { loadCollection, saveCollection } from "../services/storage.js";
-import prisma from "../services/prisma.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 
 const STORAGE_KEY = "devices";
 const devices = new Map();
@@ -31,7 +31,7 @@ function buildDeviceConflictError(existing, uniqueId) {
 }
 
 function isPrismaReady() {
-  return Boolean(prisma) && Boolean(process.env.DATABASE_URL);
+  return isPrismaAvailable();
 }
 
 function syncStorage() {
@@ -364,6 +364,7 @@ export function clearDeviceVehicle(deviceId) {
 }
 
 export async function findDeviceByTraccarIdInDb(traccarId, { clientId } = {}) {
+  if (!isPrismaReady()) return null;
   if (traccarId === null || traccarId === undefined) return null;
   try {
     return await prisma.device.findFirst({
@@ -379,6 +380,7 @@ export async function findDeviceByTraccarIdInDb(traccarId, { clientId } = {}) {
 }
 
 export async function listDevicesFromDb({ clientId } = {}) {
+  if (!isPrismaReady()) return [];
   return prisma.device.findMany({
     where: clientId ? { clientId: String(clientId) } : undefined,
     orderBy: { createdAt: "desc" },
