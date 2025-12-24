@@ -36,8 +36,8 @@
   },
   "dependencies": {
     "mysql2": "^3.15.3"
-  }
-"scripts": {
+  },
+  "scripts": {
   "prisma:generate": "npx prisma generate --schema server/prisma/schema.prisma",
   "prisma:push": "npx prisma db push --schema server/prisma/schema.prisma",
   "prisma:migrate": "npx prisma migrate deploy --schema server/prisma/schema.prisma",
