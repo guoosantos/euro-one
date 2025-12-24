@@ -6,6 +6,7 @@ import {
   distanceInKm,
   getDeviceKey,
   getLastUpdate,
+  isLinkedToVehicle,
   isOnline,
   minutesSince,
   pickCoordinate,
@@ -60,4 +61,15 @@ test("minutesSince retorna infinito para entradas inválidas", () => {
 test("distanceInKm calcula distância aproximada", () => {
   const distance = distanceInKm({ lat: 0, lng: 0 }, { lat: 0, lng: 1 });
   assert.ok(distance > 110 && distance < 112); // ~111 km por grau
+});
+
+test("isLinkedToVehicle ignora veículo sintético criado apenas por id", () => {
+  const syntheticVehicle = { id: "v1", plate: "ABC1D23", __synthetic: true };
+  const entry = { device: { id: "d1" }, source: {}, vehicle: syntheticVehicle };
+  assert.equal(isLinkedToVehicle(entry), false);
+});
+
+test("isLinkedToVehicle considera vínculo real via device.vehicleId", () => {
+  const entry = { device: { id: "d1", vehicleId: "v1" }, source: {}, vehicle: null };
+  assert.equal(isLinkedToVehicle(entry), true);
 });
