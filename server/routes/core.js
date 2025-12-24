@@ -645,6 +645,11 @@ function linkDeviceToVehicle(clientId, vehicleId, deviceId) {
   const resolvedClientId = resolveLinkClientId(clientId, vehicle, device);
   ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
   ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
+  console.info("[vehicles] vinculando equipamento ao veículo", {
+    vehicleId,
+    deviceId,
+    clientId: resolvedClientId,
+  });
 
   if (device.vehicleId && device.vehicleId !== vehicle.id) {
     const previousVehicle = deps.getVehicleById(device.vehicleId);
@@ -662,6 +667,11 @@ function detachVehicle(clientId, vehicleId) {
   const devices = deps.listDevices({ clientId: resolveLinkClientId(clientId, vehicle) });
   const resolvedClientId = resolveLinkClientId(clientId, vehicle, ...devices);
   ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
+  console.info("[vehicles] desvinculando equipamentos do veículo", {
+    vehicleId,
+    clientId: resolvedClientId,
+    deviceCount: devices.length,
+  });
   devices
     .filter((device) => device.vehicleId === vehicle.id)
     .forEach((device) => deps.updateDevice(device.id, { vehicleId: null }));
@@ -1647,6 +1657,7 @@ router.get("/vehicles", async (req, res, next) => {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const vehicles = deps.listVehicles({ clientId });
     const devices = deps.listDevices({ clientId });
+    console.info("[vehicles] listagem para API", { clientId: clientId || null, vehicles: vehicles.length, devices: devices.length });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
@@ -1681,6 +1692,11 @@ router.get("/vehicles", async (req, res, next) => {
             })
             .filter(Boolean),
         );
+        console.info("[monitoring] posições para veículos", {
+          clientId: clientId || null,
+          requested: traccarIdsToQuery.length,
+          received: positionsByDeviceId.size,
+        });
       } catch (positionsError) {
         logTelemetryWarning("vehicles-positions", positionsError);
       }
