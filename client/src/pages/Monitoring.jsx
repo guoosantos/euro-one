@@ -39,6 +39,7 @@ import {
   getLastActivity,
   getIgnition,
   getLastUpdate,
+  isLinkedToVehicle,
   isOnline,
   minutesSince,
   pickCoordinate,
@@ -473,6 +474,7 @@ export default function Monitoring() {
             plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
             name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
             clientId: item.clientId ?? sourceDevice?.clientId,
+            __synthetic: true,
           }
         : null);
 
@@ -487,24 +489,9 @@ export default function Monitoring() {
     return { device, source: item, vehicle };
   }), [safeTelemetry]);
 
-  const isLinkedToVehicle = useCallback(({ device, source, vehicle }) => {
-    const fromDevice = device?.vehicleId ?? device?.vehicle?.id ?? device?.vehicle_id ?? device?.vehicle?.vehicleId;
-    const fromSource = source?.vehicleId ?? source?.vehicle?.id ?? source?.vehicle_id ?? source?.vehicle?.vehicleId;
-    const fromNestedDevice = source?.devices?.find((entry) =>
-      entry?.vehicleId || entry?.vehicle_id || entry?.vehicle?.id || entry?.vehicle?.vehicleId,
-    );
-    const fromDevicesList =
-      fromNestedDevice?.vehicleId ||
-      fromNestedDevice?.vehicle_id ||
-      fromNestedDevice?.vehicle?.id ||
-      fromNestedDevice?.vehicle?.vehicleId;
-
-    return Boolean(fromDevice ?? fromSource ?? fromDevicesList ?? vehicle?.id);
-  }, []);
-
   const linkedTelemetry = useMemo(
     () => normalizedTelemetry.filter((entry) => isLinkedToVehicle(entry)),
-    [isLinkedToVehicle, normalizedTelemetry],
+    [normalizedTelemetry],
   );
 
   const vehicleOptions = useMemo(() => linkedTelemetry.map(({ device }) => {

@@ -19,6 +19,32 @@ export function getDeviceKey(device) {
   );
 }
 
+function getLinkedVehicleId(entity) {
+  if (!entity) return null;
+
+  const direct = entity.vehicleId ?? entity.vehicle_id ?? null;
+  const fromVehicle =
+    entity.vehicle && !entity.vehicle.__synthetic
+      ? entity.vehicle.id ?? entity.vehicle.vehicleId ?? entity.vehicle.vehicle_id
+      : null;
+
+  return direct ?? fromVehicle ?? null;
+}
+
+export function isLinkedToVehicle({ device, source, vehicle } = {}) {
+  const fromDevice = getLinkedVehicleId(device);
+  const fromSource = getLinkedVehicleId(source);
+  const fromNestedDevice = Array.isArray(source?.devices)
+    ? source.devices.map(getLinkedVehicleId).find(Boolean)
+    : null;
+  const fromVehicle =
+    vehicle && !vehicle.__synthetic
+      ? vehicle.id ?? vehicle.vehicleId ?? vehicle.vehicle_id
+      : null;
+
+  return Boolean(fromDevice ?? fromSource ?? fromNestedDevice ?? fromVehicle);
+}
+
 export function pickCoordinate(values) {
   for (const value of values) {
     if (value === null || value === undefined) continue;

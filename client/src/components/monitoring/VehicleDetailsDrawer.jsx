@@ -10,6 +10,7 @@ export default function VehicleDetailsDrawer({
   baseTabs: baseTabsOverride = null,
 }) {
   const { t } = useTranslation();
+  const safeVehicle = vehicle || {};
   const defaultTabs = useMemo(
     () => [
       { id: "status", label: "Status" },
@@ -31,27 +32,25 @@ export default function VehicleDetailsDrawer({
     }
   }, [activeTab, tabs]);
 
-  if (!vehicle) return null;
-
-  const devices = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
+  const devices = Array.isArray(safeVehicle?.devices) ? safeVehicle.devices : [];
   const [selectedDeviceId, setSelectedDeviceId] = useState(
     () =>
-      vehicle?.principalDeviceId ||
-      vehicle?.deviceId ||
-      vehicle?.device?.id ||
+      safeVehicle?.principalDeviceId ||
+      safeVehicle?.deviceId ||
+      safeVehicle?.device?.id ||
       devices[0]?.id ||
       null,
   );
 
   useEffect(() => {
     setSelectedDeviceId(
-      vehicle?.principalDeviceId ||
-        vehicle?.deviceId ||
-        vehicle?.device?.id ||
+      safeVehicle?.principalDeviceId ||
+        safeVehicle?.deviceId ||
+        safeVehicle?.device?.id ||
         devices[0]?.id ||
         null,
     );
-  }, [devices, vehicle?.device?.id, vehicle?.deviceId, vehicle?.principalDeviceId]);
+  }, [devices, safeVehicle?.device?.id, safeVehicle?.deviceId, safeVehicle?.principalDeviceId]);
 
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceId) return null;
@@ -63,37 +62,45 @@ export default function VehicleDetailsDrawer({
     ) || null;
   }, [devices, selectedDeviceId]);
 
-  const fallbackDevice = vehicle?.device ?? {};
+  const fallbackDevice = safeVehicle?.device ?? {};
   const device = selectedDevice || fallbackDevice;
-  const position = device?.position || vehicle?.position || null;
-  const lat = position?.latitude ?? position?.lat ?? vehicle.lat;
-  const lng = position?.longitude ?? position?.lon ?? vehicle.lng;
-  const address = vehicle.address || position?.address;
+  const position = device?.position || safeVehicle?.position || null;
+  const lat = position?.latitude ?? position?.lat ?? safeVehicle.lat;
+  const lng = position?.longitude ?? position?.lon ?? safeVehicle.lng;
+  const address = safeVehicle.address || position?.address;
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
-  const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || vehicle.lastUpdate;
+  const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || safeVehicle.lastUpdate;
 
-  const statusLabel = vehicle.statusLabel || (latestPosition ? "Com sinal" : "Sem comunicação");
+  const statusLabel = safeVehicle.statusLabel || (latestPosition ? "Com sinal" : "Sem comunicação");
   const lastUpdateLabel = latestPosition
     ? new Date(latestPosition).toLocaleString()
-    : vehicle.lastSeen || "Sem última posição";
+    : safeVehicle.lastSeen || "Sem última posição";
 
   const renderContent = () => {
+    if (!vehicle) {
+      return (
+        <Section title="Detalhes do veículo">
+          <p className="text-xs text-white/60">Selecione um veículo para visualizar os detalhes.</p>
+        </Section>
+      );
+    }
+
     if (activeTab === "status") {
       return (
         <>
           <Section title="Resumo">
-            <Detail label="Placa" value={vehicle.plate} />
+            <Detail label="Placa" value={safeVehicle.plate} />
             <Detail
               label="ID do dispositivo"
               value={
                 device?.traccarId ||
                 device?.id ||
-                vehicle.principalDeviceId ||
-                vehicle.deviceId ||
+                safeVehicle.principalDeviceId ||
+                safeVehicle.deviceId ||
                 "Sem equipamento vinculado"
               }
             />
-            <Detail label="Velocidade" value={`${position?.speed ?? vehicle.speed ?? 0} km/h`} />
+            <Detail label="Velocidade" value={`${position?.speed ?? safeVehicle.speed ?? 0} km/h`} />
             <Detail label="Última posição" value={lastUpdateLabel} />
             <Detail label="Status" value={statusLabel} />
             <Detail label="Endereço" value={formatAddress(address, lat, lng)} />
@@ -111,7 +118,7 @@ export default function VehicleDetailsDrawer({
           <p className="text-xs text-white/60">Acesse os trajetos recentes deste veículo.</p>
           {device?.id ? (
             <Link
-              to={`/trips?vehicleId=${encodeURIComponent(vehicle.id || "")}`}
+              to={`/trips?vehicleId=${encodeURIComponent(safeVehicle.id || "")}`}
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
             >
               Ver trajetos
@@ -205,8 +212,8 @@ export default function VehicleDetailsDrawer({
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-white/50">{t("monitoring.columns.vehicle")}</p>
-          <h2 className="text-lg font-semibold text-white">{vehicle.plate || vehicle.name || "Sem equipamento vinculado"}</h2>
-          <p className="text-xs text-white/60">{device?.name || device?.uniqueId || vehicle.name || "Fonte: veículo"}</p>
+          <h2 className="text-lg font-semibold text-white">{safeVehicle.plate || safeVehicle.name || "Sem equipamento vinculado"}</h2>
+          <p className="text-xs text-white/60">{device?.name || device?.uniqueId || safeVehicle.name || "Fonte: veículo"}</p>
           {devices.length > 0 ? (
             <div className="mt-2">
               <label className="text-[11px] uppercase tracking-[0.12em] text-white/50">Fonte de telemetria</label>
