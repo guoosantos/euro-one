@@ -18,6 +18,9 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
 - `JWT_SECRET` / `JWT_EXPIRES_IN`: assinatura e expiração dos tokens.
 - `ALLOWED_ORIGINS`: lista separada por vírgulas de origens autorizadas no CORS.
 - `ENABLE_DEMO_FALLBACK`: mantenha `false`/ausente em produção. Só habilite (`true`) para ambientes de demonstração sem banco, permitindo o tenant `demo-client` como último recurso.
+- `DEMO_LOGIN_ONLY`: modo de demonstração explícito. Quando `true`, a API ignora o banco e usa apenas o tenant de demo **somente se** as credenciais do usuário demo forem informadas.
+- `ALLOW_DEMO_FALLBACK_IN_PRODUCTION`: default `false`. Se `ENABLE_DEMO_FALLBACK=true` com `NODE_ENV=production`, o startup emitirá um warning; defina como `true` apenas para permitir esse modo em ambientes de produção controlados.
+- `FAIL_ON_DEMO_FALLBACK_IN_PRODUCTION`: default `false`. Quando `true`, o startup aborta se `ENABLE_DEMO_FALLBACK=true` em ambiente de produção sem a permissão explícita acima.
 
 ## Diferença entre leitura via DB e escrita via API
 
@@ -50,6 +53,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/clients"
 
 # Deve listar veículos usando o clientId do token (sem fallback para demo-client)
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/core/vehicles"
+
+# Em produção, qualquer falha de banco deve retornar erro 5xx — nunca deve trocar para o tenant demo-client de forma silenciosa.
 ```
 
 ## Testes

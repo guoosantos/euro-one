@@ -6,6 +6,7 @@ import { hashPassword, sanitizeUser, verifyPassword } from "../utils/password.js
 import {
   getFallbackClient,
   getFallbackUser,
+  isDemoModeEnabled,
   isFallbackEnabled,
   resolveFallbackCredentials,
 } from "../services/fallback-data.js";
@@ -244,18 +245,19 @@ export async function updateUser(id, updates = {}) {
   return sanitizeUser(nextRecord);
 }
 
-export async function verifyUserCredentials(login, password) {
-  const fallbackMatch = resolveFallbackCredentials(login, password);
-  if (fallbackMatch) {
+export async function verifyUserCredentials(login, password, { allowFallback = false } = {}) {
+  const prismaAvailable = isPrismaAvailable();
+  const fallbackMatch = allowFallback ? resolveFallbackCredentials(login, password) : null;
+  if (fallbackMatch && (!prismaAvailable || isDemoModeEnabled())) {
     return fallbackMatch;
+  }
+
+  if (!prismaAvailable) {
+    throw createError(503, "Banco de dados indisponível");
   }
 
   const user = await findByLogin(login, { includeSensitive: true });
   if (!user) {
-    throw createError(401, "Credenciais inválidas");
-  }
-
-  if (!isPrismaAvailable()) {
     throw createError(401, "Credenciais inválidas");
   }
 

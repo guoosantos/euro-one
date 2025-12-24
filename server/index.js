@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
+import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { extractToken } from "./middleware/auth.js";
 
 async function bootstrap() {
@@ -15,6 +16,8 @@ async function bootstrap() {
       { missing },
     );
   }
+
+  assertDemoFallbackSafety();
 
   if (
     !process.env.TRACCAR_ADMIN_TOKEN &&
