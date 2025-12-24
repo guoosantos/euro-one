@@ -22,33 +22,33 @@ export const CoreApi = {
   models: async (params) => {
     const response = await api.get(API_ROUTES.models, { params });
     const data = response?.data || null;
-    return Array.isArray(data?.models) ? data.models : normaliseDevices(data);
+    return normaliseListPayload(data);
   },
   createModel: (payload) => http("models", { method: "POST", payload }),
   updateModel: (id, payload) => http(`models/${id}`, { method: "PUT", payload }),
   listDevices: async (params) => {
     const data = await http("devices", { params });
-    return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
+    return normaliseListPayload(data);
   },
   createDevice: (payload) => http("devices", { method: "POST", payload }),
   updateDevice: (id, payload) => http(`devices/${id}`, { method: "PUT", payload }),
   deleteDevice: (id, params) => http(`devices/${id}`, { method: "DELETE", params }),
   listImportableDevices: async (params) => {
     const data = await http("devices/import", { params });
-    return Array.isArray(data?.devices) ? data.devices : normaliseDevices(data);
+    return normaliseListPayload(data);
   },
   importDevice: (payload) => http("devices/import", { method: "POST", payload }),
   syncDevicesFromTraccar: (payload) => http("devices/sync", { method: "POST", payload }),
   listChips: async (params) => {
     const data = await http("chips", { params });
-    return Array.isArray(data?.chips) ? data.chips : normaliseDevices(data);
+    return normaliseListPayload(data);
   },
   createChip: (payload) => http("chips", { method: "POST", payload }),
   updateChip: (id, payload) => http(`chips/${id}`, { method: "PUT", payload }),
   deleteChip: (id, params) => http(`chips/${id}`, { method: "DELETE", params }),
   listVehicles: async (params) => {
     const data = await http("vehicles", { params });
-    return Array.isArray(data?.vehicles) ? data.vehicles : normaliseDevices(data);
+    return normaliseListPayload(data);
   },
   createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
   updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
@@ -85,13 +85,40 @@ export const CoreApi = {
   createCrmReminder: (payload) => crmHttp(API_ROUTES.crm.reminders, { method: "POST", payload }),
 };
 
-function normaliseDevices(payload) {
+export function normaliseListPayload(payload) {
   if (!payload) return [];
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload.devices)) return payload.devices;
-  if (Array.isArray(payload.items)) return payload.items;
-  if (Array.isArray(payload.data)) return payload.data;
-  if (Array.isArray(payload.results)) return payload.results;
-  if (Array.isArray(payload.rows)) return payload.rows;
+
+  const candidates = [];
+  const enqueue = (value) => {
+    if (value === undefined || value === null) return;
+    candidates.push(value);
+    if (value && typeof value === "object" && !Array.isArray(value) && value.data !== undefined) {
+      candidates.push(value.data);
+    }
+  };
+
+  enqueue(payload);
+
+  const pickArray = (value) => {
+    if (!value) return null;
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === "object") {
+      for (const key of ["devices", "items", "data", "results", "rows", "models", "chips", "vehicles"]) {
+        if (Array.isArray(value[key])) return value[key];
+      }
+    }
+    return null;
+  };
+
+  for (const candidate of candidates) {
+    const direct = pickArray(candidate);
+    if (direct) return direct;
+
+    if (candidate && typeof candidate === "object") {
+      const firstArray = Object.values(candidate).find(Array.isArray);
+      if (Array.isArray(firstArray)) return firstArray;
+    }
+  }
+
   return [];
 }
