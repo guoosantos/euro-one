@@ -1520,50 +1520,6 @@ export default function Devices() {
           </div>
         </div>
       </Modal>
-
-      <Modal
-        open={Boolean(mapTarget)}
-        onClose={() => setMapTarget(null)}
-        title={mapTarget?.device?.name || mapTarget?.device?.uniqueId || "Posição"}
-        width="max-w-4xl"
-      >
-        {mapTarget?.position ? (
-          <div className="h-[420px] overflow-hidden rounded-xl">
-            <MapContainer
-              center={[
-                Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
-                Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
-              ]}
-              zoom={15}
-              style={{ height: "100%", width: "100%" }}
-              whenCreated={(map) => {
-                mapRef.current = map;
-                setTimeout(() => map.invalidateSize(), 50);
-              }}
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-              <Marker
-                position={[
-                  Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
-                  Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
-                ]}
-              >
-                <Popup>
-                  <div className="space-y-1 text-sm">
-                    <div className="font-semibold">{mapTarget.device?.name || mapTarget.device?.uniqueId}</div>
-                    <div>{formatPositionSummary(mapTarget.position)}</div>
-                    <div className="text-xs text-white/60">{formatPositionTimestamps(mapTarget.position)}</div>
-                    <div>{formatLastCommunication(mapTarget.device || {})}</div>
-                  </div>
-                </Popup>
-              </Marker>
-            </MapContainer>
-          </div>
-        ) : (
-          <p className="text-sm text-white/70">Sem posição recente para este dispositivo.</p>
-        )}
-      </Modal>
-    </div>
     </div>
   );
 }

@@ -18,7 +18,11 @@
     "lint": "npm run lint --workspaces --if-present",
     "format": "npm run format --workspace client",
     "dev:server": "npm run dev --workspace server",
-    "start:server": "npm run start --workspace server"
+    "start:server": "npm run start --workspace server",
+    "prisma:generate": "npx prisma generate --schema server/prisma/schema.prisma",
+    "prisma:push": "npx prisma db push --schema server/prisma/schema.prisma",
+    "prisma:migrate": "npx prisma migrate deploy --schema server/prisma/schema.prisma",
+    "prisma:studio": "npx prisma studio --schema server/prisma/schema.prisma"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -36,13 +40,5 @@
   },
   "dependencies": {
     "mysql2": "^3.15.3"
-  },
-  "scripts": {
-  "prisma:generate": "npx prisma generate --schema server/prisma/schema.prisma",
-  "prisma:push": "npx prisma db push --schema server/prisma/schema.prisma",
-  "prisma:migrate": "npx prisma migrate deploy --schema server/prisma/schema.prisma",
-  "prisma:studio": "npx prisma studio --schema server/prisma/schema.prisma"
-}
-
-
+  }
 }

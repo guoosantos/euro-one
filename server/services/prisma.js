@@ -118,7 +118,7 @@ function initPrisma() {
 }
 
 export function isPrismaAvailable() {
-  return Boolean(prismaState.client);
+  return Boolean(initPrisma());
 }
 
 export function getPrisma() {
