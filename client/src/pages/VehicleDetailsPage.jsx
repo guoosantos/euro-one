@@ -29,6 +29,7 @@ function AdminBindingsTab({
   availableDevices,
   onLinkDevice,
   onUnlinkDevice,
+  onError = () => {},
 }) {
   const [form, setForm] = useState({
     name: "",
@@ -66,7 +67,7 @@ function AdminBindingsTab({
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!form.plate.trim()) {
-      alert("Informe a placa do veículo");
+      onError(new Error("Informe a placa do veículo"));
       return;
     }
     await onSaveVehicle({
@@ -85,7 +86,7 @@ function AdminBindingsTab({
   const handleChipBinding = async (event) => {
     event.preventDefault();
     if (!chipId || !chipDeviceId) {
-      alert("Selecione chip e equipamento para vincular");
+      onError(new Error("Selecione chip e equipamento para vincular"));
       return;
     }
     await onBindChip({ chipId, deviceId: chipDeviceId, clientId: form.clientId || vehicle.clientId });
@@ -301,6 +302,7 @@ export default function VehicleDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [feedback, setFeedback] = useState(null);
   const [linkingDeviceId, setLinkingDeviceId] = useState("");
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
@@ -370,9 +372,21 @@ export default function VehicleDetailsPage() {
     [devices, vehicle?.clientId, vehicle?.id],
   );
 
+  const reportError = (message, fallbackMessage = "Falha ao executar ação") => {
+    const payload = message instanceof Error ? message : new Error(message || fallbackMessage);
+    setError(payload);
+    setFeedback(null);
+  };
+
+  const reportSuccess = (message) => {
+    setError(null);
+    setFeedback(message);
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
+    setFeedback(null);
     try {
       const params = resolvedClientId ? { clientId: resolvedClientId } : {};
       if (isAdmin) {
@@ -393,7 +407,7 @@ export default function VehicleDetailsPage() {
       setChips(Array.isArray(chipList) ? chipList : []);
       setClients(Array.isArray(clientList) ? clientList : []);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículo"));
+      reportError(requestError, "Falha ao carregar veículo");
     } finally {
       setLoading(false);
     }
@@ -406,11 +420,11 @@ export default function VehicleDetailsPage() {
       availableDevices.find((item) => String(item.id) === String(linkingDeviceId));
     const targetClientId = vehicle?.clientId || device?.clientId || resolvedClientId;
     if (!targetClientId) {
-      alert("Selecione o cliente antes de vincular o equipamento");
+      reportError("Selecione o cliente antes de vincular o equipamento");
       return;
     }
     if (vehicle?.clientId && device?.clientId && String(vehicle.clientId) !== String(device.clientId)) {
-      alert("Equipamento pertence a outro cliente. Ajuste o tenant antes de continuar.");
+      reportError("Equipamento pertence a outro cliente. Ajuste o tenant antes de continuar.");
       return;
     }
     setSaving(true);
@@ -418,8 +432,9 @@ export default function VehicleDetailsPage() {
       await CoreApi.linkDeviceToVehicle(vehicle.id, linkingDeviceId, { clientId: targetClientId });
       setLinkingDeviceId("");
       await loadData();
+      reportSuccess("Equipamento vinculado ao veículo.");
     } catch (requestError) {
-      alert(requestError?.message || "Não foi possível vincular o equipamento");
+      reportError(requestError, "Não foi possível vincular o equipamento");
     } finally {
       setSaving(false);
     }
@@ -432,15 +447,16 @@ export default function VehicleDetailsPage() {
       devices.find((item) => String(item.id) === String(deviceId));
     const targetClientId = vehicle?.clientId || device?.clientId || resolvedClientId;
     if (!targetClientId) {
-      alert("Selecione o cliente antes de desvincular o equipamento");
+      reportError("Selecione o cliente antes de desvincular o equipamento");
       return;
     }
     setSaving(true);
     try {
       await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, { clientId: targetClientId });
       await loadData();
+      reportSuccess("Equipamento desvinculado.");
     } catch (requestError) {
-      alert(requestError?.message || "Não foi possível desvincular o equipamento");
+      reportError(requestError, "Não foi possível desvincular o equipamento");
     } finally {
       setSaving(false);
     }
@@ -454,15 +470,16 @@ export default function VehicleDetailsPage() {
     if (!vehicle) return;
     const clientId = payload.clientId || vehicle.clientId || resolvedClientId;
     if (!clientId) {
-      alert("Selecione o cliente antes de salvar o veículo");
+      reportError("Selecione o cliente antes de salvar o veículo");
       return;
     }
     setSaving(true);
     try {
       await CoreApi.updateVehicle(vehicle.id, { ...payload, clientId });
       await loadData();
+      reportSuccess("Veículo atualizado com sucesso.");
     } catch (requestError) {
-      alert(requestError?.message || "Falha ao salvar veículo");
+      reportError(requestError, "Falha ao salvar veículo");
     } finally {
       setSaving(false);
     }
@@ -471,14 +488,15 @@ export default function VehicleDetailsPage() {
   const handleBindChip = async ({ chipId, deviceId, clientId }) => {
     const resolved = clientId || vehicle?.clientId || resolvedClientId;
     if (!resolved) {
-      alert("Selecione o cliente antes de vincular o chip");
+      reportError("Selecione o cliente antes de vincular o chip");
       return;
     }
     try {
       await CoreApi.updateChip(chipId, { deviceId, clientId: resolved });
       await loadData();
+      reportSuccess("Chip vinculado ao equipamento.");
     } catch (requestError) {
-      alert(requestError?.message || "Falha ao vincular chip");
+      reportError(requestError, "Falha ao vincular chip");
     }
   };
 
@@ -505,6 +523,7 @@ export default function VehicleDetailsPage() {
               availableDevices={availableDevices}
               onLinkDevice={handleLinkDevice}
               onUnlinkDevice={handleUnlinkDevice}
+              onError={reportError}
             />
           ),
         },
@@ -527,11 +546,11 @@ export default function VehicleDetailsPage() {
           <h1 className="text-2xl font-semibold text-white">{vehicle?.plate || "Veículo"}</h1>
           {vehicle?.name && <p className="text-sm text-white/60">{vehicle.name}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" onClick={() => navigate(-1)}>
-            Voltar
-          </Button>
-          <Link
+      <div className="flex items-center gap-2">
+        <Button variant="ghost" onClick={() => navigate(-1)}>
+          Voltar
+        </Button>
+        <Link
             to="/vehicles"
             className="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:border-white/30 hover:bg-white/20"
           >
@@ -541,6 +560,11 @@ export default function VehicleDetailsPage() {
       </div>
 
       {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>}
+      {feedback && !error && (
+        <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          {feedback}
+        </div>
+      )}
 
       {loading && <p className="text-sm text-white/60">Carregando dados do veículo…</p>}
 
