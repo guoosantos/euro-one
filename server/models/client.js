@@ -2,7 +2,7 @@ import createError from "http-errors";
 import { randomUUID } from "crypto";
 
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
-import { getFallbackClient } from "../services/fallback-data.js";
+import { getFallbackClient, isFallbackEnabled } from "../services/fallback-data.js";
 
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
@@ -16,7 +16,10 @@ function clone(record) {
 
 export async function listClients() {
   if (!isPrismaAvailable()) {
-    return [getFallbackClient()];
+    if (isFallbackEnabled()) {
+      return [getFallbackClient()];
+    }
+    throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
   }
   const clients = await prisma.client.findMany({ orderBy: { createdAt: "desc" } });
   return clients.map(clone);
@@ -24,6 +27,9 @@ export async function listClients() {
 
 export async function getClientById(id) {
   if (!isPrismaAvailable()) {
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
+    }
     const fallback = getFallbackClient();
     return String(id) === String(fallback.id) ? fallback : null;
   }

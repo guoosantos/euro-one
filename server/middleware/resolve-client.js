@@ -7,6 +7,9 @@ import createError from "http-errors";
  */
 export function resolveClientIdMiddleware(req, _res, next) {
   try {
+    if (!req.clientId && req.user?.clientId) {
+      req.clientId = req.user.clientId;
+    }
     if ((!req.body || !req.body.clientId) && req.user?.clientId) {
       req.body = { ...(req.body || {}), clientId: req.user.clientId };
     }

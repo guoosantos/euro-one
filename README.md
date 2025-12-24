@@ -35,10 +35,11 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
    - `TRACCAR_BASE_URL`: URL do servidor Traccar acessível pelo backend.
    - `TRACCAR_ADMIN_USER` / `TRACCAR_ADMIN_PASSWORD` ou `TRACCAR_ADMIN_TOKEN`: credenciais administrativas do Traccar.
    - `TRACCAR_SYNC_INTERVAL_MS`: intervalo (ms) entre sincronizações automáticas de devices/grupos/geofences.
-   - `TRACCAR_DB_CLIENT`, `TRACCAR_DB_HOST`, `TRACCAR_DB_PORT`, `TRACCAR_DB_USER`, `TRACCAR_DB_PASSWORD`, `TRACCAR_DB_NAME`: conexão
-     somente leitura com o banco do Traccar (MySQL/Postgres) para relatórios e telemetria de fallback.
-   - `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend.
-   - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
+- `TRACCAR_DB_CLIENT`, `TRACCAR_DB_HOST`, `TRACCAR_DB_PORT`, `TRACCAR_DB_USER`, `TRACCAR_DB_PASSWORD`, `TRACCAR_DB_NAME`: conexão
+  somente leitura com o banco do Traccar (MySQL/Postgres) para relatórios e telemetria de fallback.
+- `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend.
+- `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
+- `ENABLE_DEMO_FALLBACK`: defina como `true` **apenas** em ambientes de demonstração sem banco para liberar os dados `demo-client`. Em produção, deixe ausente/false para evitar quedas silenciosas para o tenant demo.
 
 2. Instale as dependências (front-end + backend) a partir da raiz do repositório:
 
@@ -90,6 +91,23 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - **Exportação de posições**: download CSV de posições filtradas com `/api/positions/export`.
 - **Vídeo e visão computacional**: player HLS/RTSP com streams configuradas nos atributos dos dispositivos, módulo de reconhecimento facial e alertas de fadiga.
 - **Temas e i18n**: tema claro/escuro e tradução pt-BR/en-US (Topbar > ícone de idioma).
+
+## Validação rápida de autenticação e tenant
+
+Com o backend rodando em `http://localhost:3001` e um usuário real cadastrado no Postgres:
+
+```bash
+# login (gera token JWT válido)
+TOKEN=$(curl -s -X POST http://localhost:3001/api/login -H "Content-Type: application/json" -d '{"email":"meu-usuario@dominio.com","password":"minha-senha"}' | jq -r .token)
+
+# listar clientes reais vinculados ao usuário
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3001/api/clients | jq
+
+# listar veículos usando o clientId do token (sem cair em demo-client)
+curl -s -H "Authorization: Bearer $TOKEN" http://localhost:3001/api/core/vehicles | jq '.vehicles | length'
+```
+
+Em produção, qualquer ausência de `clientId` em tokens ou requisições autenticadas deve retornar erro claro (401/400), sem recair no tenant `demo-client`.
 
 ## Destaques em relação aos concorrentes
 

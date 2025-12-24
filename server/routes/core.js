@@ -1,5 +1,6 @@
 import express from "express";
 import createError from "http-errors";
+import { randomUUID } from "crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import * as clientMiddleware from "../middleware/client.js";
@@ -980,7 +981,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
       return { ...vehicle, devices };
     });
 
-    const filteredVehicles = hasVehicleFilter
+    let filteredVehicles = hasVehicleFilter
       ? vehicles.filter((vehicle) => {
           const idMatch = requestedVehicleIds.includes(String(vehicle.id));
           const plateMatch = vehicle?.plate ? requestedPlates.includes(String(vehicle.plate).trim().toLowerCase()) : false;
@@ -988,8 +989,26 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
         })
       : vehicles;
 
-    const linkedVehicles = filteredVehicles.filter((vehicle) => Array.isArray(vehicle.devices) && vehicle.devices.length > 0);
-    const vehiclesPool = includeUnlinked ? filteredVehicles : linkedVehicles;
+    let linkedVehicles = filteredVehicles.filter((vehicle) => Array.isArray(vehicle.devices) && vehicle.devices.length > 0);
+    let vehiclesPool = includeUnlinked ? filteredVehicles : linkedVehicles;
+
+    if (!vehiclesPool.length && deviceRegistry.length) {
+      const syntheticVehicles = deviceRegistry.map((device) => {
+        const syntheticId = device.vehicleId || device.id || device.uniqueId || randomUUID();
+        const baseName = device.name || device.uniqueId || "Equipamento";
+        const vehiclePlate = device.plate || device.vehiclePlate || null;
+        return {
+          id: String(syntheticId),
+          name: baseName,
+          plate: vehiclePlate,
+          clientId: device.clientId ?? clientId ?? null,
+          devices: [{ ...device, vehicleId: device.vehicleId ?? syntheticId }],
+        };
+      });
+      filteredVehicles = syntheticVehicles;
+      linkedVehicles = syntheticVehicles;
+      vehiclesPool = syntheticVehicles;
+    }
 
     if (!vehiclesPool.length) {
       const emptyWarnings = hasVehicleFilter
@@ -1222,6 +1241,8 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
             uniqueId: deviceMetadata?.uniqueId || principalDevice?.uniqueId || null,
             status: deviceMetadata?.status || "unknown",
             lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
+            vehicleId: principalDevice?.vehicleId || vehicle?.id || null,
+            vehicle: principalDevice?.vehicle || vehicle || null,
           }
         : null;
 

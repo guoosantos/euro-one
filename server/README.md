@@ -17,6 +17,7 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `TRACCAR_DB_NAME`: nome do banco Traccar.
 - `JWT_SECRET` / `JWT_EXPIRES_IN`: assinatura e expiração dos tokens.
 - `ALLOWED_ORIGINS`: lista separada por vírgulas de origens autorizadas no CORS.
+- `ENABLE_DEMO_FALLBACK`: mantenha `false`/ausente em produção. Só habilite (`true`) para ambientes de demonstração sem banco, permitindo o tenant `demo-client` como último recurso.
 
 ## Diferença entre leitura via DB e escrita via API
 
@@ -34,6 +35,22 @@ npm run start
 ```
 
 A API ficará disponível em `http://localhost:3001` (ou porta configurada) e servirá as rotas com prefixo `/api`.
+
+### Smoke rápido de autenticação/tenant
+
+```bash
+EMAIL="meu-usuario@dominio.com"
+PASSWORD="minha-senha"
+BASE_URL="http://localhost:3001"
+
+TOKEN=$(curl -s -X POST "$BASE_URL/api/login" -H "Content-Type: application/json" -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" | jq -r .token)
+
+# Deve listar os clientes reais vinculados ao usuário autenticado
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/clients"
+
+# Deve listar veículos usando o clientId do token (sem fallback para demo-client)
+curl -s -H "Authorization: Bearer $TOKEN" "$BASE_URL/api/core/vehicles"
+```
 
 ## Testes
 

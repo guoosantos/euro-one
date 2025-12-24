@@ -3,7 +3,12 @@ import { randomUUID } from "crypto";
 
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { hashPassword, sanitizeUser, verifyPassword } from "../utils/password.js";
-import { getFallbackClient, getFallbackUser, resolveFallbackCredentials } from "../services/fallback-data.js";
+import {
+  getFallbackClient,
+  getFallbackUser,
+  isFallbackEnabled,
+  resolveFallbackCredentials,
+} from "../services/fallback-data.js";
 
 const VALID_ROLES = new Set(["admin", "manager", "user"]);
 
@@ -46,12 +51,11 @@ async function ensureUniqueUsername(username, currentId = null) {
 
 export async function listUsers({ clientId } = {}) {
   if (!isPrismaAvailable()) {
-    const fallback = getFallbackUser();
-    if (!fallback) return [];
-    if (!clientId || String(clientId) === String(fallback.clientId)) {
-      return [fallback];
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
     }
-    return [];
+    const fallback = getFallbackUser();
+    return !clientId || String(clientId) === String(fallback.clientId) ? [fallback] : [];
   }
 
   const users = await prisma.user.findMany({
@@ -68,6 +72,9 @@ export async function listUsers({ clientId } = {}) {
 
 export async function getUserById(id, { includeSensitive = false } = {}) {
   if (!isPrismaAvailable()) {
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
+    }
     const fallback = getFallbackUser();
     if (String(id) !== String(fallback.id)) return null;
     return includeSensitive ? { ...fallback } : sanitizeUser(fallback);
@@ -81,6 +88,9 @@ export async function findByEmail(email, { includeSensitive = false } = {}) {
   const normalized = normaliseEmail(email);
   if (!normalized) return null;
   if (!isPrismaAvailable()) {
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
+    }
     const fallback = getFallbackUser();
     if (normalized === normaliseEmail(fallback.email)) {
       return includeSensitive ? { ...fallback } : sanitizeUser(fallback);
@@ -96,6 +106,9 @@ export async function findByUsername(username, { includeSensitive = false } = {}
   const normalized = normaliseUsername(username);
   if (!normalized) return null;
   if (!isPrismaAvailable()) {
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
+    }
     const fallback = getFallbackUser();
     if (normalized === normaliseUsername(fallback.username)) {
       return includeSensitive ? { ...fallback } : sanitizeUser(fallback);
