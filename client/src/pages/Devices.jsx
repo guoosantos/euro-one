@@ -400,17 +400,46 @@ export default function Devices() {
       if (["admin", "manager"].includes(user?.role)) {
         vehiclesParams.includeUnlinked = true;
       }
-      const [deviceList, modelList, chipList, vehicleList] = await Promise.all([
+      const [deviceResult, modelResult, chipResult, vehicleResult] = await Promise.allSettled([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
         CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),
         CoreApi.listChips(clientId ? { clientId } : undefined),
         CoreApi.listVehicles(vehiclesParams),
       ]);
-      setDevices(normaliseListPayload(deviceList));
-      setModels(normaliseListPayload(modelList));
-      setChips(normaliseListPayload(chipList));
-      setVehicles(normaliseListPayload(vehicleList));
-      setLastSyncAt(new Date());
+
+      if (deviceResult.status === "fulfilled") {
+        setDevices(normaliseListPayload(deviceResult.value));
+        setLastSyncAt(new Date());
+      } else {
+        throw deviceResult.reason || new Error("Falha ao carregar equipamentos");
+      }
+
+      const warnings = [];
+
+      if (modelResult.status === "fulfilled") {
+        setModels(normaliseListPayload(modelResult.value));
+      } else {
+        setModels([]);
+        warnings.push("modelos");
+      }
+
+      if (chipResult.status === "fulfilled") {
+        setChips(normaliseListPayload(chipResult.value));
+      } else {
+        setChips([]);
+        warnings.push("chips");
+      }
+
+      if (vehicleResult.status === "fulfilled") {
+        setVehicles(normaliseListPayload(vehicleResult.value));
+      } else {
+        setVehicles([]);
+        warnings.push("veículos");
+      }
+
+      if (warnings.length) {
+        showToast(`Algumas listas não carregaram: ${warnings.join(", ")}.`, "warning");
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar dados"));
     } finally {
@@ -978,6 +1007,8 @@ export default function Devices() {
     "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
     (toast?.type === "error"
       ? "border-red-500/40 bg-red-500/20 text-red-50"
+      : toast?.type === "warning"
+      ? "border-amber-500/40 bg-amber-500/20 text-amber-50"
       : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50");
 
   return (
