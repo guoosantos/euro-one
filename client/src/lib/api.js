@@ -98,6 +98,14 @@ export function resolveAuthorizationHeader() {
   return null;
 }
 
+function friendlyErrorMessage(status, payload, statusText) {
+  if (payload?.message) return payload.message;
+  if (status === 401) return "Sessão expirada. Faça login novamente.";
+  if (status === 403) return "Você não tem permissão para realizar esta ação.";
+  if (status >= 500) return "Erro interno. Tente novamente em instantes.";
+  return statusText || "Erro na requisição";
+}
+
 function buildUrl(path, params, { apiPrefix = true } = {}) {
   const targetPath = typeof path === "string" ? path : String(path || "");
   const isAbsolute = /^https?:\/\//i.test(targetPath);
@@ -218,7 +226,8 @@ async function request({
     }
 
     if (!response.ok) {
-      const error = new Error(payload?.message || response.statusText || "Erro na requisição");
+      const error = new Error(friendlyErrorMessage(response.status, payload, response.statusText));
+      error.status = response.status;
       error.response = normalised;
       throw error;
     }

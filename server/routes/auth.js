@@ -7,7 +7,7 @@ import { listClients } from "../models/client.js";
 import { sanitizeUser, verifyUserCredentials, findByLogin } from "../models/user.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildTraccarUnavailableError, loginTraccar, isTraccarConfigured } from "../services/traccar.js";
-import { getFallbackClient, getFallbackUser } from "../services/fallback-data.js";
+import { getFallbackClient, getFallbackUser, isFallbackEnabled } from "../services/fallback-data.js";
 
 const router = express.Router();
 
@@ -36,14 +36,19 @@ const handleLogin = async (req, res, next) => {
     }
 
     if (!user) {
-      const localUser =
-        (await findByLogin(userLogin, { includeSensitive: true }).catch(() => null)) || getFallbackUser();
+      const localUser = (await findByLogin(userLogin, { includeSensitive: true }).catch(() => null)) || null;
+      if (!localUser && !isFallbackEnabled()) {
+        throw createError(401, "Credenciais inválidas");
+      }
+
+      const fallbackUser = localUser || getFallbackUser();
+      const fallbackClient = localUser?.clientId ? { id: localUser.clientId } : getFallbackClient();
       user = sanitizeUser({
-        ...localUser,
-        email: localUser.email || userLogin,
-        username: localUser.username || userLogin,
-        role: localUser.role || "admin",
-        clientId: localUser.clientId || getFallbackClient().id,
+        ...fallbackUser,
+        email: fallbackUser.email || userLogin,
+        username: fallbackUser.username || userLogin,
+        role: fallbackUser.role || "admin",
+        clientId: fallbackUser.clientId || fallbackClient.id,
       });
     }
 
@@ -111,6 +116,9 @@ async function authenticateWithTraccar(login, password) {
 
 async function buildSessionPayload(userId, roleHint = null) {
   if (!isPrismaAvailable()) {
+    if (!isFallbackEnabled()) {
+      throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
+    }
     const fallbackUser = sanitizeUser(getFallbackUser());
     const client = getFallbackClient();
     const resolvedUser = { ...fallbackUser, clientId: fallbackUser.clientId || client.id };
@@ -157,9 +165,16 @@ async function buildSessionPayload(userId, roleHint = null) {
     const resolved = resolvedClient ? { ...resolvedClient } : null;
     const userWithClient = { ...user, clientId: user.clientId ?? resolved?.id ?? null };
 
+    if (!userWithClient.clientId && user.role !== "admin") {
+      throw createError(400, "Usuário não vinculado a um cliente");
+    }
+
     return { user: userWithClient, client: resolved, clientId: userWithClient.clientId, clients: availableClients };
   } catch (error) {
     console.warn("[auth] falha ao construir sessão via Prisma, usando fallback", error?.message || error);
+    if (!isFallbackEnabled()) {
+      throw error;
+    }
     const fallbackUser = sanitizeUser(getFallbackUser());
     const client = getFallbackClient();
     const resolvedUser = { ...fallbackUser, clientId: fallbackUser.clientId || client.id };

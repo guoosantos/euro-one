@@ -52,7 +52,13 @@ export function authenticate(req, _res, next) {
   try {
     const decoded = jwt.verify(token, config.jwt.secret);
     req.sessionToken = token;
-    req.user = decoded;
+    req.user = {
+      ...decoded,
+      clientId: decoded?.clientId ?? null,
+    };
+    if (!req.clientId) {
+      req.clientId = req.user.clientId ?? null;
+    }
     return next();
   } catch (error) {
     return next(createError(401, "Token inválido ou expirado"));
