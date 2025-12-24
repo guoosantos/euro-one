@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
+import { extractToken } from "./middleware/auth.js";
 
 async function bootstrap() {
   await loadEnv();
@@ -56,34 +57,21 @@ async function bootstrap() {
     adminAuth: traccarMode.adminAuth,
   });
 
-  const extractTokenFromRequest = (req) => {
-    const authHeader = req.headers?.authorization;
-    if (authHeader && authHeader.startsWith("Bearer ")) {
-      return authHeader.slice(7);
-    }
-
-    const cookieHeader = req.headers?.cookie || "";
-    const cookies = Object.fromEntries(
-      cookieHeader
-        .split(";")
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .map((pair) => {
-          const [key, ...rest] = pair.split("=");
-          return [key, rest.join("=")];
-        }),
-    );
-
-    return cookies.token || null;
-  };
-
   const authenticateWebSocket = (req) => {
-    const token = extractTokenFromRequest(req);
+    const token = extractToken(req);
     if (!token) {
-      throw new Error("Token ausente");
+      return null;
     }
 
-    return jwt.verify(token, config.jwt.secret);
+    try {
+      return jwt.verify(token, config.jwt.secret);
+    } catch (error) {
+      console.warn("[ws-live] Token inválido na conexão WebSocket", {
+        message: error?.message || error,
+        path: req.url,
+      });
+      return null;
+    }
   };
 
   const removeSocketFromClient = (clientId, socket) => {
@@ -180,10 +168,8 @@ async function bootstrap() {
       return;
     }
 
-    let user;
-    try {
-      user = authenticateWebSocket(req);
-    } catch (error) {
+    const user = authenticateWebSocket(req);
+    if (!user) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;

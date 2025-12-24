@@ -11,7 +11,7 @@ import { getFallbackClient, getFallbackUser } from "../services/fallback-data.js
 
 const router = express.Router();
 
-router.post("/login", async (req, res, next) => {
+const handleLogin = async (req, res, next) => {
   try {
     const { email, username, login, password } = req.body || {};
     const userLogin = String(email || username || login || "").trim();
@@ -69,7 +69,19 @@ router.post("/login", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+};
+
+router.post("/login", handleLogin);
+router.post("/auth/login", handleLogin);
+
+const handleSession = async (req, res, next) => {
+  try {
+    const payload = await buildSessionPayload(req.user.id, req.user.role);
+    return res.json(payload);
+  } catch (error) {
+    return next(error);
+  }
+};
 
 async function authenticateWithTraccar(login, password) {
   if (!isTraccarConfigured()) {
@@ -155,18 +167,15 @@ async function buildSessionPayload(userId, roleHint = null) {
   }
 }
 
-router.get("/session", authenticate, async (req, res, next) => {
-  try {
-    const payload = await buildSessionPayload(req.user.id, req.user.role);
-    return res.json(payload);
-  } catch (error) {
-    return next(error);
-  }
-});
+router.get("/session", authenticate, (req, res, next) => handleSession(req, res, next));
+router.get("/auth/session", authenticate, (req, res, next) => handleSession(req, res, next));
 
-router.post("/logout", authenticate, (req, res) => {
+const handleLogout = (req, res) => {
   res.clearCookie("token");
   res.status(204).send();
-});
+};
+
+router.post("/logout", authenticate, (req, res) => handleLogout(req, res));
+router.post("/auth/logout", authenticate, (req, res) => handleLogout(req, res));
 
 export default router;

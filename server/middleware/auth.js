@@ -7,15 +7,41 @@ export function signSession(payload) {
   return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
 }
 
-function extractToken(req) {
+function extractTokenFromCookies(req) {
+  if (req.cookies?.token) {
+    return req.cookies.token;
+  }
+
+  const cookieHeader = req.headers?.cookie || "";
+  return cookieHeader
+    .split(";")
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .map((pair) => {
+      const [key, ...rest] = pair.split("=");
+      return [key, rest.join("=")];
+    })
+    .reduce((acc, [key, value]) => (key === "token" ? value : acc), null);
+}
+
+export function extractToken(req) {
   const auth = req.headers?.authorization;
   if (auth && auth.startsWith("Bearer ")) {
     return auth.slice(7);
   }
-  if (req.cookies?.token) {
-    return req.cookies.token;
+
+  const cookieToken = extractTokenFromCookies(req);
+  if (cookieToken) {
+    return cookieToken;
   }
-  return null;
+
+  try {
+    const url = new URL(req.originalUrl || req.url || "", "http://localhost");
+    const queryToken = url.searchParams.get("token");
+    return queryToken || null;
+  } catch {
+    return null;
+  }
 }
 
 export function authenticate(req, _res, next) {
