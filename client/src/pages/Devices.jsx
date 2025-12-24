@@ -26,7 +26,7 @@ import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import PageHeader from "../ui/PageHeader";
-import { CoreApi } from "../lib/coreApi.js";
+import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
@@ -406,10 +406,10 @@ export default function Devices() {
         CoreApi.listChips(clientId ? { clientId } : undefined),
         CoreApi.listVehicles(vehiclesParams),
       ]);
-      setDevices(Array.isArray(deviceList) ? deviceList : []);
-      setModels(Array.isArray(modelList) ? modelList : []);
-      setChips(Array.isArray(chipList) ? chipList : []);
-      setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
+      setDevices(normaliseListPayload(deviceList));
+      setModels(normaliseListPayload(modelList));
+      setChips(normaliseListPayload(chipList));
+      setVehicles(normaliseListPayload(vehicleList));
       setLastSyncAt(new Date());
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar dados"));
