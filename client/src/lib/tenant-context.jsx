@@ -80,17 +80,47 @@ export function TenantProvider({ children }) {
         const resolvedClientId = payload.clientId || payload.client?.id || payload.user?.clientId || null;
         const nextUser = payload.user ? { ...payload.user, clientId: payload.user.clientId ?? resolvedClientId } : payload || null;
         setUser(nextUser);
-        if (nextUser) {
-        const responseTenant = payload.client?.id || payload.clientId || resolvedClientId || null;
-        const suggestedTenant =
-          responseTenant || nextUser.clientId || tenantId || (payload.clients?.[0]?.id ?? null);
-        setTenantId((prev) => prev ?? suggestedTenant ?? null);
-      }
         setStoredSession({ token, user: nextUser });
         const resolvedClients = normaliseClients(payload.clients || payload.client ? payload : null, nextUser);
         setTenants(resolvedClients);
-        if (!tenantId && resolvedClients.length === 1) {
-          setTenantId(resolvedClients[0].id);
+        if (nextUser) {
+          const responseTenant = payload.client?.id || payload.clientId || resolvedClientId || null;
+          const suggestedTenant =
+            responseTenant || nextUser.clientId || tenantId || (payload.clients?.[0]?.id ?? null);
+          setTenantId((currentTenantId) => {
+            if (nextUser.role !== "admin") {
+              const requiredTenantId = nextUser.clientId ?? resolvedClients[0]?.id ?? null;
+              if (requiredTenantId && currentTenantId && currentTenantId !== requiredTenantId) {
+                console.warn("Corrigindo tenantId não-admin para clientId da sessão", {
+                  from: currentTenantId,
+                  to: requiredTenantId,
+                });
+              }
+              return requiredTenantId ?? null;
+            }
+
+            const initialTenantId = currentTenantId ?? suggestedTenant ?? null;
+            const isInitialValid = initialTenantId
+              ? resolvedClients.some((client) => client.id === initialTenantId)
+              : false;
+            if (isInitialValid) {
+              return initialTenantId;
+            }
+
+            const fallbackTenantId = suggestedTenant ?? resolvedClients[0]?.id ?? null;
+            if (fallbackTenantId && fallbackTenantId !== initialTenantId) {
+              console.warn("Corrigindo tenantId inválido durante hydrateSession", {
+                from: initialTenantId,
+                to: fallbackTenantId,
+              });
+            }
+
+            if (!fallbackTenantId && resolvedClients.length === 1) {
+              return resolvedClients[0].id;
+            }
+
+            return fallbackTenantId ?? null;
+          });
         }
       } catch (sessionError) {
         if (cancelled) return;
@@ -261,4 +291,3 @@ export function useTenant() {
   }
   return ctx;
 }
-
