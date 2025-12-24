@@ -1049,7 +1049,8 @@ export default function Devices() {
             <option value="offline">Offline</option>
             <option value="1-6h">Sem transmissão 1–6h</option>
             <option value="6-24h">Sem transmissão 6–24h</option>
-            <option value=">24h">>24h</option>
+	    <option value=">24h">&gt;24h</option>
+
           </select>
           <select
             value={filters.model}
@@ -1562,6 +1563,7 @@ export default function Devices() {
           <p className="text-sm text-white/70">Sem posição recente para este dispositivo.</p>
         )}
       </Modal>
+    </div>
     </div>
   );
 }

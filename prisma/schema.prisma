@@ -27,6 +27,9 @@ model Client {
   routes         Route[]
   geofences      Geofence[]
   geofenceGroups GeofenceGroup[]
+
+  telemetryMappings TelemetryFieldMapping[] @relation("TelemetryMappingClient")
+  eventMappings     EventMapping[]          @relation("EventMappingClient")
 }
 
 model User {
@@ -45,6 +48,8 @@ model User {
 
   client      Client?          @relation(fields: [clientId], references: [id])
   preferences UserPreference[]
+
+  geofencesCreated Geofence[] @relation("GeofenceCreatedBy")
 }
 
 model Model {
@@ -80,6 +85,9 @@ model Device {
   model   Model?   @relation(fields: [modelId], references: [id])
   chip    Chip?    @relation(fields: [chipId], references: [id], onDelete: SetNull)
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+
+  telemetryMappings TelemetryFieldMapping[] @relation("TelemetryMappingDevice")
+  eventMappings     EventMapping[]          @relation("EventMappingDevice")
 }
 
 model Chip {
@@ -149,26 +157,26 @@ model GeocodeCache {
 }
 
 model Geofence {
-  id          String   @id @default(uuid())
-  clientId    String
-  groupId     String?
-  name        String
-  description String?
-  type        String
-  color       String?
-  geometryJson Json?
-  kml         String?
+  id              String   @id @default(uuid())
+  clientId        String
+  groupId         String?
+  name            String
+  description     String?
+  type            String
+  color           String?
+  geometryJson    Json?
+  kml             String?
   createdByUserId String?
-  points      Json?
-  centerLat   Float?
-  centerLng   Float?
-  radius      Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  points          Json?
+  centerLat       Float?
+  centerLng       Float?
+  radius          Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   client    Client         @relation(fields: [clientId], references: [id])
   group     GeofenceGroup? @relation(fields: [groupId], references: [id])
-  createdBy User?          @relation(fields: [createdByUserId], references: [id])
+  createdBy User?          @relation("GeofenceCreatedBy", fields: [createdByUserId], references: [id])
 
   @@map("geofence")
 }
@@ -374,13 +382,13 @@ model TelemetryFieldMapping {
   protocol  String?
   key       String
   label     String
-  dataType  String  @default("string")
+  dataType  String   @default("string")
   unit      String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id])
-  device Device? @relation(fields: [deviceId], references: [id])
+  client Client  @relation("TelemetryMappingClient", fields: [clientId], references: [id])
+  device Device? @relation("TelemetryMappingDevice", fields: [deviceId], references: [id])
 
   @@unique([clientId, deviceId, protocol, key])
 }
@@ -395,8 +403,8 @@ model EventMapping {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  client Client @relation(fields: [clientId], references: [id])
-  device Device? @relation(fields: [deviceId], references: [id])
+  client Client  @relation("EventMappingClient", fields: [clientId], references: [id])
+  device Device? @relation("EventMappingDevice", fields: [deviceId], references: [id])
 
   @@unique([clientId, deviceId, protocol, eventKey])
 }

@@ -77,7 +77,6 @@ const persistedDevices = loadCollection(STORAGE_KEY, []);
 persistedDevices.forEach((record) => {
   if (!record?.id) return;
   const stored = persist({ ...record }, { skipSync: true });
-  // Garante que registros pré-existentes também sejam refletidos no banco quando disponível.
   if (stored?.id) {
     void syncDeviceToPrisma(stored);
   }
@@ -123,6 +122,63 @@ export async function findDeviceByUniqueIdInDb(uniqueId, { clientId, matchAnyCli
   }
 }
 
+async function validateModelId({ modelId, clientId, uniqueId }) {
+  if (!modelId) return null;
+  try {
+    const model = await prisma.model.findUnique({ where: { id: String(modelId) } });
+    if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
+      console.warn("[devices] modelo inexistente ou de outro cliente; removendo referência", {
+        modelId: String(modelId),
+        clientId: String(clientId),
+        uniqueId: String(uniqueId),
+      });
+      return null;
+    }
+    return String(modelId);
+  } catch (error) {
+    console.warn("[devices] falha ao validar modelo antes do sync", error?.message || error);
+    return null;
+  }
+}
+
+async function validateVehicleId({ vehicleId, clientId, uniqueId }) {
+  if (!vehicleId) return null;
+  try {
+    const vehicle = await prisma.vehicle.findUnique({ where: { id: String(vehicleId) } });
+    if (!vehicle || (vehicle.clientId && String(vehicle.clientId) !== String(clientId))) {
+      console.warn("[devices] veículo inexistente ou de outro cliente; removendo referência", {
+        vehicleId: String(vehicleId),
+        clientId: String(clientId),
+        uniqueId: String(uniqueId),
+      });
+      return null;
+    }
+    return String(vehicleId);
+  } catch (error) {
+    console.warn("[devices] falha ao validar veículo antes do sync", error?.message || error);
+    return null;
+  }
+}
+
+async function validateChipId({ chipId, clientId, uniqueId }) {
+  if (!chipId) return null;
+  try {
+    const chip = await prisma.chip.findUnique({ where: { id: String(chipId) } });
+    if (!chip || (chip.clientId && String(chip.clientId) !== String(clientId))) {
+      console.warn("[devices] chip inexistente ou de outro cliente; removendo referência", {
+        chipId: String(chipId),
+        clientId: String(clientId),
+        uniqueId: String(uniqueId),
+      });
+      return null;
+    }
+    return String(chipId);
+  } catch (error) {
+    console.warn("[devices] falha ao validar chip antes do sync", error?.message || error);
+    return null;
+  }
+}
+
 async function syncDeviceToPrisma(record) {
   if (!isPrismaReady() || !record?.id || !record?.uniqueId) return;
   try {
@@ -153,32 +209,18 @@ async function syncDeviceToPrisma(record) {
       return;
     }
 
-    let modelId = record.modelId ? String(record.modelId) : null;
-    if (modelId) {
-      try {
-        const model = await prisma.model.findUnique({ where: { id: modelId } });
-        if (!model || (model.clientId && String(model.clientId) !== clientId)) {
-          console.warn("[devices] modelo inexistente ou de outro cliente; removendo referência", {
-            modelId,
-            clientId,
-            uniqueId,
-          });
-          modelId = null;
-        }
-      } catch (modelError) {
-        console.warn("[devices] falha ao validar modelo antes do sync", modelError?.message || modelError);
-        modelId = null;
-      }
-    }
+    const modelId = await validateModelId({ modelId: record.modelId, clientId, uniqueId });
+    const chipId = await validateChipId({ chipId: record.chipId, clientId, uniqueId });
+    const vehicleId = await validateVehicleId({ vehicleId: record.vehicleId, clientId, uniqueId });
 
     const payload = {
       clientId,
-      name: record.name,
+      name: record.name ?? null,
       uniqueId,
       modelId,
       traccarId: record.traccarId ? String(record.traccarId) : null,
-      chipId: record.chipId ? String(record.chipId) : null,
-      vehicleId: record.vehicleId ? String(record.vehicleId) : null,
+      chipId,
+      vehicleId,
       attributes: record.attributes || {},
     };
 
@@ -193,6 +235,7 @@ async function syncDeviceToPrisma(record) {
       return;
     }
 
+    // Upsert no uniqueId (o schema é @unique). Se vier lixo em chip/vehicle/model, já foi nulificado acima.
     await prisma.device.upsert({
       where: { uniqueId },
       create: {
@@ -216,7 +259,6 @@ async function deleteDeviceFromPrisma(id) {
   try {
     await prisma.device.delete({ where: { id: String(id) } });
   } catch (error) {
-    // ignora registros inexistentes mas registra outros erros
     if (error?.code !== "P2025") {
       console.warn("[devices] falha ao remover no banco", error?.message || error);
     }
@@ -255,21 +297,14 @@ async function hydrateDevicesFromPrisma() {
 void hydrateDevicesFromPrisma();
 
 export function createDevice({ clientId, name, uniqueId, modelId = null, traccarId = null, attributes = {} }) {
-  if (!clientId) {
-    throw createError(400, "clientId é obrigatório");
-  }
-  if (!uniqueId) {
-    throw createError(400, "uniqueId é obrigatório");
-  }
+  if (!clientId) throw createError(400, "clientId é obrigatório");
+  if (!uniqueId) throw createError(400, "uniqueId é obrigatório");
+
   const normalizedUniqueId = String(uniqueId).trim();
-  if (!normalizedUniqueId) {
-    throw createError(400, "uniqueId é obrigatório");
-  }
+  if (!normalizedUniqueId) throw createError(400, "uniqueId é obrigatório");
 
   const existing = byUniqueId.get(normalizedUniqueId.toLowerCase());
-  if (existing) {
-    throw buildDeviceConflictError(existing, normalizedUniqueId);
-  }
+  if (existing) throw buildDeviceConflictError(existing, normalizedUniqueId);
 
   const now = new Date().toISOString();
   const record = {
@@ -293,9 +328,7 @@ export function createDevice({ clientId, name, uniqueId, modelId = null, traccar
 
 export function updateDevice(id, updates = {}) {
   const record = findDeviceRecord(id);
-  if (!record) {
-    throw createError(404, "Equipamento não encontrado");
-  }
+  if (!record) throw createError(404, "Equipamento não encontrado");
 
   if (Object.prototype.hasOwnProperty.call(updates, "name")) {
     record.name = updates.name ? String(updates.name).trim() : null;
@@ -321,6 +354,7 @@ export function updateDevice(id, updates = {}) {
   if (updates.attributes && typeof updates.attributes === "object") {
     record.attributes = { ...record.attributes, ...updates.attributes };
   }
+
   record.updatedAt = new Date().toISOString();
   const stored = persist(record);
   void syncDeviceToPrisma(stored);
@@ -329,9 +363,7 @@ export function updateDevice(id, updates = {}) {
 
 export function deleteDevice(id) {
   const record = findDeviceRecord(id);
-  if (!record) {
-    throw createError(404, "Equipamento não encontrado");
-  }
+  if (!record) throw createError(404, "Equipamento não encontrado");
   devices.delete(String(id));
   removeIndexes(record);
   syncStorage();
@@ -341,9 +373,7 @@ export function deleteDevice(id) {
 
 export function clearDeviceChip(deviceId) {
   const record = findDeviceRecord(deviceId);
-  if (!record) {
-    throw createError(404, "Equipamento não encontrado");
-  }
+  if (!record) throw createError(404, "Equipamento não encontrado");
   record.chipId = null;
   record.updatedAt = new Date().toISOString();
   const stored = persist(record);
@@ -353,9 +383,7 @@ export function clearDeviceChip(deviceId) {
 
 export function clearDeviceVehicle(deviceId) {
   const record = findDeviceRecord(deviceId);
-  if (!record) {
-    throw createError(404, "Equipamento não encontrado");
-  }
+  if (!record) throw createError(404, "Equipamento não encontrado");
   record.vehicleId = null;
   record.updatedAt = new Date().toISOString();
   const stored = persist(record);
