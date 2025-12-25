@@ -10,6 +10,7 @@ import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutS
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
 import DataState from "../ui/DataState.jsx";
+import VehicleSelector from "../components/VehicleSelector.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
@@ -45,6 +46,7 @@ import {
   pickCoordinate,
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.jsx";
 
@@ -333,6 +335,12 @@ export default function Monitoring() {
   const [pageIndex, setPageIndex] = useState(0);
   const [routeFilter, setRouteFilter] = useState(null);
   const [securityFilters, setSecurityFilters] = useState([]);
+  const {
+    selectedVehicleId: globalVehicleId,
+    selectedTelemetryDeviceId: globalDeviceId,
+    setVehicleSelection,
+    clearVehicleSelection,
+  } = useVehicleSelection({ syncQuery: true });
 
   useEffect(() => {
     const filter = searchParams.get("filter");
@@ -490,7 +498,12 @@ export default function Monitoring() {
   }), [safeTelemetry]);
 
   const linkedTelemetry = useMemo(
-    () => normalizedTelemetry.filter((entry) => isLinkedToVehicle(entry)),
+    () =>
+      normalizedTelemetry.filter((entry) => {
+        const deviceKey = getDeviceKey(entry.device);
+        if (!deviceKey) return false;
+        return isLinkedToVehicle(entry);
+      }),
     [normalizedTelemetry],
   );
 
@@ -710,9 +723,25 @@ export default function Monitoring() {
     [decoratedRows, detailsDeviceId],
   );
 
+  const isDetailsOpen = Boolean(detailsDeviceId);
+  const closeDetails = useCallback(() => setDetailsDeviceId(null), []);
+
   const openDetailsFor = useCallback((deviceId) => {
     setDetailsDeviceId(deviceId);
   }, []);
+
+  useEffect(() => {
+    if (!globalDeviceId && !globalVehicleId) return;
+    const target =
+      decoratedRows.find((row) => row.deviceId === globalDeviceId) ||
+      decoratedRows.find((row) => {
+        const vehicleId = row.device?.vehicleId ?? row.device?.vehicle?.id ?? row.vehicle?.id;
+        return vehicleId && globalVehicleId && String(vehicleId) === String(globalVehicleId);
+      });
+    if (target) {
+      focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
+    }
+  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId]);
 
   const focusDevice = useCallback((deviceId, { openDetails = false, allowToggle = true } = {}) => {
     if (!deviceId) return;
@@ -722,6 +751,7 @@ export default function Monitoring() {
       setSelectedDeviceId(null);
       setFocusTarget(null);
       setDetailsDeviceId((prev) => (openDetails ? null : prev));
+      clearVehicleSelection();
       return;
     }
 
@@ -750,7 +780,21 @@ export default function Monitoring() {
       }
     }
     if (openDetails) openDetailsFor(deviceId);
-  }, [decoratedRows, mapViewport, openDetailsFor, selectedDeviceId]);
+    const targetVehicleId =
+      targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
+    setVehicleSelection(targetVehicleId, deviceId);
+  }, [decoratedRows, mapViewport, openDetailsFor, selectedDeviceId, setVehicleSelection]);
+
+  useEffect(() => {
+    if (!isDetailsOpen) return undefined;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        closeDetails();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [closeDetails, isDetailsOpen]);
 
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
@@ -1038,7 +1082,8 @@ export default function Monitoring() {
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
     setFocusTarget(null);
-  }, []);
+    clearVehicleSelection();
+  }, [clearVehicleSelection]);
 
   useEffect(() => {
     const next = Number.isFinite(mapHeightPercent)
@@ -1182,6 +1227,7 @@ export default function Monitoring() {
                     containerClassName="bg-black/70 backdrop-blur-md"
                     errorMessage={geocodeError?.message}
                   />
+                  <VehicleSelector className="pointer-events-auto w-full max-w-sm rounded-lg border border-white/10 bg-black/70 px-2 py-2 backdrop-blur-md" />
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-2">
@@ -1229,6 +1275,7 @@ export default function Monitoring() {
           <div className="border-b border-white/10 px-3 py-2">
             {layoutVisibility.showToolbar ? (
               <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <VehicleSelector className="w-full max-w-xs" />
                 <MonitoringToolbar
                   vehicleSearchTerm={vehicleQuery}
                   onVehicleSearchChange={handleVehicleSearchChange}
@@ -1273,6 +1320,7 @@ export default function Monitoring() {
                     onClear={handleClearAddress}
                     errorMessage={geocodeError?.message}
                   />
+                  <VehicleSelector className="w-full max-w-xs" />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1381,7 +1429,19 @@ export default function Monitoring() {
         />
       )}
 
-      <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={() => setDetailsDeviceId(null)} />
+      {isDetailsOpen ? (
+        <div className="fixed inset-0 z-[9996] flex justify-end">
+          <button
+            type="button"
+            aria-label="Fechar painel de detalhes do veículo"
+            className="flex-1 bg-black/40 backdrop-blur-sm"
+            onClick={closeDetails}
+          />
+          <div className="pointer-events-auto relative w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
+            <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

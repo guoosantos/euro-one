@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
-import useDevices from "../lib/hooks/useDevices";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useTranslation } from "../lib/i18n.js";
 import { formatAddress } from "../lib/format-address.js";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import {
   buildColumnDefaults,
   loadColumnPreferences,
@@ -17,17 +20,26 @@ import {
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
 
-const COLUMN_STORAGE_KEY = "routeReportColumns";
+  const COLUMN_STORAGE_KEY = "routeReportColumns";
 
 export default function ReportsRoute() {
   const { locale } = useTranslation();
   const location = useLocation();
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const {
+    vehicles,
+    vehicleOptions,
+    loading: loadingVehicles,
+    error: vehiclesError,
+  } = useVehicles({ includeUnlinked: true });
+  const {
+    selectedVehicleId: vehicleId,
+    selectedTelemetryDeviceId: deviceIdFromStore,
+    selectedVehicle,
+    setVehicleSelection,
+  } = useVehicleSelection({ syncQuery: true });
   const { data, loading, error, generate } = useReportsRoute();
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
-  const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(() => new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [fetching, setFetching] = useState(false);
@@ -38,20 +50,28 @@ export default function ReportsRoute() {
 
   const points = Array.isArray(data?.positions) ? data.positions : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
-  const selectedDevice = useMemo(() => devices.find((device) => (device.id ?? device.uniqueId) === deviceId), [
-    deviceId,
-    devices,
-  ]);
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId)) || null,
+    [vehicleId, vehicles],
+  );
+  const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
+  const deviceUnavailable = Boolean(vehicleId) && !deviceId;
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
 
   useEffect(() => {
     const search = new URLSearchParams(location.search || "");
-    const queryDevice = search.get("deviceId") || search.get("device");
     const queryFrom = search.get("from");
     const queryTo = search.get("to");
 
-    if (queryDevice && queryDevice !== deviceId) {
-      setDeviceId(queryDevice);
-    }
     const parsedFrom = asLocalDateTime(queryFrom);
     if (parsedFrom && parsedFrom !== from) {
       setFrom(parsedFrom);
@@ -60,31 +80,39 @@ export default function ReportsRoute() {
     if (parsedTo && parsedTo !== to) {
       setTo(parsedTo);
     }
+  }, [from, location.search, to]);
 
-    if (!queryDevice || !queryFrom || !queryTo) return;
+  useEffect(() => {
+    const search = new URLSearchParams(location.search || "");
+    const queryFrom = search.get("from");
+    const queryTo = search.get("to");
+    if (!queryFrom || !queryTo || fetching) return;
     const intendedFrom = parseDate(queryFrom);
     const intendedTo = parseDate(queryTo);
     if (!intendedFrom || !intendedTo) return;
-    const intendedParams = {
-      deviceId: queryDevice,
+    if (!deviceId) return;
+
+    const params = {
+      deviceId,
+      vehicleId: vehicleId || vehicleByDeviceId.get(String(deviceId))?.id,
       from: intendedFrom.toISOString(),
       to: intendedTo.toISOString(),
     };
     const currentParams = data?.__meta?.params || {};
     const alreadyLoaded =
-      currentParams.deviceId === intendedParams.deviceId &&
-      currentParams.from === intendedParams.from &&
-      currentParams.to === intendedParams.to;
+      currentParams.deviceId === params.deviceId &&
+      currentParams.from === params.from &&
+      currentParams.to === params.to;
 
-    if (!alreadyLoaded && !loading && !fetching) {
+    if (!alreadyLoaded && !loading) {
       setFetching(true);
-      generate(intendedParams)
+      generate(params)
         .catch(() => {
           // falha silenciosa ao tentar pré-carregar a partir do link de viagens.
         })
         .finally(() => setFetching(false));
     }
-  }, [data?.__meta?.params, deviceId, fetching, from, generate, loading, location.search, to]);
+  }, [data?.__meta?.params, deviceId, fetching, generate, loading, location.search, vehicleByDeviceId, vehicleId]);
 
   const routeSummary = useMemo(() => {
     if (!data) return null;
@@ -120,7 +148,12 @@ export default function ReportsRoute() {
 
     return {
       deviceName:
-        summary.deviceName || selectedDevice?.name || selectedDevice?.vehicle || selectedDevice?.uniqueId || params.deviceId || "—",
+        summary.deviceName ||
+        selectedVehicle?.plate ||
+        selectedVehicle?.name ||
+        params.vehicleId ||
+        params.deviceId ||
+        "—",
       startTime,
       endTime,
       durationMs,
@@ -130,7 +163,7 @@ export default function ReportsRoute() {
       // Tempo parado/em movimento dependem do backend devolver esses campos ou um resumo dedicado.
       movementUnavailable: true,
     };
-  }, [data, points, selectedDevice]);
+  }, [data, points, selectedVehicle]);
 
   const tableColumns = useMemo(
     () => [
@@ -264,7 +297,12 @@ export default function ReportsRoute() {
     setFormError("");
     setFetching(true);
     try {
-      await generate({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      await generate({
+        deviceId,
+        vehicleId: vehicleId || vehicleByDeviceId.get(String(deviceId))?.id,
+        from: new Date(from).toISOString(),
+        to: new Date(to).toISOString(),
+      });
       setFeedback({ type: "success", message: "Relatório de rota criado com sucesso." });
     } catch (requestError) {
       const friendlyMessage = "Não foi possível gerar o relatório de rotas. Tente novamente mais tarde.";
@@ -289,24 +327,7 @@ export default function ReportsRoute() {
         </header>
 
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
-          <label className="text-sm md:col-span-2">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Dispositivo</span>
-            <select
-              value={deviceId}
-              onChange={(event) => setDeviceId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              required
-            >
-              <option value="" disabled>
-                Selecione um dispositivo
-              </option>
-              {devices.map((device) => (
-                <option key={device.id ?? device.uniqueId} value={device.id ?? device.uniqueId}>
-                  {device.name ?? device.uniqueId ?? device.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <VehicleSelector className="text-sm md:col-span-2" />
 
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide opacity-60">Início</span>
@@ -370,7 +391,7 @@ export default function ReportsRoute() {
           </header>
 
           <dl className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <SummaryItem label="Veículo / dispositivo" value={routeSummary.deviceName} />
+            <SummaryItem label="Veículo" value={routeSummary.deviceName} />
             <SummaryItem
               label="Distância total percorrida"
               value={routeSummary.totalDistanceKm !== null ? `${routeSummary.totalDistanceKm.toFixed(2)} km` : "—"}
@@ -528,7 +549,7 @@ function asLocalDateTime(value) {
 }
 
 function validateFields({ deviceId, from, to }) {
-  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!deviceId) return "Selecione um veículo com equipamento vinculado para gerar o relatório.";
   if (!from || !to) return "Preencha as datas de início e fim.";
   const fromDate = new Date(from);
   const toDate = new Date(to);

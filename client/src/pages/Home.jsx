@@ -12,6 +12,8 @@ import { translateEventType } from "../lib/event-translations.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 const COMMUNICATION_BUCKETS = [
   { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
@@ -29,28 +31,61 @@ export default function Home() {
   const navigate = useNavigate();
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
+  const { selectedVehicleId, selectedTelemetryDeviceId } = useVehicleSelection({ syncQuery: true });
 
   const { data: devices = [], loading: loadingDevices } = useDevices();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
   const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 50 });
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
 
+  const normalizeDeviceKey = (device) =>
+    String(
+      device?.deviceId ??
+        device?.id ??
+        device?.uniqueId ??
+        device?.unique_id ??
+        device?.traccarId ??
+        device?.device_id ??
+        "",
+    );
+
+  const scopedDevices = useMemo(() => {
+    if (!selectedVehicleId) return devices;
+    return devices.filter((device) => String(device?.vehicleId ?? device?.vehicle?.id) === String(selectedVehicleId));
+  }, [devices, selectedVehicleId]);
+
+  const scopedDeviceIds = useMemo(() => {
+    if (!selectedVehicleId) return null;
+    const ids = scopedDevices.map(normalizeDeviceKey).filter(Boolean);
+    return new Set(ids);
+  }, [scopedDevices, selectedVehicleId]);
+
+  const scopedPositions = useMemo(() => {
+    if (!scopedDeviceIds) return positions;
+    return positions.filter((pos) => scopedDeviceIds.has(normalizeDeviceKey(pos)));
+  }, [positions, scopedDeviceIds]);
+
+  const scopedEvents = useMemo(() => {
+    if (!scopedDeviceIds) return events;
+    return events.filter((event) => scopedDeviceIds.has(normalizeDeviceKey(event)));
+  }, [events, scopedDeviceIds]);
+
   const { summary, table } = useMemo(() => {
-    const { rows, stats } = buildFleetState(devices, positions, { tenantId });
+    const { rows, stats } = buildFleetState(scopedDevices, scopedPositions, { tenantId });
     return { summary: stats, table: rows };
-  }, [devices, positions, tenantId]);
+  }, [scopedDevices, scopedPositions, tenantId]);
 
   const communicationBuckets = useMemo(() => buildOfflineBuckets(table), [table]);
   const routeMetrics = useMemo(() => buildRouteMetrics(table, tasks), [table, tasks]);
 
   const normalizedEvents = useMemo(
     () =>
-      events.map((event) => {
+      scopedEvents.map((event) => {
         const severity = normalizeSeverity(event);
         const time = event.time ?? event.eventTime ?? event.serverTime;
         return { ...event, severity, __time: time ? new Date(time).toISOString() : null };
       }),
-    [events],
+    [scopedEvents],
   );
 
   const highSeverityEvents = useMemo(
@@ -328,6 +363,7 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
+      <VehicleSelector className="max-w-sm" />
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
@@ -368,8 +404,14 @@ export default function Home() {
     const from = new Date(time - 3 * 60 * 60 * 1000).toISOString();
     const to = new Date(time + 3 * 60 * 60 * 1000).toISOString();
     const deviceId = event.deviceId ?? event.device?.id ?? event.device?.deviceId;
-    if (!deviceId) return;
-    navigate(`/trips?deviceId=${deviceId}&from=${from}&to=${to}`);
+    const vehicleId = event.vehicleId ?? event.vehicle?.id ?? selectedVehicleId;
+    if (!deviceId && !vehicleId) return;
+    const search = new URLSearchParams();
+    if (vehicleId) search.set("vehicleId", vehicleId);
+    if (deviceId) search.set("deviceId", deviceId);
+    search.set("from", from);
+    search.set("to", to);
+    navigate(`/trips?${search.toString()}`);
   }
 }
 

@@ -3,7 +3,7 @@ import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap, useMap
 import { Download, FileUp, Play, Save, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
-import useDevices from "../lib/hooks/useDevices";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -11,6 +11,8 @@ import Select from "../ui/Select";
 import { API_ROUTES } from "../lib/api-routes.js";
 import api from "../lib/api.js";
 import { deduplicatePath, downloadKml, exportRoutesToKml, parseKmlPlacemarks, simplifyPath } from "../lib/kml.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const GRAPH_HOPPER_URL = (import.meta?.env?.VITE_GRAPHHOPPER_URL || import.meta?.env?.VITE_GRAPH_HOPPER_URL || "").replace(/\/$/, "");
@@ -293,18 +295,46 @@ export default function RoutesPage() {
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
-  const [historyForm, setHistoryForm] = useState({ deviceId: "", from: "", to: "" });
+  const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  const { devices } = useDevices();
-  const deviceOptions = useMemo(
-    () =>
-      (Array.isArray(devices) ? devices : []).map((device) => ({
-        value: device.traccarId || device.deviceId || device.id || device.uniqueId,
-        label: device.name || device.uniqueId || device.id,
-      })),
-    [devices],
+  const {
+    vehicles,
+    vehicleOptions,
+    loading: loadingVehicles,
+    error: vehiclesError,
+  } = useVehicles({ includeUnlinked: true });
+  const { selectedVehicleId: vehicleId, selectedTelemetryDeviceId: deviceIdFromStore } = useVehicleSelection({
+    syncQuery: true,
+  });
+  const historyVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(historyForm.vehicleId)) || null,
+    [historyForm.vehicleId, vehicles],
   );
+  const historyDeviceId = deviceIdFromStore || historyVehicle?.primaryDeviceId || "";
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
+
+  useEffect(() => {
+    if (!historyForm.vehicleId && vehicleOptions.length === 1) {
+      setHistoryForm((current) => ({ ...current, vehicleId: String(vehicleOptions[0].value) }));
+    }
+  }, [historyForm.vehicleId, vehicleOptions]);
+
+  useEffect(() => {
+    if (!vehicleId) return;
+    if (historyForm.vehicleId !== String(vehicleId)) {
+      setHistoryForm((current) => ({ ...current, vehicleId: String(vehicleId) }));
+    }
+  }, [historyForm.vehicleId, vehicleId]);
 
   const waypoints = useMemo(() => normalizeStopOrders(draftRoute.metadata?.waypoints || []), [draftRoute.metadata?.waypoints]);
   const { origin, destination, stops } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
@@ -489,11 +519,15 @@ export default function RoutesPage() {
 
   const handleHistoryRoute = async (event) => {
     event.preventDefault();
-    if (!historyForm.deviceId || !historyForm.from || !historyForm.to) return;
+    if (!historyDeviceId || !historyForm.from || !historyForm.to) {
+      alert("Selecione um veículo com equipamento vinculado e informe o período.");
+      return;
+    }
     setLoadingHistory(true);
     try {
       const params = {
-        deviceId: historyForm.deviceId,
+        deviceId: historyDeviceId,
+        vehicleId: historyForm.vehicleId || vehicleByDeviceId.get(String(historyDeviceId))?.id,
         from: new Date(historyForm.from).toISOString(),
         to: new Date(historyForm.to).toISOString(),
       };
@@ -518,12 +552,17 @@ export default function RoutesPage() {
       const simplified = simplifyPath(deduplicatePath(positions), 0.00005);
       const historyRoute = withWaypoints({
         ...draftRoute,
-        name: draftRoute.name || `Histórico ${historyForm.deviceId}`,
+        name: draftRoute.name || `Histórico ${historyVehicle?.plate || historyVehicle?.name || historyDeviceId}`,
         points: simplified,
         metadata: {
           ...(draftRoute.metadata || {}),
           source: "history",
-          history: { deviceId: historyForm.deviceId, from: params.from, to: params.to },
+          history: {
+            vehicleId: historyForm.vehicleId || vehicleByDeviceId.get(String(historyDeviceId))?.id,
+            deviceId: historyDeviceId,
+            from: params.from,
+            to: params.to,
+          },
         },
       });
       setDraftRoute(historyRoute);
@@ -724,16 +763,21 @@ export default function RoutesPage() {
           <form className="space-y-2 rounded-xl border border-primary/20 bg-primary/10 p-3" onSubmit={handleHistoryRoute}>
             <p className="text-sm font-semibold text-white">Gerar a partir do histórico</p>
             <Select
-              value={historyForm.deviceId}
-              onChange={(event) => setHistoryForm((current) => ({ ...current, deviceId: event.target.value }))}
+              value={historyForm.vehicleId}
+              onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
             >
-              <option value="">Selecione um dispositivo</option>
-              {deviceOptions.map((device) => (
-                <option key={device.value} value={device.value}>
-                  {device.label}
+              <option value="">Selecione um veículo</option>
+              {vehicleOptions.map((vehicle) => (
+                <option key={vehicle.value} value={vehicle.value} disabled={!vehicle.hasDevice}>
+                  {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
                 </option>
               ))}
             </Select>
+            {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
+            {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
+            {historyForm.vehicleId && !historyDeviceId && (
+              <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
+            )}
             <div className="grid gap-2 md:grid-cols-2">
               <Input
                 label="Início"
@@ -750,7 +794,7 @@ export default function RoutesPage() {
                 className="map-compact-input"
               />
             </div>
-            <Button type="submit" disabled={loadingHistory || !historyForm.deviceId}>
+            <Button type="submit" disabled={loadingHistory || !historyDeviceId}>
               {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
             </Button>
           </form>
