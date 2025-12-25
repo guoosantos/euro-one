@@ -353,6 +353,15 @@ export default function Devices() {
   const mapRef = useRef(null);
   const toastTimeoutRef = useRef(null);
   const [toast, setToast] = useState(null);
+  const conflictMatch = useMemo(() => {
+    if (!conflictDevice?.uniqueId) return null;
+    return devices.find(
+      (item) =>
+        (conflictDevice.deviceId && String(item.id) === String(conflictDevice.deviceId)) ||
+        (item.uniqueId &&
+          String(item.uniqueId).toLowerCase() === String(conflictDevice.uniqueId).toLowerCase()),
+    );
+  }, [conflictDevice, devices]);
 
   const positionMap = useMemo(() => {
     const map = new Map();
@@ -494,6 +503,14 @@ export default function Devices() {
       setLinkVehicleId(linkTarget.vehicleId);
     }
   }, [linkTarget]);
+
+  useEffect(() => {
+    if (!conflictDevice || conflictDevice.deviceId || !conflictMatch?.id) return;
+    setConflictDevice((current) => {
+      if (!current || current.deviceId) return current;
+      return { ...current, deviceId: conflictMatch.id };
+    });
+  }, [conflictDevice, conflictMatch]);
 
   const modeloById = useMemo(() => {
     const map = new Map();
@@ -792,6 +809,25 @@ export default function Devices() {
     try {
       await CoreApi.deleteDevice(id, { clientId });
       await load();
+      showToast("Equipamento removido", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
+    }
+  }
+
+  async function handleDeleteConflictDevice() {
+    if (!conflictDevice?.deviceId) return;
+    if (!window.confirm("Remover este equipamento?")) return;
+    const clientId = tenantId || user?.clientId || "";
+    if (!clientId) {
+      showToast("Selecione um cliente para remover o equipamento", "error");
+      return;
+    }
+    try {
+      await CoreApi.deleteDevice(conflictDevice.deviceId, { clientId });
+      await load();
+      resetDeviceForm();
+      setConflictDevice(null);
       showToast("Equipamento removido", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Não foi possível remover o equipamento", "error");
@@ -1540,10 +1576,21 @@ export default function Devices() {
             <div className="font-semibold text-white">UniqueId</div>
             <div className="break-all">{conflictDevice?.uniqueId || ""}</div>
           </div>
+          {!conflictDevice?.deviceId && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 p-3 text-sm text-amber-100">
+              Não foi possível localizar o equipamento automaticamente. Use a busca pelo uniqueId acima para encontrar e
+              remover o equipamento na lista.
+            </div>
+          )}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConflictDevice(null)}>
               Fechar
             </Button>
+            {conflictDevice?.deviceId && (
+              <Button variant="ghost" className="text-red-100 hover:text-white" onClick={handleDeleteConflictDevice}>
+                Excluir equipamento
+              </Button>
+            )}
             <Button onClick={handleGoToExistingDevice}>Ir para equipamento existente</Button>
           </div>
         </div>
