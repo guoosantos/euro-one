@@ -15,7 +15,7 @@ export default function ReportsStops() {
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,
-    selectedVehicle,
+    selectedVehicle: selectedVehicleData,
   } = useVehicleSelection({ syncQuery: true });
   const { data, loading, error, generate } = useReportsStops();
 
@@ -25,7 +25,7 @@ export default function ReportsStops() {
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
 
-  const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
+  const deviceId = deviceIdFromStore || selectedVehicleData?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();

@@ -3,17 +3,16 @@ import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context";
-import useDevices from "../lib/hooks/useDevices";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import { useEvents } from "../lib/hooks/useEvents";
 import useTasks from "../lib/hooks/useTasks";
-import { buildFleetState } from "../lib/fleet-utils";
+import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
+import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
-import VehicleSelector from "../components/VehicleSelector.jsx";
-import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 const COMMUNICATION_BUCKETS = [
   { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
@@ -31,67 +30,171 @@ export default function Home() {
   const navigate = useNavigate();
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
-  const { selectedVehicleId, selectedTelemetryDeviceId } = useVehicleSelection({ syncQuery: true });
 
-  const { data: devices = [], loading: loadingDevices } = useDevices();
+  const { vehicles, loading: loadingVehicles } = useVehicles({ includeUnlinked: true });
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
   const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 50 });
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
 
-  const normalizeDeviceKey = (device) =>
-    String(
-      device?.deviceId ??
-        device?.id ??
-        device?.uniqueId ??
-        device?.unique_id ??
-        device?.traccarId ??
-        device?.device_id ??
-        "",
-    );
+  const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
-  const scopedDevices = useMemo(() => {
-    if (!selectedVehicleId) return devices;
-    return devices.filter((device) => String(device?.vehicleId ?? device?.vehicle?.id) === String(selectedVehicleId));
-  }, [devices, selectedVehicleId]);
+  const positionByDevice = useMemo(() => {
+    const map = new Map();
+    positions.forEach((position) => {
+      const key = toDeviceKey(
+        position?.deviceId ??
+          position?.device?.id ??
+          position?.uniqueId ??
+          position?.id ??
+          position?.device?.deviceId,
+      );
+      if (!key) return;
+      map.set(String(key), position);
+    });
+    return map;
+  }, [positions]);
 
-  const scopedDeviceIds = useMemo(() => {
-    if (!selectedVehicleId) return null;
-    const ids = scopedDevices.map(normalizeDeviceKey).filter(Boolean);
-    return new Set(ids);
-  }, [scopedDevices, selectedVehicleId]);
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
 
-  const scopedPositions = useMemo(() => {
-    if (!scopedDeviceIds) return positions;
-    return positions.filter((pos) => scopedDeviceIds.has(normalizeDeviceKey(pos)));
-  }, [positions, scopedDeviceIds]);
+  const vehicleTelemetry = useMemo(
+    () =>
+      vehicles.map((vehicle) => {
+        const devices = normalizeVehicleDevices(vehicle);
+        const primaryKey = vehicle.primaryDeviceId ? String(vehicle.primaryDeviceId) : null;
+        let primaryDevice = primaryKey
+          ? devices.find((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId) === primaryKey)
+          : null;
 
-  const scopedEvents = useMemo(() => {
-    if (!scopedDeviceIds) return events;
-    return events.filter((event) => scopedDeviceIds.has(normalizeDeviceKey(event)));
-  }, [events, scopedDeviceIds]);
+        if (!primaryDevice && devices.length) {
+          let newestDevice = null;
+          let newestTime = null;
+          devices.forEach((device) => {
+            const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+            if (!key) return;
+            const position = positionByDevice.get(String(key));
+            const timestamp = parsePositionTime(position);
+            if (!timestamp) return;
+            if (!newestTime || timestamp > newestTime) {
+              newestTime = timestamp;
+              newestDevice = device;
+            }
+          });
+          primaryDevice = newestDevice ?? null;
+        }
+
+        const deviceKey = primaryDevice
+          ? toDeviceKey(primaryDevice?.id ?? primaryDevice?.deviceId ?? primaryDevice?.uniqueId ?? primaryDevice?.traccarId)
+          : null;
+        const position = deviceKey ? positionByDevice.get(String(deviceKey)) : null;
+        return { vehicle, device: primaryDevice, deviceKey, position };
+      }),
+    [positionByDevice, vehicles],
+  );
+
+  const linkedVehicles = useMemo(
+    () => vehicleTelemetry.filter((item) => Boolean(item.deviceKey)),
+    [vehicleTelemetry],
+  );
+
+  const fleetDevices = useMemo(
+    () =>
+      linkedVehicles.map((entry) => ({
+        ...entry.device,
+        id: entry.deviceKey,
+        deviceId: entry.deviceKey,
+        uniqueId: entry.device?.uniqueId ?? entry.deviceKey,
+        name: entry.vehicle?.name ?? entry.device?.name,
+        plate: entry.vehicle?.plate ?? entry.device?.plate,
+        vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId,
+      })),
+    [linkedVehicles],
+  );
+
+  const fleetPositions = useMemo(() => {
+    const keys = new Set(linkedVehicles.map((entry) => String(entry.deviceKey)));
+    return positions.filter((position) => {
+      const key = toDeviceKey(
+        position?.deviceId ??
+          position?.device?.id ??
+          position?.uniqueId ??
+          position?.id ??
+          position?.device?.deviceId,
+      );
+      return key && keys.has(String(key));
+    });
+  }, [linkedVehicles, positions]);
 
   const { summary, table } = useMemo(() => {
-    const { rows, stats } = buildFleetState(scopedDevices, scopedPositions, { tenantId });
+    const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId });
     return { summary: stats, table: rows };
-  }, [scopedDevices, scopedPositions, tenantId]);
+  }, [fleetDevices, fleetPositions, tenantId]);
 
-  const communicationBuckets = useMemo(() => buildOfflineBuckets(table), [table]);
-  const routeMetrics = useMemo(() => buildRouteMetrics(table, tasks), [table, tasks]);
-
-  const normalizedEvents = useMemo(
+  const decoratedTable = useMemo(
     () =>
-      scopedEvents.map((event) => {
-        const severity = normalizeSeverity(event);
-        const time = event.time ?? event.eventTime ?? event.serverTime;
-        return { ...event, severity, __time: time ? new Date(time).toISOString() : null };
+      table.map((row) => {
+        const vehicle = vehicleByDeviceId.get(String(row.id)) || null;
+        return {
+          ...row,
+          vehicle,
+          vehicleId: vehicle?.id ?? row.device?.vehicleId ?? row.vehicleId ?? null,
+        };
       }),
-    [scopedEvents],
+    [table, vehicleByDeviceId],
+  );
+
+  const communicationBuckets = useMemo(() => buildOfflineBuckets(decoratedTable), [decoratedTable]);
+  const routeMetrics = useMemo(
+    () => buildRouteMetrics(decoratedTable, tasks, vehicleByDeviceId),
+    [decoratedTable, tasks, vehicleByDeviceId],
+  );
+
+  const normalizedEvents = useMemo(() => {
+    return events.map((event) => {
+      const severity = normalizeSeverity(event);
+      const time = event.time ?? event.eventTime ?? event.serverTime;
+      return { ...event, severity, __time: time ? new Date(time).toISOString() : null };
+    });
+  }, [events]);
+
+  const eventsWithVehicle = useMemo(
+    () =>
+      normalizedEvents.map((event) => {
+        const deviceKey = toDeviceKey(event.deviceId ?? event.device?.id ?? event.device?.deviceId ?? event.id);
+        const vehicle =
+          event.vehicle ||
+          (event.vehicleId ? vehicleById.get(String(event.vehicleId)) || null : null) ||
+          (deviceKey ? vehicleByDeviceId.get(String(deviceKey)) || null : null) ||
+          (event.vehicleId ? { id: event.vehicleId } : null);
+        const vehicleId = event.vehicleId ?? vehicle?.id ?? null;
+        return { ...event, __deviceKey: deviceKey, vehicle, vehicleId };
+      }),
+    [normalizedEvents, vehicleByDeviceId, vehicleById],
   );
 
   const highSeverityEvents = useMemo(
-    () => normalizedEvents.filter((event) => event.severity === "critical" || event.severity === "high"),
-    [normalizedEvents],
+    () =>
+      eventsWithVehicle.filter(
+        (event) => event.vehicleId && (event.severity === "critical" || event.severity === "high"),
+      ),
+    [eventsWithVehicle],
   );
+
+  const highSeverityVehicleCount = useMemo(() => {
+    const ids = new Set();
+    highSeverityEvents.forEach((event) => {
+      if (event.vehicleId) ids.add(String(event.vehicleId));
+    });
+    return ids.size;
+  }, [highSeverityEvents]);
 
   const recentHighEvents = useMemo(() => highSeverityEvents.slice(0, 8), [highSeverityEvents]);
 
@@ -100,15 +203,15 @@ export default function Home() {
     const windowMs = 3 * 60 * 60 * 1000;
 
     for (const event of highSeverityEvents) {
-      const deviceKey = String(event.deviceId ?? event.device?.id ?? event.device?.deviceId ?? event.id ?? "");
-      if (!deviceKey || !event.__time) continue;
-      const existing = grouped.get(deviceKey) ?? [];
-      grouped.set(deviceKey, [...existing, event]);
+      const vehicleKey = String(event.vehicleId ?? "");
+      if (!vehicleKey || !event.__time) continue;
+      const existing = grouped.get(vehicleKey) ?? [];
+      grouped.set(vehicleKey, [...existing, event]);
     }
 
     return Array.from(grouped.entries())
-      .map(([deviceId, events]) => {
-        const sorted = [...events].sort((a, b) => new Date(a.__time || 0) - new Date(b.__time || 0));
+      .map(([vehicleId, entries]) => {
+        const sorted = [...entries].sort((a, b) => new Date(a.__time || 0) - new Date(b.__time || 0));
         const clusters = [];
         for (let i = 0; i < sorted.length; i += 1) {
           const cluster = [sorted[i]];
@@ -124,15 +227,17 @@ export default function Home() {
 
         const largestCluster = clusters.sort((a, b) => b.length - a.length)[0];
         if (!largestCluster) return null;
+        const vehicle = vehicleById.get(String(vehicleId)) || largestCluster[0]?.vehicle || null;
         return {
-          deviceId,
-          deviceName: largestCluster[0]?.deviceName,
+          vehicleId,
+          vehicleName: vehicle ? formatVehicleLabel(vehicle) : largestCluster[0]?.deviceName,
+          vehicle,
           count: largestCluster.length,
           events: largestCluster.sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0)),
         };
       })
       .filter(Boolean);
-  }, [highSeverityEvents]);
+  }, [highSeverityEvents, vehicleById]);
 
   const renderCommunicationSummary = (expanded = false) => (
     <Card
@@ -273,7 +378,9 @@ export default function Home() {
               >
                 <td className="py-2 pr-4 text-white/70">{formatDate(event.__time, locale)}</td>
                 <td className="py-2 pr-4 text-white/80">{translateEventType(event.type ?? event.event, locale, t)}</td>
-                <td className="py-2 pr-4 text-white/70">{event.deviceName ?? event.deviceId ?? "—"}</td>
+                <td className="py-2 pr-4 text-white/70">
+                  {event.vehicle ? formatVehicleLabel(event.vehicle) : event.deviceName ?? event.deviceId ?? "—"}
+                </td>
                 <td className="py-2 pr-4">
                   <SeverityBadge severity={event.severity} />
                 </td>
@@ -312,12 +419,12 @@ export default function Home() {
         <div className="space-y-3">
           {criticalByVehicle.map((group) => (
             <div
-              key={group.deviceId}
+              key={group.vehicleId}
               className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-3 hover:border-primary/40"
               onClick={() => openTripRange(group.events[0])}
             >
               <div className="flex items-center justify-between text-sm text-white">
-                <div className="font-semibold">{group.deviceName ?? group.deviceId}</div>
+                <div className="font-semibold">{group.vehicleName ?? group.vehicleId}</div>
                 <span className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-semibold text-red-200">
                   {group.count} eventos
                 </span>
@@ -363,11 +470,10 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <VehicleSelector className="max-w-sm" />
       <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
-          value={loadingDevices ? "…" : summary.total}
+          value={loadingVehicles ? "…" : summary.total}
           hint={t("home.syncedAt", {
             time: telemetryFetchedAt ? new Date(telemetryFetchedAt).toLocaleTimeString(locale) : "—",
           })}
@@ -381,7 +487,7 @@ export default function Home() {
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={loadingPositions ? "…" : highSeverityEvents.length}
+          value={loadingPositions ? "…" : highSeverityVehicleCount}
           hint={t("home.inAlertHint")}
           variant="alert"
           onClick={() => setSelectedCard("alert")}
@@ -404,7 +510,7 @@ export default function Home() {
     const from = new Date(time - 3 * 60 * 60 * 1000).toISOString();
     const to = new Date(time + 3 * 60 * 60 * 1000).toISOString();
     const deviceId = event.deviceId ?? event.device?.id ?? event.device?.deviceId;
-    const vehicleId = event.vehicleId ?? event.vehicle?.id ?? selectedVehicleId;
+    const vehicleId = event.vehicleId ?? event.vehicle?.id ?? null;
     if (!deviceId && !vehicleId) return;
     const search = new URLSearchParams();
     if (vehicleId) search.set("vehicleId", vehicleId);
@@ -477,13 +583,15 @@ function Metric({ label, value, onClick }) {
   );
 }
 
-function buildRouteMetrics(table = [], tasks = []) {
+function buildRouteMetrics(table = [], tasks = [], vehicleByDeviceId = new Map()) {
   const activeTasks = Array.isArray(tasks)
     ? tasks.filter((task) => !String(task.status || "").toLowerCase().includes("final"))
     : [];
   const routesByVehicle = new Map();
   activeTasks.forEach((task) => {
-    const key = String(task.vehicleId ?? task.deviceId ?? task.device?.id ?? task.deviceId);
+    const deviceKey = toDeviceKey(task.deviceId ?? task.device?.id ?? task.device?.deviceId ?? "");
+    const resolvedVehicleId = task.vehicleId ?? (deviceKey ? vehicleByDeviceId.get(String(deviceKey))?.id : null);
+    const key = resolvedVehicleId ? String(resolvedVehicleId) : "";
     if (key) routesByVehicle.set(key, task);
   });
 
@@ -497,8 +605,8 @@ function buildRouteMetrics(table = [], tasks = []) {
   const now = Date.now();
 
   for (const vehicle of table) {
-    const key = String(vehicle.id ?? vehicle.deviceId);
-    if (!routesByVehicle.has(key)) continue;
+    const key = String(vehicle.vehicleId ?? vehicle.vehicle?.id ?? vehicle.device?.vehicleId ?? vehicle.id ?? "");
+    if (!key || !routesByVehicle.has(key)) continue;
     totalWithRoute += 1;
     const online = vehicle.status === "online";
     if (online) withSignal += 1;

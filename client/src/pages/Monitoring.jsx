@@ -726,10 +726,7 @@ export default function Monitoring() {
   const isDetailsOpen = Boolean(detailsDeviceId);
   const closeDetails = useCallback(() => {
     setDetailsDeviceId(null);
-    setSelectedDeviceId(null);
-    setFocusTarget(null);
-    clearVehicleSelection();
-  }, [clearVehicleSelection]);
+  }, []);
 
   const openDetailsFor = useCallback((deviceId) => {
     setDetailsDeviceId(deviceId);
@@ -1239,7 +1236,6 @@ export default function Monitoring() {
                     containerClassName="bg-black/70 backdrop-blur-md"
                     errorMessage={geocodeError?.message}
                   />
-                  <VehicleSelector className="pointer-events-auto w-full max-w-sm rounded-lg border border-white/10 bg-black/70 px-2 py-2 backdrop-blur-md" />
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-2">
