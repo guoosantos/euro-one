@@ -1,18 +1,46 @@
 import React, { useMemo, useState } from "react";
-import useDevices from "../lib/hooks/useDevices";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useReportsStops from "../lib/hooks/useReportsStops";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 export default function ReportsStops() {
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const {
+    vehicles,
+    vehicleOptions,
+    loading: loadingVehicles,
+    error: vehiclesError,
+  } = useVehicles({ includeUnlinked: true });
+  const {
+    selectedVehicleId: vehicleId,
+    selectedTelemetryDeviceId: deviceIdFromStore,
+    selectedVehicle,
+  } = useVehicleSelection({ syncQuery: true });
   const { data, loading, error, generate } = useReportsStops();
 
-  const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [fetching, setFetching] = useState(false);
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
+
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId)) || null,
+    [vehicleId, vehicles],
+  );
+  const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
+  const deviceUnavailable = Boolean(vehicleId) && !deviceId;
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
 
   const stops = Array.isArray(data?.stops) ? data.stops : Array.isArray(data) ? data : [];
   const lastGeneratedAt = data?.__meta?.generatedAt;
@@ -28,7 +56,12 @@ export default function ReportsStops() {
     setFormError("");
     setFetching(true);
     try {
-      await generate({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      await generate({
+        deviceId,
+        vehicleId: vehicleId || vehicleByDeviceId.get(String(deviceId))?.id,
+        from: new Date(from).toISOString(),
+        to: new Date(to).toISOString(),
+      });
       setFeedback({ type: "success", message: "Relatório de paradas criado com sucesso." });
     } catch (requestError) {
       setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório de paradas." });
@@ -46,24 +79,7 @@ export default function ReportsStops() {
         </header>
 
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
-          <label className="text-sm md:col-span-2">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Dispositivo</span>
-            <select
-              value={deviceId}
-              onChange={(event) => setDeviceId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-              required
-            >
-              <option value="" disabled>
-                Selecione um dispositivo
-              </option>
-              {devices.map((device) => (
-                <option key={device.id ?? device.uniqueId} value={device.id ?? device.uniqueId}>
-                  {device.name ?? device.uniqueId ?? device.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <VehicleSelector className="text-sm md:col-span-2" />
 
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide opacity-60">Início</span>
@@ -188,7 +204,7 @@ function formatLocation(stop) {
 }
 
 function validateFields({ deviceId, from, to }) {
-  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!deviceId) return "Selecione um veículo com equipamento vinculado para gerar o relatório.";
   if (!from || !to) return "Preencha as datas de início e fim.";
   const fromDate = new Date(from);
   const toDate = new Date(to);

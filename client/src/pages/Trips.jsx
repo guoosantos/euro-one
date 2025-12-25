@@ -4,7 +4,7 @@ import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-import useDevices from "../lib/hooks/useDevices";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { useTranslation } from "../lib/i18n.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
@@ -18,6 +18,9 @@ import {
   MAP_LAYER_STORAGE_KEYS,
   getValidMapLayer,
 } from "../lib/mapLayers.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -327,7 +330,7 @@ function formatAttributeLabel(key) {
 }
 
 function validateRange({ deviceId, from, to }) {
-  if (!deviceId) return "Selecione um dispositivo para gerar o relatório.";
+  if (!deviceId) return "Selecione um veículo com equipamento vinculado para gerar o relatório.";
   const fromDate = parseDate(from);
   const toDate = parseDate(to);
   if (!fromDate || !toDate) return "Informe datas válidas para início e fim.";
@@ -713,8 +716,18 @@ export default function Trips() {
   const { locale } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
-  const { devices: rawDevices } = useDevices();
-  const devices = useMemo(() => (Array.isArray(rawDevices) ? rawDevices : []), [rawDevices]);
+  const {
+    vehicles,
+    vehicleOptions,
+    loading: loadingVehicles,
+    error: vehiclesError,
+  } = useVehicles({ includeUnlinked: true });
+  const {
+    selectedVehicleId: vehicleId,
+    selectedTelemetryDeviceId: deviceIdFromStore,
+    selectedVehicle,
+    setVehicleSelection,
+  } = useVehicleSelection({ syncQuery: true });
   const { data, loading, error, generateTripsReport, downloadTripsCsv } = useReports();
   const {
     data: routeData,
@@ -723,7 +736,6 @@ export default function Trips() {
     generate: generateRoute,
   } = useReportsRoute();
 
-  const [deviceId, setDeviceId] = useState("");
   const [from, setFrom] = useState(DEFAULT_FROM);
   const [to, setTo] = useState(DEFAULT_TO);
   const [formError, setFormError] = useState("");
@@ -745,6 +757,27 @@ export default function Trips() {
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const animationRef = useRef(null);
+  const initialisedRef = useRef(false);
+  const autoGenerateRef = useRef(false);
+
+  const selectedVehicle = useMemo(
+    () => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId)) || null,
+    [vehicleId, vehicles],
+  );
+
+  const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
+  const deviceUnavailable = Boolean(vehicleId) && !deviceId;
+
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
 
   const trips = useMemo(
     () => (Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : []),
@@ -1235,20 +1268,32 @@ export default function Trips() {
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
   useEffect(() => {
+    if (initialisedRef.current) return;
     const search = new URLSearchParams(location.search || "");
-    const queryDevice = search.get("deviceId") || search.get("device");
     const queryFrom = search.get("from");
     const queryTo = search.get("to");
 
-    if (queryDevice) setDeviceId(queryDevice);
     if (queryFrom) setFrom(asLocalInput(queryFrom, DEFAULT_FROM));
     if (queryTo) setTo(asLocalInput(queryTo, DEFAULT_TO));
-
-    if (queryDevice && queryFrom && queryTo && !trips.length) {
-      handleGenerate(queryDevice, queryFrom, queryTo);
-    }
+    initialisedRef.current = true;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
+
+  useEffect(() => {
+    if (!vehicleId && vehicleOptions.length === 1) {
+      setVehicleId(String(vehicleOptions[0].value));
+    }
+  }, [vehicleId, vehicleOptions]);
+
+  useEffect(() => {
+    if (!pendingDeviceParam || vehicleId) return;
+    const targetKey = toDeviceKey(pendingDeviceParam);
+    if (!targetKey) return;
+    const match = vehicleByDeviceId.get(String(targetKey));
+    if (match) {
+      setVehicleId(String(match.id));
+    }
+  }, [pendingDeviceParam, vehicleByDeviceId, vehicleId]);
 
   useEffect(() => {
     setActiveIndex(0);
@@ -1378,6 +1423,7 @@ export default function Trips() {
       try {
         const response = await generateTripsReport({
           deviceId: device,
+          vehicleId: vehicleId || vehicleByDeviceId.get(String(device))?.id,
           from: new Date(rangeFrom).toISOString(),
           to: new Date(rangeTo).toISOString(),
         });
@@ -1387,7 +1433,9 @@ export default function Trips() {
           await loadRouteForTrip(nextTrip);
         }
         navigate(
-          `/trips?deviceId=${encodeURIComponent(device)}&from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`,
+          `/trips?vehicleId=${encodeURIComponent(
+            vehicleId || vehicleByDeviceId.get(String(device))?.id || "",
+          )}${device ? `&deviceId=${encodeURIComponent(device)}` : ""}&from=${encodeURIComponent(rangeFrom)}&to=${encodeURIComponent(rangeTo)}`,
           { replace: true },
         );
         setFeedback({ type: "success", message: "Relatório gerado com sucesso." });
@@ -1395,7 +1443,7 @@ export default function Trips() {
         setFeedback({ type: "error", message: requestError?.message || "Erro ao gerar relatório." });
       }
     },
-    [deviceId, from, to, generateTripsReport, navigate, loadRouteForTrip],
+    [deviceId, from, to, generateTripsReport, navigate, loadRouteForTrip, vehicleByDeviceId, vehicleId],
   );
 
   const handleSubmit = useCallback(
@@ -1406,6 +1454,16 @@ export default function Trips() {
     [handleGenerate],
   );
 
+  useEffect(() => {
+    if (autoGenerateRef.current) return;
+    const search = new URLSearchParams(location.search || "");
+    const queryFrom = search.get("from");
+    const queryTo = search.get("to");
+    if (!queryFrom || !queryTo || !deviceId) return;
+    autoGenerateRef.current = true;
+    handleGenerate(deviceId, asLocalInput(queryFrom, DEFAULT_FROM), asLocalInput(queryTo, DEFAULT_TO));
+  }, [deviceId, handleGenerate, location.search]);
+
   const handleDownload = useCallback(async () => {
     const validation = validateRange({ deviceId, from, to });
     if (validation) {
@@ -1415,14 +1473,19 @@ export default function Trips() {
     setFormError("");
     setDownloading(true);
     try {
-      await downloadTripsCsv({ deviceId, from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+      await downloadTripsCsv({
+        deviceId,
+        vehicleId: vehicleId || vehicleByDeviceId.get(String(deviceId))?.id,
+        from: new Date(from).toISOString(),
+        to: new Date(to).toISOString(),
+      });
       setFeedback({ type: "success", message: "Exportação iniciada." });
     } catch (requestError) {
       setFeedback({ type: "error", message: requestError?.message || "Erro ao exportar CSV." });
     } finally {
       setDownloading(false);
     }
-  }, [deviceId, from, to, downloadTripsCsv]);
+  }, [deviceId, from, to, downloadTripsCsv, vehicleByDeviceId, vehicleId]);
 
   const handleSelectTrip = useCallback(
     async (trip) => {
@@ -1502,28 +1565,16 @@ export default function Trips() {
     <div className="space-y-6">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold text-white">Trajetos</h1>
-        <p className="text-sm text-white/60">Gere e acompanhe relatórios de viagens dos dispositivos.</p>
+        <p className="text-sm text-white/60">
+          Gere e acompanhe relatórios de viagens por veículo. Quando houver mais de um equipamento, usamos o principal disponível.
+        </p>
       </div>
 
       <form
         onSubmit={handleSubmit}
         className="grid gap-4 rounded-2xl border border-white/10 bg-white/5 p-4 sm:grid-cols-2 lg:grid-cols-4"
       >
-        <label className="space-y-1 text-sm text-white/80">
-          <span className="text-white/60">Dispositivo</span>
-          <select
-            value={deviceId}
-            onChange={(event) => setDeviceId(event.target.value)}
-            className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-white focus:border-primary/40 focus:outline-none"
-          >
-            <option value="">Selecione um dispositivo</option>
-            {devices.map((device) => (
-              <option key={device.id ?? device.uniqueId} value={device.id ?? device.uniqueId}>
-                {device.name || device.vehicle || device.uniqueId}
-              </option>
-            ))}
-          </select>
-        </label>
+        <VehicleSelector className="space-y-1 text-sm text-white/80" />
 
         <label className="space-y-1 text-sm text-white/80">
           <span className="text-white/60">De</span>
@@ -1960,4 +2011,3 @@ export default function Trips() {
     </div>
   );
 }
-

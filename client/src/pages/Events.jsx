@@ -1,10 +1,14 @@
 import React, { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import useDevices from "../lib/hooks/useDevices";
+import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { useEvents } from "../lib/hooks/useEvents";
 import { useTranslation } from "../lib/i18n.js";
 import { translateEventType } from "../lib/event-translations.js";
 import { formatAddress } from "../lib/format-address.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import DataState from "../ui/DataState.jsx";
 
 const EVENT_TYPES = [
   "all",
@@ -23,23 +27,51 @@ const EVENT_TYPES = [
 
 export default function Events() {
   const { locale } = useTranslation();
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
+  const {
+    vehicles,
+    loading: loadingVehicles,
+    error: vehiclesError,
+  } = useVehicles({ includeUnlinked: true });
   const [searchParams] = useSearchParams();
-  const [selectedDevice, setSelectedDevice] = useState("all");
+  const { selectedVehicleId, selectedTelemetryDeviceId } = useVehicleSelection({ syncQuery: true });
   const [type, setType] = useState("all");
   const [from, setFrom] = useState(() => new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [severity, setSeverity] = useState(() => searchParams.get("severity") ?? "all");
   const [notifications, setNotifications] = useState({ email: true, push: true, sms: false });
 
+  const vehicleById = useMemo(
+    () =>
+      new Map(
+        vehicles.map((vehicle) => [String(vehicle.id), vehicle]),
+      ),
+    [vehicles],
+  );
+
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      normalizeVehicleDevices(vehicle).forEach((device) => {
+        const key = toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId);
+        if (key) map.set(String(key), vehicle);
+      });
+    });
+    return map;
+  }, [vehicles]);
+
+  const selectedVehicle = selectedVehicleId ? vehicleById.get(String(selectedVehicleId)) || null : null;
+  const activeDeviceId = selectedTelemetryDeviceId || selectedVehicle?.primaryDeviceId || null;
+  const hasDevice = Boolean(activeDeviceId);
+  const filtersEnabled = Boolean(selectedVehicleId && hasDevice);
+
   const { events, loading, lastUpdated, error, refresh } = useEvents({
-    deviceId: selectedDevice === "all" ? undefined : selectedDevice,
+    deviceId: selectedVehicleId === "all" ? undefined : activeDeviceId,
     types: type === "all" ? undefined : type,
     from: from ? new Date(from).toISOString() : undefined,
     to: to ? new Date(to).toISOString() : undefined,
     severity: severity === "all" ? undefined : severity,
     refreshInterval: 15_000,
+    enabled: filtersEnabled,
   });
 
   const filteredEvents = useMemo(
@@ -55,14 +87,14 @@ export default function Events() {
     () =>
       filteredEvents.map((event) => ({
         id: event.id ?? `${event.deviceId}-${event.time}`,
-        device: resolveDeviceName(event, devices),
+        device: resolveVehicleName(event, vehicles, vehicleByDeviceId),
         type: event.type ?? event.attributes?.type ?? event.event,
         time: event.serverTime ?? event.eventTime ?? event.time,
         severity: normaliseSeverity(event),
         address: event.attributes?.address || event.address,
         description: event.attributes?.message || event.attributes?.description || event.attributes?.type || "—",
       })),
-    [filteredEvents, devices],
+    [filteredEvents, vehicles, vehicleByDeviceId],
   );
 
   return (
@@ -72,7 +104,7 @@ export default function Events() {
           <div>
             <h2 className="text-lg font-semibold">Eventos em tempo real</h2>
             <p className="text-xs opacity-70">
-              Filtre por dispositivo, tipo de evento e intervalo. Atualização automática a cada 15 segundos.
+              Filtre por veículo, tipo de evento e intervalo. Atualização automática a cada 15 segundos.
             </p>
           </div>
           <button
@@ -85,21 +117,7 @@ export default function Events() {
         </header>
 
         <div className="grid gap-4 md:grid-cols-5">
-          <label className="text-sm">
-            <span className="block text-xs uppercase tracking-wide opacity-60">Veículo</span>
-            <select
-              value={selectedDevice}
-              onChange={(event) => setSelectedDevice(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-border bg-layer px-3 py-2 text-sm focus:border-primary focus:outline-none"
-            >
-              <option value="all">Todos</option>
-              {devices.map((device) => (
-                <option key={device.id ?? device.deviceId ?? device.uniqueId} value={device.id ?? device.deviceId ?? device.uniqueId}>
-                  {device.name ?? device.uniqueId ?? device.id}
-                </option>
-              ))}
-            </select>
-          </label>
+          <VehicleSelector className="text-sm" />
 
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide opacity-60">Tipo</span>
@@ -153,6 +171,22 @@ export default function Events() {
         </div>
 
         <div className="overflow-x-auto">
+          {!selectedVehicleId && (
+            <DataState
+              tone="muted"
+              state="info"
+              title="Selecione um veículo"
+              description="Escolha um veículo para visualizar os eventos."
+            />
+          )}
+          {selectedVehicleId && !hasDevice && (
+            <DataState
+              tone="muted"
+              state="warning"
+              title="Sem equipamento vinculado"
+              description="Associe um equipamento ao veículo para visualizar eventos."
+            />
+          )}
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wider opacity-60">
               <tr>
@@ -181,7 +215,7 @@ export default function Events() {
               {!loading && !error && rows.length === 0 && (
                 <tr>
                   <td colSpan={5} className="py-4 text-center text-sm opacity-60">
-                    Nenhum evento para o filtro selecionado.
+                    {filtersEnabled ? "Nenhum evento para o filtro selecionado." : "Selecione um veículo com equipamento vinculado para carregar eventos."}
                   </td>
                 </tr>
               )}
@@ -270,11 +304,23 @@ function SeverityPill({ severity }) {
   return <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-medium ${className}`}>{severity ?? "Normal"}</span>;
 }
 
-function resolveDeviceName(event, devices) {
-  const targetId = event.deviceId ?? event.device?.id ?? event.device;
-  if (!targetId) return event.deviceName || "—";
-  const match = devices.find((device) => String(device.id ?? device.deviceId ?? device.uniqueId) === String(targetId));
-  return match?.name ?? match?.attributes?.name ?? event.deviceName ?? `Veículo ${targetId}`;
+function resolveVehicleName(event, vehicles, vehicleByDeviceId) {
+  const targetVehicleId =
+    event.vehicleId ||
+    event.vehicle?.id ||
+    event.attributes?.vehicleId ||
+    event.attributes?.vehicle_id;
+  if (targetVehicleId) {
+    const directVehicle = vehicles.find((vehicle) => String(vehicle.id) === String(targetVehicleId));
+    if (directVehicle) return formatVehicleLabel(directVehicle);
+  }
+
+  const targetDeviceId = toDeviceKey(event.deviceId ?? event.device?.id ?? event.device);
+  if (targetDeviceId && vehicleByDeviceId.has(String(targetDeviceId))) {
+    return formatVehicleLabel(vehicleByDeviceId.get(String(targetDeviceId)));
+  }
+
+  return event.deviceName || "—";
 }
 
 function renderNotificationSummary(notifications) {

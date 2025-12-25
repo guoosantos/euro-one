@@ -29,6 +29,8 @@ const initialState = {
   locale: "pt-BR",
   monitoringTopbarVisible: true,
   geofencesTopbarVisible: true,
+  selectedVehicleId: null,
+  selectedTelemetryDeviceId: null,
   ...loadState(),
 };
 
@@ -39,6 +41,8 @@ function persistNextState(nextState) {
     sidebarCollapsed: nextState.sidebarCollapsed,
     monitoringTopbarVisible: nextState.monitoringTopbarVisible,
     geofencesTopbarVisible: nextState.geofencesTopbarVisible,
+    selectedVehicleId: nextState.selectedVehicleId,
+    selectedTelemetryDeviceId: nextState.selectedTelemetryDeviceId,
   });
 }
 
@@ -100,6 +104,22 @@ export const useUI = create((set, get) => ({
     set((state) => {
       const value = visible !== false;
       const next = { ...state, geofencesTopbarVisible: value };
+      persistNextState(next);
+      return next;
+    }),
+  setVehicleSelection: (vehicleId, telemetryDeviceId = null) =>
+    set((state) => {
+      const next = {
+        ...state,
+        selectedVehicleId: vehicleId ?? null,
+        selectedTelemetryDeviceId: telemetryDeviceId ?? null,
+      };
+      persistNextState(next);
+      return next;
+    }),
+  clearVehicleSelection: () =>
+    set((state) => {
+      const next = { ...state, selectedVehicleId: null, selectedTelemetryDeviceId: null };
       persistNextState(next);
       return next;
     }),

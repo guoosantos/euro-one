@@ -8,6 +8,7 @@ export default function VehicleDetailsDrawer({
   variant = "drawer",
   extraTabs = [],
   baseTabs: baseTabsOverride = null,
+  floating = true,
 }) {
   const { t } = useTranslation();
   const safeVehicle = vehicle || {};
@@ -205,7 +206,7 @@ export default function VehicleDetailsDrawer({
   const containerClass =
     variant === "page"
       ? "relative mx-auto w-full max-w-6xl border border-white/10 bg-[#0f141c]/90 shadow-2xl"
-      : "fixed inset-y-0 right-0 z-[9998] w-full max-w-xl border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur";
+      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] w-full max-w-xl border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
 
   return (
     <div className={containerClass}>
