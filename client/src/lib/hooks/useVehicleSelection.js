@@ -20,17 +20,22 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   useEffect(() => {
     const search = new URLSearchParams(location.search || "");
     const queryVehicleId = search.get("vehicleId");
-    if (queryVehicleId && queryVehicleId !== selectedVehicleId) {
-      const nextVehicle = vehicleById.get(String(queryVehicleId));
-      setVehicleSelection(queryVehicleId, nextVehicle?.primaryDeviceId ?? null);
+    const normalizedQuery = queryVehicleId ? String(queryVehicleId) : null;
+    const normalizedSelected = selectedVehicleId ? String(selectedVehicleId) : null;
+    if (normalizedQuery && normalizedQuery !== normalizedSelected) {
+      const nextVehicle = vehicleById.get(normalizedQuery);
+      setVehicleSelection(normalizedQuery, nextVehicle?.primaryDeviceId ?? null);
     }
   }, [location.search, selectedVehicleId, setVehicleSelection, vehicleById]);
 
   useEffect(() => {
     if (!selectedVehicleId) return;
-    const match = vehicleById.get(String(selectedVehicleId));
-    if (match && selectedTelemetryDeviceId !== match.primaryDeviceId) {
-      setVehicleSelection(selectedVehicleId, match.primaryDeviceId ?? null);
+    const normalizedVehicleId = String(selectedVehicleId);
+    const match = vehicleById.get(normalizedVehicleId);
+    const normalizedSelectedDevice = selectedTelemetryDeviceId ? String(selectedTelemetryDeviceId) : null;
+    const normalizedMatchDevice = match?.primaryDeviceId ? String(match.primaryDeviceId) : null;
+    if (match && normalizedSelectedDevice !== normalizedMatchDevice) {
+      setVehicleSelection(normalizedVehicleId, match?.primaryDeviceId ?? null);
     }
   }, [selectedTelemetryDeviceId, selectedVehicleId, setVehicleSelection, vehicleById]);
 
@@ -57,9 +62,10 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
       clearVehicleSelection();
       return;
     }
-    const target = vehicleById.get(String(vehicleId));
+    const normalizedVehicleId = String(vehicleId);
+    const target = vehicleById.get(normalizedVehicleId);
     const resolvedDevice = deviceId ?? target?.primaryDeviceId ?? null;
-    setVehicleSelection(vehicleId, resolvedDevice);
+    setVehicleSelection(normalizedVehicleId, resolvedDevice);
   };
 
   return {

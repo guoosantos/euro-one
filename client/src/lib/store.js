@@ -109,16 +109,27 @@ export const useUI = create((set, get) => ({
     }),
   setVehicleSelection: (vehicleId, telemetryDeviceId = null) =>
     set((state) => {
+      const nextVehicleId = vehicleId !== null && vehicleId !== undefined ? String(vehicleId) : null;
+      const nextDeviceId = telemetryDeviceId !== null && telemetryDeviceId !== undefined ? String(telemetryDeviceId) : null;
+      if (
+        String(state.selectedVehicleId ?? "") === String(nextVehicleId ?? "") &&
+        String(state.selectedTelemetryDeviceId ?? "") === String(nextDeviceId ?? "")
+      ) {
+        return state;
+      }
       const next = {
         ...state,
-        selectedVehicleId: vehicleId ?? null,
-        selectedTelemetryDeviceId: telemetryDeviceId ?? null,
+        selectedVehicleId: nextVehicleId,
+        selectedTelemetryDeviceId: nextDeviceId,
       };
       persistNextState(next);
       return next;
     }),
   clearVehicleSelection: () =>
     set((state) => {
+      if (state.selectedVehicleId === null && state.selectedTelemetryDeviceId === null) {
+        return state;
+      }
       const next = { ...state, selectedVehicleId: null, selectedTelemetryDeviceId: null };
       persistNextState(next);
       return next;
