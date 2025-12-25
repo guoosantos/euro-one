@@ -5,7 +5,7 @@ import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 export default function VehicleSelector({
   label = "Veículo",
   placeholder = "Selecione um veículo",
-  allowUnlinked = true,
+  allowUnlinked = false,
   className = "",
   onChange,
 }) {

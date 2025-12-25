@@ -31,6 +31,14 @@ export default function MonitoringTable({
       .filter(([, value]) => Number.isFinite(value) && value > 0),
   );
 
+  const areWidthsEqual = (left = {}, right = {}) => {
+    const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+    for (const key of keys) {
+      if (left[key] !== right[key]) return false;
+    }
+    return true;
+  };
+
   const baseWidths = useMemo(
     () => (
       normalizedColumns.reduce((acc, col) => {
@@ -43,6 +51,10 @@ export default function MonitoringTable({
   );
 
   const sanitizedExternalWidths = useMemo(() => sanitizeWidths(externalWidths || {}), [externalWidths]);
+  const mergedBaseWidths = useMemo(
+    () => ({ ...baseWidths, ...sanitizedExternalWidths }),
+    [baseWidths, sanitizedExternalWidths],
+  );
 
   const [columnWidths, setColumnWidths] = useState({ ...baseWidths, ...sanitizedExternalWidths });
   const liveWidthsRef = useRef(columnWidths);
@@ -61,14 +73,10 @@ export default function MonitoringTable({
 
   useEffect(() => {
     setColumnWidths((prev) => {
-      const next = { ...baseWidths, ...sanitizedExternalWidths, ...prev };
-
-      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
-      const hasDiff = Array.from(keys).some((key) => prev[key] !== next[key]);
-
-      return hasDiff ? next : prev;
+      const next = { ...mergedBaseWidths, ...prev };
+      return areWidthsEqual(prev, next) ? prev : next;
     });
-  }, [baseWidths, sanitizedExternalWidths]);
+  }, [mergedBaseWidths]);
 
   useEffect(() => {
     if (!selectedDeviceId) return;

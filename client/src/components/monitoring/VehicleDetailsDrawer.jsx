@@ -98,7 +98,7 @@ export default function VehicleDetailsDrawer({
                 device?.id ||
                 safeVehicle.principalDeviceId ||
                 safeVehicle.deviceId ||
-                "Sem equipamento vinculado"
+                "—"
               }
             />
             <Detail label="Velocidade" value={`${position?.speed ?? safeVehicle.speed ?? 0} km/h`} />
@@ -125,7 +125,7 @@ export default function VehicleDetailsDrawer({
               Ver trajetos
             </Link>
           ) : (
-            <p className="text-xs text-white/50">Sem equipamento vinculado.</p>
+            <p className="text-xs text-white/50">Telemetria indisponível.</p>
           )}
         </Section>
       );
@@ -206,14 +206,14 @@ export default function VehicleDetailsDrawer({
   const containerClass =
     variant === "page"
       ? "relative mx-auto w-full max-w-6xl border border-white/10 bg-[#0f141c]/90 shadow-2xl"
-      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] w-full max-w-xl border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
+      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] w-[420px] border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
 
   return (
     <div className={containerClass}>
       <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
         <div>
           <p className="text-xs uppercase tracking-[0.14em] text-white/50">{t("monitoring.columns.vehicle")}</p>
-          <h2 className="text-lg font-semibold text-white">{safeVehicle.plate || safeVehicle.name || "Sem equipamento vinculado"}</h2>
+          <h2 className="text-lg font-semibold text-white">{safeVehicle.plate || safeVehicle.name || "Veículo"}</h2>
           <p className="text-xs text-white/60">{device?.name || device?.uniqueId || safeVehicle.name || "Fonte: veículo"}</p>
           {devices.length > 0 ? (
             <div className="mt-2">
@@ -230,9 +230,7 @@ export default function VehicleDetailsDrawer({
                 ))}
               </select>
             </div>
-          ) : (
-            <p className="text-[11px] text-yellow-200/80">Sem equipamento vinculado</p>
-          )}
+          ) : null}
         </div>
         {onClose && (
           <button

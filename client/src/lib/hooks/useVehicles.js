@@ -49,7 +49,7 @@ export function formatVehicleLabel(vehicle) {
   return plate || name || vehicle?.identifier || vehicle?.id || "Veículo";
 }
 
-export function useVehicles({ includeUnlinked = true } = {}) {
+export function useVehicles({ includeUnlinked = false } = {}) {
   const { tenantId } = useTenant();
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(false);

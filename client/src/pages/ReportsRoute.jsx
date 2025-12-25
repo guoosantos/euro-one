@@ -30,7 +30,7 @@ export default function ReportsRoute() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles({ includeUnlinked: true });
+  } = useVehicles();
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,

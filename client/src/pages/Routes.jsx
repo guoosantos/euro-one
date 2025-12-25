@@ -303,7 +303,7 @@ export default function RoutesPage() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles({ includeUnlinked: true });
+  } = useVehicles();
   const { selectedVehicleId: vehicleId, selectedTelemetryDeviceId: deviceIdFromStore } = useVehicleSelection({
     syncQuery: true,
   });

@@ -10,7 +10,6 @@ import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutS
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
 import DataState from "../ui/DataState.jsx";
-import VehicleSelector from "../components/VehicleSelector.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
@@ -1135,6 +1134,8 @@ export default function Monitoring() {
     });
   }, [columnPrefs.widths, visibleColumns]);
 
+  const stableColumnWidths = useMemo(() => columnPrefs.widths || {}, [columnPrefs.widths]);
+
   const tableHeightPercent = useMemo(
     () => (layoutVisibility.showMap ? Math.max(10, 100 - localMapHeight) : 100),
     [layoutVisibility.showMap, localMapHeight],
@@ -1198,13 +1199,6 @@ export default function Monitoring() {
       className="relative grid h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0b0f17]"
       style={{ gridTemplateRows }}
     >
-      {globalVehicleId && !globalDeviceId && (
-        <div className="pointer-events-none absolute left-1/2 top-3 z-40 w-full max-w-lg -translate-x-1/2 px-3">
-          <div className="pointer-events-auto rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs text-yellow-100">
-            Sem equipamento vinculado. Associe um equipamento ao veículo para visualizar telemetria.
-          </div>
-        </div>
-      )}
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 h-full border-b border-white/10">
           <MonitoringMap
@@ -1293,31 +1287,28 @@ export default function Monitoring() {
         <div className="relative z-20 flex h-full min-h-0 flex-col overflow-hidden bg-[#0f141c]">
           <div className="border-b border-white/10 px-3 py-2">
             {layoutVisibility.showToolbar ? (
-              <div className="flex flex-col justify-center gap-2 lg:flex-row lg:items-center lg:justify-between">
-                <VehicleSelector className="w-full max-w-xs" />
-                <MonitoringToolbar
-                  vehicleSearchTerm={vehicleQuery}
-                  onVehicleSearchChange={handleVehicleSearchChange}
-                  vehicleSuggestions={vehicleSuggestions}
-                  onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
-                  addressSearchTerm={addressQuery}
-                  onAddressSearchChange={setAddressQuery}
-                  onAddressSubmit={handleAddressSubmit}
-                  addressSuggestions={addressSuggestionOptions}
-                  onSelectAddressSuggestion={handleSelectAddressSuggestion}
-                  addressError={geocodeError?.message}
-                  filterMode={filterMode}
-                  onFilterChange={setFilterMode}
-                  summary={summary}
-                  activePopup={activePopup}
-                  onTogglePopup={handleTogglePopup}
-                  isSearchingRegion={isSearching}
-                  layoutButtonRef={layoutButtonRef}
-                  onClearAddress={handleClearAddress}
-                  hasSelection={Boolean(selectedDeviceId)}
-                  onClearSelection={clearSelection}
-                />
-              </div>
+              <MonitoringToolbar
+                vehicleSearchTerm={vehicleQuery}
+                onVehicleSearchChange={handleVehicleSearchChange}
+                vehicleSuggestions={vehicleSuggestions}
+                onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
+                addressSearchTerm={addressQuery}
+                onAddressSearchChange={setAddressQuery}
+                onAddressSubmit={handleAddressSubmit}
+                addressSuggestions={addressSuggestionOptions}
+                onSelectAddressSuggestion={handleSelectAddressSuggestion}
+                addressError={geocodeError?.message}
+                filterMode={filterMode}
+                onFilterChange={setFilterMode}
+                summary={summary}
+                activePopup={activePopup}
+                onTogglePopup={handleTogglePopup}
+                isSearchingRegion={isSearching}
+                layoutButtonRef={layoutButtonRef}
+                onClearAddress={handleClearAddress}
+                hasSelection={Boolean(selectedDeviceId)}
+                onClearSelection={clearSelection}
+              />
             ) : (
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
                 <div className="flex w-full flex-1 flex-wrap gap-2">
@@ -1339,7 +1330,6 @@ export default function Monitoring() {
                     onClear={handleClearAddress}
                     errorMessage={geocodeError?.message}
                   />
-                  <VehicleSelector className="w-full max-w-xs" />
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -1404,7 +1394,7 @@ export default function Monitoring() {
                 onRowClick={handleRowClick}
                 loading={loading}
                 emptyText={t("monitoring.emptyState")}
-                columnWidths={columnPrefs.widths}
+                columnWidths={stableColumnWidths}
                 onColumnWidthChange={updateColumnWidth}
               />
             </div>
@@ -1456,7 +1446,7 @@ export default function Monitoring() {
             className="flex-1 bg-black/40 backdrop-blur-sm"
             onClick={closeDetails}
           />
-          <div className="pointer-events-auto relative w-full max-w-xl" onClick={(event) => event.stopPropagation()}>
+          <div className="pointer-events-auto relative w-[420px] max-w-[420px]" onClick={(event) => event.stopPropagation()}>
             <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
           </div>
         </div>
