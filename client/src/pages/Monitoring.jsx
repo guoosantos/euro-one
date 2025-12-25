@@ -732,19 +732,6 @@ export default function Monitoring() {
     setDetailsDeviceId(deviceId);
   }, []);
 
-  useEffect(() => {
-    if (!globalDeviceId && !globalVehicleId) return;
-    const target =
-      decoratedRows.find((row) => row.deviceId === globalDeviceId) ||
-      decoratedRows.find((row) => {
-        const vehicleId = row.device?.vehicleId ?? row.device?.vehicle?.id ?? row.vehicle?.id;
-        return vehicleId && globalVehicleId && String(vehicleId) === String(globalVehicleId);
-      });
-    if (target) {
-      focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
-    }
-  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId]);
-
   const focusDevice = useCallback((deviceId, { openDetails = false, allowToggle = true } = {}) => {
     if (!deviceId) return;
     const isAlreadySelected = selectedDeviceId === deviceId;
@@ -786,6 +773,19 @@ export default function Monitoring() {
       targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
     setVehicleSelection(targetVehicleId, deviceId);
   }, [decoratedRows, mapViewport, openDetailsFor, selectedDeviceId, setVehicleSelection]);
+
+  useEffect(() => {
+    if (!globalDeviceId && !globalVehicleId) return;
+    const target =
+      decoratedRows.find((row) => row.deviceId === globalDeviceId) ||
+      decoratedRows.find((row) => {
+        const vehicleId = row.device?.vehicleId ?? row.device?.vehicle?.id ?? row.vehicle?.id;
+        return vehicleId && globalVehicleId && String(vehicleId) === String(globalVehicleId);
+      });
+    if (target) {
+      focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
+    }
+  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId]);
 
   useEffect(() => {
     if (!isDetailsOpen) return undefined;

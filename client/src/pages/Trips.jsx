@@ -1285,12 +1285,18 @@ export default function Trips() {
     const search = new URLSearchParams(location.search || "");
     const pendingVehicleParam = search.get("vehicleId");
     const pendingDeviceParam = search.get("deviceId") || search.get("device");
+    const currentVehicleId = vehicleId ? String(vehicleId) : "";
+    const currentDeviceId = deviceIdFromStore ? String(deviceIdFromStore) : "";
 
     if (pendingVehicleParam) {
-      const match = vehicleById.get(String(pendingVehicleParam));
+      const targetVehicleId = String(pendingVehicleParam);
+      const match = vehicleById.get(targetVehicleId);
+      const targetDeviceId = pendingDeviceParam || match?.primaryDeviceId || null;
+      const normalizedTargetDeviceId = targetDeviceId ? String(targetDeviceId) : "";
+      if (currentVehicleId === targetVehicleId && currentDeviceId === normalizedTargetDeviceId) return;
       setVehicleSelection(
-        pendingVehicleParam,
-        pendingDeviceParam || match?.primaryDeviceId || null,
+        targetVehicleId,
+        targetDeviceId,
       );
       return;
     }
@@ -1300,9 +1306,12 @@ export default function Trips() {
     if (!targetKey) return;
     const match = vehicleByDeviceId.get(String(targetKey));
     if (match) {
-      setVehicleSelection(String(match.id), pendingDeviceParam);
+      const targetVehicleId = String(match.id);
+      const targetDeviceId = String(pendingDeviceParam);
+      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) return;
+      setVehicleSelection(targetVehicleId, pendingDeviceParam);
     }
-  }, [location.search, setVehicleSelection, vehicleByDeviceId, vehicleById, vehicleId]);
+  }, [location.search, setVehicleSelection, vehicleByDeviceId, vehicleById, vehicleId, deviceIdFromStore]);
 
   useEffect(() => {
     setActiveIndex(0);
