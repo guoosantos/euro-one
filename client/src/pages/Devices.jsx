@@ -397,9 +397,7 @@ export default function Devices() {
     try {
       const clientId = tenantId || user?.clientId;
       const vehiclesParams = clientId ? { clientId } : {};
-      if (["admin", "manager"].includes(user?.role)) {
-        vehiclesParams.includeUnlinked = true;
-      }
+      vehiclesParams.includeUnlinked = true;
       const [deviceResult, modelResult, chipResult, vehicleResult] = await Promise.allSettled([
         CoreApi.listDevices(clientId ? { clientId } : undefined),
         CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),

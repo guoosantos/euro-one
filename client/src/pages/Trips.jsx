@@ -759,12 +759,6 @@ export default function Trips() {
   const animationRef = useRef(null);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
-
-  const selectedVehicle = useMemo(
-    () => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId)) || null,
-    [vehicleId, vehicles],
-  );
-
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -1606,6 +1600,11 @@ export default function Trips() {
         </div>
       </form>
 
+      {deviceUnavailable && (
+        <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+          Selecione um veículo com equipamento vinculado para gerar trajetos.
+        </div>
+      )}
       {formError ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">{formError}</div> : null}
       {feedback && feedback.type === "success" && (
         <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-100">

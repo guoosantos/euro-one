@@ -59,7 +59,10 @@ export function useVehicles({ includeUnlinked = true } = {}) {
     setLoading(true);
     setError(null);
     try {
-      const params = tenantId ? { clientId: tenantId } : undefined;
+      const params = tenantId ? { clientId: tenantId } : {};
+      if (includeUnlinked) {
+        params.includeUnlinked = true;
+      }
       const response = await CoreApi.listVehicles(params);
       const list = Array.isArray(response) ? response : [];
       setVehicles(list);
@@ -68,7 +71,7 @@ export function useVehicles({ includeUnlinked = true } = {}) {
     } finally {
       setLoading(false);
     }
-  }, [tenantId]);
+  }, [includeUnlinked, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});

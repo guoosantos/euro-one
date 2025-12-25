@@ -768,7 +768,7 @@ export default function RoutesPage() {
             >
               <option value="">Selecione um veículo</option>
               {vehicleOptions.map((vehicle) => (
-                <option key={vehicle.value} value={vehicle.value} disabled={!vehicle.hasDevice}>
+                <option key={vehicle.value} value={vehicle.value}>
                   {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
                 </option>
               ))}

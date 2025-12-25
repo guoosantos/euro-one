@@ -724,7 +724,12 @@ export default function Monitoring() {
   );
 
   const isDetailsOpen = Boolean(detailsDeviceId);
-  const closeDetails = useCallback(() => setDetailsDeviceId(null), []);
+  const closeDetails = useCallback(() => {
+    setDetailsDeviceId(null);
+    setSelectedDeviceId(null);
+    setFocusTarget(null);
+    clearVehicleSelection();
+  }, [clearVehicleSelection]);
 
   const openDetailsFor = useCallback((deviceId) => {
     setDetailsDeviceId(deviceId);
@@ -1185,6 +1190,13 @@ export default function Monitoring() {
       className="relative grid h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0b0f17]"
       style={{ gridTemplateRows }}
     >
+      {globalVehicleId && !globalDeviceId && (
+        <div className="pointer-events-none absolute left-1/2 top-3 z-40 w-full max-w-lg -translate-x-1/2 px-3">
+          <div className="pointer-events-auto rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-2 text-xs text-yellow-100">
+            Sem equipamento vinculado. Associe um equipamento ao veículo para visualizar telemetria.
+          </div>
+        </div>
+      )}
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 h-full border-b border-white/10">
           <MonitoringMap

@@ -25,10 +25,6 @@ export default function ReportsStops() {
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
 
-  const selectedVehicle = useMemo(
-    () => vehicles.find((vehicle) => String(vehicle.id) === String(vehicleId)) || null,
-    [vehicleId, vehicles],
-  );
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
   const vehicleByDeviceId = useMemo(() => {
@@ -111,6 +107,12 @@ export default function ReportsStops() {
             </button>
           </div>
         </form>
+
+        {deviceUnavailable && (
+          <div className="rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+            Selecione um veículo com equipamento vinculado para gerar o relatório.
+          </div>
+        )}
 
         {error && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
