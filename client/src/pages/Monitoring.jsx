@@ -726,7 +726,10 @@ export default function Monitoring() {
   const isDetailsOpen = Boolean(detailsDeviceId);
   const closeDetails = useCallback(() => {
     setDetailsDeviceId(null);
-  }, []);
+    setSelectedDeviceId(null);
+    setFocusTarget(null);
+    clearVehicleSelection();
+  }, [clearVehicleSelection]);
 
   const openDetailsFor = useCallback((deviceId) => {
     setDetailsDeviceId(deviceId);
@@ -771,8 +774,14 @@ export default function Monitoring() {
     if (openDetails) openDetailsFor(deviceId);
     const targetVehicleId =
       targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
-    setVehicleSelection(targetVehicleId, deviceId);
-  }, [decoratedRows, mapViewport, openDetailsFor, selectedDeviceId, setVehicleSelection]);
+    const normalizedVehicleId = targetVehicleId ? String(targetVehicleId) : null;
+    const normalizedDeviceId = deviceId ? String(deviceId) : null;
+    const currentVehicleId = globalVehicleId ? String(globalVehicleId) : null;
+    const currentDeviceId = globalDeviceId ? String(globalDeviceId) : null;
+    if (normalizedVehicleId !== currentVehicleId || normalizedDeviceId !== currentDeviceId) {
+      setVehicleSelection(normalizedVehicleId, normalizedDeviceId);
+    }
+  }, [decoratedRows, globalDeviceId, globalVehicleId, mapViewport, openDetailsFor, selectedDeviceId, setVehicleSelection]);
 
   useEffect(() => {
     if (!globalDeviceId && !globalVehicleId) return;
@@ -783,9 +792,11 @@ export default function Monitoring() {
         return vehicleId && globalVehicleId && String(vehicleId) === String(globalVehicleId);
       });
     if (target) {
-      focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
+      if (target.deviceId !== selectedDeviceId) {
+        focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
+      }
     }
-  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId]);
+  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId, selectedDeviceId]);
 
   useEffect(() => {
     if (!isDetailsOpen) return undefined;
