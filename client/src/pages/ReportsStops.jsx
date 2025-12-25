@@ -11,7 +11,7 @@ export default function ReportsStops() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles({ includeUnlinked: true });
+  } = useVehicles();
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,

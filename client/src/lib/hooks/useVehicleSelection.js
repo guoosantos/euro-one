@@ -6,7 +6,7 @@ import useVehicles from "./useVehicles.js";
 export default function useVehicleSelection({ syncQuery = true } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { vehicles } = useVehicles({ includeUnlinked: true });
+  const { vehicles } = useVehicles();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);

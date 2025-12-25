@@ -31,7 +31,7 @@ export default function Events() {
     vehicles,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles({ includeUnlinked: true });
+  } = useVehicles();
   const [searchParams] = useSearchParams();
   const { selectedVehicleId, selectedTelemetryDeviceId } = useVehicleSelection({ syncQuery: true });
   const [type, setType] = useState("all");

@@ -721,7 +721,7 @@ export default function Trips() {
     vehicleOptions,
     loading: loadingVehicles,
     error: vehiclesError,
-  } = useVehicles({ includeUnlinked: true });
+  } = useVehicles();
   const {
     selectedVehicleId: vehicleId,
     selectedTelemetryDeviceId: deviceIdFromStore,

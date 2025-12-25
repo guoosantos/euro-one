@@ -31,7 +31,7 @@ export default function Home() {
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
 
-  const { vehicles, loading: loadingVehicles } = useVehicles({ includeUnlinked: true });
+  const { vehicles, loading: loadingVehicles } = useVehicles();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
   const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 50 });
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
