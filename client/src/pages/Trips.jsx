@@ -1198,10 +1198,15 @@ export default function Trips() {
     const availableKeys = availableColumnDefs.map((column) => column.key);
     setSelectedColumns((prev) => {
       const filtered = prev.filter((key) => availableKeys.includes(key));
-      if (filtered.length) return filtered;
-      const defaults = DEFAULT_COLUMN_PRESET.filter((key) => availableKeys.includes(key));
-      if (defaults.length) return defaults;
-      return availableKeys;
+      const next =
+        filtered.length
+          ? filtered
+          : DEFAULT_COLUMN_PRESET.filter((key) => availableKeys.includes(key));
+      const resolved = next.length ? next : availableKeys;
+      if (resolved.length === prev.length && resolved.every((key, index) => key === prev[index])) {
+        return prev;
+      }
+      return resolved;
     });
   }, [availableColumnDefs]);
 

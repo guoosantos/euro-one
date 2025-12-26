@@ -15,6 +15,7 @@ import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
 import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
+import useVehicles from "../lib/hooks/useVehicles.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
@@ -296,6 +297,7 @@ export default function Monitoring() {
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const { vehicles } = useVehicles();
 
   const activeTasks = useMemo(
     () =>
@@ -313,6 +315,16 @@ export default function Monitoring() {
     });
     return map;
   }, [activeTasks]);
+
+  const vehiclesById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      if (vehicle?.id !== null && vehicle?.id !== undefined) {
+        map.set(String(vehicle.id), vehicle);
+      }
+    });
+    return map;
+  }, [vehicles]);
 
   const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
@@ -497,8 +509,12 @@ export default function Monitoring() {
         sourceDevice?.vehicle?.vehicleId ??
         item.vehicle?.id ??
         null;
+      const vehicleFromList = vehicleId ? vehiclesById.get(String(vehicleId)) : null;
 
       const resolvedVehicleType =
+        vehicleFromList?.type ??
+        vehicleFromList?.vehicleType ??
+        vehicleFromList?.category ??
         item.vehicleType ??
         item.type ??
         item.category ??
@@ -509,12 +525,13 @@ export default function Monitoring() {
         sourceDevice?.vehicle?.category ??
         null;
       const resolvedVehicleCategory =
+        vehicleFromList?.category ??
         item.category ??
         sourceDevice?.vehicle?.category ??
         sourceDevice?.attributes?.vehicleCategory ??
         null;
 
-      const vehicle =
+      const baseVehicle =
         item.vehicle ||
         sourceDevice?.vehicle ||
         (vehicleId
@@ -523,11 +540,35 @@ export default function Monitoring() {
               plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
               name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
               clientId: item.clientId ?? sourceDevice?.clientId,
-              type: resolvedVehicleType,
-              category: resolvedVehicleCategory,
+              type:
+                item.vehicleType ??
+                item.type ??
+                sourceDevice?.vehicleType ??
+                sourceDevice?.type ??
+                sourceDevice?.attributes?.vehicleType ??
+                null,
+              category:
+                item.category ??
+                sourceDevice?.vehicle?.category ??
+                sourceDevice?.attributes?.vehicleCategory ??
+                null,
               __synthetic: true,
             }
           : null);
+      const vehicle = baseVehicle
+        ? {
+            ...baseVehicle,
+            ...(vehicleFromList || {}),
+            type: resolvedVehicleType,
+            category: resolvedVehicleCategory,
+          }
+        : vehicleFromList
+          ? {
+              ...vehicleFromList,
+              type: resolvedVehicleType,
+              category: resolvedVehicleCategory,
+            }
+          : null;
 
       const device = {
         ...sourceDevice,
@@ -543,7 +584,7 @@ export default function Monitoring() {
       matchesTenant(entry?.device, tenantId) ||
       matchesTenant(entry?.vehicle, tenantId) ||
       matchesTenant(entry?.source, tenantId),
-    ), [safeTelemetry, tenantId]);
+    ), [safeTelemetry, tenantId, vehiclesById]);
 
   const linkedTelemetry = useMemo(
     () =>
@@ -674,17 +715,25 @@ export default function Monitoring() {
       const eventDefinition = resolveEventDefinitionFromPayload({ position: pos }, locale, t);
       const eventIgnition =
         typeof eventDefinition?.ignition === "boolean" ? eventDefinition.ignition : null;
+      const fallbackIgnition =
+        typeof reportedIgnition === "boolean"
+          ? reportedIgnition
+          : typeof pos?.attributes?.ignition === "boolean"
+            ? pos.attributes.ignition
+            : typeof pos?.attributes?.io === "boolean"
+              ? pos.attributes.io
+              : null;
       const previousIgnition = key ? ignitionStateRef.current.get(key) : null;
       let persistentIgnition = previousIgnition ?? null;
       if (typeof eventIgnition === "boolean") {
         persistentIgnition = eventIgnition;
-      } else if (persistentIgnition === null && typeof reportedIgnition === "boolean") {
-        persistentIgnition = reportedIgnition;
+      } else if (persistentIgnition === null && typeof fallbackIgnition === "boolean") {
+        persistentIgnition = fallbackIgnition;
       }
       if (key) {
         ignitionStateRef.current.set(key, persistentIgnition);
       }
-      const ignition = typeof persistentIgnition === "boolean" ? persistentIgnition : reportedIgnition;
+      const ignition = typeof persistentIgnition === "boolean" ? persistentIgnition : fallbackIgnition;
       const online = isOnline(pos);
       const statusLabel = statusBadge === "online"
         ? t("monitoring.filters.online")
@@ -740,6 +789,7 @@ export default function Monitoring() {
           vehicle?.vehicleType ||
           vehicle?.category ||
           device?.vehicleType ||
+          device?.type ||
           device?.attributes?.vehicleType ||
           device?.vehicle?.type ||
           device?.vehicle?.vehicleType ||

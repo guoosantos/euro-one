@@ -1,5 +1,5 @@
 export function matchesTenant(entity, tenantId) {
-  if (!tenantId) return true;
+  if (tenantId === null || tenantId === undefined) return true;
   const normalizedTenant = String(tenantId);
   if (!entity || typeof entity !== "object") return false;
 

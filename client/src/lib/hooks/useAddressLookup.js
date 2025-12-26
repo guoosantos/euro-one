@@ -125,7 +125,7 @@ export default function useAddressLookup(
         } finally {
           if (!cancelled) {
             setLoadingKeys((prev) => {
-              if (prev[entry.key] === false) return prev;
+              if (prev[entry.key] !== true) return prev;
               return { ...prev, [entry.key]: false };
             });
           }

@@ -203,7 +203,17 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
 
   const normalized = normalizeType(candidate);
   const ignition =
-    normalized === "ignitionon" ? true : normalized === "ignitionoff" ? false : undefined;
+    normalized === "ignitionon"
+      ? true
+      : normalized === "ignitionoff"
+        ? false
+        : normalized.includes("igni")
+          ? normalized.includes("deslig") || normalized.includes("off")
+            ? false
+            : normalized.includes("ligad") || normalized.includes("on")
+              ? true
+              : undefined
+          : undefined;
   const translated = translateEventType(candidate, locale, fallbackTranslator);
   return {
     label: translated || candidate,
