@@ -363,6 +363,25 @@ export default function Monitoring() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    setVehicleQuery("");
+    setAddressQuery("");
+    setSelectedAddress(null);
+    setFilterMode("all");
+    setSelectedDeviceId(null);
+    setMapViewport(null);
+    setRegionTarget(null);
+    setAddressViewport(null);
+    setAddressPin(null);
+    setNearbyDeviceIds([]);
+    setFocusTarget(null);
+    setDetailsDeviceId(null);
+    setPageIndex(0);
+    setRouteFilter(null);
+    setSecurityFilters([]);
+    clearVehicleSelection();
+  }, [clearVehicleSelection, tenantId]);
+
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
   const layoutButtonRef = useRef(null);
@@ -690,14 +709,10 @@ export default function Monitoring() {
           device?.heading ??
           null,
         vehicleType:
-          device?.iconType ||
-          device?.attributes?.iconType ||
-          device?.type ||
-          device?.vehicleType ||
-          device?.category ||
-          device?.attributes?.vehicleType ||
-          device?.attributes?.type ||
           vehicle?.type ||
+          device?.vehicle?.type ||
+          device?.vehicleType ||
+          device?.attributes?.vehicleType ||
           vehicle?.category ||
           null,
       };

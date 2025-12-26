@@ -475,6 +475,7 @@ function buildDeviceResponse(device, context) {
           id: vehicle.id,
           name: vehicle.name,
           plate: vehicle.plate,
+          type: vehicle.type || null,
         }
       : null,
     usageStatus,
@@ -595,7 +596,7 @@ function resolveLinkClientId(clientId, ...resources) {
   return clientId;
 }
 
-function linkChipToDevice(clientId, chipId, deviceId) {
+export function linkChipToDevice(clientId, chipId, deviceId) {
   const chip = deps.getChipById(chipId);
   const device = deps.getDeviceById(deviceId);
   const resolvedClientId = resolveLinkClientId(clientId, chip, device);
@@ -1388,7 +1389,7 @@ router.get("/devices", async (req, res, next) => {
 router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
-    const { name, uniqueId, modelId } = req.body || {};
+    const { name, uniqueId, modelId, chipId, vehicleId } = req.body || {};
     const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
     if (!uniqueId) {
       throw createError(400, "uniqueId é obrigatório");
@@ -1434,11 +1435,21 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
         attributes,
       });
 
+      if (chipId) {
+        linkChipToDevice(clientId, chipId, updated.id);
+      }
+      if (vehicleId) {
+        linkDeviceToVehicle(clientId, vehicleId, updated.id);
+      }
+
       const models = deps.listModels({ clientId, includeGlobal: true });
       const chips = deps.listChips({ clientId });
       const vehicles = deps.listVehicles({ clientId });
-      const traccarById = traccarResult.device?.id ? new Map([[String(traccarResult.device.id), traccarResult.device]]) : new Map();
-      const response = buildDeviceResponse(updated, {
+      const traccarById = traccarResult.device?.id
+        ? new Map([[String(traccarResult.device.id), traccarResult.device]])
+        : new Map();
+      const resolvedDevice = deps.getDeviceById(updated.id) || updated;
+      const response = buildDeviceResponse(resolvedDevice, {
         modelMap: new Map(models.map((item) => [item.id, item])),
         chipMap: new Map(chips.map((item) => [item.id, item])),
         vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
@@ -1459,6 +1470,13 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       attributes,
     });
 
+    if (chipId) {
+      linkChipToDevice(clientId, chipId, device.id);
+    }
+    if (vehicleId) {
+      linkDeviceToVehicle(clientId, vehicleId, device.id);
+    }
+
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     const vehicles = deps.listVehicles({ clientId });
@@ -1466,7 +1484,8 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     if (traccarResult.device?.id) {
       traccarById.set(String(traccarResult.device.id), traccarResult.device);
     }
-    const response = buildDeviceResponse(device, {
+    const resolvedDevice = deps.getDeviceById(device.id) || device;
+    const response = buildDeviceResponse(resolvedDevice, {
       modelMap: new Map(models.map((item) => [item.id, item])),
       chipMap: new Map(chips.map((item) => [item.id, item])),
       vehicleMap: new Map(vehicles.map((item) => [item.id, item])),
@@ -1497,6 +1516,13 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
     ensureSameClient(device, clientId, "Equipamento não encontrado");
 
     const payload = { ...req.body };
+    const hasChipId = Object.prototype.hasOwnProperty.call(payload, "chipId");
+    const hasVehicleId = Object.prototype.hasOwnProperty.call(payload, "vehicleId");
+    const incomingChipId = hasChipId ? (payload.chipId === "" ? null : payload.chipId) : undefined;
+    const incomingVehicleId = hasVehicleId ? (payload.vehicleId === "" ? null : payload.vehicleId) : undefined;
+
+    if (hasChipId) delete payload.chipId;
+    if (hasVehicleId) delete payload.vehicleId;
     const iconType = payload.iconType || payload.attributes?.iconType || null;
     if (iconType) {
       payload.attributes = { ...(payload.attributes || {}), iconType };
@@ -1510,6 +1536,26 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
 
     const updated = deps.updateDevice(id, payload);
 
+    if (incomingChipId !== undefined) {
+      if (incomingChipId) {
+        linkChipToDevice(clientId, incomingChipId, id);
+      } else if (incomingChipId === null && device.chipId) {
+        detachChip(clientId, device.chipId);
+      }
+    }
+
+    if (incomingVehicleId !== undefined) {
+      if (incomingVehicleId) {
+        linkDeviceToVehicle(clientId, incomingVehicleId, id);
+      } else if (incomingVehicleId === null && device.vehicleId) {
+        const previousVehicle = deps.getVehicleById(device.vehicleId);
+        if (previousVehicle && String(previousVehicle.clientId) === String(clientId)) {
+          deps.updateVehicle(previousVehicle.id, { deviceId: null });
+        }
+        deps.updateDevice(id, { vehicleId: null });
+      }
+    }
+
     const models = deps.listModels({ clientId, includeGlobal: true });
     const chips = deps.listChips({ clientId });
     const vehicles = deps.listVehicles({ clientId });
@@ -1517,7 +1563,8 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const traccarByUnique = new Map(traccarDevices.map((item) => [String(item.uniqueId), item]));
 
-    const response = buildDeviceResponse(updated, {
+    const resolvedDevice = deps.getDeviceById(id) || updated;
+    const response = buildDeviceResponse(resolvedDevice, {
       modelMap: new Map(models.map((item) => [item.id, item])),
       chipMap: new Map(chips.map((item) => [item.id, item])),
       vehicleMap: new Map(vehicles.map((item) => [item.id, item])),

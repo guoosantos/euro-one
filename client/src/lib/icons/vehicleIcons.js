@@ -64,6 +64,15 @@ const TYPE_ALIASES = {
   person: ["person", "pessoa", "pedestrian", "walker", "walk"],
 };
 
+export const VEHICLE_TYPE_OPTIONS = [
+  { value: "carro", label: "Carro" },
+  { value: "caminhao", label: "Caminhão" },
+  { value: "moto", label: "Moto" },
+  { value: "van", label: "Van" },
+  { value: "onibus", label: "Ônibus" },
+  { value: "outros", label: "Outros" },
+];
+
 export function resolveVehicleIconType(rawType) {
   if (!rawType) return "default";
   const normalized = String(rawType).toLowerCase();
