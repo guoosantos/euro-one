@@ -22,6 +22,7 @@ import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
+import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -337,6 +338,7 @@ export default function Monitoring() {
   const [pageIndex, setPageIndex] = useState(0);
   const [routeFilter, setRouteFilter] = useState(null);
   const [securityFilters, setSecurityFilters] = useState([]);
+  const ignitionStateRef = useRef(new Map());
   const {
     selectedVehicleId: globalVehicleId,
     selectedTelemetryDeviceId: globalDeviceId,
@@ -643,7 +645,21 @@ export default function Monitoring() {
       const lat = pickCoordinate([pos?.lat, pos?.latitude]);
       const lng = pickCoordinate([pos?.lng, pos?.longitude]);
       const statusBadge = deriveStatus(pos);
-      const ignition = getIgnition(pos, device);
+      const reportedIgnition = getIgnition(pos, device);
+      const eventDefinition = resolveEventDefinitionFromPayload({ position: pos }, locale, t);
+      const eventIgnition =
+        typeof eventDefinition?.ignition === "boolean" ? eventDefinition.ignition : null;
+      const previousIgnition = key ? ignitionStateRef.current.get(key) : null;
+      let persistentIgnition = previousIgnition ?? null;
+      if (typeof eventIgnition === "boolean") {
+        persistentIgnition = eventIgnition;
+      } else if (persistentIgnition === null && typeof reportedIgnition === "boolean") {
+        persistentIgnition = reportedIgnition;
+      }
+      if (key) {
+        ignitionStateRef.current.set(key, persistentIgnition);
+      }
+      const ignition = typeof persistentIgnition === "boolean" ? persistentIgnition : reportedIgnition;
       const online = isOnline(pos);
       const statusLabel = statusBadge === "online"
         ? t("monitoring.filters.online")
@@ -699,11 +715,17 @@ export default function Monitoring() {
 
       return row;
     });
-  }, [buildCoordKey, filteredDevices, t]);
+  }, [buildCoordKey, filteredDevices, locale, t]);
+
+  const resolveAddressKey = useCallback(
+    (row) => row.addressKey || buildCoordKey(row.lat, row.lng),
+    [buildCoordKey],
+  );
+  const resolveAddressCoords = useCallback((row) => ({ lat: row.lat, lng: row.lng }), []);
 
   const { addresses: reverseAddresses, loadingKeys: addressLoading } = useAddressLookup(rows, {
-    getKey: (row) => row.addressKey || buildCoordKey(row.lat, row.lng),
-    getCoords: (row) => ({ lat: row.lat, lng: row.lng }),
+    getKey: resolveAddressKey,
+    getCoords: resolveAddressCoords,
   });
 
   const decoratedRows = useMemo(() => {
