@@ -99,6 +99,8 @@ export function TenantProvider({ children }) {
               return requiredTenantId ?? null;
             }
 
+            if (currentTenantId === null) return null;
+
             const initialTenantId = currentTenantId ?? suggestedTenant ?? null;
             const isInitialValid = initialTenantId
               ? resolvedClients.some((client) => client.id === initialTenantId)
@@ -241,14 +243,7 @@ export function TenantProvider({ children }) {
       const list = normaliseClients(null, user);
       setTenants(list);
       setTenantId((prev) => prev ?? user.clientId ?? list[0]?.id ?? null);
-      return;
     }
-
-    setTenantId((prev) => {
-      if (prev) return prev;
-      if (tenants.length === 1) return tenants[0].id;
-      return prev;
-    });
   }, [user, tenants]);
 
   const value = useMemo(() => {

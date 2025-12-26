@@ -5,6 +5,21 @@ import { toDeviceKey } from "./useDevices.helpers.js";
 
 const vehiclesCache = new Map();
 const cacheListeners = new Set();
+const compareVehicleEntries = (prev = [], next = []) => {
+  if (prev === next) return true;
+  if (prev.length !== next.length) return false;
+  for (let index = 0; index < prev.length; index += 1) {
+    const prevItem = prev[index];
+    const nextItem = next[index];
+    const prevId = prevItem?.id ?? prevItem?.vehicleId ?? prevItem?.vehicle_id;
+    const nextId = nextItem?.id ?? nextItem?.vehicleId ?? nextItem?.vehicle_id;
+    if (String(prevId ?? "") !== String(nextId ?? "")) return false;
+    const prevUpdated = prevItem?.updatedAt ?? prevItem?.updated_at ?? prevItem?.updatedOn;
+    const nextUpdated = nextItem?.updatedAt ?? nextItem?.updated_at ?? nextItem?.updatedOn;
+    if (String(prevUpdated ?? "") !== String(nextUpdated ?? "")) return false;
+  }
+  return true;
+};
 
 export function resetVehiclesCache() {
   vehiclesCache.clear();
@@ -59,7 +74,7 @@ export function formatVehicleLabel(vehicle) {
 
 export function useVehicles({ includeUnlinked = false } = {}) {
   const { tenantId } = useTenant();
-  const cacheKey = `${tenantId || "all"}:${includeUnlinked ? "1" : "0"}`;
+  const cacheKey = `${tenantId ?? "all"}:${includeUnlinked ? "1" : "0"}`;
   const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -68,14 +83,17 @@ export function useVehicles({ includeUnlinked = false } = {}) {
     setLoading(true);
     setError(null);
     try {
-      const params = tenantId ? { clientId: tenantId } : {};
+      const params = tenantId === null || tenantId === undefined ? {} : { clientId: tenantId };
       if (includeUnlinked) {
         params.includeUnlinked = true;
       }
       const response = await CoreApi.listVehicles(params);
       const list = Array.isArray(response) ? response : [];
-      setVehicles(list);
-      vehiclesCache.set(cacheKey, list);
+      setVehicles((prev) => (compareVehicleEntries(prev, list) ? prev : list));
+      const cached = vehiclesCache.get(cacheKey) || [];
+      if (!compareVehicleEntries(cached, list)) {
+        vehiclesCache.set(cacheKey, list);
+      }
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
     } finally {
@@ -88,7 +106,8 @@ export function useVehicles({ includeUnlinked = false } = {}) {
   }, [fetchVehicles]);
 
   useEffect(() => {
-    setVehicles(vehiclesCache.get(cacheKey) || []);
+    const cached = vehiclesCache.get(cacheKey) || [];
+    setVehicles((prev) => (compareVehicleEntries(prev, cached) ? prev : cached));
     setError(null);
   }, [cacheKey]);
 
