@@ -638,7 +638,8 @@ export default function Monitoring() {
   };
 
   const rows = useMemo(() => {
-    return filteredDevices.map(({ device, source }) => {
+    const list = Array.isArray(filteredDevices) ? filteredDevices : [];
+    return list.map(({ device, source, vehicle }) => {
       const key = getDeviceKey(device);
       const pos = source?.position;
       const lat = pickCoordinate([pos?.lat, pos?.latitude]);

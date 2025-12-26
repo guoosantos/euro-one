@@ -341,7 +341,7 @@ function validateRange({ deviceId, from, to }) {
 }
 
 function ReplayMap({
-  points,
+  points = [],
   activeIndex,
   animatedPoint,
   mapLayer,
@@ -349,6 +349,7 @@ function ReplayMap({
   focusMode,
   isPlaying,
   manualCenter,
+  selectedVehicle,
 }) {
   const routePoints = useMemo(
     () =>
@@ -409,6 +410,15 @@ function ReplayMap({
     normalizedActivePoint,
     normalizedAnimatedPoint,
   ]);
+  const hasSelectedVehicle = Boolean(selectedVehicle);
+
+  if (!hasSelectedVehicle) {
+    return (
+      <div className="relative flex h-[420px] w-full items-center justify-center rounded-xl border border-white/10 bg-[#0f141c] text-sm text-white/60">
+        Selecione um veículo para visualizar o replay.
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
@@ -1880,6 +1890,7 @@ export default function Trips() {
                 focusMode={focusMode}
                 isPlaying={isPlaying}
                 manualCenter={manualCenter}
+                selectedVehicle={selectedVehicle}
               />
               <EventPanel
                 events={eventSummaries}
