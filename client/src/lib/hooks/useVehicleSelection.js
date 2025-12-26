@@ -18,6 +18,7 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   const lastAppliedQueryRef = useRef(null);
   const lastSyncedVehicleRef = useRef(null);
   const lastTenantRef = useRef(tenantId);
+  const lastSelectionRef = useRef({ vehicleId: null, deviceId: null });
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
@@ -46,7 +47,15 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     if (lastAppliedQueryRef.current === normalizedQuery) return;
     const nextVehicle = vehicleById.get(normalizedQuery);
     lastAppliedQueryRef.current = normalizedQuery;
-    setVehicleSelection(normalizedQuery, nextVehicle?.primaryDeviceId ?? null);
+    const nextDeviceId = normalizeId(nextVehicle?.primaryDeviceId ?? null);
+    if (
+      lastSelectionRef.current.vehicleId === normalizedQuery &&
+      lastSelectionRef.current.deviceId === nextDeviceId
+    ) {
+      return;
+    }
+    lastSelectionRef.current = { vehicleId: normalizedQuery, deviceId: nextDeviceId };
+    setVehicleSelection(normalizedQuery, nextDeviceId);
   }, [location.search, selectedVehicleId, setVehicleSelection, syncQuery, vehicleById]);
 
   useEffect(() => {
@@ -56,6 +65,13 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     const normalizedSelectedDevice = normalizeId(selectedTelemetryDeviceId);
     const normalizedMatchDevice = normalizeId(match?.primaryDeviceId);
     if (match && normalizedSelectedDevice !== normalizedMatchDevice) {
+      if (
+        lastSelectionRef.current.vehicleId === normalizedVehicleId &&
+        lastSelectionRef.current.deviceId === normalizedMatchDevice
+      ) {
+        return;
+      }
+      lastSelectionRef.current = { vehicleId: normalizedVehicleId, deviceId: normalizedMatchDevice };
       setVehicleSelection(normalizedVehicleId, match?.primaryDeviceId ?? null);
     }
   }, [selectedTelemetryDeviceId, selectedVehicleId, setVehicleSelection, vehicleById]);
@@ -94,7 +110,14 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     }
     const normalizedVehicleId = normalizeId(vehicleId);
     const target = vehicleById.get(normalizedVehicleId);
-    const resolvedDevice = deviceId ?? target?.primaryDeviceId ?? null;
+    const resolvedDevice = normalizeId(deviceId ?? target?.primaryDeviceId ?? null);
+    if (
+      normalizeId(selectedVehicleId) === normalizedVehicleId &&
+      normalizeId(selectedTelemetryDeviceId) === resolvedDevice
+    ) {
+      return;
+    }
+    lastSelectionRef.current = { vehicleId: normalizedVehicleId, deviceId: resolvedDevice };
     setVehicleSelection(normalizedVehicleId, resolvedDevice);
   };
 
