@@ -104,6 +104,11 @@ function parseDate(value) {
   return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
+function normalizeQueryId(value) {
+  if (value === null || value === undefined || value === "") return "";
+  return String(value);
+}
+
 function asLocalInput(value, fallbackFactory) {
   if (value) {
     const parsed = parseDate(value);
@@ -759,6 +764,7 @@ export default function Trips() {
   const animationRef = useRef(null);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
+  const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -1285,19 +1291,29 @@ export default function Trips() {
     const search = new URLSearchParams(location.search || "");
     const pendingVehicleParam = search.get("vehicleId");
     const pendingDeviceParam = search.get("deviceId") || search.get("device");
-    const currentVehicleId = vehicleId ? String(vehicleId) : "";
-    const currentDeviceId = deviceIdFromStore ? String(deviceIdFromStore) : "";
+    const currentVehicleId = normalizeQueryId(vehicleId);
+    const currentDeviceId = normalizeQueryId(deviceIdFromStore);
 
     if (pendingVehicleParam) {
-      const targetVehicleId = String(pendingVehicleParam);
+      const targetVehicleId = normalizeQueryId(pendingVehicleParam);
       const match = vehicleById.get(targetVehicleId);
-      const targetDeviceId = pendingDeviceParam || match?.primaryDeviceId || null;
-      const normalizedTargetDeviceId = targetDeviceId ? String(targetDeviceId) : "";
-      if (currentVehicleId === targetVehicleId && currentDeviceId === normalizedTargetDeviceId) return;
+      const targetDeviceId = normalizeQueryId(pendingDeviceParam || match?.primaryDeviceId || "");
+      const nextKey = { vehicleId: targetVehicleId, deviceId: targetDeviceId };
+      if (
+        lastQuerySelectionRef.current.vehicleId === nextKey.vehicleId &&
+        lastQuerySelectionRef.current.deviceId === nextKey.deviceId
+      ) {
+        return;
+      }
+      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) {
+        lastQuerySelectionRef.current = nextKey;
+        return;
+      }
       setVehicleSelection(
         targetVehicleId,
-        targetDeviceId,
+        targetDeviceId || null,
       );
+      lastQuerySelectionRef.current = nextKey;
       return;
     }
 
@@ -1306,10 +1322,21 @@ export default function Trips() {
     if (!targetKey) return;
     const match = vehicleByDeviceId.get(String(targetKey));
     if (match) {
-      const targetVehicleId = String(match.id);
-      const targetDeviceId = String(pendingDeviceParam);
-      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) return;
+      const targetVehicleId = normalizeQueryId(match.id);
+      const targetDeviceId = normalizeQueryId(pendingDeviceParam);
+      const nextKey = { vehicleId: targetVehicleId, deviceId: targetDeviceId };
+      if (
+        lastQuerySelectionRef.current.vehicleId === nextKey.vehicleId &&
+        lastQuerySelectionRef.current.deviceId === nextKey.deviceId
+      ) {
+        return;
+      }
+      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) {
+        lastQuerySelectionRef.current = nextKey;
+        return;
+      }
       setVehicleSelection(targetVehicleId, pendingDeviceParam);
+      lastQuerySelectionRef.current = nextKey;
     }
   }, [location.search, setVehicleSelection, vehicleByDeviceId, vehicleById, vehicleId, deviceIdFromStore]);
 

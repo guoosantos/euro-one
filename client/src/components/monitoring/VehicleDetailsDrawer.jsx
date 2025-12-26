@@ -205,8 +205,8 @@ export default function VehicleDetailsDrawer({
 
   const containerClass =
     variant === "page"
-      ? "relative mx-auto w-full max-w-6xl border border-white/10 bg-[#0f141c]/90 shadow-2xl"
-      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] w-[420px] border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
+      ? "relative mx-auto flex h-full w-full max-w-6xl flex-col border border-white/10 bg-[#0f141c]/90 shadow-2xl"
+      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] flex h-full w-[420px] flex-col border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
 
   return (
     <div className={containerClass}>
@@ -259,7 +259,7 @@ export default function VehicleDetailsDrawer({
         ))}
       </div>
 
-      <div className="space-y-4 overflow-y-auto p-5 text-sm text-white/80">{renderContent()}</div>
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-5 text-sm text-white/80">{renderContent()}</div>
     </div>
   );
 }
