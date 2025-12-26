@@ -74,6 +74,7 @@ export default function MonitoringTable({
   }, [columnWidths]);
 
   useEffect(() => {
+    if (areWidthsEqual(liveWidthsRef.current, mergedBaseWidths)) return;
     setColumnWidths((prev) => {
       const next = { ...mergedBaseWidths, ...prev };
       return areWidthsEqual(prev, next) ? prev : next;
