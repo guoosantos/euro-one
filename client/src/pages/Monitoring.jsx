@@ -1439,14 +1439,17 @@ export default function Monitoring() {
       )}
 
       {isDetailsOpen ? (
-        <div className="fixed inset-0 z-[9996] flex justify-end">
+        <div className="fixed inset-0 z-[9996] flex h-full justify-end">
           <button
             type="button"
             aria-label="Fechar painel de detalhes do veículo"
             className="flex-1 bg-black/40 backdrop-blur-sm"
             onClick={closeDetails}
           />
-          <div className="pointer-events-auto relative w-[420px] max-w-[420px]" onClick={(event) => event.stopPropagation()}>
+          <div
+            className="pointer-events-auto relative h-full w-[420px] max-w-[420px]"
+            onClick={(event) => event.stopPropagation()}
+          >
             <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
           </div>
         </div>

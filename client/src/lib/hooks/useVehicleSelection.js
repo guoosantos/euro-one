@@ -1,13 +1,19 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUI } from "../store.js";
 import useVehicles from "./useVehicles.js";
+
+const normalizeId = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  return String(value);
+};
 
 export default function useVehicleSelection({ syncQuery = true } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { vehicles } = useVehicles();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
+  const lastAppliedQueryRef = useRef(null);
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
@@ -19,21 +25,24 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
 
   useEffect(() => {
     const search = new URLSearchParams(location.search || "");
-    const queryVehicleId = search.get("vehicleId");
-    const normalizedQuery = queryVehicleId ? String(queryVehicleId) : null;
-    const normalizedSelected = selectedVehicleId ? String(selectedVehicleId) : null;
-    if (normalizedQuery && normalizedQuery !== normalizedSelected) {
-      const nextVehicle = vehicleById.get(normalizedQuery);
-      setVehicleSelection(normalizedQuery, nextVehicle?.primaryDeviceId ?? null);
+    const normalizedQuery = normalizeId(search.get("vehicleId"));
+    const normalizedSelected = normalizeId(selectedVehicleId);
+    if (!normalizedQuery || normalizedQuery === normalizedSelected) {
+      lastAppliedQueryRef.current = normalizedQuery;
+      return;
     }
+    if (lastAppliedQueryRef.current === normalizedQuery) return;
+    const nextVehicle = vehicleById.get(normalizedQuery);
+    lastAppliedQueryRef.current = normalizedQuery;
+    setVehicleSelection(normalizedQuery, nextVehicle?.primaryDeviceId ?? null);
   }, [location.search, selectedVehicleId, setVehicleSelection, vehicleById]);
 
   useEffect(() => {
     if (!selectedVehicleId) return;
-    const normalizedVehicleId = String(selectedVehicleId);
+    const normalizedVehicleId = normalizeId(selectedVehicleId);
     const match = vehicleById.get(normalizedVehicleId);
-    const normalizedSelectedDevice = selectedTelemetryDeviceId ? String(selectedTelemetryDeviceId) : null;
-    const normalizedMatchDevice = match?.primaryDeviceId ? String(match.primaryDeviceId) : null;
+    const normalizedSelectedDevice = normalizeId(selectedTelemetryDeviceId);
+    const normalizedMatchDevice = normalizeId(match?.primaryDeviceId);
     if (match && normalizedSelectedDevice !== normalizedMatchDevice) {
       setVehicleSelection(normalizedVehicleId, match?.primaryDeviceId ?? null);
     }
@@ -42,11 +51,12 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   useEffect(() => {
     if (!syncQuery) return;
     const search = new URLSearchParams(location.search || "");
-    const currentVehicle = search.get("vehicleId") || null;
+    const currentVehicle = normalizeId(search.get("vehicleId"));
+    const normalizedVehicleId = normalizeId(resolvedSelection.vehicleId);
 
-    if (resolvedSelection.vehicleId) {
-      if (currentVehicle === String(resolvedSelection.vehicleId)) return;
-      search.set("vehicleId", resolvedSelection.vehicleId);
+    if (normalizedVehicleId) {
+      if (currentVehicle === normalizedVehicleId) return;
+      search.set("vehicleId", normalizedVehicleId);
       navigate(`${location.pathname}?${search.toString()}`, { replace: true });
     } else if (currentVehicle) {
       search.delete("vehicleId");
@@ -62,7 +72,7 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
       clearVehicleSelection();
       return;
     }
-    const normalizedVehicleId = String(vehicleId);
+    const normalizedVehicleId = normalizeId(vehicleId);
     const target = vehicleById.get(normalizedVehicleId);
     const resolvedDevice = deviceId ?? target?.primaryDeviceId ?? null;
     setVehicleSelection(normalizedVehicleId, resolvedDevice);
