@@ -10,6 +10,9 @@ const STORAGE_KEY = "reverseGeocodeCache:v1";
 let storageHydrated = false;
 let loggedFallbackOnce = false;
 const FALLBACK_ADDRESS = "Endereço indisponível";
+const RATE_LIMIT_MS = 450;
+let lastRequestAt = 0;
+let rateLimitQueue = Promise.resolve();
 
 function buildKey(lat, lng, precision = 5) {
   const factor = 10 ** precision;
@@ -114,7 +117,24 @@ export async function reverseGeocode(lat, lng) {
       return response.json();
     };
 
-    const data = useGuestReverse ? await resolveFromPublic() : await resolveFromApi();
+    const runWithRateLimit = (fn) => {
+      const execute = async () => {
+        const now = Date.now();
+        const wait = Math.max(0, RATE_LIMIT_MS - (now - lastRequestAt));
+        if (wait) {
+          await new Promise((resolve) => setTimeout(resolve, wait));
+        }
+        lastRequestAt = Date.now();
+        return fn();
+      };
+
+      rateLimitQueue = rateLimitQueue.catch(() => {}).then(execute);
+      return rateLimitQueue;
+    };
+
+    const data = useGuestReverse
+      ? await runWithRateLimit(resolveFromPublic)
+      : await runWithRateLimit(resolveFromApi);
     const address =
       data?.shortAddress ||
       data?.formattedAddress ||

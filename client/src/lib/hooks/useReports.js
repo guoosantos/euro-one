@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import api from "../api.js";
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { readCachedReport, writeCachedReport } from "./reportStorage.js";
-
-const TRIPS_CACHE_KEY = "reports:trips:last";
+import { useTenant } from "../tenant-context.jsx";
 
 export const normalizeTrips = (payload) => {
   if (!payload) return { trips: [] };
@@ -30,21 +29,28 @@ export const normalizeTrips = (payload) => {
 };
 
 export function useReports() {
+  const { tenantId } = useTenant();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [data, setData] = useState(null);
+  const cacheKey = useMemo(() => `reports:trips:last:${tenantId || "all"}`, [tenantId]);
 
   const persistData = useCallback((value) => {
     setData(value);
-    writeCachedReport(TRIPS_CACHE_KEY, value);
-  }, []);
+    writeCachedReport(cacheKey, value);
+  }, [cacheKey]);
 
   useEffect(() => {
-    const cached = readCachedReport(TRIPS_CACHE_KEY, normalizeTrips);
+    const cached = readCachedReport(cacheKey, normalizeTrips);
     if (cached) {
       persistData(cached);
     }
-  }, [persistData]);
+  }, [cacheKey, persistData]);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+  }, [cacheKey]);
 
   const generateTripsReport = useCallback(async ({ deviceId, deviceIds, vehicleId, vehicleIds, from, to, type = "all" }) => {
     setLoading(true);

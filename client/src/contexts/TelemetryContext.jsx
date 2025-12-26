@@ -45,7 +45,12 @@ export function TelemetryProvider({ children, interval = 5_000 }) {
 
       return { telemetry: normalisedTelemetry, warnings: resolvedWarnings };
     },
-    { enabled: isAuthenticated, intervalMs: interval },
+    {
+      enabled: isAuthenticated,
+      intervalMs: interval,
+      dependencies: [tenantId, isAuthenticated],
+      resetOnChange: true,
+    },
   );
 
   const telemetry = Array.isArray(data?.telemetry) ? data.telemetry : [];

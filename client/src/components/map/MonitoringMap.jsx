@@ -37,20 +37,22 @@ function getStatusStyle(status) {
   return STATUS_STYLES[status] || STATUS_STYLES.offline;
 }
 
-function getMarkerIcon({ color, iconType, heading = 0 }) {
+function getMarkerIcon({ color, iconType, heading = 0, muted = false, accentColor = null }) {
   const roundedHeading = Number.isFinite(heading) ? Math.round(heading) : 0;
-  const key = `${iconType || "default"}-${color || "default"}-${roundedHeading}`;
+  const key = `${iconType || "default"}-${color || "default"}-${accentColor || "none"}-${roundedHeading}-${muted}`;
   if (markerIconCache.has(key)) return markerIconCache.get(key);
 
   const baseColor = color || "#94a3b8";
   const iconSvg = getVehicleIconSvg(iconType);
   const arrowColor = color || "#60a5fa";
+  const opacity = muted ? 0.55 : 1;
+  const ringColor = accentColor || "rgba(148,163,184,0.35)";
 
   const iconHtml = `
-    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;filter:drop-shadow(0 8px 14px rgba(0,0,0,0.35));">
-      <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%) rotate(${roundedHeading}deg);transform-origin:50% 100%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid ${arrowColor};filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3));"></div>
-      <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:14px;background:rgba(15,23,42,0.9);border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 12px rgba(0,0,0,0.35);color:${baseColor};">
-        <div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
+    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:36px;height:36px;opacity:${opacity};filter:drop-shadow(0 8px 14px rgba(0,0,0,0.35));">
+      <div style="position:absolute;top:6px;left:50%;transform:translate(-50%,-100%) rotate(${roundedHeading}deg);transform-origin:50% 90%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid ${arrowColor};filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3));"></div>
+      <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.9);border:1px solid ${ringColor};box-shadow:0 6px 12px rgba(0,0,0,0.35);color:${baseColor};">
+        <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
       </div>
     </div>
   `;
@@ -58,9 +60,9 @@ function getMarkerIcon({ color, iconType, heading = 0 }) {
   const icon = L.divIcon({
     className: "fleet-marker",
     html: iconHtml,
-    iconSize: [40, 40],
-    iconAnchor: [20, 28],
-    popupAnchor: [0, -28],
+    iconSize: [36, 36],
+    iconAnchor: [18, 24],
+    popupAnchor: [0, -24],
   });
 
   markerIconCache.set(key, icon);
@@ -286,9 +288,11 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
         key={marker.id ?? `${marker.lat}-${marker.lng}`}
         position={[marker.lat, marker.lng]}
         icon={getMarkerIcon({
-          color: marker.color || marker.accentColor,
+          color: marker.color,
           iconType: marker.iconType,
           heading: marker.heading,
+          muted: marker.muted,
+          accentColor: marker.accentColor,
         })}
         eventHandlers={{
           click: () => {

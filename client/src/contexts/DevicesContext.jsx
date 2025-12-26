@@ -45,6 +45,8 @@ export function DevicesProvider({ children, interval = 60_000 }) {
     fetchFn: fetchDevices,
     intervalMs: interval,
     enabled: isAuthenticated,
+    dependencies: [tenantId, isAuthenticated],
+    resetOnChange: true,
   });
 
   const value = useMemo(

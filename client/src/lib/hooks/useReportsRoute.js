@@ -1,10 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import safeApi from "../safe-api.js";
 import { API_ROUTES } from "../api-routes.js";
 import { readCachedReport, writeCachedReport } from "./reportStorage.js";
-
-const ROUTE_CACHE_KEY = "reports:route:last";
+import { useTenant } from "../tenant-context.jsx";
 
 export const normalizeRoute = (payload) => {
   if (!payload) return { positions: [] };
@@ -26,21 +25,28 @@ export const normalizeRoute = (payload) => {
 };
 
 export function useReportsRoute() {
+  const { tenantId } = useTenant();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const cacheKey = useMemo(() => `reports:route:last:${tenantId || "all"}`, [tenantId]);
 
   const persistData = useCallback((value) => {
     setData(value);
-    writeCachedReport(ROUTE_CACHE_KEY, value);
-  }, []);
+    writeCachedReport(cacheKey, value);
+  }, [cacheKey]);
 
   useEffect(() => {
-    const cached = readCachedReport(ROUTE_CACHE_KEY, normalizeRoute);
+    const cached = readCachedReport(cacheKey, normalizeRoute);
     if (cached) {
       persistData(cached);
     }
-  }, [persistData]);
+  }, [cacheKey, persistData]);
+
+  useEffect(() => {
+    setData(null);
+    setError(null);
+  }, [cacheKey]);
 
   const generate = useCallback(async (params) => {
     setLoading(true);

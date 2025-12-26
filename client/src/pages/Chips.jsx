@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EllipsisVertical, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import PageHeader from "../ui/PageHeader";
@@ -19,7 +19,7 @@ function formatStatus(status) {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function ChipRow({ chip, lastPing, showCarrier, showStatus, showLastPing, showDevice, onEdit, onDelete }) {
+function ChipRow({ chip, lastPing, deviceLabel, showCarrier, showStatus, showLastPing, showDevice, onEdit, onDelete }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuButtonRef = useRef(null);
 
@@ -30,7 +30,7 @@ function ChipRow({ chip, lastPing, showCarrier, showStatus, showLastPing, showDe
       {showCarrier && <td className="px-4 py-3">{chip.carrier || "—"}</td>}
       {showStatus && <td className="px-4 py-3">{formatStatus(chip.status)}</td>}
       {showLastPing && <td className="px-4 py-3">{lastPing}</td>}
-      {showDevice && <td className="px-4 py-3">{chip.device?.name || chip.device?.uniqueId || "—"}</td>}
+      {showDevice && <td className="px-4 py-3">{deviceLabel}</td>}
       <td className="px-4 py-3 text-right">
         <button
           type="button"
@@ -255,6 +255,25 @@ export default function Chips() {
   }, [chips, query, statusFilter, carrierFilter]);
 
   const availableDevices = useMemo(() => devices.filter((device) => !device.chipId || device.chipId === editingId), [devices, editingId]);
+  const deviceById = useMemo(() => {
+    const map = new Map();
+    devices.forEach((device) => {
+      const key = toDeviceKey(device?.id ?? device?.traccarId ?? device?.uniqueId ?? device?.deviceId);
+      if (key) map.set(String(key), device);
+    });
+    return map;
+  }, [devices]);
+
+  const resolveDeviceLabel = useCallback(
+    (chip) => {
+      const direct = chip?.device?.name || chip?.device?.uniqueId;
+      if (direct) return direct;
+      const key = toDeviceKey(chip?.deviceId ?? chip?.device?.id ?? chip?.device?.traccarId ?? chip?.device?.uniqueId);
+      const match = key ? deviceById.get(String(key)) : null;
+      return match?.name || match?.uniqueId || "—";
+    },
+    [deviceById],
+  );
 
   const tableColCount =
     3 +
@@ -489,6 +508,7 @@ export default function Chips() {
                     key={chip.id}
                     chip={chip}
                     lastPing={getLastPing(chip)}
+                    deviceLabel={resolveDeviceLabel(chip)}
                     showCarrier={visibleColumns.carrier}
                     showStatus={visibleColumns.status}
                     showLastPing={visibleColumns.lastPing}

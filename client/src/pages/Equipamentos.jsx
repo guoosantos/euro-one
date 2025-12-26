@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../lib/coreApi.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 
 function ModelosPortas({models}){
   if (!Array.isArray(models) || !models.length) return <div className="opacity-60">Sem modelos.</div>;
@@ -36,21 +37,26 @@ const ICON_TYPES = [
 ];
 
 export default function Equipamentos(){
+  const { tenantId, user } = useTenant();
   const [tab, setTab] = useState(()=> new URLSearchParams(location.search).get("tab") || "lista");
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [form, setForm] = useState({ name:"", uniqueId:"", modelId:"", iconType:"" });
   const [busy, setBusy] = useState(false);
+  const clientId = tenantId || user?.clientId || null;
 
   useEffect(() => {
     (async () => {
       try {
-        const [devs, mods] = await Promise.all([CoreApi.listDevices(), CoreApi.models()]);
+        const [devs, mods] = await Promise.all([
+          CoreApi.listDevices(clientId ? { clientId } : undefined),
+          CoreApi.models(clientId ? { clientId, includeGlobal: true } : undefined),
+        ]);
         setDevices(Array.isArray(devs)?devs:[]);
         setModels(Array.isArray(mods)?mods:[]);
       } catch(e){ console.error(e); }
     })();
-  }, []);
+  }, [clientId]);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -61,10 +67,11 @@ export default function Equipamentos(){
         uniqueId: form.uniqueId,
         modelId: form.modelId || undefined,
         iconType: form.iconType || undefined,
-        attributes: form.iconType ? { iconType: form.iconType } : undefined
+        attributes: form.iconType ? { iconType: form.iconType } : undefined,
+        clientId: clientId || undefined,
       };
       await CoreApi.createDevice(payload);
-      const devs = await CoreApi.listDevices();
+      const devs = await CoreApi.listDevices(clientId ? { clientId } : undefined);
       setDevices(Array.isArray(devs)?devs:[]);
       setForm({ name:"", uniqueId:"", modelId:"", iconType:"" });
       setTab("lista");
