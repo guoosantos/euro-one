@@ -17,7 +17,7 @@ export function matchesTenant(entity, tenantId) {
     entity.attributes?.groupId,
   ].filter((value) => value !== undefined && value !== null);
 
-  if (!candidates.length) return true;
+  if (!candidates.length) return false;
 
   return candidates.some((value) => String(value) === normalizedTenant);
 }

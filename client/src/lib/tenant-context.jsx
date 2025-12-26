@@ -144,9 +144,6 @@ export function TenantProvider({ children }) {
         if (!cancelled) {
           const list = normaliseClients(response?.data, currentUser);
           setTenants(list);
-          if (!tenantId && list.length) {
-            setTenantId(list[0].id);
-          }
         }
       } catch (clientError) {
         if (!cancelled) {
@@ -187,9 +184,6 @@ export function TenantProvider({ children }) {
     const response = await api.get(API_ROUTES.clients);
     const list = normaliseClients(response?.data, user);
     setTenants(list);
-    if (!tenantId && list.length) {
-      setTenantId(list[0].id);
-    }
     return list;
   }, [user, tenantId]);
 

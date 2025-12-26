@@ -201,12 +201,16 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     return { label: `Evento ${candidate}`, raw: candidate, isFallback: true, type: "event", icon: null, isNumeric: true };
   }
 
+  const normalized = normalizeType(candidate);
+  const ignition =
+    normalized === "ignitionon" ? true : normalized === "ignitionoff" ? false : undefined;
   const translated = translateEventType(candidate, locale, fallbackTranslator);
   return {
     label: translated || candidate,
     raw: candidate,
-    type: normalizeType(candidate) || candidate,
+    type: normalized || candidate,
     icon: null,
+    ...(ignition !== undefined ? { ignition } : null),
   };
 }
 

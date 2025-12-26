@@ -58,7 +58,7 @@ const VEHICLE_ICON_ASSETS = {
 };
 
 const TYPE_ALIASES = {
-  car: ["car", "auto", "automovel", "automóvel", "sedan", "hatch", "suv", "pickup", "pickup-truck", "van"],
+  car: ["car", "auto", "automovel", "automóvel", "sedan", "hatch", "suv", "pickup-truck", "van"],
   truck: [
     "truck",
     "caminhao",
