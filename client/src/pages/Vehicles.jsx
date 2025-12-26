@@ -8,15 +8,15 @@ import Input from "../ui/Input";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Modal from "../ui/Modal";
-import Select from "../ui/Select";
 import DropdownMenu from "../ui/DropdownMenu";
 import { EllipsisVertical, Link2, Plus, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
-import { VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
+import { resolveVehicleIconType, VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
+import VehicleForm from "../components/vehicles/VehicleForm.jsx";
 
 function VehicleRow({
   vehicle,
@@ -48,8 +48,8 @@ function VehicleRow({
         </div>
       </td>
       <td className="px-4 py-4">
-        <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
-        <div className="text-xs text-white/60">{vehicle.name || "—"}</div>
+      <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
+      <div className="text-xs text-white/60">{vehicle.model || vehicle.name || "—"}</div>
       </td>
       <td className="px-4 py-4">{typeLabel}</td>
       {showDriver && <td className="px-4 py-4">{vehicle.driver || "—"}</td>}
@@ -137,6 +137,18 @@ export default function Vehicles() {
     notes: "",
     deviceId: "",
     clientId: tenantId || user?.clientId || "",
+    item: "",
+    identifier: "",
+    model: "",
+    brand: "",
+    chassis: "",
+    renavam: "",
+    color: "",
+    modelYear: "",
+    manufactureYear: "",
+    fipeCode: "",
+    fipeValue: "",
+    zeroKm: false,
   });
 
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -212,7 +224,15 @@ export default function Vehicles() {
     if (!query.trim()) return vehicles;
     const term = query.trim().toLowerCase();
     return vehicles.filter((vehicle) =>
-      [vehicle.name, vehicle.plate, vehicle.driver, vehicle.group, vehicle.device?.uniqueId, vehicle.device?.name]
+      [
+        vehicle.model,
+        vehicle.name,
+        vehicle.plate,
+        vehicle.driver,
+        vehicle.group,
+        vehicle.device?.uniqueId,
+        vehicle.device?.name,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term)),
     );
@@ -272,7 +292,10 @@ export default function Vehicles() {
     if (!value) return "—";
     const normalized = String(value).toLowerCase();
     const match = VEHICLE_TYPE_OPTIONS.find((option) => option.value === normalized);
-    return match?.label || value;
+    if (match) return match.label;
+    const resolved = resolveVehicleIconType(value);
+    const resolvedMatch = VEHICLE_TYPE_OPTIONS.find((option) => option.value === resolved);
+    return resolvedMatch?.label || value;
   };
 
   const formatOdometer = (value) => {
@@ -318,6 +341,18 @@ export default function Vehicles() {
       notes: "",
       deviceId: "",
       clientId: nextClientId,
+      item: "",
+      identifier: "",
+      model: "",
+      brand: "",
+      chassis: "",
+      renavam: "",
+      color: "",
+      modelYear: "",
+      manufactureYear: "",
+      fipeCode: "",
+      fipeValue: "",
+      zeroKm: false,
     });
     setOpen(true);
   }
@@ -387,6 +422,14 @@ export default function Vehicles() {
       alert("Informe a placa do veículo");
       return;
     }
+    if (!form.model.trim()) {
+      alert("Informe o modelo do veículo");
+      return;
+    }
+    if (!form.type.trim()) {
+      alert("Informe o tipo do veículo");
+      return;
+    }
     const clientId = hasAdminAccess ? form.clientId || tenantId || "" : tenantId || user?.clientId;
     if (!clientId) {
       alert("Selecione o cliente para salvar o veículo");
@@ -395,7 +438,7 @@ export default function Vehicles() {
     setSaving(true);
     try {
       await CoreApi.createVehicle({
-        name: form.name?.trim() || undefined,
+        name: form.model?.trim() || form.name?.trim() || undefined,
         plate: form.plate.trim(),
         driver: form.driver?.trim() || undefined,
         group: form.group?.trim() || undefined,
@@ -403,6 +446,18 @@ export default function Vehicles() {
         status: form.status || undefined,
         notes: form.notes?.trim() || undefined,
         deviceId: form.deviceId || undefined,
+        item: form.item?.trim() || undefined,
+        identifier: form.identifier?.trim() || undefined,
+        model: form.model?.trim() || undefined,
+        brand: form.brand?.trim() || undefined,
+        chassis: form.chassis?.trim() || undefined,
+        renavam: form.renavam?.trim() || undefined,
+        color: form.color?.trim() || undefined,
+        modelYear: form.modelYear || undefined,
+        manufactureYear: form.manufactureYear || undefined,
+        fipeCode: form.fipeCode?.trim() || undefined,
+        fipeValue: form.fipeValue || undefined,
+        zeroKm: form.zeroKm || false,
         clientId,
       });
       setOpen(false);
@@ -551,83 +606,15 @@ export default function Vehicles() {
 
       <Modal open={open} onClose={() => setOpen(false)} title="Novo veículo" width="max-w-3xl">
         <form onSubmit={handleSave} className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-2">
-            <Input
-              placeholder="Nome do veículo"
-              value={form.name}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-            />
-            <Input
-              placeholder="Placa *"
-              value={form.plate}
-              onChange={(event) => setForm((current) => ({ ...current, plate: event.target.value }))}
-              required
-            />
-            <Input
-              placeholder="Motorista"
-              value={form.driver}
-              onChange={(event) => setForm((current) => ({ ...current, driver: event.target.value }))}
-            />
-            <Input
-              placeholder="Grupo"
-              value={form.group}
-              onChange={(event) => setForm((current) => ({ ...current, group: event.target.value }))}
-            />
-            <Select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}>
-              <option value="">Tipo do veículo</option>
-              {VEHICLE_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-            {hasAdminAccess && (
-              <div className="md:col-span-2">
-                <label className="text-xs uppercase tracking-[0.12em] text-white/60">Cliente</label>
-                <select
-                  value={form.clientId}
-                  onChange={(event) => setForm((current) => ({ ...current, clientId: event.target.value }))}
-                  className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                  required
-                >
-                  <option value="">Selecione o cliente</option>
-                  {tenants.map((tenant) => (
-                    <option key={tenant.id || "all"} value={tenant.id || ""}>
-                      {tenant.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            <select
-              value={form.status}
-              onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
-              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            >
-              <option value="ativo">Ativo</option>
-              <option value="inativo">Inativo</option>
-              <option value="manutencao">Manutenção</option>
-            </select>
-            <select
-              value={form.deviceId}
-              onChange={(event) => setForm((current) => ({ ...current, deviceId: event.target.value }))}
-              className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:col-span-2"
-            >
-              <option value="">Equipamento (opcional)</option>
-              {availableDevices.map((device) => (
-                <option key={device.internalId || device.id || device.uniqueId} value={device.internalId || device.id}>
-                  {device.name || device.uniqueId || device.internalId}
-                </option>
-              ))}
-            </select>
-            <textarea
-              placeholder="Observações"
-              value={form.notes}
-              onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              className="w-full rounded-xl border border-stroke bg-card/60 px-3 py-2 md:col-span-2"
-              rows={3}
-            />
-          </div>
+          <VehicleForm
+            value={form}
+            onChange={setForm}
+            tenants={tenants}
+            showClient={hasAdminAccess}
+            requireClient={hasAdminAccess}
+            showDeviceSelect
+            deviceOptions={availableDevices}
+          />
           <div className="mt-4 flex justify-end gap-2">
             <Button type="button" onClick={() => setOpen(false)}>
               Cancelar

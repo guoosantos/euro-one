@@ -59,18 +59,32 @@ const VEHICLE_ICON_ASSETS = {
 
 const TYPE_ALIASES = {
   car: ["car", "auto", "automovel", "automóvel", "sedan", "hatch", "suv", "pickup", "pickup-truck", "van"],
-  truck: ["truck", "caminhao", "caminhão", "lorry", "bus", "onibus", "ônibus", "semirremolque", "carreta"],
+  truck: [
+    "truck",
+    "caminhao",
+    "caminhão",
+    "lorry",
+    "bus",
+    "onibus",
+    "ônibus",
+    "semirremolque",
+    "carreta",
+    "tractor",
+    "pickup",
+  ],
   motorcycle: ["motorcycle", "moto", "motocicleta", "bike"],
   person: ["person", "pessoa", "pedestrian", "walker", "walk"],
 };
 
 export const VEHICLE_TYPE_OPTIONS = [
-  { value: "carro", label: "Carro" },
-  { value: "caminhao", label: "Caminhão" },
-  { value: "moto", label: "Moto" },
+  { value: "car", label: "Carro" },
+  { value: "truck", label: "Caminhão" },
+  { value: "motorcycle", label: "Moto" },
+  { value: "bus", label: "Ônibus" },
   { value: "van", label: "Van" },
-  { value: "onibus", label: "Ônibus" },
-  { value: "outros", label: "Outros" },
+  { value: "tractor", label: "Trator" },
+  { value: "pickup", label: "Pickup" },
+  { value: "other", label: "Outros" },
 ];
 
 export function resolveVehicleIconType(rawType) {

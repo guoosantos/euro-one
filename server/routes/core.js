@@ -1791,7 +1791,28 @@ router.get("/vehicles", async (req, res, next) => {
 router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
-    const { name, plate, driver, group, type, status, notes, deviceId } = req.body || {};
+    const {
+      name,
+      plate,
+      driver,
+      group,
+      type,
+      status,
+      notes,
+      deviceId,
+      item,
+      identifier,
+      model,
+      brand,
+      chassis,
+      renavam,
+      color,
+      modelYear,
+      manufactureYear,
+      fipeCode,
+      fipeValue,
+      zeroKm,
+    } = req.body || {};
     const vehicle = deps.createVehicle({
       clientId,
       name,
@@ -1801,6 +1822,18 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
       type,
       status,
       notes,
+      item,
+      identifier,
+      model,
+      brand,
+      chassis,
+      renavam,
+      color,
+      modelYear,
+      manufactureYear,
+      fipeCode,
+      fipeValue,
+      zeroKm,
     });
 
     if (deviceId) {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import { useLocation, useSearchParams } from "react-router-dom";
 import L from "leaflet";
@@ -27,17 +27,31 @@ const EVENT_TYPE_OPTIONS = [
 
 function HeatLayer({ points }) {
   const map = useMap();
+  const layerRef = useRef(null);
 
   useEffect(() => {
     if (!map) return undefined;
-    const heat = L.heatLayer([], { radius: 20, blur: 25, minOpacity: 0.2, maxZoom: 14 }).addTo(map);
-    const formatted = points.map((p) => [p.lat, p.lng, Math.max(0.2, Math.min(p.count || 1, 20))]);
-    heat.setLatLngs(formatted);
+    if (!layerRef.current) {
+      layerRef.current = L.heatLayer([], { radius: 20, blur: 25, minOpacity: 0.2, maxZoom: 14 }).addTo(map);
+    }
 
     return () => {
-      map.removeLayer(heat);
+      if (layerRef.current) {
+        layerRef.current.remove();
+        layerRef.current = null;
+      }
     };
-  }, [map, points]);
+  }, [map]);
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer || !layer._map) return;
+    const formatted = points.map((p) => [p.lat, p.lng, Math.max(0.2, Math.min(p.count || 1, 20))]);
+    layer.setLatLngs(formatted);
+    if (layer._map) {
+      layer.redraw();
+    }
+  }, [points]);
 
   return null;
 }

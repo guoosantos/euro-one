@@ -18,6 +18,7 @@ export default function useAddressLookup(
   const [addresses, setAddresses] = useState({});
   const [loadingKeys, setLoadingKeys] = useState({});
   const inFlightRef = useRef(new Set());
+  const addressesRef = useRef({});
   const getKeyRef = useRef(getKey);
   const getCoordsRef = useRef(getCoords);
 
@@ -25,6 +26,10 @@ export default function useAddressLookup(
     getKeyRef.current = getKey;
     getCoordsRef.current = getCoords;
   }, [getCoords, getKey]);
+
+  useEffect(() => {
+    addressesRef.current = addresses;
+  }, [addresses]);
 
   const resolveKey = useCallback((item) => {
     if (getKeyRef.current) {
@@ -39,6 +44,7 @@ export default function useAddressLookup(
   useEffect(() => {
     if (!enabled) return undefined;
 
+    const currentAddresses = addressesRef.current || {};
     const pending = list
       .map((item) => {
         const coords = getCoordsRef.current ? getCoordsRef.current(item) : item;
@@ -52,16 +58,28 @@ export default function useAddressLookup(
     const cachedUpdates = {};
     pending.forEach((entry) => {
       const cached = getCachedReverse(entry.lat, entry.lng);
-      if (cached) cachedUpdates[entry.key] = cached;
+      if (cached && currentAddresses[entry.key] !== cached) {
+        cachedUpdates[entry.key] = cached;
+      }
     });
 
     if (Object.keys(cachedUpdates).length) {
-      setAddresses((prev) => ({ ...prev, ...cachedUpdates }));
+      setAddresses((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        Object.entries(cachedUpdates).forEach(([key, value]) => {
+          if (prev[key] !== value) {
+            next[key] = value;
+            changed = true;
+          }
+        });
+        return changed ? next : prev;
+      });
     }
 
     const missing = pending
       .filter((entry) => !cachedUpdates[entry.key])
-      .filter((entry) => !(entry.key in addresses))
+      .filter((entry) => !(entry.key in currentAddresses))
       .filter((entry) => !inFlightRef.current.has(entry.key))
       .slice(0, batchSize);
 
@@ -85,14 +103,17 @@ export default function useAddressLookup(
       for (const entry of missing) {
         try {
           const resolved = await reverseGeocode(entry.lat, entry.lng);
-          if (cancelled) return;
-          setAddresses((prev) => ({ ...prev, [entry.key]: resolved || FALLBACK_ADDRESS }));
+          if (!cancelled) {
+            setAddresses((prev) => ({ ...prev, [entry.key]: resolved || FALLBACK_ADDRESS }));
+          }
         } catch (_error) {
-          if (cancelled) return;
-          setAddresses((prev) => ({ ...prev, [entry.key]: prev[entry.key] || FALLBACK_ADDRESS }));
+          if (!cancelled) {
+            setAddresses((prev) => ({ ...prev, [entry.key]: prev[entry.key] || FALLBACK_ADDRESS }));
+          }
         } finally {
-          if (cancelled) return;
-          setLoadingKeys((prev) => ({ ...prev, [entry.key]: false }));
+          if (!cancelled) {
+            setLoadingKeys((prev) => ({ ...prev, [entry.key]: false }));
+          }
           inFlightRef.current.delete(entry.key);
         }
       }
@@ -101,7 +122,7 @@ export default function useAddressLookup(
     return () => {
       cancelled = true;
     };
-  }, [addresses, batchSize, enabled, list, resolveKey]);
+  }, [batchSize, enabled, list, resolveKey]);
 
   return { addresses, loadingKeys };
 }

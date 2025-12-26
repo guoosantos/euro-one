@@ -8,6 +8,12 @@ const STORAGE_KEY = "vehicles";
 const vehicles = new Map();
 const byPlate = new Map();
 
+function parseNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
 function isPrismaReady() {
   return isPrismaAvailable();
 }
@@ -38,7 +44,19 @@ async function syncVehicleToPrisma(record) {
     const payload = {
       clientId: String(record.clientId),
       name: record.name || null,
+      item: record.item || null,
       plate: record.plate,
+      identifier: record.identifier || null,
+      model: record.model || record.name || null,
+      brand: record.brand || null,
+      chassis: record.chassis || null,
+      renavam: record.renavam || null,
+      color: record.color || null,
+      modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
+      manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
+      fipeCode: record.fipeCode || null,
+      fipeValue: Number.isFinite(record.fipeValue) ? record.fipeValue : null,
+      zeroKm: Boolean(record.zeroKm),
       driver: record.driver || null,
       group: record.group || null,
       type: record.type || null,
@@ -101,7 +119,19 @@ async function hydrateVehiclesFromPrisma() {
             id: record.id,
             clientId: String(record.clientId),
             name: record.name || "",
+            item: record.item || "",
             plate: record.plate,
+            identifier: record.identifier || "",
+            model: record.model || record.name || "",
+            brand: record.brand || "",
+            chassis: record.chassis || "",
+            renavam: record.renavam || "",
+            color: record.color || "",
+            modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
+            manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
+            fipeCode: record.fipeCode || "",
+            fipeValue: Number.isFinite(record.fipeValue) ? record.fipeValue : null,
+            zeroKm: Boolean(record.zeroKm),
             driver: record.driver || "",
             group: record.group || "",
             type: record.type || "",
@@ -151,7 +181,19 @@ export function getVehicleById(id) {
 export function createVehicle({
   clientId,
   name,
+  item,
   plate,
+  identifier,
+  model,
+  brand,
+  chassis,
+  renavam,
+  color,
+  modelYear,
+  manufactureYear,
+  fipeCode,
+  fipeValue,
+  zeroKm = false,
   driver = "",
   group = "",
   type = "",
@@ -165,9 +207,20 @@ export function createVehicle({
   if (!plate) {
     throw createError(400, "Placa é obrigatória");
   }
+  if (!model && !name) {
+    throw createError(400, "Modelo é obrigatório");
+  }
+  const normalizedType = type ? String(type).trim() : "";
+  if (!normalizedType) {
+    throw createError(400, "Tipo do veículo é obrigatório");
+  }
   const normalizedPlate = String(plate).trim();
   if (!normalizedPlate) {
     throw createError(400, "Placa é obrigatória");
+  }
+  const normalizedModel = model ? String(model).trim() : name ? String(name).trim() : "";
+  if (!normalizedModel) {
+    throw createError(400, "Modelo é obrigatório");
   }
   const plateKey = `${clientId}:${normalizedPlate.toLowerCase()}`;
   if (byPlate.has(plateKey)) {
@@ -178,11 +231,23 @@ export function createVehicle({
   const record = {
     id: randomUUID(),
     clientId: String(clientId),
-    name: name ? String(name).trim() : "",
+    name: normalizedModel,
+    item: item ? String(item).trim() : "",
     plate: normalizedPlate,
+    identifier: identifier ? String(identifier).trim() : "",
+    model: normalizedModel,
+    brand: brand ? String(brand).trim() : "",
+    chassis: chassis ? String(chassis).trim() : "",
+    renavam: renavam ? String(renavam).trim() : "",
+    color: color ? String(color).trim() : "",
+    modelYear: parseNumber(modelYear),
+    manufactureYear: parseNumber(manufactureYear),
+    fipeCode: fipeCode ? String(fipeCode).trim() : "",
+    fipeValue: parseNumber(fipeValue),
+    zeroKm: Boolean(zeroKm),
     driver: driver ? String(driver).trim() : "",
     group: group ? String(group).trim() : "",
-    type: type ? String(type).trim() : "",
+    type: normalizedType,
     status: status ? String(status).trim() : "ativo",
     notes: notes ? String(notes).trim() : "",
     deviceId: deviceId ? String(deviceId) : null,
@@ -202,7 +267,14 @@ export function updateVehicle(id, updates = {}) {
   }
 
   if (Object.prototype.hasOwnProperty.call(updates, "name")) {
-    record.name = updates.name ? String(updates.name).trim() : "";
+    const nextName = updates.name ? String(updates.name).trim() : "";
+    record.name = nextName;
+    if (nextName && !record.model) {
+      record.model = nextName;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "item")) {
+    record.item = updates.item ? String(updates.item).trim() : "";
   }
   if (Object.prototype.hasOwnProperty.call(updates, "driver")) {
     record.driver = updates.driver ? String(updates.driver).trim() : "";
@@ -211,7 +283,51 @@ export function updateVehicle(id, updates = {}) {
     record.group = updates.group ? String(updates.group).trim() : "";
   }
   if (Object.prototype.hasOwnProperty.call(updates, "type")) {
-    record.type = updates.type ? String(updates.type).trim() : "";
+    const nextType = updates.type ? String(updates.type).trim() : "";
+    if (!nextType) {
+      throw createError(400, "Tipo do veículo é obrigatório");
+    }
+    record.type = nextType;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "identifier")) {
+    record.identifier = updates.identifier ? String(updates.identifier).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "model")) {
+    const nextModel = updates.model ? String(updates.model).trim() : "";
+    if (!nextModel) {
+      throw createError(400, "Modelo é obrigatório");
+    }
+    record.model = nextModel;
+    if (nextModel) {
+      record.name = nextModel;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "brand")) {
+    record.brand = updates.brand ? String(updates.brand).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "chassis")) {
+    record.chassis = updates.chassis ? String(updates.chassis).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "renavam")) {
+    record.renavam = updates.renavam ? String(updates.renavam).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "color")) {
+    record.color = updates.color ? String(updates.color).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "modelYear")) {
+    record.modelYear = parseNumber(updates.modelYear);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "manufactureYear")) {
+    record.manufactureYear = parseNumber(updates.manufactureYear);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "fipeCode")) {
+    record.fipeCode = updates.fipeCode ? String(updates.fipeCode).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "fipeValue")) {
+    record.fipeValue = parseNumber(updates.fipeValue);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "zeroKm")) {
+    record.zeroKm = Boolean(updates.zeroKm);
   }
   if (Object.prototype.hasOwnProperty.call(updates, "status")) {
     record.status = updates.status ? String(updates.status).trim() : "";

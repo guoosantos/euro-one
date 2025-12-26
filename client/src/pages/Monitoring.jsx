@@ -23,6 +23,7 @@ import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
+import { matchesTenant } from "../lib/tenancy.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -485,40 +486,46 @@ export default function Monitoring() {
   }, [mapLayerKey]);
 
   // --- Lógica de Dados ---
-  const normalizedTelemetry = useMemo(() => safeTelemetry.map((item) => {
-    const sourceDevice = item.device || item;
-    const vehicleId =
-      item.vehicleId ??
-      sourceDevice?.vehicleId ??
-      sourceDevice?.vehicle?.id ??
-      sourceDevice?.vehicle_id ??
-      sourceDevice?.vehicle?.vehicleId ??
-      item.vehicle?.id ??
-      null;
+  const normalizedTelemetry = useMemo(() => safeTelemetry
+    .map((item) => {
+      const sourceDevice = item.device || item;
+      const vehicleId =
+        item.vehicleId ??
+        sourceDevice?.vehicleId ??
+        sourceDevice?.vehicle?.id ??
+        sourceDevice?.vehicle_id ??
+        sourceDevice?.vehicle?.vehicleId ??
+        item.vehicle?.id ??
+        null;
 
-    const vehicle =
-      item.vehicle ||
-      sourceDevice?.vehicle ||
-      (vehicleId
-        ? {
-            id: vehicleId,
-            plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
-            name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
-            clientId: item.clientId ?? sourceDevice?.clientId,
-            __synthetic: true,
-          }
-        : null);
+      const vehicle =
+        item.vehicle ||
+        sourceDevice?.vehicle ||
+        (vehicleId
+          ? {
+              id: vehicleId,
+              plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
+              name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
+              clientId: item.clientId ?? sourceDevice?.clientId,
+              __synthetic: true,
+            }
+          : null);
 
-    const device = {
-      ...sourceDevice,
-      vehicleId,
-      vehicle: vehicle || sourceDevice?.vehicle,
-      plate: sourceDevice?.plate ?? sourceDevice?.registrationNumber ?? item.plate ?? vehicle?.plate,
-      clientId: sourceDevice?.clientId ?? item.clientId ?? vehicle?.clientId,
-    };
+      const device = {
+        ...sourceDevice,
+        vehicleId,
+        vehicle: vehicle || sourceDevice?.vehicle,
+        plate: sourceDevice?.plate ?? sourceDevice?.registrationNumber ?? item.plate ?? vehicle?.plate,
+        clientId: sourceDevice?.clientId ?? item.clientId ?? vehicle?.clientId,
+      };
 
-    return { device, source: item, vehicle };
-  }), [safeTelemetry]);
+      return { device, source: item, vehicle };
+    })
+    .filter((entry) =>
+      matchesTenant(entry?.device, tenantId) ||
+      matchesTenant(entry?.vehicle, tenantId) ||
+      matchesTenant(entry?.source, tenantId),
+    ), [safeTelemetry, tenantId]);
 
   const linkedTelemetry = useMemo(
     () =>
