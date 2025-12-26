@@ -8,6 +8,8 @@ const cache = new Map();
 let useGuestReverse = false;
 const STORAGE_KEY = "reverseGeocodeCache:v1";
 let storageHydrated = false;
+let loggedFallbackOnce = false;
+const FALLBACK_ADDRESS = "Endereço indisponível";
 
 function buildKey(lat, lng, precision = 5) {
   const factor = 10 ** precision;
@@ -128,8 +130,12 @@ export async function reverseGeocode(lat, lng) {
             .join(", ")
         : null);
 
-    const fallback = `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    const resolved = address || fallback;
+    const resolved = address || FALLBACK_ADDRESS;
+
+    if (!address && !loggedFallbackOnce) {
+      loggedFallbackOnce = true;
+      console.info("Geocode reverso sem endereço. Usando fallback.");
+    }
 
     setCachedReverse(key, resolved);
     return resolved;
@@ -146,8 +152,11 @@ export async function reverseGeocode(lat, lng) {
       }
     }
 
-    const fallback = "Endereço não disponível";
-    setCachedReverse(key, fallback);
-    return fallback;
+    if (!loggedFallbackOnce) {
+      loggedFallbackOnce = true;
+      console.info("Geocode reverso falhou. Usando fallback.");
+    }
+    setCachedReverse(key, FALLBACK_ADDRESS);
+    return FALLBACK_ADDRESS;
   }
 }

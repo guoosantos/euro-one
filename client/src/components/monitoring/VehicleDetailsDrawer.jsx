@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "../../lib/i18n.js";
+import { formatAddress as formatAddressString } from "../../lib/format-address.js";
+import { FALLBACK_ADDRESS, useReverseGeocode } from "../../lib/utils/geocode.js";
 
 export default function VehicleDetailsDrawer({
   vehicle,
@@ -69,6 +71,10 @@ export default function VehicleDetailsDrawer({
   const lat = position?.latitude ?? position?.lat ?? safeVehicle.lat;
   const lng = position?.longitude ?? position?.lon ?? safeVehicle.lng;
   const address = safeVehicle.address || position?.address;
+  const { address: reverseAddress, loading: reverseLoading } = useReverseGeocode(lat, lng, {
+    enabled: !address && Number.isFinite(lat) && Number.isFinite(lng),
+  });
+  const resolvedAddress = resolveAddressLabel(address || reverseAddress, reverseLoading);
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
   const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || safeVehicle.lastUpdate;
 
@@ -104,7 +110,7 @@ export default function VehicleDetailsDrawer({
             <Detail label="Velocidade" value={`${position?.speed ?? safeVehicle.speed ?? 0} km/h`} />
             <Detail label="Última posição" value={lastUpdateLabel} />
             <Detail label="Status" value={statusLabel} />
-            <Detail label="Endereço" value={formatAddress(address, lat, lng)} />
+            <Detail label="Endereço" value={resolvedAddress} />
           </Section>
           <Section title="Sensores" muted>
             <p className="text-xs text-white/60">Integração com sensores (ignição, bateria, bloqueio) ficará disponível aqui.</p>
@@ -206,7 +212,7 @@ export default function VehicleDetailsDrawer({
   const containerClass =
     variant === "page"
       ? "relative mx-auto flex h-full w-full max-w-6xl flex-col border border-white/10 bg-[#0f141c]/90 shadow-2xl"
-      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] flex h-full w-[420px] flex-col border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
+      : `${floating ? "fixed" : "relative"} inset-y-0 right-0 z-[9998] flex h-full w-full flex-col border-l border-white/10 bg-[#0f141c]/95 shadow-3xl backdrop-blur`;
 
   return (
     <div className={containerClass}>
@@ -259,7 +265,7 @@ export default function VehicleDetailsDrawer({
         ))}
       </div>
 
-      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-5 text-sm text-white/80">{renderContent()}</div>
+      <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-5 text-sm text-white/80 scroll-smooth">{renderContent()}</div>
     </div>
   );
 }
@@ -282,11 +288,9 @@ function Detail({ label, value }) {
   );
 }
 
-function formatAddress(address, lat, lng) {
-  if (typeof address === "string" && address.trim()) return address;
-  if (address && typeof address === "object") {
-    return address.formattedAddress || address.address || address.formatted || "";
-  }
-  if (Number.isFinite(lat) && Number.isFinite(lng)) return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  return "—";
+function resolveAddressLabel(address, isLoading = false) {
+  const formatted = formatAddressString(address);
+  if (formatted && formatted !== "—") return formatted;
+  if (isLoading) return "Carregando endereço...";
+  return FALLBACK_ADDRESS;
 }
