@@ -26,20 +26,13 @@ import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import PageHeader from "../ui/PageHeader";
+import DropdownMenu from "../ui/DropdownMenu";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
-
-const ICON_TYPES = [
-  { value: "car", label: "Carro" },
-  { value: "motorcycle", label: "Moto" },
-  { value: "truck", label: "Caminhão" },
-  { value: "person", label: "Pessoa" },
-  { value: "tag", label: "Tag / Rastreador pequeno" },
-  { value: "watercraft", label: "Jet / Embarcação" },
-];
+import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -103,6 +96,7 @@ function DeviceRow({
   lastCommunication,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
 
   const toggleMenu = () => setMenuOpen((value) => !value);
 
@@ -189,16 +183,17 @@ function DeviceRow({
           <button
             type="button"
             onClick={toggleMenu}
+            ref={menuButtonRef}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
             aria-label="Ações"
           >
             <EllipsisVertical className="h-4 w-4" />
           </button>
-          {menuOpen && (
-            <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-xl border border-white/10 bg-[#0f141c] shadow-xl">
+          <DropdownMenu open={menuOpen} anchorRef={menuButtonRef} onClose={() => setMenuOpen(false)}>
+            <div className="flex flex-col py-2 text-sm text-white">
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
                 onClick={() => {
                   onEdit?.();
                   setMenuOpen(false);
@@ -208,7 +203,7 @@ function DeviceRow({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
                 onClick={() => {
                   onLink?.();
                   setMenuOpen(false);
@@ -218,7 +213,7 @@ function DeviceRow({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
                 onClick={() => {
                   onUnlink?.();
                   setMenuOpen(false);
@@ -229,7 +224,7 @@ function DeviceRow({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
                 onClick={() => {
                   onMap?.();
                   setMenuOpen(false);
@@ -240,7 +235,7 @@ function DeviceRow({
               </button>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10"
+                className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-200 hover:bg-red-500/10"
                 onClick={() => {
                   onDelete?.();
                   setMenuOpen(false);
@@ -250,7 +245,7 @@ function DeviceRow({
                 Remover
               </button>
             </div>
-          )}
+          </DropdownMenu>
         </div>
       </td>
     </tr>
@@ -326,11 +321,23 @@ export default function Devices() {
     model: "all",
   });
   const [showColumnPicker, setShowColumnPicker] = useState(false);
-  const [visibleColumns, setVisibleColumns] = useState({
-    speed: true,
-    chip: true,
-    ignition: true,
-  });
+  const resolvedClientId = tenantId || user?.clientId || null;
+  const columnStorageKey = useMemo(
+    () => `devices.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
+    [resolvedClientId, user?.id],
+  );
+  const columnDefaults = useMemo(
+    () => ({
+      speed: true,
+      chip: true,
+      ignition: true,
+    }),
+    [],
+  );
+  const [visibleColumns, setVisibleColumns] = useState(
+    () => loadColumnVisibility(columnStorageKey) ?? columnDefaults,
+  );
+  const columnAutoApplied = useRef(false);
   const [syncing, setSyncing] = useState(false);
   const [drawerTab, setDrawerTab] = useState("geral");
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
@@ -338,13 +345,10 @@ export default function Devices() {
   const [vehicleForm, setVehicleForm] = useState({ plate: "", name: "" });
   const [lastSyncAt, setLastSyncAt] = useState(null);
 
-  const resolvedClientId = tenantId || user?.clientId || null;
-
   const [deviceForm, setDeviceForm] = useState({
     name: "",
     uniqueId: "",
     modelId: "",
-    iconType: "",
     chipId: "",
     vehicleId: "",
   });
@@ -461,6 +465,18 @@ export default function Devices() {
   }, [resolvedClientId, user]);
 
   useEffect(() => {
+    setFilters({ status: "all", link: "all", model: "all" });
+    setQuery("");
+    setLinkTarget(null);
+    setLinkVehicleId("");
+    setLinkQuery("");
+    setMapTarget(null);
+    setShowDeviceDrawer(false);
+    setShowColumnPicker(false);
+    setInitializedFromSearch(false);
+  }, [resolvedClientId]);
+
+  useEffect(() => {
     if (initializedFromSearch) return;
     const params = new URLSearchParams(location.search);
     const linkParam = params.get("link");
@@ -562,6 +578,66 @@ export default function Devices() {
     });
     return map;
   }, [devices, positionMap]);
+
+  const columnDefs = useMemo(
+    () => [
+      {
+        key: "chip",
+        label: "Chip",
+        defaultVisible: true,
+        isMissing: (device) => {
+          const chip = chipById.get(device.chipId) || device.chip;
+          return !(chip?.iccid || chip?.phone);
+        },
+      },
+      {
+        key: "speed",
+        label: "Velocidade",
+        defaultVisible: true,
+        isMissing: (device) => {
+          const key = deviceKey(device);
+          return !key || !latestPositionByDevice.get(key);
+        },
+      },
+      {
+        key: "ignition",
+        label: "Bateria / Ignição",
+        defaultVisible: true,
+        isMissing: (device) => {
+          const key = deviceKey(device);
+          const position = key ? latestPositionByDevice.get(key) : null;
+          const attrs = position?.attributes || {};
+          const battery = attrs.batteryLevel ?? attrs.battery ?? attrs.power ?? attrs.charge;
+          const ignition = typeof attrs.ignition === "boolean";
+          return (battery === undefined || battery === null) && !ignition;
+        },
+      },
+    ],
+    [chipById, latestPositionByDevice],
+  );
+
+  useEffect(() => {
+    columnAutoApplied.current = false;
+    const stored = loadColumnVisibility(columnStorageKey);
+    setVisibleColumns(stored ?? columnDefaults);
+  }, [columnDefaults, columnStorageKey]);
+
+  useEffect(() => {
+    if (columnAutoApplied.current) return;
+    if (!devices.length) return;
+    const stored = loadColumnVisibility(columnStorageKey);
+    if (stored) {
+      columnAutoApplied.current = true;
+      return;
+    }
+    const autoVisibility = computeAutoVisibility(devices, columnDefs, 0.9);
+    setVisibleColumns((current) => ({ ...current, ...autoVisibility }));
+    columnAutoApplied.current = true;
+  }, [columnDefs, columnStorageKey, devices]);
+
+  useEffect(() => {
+    saveColumnVisibility(columnStorageKey, visibleColumns);
+  }, [columnStorageKey, visibleColumns]);
 
   function relativeTimeFromNow(timestamp) {
     if (!timestamp) return null;
@@ -728,7 +804,7 @@ export default function Devices() {
   }
 
   function resetDeviceForm() {
-    setDeviceForm({ name: "", uniqueId: "", modelId: "", iconType: "", chipId: "", vehicleId: "" });
+    setDeviceForm({ name: "", uniqueId: "", modelId: "", chipId: "", vehicleId: "" });
     setEditingId(null);
   }
 
@@ -750,8 +826,6 @@ export default function Devices() {
         name: deviceForm.name?.trim() || undefined,
         uniqueId: deviceForm.uniqueId.trim(),
         modelId: deviceForm.modelId || undefined,
-        iconType: deviceForm.iconType || undefined,
-        attributes: deviceForm.iconType ? { iconType: deviceForm.iconType } : undefined,
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
         clientId,
@@ -840,7 +914,6 @@ export default function Devices() {
       name: device.name || "",
       uniqueId: device.uniqueId || "",
       modelId: device.modelId || "",
-      iconType: device.iconType || device.attributes?.iconType || "",
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
     });
@@ -909,6 +982,12 @@ export default function Devices() {
       if (vehicle?.clientId && targetDevice?.clientId && String(vehicle.clientId) !== String(targetDevice.clientId)) {
         showToast("Equipamento e veículo pertencem a clientes diferentes", "error");
         return;
+      }
+      if (Object.prototype.hasOwnProperty.call(deviceForm, "chipId")) {
+        await CoreApi.updateDevice(targetDevice.id, {
+          chipId: deviceForm.chipId || null,
+          clientId: targetClientId,
+        });
       }
       await CoreApi.linkDeviceToVehicle(linkVehicleId, targetDevice.id, { clientId: targetClientId });
       await load();
@@ -1046,7 +1125,7 @@ export default function Devices() {
       : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50");
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       {toast && <div className={toastClassName}>{toast.message}</div>}
 
       <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
@@ -1189,7 +1268,7 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-white/80">
             <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
@@ -1253,8 +1332,8 @@ export default function Devices() {
               {!loading &&
                 filteredDevices.map((device) => {
                   const modelo = modeloById.get(device.modelId) || null;
-                  const chip = chips.find((item) => item.id === device.chipId) || device.chip;
-                  const vehicle = vehicles.find((item) => item.id === device.vehicleId) || device.vehicle;
+                  const chip = chipById.get(device.chipId) || device.chip;
+                  const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
                   const position = latestPositionByDevice.get(deviceKey(device));
                   const meta = statusMeta(device);
                   const ignitionLabel = formatIgnition(device);
@@ -1342,18 +1421,6 @@ export default function Devices() {
                 </option>
               ))}
             </Select>
-            <Select
-              label="Tipo de ícone no mapa"
-              value={deviceForm.iconType}
-              onChange={(event) => setDeviceForm((current) => ({ ...current, iconType: event.target.value }))}
-            >
-              <option value="">Padrão</option>
-              {ICON_TYPES.map((icon) => (
-                <option key={icon.value} value={icon.value}>
-                  {icon.label}
-                </option>
-              ))}
-            </Select>
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
                 Cancelar
@@ -1404,6 +1471,11 @@ export default function Devices() {
                     </option>
                   ))}
                 </select>
+                {linkVehicleId && (
+                  <div className="text-xs text-white/60">
+                    Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}
+                  </div>
+                )}
               </div>
             </div>
             <div className="grid gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1515,6 +1587,11 @@ export default function Devices() {
                 </option>
               ))}
             </select>
+            {linkVehicleId && (
+              <div className="text-xs text-white/60">
+                Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}
+              </div>
+            )}
           </div>
           <div className="grid gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
             <div className="flex items-center justify-between">

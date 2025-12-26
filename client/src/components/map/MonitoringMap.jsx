@@ -11,6 +11,7 @@ const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 15;
 
 const markerIconCache = new Map();
+const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
   className: "address-pin",
   html: `
@@ -63,6 +64,29 @@ function getMarkerIcon({ color, iconType, heading = 0 }) {
   });
 
   markerIconCache.set(key, icon);
+  return icon;
+}
+
+function getClusterIcon(count) {
+  const rounded = Math.max(2, Math.min(9999, Number(count) || 0));
+  const size = rounded < 10 ? 34 : rounded < 50 ? 38 : rounded < 200 ? 44 : 50;
+  const key = `${rounded}-${size}`;
+  if (clusterIconCache.has(key)) return clusterIconCache.get(key);
+
+  const iconHtml = `
+    <div class="cluster-marker" style="width:${size}px;height:${size}px;">
+      <span>${rounded}</span>
+    </div>
+  `;
+
+  const icon = L.divIcon({
+    className: "cluster-marker-wrapper",
+    html: iconHtml,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+
+  clusterIconCache.set(key, icon);
   return icon;
 }
 
@@ -124,12 +148,12 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
   const map = useMap();
   const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
+  const [clusters, setClusters] = useState([]);
   
   const safeMarkers = useMemo(
     () => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)),
     [markers],
   );
-
   // Manipular eventos de movimento (opcional)
   useEffect(() => {
     if (!map || !onViewportChange) return undefined;
@@ -143,6 +167,50 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     map.on("moveend", handleMove);
     return () => map.off("moveend", handleMove);
   }, [map, onViewportChange]);
+
+  useEffect(() => {
+    if (!map) return undefined;
+
+    const updateClusters = () => {
+      const zoom = map.getZoom();
+      const radius = 60;
+      const groupMap = new Map();
+
+      safeMarkers.forEach((marker) => {
+        const point = map.project([marker.lat, marker.lng], zoom);
+        const key = `${Math.round(point.x / radius)}:${Math.round(point.y / radius)}`;
+        const group = groupMap.get(key) || { markers: [], sumX: 0, sumY: 0 };
+        group.markers.push(marker);
+        group.sumX += point.x;
+        group.sumY += point.y;
+        groupMap.set(key, group);
+      });
+
+      const nextClusters = Array.from(groupMap.values()).map((group, index) => {
+        if (group.markers.length === 1) {
+          return { type: "marker", marker: group.markers[0], id: `m-${group.markers[0].id || index}` };
+        }
+        const avgX = group.sumX / group.markers.length;
+        const avgY = group.sumY / group.markers.length;
+        const center = map.unproject([avgX, avgY], zoom);
+        return {
+          type: "cluster",
+          id: `c-${index}`,
+          count: group.markers.length,
+          lat: center.lat,
+          lng: center.lng,
+        };
+      });
+
+      setClusters(nextClusters);
+    };
+
+    updateClusters();
+    map.on("moveend zoomend", updateClusters);
+    return () => {
+      map.off("moveend zoomend", updateClusters);
+    };
+  }, [map, safeMarkers]);
 
   // Focar no marcador quando selecionado
   useEffect(() => {
@@ -194,33 +262,53 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     }
   }, [map, safeMarkers, mapViewport]);
 
-  return safeMarkers.map((marker) => (
-    <Marker
-      key={marker.id ?? `${marker.lat}-${marker.lng}`}
-      position={[marker.lat, marker.lng]}
-      icon={getMarkerIcon({
-        color: marker.color || marker.accentColor,
-        iconType: marker.iconType,
-        heading: marker.heading,
-      })}
-      eventHandlers={{
-        click: () => {
-          if (marker.id) {
-            onMarkerSelect?.(marker.id);
-            onMarkerOpenDetails?.(marker.id);
-          }
-        },
-      }}
-      ref={(ref) => {
-        if (ref && marker.id) markerRefs.current.set(marker.id, ref);
-        else if (!ref && marker.id) markerRefs.current.delete(marker.id);
-      }}
-    >
-      <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
-        <PopupContent marker={marker} />
-      </Tooltip>
-    </Marker>
-  ));
+  return clusters.map((cluster) => {
+    if (cluster.type === "cluster") {
+      return (
+        <Marker
+          key={cluster.id}
+          position={[cluster.lat, cluster.lng]}
+          icon={getClusterIcon(cluster.count)}
+          eventHandlers={{
+            click: () => {
+              map.flyTo([cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18), { duration: 0.35 });
+            },
+          }}
+        />
+      );
+    }
+
+    const marker = cluster.marker;
+    if (!marker) return null;
+
+    return (
+      <Marker
+        key={marker.id ?? `${marker.lat}-${marker.lng}`}
+        position={[marker.lat, marker.lng]}
+        icon={getMarkerIcon({
+          color: marker.color || marker.accentColor,
+          iconType: marker.iconType,
+          heading: marker.heading,
+        })}
+        eventHandlers={{
+          click: () => {
+            if (marker.id) {
+              onMarkerSelect?.(marker.id);
+              onMarkerOpenDetails?.(marker.id);
+            }
+          },
+        }}
+        ref={(ref) => {
+          if (ref && marker.id) markerRefs.current.set(marker.id, ref);
+          else if (!ref && marker.id) markerRefs.current.delete(marker.id);
+        }}
+      >
+        <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
+          <PopupContent marker={marker} />
+        </Tooltip>
+      </Marker>
+    );
+  });
 }
 
 function RegionOverlay({ target, mapReady }) {

@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, Trash2 } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { EllipsisVertical, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
 import PageHeader from "../ui/PageHeader";
 import Input from "../ui/Input";
@@ -7,15 +7,68 @@ import Select from "../ui/Select";
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import Field from "../ui/Field";
-import { Search } from "lucide-react";
+import DropdownMenu from "../ui/DropdownMenu";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 
 function formatStatus(status) {
   if (!status) return "—";
   return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function ChipRow({ chip, lastPing, showCarrier, showStatus, showLastPing, showDevice, onEdit, onDelete }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
+
+  return (
+    <tr className="hover:bg-white/5">
+      <td className="px-4 py-3 text-white">{chip.iccid}</td>
+      <td className="px-4 py-3">{chip.phone || "—"}</td>
+      {showCarrier && <td className="px-4 py-3">{chip.carrier || "—"}</td>}
+      {showStatus && <td className="px-4 py-3">{formatStatus(chip.status)}</td>}
+      {showLastPing && <td className="px-4 py-3">{lastPing}</td>}
+      {showDevice && <td className="px-4 py-3">{chip.device?.name || chip.device?.uniqueId || "—"}</td>}
+      <td className="px-4 py-3 text-right">
+        <button
+          type="button"
+          ref={menuButtonRef}
+          onClick={() => setMenuOpen((prev) => !prev)}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+          aria-label="Ações"
+        >
+          <EllipsisVertical className="h-4 w-4" />
+        </button>
+        <DropdownMenu open={menuOpen} anchorRef={menuButtonRef} onClose={() => setMenuOpen(false)}>
+          <div className="flex flex-col py-2 text-sm text-white">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
+              onClick={() => {
+                onEdit?.();
+                setMenuOpen(false);
+              }}
+            >
+              Editar chip
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-200 hover:bg-red-500/10"
+              onClick={() => {
+                onDelete?.();
+                setMenuOpen(false);
+              }}
+            >
+              <Trash2 className="h-4 w-4" />
+              Remover
+            </button>
+          </div>
+        </DropdownMenu>
+      </td>
+    </tr>
+  );
 }
 
 export default function Chips() {
@@ -32,8 +85,26 @@ export default function Chips() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("todos");
   const [carrierFilter, setCarrierFilter] = useState("todos");
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
 
   const resolvedClientId = tenantId || user?.clientId || null;
+  const columnStorageKey = useMemo(
+    () => `chips.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
+    [resolvedClientId, user?.id],
+  );
+  const columnDefaults = useMemo(
+    () => ({
+      carrier: true,
+      status: true,
+      lastPing: true,
+      device: true,
+    }),
+    [],
+  );
+  const [visibleColumns, setVisibleColumns] = useState(
+    () => loadColumnVisibility(columnStorageKey) ?? columnDefaults,
+  );
+  const columnAutoApplied = useRef(false);
 
   const [form, setForm] = useState({
     iccid: "",
@@ -62,6 +133,62 @@ export default function Chips() {
     return map;
   }, [positions]);
 
+  const columnDefs = useMemo(
+    () => [
+      {
+        key: "carrier",
+        label: "Operadora",
+        defaultVisible: true,
+        isMissing: (chip) => !chip?.carrier,
+      },
+      {
+        key: "status",
+        label: "Status",
+        defaultVisible: true,
+        isMissing: (chip) => !chip?.status,
+      },
+      {
+        key: "lastPing",
+        label: "Último ping",
+        defaultVisible: true,
+        isMissing: (chip) => {
+          const key = toDeviceKey(chip.deviceId || chip.device?.id || chip.device?.traccarId || chip.device?.uniqueId);
+          return !key || !latestPositionByDevice.get(key);
+        },
+      },
+      {
+        key: "device",
+        label: "Equipamento",
+        defaultVisible: true,
+        isMissing: (chip) => !(chip?.device?.name || chip?.device?.uniqueId),
+      },
+    ],
+    [latestPositionByDevice],
+  );
+
+  useEffect(() => {
+    columnAutoApplied.current = false;
+    const stored = loadColumnVisibility(columnStorageKey);
+    setVisibleColumns(stored ?? columnDefaults);
+  }, [columnDefaults, columnStorageKey]);
+
+  useEffect(() => {
+    if (columnAutoApplied.current) return;
+    if (!chips.length) return;
+    const stored = loadColumnVisibility(columnStorageKey);
+    if (stored) {
+      columnAutoApplied.current = true;
+      return;
+    }
+    const autoVisibility = computeAutoVisibility(chips, columnDefs, 0.9);
+    setVisibleColumns((current) => ({ ...current, ...autoVisibility }));
+    columnAutoApplied.current = true;
+  }, [chips, columnDefs, columnStorageKey]);
+
+  useEffect(() => {
+    saveColumnVisibility(columnStorageKey, visibleColumns);
+  }, [columnStorageKey, visibleColumns]);
+
   async function load() {
     setLoading(true);
     setError(null);
@@ -85,6 +212,12 @@ export default function Chips() {
       load();
     }
   }, [resolvedClientId, user]);
+
+  useEffect(() => {
+    setQuery("");
+    setStatusFilter("todos");
+    setCarrierFilter("todos");
+  }, [resolvedClientId]);
 
   const statusOptions = useMemo(() => {
     const set = new Set();
@@ -123,6 +256,13 @@ export default function Chips() {
 
   const availableDevices = useMemo(() => devices.filter((device) => !device.chipId || device.chipId === editingId), [devices, editingId]);
 
+  const tableColCount =
+    3 +
+    (visibleColumns.carrier ? 1 : 0) +
+    (visibleColumns.status ? 1 : 0) +
+    (visibleColumns.lastPing ? 1 : 0) +
+    (visibleColumns.device ? 1 : 0);
+
   function getLastPing(chip) {
     const key = toDeviceKey(chip.deviceId || chip.device?.id || chip.device?.traccarId || chip.device?.uniqueId);
     const position = key ? latestPositionByDevice.get(key) : null;
@@ -144,6 +284,10 @@ export default function Chips() {
       notes: "",
       deviceId: "",
     });
+  }
+
+  function toggleColumn(key) {
+    setVisibleColumns((current) => ({ ...current, [key]: !current[key] }));
   }
 
   async function handleSave(event) {
@@ -212,7 +356,7 @@ export default function Chips() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
         title="Chips"
         description="Controle de chips vinculados aos equipamentos do tenant."
@@ -259,56 +403,99 @@ export default function Chips() {
           <Button onClick={load} className="md:col-span-1">
             Atualizar
           </Button>
+          <Button
+            variant="ghost"
+            className="md:col-span-1"
+            onClick={() => setShowColumnPicker((prev) => !prev)}
+          >
+            Exibir colunas
+          </Button>
         </div>
       </Field>
 
-      <div className="rounded-2xl border border-white/10 bg-white/5">
+      {showColumnPicker && (
+        <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.carrier}
+              onChange={() => toggleColumn("carrier")}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Operadora
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.status}
+              onChange={() => toggleColumn("status")}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Status
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.lastPing}
+              onChange={() => toggleColumn("lastPing")}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Último ping
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.device}
+              onChange={() => toggleColumn("device")}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Equipamento
+          </label>
+        </div>
+      )}
+
+      <div className="flex-1 rounded-2xl border border-white/10 bg-white/5">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
                 <th className="px-4 py-3 text-left">ICCID</th>
                 <th className="px-4 py-3 text-left">Telefone</th>
-                <th className="px-4 py-3 text-left">Operadora</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Último ping</th>
-                <th className="px-4 py-3 text-left">Equipamento</th>
+                {visibleColumns.carrier && <th className="px-4 py-3 text-left">Operadora</th>}
+                {visibleColumns.status && <th className="px-4 py-3 text-left">Status</th>}
+                {visibleColumns.lastPing && <th className="px-4 py-3 text-left">Último ping</th>}
+                {visibleColumns.device && <th className="px-4 py-3 text-left">Equipamento</th>}
                 <th className="px-4 py-3 text-left">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
                     Carregando chips…
                   </td>
                 </tr>
               )}
               {!loading && filteredChips.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
                     Nenhum chip encontrado.
                   </td>
                 </tr>
               )}
               {!loading &&
                 filteredChips.map((chip) => (
-                  <tr key={chip.id} className="hover:bg-white/5">
-                    <td className="px-4 py-3 text-white">{chip.iccid}</td>
-                    <td className="px-4 py-3">{chip.phone || "—"}</td>
-                    <td className="px-4 py-3">{chip.carrier || "—"}</td>
-                    <td className="px-4 py-3">{formatStatus(chip.status)}</td>
-                    <td className="px-4 py-3">{getLastPing(chip)}</td>
-                    <td className="px-4 py-3">{chip.device?.name || chip.device?.uniqueId || "—"}</td>
-                    <td className="px-4 py-3 space-x-2 whitespace-nowrap">
-                      <Button size="sm" variant="ghost" onClick={() => openEdit(chip)}>
-                        Editar
-                      </Button>
-                      <Button size="sm" variant="ghost" onClick={() => handleDelete(chip.id)} icon={Trash2}>
-                        Remover
-                      </Button>
-                    </td>
-                  </tr>
+                  <ChipRow
+                    key={chip.id}
+                    chip={chip}
+                    lastPing={getLastPing(chip)}
+                    showCarrier={visibleColumns.carrier}
+                    showStatus={visibleColumns.status}
+                    showLastPing={visibleColumns.lastPing}
+                    showDevice={visibleColumns.device}
+                    onEdit={() => openEdit(chip)}
+                    onDelete={() => handleDelete(chip.id)}
+                  />
                 ))}
             </tbody>
           </table>

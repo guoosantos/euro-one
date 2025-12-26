@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -8,11 +8,112 @@ import Input from "../ui/Input";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Modal from "../ui/Modal";
+import Select from "../ui/Select";
+import DropdownMenu from "../ui/DropdownMenu";
 import { EllipsisVertical, Link2, Plus, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
+import { VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
+import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
+
+function VehicleRow({
+  vehicle,
+  association,
+  deviceIdentifier,
+  lastSeen,
+  coordinates,
+  typeLabel,
+  showDriver,
+  showGroup,
+  showOdometer,
+  odometerLabel,
+  onEdit,
+  onViewDevice,
+  onUnlink,
+  onDelete,
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef(null);
+
+  return (
+    <tr className="hover:bg-white/5">
+      <td className="px-4 py-4">{association}</td>
+      <td className="px-4 py-4">
+        <div className="space-y-1">
+          <div className="font-semibold text-white">{deviceIdentifier}</div>
+          <div className="text-xs text-white/60">{lastSeen}</div>
+          <div className="text-[11px] text-white/50">{coordinates}</div>
+        </div>
+      </td>
+      <td className="px-4 py-4">
+        <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
+        <div className="text-xs text-white/60">{vehicle.name || "—"}</div>
+      </td>
+      <td className="px-4 py-4">{typeLabel}</td>
+      {showDriver && <td className="px-4 py-4">{vehicle.driver || "—"}</td>}
+      {showGroup && <td className="px-4 py-4">{vehicle.group || "—"}</td>}
+      {showOdometer && <td className="px-4 py-4">{odometerLabel}</td>}
+      <td className="px-4 py-4 text-right">
+        <button
+          type="button"
+          ref={menuButtonRef}
+          onClick={() => setMenuOpen((prev) => !prev)}
+          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+          aria-label="Ações"
+        >
+          <EllipsisVertical className="h-5 w-5" />
+        </button>
+        <DropdownMenu open={menuOpen} anchorRef={menuButtonRef} onClose={() => setMenuOpen(false)}>
+          <div className="flex flex-col py-2 text-sm text-white">
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onEdit?.();
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
+            >
+              Editar veículo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onViewDevice?.();
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
+            >
+              Ver dispositivo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onUnlink?.();
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
+            >
+              Desassociar dispositivo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onDelete?.();
+              }}
+              className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-300 hover:bg-red-500/10"
+            >
+              <Trash2 className="h-4 w-4" />
+              Excluir veículo
+            </button>
+          </div>
+        </DropdownMenu>
+      </td>
+    </tr>
+  );
+}
 
 export default function Vehicles() {
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
@@ -25,7 +126,7 @@ export default function Vehicles() {
   const [open, setOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
-  const [menuOpenId, setMenuOpenId] = useState(null);
+  const [showColumnPicker, setShowColumnPicker] = useState(false);
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -39,6 +140,22 @@ export default function Vehicles() {
   });
 
   const resolvedClientId = tenantId || user?.clientId || null;
+  const columnStorageKey = useMemo(
+    () => `vehicles.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
+    [resolvedClientId, user?.id],
+  );
+  const columnDefaults = useMemo(
+    () => ({
+      driver: true,
+      group: true,
+      odometer: true,
+    }),
+    [],
+  );
+  const [visibleColumns, setVisibleColumns] = useState(
+    () => loadColumnVisibility(columnStorageKey) ?? columnDefaults,
+  );
+  const columnAutoApplied = useRef(false);
 
   async function load() {
     setLoading(true);
@@ -69,6 +186,12 @@ export default function Vehicles() {
     }
   }, [resolvedClientId, user]);
 
+  useEffect(() => {
+    setQuery("");
+    setShowColumnPicker(false);
+    setMapTarget(null);
+  }, [resolvedClientId]);
+
   const trackedDeviceIds = useMemo(
     () =>
       vehicles
@@ -94,6 +217,63 @@ export default function Vehicles() {
         .some((value) => String(value).toLowerCase().includes(term)),
     );
   }, [vehicles, query]);
+
+  const columnDefs = useMemo(
+    () => [
+      {
+        key: "driver",
+        label: "Motorista",
+        defaultVisible: true,
+        isMissing: (vehicle) => !vehicle?.driver,
+      },
+      {
+        key: "group",
+        label: "Grupo",
+        defaultVisible: true,
+        isMissing: (vehicle) => !vehicle?.group,
+      },
+      {
+        key: "odometer",
+        label: "Odômetro",
+        defaultVisible: true,
+        isMissing: (vehicle) => !Number.isFinite(Number(vehicle?.odometer)),
+      },
+    ],
+    [],
+  );
+
+  useEffect(() => {
+    columnAutoApplied.current = false;
+    const stored = loadColumnVisibility(columnStorageKey);
+    setVisibleColumns(stored ?? columnDefaults);
+  }, [columnDefaults, columnStorageKey]);
+
+  useEffect(() => {
+    if (columnAutoApplied.current) return;
+    if (!vehicles.length) return;
+    const stored = loadColumnVisibility(columnStorageKey);
+    if (stored) {
+      columnAutoApplied.current = true;
+      return;
+    }
+    const autoVisibility = computeAutoVisibility(vehicles, columnDefs, 0.9);
+    setVisibleColumns((current) => ({ ...current, ...autoVisibility }));
+    columnAutoApplied.current = true;
+  }, [columnDefs, columnStorageKey, vehicles]);
+
+  useEffect(() => {
+    saveColumnVisibility(columnStorageKey, visibleColumns);
+  }, [columnStorageKey, visibleColumns]);
+
+  const tableColCount =
+    5 + (visibleColumns.driver ? 1 : 0) + (visibleColumns.group ? 1 : 0) + (visibleColumns.odometer ? 1 : 0);
+
+  const formatVehicleType = (value) => {
+    if (!value) return "—";
+    const normalized = String(value).toLowerCase();
+    const match = VEHICLE_TYPE_OPTIONS.find((option) => option.value === normalized);
+    return match?.label || value;
+  };
 
   const formatOdometer = (value) => {
     const number = Number(value);
@@ -149,7 +329,6 @@ export default function Vehicles() {
       return;
     }
     try {
-      setMenuOpenId(null);
       await CoreApi.unlinkDeviceFromVehicle(vehicle.id, deviceId, {});
       await load();
     } catch (requestError) {
@@ -162,7 +341,6 @@ export default function Vehicles() {
     const confirmed = window.confirm("Deseja realmente excluir este veículo?");
     if (!confirmed) return;
     try {
-      setMenuOpenId(null);
       await CoreApi.deleteVehicle(vehicle.id);
       await load();
     } catch (requestError) {
@@ -173,7 +351,6 @@ export default function Vehicles() {
   function handleViewDevice(vehicle, latestPosition) {
     if (latestPosition) {
       setMapTarget({ vehicle, position: latestPosition });
-      setMenuOpenId(null);
       return;
     }
     const deviceId = resolveDeviceId(vehicle);
@@ -181,7 +358,6 @@ export default function Vehicles() {
       alert("Nenhum equipamento vinculado para visualizar.");
       return;
     }
-    setMenuOpenId(null);
     navigate(`/equipamentos?deviceId=${encodeURIComponent(deviceId)}`);
   }
 
@@ -201,57 +377,6 @@ export default function Vehicles() {
           <div className="font-semibold leading-tight">{vehicle.device.name || vehicle.device.uniqueId}</div>
           <div className="text-[11px] text-white/60">{statusLive}</div>
         </div>
-      </div>
-    );
-  };
-
-  const renderActions = (vehicle, latestPosition) => {
-    const isOpen = menuOpenId === vehicle.id;
-    return (
-      <div className="relative">
-        <button
-          type="button"
-          onClick={() => setMenuOpenId((current) => (current === vehicle.id ? null : vehicle.id))}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-        >
-          <EllipsisVertical className="h-5 w-5" />
-        </button>
-        {isOpen && (
-          <div className="absolute right-0 mt-2 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#0f141c] text-sm shadow-xl">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpenId(null);
-                navigate(`/vehicles/${vehicle.id}`);
-              }}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
-            >
-              Editar veículo
-            </button>
-            <button
-              type="button"
-              onClick={() => handleViewDevice(vehicle, latestPosition)}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
-            >
-              Ver dispositivo
-            </button>
-            <button
-              type="button"
-              onClick={() => handleUnlink(vehicle)}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-white hover:bg-white/5"
-            >
-              Desassociar dispositivo
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDelete(vehicle)}
-              className="flex w-full items-center gap-2 px-4 py-3 text-left text-red-300 hover:bg-red-500/10"
-            >
-              <Trash2 className="h-4 w-4" />
-              Excluir veículo
-            </button>
-          </div>
-        )}
       </div>
     );
   };
@@ -290,10 +415,10 @@ export default function Vehicles() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
-        title="Frota"
-        description="Veículos"
+        title="Veículos"
+        description="Gestão da frota e vínculos com equipamentos"
         right={(
           <div className="flex flex-wrap items-center gap-2">
             <Button
@@ -314,7 +439,7 @@ export default function Vehicles() {
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
       )}
 
-      <Field label="">
+      <Field label="Filtros">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <Input
             placeholder="Buscar (placa, veículo, motorista, equipamento)"
@@ -323,10 +448,45 @@ export default function Vehicles() {
             onChange={(event) => setQuery(event.target.value)}
             className="flex-1"
           />
+          <Button variant="ghost" onClick={() => setShowColumnPicker((prev) => !prev)}>
+            Exibir colunas
+          </Button>
         </div>
       </Field>
 
-      <div className="rounded-2xl border border-white/10 bg-[#0f141c] shadow-lg">
+      {showColumnPicker && (
+        <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.driver}
+              onChange={() => setVisibleColumns((current) => ({ ...current, driver: !current.driver }))}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Motorista
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.group}
+              onChange={() => setVisibleColumns((current) => ({ ...current, group: !current.group }))}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Grupo
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={visibleColumns.odometer}
+              onChange={() => setVisibleColumns((current) => ({ ...current, odometer: !current.odometer }))}
+              className="h-4 w-4 rounded border-white/30 bg-transparent"
+            />
+            Odômetro
+          </label>
+        </div>
+      )}
+
+      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0f141c] shadow-lg">
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
@@ -334,24 +494,24 @@ export default function Vehicles() {
                 <th className="px-4 py-3 text-left">Associação</th>
                 <th className="px-4 py-3 text-left">Nº Cobli/ID</th>
                 <th className="px-4 py-3 text-left">Placa</th>
-                <th className="px-4 py-3 text-left">Modelo</th>
-                <th className="px-4 py-3 text-left">Motorista</th>
-                <th className="px-4 py-3 text-left">Grupo</th>
-                <th className="px-4 py-3 text-left">Odômetro</th>
+                <th className="px-4 py-3 text-left">Tipo</th>
+                {visibleColumns.driver && <th className="px-4 py-3 text-left">Motorista</th>}
+                {visibleColumns.group && <th className="px-4 py-3 text-left">Grupo</th>}
+                {visibleColumns.odometer && <th className="px-4 py-3 text-left">Odômetro</th>}
                 <th className="px-4 py-3 text-left">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
                     Carregando veículos…
                   </td>
                 </tr>
               )}
               {!loading && filteredVehicles.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-6 text-center text-white/60">
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
                     Nenhum veículo encontrado.
                   </td>
                 </tr>
@@ -365,25 +525,23 @@ export default function Vehicles() {
                   const deviceIdentifier =
                     vehicle.device?.uniqueId || vehicle.device?.identifier || vehicle.device?.id || "—";
                   return (
-                    <tr key={vehicle.id} className="hover:bg-white/5">
-                      <td className="px-4 py-4">{renderAssociation(vehicle, statusLive)}</td>
-                      <td className="px-4 py-4">
-                        <div className="space-y-1">
-                          <div className="font-semibold text-white">{deviceIdentifier}</div>
-                          <div className="text-xs text-white/60">{lastSeen}</div>
-                          <div className="text-[11px] text-white/50">{coordinates}</div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
-                        <div className="text-xs text-white/60">{vehicle.name || "—"}</div>
-                      </td>
-                      <td className="px-4 py-4">{vehicle.model?.name || "—"}</td>
-                      <td className="px-4 py-4">{vehicle.driver || "—"}</td>
-                      <td className="px-4 py-4">{vehicle.group || "—"}</td>
-                      <td className="px-4 py-4">{formatOdometer(vehicle.odometer)}</td>
-                      <td className="px-4 py-4 text-right">{renderActions(vehicle, latestPosition)}</td>
-                    </tr>
+                    <VehicleRow
+                      key={vehicle.id}
+                      vehicle={vehicle}
+                      association={renderAssociation(vehicle, statusLive)}
+                      deviceIdentifier={deviceIdentifier}
+                      lastSeen={lastSeen}
+                      coordinates={coordinates}
+                      typeLabel={formatVehicleType(vehicle.type)}
+                      showDriver={visibleColumns.driver}
+                      showGroup={visibleColumns.group}
+                      showOdometer={visibleColumns.odometer}
+                      odometerLabel={formatOdometer(vehicle.odometer)}
+                      onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
+                      onViewDevice={() => handleViewDevice(vehicle, latestPosition)}
+                      onUnlink={() => handleUnlink(vehicle)}
+                      onDelete={() => handleDelete(vehicle)}
+                    />
                   );
                 })}
             </tbody>
@@ -415,11 +573,14 @@ export default function Vehicles() {
               value={form.group}
               onChange={(event) => setForm((current) => ({ ...current, group: event.target.value }))}
             />
-            <Input
-              placeholder="Tipo"
-              value={form.type}
-              onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-            />
+            <Select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}>
+              <option value="">Tipo do veículo</option>
+              {VEHICLE_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </Select>
             {hasAdminAccess && (
               <div className="md:col-span-2">
                 <label className="text-xs uppercase tracking-[0.12em] text-white/60">Cliente</label>
