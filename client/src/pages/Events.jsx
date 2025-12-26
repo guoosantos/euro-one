@@ -4,7 +4,7 @@ import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib
 import { useEvents } from "../lib/hooks/useEvents";
 import { useTranslation } from "../lib/i18n.js";
 import { translateEventType } from "../lib/event-translations.js";
-import { formatAddress } from "../lib/format-address.js";
+import AddressCell from "../ui/AddressCell.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
@@ -92,6 +92,8 @@ export default function Events() {
         time: event.serverTime ?? event.eventTime ?? event.time,
         severity: normaliseSeverity(event),
         address: event.attributes?.address || event.address,
+        lat: event.latitude ?? event.lat ?? event.position?.latitude ?? event.position?.lat,
+        lng: event.longitude ?? event.lon ?? event.position?.longitude ?? event.position?.lon,
         description: event.attributes?.message || event.attributes?.description || event.attributes?.type || "—",
       })),
     [filteredEvents, vehicles, vehicleByDeviceId],
@@ -227,7 +229,9 @@ export default function Events() {
                   <td className="py-2 pr-6">
                     <SeverityPill severity={row.severity} />
                   </td>
-                  <td className="py-2 pr-6 text-white/70">{formatAddress(row.address) || row.description}</td>
+                  <td className="py-2 pr-6 text-white/70">
+                    <AddressCell address={row.address || row.description} lat={row.lat} lng={row.lng} />
+                  </td>
                 </tr>
               ))}
             </tbody>

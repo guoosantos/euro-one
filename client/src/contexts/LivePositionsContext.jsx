@@ -40,6 +40,8 @@ export function LivePositionsProvider({ children, interval = 5_000 }) {
     fetchFn: fetchPositions,
     intervalMs: interval,
     enabled: isAuthenticated,
+    dependencies: [tenantId, isAuthenticated],
+    resetOnChange: true,
   });
 
   const value = useMemo(

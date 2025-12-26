@@ -9,7 +9,7 @@ import { useTranslation } from "../lib/i18n.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
-import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
+import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import {
@@ -349,7 +349,7 @@ function ReplayMap({
   focusMode,
   isPlaying,
   manualCenter,
-  selectedVehicle,
+  selectedVehicle = null,
 }) {
   const routePoints = useMemo(
     () =>
@@ -784,8 +784,6 @@ export default function Trips() {
   const [eventCursor, setEventCursor] = useState(0);
   const [timelineFilter, setTimelineFilter] = useState("all");
   const [animatedPoint, setAnimatedPoint] = useState(null);
-  const [resolvedAddresses, setResolvedAddresses] = useState({});
-  const [addressLoading, setAddressLoading] = useState({});
   const [focusMode, setFocusMode] = useState("map");
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [manualCenter, setManualCenter] = useState(null);
@@ -807,8 +805,6 @@ export default function Trips() {
     });
     return map;
   }, [vehicles]);
-
-  const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
   const trips = useMemo(
     () => (Array.isArray(data?.trips) ? data.trips : Array.isArray(data) ? data : []),
@@ -956,70 +952,11 @@ export default function Trips() {
     [routePoints],
   );
 
-  useEffect(() => {
-    setResolvedAddresses({});
-    setAddressLoading({});
-  }, [routeData]);
-
-  useEffect(() => {
-    if (!timelineEntries.length) return undefined;
-
-    const nextResolved = {};
-    const toResolve = [];
-
-    timelineEntries.forEach((entry) => {
-      if (entry.backendAddress) return;
-      if (!Number.isFinite(entry.lat) || !Number.isFinite(entry.lng)) return;
-
-      const key = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
-      if (!key || resolvedAddresses[key]) return;
-
-      const cached = getCachedReverse(entry.lat, entry.lng);
-      if (cached) {
-        nextResolved[key] = cached;
-        return;
-      }
-
-      toResolve.push({ key, lat: entry.lat, lng: entry.lng });
-    });
-
-    if (Object.keys(nextResolved).length) {
-      setResolvedAddresses((prev) => ({ ...prev, ...nextResolved }));
-    }
-
-    if (!toResolve.length) return undefined;
-
-    setAddressLoading((prev) => ({
-      ...prev,
-      ...Object.fromEntries(toResolve.map((item) => [item.key, true])),
-    }));
-
-    let cancelled = false;
-
-    (async () => {
-      for (const item of toResolve.slice(0, 6)) {
-        try {
-          const value = await reverseGeocode(item.lat, item.lng);
-          if (cancelled) return;
-          setResolvedAddresses((prev) => ({ ...prev, [item.key]: value || FALLBACK_ADDRESS }));
-        } catch (_err) {
-          if (cancelled) return;
-          setResolvedAddresses((prev) => ({ ...prev, [item.key]: FALLBACK_ADDRESS }));
-        } finally {
-          if (cancelled) return;
-          setAddressLoading((prev) => {
-            const next = { ...prev };
-            delete next[item.key];
-            return next;
-          });
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [resolvedAddresses, timelineEntries]);
+  const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(timelineEntries, {
+    getKey: (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
+    getCoords: (entry) => ({ lat: entry.lat, lng: entry.lng }),
+    batchSize: 6,
+  });
 
   const filteredTimelineEntries = useMemo(
     () =>
@@ -1324,25 +1261,6 @@ export default function Trips() {
     const currentDeviceId = normalizeQueryId(deviceIdFromStore);
 
     if (pendingVehicleParam) {
-      const targetVehicleId = normalizeQueryId(pendingVehicleParam);
-      const match = vehicleById.get(targetVehicleId);
-      const targetDeviceId = normalizeQueryId(pendingDeviceParam || match?.primaryDeviceId || "");
-      const nextKey = { vehicleId: targetVehicleId, deviceId: targetDeviceId };
-      if (
-        lastQuerySelectionRef.current.vehicleId === nextKey.vehicleId &&
-        lastQuerySelectionRef.current.deviceId === nextKey.deviceId
-      ) {
-        return;
-      }
-      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) {
-        lastQuerySelectionRef.current = nextKey;
-        return;
-      }
-      setVehicleSelection(
-        targetVehicleId,
-        targetDeviceId || null,
-      );
-      lastQuerySelectionRef.current = nextKey;
       return;
     }
 
@@ -1350,24 +1268,24 @@ export default function Trips() {
     const targetKey = toDeviceKey(pendingDeviceParam);
     if (!targetKey) return;
     const match = vehicleByDeviceId.get(String(targetKey));
-    if (match) {
-      const targetVehicleId = normalizeQueryId(match.id);
-      const targetDeviceId = normalizeQueryId(pendingDeviceParam);
-      const nextKey = { vehicleId: targetVehicleId, deviceId: targetDeviceId };
-      if (
-        lastQuerySelectionRef.current.vehicleId === nextKey.vehicleId &&
-        lastQuerySelectionRef.current.deviceId === nextKey.deviceId
-      ) {
-        return;
-      }
-      if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) {
-        lastQuerySelectionRef.current = nextKey;
-        return;
-      }
-      setVehicleSelection(targetVehicleId, pendingDeviceParam);
-      lastQuerySelectionRef.current = nextKey;
+    if (!match) return;
+
+    const targetVehicleId = normalizeQueryId(match.id);
+    const targetDeviceId = normalizeQueryId(pendingDeviceParam);
+    const nextKey = { vehicleId: targetVehicleId, deviceId: targetDeviceId };
+    if (
+      lastQuerySelectionRef.current.vehicleId === nextKey.vehicleId &&
+      lastQuerySelectionRef.current.deviceId === nextKey.deviceId
+    ) {
+      return;
     }
-  }, [location.search, setVehicleSelection, vehicleByDeviceId, vehicleById, vehicleId, deviceIdFromStore]);
+    if (currentVehicleId === targetVehicleId && currentDeviceId === targetDeviceId) {
+      lastQuerySelectionRef.current = nextKey;
+      return;
+    }
+    setVehicleSelection(targetVehicleId, pendingDeviceParam);
+    lastQuerySelectionRef.current = nextKey;
+  }, [location.search, setVehicleSelection, vehicleByDeviceId, vehicleId, deviceIdFromStore]);
 
   useEffect(() => {
     setActiveIndex(0);

@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useTranslation } from "../lib/i18n.js";
-import { formatAddress } from "../lib/format-address.js";
+import AddressCell from "../ui/AddressCell.jsx";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -207,8 +207,9 @@ export default function ReportsRoute() {
         label: "Endereço",
         defaultVisible: true,
         render: (point) => {
-          const value = formatAddress(point);
-          return value && value !== "—" ? value : "—";
+          const lat = pickCoordinate([point.latitude, point.lat, point.attributes?.latitude]);
+          const lng = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
+          return <AddressCell address={point.address || point.attributes?.address} lat={lat} lng={lng} />;
         },
       },
     ],

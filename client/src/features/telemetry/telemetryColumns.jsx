@@ -8,6 +8,7 @@ import {
   pickCoordinate,
   pickSpeed,
 } from "../../lib/monitoring-helpers.js";
+import { resolveEventLabelFromPayload } from "../../lib/event-translations.js";
 
 const FALLBACK = "—";
 
@@ -96,9 +97,17 @@ export const TELEMETRY_COLUMNS = [
     key: "lastEvent",
     labelKey: "monitoring.columns.lastEvent",
     defaultVisible: true,
-    getValue: (row) => {
-      const attributes = getAttributes(row);
-      return row.lastEventName || row.lastEvent?.type || row.lastEvent?.attributes?.alarm || row.position?.type || attributes.type || FALLBACK;
+    getValue: (row, helpers = {}) => {
+      const { label, raw, isFallback } = resolveEventLabelFromPayload(row, helpers.locale, helpers.t);
+      if (!label) return FALLBACK;
+      if (isFallback && raw) {
+        return (
+          <span title={`Código bruto: ${raw}`}>
+            {label}
+          </span>
+        );
+      }
+      return label;
     },
   },
   {

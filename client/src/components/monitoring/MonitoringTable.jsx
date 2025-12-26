@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { formatAddress } from "../../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
+import AddressCell from "../../ui/AddressCell.jsx";
 
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 800;
@@ -242,15 +242,13 @@ export default function MonitoringTable({
                   let cellValue = col.render ? col.render(row) : row[col.key];
 
                   if (col.key === "address" || col.key === "endereco") {
-                    const rawAddress = row.address || row.position?.address;
-                    const formatted = formatAddress(rawAddress);
-                    if (formatted && formatted !== "—") {
-                      cellValue = formatted;
-                    } else if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
-                      cellValue = "Carregando endereço...";
-                    } else {
-                      cellValue = FALLBACK_ADDRESS;
-                    }
+                    cellValue = (
+                      <AddressCell
+                        address={row.address || row.rawAddress || row.position?.address}
+                        lat={row.lat}
+                        lng={row.lng}
+                      />
+                    );
                   } else if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
                     if (cellValue.formattedAddress) {
                       cellValue = cellValue.formattedAddress;

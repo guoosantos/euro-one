@@ -9,6 +9,9 @@ const normalizeId = (value) => {
   return String(value);
 };
 
+const selectionKey = (vehicleId, deviceId) =>
+  `${normalizeId(vehicleId) ?? ""}:${normalizeId(deviceId) ?? ""}`;
+
 export default function useVehicleSelection({ syncQuery = true } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -16,9 +19,7 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   const { tenantId } = useTenant();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
   const lastAppliedQueryRef = useRef(null);
-  const lastSyncedVehicleRef = useRef(null);
   const lastTenantRef = useRef(tenantId);
-  const lastSelectionRef = useRef({ vehicleId: null, deviceId: null });
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
@@ -39,24 +40,25 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     if (!syncQuery) return;
     const search = new URLSearchParams(location.search || "");
     const normalizedQuery = normalizeId(search.get("vehicleId"));
-    const normalizedSelected = normalizeId(selectedVehicleId);
-    if (!normalizedQuery || normalizedQuery === normalizedSelected) {
-      lastAppliedQueryRef.current = normalizedQuery;
+    const normalizedDevice = normalizeId(search.get("deviceId") || search.get("device"));
+    if (!normalizedQuery) {
+      lastAppliedQueryRef.current = selectionKey(null, null);
       return;
     }
-    if (lastAppliedQueryRef.current === normalizedQuery) return;
     const nextVehicle = vehicleById.get(normalizedQuery);
-    lastAppliedQueryRef.current = normalizedQuery;
-    const nextDeviceId = normalizeId(nextVehicle?.primaryDeviceId ?? null);
-    if (
-      lastSelectionRef.current.vehicleId === normalizedQuery &&
-      lastSelectionRef.current.deviceId === nextDeviceId
-    ) {
+    const nextDeviceId = normalizeId(normalizedDevice ?? nextVehicle?.primaryDeviceId ?? null);
+    const nextKey = selectionKey(normalizedQuery, nextDeviceId);
+    if (lastAppliedQueryRef.current === nextKey) return;
+
+    const currentKey = selectionKey(selectedVehicleId, selectedTelemetryDeviceId);
+    if (currentKey === nextKey) {
+      lastAppliedQueryRef.current = nextKey;
       return;
     }
-    lastSelectionRef.current = { vehicleId: normalizedQuery, deviceId: nextDeviceId };
+
+    lastAppliedQueryRef.current = nextKey;
     setVehicleSelection(normalizedQuery, nextDeviceId);
-  }, [location.search, selectedVehicleId, setVehicleSelection, syncQuery, vehicleById]);
+  }, [location.search, selectedTelemetryDeviceId, selectedVehicleId, setVehicleSelection, syncQuery, vehicleById]);
 
   useEffect(() => {
     if (!selectedVehicleId) return;
@@ -65,13 +67,6 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     const normalizedSelectedDevice = normalizeId(selectedTelemetryDeviceId);
     const normalizedMatchDevice = normalizeId(match?.primaryDeviceId);
     if (match && normalizedSelectedDevice !== normalizedMatchDevice) {
-      if (
-        lastSelectionRef.current.vehicleId === normalizedVehicleId &&
-        lastSelectionRef.current.deviceId === normalizedMatchDevice
-      ) {
-        return;
-      }
-      lastSelectionRef.current = { vehicleId: normalizedVehicleId, deviceId: normalizedMatchDevice };
       setVehicleSelection(normalizedVehicleId, match?.primaryDeviceId ?? null);
     }
   }, [selectedTelemetryDeviceId, selectedVehicleId, setVehicleSelection, vehicleById]);
@@ -80,14 +75,11 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     if (!syncQuery) return;
     const search = new URLSearchParams(location.search || "");
     const currentVehicle = normalizeId(search.get("vehicleId"));
+    const currentDevice = normalizeId(search.get("deviceId") || search.get("device"));
     const normalizedVehicleId = normalizeId(resolvedSelection.vehicleId);
+    const normalizedDeviceId = normalizeId(resolvedSelection.deviceId);
 
-    if (currentVehicle === normalizedVehicleId) {
-      lastSyncedVehicleRef.current = normalizedVehicleId;
-      return;
-    }
-
-    if (lastSyncedVehicleRef.current === normalizedVehicleId && currentVehicle === normalizedVehicleId) {
+    if (currentVehicle === normalizedVehicleId && currentDevice === normalizedDeviceId) {
       return;
     }
 
@@ -96,12 +88,25 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     } else {
       search.delete("vehicleId");
     }
+    if (normalizedDeviceId) {
+      search.set("deviceId", normalizedDeviceId);
+    } else {
+      search.delete("deviceId");
+      search.delete("device");
+    }
 
     const nextQuery = search.toString();
     const nextPath = nextQuery ? `${location.pathname}?${nextQuery}` : location.pathname;
-    lastSyncedVehicleRef.current = normalizedVehicleId;
+    if (nextPath === `${location.pathname}${location.search}`) return;
     navigate(nextPath, { replace: true });
-  }, [location.pathname, location.search, navigate, resolvedSelection.vehicleId, syncQuery]);
+  }, [
+    location.pathname,
+    location.search,
+    navigate,
+    resolvedSelection.deviceId,
+    resolvedSelection.vehicleId,
+    syncQuery,
+  ]);
 
   const setVehicle = (vehicleId, deviceId = null) => {
     if (!vehicleId) {
@@ -117,7 +122,6 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     ) {
       return;
     }
-    lastSelectionRef.current = { vehicleId: normalizedVehicleId, deviceId: resolvedDevice };
     setVehicleSelection(normalizedVehicleId, resolvedDevice);
   };
 

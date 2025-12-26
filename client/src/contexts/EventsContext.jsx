@@ -41,6 +41,8 @@ export function EventsProvider({ children, interval = 60_000, limit = 200 }) {
     fetchFn: fetchEvents,
     intervalMs: interval,
     enabled: isAuthenticated,
+    dependencies: [tenantId, isAuthenticated, limit],
+    resetOnChange: true,
   });
 
   const value = useMemo(

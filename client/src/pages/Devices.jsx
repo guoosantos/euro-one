@@ -277,7 +277,7 @@ function Drawer({ open, onClose, title, description, children }) {
       <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Equipamentos</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do equipamento</p>
             <h2 className="text-xl font-semibold text-white">{title}</h2>
             {description && <p className="text-sm text-white/60">{description}</p>}
           </div>

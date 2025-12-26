@@ -16,6 +16,8 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
   const {
     enabled = true,
     intervalMs = 5000,
+    dependencies = [],
+    resetOnChange = false,
   } = options;
 
   const [data, setData] = useState(null);
@@ -64,7 +66,15 @@ export default function usePolling(requestFnOrOptions, maybeOptions = {}) {
       cancelled = true;
       if (timerId) clearTimeout(timerId);
     };
-  }, [enabled, intervalMs]);
+  }, [enabled, intervalMs, ...dependencies]);
+
+  useEffect(() => {
+    if (!resetOnChange) return;
+    setData(null);
+    setError(null);
+    setLastUpdated(null);
+    setLoading(Boolean(enabled));
+  }, [enabled, resetOnChange, ...dependencies]);
 
   const refresh = useCallback(() => {
     if (!enabled) return undefined;

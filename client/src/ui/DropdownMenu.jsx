@@ -21,33 +21,43 @@ export default function DropdownMenu({
   const alignValue = useMemo(() => (align === "start" ? "start" : "end"), [align]);
 
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     const anchor = anchorRef?.current;
     const menu = menuRef.current;
     if (!anchor || !menu) return;
 
-    const anchorRect = anchor.getBoundingClientRect();
-    const menuRect = menu.getBoundingClientRect();
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
+    const updatePosition = () => {
+      const anchorRect = anchor.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
-    const preferredLeft =
-      alignValue === "start" ? anchorRect.left : anchorRect.right - menuRect.width;
-    const left = clamp(preferredLeft, OFFSET, viewportWidth - menuRect.width - OFFSET);
+      const preferredLeft =
+        alignValue === "start" ? anchorRect.left : anchorRect.right - menuRect.width;
+      const left = clamp(preferredLeft, OFFSET, viewportWidth - menuRect.width - OFFSET);
 
-    const preferredTop = anchorRect.bottom + OFFSET;
-    const shouldFlip = preferredTop + menuRect.height > viewportHeight - OFFSET;
-    const top = shouldFlip
-      ? clamp(anchorRect.top - menuRect.height - OFFSET, OFFSET, viewportHeight - menuRect.height - OFFSET)
-      : preferredTop;
+      const preferredTop = anchorRect.bottom + OFFSET;
+      const shouldFlip = preferredTop + menuRect.height > viewportHeight - OFFSET;
+      const top = shouldFlip
+        ? clamp(anchorRect.top - menuRect.height - OFFSET, OFFSET, viewportHeight - menuRect.height - OFFSET)
+        : preferredTop;
 
-    setStyle({
-      top: Math.round(top),
-      left: Math.round(left),
-      minWidth,
-      opacity: 1,
-      pointerEvents: "auto",
-    });
+      setStyle({
+        top: Math.round(top),
+        left: Math.round(left),
+        minWidth,
+        opacity: 1,
+        pointerEvents: "auto",
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
   }, [alignValue, anchorRef, minWidth, open]);
 
   useEffect(() => {

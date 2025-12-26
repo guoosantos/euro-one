@@ -18,7 +18,7 @@ import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
-import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
+import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
@@ -332,7 +332,6 @@ export default function Monitoring() {
   const [drawerVisible, setDrawerVisible] = useState(false);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [mapInvalidateKey, setMapInvalidateKey] = useState(0);
-  const [reverseAddresses, setReverseAddresses] = useState({});
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageIndex, setPageIndex] = useState(0);
@@ -636,34 +635,16 @@ export default function Monitoring() {
     });
   }, [searchFiltered, filterMode, routeFilter, routesByVehicle, securityFilters]);
 
-  const resolveAddress = (position, lat, lng) => {
-    const rawAddress = position?.address || position?.attributes?.formattedAddress;
-    const formatted = formatAddress(rawAddress);
-    if (formatted && formatted !== "—") return formatted;
-
-    const coordKey = buildCoordKey(lat, lng);
-    if (coordKey && reverseAddresses[coordKey]) return reverseAddresses[coordKey];
-
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      const cached = getCachedReverse(lat, lng);
-      if (cached) return cached;
-    }
-
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return "Carregando endereço...";
-    }
-
-    return FALLBACK_ADDRESS;
-  };
-
   const rows = useMemo(() => {
     const list = Array.isArray(filteredDevices) ? filteredDevices : [];
-    return list.map(({ device, source, vehicle }) => {
+    return list.map(({ device, source, vehicle } = {}) => {
       const key = getDeviceKey(device);
       const pos = source?.position;
       const lat = pickCoordinate([pos?.lat, pos?.latitude]);
       const lng = pickCoordinate([pos?.lng, pos?.longitude]);
       const statusBadge = deriveStatus(pos);
+      const ignition = getIgnition(pos, device);
+      const online = isOnline(pos);
       const statusLabel = statusBadge === "online"
         ? t("monitoring.filters.online")
         : statusBadge === "alert"
@@ -671,6 +652,8 @@ export default function Monitoring() {
           : t("monitoring.filters.offline");
       const lastActivity = getLastActivity(pos, device) || getLastUpdate(pos);
       const stalenessMinutes = minutesSince(lastActivity);
+      const rawAddress = pos?.address || pos?.attributes?.formattedAddress;
+      const addressKey = buildCoordKey(lat, lng);
 
       const row = {
         key,
@@ -694,13 +677,16 @@ export default function Monitoring() {
           vehicle?.client?.name ||
           "—",
         plate: device.plate ?? "—",
-        address: resolveAddress(pos, lat, lng),
+        rawAddress,
+        addressKey,
         speed: pickSpeed(pos),
         lastUpdate: lastActivity,
         lastActivity,
         stalenessMinutes,
         statusBadge,
         statusLabel,
+        ignition,
+        isOnline: online,
         heading:
           pos?.course ??
           pos?.heading ??
@@ -708,54 +694,36 @@ export default function Monitoring() {
           pos?.attributes?.heading ??
           device?.heading ??
           null,
-        vehicleType:
-          vehicle?.type ||
-          device?.vehicle?.type ||
-          device?.vehicleType ||
-          device?.attributes?.vehicleType ||
-          vehicle?.category ||
-          null,
+        vehicleType: vehicle?.type || vehicle?.category || device?.vehicle?.type || null,
       };
 
       return row;
     });
-  }, [buildCoordKey, filteredDevices, reverseAddresses, t]);
+  }, [buildCoordKey, filteredDevices, t]);
 
-  useEffect(() => {
-    const missing = rows
-      .map((row) => ({
-        key: buildCoordKey(row.lat, row.lng),
-        lat: row.lat,
-        lng: row.lng,
-      }))
-      .filter((item) => item.key && !reverseAddresses[item.key])
-      .slice(0, 4);
+  const { addresses: reverseAddresses, loadingKeys: addressLoading } = useAddressLookup(rows, {
+    getKey: (row) => row.addressKey || buildCoordKey(row.lat, row.lng),
+    getCoords: (row) => ({ lat: row.lat, lng: row.lng }),
+  });
 
-    if (!missing.length) return undefined;
+  const decoratedRows = useMemo(() => {
+    return rows.map((row) => {
+      const formatted = formatAddress(row.rawAddress);
+      const addressKey = row.addressKey || buildCoordKey(row.lat, row.lng);
+      const cached = addressKey ? reverseAddresses[addressKey] : null;
+      const isLoading = addressKey ? addressLoading[addressKey] : false;
+      const resolved =
+        formatted && formatted !== "—"
+          ? formatted
+          : cached || (addressKey && isLoading ? "Resolvendo endereço..." : FALLBACK_ADDRESS);
 
-    let cancelled = false;
-    (async () => {
-      for (const item of missing) {
-        try {
-          const value = await reverseGeocode(item.lat, item.lng);
-          if (cancelled) return;
-          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: value || FALLBACK_ADDRESS }));
-        } catch (_err) {
-          if (cancelled) return;
-          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: FALLBACK_ADDRESS }));
-        }
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [buildCoordKey, reverseAddresses, rows]);
-
-  const decoratedRows = useMemo(
-    () => rows.map(row => ({ ...row, isNearby: nearbyDeviceIds.includes(row.deviceId) })),
-    [rows, nearbyDeviceIds],
-  );
+      return {
+        ...row,
+        address: resolved,
+        isNearby: nearbyDeviceIds.includes(row.deviceId),
+      };
+    });
+  }, [addressLoading, buildCoordKey, nearbyDeviceIds, reverseAddresses, rows]);
 
   const displayRows = useMemo(
     () => (regionTarget ? decoratedRows.filter((row) => row.isNearby) : decoratedRows),
@@ -889,6 +857,9 @@ export default function Monitoring() {
             ? t("monitoring.filters.criticalEvents")
             : t("monitoring.filters.offline");
 
+        const ignitionColor =
+          r.ignition === true ? "#22c55e" : r.ignition === false ? "#ef4444" : "#94a3b8";
+
         return {
           id: r.deviceId,
           lat: r.lat,
@@ -898,8 +869,9 @@ export default function Monitoring() {
           address: r.address,
           speedLabel: `${r.speed ?? 0} km/h`,
           lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
-          color: r.statusBadge === "online" ? "#22c55e" : "#f87171",
+          color: ignitionColor,
           accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
+          muted: !r.isOnline,
           statusLabel,
           iconType: r.vehicleType,
           heading: r.heading,
@@ -1497,7 +1469,7 @@ export default function Monitoring() {
       )}
 
       {drawerMounted ? (
-        <div className="fixed inset-0 z-[9996] flex h-full justify-end">
+        <div className="fixed inset-0 z-[9996] flex h-full items-stretch justify-end">
           <button
             type="button"
             aria-label="Fechar painel de detalhes do veículo"
@@ -1505,7 +1477,7 @@ export default function Monitoring() {
             onClick={closeDetails}
           />
           <div
-            className={`pointer-events-auto relative h-full w-[58vw] min-w-[420px] max-w-[920px] overflow-hidden transition-transform duration-300 ease-out ${
+            className={`pointer-events-auto relative h-full w-full min-w-[320px] max-w-[960px] overflow-hidden bg-[#0b0f17] shadow-2xl transition-transform duration-300 ease-out sm:w-[60vw] sm:min-w-[420px] ${
               drawerVisible ? "translate-x-0" : "translate-x-full"
             }`}
             onClick={(event) => event.stopPropagation()}
