@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
 import Button from "../ui/Button";
-import Input from "../ui/Input";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useTranslation } from "../lib/i18n.js";
@@ -11,6 +10,8 @@ import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import VehicleForm from "../components/vehicles/VehicleForm.jsx";
+import { VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
 
 function AdminBindingsTab({
   vehicle,
@@ -31,6 +32,24 @@ function AdminBindingsTab({
   onUnlinkDevice,
   onError = () => {},
 }) {
+  const normalizeVehicleType = (value) => {
+    if (!value) return "";
+    const normalized = String(value).toLowerCase();
+    const directMatch = VEHICLE_TYPE_OPTIONS.find((option) => option.value === normalized);
+    if (directMatch) return directMatch.value;
+    const legacyMap = {
+      carro: "car",
+      caminhao: "truck",
+      "caminhão": "truck",
+      moto: "motorcycle",
+      motocicleta: "motorcycle",
+      onibus: "bus",
+      "ônibus": "bus",
+      van: "van",
+      outros: "other",
+    };
+    return legacyMap[normalized] || normalized;
+  };
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -41,6 +60,18 @@ function AdminBindingsTab({
     notes: "",
     deviceId: "",
     clientId: "",
+    item: "",
+    identifier: "",
+    model: "",
+    brand: "",
+    chassis: "",
+    renavam: "",
+    color: "",
+    modelYear: "",
+    manufactureYear: "",
+    fipeCode: "",
+    fipeValue: "",
+    zeroKm: false,
   });
   const [chipDeviceId, setChipDeviceId] = useState("");
   const [chipId, setChipId] = useState("");
@@ -53,11 +84,23 @@ function AdminBindingsTab({
       plate: vehicle.plate || "",
       driver: vehicle.driver || "",
       group: vehicle.group || "",
-      type: vehicle.type || "",
+      type: normalizeVehicleType(vehicle.type),
       status: vehicle.status || "ativo",
       notes: vehicle.notes || "",
       deviceId: vehicle.device?.id || "",
       clientId: vehicle.clientId || tenantId || user?.clientId || "",
+      item: vehicle.item || "",
+      identifier: vehicle.identifier || "",
+      model: vehicle.model || vehicle.name || "",
+      brand: vehicle.brand || "",
+      chassis: vehicle.chassis || "",
+      renavam: vehicle.renavam || "",
+      color: vehicle.color || "",
+      modelYear: vehicle.modelYear || "",
+      manufactureYear: vehicle.manufactureYear || "",
+      fipeCode: vehicle.fipeCode || "",
+      fipeValue: vehicle.fipeValue || "",
+      zeroKm: Boolean(vehicle.zeroKm),
     });
     setChipDeviceId(vehicle.device?.id || "");
     setChipId(chips.find((chip) => chip.deviceId === vehicle.device?.id)?.id || "");
@@ -70,8 +113,16 @@ function AdminBindingsTab({
       onError(new Error("Informe a placa do veículo"));
       return;
     }
+    if (!form.model.trim()) {
+      onError(new Error("Informe o modelo do veículo"));
+      return;
+    }
+    if (!form.type.trim()) {
+      onError(new Error("Informe o tipo do veículo"));
+      return;
+    }
     await onSaveVehicle({
-      name: form.name?.trim() || undefined,
+      name: form.model?.trim() || form.name?.trim() || undefined,
       plate: form.plate.trim(),
       driver: form.driver?.trim() || undefined,
       group: form.group?.trim() || undefined,
@@ -80,6 +131,18 @@ function AdminBindingsTab({
       notes: form.notes?.trim() || undefined,
       deviceId: autoPrimary ? null : form.deviceId || null,
       clientId: form.clientId || vehicle.clientId,
+      item: form.item?.trim() || undefined,
+      identifier: form.identifier?.trim() || undefined,
+      model: form.model?.trim() || undefined,
+      brand: form.brand?.trim() || undefined,
+      chassis: form.chassis?.trim() || undefined,
+      renavam: form.renavam?.trim() || undefined,
+      color: form.color?.trim() || undefined,
+      modelYear: form.modelYear || undefined,
+      manufactureYear: form.manufactureYear || undefined,
+      fipeCode: form.fipeCode?.trim() || undefined,
+      fipeValue: form.fipeValue || undefined,
+      zeroKm: form.zeroKm || false,
     });
   };
 
@@ -95,92 +158,53 @@ function AdminBindingsTab({
   return (
     <div className="space-y-4 text-white">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-2">
-          <Input label="Nome" value={form.name} onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))} />
-          <Input
-            label="Placa"
-            required
-            value={form.plate}
-            onChange={(event) => setForm((prev) => ({ ...prev, plate: event.target.value }))}
-          />
-          <Input label="Motorista" value={form.driver} onChange={(event) => setForm((prev) => ({ ...prev, driver: event.target.value }))} />
-          <Input label="Grupo" value={form.group} onChange={(event) => setForm((prev) => ({ ...prev, group: event.target.value }))} />
-          <Input label="Tipo" value={form.type} onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))} />
-          <select
-            value={form.status}
-            onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
-            className="rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-          >
-            <option value="ativo">Ativo</option>
-            <option value="inativo">Inativo</option>
-            <option value="manutencao">Manutenção</option>
-          </select>
-          {user?.role === "admin" && (
-            <div className="md:col-span-2">
-              <label className="text-xs uppercase tracking-[0.12em] text-white/60">Cliente</label>
-              <select
-                value={form.clientId}
-                onChange={(event) => setForm((prev) => ({ ...prev, clientId: event.target.value }))}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                <option value="">Selecionar cliente</option>
-                {clients.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
+        <VehicleForm
+          value={form}
+          onChange={setForm}
+          tenants={clients}
+          showClient={user?.role === "admin"}
+          requireClient={user?.role === "admin"}
+          showDeviceSelect={false}
+        />
+        <div className="md:col-span-2 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamento principal</label>
+            <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+              <input
+                type="checkbox"
+                checked={autoPrimary}
+                onChange={(event) => {
+                  const enabled = event.target.checked;
+                  setAutoPrimary(enabled);
+                  if (enabled) {
+                    setForm((prev) => ({ ...prev, deviceId: "" }));
+                  }
+                }}
+              />
+              <span>Automático (último sinal)</span>
+            </label>
+          </div>
+          {!autoPrimary && (
+            <select
+              value={form.deviceId}
+              onChange={(event) => setForm((prev) => ({ ...prev, deviceId: event.target.value }))}
+              className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="">Sem rastreador</option>
+              {devices.map((device) => (
+                <option key={device.id} value={device.id}>
+                  {device.name || device.uniqueId || device.id}
+                </option>
+              ))}
+            </select>
+          )}
+          {autoPrimary && (
+            <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+              {autoPrimaryDeviceId
+                ? `Selecionado automaticamente: ${autoPrimaryDeviceId} (mais recente)`
+                : "Nenhum equipamento com posição recente"}
             </div>
           )}
-          <div className="md:col-span-2 space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamento principal</label>
-              <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-                <input
-                  type="checkbox"
-                  checked={autoPrimary}
-                  onChange={(event) => {
-                    const enabled = event.target.checked;
-                    setAutoPrimary(enabled);
-                    if (enabled) {
-                      setForm((prev) => ({ ...prev, deviceId: "" }));
-                    }
-                  }}
-                />
-                <span>Automático (último sinal)</span>
-              </label>
-            </div>
-            {!autoPrimary && (
-              <select
-                value={form.deviceId}
-                onChange={(event) => setForm((prev) => ({ ...prev, deviceId: event.target.value }))}
-                className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                <option value="">Sem rastreador</option>
-                {devices.map((device) => (
-                  <option key={device.id} value={device.id}>
-                    {device.name || device.uniqueId || device.id}
-                  </option>
-                ))}
-              </select>
-            )}
-            {autoPrimary && (
-              <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
-                {autoPrimaryDeviceId
-                  ? `Selecionado automaticamente: ${autoPrimaryDeviceId} (mais recente)`
-                  : "Nenhum equipamento com posição recente"}
-              </div>
-            )}
-          </div>
-          <div className="md:col-span-2">
-            <label className="text-xs uppercase tracking-[0.12em] text-white/60">Observações</label>
-            <textarea
-              className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              rows={3}
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-            />
-          </div>
         </div>
         <div className="flex justify-end gap-2">
           <Button type="submit" disabled={saving}>

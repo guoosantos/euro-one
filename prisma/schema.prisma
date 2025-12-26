@@ -111,7 +111,19 @@ model Vehicle {
   id        String   @id @default(uuid())
   clientId  String
   name      String?
+  item      String?
   plate     String
+  identifier String?
+  model     String?
+  brand     String?
+  chassis   String?
+  renavam   String?
+  color     String?
+  modelYear Int?
+  manufactureYear Int?
+  fipeCode  String?
+  fipeValue Float?
+  zeroKm    Boolean  @default(false)
   driver    String?
   group     String?
   type      String?
