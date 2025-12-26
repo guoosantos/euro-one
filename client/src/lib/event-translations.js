@@ -106,11 +106,47 @@ const EVENT_SEVERITY = {
   tampering: "high",
 };
 
-const NUMERIC_EVENT_LABELS = {
-  16: "Movimento",
-  17: "Parado",
-  18: "Ignição ligada",
-  19: "Ignição desligada",
+export const J16_EVENT_DEFINITIONS = {
+  "6": {
+    type: "ignitionOn",
+    labelKey: "events.ignitionOn",
+    defaultLabel: "Ignição ligada",
+    icon: "🔌",
+    ignition: true,
+  },
+  "7": {
+    type: "ignitionOff",
+    labelKey: "events.ignitionOff",
+    defaultLabel: "Ignição desligada",
+    icon: "⏻",
+    ignition: false,
+  },
+  "16": {
+    type: "deviceMoving",
+    labelKey: "events.deviceMoving",
+    defaultLabel: "Veículo em movimento",
+    icon: "🚗",
+  },
+  "17": {
+    type: "deviceStopped",
+    labelKey: "events.deviceStopped",
+    defaultLabel: "Veículo parado",
+    icon: "🛑",
+  },
+  "18": {
+    type: "ignitionOn",
+    labelKey: "events.ignitionOn",
+    defaultLabel: "Ignição ligada",
+    icon: "🔌",
+    ignition: true,
+  },
+  "19": {
+    type: "ignitionOff",
+    labelKey: "events.ignitionOff",
+    defaultLabel: "Ignição desligada",
+    icon: "⏻",
+    ignition: false,
+  },
 };
 
 function normalizeType(type) {
@@ -122,6 +158,56 @@ function normalizeEventCandidate(value) {
   if (value === null || value === undefined) return "";
   const asString = String(value).trim();
   return asString;
+}
+
+function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
+  if (!definition) return "";
+  if (typeof fallbackTranslator === "function" && definition.labelKey) {
+    const translated = fallbackTranslator(definition.labelKey);
+    if (translated && translated !== definition.labelKey) {
+      return translated;
+    }
+  }
+  if (locale && EVENT_LABELS[locale] && definition.type) {
+    const key = normalizeType(definition.type);
+    const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
+    if (dictionary?.[key]) return dictionary[key];
+  }
+  return definition.defaultLabel || definition.label || "";
+}
+
+export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator) {
+  const candidate = normalizeEventCandidate(rawType);
+  if (!candidate) {
+    return {
+      label: translateEventType("generic", locale, fallbackTranslator),
+      raw: "",
+      type: "generic",
+      icon: null,
+    };
+  }
+
+  const numeric = Number(candidate);
+  if (Number.isFinite(numeric) && String(numeric) === candidate) {
+    const definition = J16_EVENT_DEFINITIONS[candidate];
+    if (definition) {
+      return {
+        ...definition,
+        label: resolveDefinitionLabel(definition, locale, fallbackTranslator),
+        raw: candidate,
+        isNumeric: true,
+      };
+    }
+    return { label: `Evento ${candidate}`, raw: candidate, isFallback: true, type: "event", icon: null, isNumeric: true };
+  }
+
+  const translated = translateEventType(candidate, locale, fallbackTranslator);
+  return {
+    label: translated || candidate,
+    raw: candidate,
+    type: normalizeType(candidate) || candidate,
+    icon: null,
+  };
 }
 
 export function translateEventType(type, locale = "pt-BR", fallbackTranslator) {
@@ -148,22 +234,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator) {
 }
 
 export function resolveEventLabel(rawType, locale = "pt-BR", fallbackTranslator) {
-  const candidate = normalizeEventCandidate(rawType);
-  if (!candidate) {
-    return { label: translateEventType("generic", locale, fallbackTranslator), raw: "" };
-  }
-
-  const numeric = Number(candidate);
-  if (Number.isFinite(numeric) && String(numeric) === candidate) {
-    const mapped = NUMERIC_EVENT_LABELS[numeric];
-    if (mapped) {
-      return { label: mapped, raw: candidate };
-    }
-    return { label: `Evento ${candidate}`, raw: candidate, isFallback: true };
-  }
-
-  const translated = translateEventType(candidate, locale, fallbackTranslator);
-  return { label: translated || candidate, raw: candidate };
+  return resolveEventDefinition(rawType, locale, fallbackTranslator);
 }
 
 export function resolveEventLabelFromPayload(payload = {}, locale = "pt-BR", fallbackTranslator) {
@@ -182,7 +253,26 @@ export function resolveEventLabelFromPayload(payload = {}, locale = "pt-BR", fal
   ];
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
-  return resolveEventLabel(candidate, locale, fallbackTranslator);
+  return resolveEventDefinition(candidate, locale, fallbackTranslator);
+}
+
+export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR", fallbackTranslator) {
+  const attributes = payload?.attributes || payload?.position?.attributes || payload?.rawAttributes || {};
+  const candidates = [
+    payload?.lastEventName,
+    payload?.lastEvent?.type,
+    payload?.lastEvent?.attributes?.alarm,
+    payload?.event,
+    payload?.type,
+    payload?.alarm,
+    attributes.event,
+    attributes.alarm,
+    attributes.type,
+    attributes.status,
+  ];
+
+  const candidate = candidates.find((value) => normalizeEventCandidate(value));
+  return resolveEventDefinition(candidate, locale, fallbackTranslator);
 }
 
 export function getEventSeverity(type, defaultSeverity = "medium") {
@@ -206,4 +296,7 @@ export default {
   normalizeEventType,
   resolveEventLabel,
   resolveEventLabelFromPayload,
+  resolveEventDefinition,
+  resolveEventDefinitionFromPayload,
+  J16_EVENT_DEFINITIONS,
 };

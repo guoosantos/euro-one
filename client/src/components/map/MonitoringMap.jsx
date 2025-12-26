@@ -151,6 +151,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
   const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
   const [clusters, setClusters] = useState([]);
+  const clusterSignatureRef = useRef("");
   
   const safeMarkers = useMemo(
     () => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)),
@@ -204,6 +205,20 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
         };
       });
 
+      const signature = [
+        zoom,
+        nextClusters
+          .map((cluster) => {
+            if (cluster.type === "marker") {
+              return `m:${cluster.marker?.id ?? cluster.marker?.deviceId ?? cluster.id}`;
+            }
+            return `c:${cluster.count}:${cluster.lat.toFixed(5)}:${cluster.lng.toFixed(5)}`;
+          })
+          .join("|"),
+      ].join("|");
+
+      if (signature === clusterSignatureRef.current) return;
+      clusterSignatureRef.current = signature;
       setClusters(nextClusters);
     };
 

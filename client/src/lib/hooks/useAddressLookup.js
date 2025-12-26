@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCachedReverse, reverseGeocode } from "../reverseGeocode.js";
 import { FALLBACK_ADDRESS } from "../utils/geocode.js";
 
@@ -18,31 +18,30 @@ export default function useAddressLookup(
   const [addresses, setAddresses] = useState({});
   const [loadingKeys, setLoadingKeys] = useState({});
   const inFlightRef = useRef(new Set());
-
-  const resolveKey = useMemo(
-    () =>
-      getKey ||
-      ((item) => {
-        const coords = getCoords ? getCoords(item) : item;
-        const lat = coords?.lat ?? coords?.latitude;
-        const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
-        return buildCoordKey(Number(lat), Number(lng));
-      }),
-    [getCoords, getKey],
-  );
+  const getKeyRef = useRef(getKey);
+  const getCoordsRef = useRef(getCoords);
 
   useEffect(() => {
-    setAddresses({});
-    setLoadingKeys({});
-    inFlightRef.current = new Set();
-  }, [resolveKey]);
+    getKeyRef.current = getKey;
+    getCoordsRef.current = getCoords;
+  }, [getCoords, getKey]);
+
+  const resolveKey = useCallback((item) => {
+    if (getKeyRef.current) {
+      return getKeyRef.current(item);
+    }
+    const coords = getCoordsRef.current ? getCoordsRef.current(item) : item;
+    const lat = coords?.lat ?? coords?.latitude;
+    const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
+    return buildCoordKey(Number(lat), Number(lng));
+  }, []);
 
   useEffect(() => {
     if (!enabled) return undefined;
 
     const pending = list
       .map((item) => {
-        const coords = getCoords ? getCoords(item) : item;
+        const coords = getCoordsRef.current ? getCoordsRef.current(item) : item;
         const lat = coords?.lat ?? coords?.latitude;
         const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
         const key = resolveKey(item);
@@ -102,7 +101,7 @@ export default function useAddressLookup(
     return () => {
       cancelled = true;
     };
-  }, [addresses, batchSize, enabled, getCoords, list, resolveKey]);
+  }, [addresses, batchSize, enabled, list, resolveKey]);
 
   return { addresses, loadingKeys };
 }

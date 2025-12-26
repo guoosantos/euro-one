@@ -12,6 +12,7 @@ import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-hel
 import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
+import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -50,14 +51,6 @@ const TRIP_EVENT_TRANSLATIONS = {
   "harsh-acceleration": "Aceleração brusca",
   "ignition on": "Ignição ligada",
   "ignition off": "Ignição desligada",
-};
-
-const TRACCAR_EVENT_DEFINITIONS = {
-  "70": { type: "overspeed", label: "Overspeed", icon: "🚀" },
-  "69": { type: "harsh-braking", label: "Harsh Braking", icon: "🛑" },
-  "68": { type: "harsh-acceleration", label: "Harsh Acceleration", icon: "⚡" },
-  "6": { type: "ignition-on", label: "Ignition On", icon: "🔌" },
-  "7": { type: "ignition-off", label: "Ignition Off", icon: "⏻" },
 };
 
 const COLUMN_STORAGE_KEY = "tripsReplayColumns:v1";
@@ -228,14 +221,14 @@ function densifyPath(points, maxDistanceMeters = MAX_INTERPOLATION_METERS) {
   return path;
 }
 
-function buildVehicleIcon(bearing = 0, iconType) {
+function buildVehicleIcon(bearing = 0, iconType, color = "#86efac") {
   const iconSvg = getVehicleIconSvg(iconType);
   return L.divIcon({
     className: "replay-vehicle",
     html: `
       <div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;">
         <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%) rotate(${bearing}deg);transform-origin:50% 100%;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid rgba(34,197,94,0.9);filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));"></div>
-        <div style="width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.8);display:flex;align-items:center;justify-content:center;border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);color:#86efac;">
+        <div style="width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.8);display:flex;align-items:center;justify-content:center;border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);color:${color};">
           <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
         </div>
       </div>
@@ -245,7 +238,7 @@ function buildVehicleIcon(bearing = 0, iconType) {
   });
 }
 
-function normalizeTripEvent(point) {
+function normalizeTripEvent(point, helpers = {}) {
   const rawEvent =
     point?.event ||
     point?.type ||
@@ -255,12 +248,14 @@ function normalizeTripEvent(point) {
     point?.__label;
   if (!rawEvent) return null;
   const normalizedEvent = String(rawEvent).trim();
-  const mapped = TRACCAR_EVENT_DEFINITIONS[normalizedEvent];
-  const type = mapped?.type || normalizedEvent.toLowerCase();
+  const resolvedDefinition = resolveEventDefinitionFromPayload(point, helpers.locale, helpers.t);
+  const type = resolvedDefinition?.isNumeric ? resolvedDefinition.type : normalizedEvent.toLowerCase();
+  const resolvedLabel = resolvedDefinition?.isNumeric ? resolvedDefinition.label : null;
   return {
     type,
-    label: translateTripEvent(mapped?.label || point?.__label || normalizedEvent),
-    icon: mapped?.icon || null,
+    label: translateTripEvent(resolvedLabel || point?.__label || normalizedEvent),
+    icon: resolvedDefinition?.icon || null,
+    ignition: resolvedDefinition?.ignition,
   };
 }
 
@@ -369,6 +364,12 @@ function ReplayMap({
   }, [routePoints, smoothedPath]);
 
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
+  const ignitionColor = useMemo(() => {
+    const ignition = typeof activePoint?.__ignition === "boolean" ? activePoint.__ignition : null;
+    if (ignition === true) return "#22c55e";
+    if (ignition === false) return "#ef4444";
+    return "#86efac";
+  }, [activePoint?.__ignition]);
   const vehicleIcon = useMemo(
     () =>
       buildVehicleIcon(
@@ -380,9 +381,11 @@ function ReplayMap({
           selectedVehicle?.category ||
           selectedVehicle?.attributes?.vehicleType ||
           selectedVehicle?.attributes?.type,
+        ignitionColor,
       ),
     [
       animatedPoint?.heading,
+      ignitionColor,
       selectedVehicle?.attributes?.iconType,
       selectedVehicle?.iconType,
       selectedVehicle?.attributes?.type,
@@ -747,7 +750,7 @@ function EventPanel({ events = [], selectedType, onSelectType, totalTimeline = 0
 }
 
 export default function Trips() {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   const location = useLocation();
   const navigate = useNavigate();
   const {
@@ -827,7 +830,7 @@ export default function Trips() {
 
         if (!coords) return null;
 
-        const mappedEvent = normalizeTripEvent(point);
+        const mappedEvent = normalizeTripEvent(point, { locale, t });
         const translatedLabel = translateTripEvent(
           mappedEvent?.label ||
             point.event ||
@@ -841,7 +844,7 @@ export default function Trips() {
         const heading = toFiniteNumber(
           point.course ?? point.heading ?? point.attributes?.course ?? point.attributes?.heading,
         );
-        const ignition =
+        const reportedIgnition =
           typeof point.attributes?.ignition === "boolean"
             ? point.attributes.ignition
             : typeof point.ignition === "boolean"
@@ -874,7 +877,7 @@ export default function Trips() {
           __event: mappedEvent,
           __index: index,
           __heading: heading,
-          __ignition: ignition,
+          __reportedIgnition: reportedIgnition,
           __odometer: odometer,
           __altitude: altitude,
           __satellites: satellites,
@@ -892,8 +895,27 @@ export default function Trips() {
       return aTime - bTime;
     });
 
-    return sorted.map((point, index) => ({ ...point, index }));
-  }, [routeData]);
+    let lastIgnition = null;
+    return sorted.map((point, index) => {
+      const eventIgnition =
+        typeof point.__event?.ignition === "boolean" ? point.__event.ignition : null;
+      let persistentIgnition = lastIgnition;
+      if (typeof eventIgnition === "boolean") {
+        persistentIgnition = eventIgnition;
+      } else if (persistentIgnition === null && typeof point.__reportedIgnition === "boolean") {
+        persistentIgnition = point.__reportedIgnition;
+      }
+      if (typeof persistentIgnition === "boolean") {
+        lastIgnition = persistentIgnition;
+      }
+      return {
+        ...point,
+        index,
+        __ignition:
+          typeof persistentIgnition === "boolean" ? persistentIgnition : point.__reportedIgnition,
+      };
+    });
+  }, [locale, routeData, t]);
 
   const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
   const smoothedRoute = useMemo(() => smoothRoute(routePoints), [routePoints]);
@@ -952,9 +974,15 @@ export default function Trips() {
     [routePoints],
   );
 
+  const resolveTimelineAddressKey = useCallback(
+    (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
+    [],
+  );
+  const resolveTimelineAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
+
   const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(timelineEntries, {
-    getKey: (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
-    getCoords: (entry) => ({ lat: entry.lat, lng: entry.lng }),
+    getKey: resolveTimelineAddressKey,
+    getCoords: resolveTimelineAddressCoords,
     batchSize: 6,
   });
 
@@ -970,7 +998,7 @@ export default function Trips() {
     () =>
       routePoints
         .map((point, index) => {
-          const normalized = point.__event || normalizeTripEvent(point);
+          const normalized = point.__event || normalizeTripEvent(point, { locale, t });
           if (!normalized) return null;
           return { index, ...normalized, time: point.__time, lat: point.lat, lng: point.lng };
         })

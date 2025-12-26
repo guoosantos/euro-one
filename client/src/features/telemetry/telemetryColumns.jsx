@@ -98,16 +98,17 @@ export const TELEMETRY_COLUMNS = [
     labelKey: "monitoring.columns.lastEvent",
     defaultVisible: true,
     getValue: (row, helpers = {}) => {
-      const { label, raw, isFallback } = resolveEventLabelFromPayload(row, helpers.locale, helpers.t);
+      const { label, raw, isFallback, icon } = resolveEventLabelFromPayload(row, helpers.locale, helpers.t);
       if (!label) return FALLBACK;
-      if (isFallback && raw) {
-        return (
-          <span title={`Código bruto: ${raw}`}>
-            {label}
-          </span>
-        );
-      }
-      return label;
+      const content = icon ? (
+        <span className="inline-flex items-center gap-1">
+          <span>{icon}</span>
+          <span>{label}</span>
+        </span>
+      ) : (
+        label
+      );
+      return isFallback && raw ? <span title={`Código bruto: ${raw}`}>{content}</span> : content;
     },
   },
   {
