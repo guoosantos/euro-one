@@ -92,11 +92,15 @@ export default function useAddressLookup(
     });
 
     setLoadingKeys((prev) => {
+      let changed = false;
       const next = { ...prev };
       missing.forEach((entry) => {
-        next[entry.key] = true;
+        if (prev[entry.key] !== true) {
+          next[entry.key] = true;
+          changed = true;
+        }
       });
-      return next;
+      return changed ? next : prev;
     });
 
     (async () => {
@@ -104,15 +108,26 @@ export default function useAddressLookup(
         try {
           const resolved = await reverseGeocode(entry.lat, entry.lng);
           if (!cancelled) {
-            setAddresses((prev) => ({ ...prev, [entry.key]: resolved || FALLBACK_ADDRESS }));
+            setAddresses((prev) => {
+              const nextValue = resolved || FALLBACK_ADDRESS;
+              if (prev[entry.key] === nextValue) return prev;
+              return { ...prev, [entry.key]: nextValue };
+            });
           }
         } catch (_error) {
           if (!cancelled) {
-            setAddresses((prev) => ({ ...prev, [entry.key]: prev[entry.key] || FALLBACK_ADDRESS }));
+            setAddresses((prev) => {
+              const nextValue = prev[entry.key] || FALLBACK_ADDRESS;
+              if (prev[entry.key] === nextValue) return prev;
+              return { ...prev, [entry.key]: nextValue };
+            });
           }
         } finally {
           if (!cancelled) {
-            setLoadingKeys((prev) => ({ ...prev, [entry.key]: false }));
+            setLoadingKeys((prev) => {
+              if (prev[entry.key] === false) return prev;
+              return { ...prev, [entry.key]: false };
+            });
           }
           inFlightRef.current.delete(entry.key);
         }

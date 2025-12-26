@@ -498,6 +498,22 @@ export default function Monitoring() {
         item.vehicle?.id ??
         null;
 
+      const resolvedVehicleType =
+        item.vehicleType ??
+        item.type ??
+        item.category ??
+        sourceDevice?.vehicleType ??
+        sourceDevice?.attributes?.vehicleType ??
+        sourceDevice?.vehicle?.vehicleType ??
+        sourceDevice?.vehicle?.type ??
+        sourceDevice?.vehicle?.category ??
+        null;
+      const resolvedVehicleCategory =
+        item.category ??
+        sourceDevice?.vehicle?.category ??
+        sourceDevice?.attributes?.vehicleCategory ??
+        null;
+
       const vehicle =
         item.vehicle ||
         sourceDevice?.vehicle ||
@@ -507,6 +523,8 @@ export default function Monitoring() {
               plate: item.plate ?? sourceDevice?.plate ?? sourceDevice?.registrationNumber,
               name: item.vehicleName ?? sourceDevice?.vehicleName ?? sourceDevice?.name,
               clientId: item.clientId ?? sourceDevice?.clientId,
+              type: resolvedVehicleType,
+              category: resolvedVehicleCategory,
               __synthetic: true,
             }
           : null);
@@ -717,7 +735,16 @@ export default function Monitoring() {
           pos?.attributes?.heading ??
           device?.heading ??
           null,
-        vehicleType: vehicle?.type || vehicle?.category || device?.vehicle?.type || null,
+        vehicleType:
+          vehicle?.type ||
+          vehicle?.vehicleType ||
+          vehicle?.category ||
+          device?.vehicleType ||
+          device?.attributes?.vehicleType ||
+          device?.vehicle?.type ||
+          device?.vehicle?.vehicleType ||
+          device?.vehicle?.category ||
+          null,
       };
 
       return row;
