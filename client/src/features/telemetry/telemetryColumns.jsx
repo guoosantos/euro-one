@@ -17,15 +17,9 @@ function getAttributes(row) {
 
 export const TELEMETRY_COLUMNS = [
   {
-    key: "vehicle",
-    labelKey: "monitoring.columns.vehicle",
-    defaultVisible: true,
-    getValue: (row) => row.deviceName || row.vehicleName || row.vehicle?.name || FALLBACK,
-  },
-  {
     key: "client",
     labelKey: "monitoring.columns.client",
-    defaultVisible: false,
+    defaultVisible: true,
     getValue: (row) => {
       const attributes = getAttributes(row);
       return (
@@ -38,6 +32,12 @@ export const TELEMETRY_COLUMNS = [
         FALLBACK
       );
     },
+  },
+  {
+    key: "vehicle",
+    labelKey: "monitoring.columns.vehicle",
+    defaultVisible: true,
+    getValue: (row) => row.deviceName || row.vehicleName || row.vehicle?.name || FALLBACK,
   },
   {
     key: "plate",

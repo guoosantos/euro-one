@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useUI } from "../store.js";
-import useVehicles from "./useVehicles.js";
+import useVehicles, { resetVehiclesCache } from "./useVehicles.js";
+import { useTenant } from "../tenant-context.jsx";
 
 const normalizeId = (value) => {
   if (value === null || value === undefined || value === "") return null;
@@ -12,8 +13,11 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   const location = useLocation();
   const navigate = useNavigate();
   const { vehicles } = useVehicles();
+  const { tenantId } = useTenant();
   const { selectedVehicleId, selectedTelemetryDeviceId, setVehicleSelection, clearVehicleSelection } = useUI();
   const lastAppliedQueryRef = useRef(null);
+  const lastSyncedVehicleRef = useRef(null);
+  const lastTenantRef = useRef(tenantId);
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
 
@@ -24,6 +28,14 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
   }, [selectedVehicleId, selectedTelemetryDeviceId, vehicleById]);
 
   useEffect(() => {
+    if (lastTenantRef.current === tenantId) return;
+    lastTenantRef.current = tenantId;
+    clearVehicleSelection();
+    resetVehiclesCache();
+  }, [clearVehicleSelection, tenantId]);
+
+  useEffect(() => {
+    if (!syncQuery) return;
     const search = new URLSearchParams(location.search || "");
     const normalizedQuery = normalizeId(search.get("vehicleId"));
     const normalizedSelected = normalizeId(selectedVehicleId);
@@ -35,7 +47,7 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     const nextVehicle = vehicleById.get(normalizedQuery);
     lastAppliedQueryRef.current = normalizedQuery;
     setVehicleSelection(normalizedQuery, nextVehicle?.primaryDeviceId ?? null);
-  }, [location.search, selectedVehicleId, setVehicleSelection, vehicleById]);
+  }, [location.search, selectedVehicleId, setVehicleSelection, syncQuery, vehicleById]);
 
   useEffect(() => {
     if (!selectedVehicleId) return;
@@ -54,17 +66,25 @@ export default function useVehicleSelection({ syncQuery = true } = {}) {
     const currentVehicle = normalizeId(search.get("vehicleId"));
     const normalizedVehicleId = normalizeId(resolvedSelection.vehicleId);
 
-    if (normalizedVehicleId) {
-      if (currentVehicle === normalizedVehicleId) return;
-      search.set("vehicleId", normalizedVehicleId);
-      navigate(`${location.pathname}?${search.toString()}`, { replace: true });
-    } else if (currentVehicle) {
-      search.delete("vehicleId");
-      navigate(
-        search.toString() ? `${location.pathname}?${search.toString()}` : location.pathname,
-        { replace: true },
-      );
+    if (currentVehicle === normalizedVehicleId) {
+      lastSyncedVehicleRef.current = normalizedVehicleId;
+      return;
     }
+
+    if (lastSyncedVehicleRef.current === normalizedVehicleId && currentVehicle === normalizedVehicleId) {
+      return;
+    }
+
+    if (normalizedVehicleId) {
+      search.set("vehicleId", normalizedVehicleId);
+    } else {
+      search.delete("vehicleId");
+    }
+
+    const nextQuery = search.toString();
+    const nextPath = nextQuery ? `${location.pathname}?${nextQuery}` : location.pathname;
+    lastSyncedVehicleRef.current = normalizedVehicleId;
+    navigate(nextPath, { replace: true });
   }, [location.pathname, location.search, navigate, resolvedSelection.vehicleId, syncQuery]);
 
   const setVehicle = (vehicleId, deviceId = null) => {

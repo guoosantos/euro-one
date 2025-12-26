@@ -10,6 +10,8 @@ import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
 import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
+import { formatAddress } from "../lib/format-address.js";
+import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -21,6 +23,7 @@ import {
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import { getVehicleIconSvg } from "../lib/icons/vehicleIcons.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -225,20 +228,16 @@ function densifyPath(points, maxDistanceMeters = MAX_INTERPOLATION_METERS) {
   return path;
 }
 
-function buildVehicleIcon(bearing = 0) {
-  const rotation = `transform: rotate(${bearing}deg);`;
+function buildVehicleIcon(bearing = 0, iconType) {
+  const iconSvg = getVehicleIconSvg(iconType);
   return L.divIcon({
     className: "replay-vehicle",
     html: `
-      <div style="${rotation}width:32px;height:32px;border-radius:10px;background:rgba(15,23,42,0.75);display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.12);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);">
-        <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32' width='20' height='20' fill='none' stroke='currentColor' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' style='color:#22c55e;'>
-          <rect x='4' y='10' width='14' height='9' rx='2' ry='2' fill='rgba(34,197,94,0.08)' />
-          <path d='M18 12h5.5l3.5 4v3H18z' fill='rgba(34,197,94,0.08)' />
-          <circle cx='10' cy='21' r='2.3' fill='currentColor' />
-          <circle cx='22' cy='21' r='2.3' fill='currentColor' />
-          <path d='M4 16h14' />
-          <path d='M18 16h6' />
-        </svg>
+      <div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;">
+        <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%) rotate(${bearing}deg);transform-origin:50% 100%;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid rgba(34,197,94,0.9);filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));"></div>
+        <div style="width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.8);display:flex;align-items:center;justify-content:center;border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);color:#86efac;">
+          <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
+        </div>
       </div>
     `,
     iconSize: [32, 32],
@@ -290,10 +289,8 @@ function formatPointAddress(point) {
   for (const candidate of candidates) {
     if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
     if (candidate && typeof candidate === "object") {
-      if (typeof candidate.formattedAddress === "string" && candidate.formattedAddress.trim()) {
-        return candidate.formattedAddress.trim();
-      }
-      if (typeof candidate.address === "string" && candidate.address.trim()) return candidate.address.trim();
+      const formatted = formatAddress(candidate);
+      if (formatted && formatted !== "—") return formatted;
       if (typeof candidate.name === "string" && candidate.name.trim()) return candidate.name.trim();
     }
   }
@@ -371,7 +368,29 @@ function ReplayMap({
   }, [routePoints, smoothedPath]);
 
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
-  const vehicleIcon = useMemo(() => buildVehicleIcon(animatedPoint?.heading || 0), [animatedPoint?.heading]);
+  const vehicleIcon = useMemo(
+    () =>
+      buildVehicleIcon(
+        animatedPoint?.heading || 0,
+        selectedVehicle?.iconType ||
+          selectedVehicle?.attributes?.iconType ||
+          selectedVehicle?.type ||
+          selectedVehicle?.vehicleType ||
+          selectedVehicle?.category ||
+          selectedVehicle?.attributes?.vehicleType ||
+          selectedVehicle?.attributes?.type,
+      ),
+    [
+      animatedPoint?.heading,
+      selectedVehicle?.attributes?.iconType,
+      selectedVehicle?.iconType,
+      selectedVehicle?.attributes?.type,
+      selectedVehicle?.attributes?.vehicleType,
+      selectedVehicle?.category,
+      selectedVehicle?.type,
+      selectedVehicle?.vehicleType,
+    ],
+  );
   const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
   const resolvedSubdomains = tileLayer.subdomains ?? "abc";
   const resolvedMaxZoom = Number.isFinite(tileLayer.maxZoom) ? tileLayer.maxZoom : 19;
@@ -972,10 +991,10 @@ export default function Trips() {
         try {
           const value = await reverseGeocode(item.lat, item.lng);
           if (cancelled) return;
-          setResolvedAddresses((prev) => ({ ...prev, [item.key]: value || "Endereço não disponível" }));
+          setResolvedAddresses((prev) => ({ ...prev, [item.key]: value || FALLBACK_ADDRESS }));
         } catch (_err) {
           if (cancelled) return;
-          setResolvedAddresses((prev) => ({ ...prev, [item.key]: "Endereço não disponível" }));
+          setResolvedAddresses((prev) => ({ ...prev, [item.key]: FALLBACK_ADDRESS }));
         } finally {
           if (cancelled) return;
           setAddressLoading((prev) => {
@@ -1052,11 +1071,11 @@ export default function Trips() {
       const key = entry?.addressKey || buildCoordKey(entry?.lat, entry?.lng);
       if (key && resolvedAddresses[key]) {
         const resolved = resolvedAddresses[key];
-        if (typeof resolved === "string" && resolved.trim() === key) return "Endereço não disponível";
+        if (typeof resolved === "string" && resolved.trim() === key) return FALLBACK_ADDRESS;
         return resolved;
       }
       if (key && addressLoading[key]) return "Carregando…";
-      return "Endereço não disponível";
+      return FALLBACK_ADDRESS;
     },
     [addressLoading, resolvedAddresses],
   );

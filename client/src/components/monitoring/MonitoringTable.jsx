@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { formatAddress } from "../../lib/format-address.js";
+import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 800;
@@ -239,20 +241,14 @@ export default function MonitoringTable({
                   let cellValue = col.render ? col.render(row) : row[col.key];
 
                   if (col.key === "address" || col.key === "endereco") {
-                    let addr = row.address || row.position?.address;
-
-                    if (typeof addr === "object" && addr !== null) {
-                      addr = addr.formattedAddress || addr.address;
-                    }
-
-                    if (!addr || addr === "[object Object]") {
-                      if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
-                        cellValue = `${Number(row.lat).toFixed(4)}, ${Number(row.lng).toFixed(4)}`;
-                      } else {
-                        cellValue = "—";
-                      }
+                    const rawAddress = row.address || row.position?.address;
+                    const formatted = formatAddress(rawAddress);
+                    if (formatted && formatted !== "—") {
+                      cellValue = formatted;
+                    } else if (Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
+                      cellValue = "Carregando endereço...";
                     } else {
-                      cellValue = addr;
+                      cellValue = FALLBACK_ADDRESS;
                     }
                   } else if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
                     if (cellValue.formattedAddress) {

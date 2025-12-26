@@ -3,6 +3,14 @@ import { CoreApi } from "../coreApi.js";
 import { useTenant } from "../tenant-context.jsx";
 import { toDeviceKey } from "./useDevices.helpers.js";
 
+const vehiclesCache = new Map();
+const cacheListeners = new Set();
+
+export function resetVehiclesCache() {
+  vehiclesCache.clear();
+  cacheListeners.forEach((listener) => listener());
+}
+
 const pickDeviceKey = (device) =>
   toDeviceKey(device?.id ?? device?.deviceId ?? device?.device_id ?? device?.uniqueId ?? device?.unique_id ?? device?.traccarId);
 
@@ -51,7 +59,8 @@ export function formatVehicleLabel(vehicle) {
 
 export function useVehicles({ includeUnlinked = false } = {}) {
   const { tenantId } = useTenant();
-  const [vehicles, setVehicles] = useState([]);
+  const cacheKey = `${tenantId || "all"}:${includeUnlinked ? "1" : "0"}`;
+  const [vehicles, setVehicles] = useState(() => vehiclesCache.get(cacheKey) || []);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -66,16 +75,33 @@ export function useVehicles({ includeUnlinked = false } = {}) {
       const response = await CoreApi.listVehicles(params);
       const list = Array.isArray(response) ? response : [];
       setVehicles(list);
+      vehiclesCache.set(cacheKey, list);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
     } finally {
       setLoading(false);
     }
-  }, [includeUnlinked, tenantId]);
+  }, [cacheKey, includeUnlinked, tenantId]);
 
   useEffect(() => {
     fetchVehicles().catch(() => {});
   }, [fetchVehicles]);
+
+  useEffect(() => {
+    setVehicles(vehiclesCache.get(cacheKey) || []);
+    setError(null);
+  }, [cacheKey]);
+
+  useEffect(() => {
+    const handleReset = () => {
+      setVehicles([]);
+      setError(null);
+    };
+    cacheListeners.add(handleReset);
+    return () => {
+      cacheListeners.delete(handleReset);
+    };
+  }, []);
 
   const enrichedVehicles = useMemo(() => {
     return (Array.isArray(vehicles) ? vehicles : []).map((vehicle) => {

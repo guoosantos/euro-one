@@ -20,6 +20,8 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
 import { getCachedReverse, reverseGeocode } from "../lib/reverseGeocode.js";
 import { useUI } from "../lib/store.js";
+import { formatAddress } from "../lib/format-address.js";
+import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -326,6 +328,8 @@ export default function Monitoring() {
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [focusTarget, setFocusTarget] = useState(null);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
+  const [drawerMounted, setDrawerMounted] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const [localMapHeight, setLocalMapHeight] = useState(DEFAULT_MAP_HEIGHT);
   const [mapInvalidateKey, setMapInvalidateKey] = useState(0);
   const [reverseAddresses, setReverseAddresses] = useState({});
@@ -615,15 +619,8 @@ export default function Monitoring() {
 
   const resolveAddress = (position, lat, lng) => {
     const rawAddress = position?.address || position?.attributes?.formattedAddress;
-    if (typeof rawAddress === "string" && rawAddress.trim()) return rawAddress.trim();
-    if (typeof position?.address === "object") {
-      if (typeof position.address.formattedAddress === "string" && position.address.formattedAddress.trim()) {
-        return position.address.formattedAddress.trim();
-      }
-      if (typeof position.address.address === "string" && position.address.address.trim()) {
-        return position.address.address.trim();
-      }
-    }
+    const formatted = formatAddress(rawAddress);
+    if (formatted && formatted !== "—") return formatted;
 
     const coordKey = buildCoordKey(lat, lng);
     if (coordKey && reverseAddresses[coordKey]) return reverseAddresses[coordKey];
@@ -634,10 +631,10 @@ export default function Monitoring() {
     }
 
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+      return "Carregando endereço...";
     }
 
-    return "Endereço não disponível";
+    return FALLBACK_ADDRESS;
   };
 
   const rows = useMemo(() => {
@@ -663,6 +660,19 @@ export default function Monitoring() {
         lat,
         lng,
         deviceName: device.name ?? "—",
+        clientName:
+          device.clientName ||
+          device.client?.name ||
+          device.customerName ||
+          device.customer?.name ||
+          device.attributes?.client ||
+          device.attributes?.customer ||
+          source?.clientName ||
+          source?.client?.name ||
+          source?.customerName ||
+          vehicle?.clientName ||
+          vehicle?.client?.name ||
+          "—",
         plate: device.plate ?? "—",
         address: resolveAddress(pos, lat, lng),
         speed: pickSpeed(pos),
@@ -671,6 +681,24 @@ export default function Monitoring() {
         stalenessMinutes,
         statusBadge,
         statusLabel,
+        heading:
+          pos?.course ??
+          pos?.heading ??
+          pos?.attributes?.course ??
+          pos?.attributes?.heading ??
+          device?.heading ??
+          null,
+        vehicleType:
+          device?.iconType ||
+          device?.attributes?.iconType ||
+          device?.type ||
+          device?.vehicleType ||
+          device?.category ||
+          device?.attributes?.vehicleType ||
+          device?.attributes?.type ||
+          vehicle?.type ||
+          vehicle?.category ||
+          null,
       };
 
       return row;
@@ -695,9 +723,10 @@ export default function Monitoring() {
         try {
           const value = await reverseGeocode(item.lat, item.lng);
           if (cancelled) return;
-          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: value }));
+          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: value || FALLBACK_ADDRESS }));
         } catch (_err) {
-          // ignore individual failures
+          if (cancelled) return;
+          setReverseAddresses((prev) => (prev[item.key] ? prev : { ...prev, [item.key]: FALLBACK_ADDRESS }));
         }
       }
     })();
@@ -808,6 +837,17 @@ export default function Monitoring() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [closeDetails, isDetailsOpen]);
 
+  useEffect(() => {
+    if (isDetailsOpen) {
+      setDrawerMounted(true);
+      requestAnimationFrame(() => setDrawerVisible(true));
+      return;
+    }
+    if (drawerMounted) {
+      setDrawerVisible(false);
+    }
+  }, [drawerMounted, isDetailsOpen]);
+
   const handleVehicleSearchChange = useCallback((value) => {
     setVehicleQuery(value);
   }, []);
@@ -845,6 +885,8 @@ export default function Monitoring() {
           color: r.statusBadge === "online" ? "#22c55e" : "#f87171",
           accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
           statusLabel,
+          iconType: r.vehicleType,
+          heading: r.heading,
         };
       });
   }, [displayRows, locale, selectedDeviceId, t]);
@@ -1438,17 +1480,24 @@ export default function Monitoring() {
         />
       )}
 
-      {isDetailsOpen ? (
+      {drawerMounted ? (
         <div className="fixed inset-0 z-[9996] flex h-full justify-end">
           <button
             type="button"
             aria-label="Fechar painel de detalhes do veículo"
-            className="flex-1 bg-black/40 backdrop-blur-sm"
+            className={`flex-1 bg-black/40 backdrop-blur-sm transition-opacity duration-300 ${drawerVisible ? "opacity-100" : "opacity-0"}`}
             onClick={closeDetails}
           />
           <div
-            className="pointer-events-auto relative h-full w-[420px] max-w-[420px]"
+            className={`pointer-events-auto relative h-full w-[58vw] min-w-[420px] max-w-[920px] overflow-hidden transition-transform duration-300 ease-out ${
+              drawerVisible ? "translate-x-0" : "translate-x-full"
+            }`}
             onClick={(event) => event.stopPropagation()}
+            onTransitionEnd={() => {
+              if (!isDetailsOpen) {
+                setDrawerMounted(false);
+              }
+            }}
           >
             <VehicleDetailsDrawer vehicle={detailsVehicle} onClose={closeDetails} floating={false} />
           </div>

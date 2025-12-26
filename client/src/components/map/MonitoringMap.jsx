@@ -3,6 +3,7 @@ import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker,
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
+import { getVehicleIconSvg } from "../../lib/icons/vehicleIcons.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
@@ -21,16 +22,6 @@ const ADDRESS_PIN_ICON = L.divIcon({
   iconAnchor: [10, 10],
 });
 
-const ICON_SYMBOLS = {
-  car: "🚗",
-  motorcycle: "🏍️",
-  truck: "🚚",
-  person: "🧍",
-  tag: "🏷️",
-  watercraft: "🚤",
-  default: "📡",
-};
-
 const STATUS_STYLES = {
   online: { background: "rgba(34,197,94,0.15)", border: "1px solid rgba(74,222,128,0.6)", color: "#bbf7d0" },
   alert: { background: "rgba(250,204,21,0.12)", border: "1px solid rgba(250,204,21,0.6)", color: "#fef9c3" },
@@ -45,31 +36,30 @@ function getStatusStyle(status) {
   return STATUS_STYLES[status] || STATUS_STYLES.offline;
 }
 
-function getMarkerIcon(color, iconType) {
-  const key = `${iconType || "default"}-${color || "default"}`;
+function getMarkerIcon({ color, iconType, heading = 0 }) {
+  const roundedHeading = Number.isFinite(heading) ? Math.round(heading) : 0;
+  const key = `${iconType || "default"}-${color || "default"}-${roundedHeading}`;
   if (markerIconCache.has(key)) return markerIconCache.get(key);
 
-  const symbol = ICON_SYMBOLS[iconType] || ICON_SYMBOLS.default;
-  const baseColor = color || "#22c55e";
-  const accentColor = color || "#34d399";
+  const baseColor = color || "#94a3b8";
+  const iconSvg = getVehicleIconSvg(iconType);
+  const arrowColor = color || "#60a5fa";
 
   const iconHtml = `
-    <div style="position:relative;display:flex;align-items:flex-end;justify-content:center;width:42px;height:54px;filter:drop-shadow(0 10px 18px rgba(0,0,0,0.4));">
-      <div style="position:absolute;bottom:10px;width:42px;height:42px;border-radius:16px;border:2px solid ${accentColor};opacity:0.35;"></div>
-      <div style="position:absolute;bottom:4px;width:34px;height:34px;border-radius:14px;background:linear-gradient(140deg,${baseColor},${baseColor} 60%,rgba(255,255,255,0.25));box-shadow:0 8px 14px rgba(0,0,0,0.35),0 0 0 2px rgba(11,15,23,0.9);border:2px solid rgba(255,255,255,0.9);overflow:hidden;">
-        <div style="position:absolute;inset:0;background:radial-gradient(circle at 30% 25%,rgba(255,255,255,0.45),transparent 55%);"></div>
-        <span style="position:relative;z-index:1;display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:18px;">${symbol}</span>
+    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:40px;height:40px;filter:drop-shadow(0 8px 14px rgba(0,0,0,0.35));">
+      <div style="position:absolute;top:-8px;left:50%;transform:translateX(-50%) rotate(${roundedHeading}deg);transform-origin:50% 100%;width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:10px solid ${arrowColor};filter:drop-shadow(0 2px 4px rgba(0,0,0,0.3));"></div>
+      <div style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:14px;background:rgba(15,23,42,0.9);border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 12px rgba(0,0,0,0.35);color:${baseColor};">
+        <div style="width:20px;height:20px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
       </div>
-      <div style="position:absolute;bottom:-1px;width:14px;height:14px;background:${baseColor};transform:rotate(45deg);border-radius:3px;border:2px solid rgba(255,255,255,0.9);box-shadow:0 4px 10px rgba(0,0,0,0.35);"></div>
     </div>
   `;
 
   const icon = L.divIcon({
     className: "fleet-marker",
     html: iconHtml,
-    iconSize: [42, 54],
-    iconAnchor: [21, 42],
-    popupAnchor: [0, -34],
+    iconSize: [40, 40],
+    iconAnchor: [20, 28],
+    popupAnchor: [0, -28],
   });
 
   markerIconCache.set(key, icon);
@@ -208,7 +198,11 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     <Marker
       key={marker.id ?? `${marker.lat}-${marker.lng}`}
       position={[marker.lat, marker.lng]}
-      icon={getMarkerIcon(marker.color || marker.accentColor, marker.iconType)}
+      icon={getMarkerIcon({
+        color: marker.color || marker.accentColor,
+        iconType: marker.iconType,
+        heading: marker.heading,
+      })}
       eventHandlers={{
         click: () => {
           if (marker.id) {
@@ -706,4 +700,3 @@ export default function MonitoringMap({
     </div>
   );
 }
-
