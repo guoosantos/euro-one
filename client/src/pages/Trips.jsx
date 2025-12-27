@@ -1289,7 +1289,7 @@ export default function Trips() {
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
   const stopPlayback = useCallback(() => {
-    setIsPlaying(false);
+    setIsPlaying((prev) => (prev ? false : prev));
     isPlayingRef.current = false;
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
@@ -1353,7 +1353,7 @@ export default function Trips() {
 
   useEffect(() => {
     stopPlayback();
-    setActiveIndex(0);
+    setActiveIndex((prev) => (prev === 0 ? prev : 0));
     setSelectedEventType(null);
     setEventCursor(0);
     setTimelineFilter("all");
@@ -1361,7 +1361,19 @@ export default function Trips() {
     playbackTimeRef.current = 0;
     lastFrameTimeRef.current = null;
     activeIndexRef.current = 0;
-    setAnimatedPoint(routePoints[0] || null);
+    const firstPoint = routePoints[0] || null;
+    if (!firstPoint) {
+      setAnimatedPoint((prev) => (prev ? null : prev));
+      return;
+    }
+    const secondPoint = routePoints[1] || firstPoint;
+    const heading = computeHeading(firstPoint, secondPoint);
+    setAnimatedPoint((prev) => {
+      if (prev && prev.lat === firstPoint.lat && prev.lng === firstPoint.lng && prev.heading === heading) {
+        return prev;
+      }
+      return { lat: firstPoint.lat, lng: firstPoint.lng, heading };
+    });
   }, [routePoints, stopPlayback]);
 
   useEffect(() => {
@@ -1430,8 +1442,9 @@ export default function Trips() {
       const points = routePointsRef.current;
       const total = points.length;
       if (total <= 1) {
-        isPlayingRef.current = false;
-        setIsPlaying(false);
+        if (isPlayingRef.current) {
+          stopPlayback();
+        }
         return;
       }
       if (lastFrameTimeRef.current === null) {
@@ -1443,7 +1456,7 @@ export default function Trips() {
 
       let nextIndex = playbackIndexRef.current;
       let segmentDuration = getSegmentDurationMs(points[nextIndex], points[nextIndex + 1]);
-      while (playbackTimeRef.current >= segmentDuration && nextIndex < total - 1) {
+      while (nextIndex < total - 1 && playbackTimeRef.current >= segmentDuration) {
         playbackTimeRef.current -= segmentDuration;
         nextIndex += 1;
         segmentDuration = getSegmentDurationMs(points[nextIndex], points[nextIndex + 1]);
@@ -1466,8 +1479,7 @@ export default function Trips() {
             return { lat: finalPoint.lat, lng: finalPoint.lng, heading };
           });
         }
-        isPlayingRef.current = false;
-        setIsPlaying(false);
+        stopPlayback();
         return;
       }
 
@@ -1496,7 +1508,7 @@ export default function Trips() {
         rafIdRef.current = null;
       }
     };
-  }, [isPlaying]);
+  }, [isPlaying, stopPlayback]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {
