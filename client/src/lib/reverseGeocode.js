@@ -5,12 +5,14 @@ const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 dias
 const ACCEPT_LANGUAGE = "pt-BR";
 const COUNTRY_BIAS = "br";
 const cache = new Map();
+const inFlight = new Map();
 let useGuestReverse = false;
 const STORAGE_KEY = "reverseGeocodeCache:v1";
 let storageHydrated = false;
 let loggedFallbackOnce = false;
 const FALLBACK_ADDRESS = "Endereço indisponível";
 const RATE_LIMIT_MS = 450;
+const RETRY_DELAYS = [300, 800, 1500];
 let lastRequestAt = 0;
 let rateLimitQueue = Promise.resolve();
 
@@ -63,6 +65,35 @@ function setCachedReverse(key, value) {
   persistCache();
 }
 
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status) {
+  return status === 429 || status === 503 || status === 504;
+}
+
+async function fetchWithRetry(fetcher, maxRetries = RETRY_DELAYS.length) {
+  let attempt = 0;
+  while (true) {
+    try {
+      const response = await fetcher();
+      if (!response.ok && isRetryableStatus(response.status) && attempt < maxRetries) {
+        await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)]);
+        attempt += 1;
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (attempt >= maxRetries) {
+        throw error;
+      }
+      await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)]);
+      attempt += 1;
+    }
+  }
+}
+
 export function getCachedReverse(lat, lng) {
   hydrateFromStorage();
   const key = buildKey(lat, lng);
@@ -80,22 +111,22 @@ export async function reverseGeocode(lat, lng) {
   const key = buildKey(lat, lng);
   const cached = getCachedReverse(lat, lng);
   if (cached) return cached;
+  if (inFlight.has(key)) return inFlight.get(key);
 
-  try {
+  const promise = (async () => {
     const resolveFromApi = async () => {
       const url = `${REVERSE_URL}?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`;
       const headers = new Headers({ Accept: "application/json" });
       const authorization = resolveAuthorizationHeader();
       if (authorization) headers.set("Authorization", authorization);
 
-      const response = await fetch(url, { credentials: "include", headers });
-      const data = await response.json();
+      const response = await fetchWithRetry(() => fetch(url, { credentials: "include", headers }));
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
         throw error;
       }
-      return data;
+      return response.json();
     };
 
     const resolveFromPublic = async () => {
@@ -108,7 +139,9 @@ export async function reverseGeocode(lat, lng) {
       url.searchParams.set("accept-language", ACCEPT_LANGUAGE);
       url.searchParams.set("countrycodes", COUNTRY_BIAS);
 
-      const response = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+      const response = await fetchWithRetry(() =>
+        fetch(url.toString(), { headers: { Accept: "application/json" } }),
+      );
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
@@ -120,9 +153,9 @@ export async function reverseGeocode(lat, lng) {
     const runWithRateLimit = (fn) => {
       const execute = async () => {
         const now = Date.now();
-        const wait = Math.max(0, RATE_LIMIT_MS - (now - lastRequestAt));
-        if (wait) {
-          await new Promise((resolve) => setTimeout(resolve, wait));
+        const waitMs = Math.max(0, RATE_LIMIT_MS - (now - lastRequestAt));
+        if (waitMs) {
+          await wait(waitMs);
         }
         lastRequestAt = Date.now();
         return fn();
@@ -132,51 +165,73 @@ export async function reverseGeocode(lat, lng) {
       return rateLimitQueue;
     };
 
-    const data = useGuestReverse
-      ? await runWithRateLimit(resolveFromPublic)
-      : await runWithRateLimit(resolveFromApi);
-    const address =
-      data?.shortAddress ||
-      data?.formattedAddress ||
-      data?.address ||
-      data?.display_name ||
-      (data?.address
-        ? [
-            data.address.road,
-            data.address.city || data.address.town || data.address.village,
-            data.address.state,
-          ]
-            .filter(Boolean)
-            .join(", ")
-        : null);
+    try {
+      const data = useGuestReverse
+        ? await runWithRateLimit(resolveFromPublic)
+        : await runWithRateLimit(resolveFromApi);
+      const address =
+        data?.shortAddress ||
+        data?.formattedAddress ||
+        data?.address ||
+        data?.display_name ||
+        (data?.address
+          ? [
+              data.address.road,
+              data.address.city || data.address.town || data.address.village,
+              data.address.state,
+            ]
+              .filter(Boolean)
+              .join(", ")
+          : null);
 
-    const resolved = address || FALLBACK_ADDRESS;
+      const resolved = address || FALLBACK_ADDRESS;
 
-    if (!address && !loggedFallbackOnce) {
-      loggedFallbackOnce = true;
-      console.info("Geocode reverso sem endereço. Usando fallback.");
-    }
-
-    setCachedReverse(key, resolved);
-    return resolved;
-  } catch (error) {
-    const isUnauthorized = error?.status === 401 || error?.status === 403;
-    if (isUnauthorized && !useGuestReverse) {
-      useGuestReverse = true;
-      try {
-        const guest = await reverseGeocode(lat, lng);
-        setCachedReverse(key, guest);
-        return guest;
-      } catch (_guestError) {
-        // fall through to fallback
+      if (!address && !loggedFallbackOnce) {
+        loggedFallbackOnce = true;
+        console.info("Geocode reverso sem endereço. Usando fallback.");
       }
-    }
 
-    if (!loggedFallbackOnce) {
-      loggedFallbackOnce = true;
-      console.info("Geocode reverso falhou. Usando fallback.");
+      setCachedReverse(key, resolved);
+      return resolved;
+    } catch (error) {
+      const isUnauthorized = error?.status === 401 || error?.status === 403;
+      if (isUnauthorized && !useGuestReverse) {
+        useGuestReverse = true;
+        try {
+          const guestData = await runWithRateLimit(resolveFromPublic);
+          const guestAddress =
+            guestData?.shortAddress ||
+            guestData?.formattedAddress ||
+            guestData?.address ||
+            guestData?.display_name ||
+            (guestData?.address
+              ? [
+                  guestData.address.road,
+                  guestData.address.city || guestData.address.town || guestData.address.village,
+                  guestData.address.state,
+                ]
+                  .filter(Boolean)
+                  .join(", ")
+              : null);
+          const resolvedGuest = guestAddress || FALLBACK_ADDRESS;
+          setCachedReverse(key, resolvedGuest);
+          return resolvedGuest;
+        } catch (_guestError) {
+          // fall through to fallback
+        }
+      }
+
+      if (!loggedFallbackOnce) {
+        loggedFallbackOnce = true;
+        console.info("Geocode reverso falhou. Usando fallback.");
+      }
+      setCachedReverse(key, FALLBACK_ADDRESS);
+      return FALLBACK_ADDRESS;
+    } finally {
+      inFlight.delete(key);
     }
-    setCachedReverse(key, FALLBACK_ADDRESS);
-    return FALLBACK_ADDRESS;
-  }
+  })();
+
+  inFlight.set(key, promise);
+  return promise;
 }
