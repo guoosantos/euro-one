@@ -66,20 +66,28 @@ export default function useAddressLookup(
     inFlightRef.current = new Set();
   }, []);
 
-  const scheduleLoadingKeys = useCallback((keys) => {
+  const updateLoadingKeys = useCallback((updater) => {
     setLoadingKeys((prev) => {
-      const next = Array.from(new Set([...prev, ...keys]));
+      const next = updater(prev);
       return shallowArrayEqual(prev, next) ? prev : next;
     });
   }, []);
 
+  const scheduleLoadingKeys = useCallback(
+    (keys) => {
+      if (!keys || !keys.length) return;
+      updateLoadingKeys((prev) => Array.from(new Set([...prev, ...keys])));
+    },
+    [updateLoadingKeys],
+  );
+
   const removeLoadingKey = useCallback((key) => {
-    setLoadingKeys((prev) => {
+    if (!key) return;
+    updateLoadingKeys((prev) => {
       if (!prev.includes(key)) return prev;
-      const next = prev.filter((item) => item !== key);
-      return shallowArrayEqual(prev, next) ? prev : next;
+      return prev.filter((item) => item !== key);
     });
-  }, []);
+  }, [updateLoadingKeys]);
 
   const launchWorker = useCallback(
     (runId) => {
@@ -146,7 +154,7 @@ export default function useAddressLookup(
   useEffect(() => {
     if (!enabled) {
       clearControllers();
-      setLoadingKeys((prev) => (shallowArrayEqual(prev, []) ? prev : []));
+      updateLoadingKeys(() => []);
       return undefined;
     }
 
@@ -213,9 +221,9 @@ export default function useAddressLookup(
     return () => {
       clearControllers();
       queueRef.current = [];
-      setLoadingKeys((prev) => (shallowArrayEqual(prev, []) ? prev : []));
+      updateLoadingKeys(() => []);
     };
-  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys]);
+  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys, updateLoadingKeys]);
 
   return { addresses, loadingKeys: loadingKeySet };
 }

@@ -84,6 +84,36 @@ function buildCoordKey(lat, lng, precision = 5) {
   return `${Math.round(normalizedLat * factor) / factor},${Math.round(normalizedLng * factor) / factor}`;
 }
 
+function findIndexForTime(targetTime, times, hintIndex = 0) {
+  if (!Array.isArray(times) || !times.length) return 0;
+  const clampedHint = Math.min(Math.max(hintIndex, 0), times.length - 1);
+  if (targetTime <= times[clampedHint]) {
+    let low = 0;
+    let high = clampedHint;
+    while (low < high) {
+      const mid = Math.floor((low + high) / 2);
+      if (times[mid] <= targetTime) {
+        low = mid + 1;
+      } else {
+        high = mid;
+      }
+    }
+    return Math.max(0, low - 1);
+  }
+
+  let low = clampedHint;
+  let high = times.length - 1;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (times[mid] <= targetTime) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return low;
+}
+
 function normalizeLatLng(point) {
   if (!point) return null;
   const rawLat = point.lat ?? point.latitude;
@@ -813,6 +843,10 @@ export default function Trips() {
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
   const playbackTimeRef = useRef(0);
   const activeIndexRef = useRef(0);
+  const playbackBoundsRef = useRef({ start: 0, end: 0 });
+  const routePointsRef = useRef([]);
+  const routeTimesRef = useRef([]);
+  const speedRef = useRef(1);
   const rafRef = useRef(null);
   const lastFrameRef = useRef(null);
   const debugLogRef = useRef(0);
@@ -885,7 +919,7 @@ export default function Trips() {
               ? point.motion
               : null;
         const backendAddress = formatPointAddress(point);
-        const addressKey = buildCoordKey(coords.lat, coords.lng);
+        const addressKey = point.addressKey || buildCoordKey(coords.lat, coords.lng);
 
         return {
           ...point,
@@ -944,6 +978,19 @@ export default function Trips() {
     if (!routePoints.length) return { start: 0, end: 0 };
     return { start: routePoints[0].t || 0, end: routePoints[routePoints.length - 1].t || 0 };
   }, [routePoints]);
+
+  useEffect(() => {
+    routePointsRef.current = routePoints;
+    routeTimesRef.current = routePoints.map((point) => point.t || 0);
+  }, [routePoints]);
+
+  useEffect(() => {
+    playbackBoundsRef.current = playbackBounds;
+  }, [playbackBounds]);
+
+  useEffect(() => {
+    speedRef.current = Number.isFinite(speed) && speed > 0 ? speed : 1;
+  }, [speed]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
@@ -1017,25 +1064,38 @@ export default function Trips() {
     return FALLBACK_ADDRESS;
   }, []);
 
-  const addressWindowSize = 200;
+  const addressWindowSize = 80;
+  const filteredTimelineEntries = useMemo(
+    () =>
+      timelineFilter === "all"
+        ? timelineEntries
+        : timelineEntries.filter((entry) => entry.eventType === timelineFilter),
+    [timelineEntries, timelineFilter],
+  );
   const replayAddressItems = useMemo(() => {
     if (!shouldLookupAddresses || !timelineEntries.length) return [];
     const sourceEntries = filteredTimelineEntries.length ? filteredTimelineEntries : timelineEntries;
     const focusIndex = sourceEntries.findIndex((entry) => entry.index === activeIndex);
-    const startIndex = clamp(
-      focusIndex === -1 ? 0 : focusIndex - Math.floor(addressWindowSize / 2),
-      0,
-      Math.max(sourceEntries.length - addressWindowSize, 0),
-    );
-    const windowSlice = sourceEntries.slice(startIndex, startIndex + addressWindowSize);
-    const fallbackEntry =
-      focusIndex === -1 ? timelineEntries.find((entry) => entry.index === activeIndex) : null;
+    const windowRadius = Math.max(Math.floor(addressWindowSize / 2), 1);
+    const startIndex = focusIndex === -1 ? 0 : Math.max(0, focusIndex - windowRadius);
+    const endIndex =
+      focusIndex === -1
+        ? Math.min(sourceEntries.length, addressWindowSize)
+        : Math.min(sourceEntries.length, focusIndex + windowRadius + 1);
     const deduped = new Map();
-    [...windowSlice, fallbackEntry].filter(Boolean).forEach((entry) => {
+    const pushEntry = (entry) => {
+      if (!entry) return;
       const addressKey = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
       if (!addressKey || deduped.has(addressKey)) return;
       deduped.set(addressKey, { addressKey, lat: entry.lat, lng: entry.lng });
-    });
+    };
+
+    pushEntry(timelineEntries[0]);
+    pushEntry(timelineEntries[timelineEntries.length - 1]);
+    sourceEntries.slice(startIndex, endIndex).forEach(pushEntry);
+    if (focusIndex === -1) {
+      pushEntry(timelineEntries.find((entry) => entry.index === activeIndex));
+    }
     return Array.from(deduped.values());
   }, [activeIndex, addressWindowSize, filteredTimelineEntries, shouldLookupAddresses, timelineEntries]);
 
@@ -1087,14 +1147,6 @@ export default function Trips() {
     batchSize: 4,
     enabled: tripAddressItems.length > 0,
   });
-
-  const filteredTimelineEntries = useMemo(
-    () =>
-      timelineFilter === "all"
-        ? timelineEntries
-        : timelineEntries.filter((entry) => entry.eventType === timelineFilter),
-    [timelineEntries, timelineFilter],
-  );
 
   const tripEvents = useMemo(
     () =>
@@ -1151,7 +1203,7 @@ export default function Trips() {
         if (typeof resolved === "string" && resolved.trim() === key) return FALLBACK_ADDRESS;
         return resolved;
       }
-      if (key && addressLoading.has(key)) return "Carregando…";
+      if (key && addressLoading.has(key)) return "Resolvendo endereço...";
       return formatFallbackAddress(entry?.lat, entry?.lng);
     },
     [addressLoading, formatFallbackAddress, resolvedAddresses],
@@ -1178,7 +1230,7 @@ export default function Trips() {
         }
         return resolved;
       }
-      if (key && tripAddressLoading.has(key)) return "Carregando…";
+      if (key && tripAddressLoading.has(key)) return "Resolvendo endereço...";
       return formatFallbackAddress(lat, lng);
     },
     [formatFallbackAddress, tripAddresses, tripAddressLoading],
@@ -1542,52 +1594,47 @@ export default function Trips() {
     [routePoints],
   );
 
-  const updateAnimatedState = useCallback(
-    (nextTimeMs) => {
-      if (!routePoints.length) return;
-      // Traccar-like: replay baseado em tempo com interpolação suave (requestAnimationFrame)
-      const start = playbackBounds.start;
-      const end = playbackBounds.end || start;
-      const clampedTime = clamp(nextTimeMs, start, end);
-      playbackTimeRef.current = clampedTime;
-      setPlaybackTimeMs(clampedTime);
+  const updateAnimatedState = useCallback((nextTimeMs) => {
+    const points = routePointsRef.current;
+    const times = routeTimesRef.current;
+    if (!points.length) return;
+    const bounds = playbackBoundsRef.current;
+    const start = bounds.start || 0;
+    const end = bounds.end || start;
+    const clampedTime = clamp(nextTimeMs, start, end);
+    playbackTimeRef.current = clampedTime;
+    setPlaybackTimeMs(clampedTime);
 
-      let baseIndex = activeIndexRef.current;
-      if (baseIndex >= routePoints.length - 1) {
-        baseIndex = Math.max(routePoints.length - 2, 0);
+    if (times.length <= 1) {
+      activeIndexRef.current = 0;
+      setActiveIndex(0);
+      const first = points[0];
+      setAnimatedPoint({ lat: first.lat, lng: first.lng, heading: 0, t: clampedTime });
+      return;
+    }
+
+    const baseIndex = findIndexForTime(clampedTime, times, activeIndexRef.current);
+    const pointA = points[baseIndex] || points[0];
+    const pointB = points[Math.min(baseIndex + 1, points.length - 1)] || pointA;
+    const denom = (pointB.t - pointA.t) || 1;
+    const frac = clamp((clampedTime - pointA.t) / denom, 0, 1);
+    const lat = lerp(pointA.lat, pointB.lat, frac);
+    const lng = lerp(pointA.lng, pointB.lng, frac);
+    const previousPoint = points[Math.max(baseIndex - 1, 0)] || pointA;
+    const heading = pointA === pointB ? computeHeading(previousPoint, pointA) : computeHeading(pointA, pointB);
+
+    if (activeIndexRef.current !== baseIndex) {
+      activeIndexRef.current = baseIndex;
+      setActiveIndex(baseIndex);
+    }
+
+    setAnimatedPoint((prev) => {
+      if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading && prev.t === clampedTime) {
+        return prev;
       }
-      if (baseIndex < 0) baseIndex = 0;
-
-      while (baseIndex < routePoints.length - 1 && routePoints[baseIndex + 1].t <= clampedTime) {
-        baseIndex += 1;
-      }
-      while (baseIndex > 0 && routePoints[baseIndex].t > clampedTime) {
-        baseIndex -= 1;
-      }
-
-      const pointA = routePoints[baseIndex];
-      const pointB = routePoints[Math.min(baseIndex + 1, routePoints.length - 1)];
-      const denom = (pointB.t - pointA.t) || 1;
-      const frac = clamp((clampedTime - pointA.t) / denom, 0, 1);
-      const lat = lerp(pointA.lat, pointB.lat, frac);
-      const lng = lerp(pointA.lng, pointB.lng, frac);
-      const previousPoint = routePoints[Math.max(baseIndex - 1, 0)] || pointA;
-      const heading = pointA === pointB ? computeHeading(previousPoint, pointA) : computeHeading(pointA, pointB);
-
-      if (activeIndexRef.current !== baseIndex) {
-        activeIndexRef.current = baseIndex;
-        setActiveIndex(baseIndex);
-      }
-
-      setAnimatedPoint((prev) => {
-        if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading && prev.t === clampedTime) {
-          return prev;
-        }
-        return { lat, lng, heading, t: clampedTime };
-      });
-    },
-    [playbackBounds.end, playbackBounds.start, routePoints],
-  );
+      return { lat, lng, heading, t: clampedTime };
+    });
+  }, []);
 
   useEffect(() => {
     if (!isPlaying || routePoints.length <= 1) {
@@ -1607,12 +1654,13 @@ export default function Trips() {
       }
 
       const delta = timestamp - lastFrameRef.current;
-      const speedMultiplier = Number.isFinite(speed) && speed > 0 ? speed : 1;
-      const nextTime = (playbackTimeRef.current || playbackBounds.start || 0) + delta * speedMultiplier;
+      const speedMultiplier = speedRef.current || 1;
+      const bounds = playbackBoundsRef.current;
+      const nextTime = (playbackTimeRef.current || bounds.start || 0) + delta * speedMultiplier;
       lastFrameRef.current = timestamp;
       updateAnimatedState(nextTime);
 
-      const endTime = playbackBounds.end || playbackBounds.start || 0;
+      const endTime = bounds.end || bounds.start || 0;
       const reachedEnd =
         (Number.isFinite(endTime) && playbackTimeRef.current >= endTime) ||
         activeIndexRef.current >= routePoints.length - 1;
@@ -1643,16 +1691,7 @@ export default function Trips() {
       cancelAnimation();
       lastFrameRef.current = null;
     };
-  }, [
-    cancelAnimation,
-    isPlaying,
-    playbackBounds.end,
-    playbackBounds.start,
-    routePoints.length,
-    selectedTrip?.id,
-    speed,
-    updateAnimatedState,
-  ]);
+  }, [cancelAnimation, isPlaying, routePoints.length, selectedTrip?.id, updateAnimatedState]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {
