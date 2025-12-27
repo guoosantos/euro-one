@@ -799,6 +799,7 @@ export default function Trips() {
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const isPlayingRef = useRef(false);
+  const lastAvailableColumnsRef = useRef("");
   const rafIdRef = useRef(null);
   const lastFrameTimeRef = useRef(null);
   const playbackIndexRef = useRef(0);
@@ -1208,8 +1209,13 @@ export default function Trips() {
     return [...baseColumns, ...dynamicColumns].filter((column) => column.isAvailable !== false);
   }, [dynamicAttributeKeys, locale, timelineEntries]);
 
+  const availableColumnKeys = useMemo(() => availableColumnDefs.map((column) => column.key), [availableColumnDefs]);
+  const availableColumnSignature = useMemo(() => availableColumnKeys.join("|"), [availableColumnKeys]);
+
   useEffect(() => {
-    const availableKeys = availableColumnDefs.map((column) => column.key);
+    if (lastAvailableColumnsRef.current === availableColumnSignature) return;
+    lastAvailableColumnsRef.current = availableColumnSignature;
+    const availableKeys = availableColumnKeys;
     setSelectedColumns((prev) => {
       const filtered = prev.filter((key) => availableKeys.includes(key));
       const next =
@@ -1222,7 +1228,7 @@ export default function Trips() {
       }
       return resolved;
     });
-  }, [availableColumnDefs]);
+  }, [availableColumnKeys, availableColumnSignature]);
 
   useEffect(() => {
     persistColumns(selectedColumns);
