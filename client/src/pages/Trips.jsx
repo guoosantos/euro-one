@@ -37,11 +37,9 @@ const FALLBACK_CENTER = [-15.793889, -47.882778];
 const FALLBACK_ZOOM = 5;
 const REPLAY_SPEEDS = [1, 2, 4, 8];
 const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
-const ANIMATION_BASE_MS = 900;
-const MIN_SEGMENT_MS = 120;
-const MAX_SEGMENT_MS = 4000;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
+const REPLAY_SLIDER_RESOLUTION = 1000;
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição registrada",
@@ -155,6 +153,10 @@ function haversineDistance(a, b) {
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function computeHeading(from, to) {
@@ -794,6 +796,7 @@ export default function Trips() {
   const [selectedTrip, setSelectedTrip] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackTimeMs, setPlaybackTimeMs] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [mapLayerKey, setMapLayerKey] = useState(DEFAULT_MAP_LAYER_KEY);
   const [selectedEventType, setSelectedEventType] = useState(null);
@@ -805,10 +808,13 @@ export default function Trips() {
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const lastAvailableColumnsRef = useRef("");
-  const timerRef = useRef(null);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
+  const rafRef = useRef(null);
+  const lastFrameRef = useRef(null);
+  const playbackTimeRef = useRef(0);
+  const activeIndexRef = useRef(0);
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -843,6 +849,7 @@ export default function Trips() {
         const coords = normalizeLatLng({ lat, lng });
 
         if (!coords) return null;
+        const resolvedTime = time ? time.getTime() : 0;
 
         const mappedEvent = normalizeTripEvent(point, { locale, t });
         const translatedLabel = translateTripEvent(
@@ -898,6 +905,7 @@ export default function Trips() {
           __battery: battery,
           __motion: motion,
           __attributes: point.attributes || {},
+          t: resolvedTime,
         };
       })
       .filter(Boolean);
@@ -930,6 +938,15 @@ export default function Trips() {
       };
     });
   }, [locale, routeData, t]);
+
+  const playbackBounds = useMemo(() => {
+    if (!routePoints.length) return { start: 0, end: 0 };
+    return { start: routePoints[0].t || 0, end: routePoints[routePoints.length - 1].t || 0 };
+  }, [routePoints]);
+
+  useEffect(() => {
+    activeIndexRef.current = activeIndex;
+  }, [activeIndex]);
 
   const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
   const smoothedRoute = useMemo(() => smoothRoute(routePoints), [routePoints]);
@@ -1376,17 +1393,18 @@ export default function Trips() {
   const totalEvents = tripEvents.length;
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
-  const cancelPlaybackTimers = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
+  const cancelAnimation = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
   }, []);
 
   const stopPlayback = useCallback(() => {
     setIsPlaying((prev) => (prev ? false : prev));
-    cancelPlaybackTimers();
-  }, [cancelPlaybackTimers]);
+    cancelAnimation();
+    lastFrameRef.current = null;
+  }, [cancelAnimation]);
 
   useEffect(() => {
     if (initialisedRef.current) return;
@@ -1443,21 +1461,26 @@ export default function Trips() {
   useEffect(() => {
     stopPlayback();
     setActiveIndex((prev) => (prev === 0 ? prev : 0));
+    activeIndexRef.current = 0;
     setSelectedEventType(null);
     setEventCursor(0);
     setTimelineFilter("all");
     const firstPoint = routePoints[0] || null;
     if (!firstPoint) {
       setAnimatedPoint((prev) => (prev ? null : prev));
+      playbackTimeRef.current = 0;
+      setPlaybackTimeMs(0);
       return;
     }
     const secondPoint = routePoints[1] || firstPoint;
     const heading = computeHeading(firstPoint, secondPoint);
+    playbackTimeRef.current = firstPoint.t || 0;
+    setPlaybackTimeMs(firstPoint.t || 0);
     setAnimatedPoint((prev) => {
       if (prev && prev.lat === firstPoint.lat && prev.lng === firstPoint.lng && prev.heading === heading) {
         return prev;
       }
-      return { lat: firstPoint.lat, lng: firstPoint.lng, heading };
+      return { lat: firstPoint.lat, lng: firstPoint.lng, heading, t: firstPoint.t };
     });
   }, [routePoints, stopPlayback]);
 
@@ -1488,62 +1511,95 @@ export default function Trips() {
     }
   }, [mapLayerKey]);
 
-  useEffect(() => {
-    const currentPoint = routePoints[activeIndex] || routePoints[0] || null;
-    if (!currentPoint) {
-      setAnimatedPoint((prev) => (prev ? null : prev));
-      return;
-    }
-    const nextPoint = routePoints[Math.min(activeIndex + 1, routePoints.length - 1)] || currentPoint;
-    const heading = computeHeading(currentPoint, nextPoint);
-    setAnimatedPoint((prev) => {
-      if (prev && prev.lat === currentPoint.lat && prev.lng === currentPoint.lng && prev.heading === heading) {
-        return prev;
+  const updateAnimatedState = useCallback(
+    (nextTimeMs) => {
+      if (!routePoints.length) return;
+      // Traccar-like: replay baseado em tempo com interpolação suave (requestAnimationFrame)
+      const start = playbackBounds.start;
+      const end = playbackBounds.end || start;
+      const clampedTime = clamp(nextTimeMs, start, end);
+      playbackTimeRef.current = clampedTime;
+      setPlaybackTimeMs(clampedTime);
+
+      let baseIndex = activeIndexRef.current;
+      if (baseIndex >= routePoints.length - 1) {
+        baseIndex = Math.max(routePoints.length - 2, 0);
       }
-      return { lat: currentPoint.lat, lng: currentPoint.lng, heading };
-    });
-  }, [activeIndex, routePoints]);
+      if (baseIndex < 0) baseIndex = 0;
+
+      while (baseIndex < routePoints.length - 1 && routePoints[baseIndex + 1].t <= clampedTime) {
+        baseIndex += 1;
+      }
+      while (baseIndex > 0 && routePoints[baseIndex].t > clampedTime) {
+        baseIndex -= 1;
+      }
+
+      const pointA = routePoints[baseIndex];
+      const pointB = routePoints[Math.min(baseIndex + 1, routePoints.length - 1)];
+      const denom = (pointB.t - pointA.t) || 1;
+      const frac = clamp((clampedTime - pointA.t) / denom, 0, 1);
+      const lat = lerp(pointA.lat, pointB.lat, frac);
+      const lng = lerp(pointA.lng, pointB.lng, frac);
+      const previousPoint = routePoints[Math.max(baseIndex - 1, 0)] || pointA;
+      const heading = pointA === pointB ? computeHeading(previousPoint, pointA) : computeHeading(pointA, pointB);
+
+      if (activeIndexRef.current !== baseIndex) {
+        activeIndexRef.current = baseIndex;
+        setActiveIndex(baseIndex);
+      }
+
+      setAnimatedPoint((prev) => {
+        if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading && prev.t === clampedTime) {
+          return prev;
+        }
+        return { lat, lng, heading, t: clampedTime };
+      });
+
+      if (clampedTime >= end) {
+        setIsPlaying(false);
+        cancelAnimation();
+      }
+    },
+    [cancelAnimation, playbackBounds.end, playbackBounds.start, routePoints],
+  );
+
+  const stepPlayback = useCallback(() => {
+    if (!isPlaying || !routePoints.length) return;
+    const now = performance.now();
+    const last = lastFrameRef.current ?? now;
+    const delta = now - last;
+    lastFrameRef.current = now;
+    const multiplier = Number.isFinite(speed) ? speed : 1;
+    const nextTime = playbackTimeRef.current + delta * multiplier;
+    updateAnimatedState(nextTime);
+    if (isPlaying && playbackTimeRef.current < playbackBounds.end) {
+      rafRef.current = requestAnimationFrame(stepPlayback);
+    }
+  }, [isPlaying, playbackBounds.end, routePoints.length, speed, updateAnimatedState]);
 
   useEffect(() => {
     if (!isPlaying) {
-      cancelPlaybackTimers();
+      cancelAnimation();
+      lastFrameRef.current = null;
       return undefined;
     }
-
-    if (totalPoints <= 1) {
+    if (routePoints.length <= 1) {
       setIsPlaying(false);
-      cancelPlaybackTimers();
+      cancelAnimation();
       return undefined;
     }
-
-    cancelPlaybackTimers();
-
-    const intervalMs = Math.min(
-      MAX_SEGMENT_MS,
-      Math.max(MIN_SEGMENT_MS, ANIMATION_BASE_MS / Math.max(speed, 0.1)),
-    );
-
-    timerRef.current = setInterval(() => {
-      setActiveIndex((current) => {
-        const next = current + 1;
-        if (next >= totalPoints) {
-          setIsPlaying(false);
-          return current;
-        }
-        return next;
-      });
-    }, intervalMs);
-
+    lastFrameRef.current = performance.now();
+    rafRef.current = requestAnimationFrame(stepPlayback);
     return () => {
-      cancelPlaybackTimers();
+      cancelAnimation();
     };
-  }, [cancelPlaybackTimers, isPlaying, speed, totalPoints]);
+  }, [cancelAnimation, isPlaying, routePoints.length, stepPlayback]);
 
   useEffect(
     () => () => {
-      cancelPlaybackTimers();
+      cancelAnimation();
     },
-    [cancelPlaybackTimers],
+    [cancelAnimation],
   );
 
   const loadRouteForTrip = useCallback(
@@ -1651,6 +1707,7 @@ export default function Trips() {
     async (trip) => {
       setSelectedTrip(trip);
       setActiveIndex(0);
+      activeIndexRef.current = 0;
       stopPlayback();
       await loadRouteForTrip(trip);
     },
@@ -1661,21 +1718,18 @@ export default function Trips() {
     (nextIndex, options = {}) => {
       stopPlayback();
       const clampedIndex = Math.max(0, Math.min(nextIndex, timelineMax));
-      setActiveIndex(clampedIndex);
       const target = routePoints[clampedIndex];
-      const nextTarget = routePoints[Math.min(clampedIndex + 1, routePoints.length - 1)] || target;
       if (target) {
-        setAnimatedPoint({
-          lat: target.lat,
-          lng: target.lng,
-          heading: computeHeading(target, nextTarget),
-        });
+        activeIndexRef.current = clampedIndex;
+        setActiveIndex(clampedIndex);
+        updateAnimatedState(target.t);
+        lastFrameRef.current = null;
       }
       if (options.centerMap && target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
         setManualCenter({ lat: target.lat, lng: target.lng, ts: Date.now() });
       }
     },
-    [routePoints, stopPlayback, timelineMax],
+    [routePoints, stopPlayback, timelineMax, updateAnimatedState],
   );
 
   const handlePlayToggle = useCallback(() => {
@@ -1685,23 +1739,44 @@ export default function Trips() {
       return;
     }
 
-    if (activeIndex >= totalPoints - 1) {
-      setActiveIndex(0);
+    const atEnd = playbackTimeRef.current >= playbackBounds.end || activeIndex >= totalPoints - 1;
+    if (atEnd) {
       const firstPoint = routePoints[0] || null;
       const secondPoint = routePoints[1] || firstPoint;
+      activeIndexRef.current = 0;
+      setActiveIndex(0);
       if (firstPoint) {
+        const heading = secondPoint ? computeHeading(firstPoint, secondPoint) : 0;
+        playbackTimeRef.current = firstPoint.t || 0;
+        setPlaybackTimeMs(firstPoint.t || 0);
         setAnimatedPoint({
           lat: firstPoint.lat,
           lng: firstPoint.lng,
-          heading: secondPoint ? computeHeading(firstPoint, secondPoint) : 0,
+          heading,
+          t: firstPoint.t,
         });
       } else {
+        playbackTimeRef.current = 0;
+        setPlaybackTimeMs(0);
         setAnimatedPoint(null);
       }
     }
 
+    lastFrameRef.current = null;
     setIsPlaying(true);
-  }, [activeIndex, isPlaying, routePoints, stopPlayback, totalPoints]);
+  }, [activeIndex, isPlaying, playbackBounds.end, routePoints, stopPlayback, totalPoints]);
+
+  const handleSliderChange = useCallback(
+    (value) => {
+      if (!routePoints.length) return;
+      stopPlayback();
+      const ratio = clamp(Number(value) / REPLAY_SLIDER_RESOLUTION, 0, 1);
+      const nextTime = lerp(playbackBounds.start, playbackBounds.end || playbackBounds.start, ratio);
+      lastFrameRef.current = null;
+      updateAnimatedState(nextTime);
+    },
+    [playbackBounds.end, playbackBounds.start, routePoints.length, stopPlayback, updateAnimatedState],
+  );
 
   const handleMapLayerChange = useCallback((nextKey) => {
     setMapLayerKey(getValidMapLayer(nextKey));
@@ -1746,6 +1821,22 @@ export default function Trips() {
     },
     [activeIndex, focusMode, handleSelectPoint, selectedEventType, tripEvents],
   );
+
+  const sliderValue = useMemo(() => {
+    if (!routePoints.length) return 0;
+    const duration = playbackBounds.end - playbackBounds.start || 1;
+    const ratio = clamp((playbackTimeMs - playbackBounds.start) / duration, 0, 1);
+    return Math.round(ratio * REPLAY_SLIDER_RESOLUTION);
+  }, [playbackBounds.end, playbackBounds.start, playbackTimeMs, routePoints.length]);
+
+  const playbackDate = useMemo(() => {
+    if (!routePoints.length) return null;
+    const candidate = Number.isFinite(playbackTimeMs) && playbackTimeMs ? playbackTimeMs : playbackBounds.start;
+    const resolved = Number.isFinite(candidate) ? candidate : null;
+    if (resolved === null) return null;
+    const asDate = new Date(resolved);
+    return Number.isFinite(asDate.getTime()) ? asDate : null;
+  }, [playbackBounds.start, playbackTimeMs, routePoints.length]);
 
   const visibleCount = filteredTimelineEntries.length;
   const hasActiveFilter = timelineFilter !== "all";
@@ -2031,10 +2122,10 @@ export default function Trips() {
                       <span className="ml-1 text-white">{Math.round(activePoint.__speed)} km/h</span>
                     </div>
                   ) : null}
-                  {activePoint?.__time ? (
+                  {playbackDate ? (
                     <div>
                       <span className="text-white/50">Horário:</span>
-                      <span className="ml-1 text-white">{formatDateTime(activePoint.__time, locale)}</span>
+                      <span className="ml-1 text-white">{formatDateTime(playbackDate, locale)}</span>
                     </div>
                   ) : null}
                 </div>
@@ -2057,13 +2148,14 @@ export default function Trips() {
                   </button>
                 </div>
               </div>
-
+             
               <input
                 type="range"
                 min={0}
-                max={timelineMax}
-                value={Math.min(activeIndex, timelineMax)}
-                onChange={(event) => handleSelectPoint(Number(event.target.value))}
+                max={REPLAY_SLIDER_RESOLUTION}
+                value={sliderValue}
+                onChange={(event) => handleSliderChange(Number(event.target.value))}
+                disabled={!routePoints.length}
                 className="w-full accent-primary"
               />
             </div>
