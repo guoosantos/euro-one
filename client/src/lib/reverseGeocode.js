@@ -81,33 +81,55 @@ function setCachedFailure(key, value) {
   failureCache.set(key, { value, timestamp: Date.now() });
 }
 
-function wait(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+function wait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => resolve(), ms);
+    if (signal) {
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timeoutId);
+          reject(new DOMException("Aborted", "AbortError"));
+        },
+        { once: true },
+      );
+    }
+  });
 }
 
 function isRetryableStatus(status) {
   return status === 429 || status === 503 || status === 504;
 }
 
-async function fetchWithRetry(fetcher, maxRetries = RETRY_DELAYS.length) {
-  let attempt = 0;
-  while (true) {
+function isTransientNetworkError(error) {
+  const message = error?.message || "";
+  return message.includes("ERR_NETWORK_CHANGED") || message.includes("NetworkChanged");
+}
+
+async function fetchWithRetry(fetcher, maxRetries = RETRY_DELAYS.length, signal) {
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
     try {
       const response = await fetcher();
       if (!response.ok && isRetryableStatus(response.status) && attempt < maxRetries) {
-        await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)]);
-        attempt += 1;
+        await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)], signal);
         continue;
       }
       return response;
     } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") {
+        throw error;
+      }
+      if (!isTransientNetworkError(error) && attempt >= maxRetries) {
+        throw error;
+      }
       if (attempt >= maxRetries) {
         throw error;
       }
-      await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)]);
-      attempt += 1;
+      await wait(RETRY_DELAYS[Math.min(attempt, RETRY_DELAYS.length - 1)], signal);
     }
   }
+
+  throw new Error("Excedeu número máximo de tentativas de geocodificação reversa.");
 }
 
 export function getCachedReverse(lat, lng) {
@@ -123,7 +145,7 @@ export function getCachedReverse(lat, lng) {
   return cached.value;
 }
 
-export async function reverseGeocode(lat, lng) {
+export async function reverseGeocode(lat, lng, { signal } = {}) {
   const key = buildKey(lat, lng);
   const cachedFailure = getCachedFailure(key);
   if (cachedFailure) return cachedFailure;
@@ -153,7 +175,11 @@ export async function reverseGeocode(lat, lng) {
       const authorization = resolveAuthorizationHeader();
       if (authorization) headers.set("Authorization", authorization);
 
-      const response = await fetchWithRetry(() => fetch(url, { credentials: "include", headers }));
+      const response = await fetchWithRetry(
+        () => fetch(url, { credentials: "include", headers, signal }),
+        RETRY_DELAYS.length,
+        signal,
+      );
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
@@ -172,8 +198,10 @@ export async function reverseGeocode(lat, lng) {
       url.searchParams.set("accept-language", ACCEPT_LANGUAGE);
       url.searchParams.set("countrycodes", COUNTRY_BIAS);
 
-      const response = await fetchWithRetry(() =>
-        fetch(url.toString(), { headers: { Accept: "application/json" } }),
+      const response = await fetchWithRetry(
+        () => fetch(url.toString(), { headers: { Accept: "application/json" }, signal }),
+        RETRY_DELAYS.length,
+        signal,
       );
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
@@ -188,7 +216,7 @@ export async function reverseGeocode(lat, lng) {
         const now = Date.now();
         const waitMs = Math.max(0, RATE_LIMIT_MS - (now - lastRequestAt));
         if (waitMs) {
-          await wait(waitMs);
+          await wait(waitMs, signal);
         }
         lastRequestAt = Date.now();
         return fn();
@@ -209,6 +237,10 @@ export async function reverseGeocode(lat, lng) {
     try {
       const preferPublic = useGuestReverse;
       const resolver = preferPublic ? resolveFromPublic : resolveFromApi;
+      if (signal?.aborted) {
+        throw new DOMException("Aborted", "AbortError");
+      }
+
       const data = await runWithRateLimit(resolver);
       const address = extractAddress(data);
       const resolved = address || FALLBACK_ADDRESS;
@@ -221,6 +253,10 @@ export async function reverseGeocode(lat, lng) {
       setCachedReverse(key, resolved);
       return resolved;
     } catch (error) {
+      if (signal?.aborted || error?.name === "AbortError") {
+        throw error;
+      }
+
       const isUnauthorized = error?.status === 401 || error?.status === 403;
       const tryPublic = shouldRetryWithPublic(error);
 

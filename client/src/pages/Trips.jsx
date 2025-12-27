@@ -40,9 +40,6 @@ const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
 const REPLAY_SLIDER_RESOLUTION = 1000;
-const MIN_SEGMENT_DELAY_MS = 220;
-const MAX_SEGMENT_DELAY_MS = 3500;
-const DEFAULT_SEGMENT_DELAY_MS = 900;
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição registrada",
@@ -814,9 +811,11 @@ export default function Trips() {
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
-  const timerRef = useRef(null);
   const playbackTimeRef = useRef(0);
   const activeIndexRef = useRef(0);
+  const rafRef = useRef(null);
+  const lastFrameRef = useRef(null);
+  const debugLogRef = useRef(0);
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -1008,8 +1007,8 @@ export default function Trips() {
   );
 
   const shouldLookupAddresses = useMemo(
-    () => selectedColumns.includes("address") || routePoints.length > 0,
-    [routePoints.length, selectedColumns],
+    () => selectedColumns.includes("address") && timelineEntries.length > 0,
+    [selectedColumns, timelineEntries.length],
   );
   const formatFallbackAddress = useCallback((lat, lng) => {
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
@@ -1018,18 +1017,27 @@ export default function Trips() {
     return FALLBACK_ADDRESS;
   }, []);
 
+  const addressWindowSize = 200;
   const replayAddressItems = useMemo(() => {
     if (!shouldLookupAddresses || !timelineEntries.length) return [];
-    const seen = new Set();
-    return timelineEntries
-      .map((entry) => {
-        const addressKey = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
-        if (!addressKey || seen.has(addressKey)) return null;
-        seen.add(addressKey);
-        return { addressKey, lat: entry.lat, lng: entry.lng };
-      })
-      .filter(Boolean);
-  }, [shouldLookupAddresses, timelineEntries]);
+    const sourceEntries = filteredTimelineEntries.length ? filteredTimelineEntries : timelineEntries;
+    const focusIndex = sourceEntries.findIndex((entry) => entry.index === activeIndex);
+    const startIndex = clamp(
+      focusIndex === -1 ? 0 : focusIndex - Math.floor(addressWindowSize / 2),
+      0,
+      Math.max(sourceEntries.length - addressWindowSize, 0),
+    );
+    const windowSlice = sourceEntries.slice(startIndex, startIndex + addressWindowSize);
+    const fallbackEntry =
+      focusIndex === -1 ? timelineEntries.find((entry) => entry.index === activeIndex) : null;
+    const deduped = new Map();
+    [...windowSlice, fallbackEntry].filter(Boolean).forEach((entry) => {
+      const addressKey = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
+      if (!addressKey || deduped.has(addressKey)) return;
+      deduped.set(addressKey, { addressKey, lat: entry.lat, lng: entry.lng });
+    });
+    return Array.from(deduped.values());
+  }, [activeIndex, addressWindowSize, filteredTimelineEntries, shouldLookupAddresses, timelineEntries]);
 
   const resolveTimelineAddressKey = useCallback((entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng), []);
   const resolveTimelineAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
@@ -1037,7 +1045,6 @@ export default function Trips() {
   const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(replayAddressItems, {
     getKey: resolveTimelineAddressKey,
     getCoords: resolveTimelineAddressCoords,
-    batchSize: 8,
     enabled: shouldLookupAddresses && replayAddressItems.length > 0,
   });
   const tripAddressItems = useMemo(() => {
@@ -1395,17 +1402,18 @@ export default function Trips() {
   const totalEvents = tripEvents.length;
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
-  const clearPlaybackTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
+  const cancelAnimation = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
     }
   }, []);
 
   const stopPlayback = useCallback(() => {
     setIsPlaying((prev) => (prev ? false : prev));
-    clearPlaybackTimer();
-  }, [clearPlaybackTimer]);
+    cancelAnimation();
+    lastFrameRef.current = null;
+  }, [cancelAnimation]);
 
   useEffect(() => {
     if (initialisedRef.current) return;
@@ -1534,58 +1542,6 @@ export default function Trips() {
     [routePoints],
   );
 
-  const computeSegmentDelayMs = useCallback(
-    (fromIndex) => {
-      const current = routePoints[fromIndex];
-      const next = routePoints[fromIndex + 1];
-      if (!current || !next) return null;
-      const delta = Number.isFinite(current.t) && Number.isFinite(next.t) ? Math.abs(next.t - current.t) : DEFAULT_SEGMENT_DELAY_MS;
-      const baseDelay = clamp(delta || DEFAULT_SEGMENT_DELAY_MS, MIN_SEGMENT_DELAY_MS, MAX_SEGMENT_DELAY_MS);
-      const multiplier = Number.isFinite(speed) && speed > 0 ? speed : 1;
-      return Math.max(MIN_SEGMENT_DELAY_MS, Math.round(baseDelay / multiplier));
-    },
-    [routePoints, speed],
-  );
-
-  const scheduleNextSegment = useCallback(
-    (startIndex) => {
-      clearPlaybackTimer();
-      if (!isPlaying) return;
-      const currentIndex = Number.isFinite(startIndex) ? startIndex : activeIndexRef.current;
-      if (currentIndex >= routePoints.length - 1) {
-        stopPlayback();
-        return;
-      }
-
-      const delay = computeSegmentDelayMs(currentIndex) ?? MIN_SEGMENT_DELAY_MS;
-      const nextIndex = Math.min(currentIndex + 1, routePoints.length - 1);
-      const currentPoint = routePoints[currentIndex];
-      const nextPoint = routePoints[nextIndex];
-      if (!currentPoint || !nextPoint) {
-        stopPlayback();
-        return;
-      }
-      const previousPoint = routePoints[Math.max(nextIndex - 1, 0)] || nextPoint;
-      const nextHeading = computeHeading(currentPoint, nextPoint !== currentPoint ? nextPoint : previousPoint);
-
-      timerRef.current = setTimeout(() => {
-        activeIndexRef.current = nextIndex;
-        setActiveIndex(nextIndex);
-        const resolvedTime = nextPoint.t || playbackTimeRef.current || 0;
-        playbackTimeRef.current = resolvedTime;
-        setPlaybackTimeMs(resolvedTime);
-        setAnimatedPoint({ lat: nextPoint.lat, lng: nextPoint.lng, heading: nextHeading, t: resolvedTime });
-
-        if (nextIndex >= routePoints.length - 1) {
-          stopPlayback();
-        } else {
-          scheduleNextSegment(nextIndex);
-        }
-      }, delay);
-    },
-    [clearPlaybackTimer, computeSegmentDelayMs, isPlaying, routePoints, stopPlayback],
-  );
-
   const updateAnimatedState = useCallback(
     (nextTimeMs) => {
       if (!routePoints.length) return;
@@ -1634,20 +1590,69 @@ export default function Trips() {
   );
 
   useEffect(() => {
-    if (!isPlaying) {
-      clearPlaybackTimer();
-      return undefined;
-    }
-    if (routePoints.length <= 1) {
-      stopPlayback();
+    if (!isPlaying || routePoints.length <= 1) {
+      cancelAnimation();
+      lastFrameRef.current = null;
       return undefined;
     }
 
-    scheduleNextSegment(activeIndexRef.current);
-    return () => {
-      clearPlaybackTimer();
+    let mounted = true;
+
+    const tick = (timestamp) => {
+      if (!mounted) return;
+      if (lastFrameRef.current === null) {
+        lastFrameRef.current = timestamp;
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+
+      const delta = timestamp - lastFrameRef.current;
+      const speedMultiplier = Number.isFinite(speed) && speed > 0 ? speed : 1;
+      const nextTime = (playbackTimeRef.current || playbackBounds.start || 0) + delta * speedMultiplier;
+      lastFrameRef.current = timestamp;
+      updateAnimatedState(nextTime);
+
+      const endTime = playbackBounds.end || playbackBounds.start || 0;
+      const reachedEnd =
+        (Number.isFinite(endTime) && playbackTimeRef.current >= endTime) ||
+        activeIndexRef.current >= routePoints.length - 1;
+      if (reachedEnd) {
+        updateAnimatedState(endTime);
+        setIsPlaying(false);
+        cancelAnimation();
+        lastFrameRef.current = null;
+        return;
+      }
+
+      if (process.env.NODE_ENV !== "production") {
+        const lastLog = debugLogRef.current || 0;
+        if (!lastLog || timestamp - lastLog >= 1000) {
+          debugLogRef.current = timestamp;
+          // eslint-disable-next-line no-console
+          console.debug("tick: playbackTimeMs=", playbackTimeRef.current, "activeIndex=", activeIndexRef.current, "routePointsLen=", routePoints.length);
+        }
+      }
+
+      rafRef.current = requestAnimationFrame(tick);
     };
-  }, [clearPlaybackTimer, isPlaying, routePoints.length, scheduleNextSegment, stopPlayback]);
+
+    rafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      mounted = false;
+      cancelAnimation();
+      lastFrameRef.current = null;
+    };
+  }, [
+    cancelAnimation,
+    isPlaying,
+    playbackBounds.end,
+    playbackBounds.start,
+    routePoints.length,
+    selectedTrip?.id,
+    speed,
+    updateAnimatedState,
+  ]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {
@@ -1772,12 +1777,10 @@ export default function Trips() {
         setManualCenter({ lat: target.lat, lng: target.lng, ts: Date.now() });
       }
       if (isPlaying) {
-        scheduleNextSegment(clampedIndex);
-      } else {
-        clearPlaybackTimer();
+        lastFrameRef.current = null;
       }
     },
-    [clearPlaybackTimer, isPlaying, routePoints, scheduleNextSegment, syncAnimatedPoint, timelineMax],
+    [isPlaying, routePoints, syncAnimatedPoint, timelineMax],
   );
 
   const handlePlayToggle = useCallback(() => {
@@ -1810,6 +1813,11 @@ export default function Trips() {
       }
     }
 
+    if (process.env.NODE_ENV !== "production") {
+      // eslint-disable-next-line no-console
+      console.debug("play clicked, isPlaying -> true");
+    }
+    lastFrameRef.current = null;
     setIsPlaying(true);
   }, [activeIndex, isPlaying, playbackBounds.end, routePoints, stopPlayback, totalPoints]);
 
@@ -1820,12 +1828,10 @@ export default function Trips() {
       const nextTime = lerp(playbackBounds.start, playbackBounds.end || playbackBounds.start, ratio);
       updateAnimatedState(nextTime);
       if (isPlaying) {
-        scheduleNextSegment(activeIndexRef.current);
-      } else {
-        clearPlaybackTimer();
+        lastFrameRef.current = null;
       }
     },
-    [clearPlaybackTimer, isPlaying, playbackBounds.end, playbackBounds.start, routePoints.length, scheduleNextSegment, updateAnimatedState],
+    [isPlaying, playbackBounds.end, playbackBounds.start, routePoints.length, updateAnimatedState],
   );
 
   const handleMapLayerChange = useCallback((nextKey) => {
