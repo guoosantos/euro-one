@@ -792,6 +792,11 @@ export default function Trips() {
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const animationRef = useRef(null);
+  const isPlayingRef = useRef(false);
+  const rafIdRef = useRef(null);
+  const lastFrameTimeRef = useRef(null);
+  const playbackIndexRef = useRef(0);
+  const playbackTimeRef = useRef(0);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
@@ -1326,6 +1331,13 @@ export default function Trips() {
     setSelectedEventType(null);
     setEventCursor(0);
     setTimelineFilter("all");
+    playbackIndexRef.current = 0;
+    playbackTimeRef.current = 0;
+    lastFrameTimeRef.current = null;
+    if (rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
   }, [routePoints]);
 
   useEffect(() => {
@@ -1358,6 +1370,20 @@ export default function Trips() {
   useEffect(() => {
     setAnimatedPoint(smoothedRoute[0] || null);
   }, [smoothedRoute]);
+
+  useEffect(() => {
+    playbackIndexRef.current = activeIndex;
+  }, [activeIndex]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+    if (!isPlaying && rafIdRef.current) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+      lastFrameTimeRef.current = null;
+      playbackTimeRef.current = 0;
+    }
+  }, [isPlaying]);
 
   useEffect(() => {
     const target = smoothedRoute[activeIndex] || smoothedRoute[0];
@@ -1399,16 +1425,44 @@ export default function Trips() {
 
   useEffect(() => {
     if (!isPlaying || totalPoints <= 1) return undefined;
-    const interval = setInterval(() => {
-      setActiveIndex((current) => {
-        const next = Math.min(current + 1, totalPoints - 1);
-        if (next === totalPoints - 1) {
-          setIsPlaying(false);
-        }
-        return next;
-      });
-    }, 800 / speed);
-    return () => clearInterval(interval);
+    const stepMs = 800 / Math.max(speed, 0.1);
+
+    const tick = (now) => {
+      if (!isPlayingRef.current) return;
+      if (lastFrameTimeRef.current === null) {
+        lastFrameTimeRef.current = now;
+      }
+      const delta = now - lastFrameTimeRef.current;
+      lastFrameTimeRef.current = now;
+      playbackTimeRef.current += delta;
+
+      let nextIndex = playbackIndexRef.current;
+      while (playbackTimeRef.current >= stepMs && nextIndex < totalPoints - 1) {
+        playbackTimeRef.current -= stepMs;
+        nextIndex += 1;
+      }
+
+      if (nextIndex !== playbackIndexRef.current) {
+        playbackIndexRef.current = nextIndex;
+        setActiveIndex((current) => (current === nextIndex ? current : nextIndex));
+      }
+
+      if (nextIndex >= totalPoints - 1) {
+        isPlayingRef.current = false;
+        setIsPlaying(false);
+        return;
+      }
+
+      rafIdRef.current = requestAnimationFrame(tick);
+    };
+
+    rafIdRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafIdRef.current) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+    };
   }, [isPlaying, totalPoints, speed]);
 
   const loadRouteForTrip = useCallback(

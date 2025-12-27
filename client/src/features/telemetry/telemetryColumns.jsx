@@ -261,10 +261,36 @@ export const TELEMETRY_COLUMNS = [
     getValue: (row, helpers = {}) => {
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
-      const ignition = getIgnition(row.position, row.device);
+      const ignition = typeof row.ignition === "boolean" ? row.ignition : getIgnition(row.position, row.device);
       if (ignition === true) return helpers.t ? helpers.t("monitoring.ignitionOn") : yes;
       if (ignition === false) return helpers.t ? helpers.t("monitoring.ignitionOff") : no;
       return FALLBACK;
+    },
+  },
+  {
+    key: "voltage",
+    labelKey: "monitoring.columns.voltage",
+    defaultVisible: true,
+    getValue: (row) => {
+      const attributes = getAttributes(row);
+      const value =
+        row.position?.voltage ??
+        row.position?.attributes?.voltage ??
+        row.position?.attributes?.externalVoltage ??
+        row.position?.attributes?.vbat ??
+        row.position?.attributes?.batteryVoltage ??
+        row.position?.attributes?.power ??
+        row.position?.attributes?.adc ??
+        attributes.voltage ??
+        attributes.externalVoltage ??
+        attributes.vbat ??
+        attributes.batteryVoltage ??
+        attributes.power ??
+        attributes.adc ??
+        null;
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return FALLBACK;
+      return `${numeric.toFixed(1)} V`;
     },
   },
   {

@@ -105,6 +105,26 @@ export default function Home() {
     [vehicleTelemetry],
   );
 
+  const deviceTenantMap = useMemo(() => {
+    const map = new Map();
+    linkedVehicles.forEach((entry) => {
+      const tenant =
+        entry.vehicle?.clientId ??
+        entry.vehicle?.client?.id ??
+        entry.vehicle?.tenantId ??
+        entry.vehicle?.tenant?.id ??
+        entry.device?.clientId ??
+        entry.device?.tenantId ??
+        null;
+      if (tenant && entry.deviceKey) {
+        map.set(String(entry.deviceKey), tenant);
+      }
+    });
+    return map;
+  }, [linkedVehicles]);
+
+  const tenantFallbackId = tenantId ?? null;
+
   const fleetDevices = useMemo(
     () =>
       linkedVehicles.map((entry) => ({
@@ -115,23 +135,40 @@ export default function Home() {
         name: entry.vehicle?.name ?? entry.device?.name,
         plate: entry.vehicle?.plate ?? entry.device?.plate,
         vehicleId: entry.vehicle?.id ?? entry.device?.vehicleId,
+        clientId:
+          entry.vehicle?.clientId ??
+          entry.vehicle?.client?.id ??
+          entry.vehicle?.tenantId ??
+          entry.device?.clientId ??
+          entry.device?.tenantId ??
+          tenantFallbackId,
       })),
-    [linkedVehicles],
+    [linkedVehicles, tenantFallbackId],
   );
 
   const fleetPositions = useMemo(() => {
     const keys = new Set(linkedVehicles.map((entry) => String(entry.deviceKey)));
-    return positions.filter((position) => {
-      const key = toDeviceKey(
-        position?.deviceId ??
-          position?.device?.id ??
-          position?.uniqueId ??
-          position?.id ??
-          position?.device?.deviceId,
-      );
-      return key && keys.has(String(key));
-    });
-  }, [linkedVehicles, positions]);
+    return positions
+      .map((position) => {
+        const key = toDeviceKey(
+          position?.deviceId ??
+            position?.device?.id ??
+            position?.uniqueId ??
+            position?.id ??
+            position?.device?.deviceId,
+        );
+        if (!key || !keys.has(String(key))) return null;
+        const tenant = deviceTenantMap.get(String(key)) ?? position?.clientId ?? position?.tenantId ?? null;
+        if (!tenant && !tenantFallbackId) return position;
+        const resolvedTenant = tenant ?? tenantFallbackId;
+        return {
+          ...position,
+          clientId: position?.clientId ?? resolvedTenant,
+          tenantId: position?.tenantId ?? resolvedTenant,
+        };
+      })
+      .filter(Boolean);
+  }, [deviceTenantMap, linkedVehicles, positions, tenantFallbackId]);
 
   const { summary, table } = useMemo(() => {
     const { rows, stats } = buildFleetState(fleetDevices, fleetPositions, { tenantId });

@@ -547,7 +547,7 @@ export default function Vehicles() {
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
                 <th className="px-4 py-3 text-left">Associação</th>
-                <th className="px-4 py-3 text-left">Nº Cobli/ID</th>
+                <th className="px-4 py-3 text-left">N° EURO ONE / ID</th>
                 <th className="px-4 py-3 text-left">Placa</th>
                 <th className="px-4 py-3 text-left">Tipo</th>
                 {visibleColumns.driver && <th className="px-4 py-3 text-left">Motorista</th>}
