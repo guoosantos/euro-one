@@ -989,16 +989,28 @@ export default function Trips() {
     [routePoints],
   );
 
+  // Memoize items passed to useAddressLookup to avoid render loops (maximum update depth exceeded).
+  const addressItems = useMemo(
+    () =>
+      timelineEntries.map((entry) => ({
+        addressKey: entry.addressKey,
+        lat: entry.lat,
+        lng: entry.lng,
+      })),
+    [timelineEntries],
+  );
+
   const resolveTimelineAddressKey = useCallback(
     (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
     [],
   );
   const resolveTimelineAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
 
-  const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(timelineEntries, {
+  const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(addressItems, {
     getKey: resolveTimelineAddressKey,
     getCoords: resolveTimelineAddressCoords,
     batchSize: 6,
+    enabled: addressItems.length > 0,
   });
 
   const filteredTimelineEntries = useMemo(
