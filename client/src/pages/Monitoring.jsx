@@ -807,11 +807,25 @@ export default function Monitoring() {
     (row) => row.addressKey || buildCoordKey(row.lat, row.lng),
     [buildCoordKey],
   );
-  const resolveAddressCoords = useCallback((row) => ({ lat: row.lat, lng: row.lng }), []);
 
-  const { addresses: reverseAddresses, loadingKeys: addressLoading } = useAddressLookup(rows, {
-    getKey: resolveAddressKey,
-    getCoords: resolveAddressCoords,
+  const addressItems = useMemo(() => {
+    const seen = new Set();
+    return rows.reduce((acc, row) => {
+      const key = resolveAddressKey(row);
+      if (!key || seen.has(key)) return acc;
+      seen.add(key);
+      acc.push({ key, lat: row.lat, lng: row.lng });
+      return acc;
+    }, []);
+  }, [resolveAddressKey, rows]);
+
+  const getAddressKey = useCallback((item) => item.key, []);
+  const getAddressCoords = useCallback((item) => ({ lat: item.lat, lng: item.lng }), []);
+
+  const { addresses: reverseAddresses, loadingKeys: addressLoading } = useAddressLookup(addressItems, {
+    enabled: addressItems.length > 0,
+    getKey: getAddressKey,
+    getCoords: getAddressCoords,
   });
 
   const decoratedRows = useMemo(() => {
