@@ -4,6 +4,16 @@ import { FALLBACK_ADDRESS } from "../utils/geocode.js";
 
 const DEFAULT_BATCH_SIZE = 4;
 
+const shallowArrayEqual = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+};
+
 const buildCoordKey = (lat, lng, precision = 5) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
   const factor = 10 ** precision;
@@ -16,7 +26,8 @@ export default function useAddressLookup(
 ) {
   const list = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const [addresses, setAddresses] = useState({});
-  const [loadingKeys, setLoadingKeys] = useState({});
+  const [loadingKeys, setLoadingKeys] = useState([]);
+  const loadingKeySet = useMemo(() => new Set(loadingKeys), [loadingKeys]);
   const inFlightRef = useRef(new Set());
   const addressesRef = useRef({});
   const getKeyRef = useRef(getKey);
@@ -42,7 +53,10 @@ export default function useAddressLookup(
   }, []);
 
   useEffect(() => {
-    if (!enabled) return undefined;
+    if (!enabled) {
+      setLoadingKeys((prev) => (shallowArrayEqual(prev, []) ? prev : []));
+      return undefined;
+    }
 
     const currentAddresses = addressesRef.current || {};
     const pending = list
@@ -92,15 +106,8 @@ export default function useAddressLookup(
     });
 
     setLoadingKeys((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      missing.forEach((entry) => {
-        if (prev[entry.key] !== true) {
-          next[entry.key] = true;
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
+      const next = Array.from(new Set([...prev, ...missing.map((entry) => entry.key)]));
+      return shallowArrayEqual(prev, next) ? prev : next;
     });
 
     (async () => {
@@ -125,8 +132,9 @@ export default function useAddressLookup(
         } finally {
           if (!cancelled) {
             setLoadingKeys((prev) => {
-              if (prev[entry.key] !== true) return prev;
-              return { ...prev, [entry.key]: false };
+              if (!prev.includes(entry.key)) return prev;
+              const next = prev.filter((key) => key !== entry.key);
+              return shallowArrayEqual(prev, next) ? prev : next;
             });
           }
           inFlightRef.current.delete(entry.key);
@@ -139,5 +147,5 @@ export default function useAddressLookup(
     };
   }, [batchSize, enabled, list, resolveKey]);
 
-  return { addresses, loadingKeys };
+  return { addresses, loadingKeys: loadingKeySet };
 }
