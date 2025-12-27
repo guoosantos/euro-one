@@ -57,6 +57,7 @@ const TRIP_EVENT_TRANSLATIONS = {
 
 const COLUMN_STORAGE_KEY = "tripsReplayColumns:v1";
 const DEFAULT_COLUMN_PRESET = ["time", "event", "speed", "address"];
+const ADDRESS_PLACEHOLDERS = new Set(["endereço indisponível", "endereço não disponível"]);
 
 function translateTripEvent(eventType) {
   if (!eventType) return "";
@@ -223,13 +224,6 @@ function densifyPath(points, maxDistanceMeters = MAX_INTERPOLATION_METERS) {
   return path;
 }
 
-function getSegmentDurationMs(currentPoint, nextPoint) {
-  const currentTime = currentPoint?.__time instanceof Date ? currentPoint.__time.getTime() : null;
-  const nextTime = nextPoint?.__time instanceof Date ? nextPoint.__time.getTime() : null;
-  const diff = Number.isFinite(currentTime) && Number.isFinite(nextTime) ? nextTime - currentTime : null;
-  return diff && diff > 0 ? diff : ANIMATION_BASE_MS;
-}
-
 function buildVehicleIcon(bearing = 0, iconType, color = "#86efac") {
   const iconSvg = getVehicleIconSvg(iconType);
   return L.divIcon({
@@ -278,6 +272,14 @@ function normalizeSeverityFromPoint(point) {
   return "normal";
 }
 
+function normalizeAddressValue(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (ADDRESS_PLACEHOLDERS.has(trimmed.toLowerCase())) return null;
+  return trimmed;
+}
+
 function formatPointAddress(point) {
   const candidates = [
     point?.address,
@@ -291,11 +293,13 @@ function formatPointAddress(point) {
   ];
 
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    const normalizedString = normalizeAddressValue(candidate);
+    if (normalizedString) return normalizedString;
     if (candidate && typeof candidate === "object") {
-      const formatted = formatAddress(candidate);
+      const formatted = normalizeAddressValue(formatAddress(candidate));
       if (formatted && formatted !== "—") return formatted;
-      if (typeof candidate.name === "string" && candidate.name.trim()) return candidate.name.trim();
+      const named = normalizeAddressValue(candidate.name);
+      if (named) return named;
     }
   }
 
@@ -802,12 +806,9 @@ export default function Trips() {
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
   const lastAvailableColumnsRef = useRef("");
   const timerRef = useRef(null);
-  const rafRef = useRef(null);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
-  const isPlayingRef = useRef(isPlaying);
-  const speedRef = useRef(speed);
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -1141,7 +1142,8 @@ export default function Trips() {
       const backend = isStart
         ? trip.startShortAddress || trip.startAddress
         : trip.endShortAddress || trip.endAddress;
-      if (backend) return backend;
+      const normalizedBackend = normalizeAddressValue(backend);
+      if (normalizedBackend) return normalizedBackend;
       const key = buildCoordKey(lat, lng);
       if (key && tripAddresses[key]) {
         const resolved = tripAddresses[key];
@@ -1374,22 +1376,10 @@ export default function Trips() {
   const totalEvents = tripEvents.length;
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
   const cancelPlaybackTimers = useCallback(() => {
     if (timerRef.current) {
-      clearTimeout(timerRef.current);
+      clearInterval(timerRef.current);
       timerRef.current = null;
-    }
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
     }
   }, []);
 
@@ -1520,69 +1510,34 @@ export default function Trips() {
       return undefined;
     }
 
-    if (!routePoints.length) {
+    if (totalPoints <= 1) {
       setIsPlaying(false);
       cancelPlaybackTimers();
       return undefined;
     }
 
-    let cancelled = false;
     cancelPlaybackTimers();
 
-    const runSegment = (startIndex) => {
-      // Guard against overflow or missing next point before scheduling frames.
-      if (startIndex >= routePoints.length - 1) {
-        setIsPlaying(false);
-        return;
-      }
+    const intervalMs = Math.min(
+      MAX_SEGMENT_MS,
+      Math.max(MIN_SEGMENT_MS, ANIMATION_BASE_MS / Math.max(speed, 0.1)),
+    );
 
-      const currentPoint = routePoints[startIndex];
-      const nextPoint = routePoints[Math.min(startIndex + 1, routePoints.length - 1)];
-      if (!currentPoint || !nextPoint) {
-        setIsPlaying(false);
-        return;
-      }
-
-      const heading = computeHeading(currentPoint, nextPoint);
-      const baseDuration = getSegmentDurationMs(currentPoint, nextPoint);
-      const duration = Math.min(MAX_SEGMENT_MS, Math.max(MIN_SEGMENT_MS, baseDuration / Math.max(speedRef.current || 1, 0.1)));
-      const startTime = performance.now();
-
-      const animate = (now) => {
-        if (cancelled || !isPlayingRef.current) return;
-        const elapsed = now - startTime;
-        const t = Math.min(1, elapsed / duration);
-        const lat = lerp(currentPoint.lat, nextPoint.lat, t);
-        const lng = lerp(currentPoint.lng, nextPoint.lng, t);
-        setAnimatedPoint({ lat, lng, heading });
-
-        if (t >= 1) {
-          setActiveIndex((prev) => {
-            if (prev !== startIndex) return prev;
-            const next = prev + 1;
-            if (next >= routePoints.length) {
-              setIsPlaying(false);
-              return prev;
-            }
-            return next;
-          });
-          return;
+    timerRef.current = setInterval(() => {
+      setActiveIndex((current) => {
+        const next = current + 1;
+        if (next >= totalPoints) {
+          setIsPlaying(false);
+          return current;
         }
-
-        rafRef.current = requestAnimationFrame(animate);
-      };
-
-      // Schedule RAF to avoid drifting timers and keep cleanup simple.
-      rafRef.current = requestAnimationFrame(animate);
-    };
-
-    timerRef.current = setTimeout(() => runSegment(activeIndex), 0);
+        return next;
+      });
+    }, intervalMs);
 
     return () => {
-      cancelled = true;
       cancelPlaybackTimers();
     };
-  }, [activeIndex, cancelPlaybackTimers, isPlaying, routePoints]);
+  }, [cancelPlaybackTimers, isPlaying, speed, totalPoints]);
 
   useEffect(
     () => () => {
