@@ -207,6 +207,10 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
       ? true
       : normalized === "ignitionoff"
         ? false
+        : normalized === "accon" || normalized === "ignon"
+          ? true
+          : normalized === "accoff" || normalized === "ignoff"
+            ? false
         : normalized.includes("igni")
           ? normalized.includes("deslig") || normalized.includes("off")
             ? false

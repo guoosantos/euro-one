@@ -54,8 +54,13 @@ function normaliseClients(payload, currentUser) {
 
 export function TenantProvider({ children }) {
   const stored = useMemo(() => getStoredSession(), []);
+  const hasStoredTenantId =
+    stored?.user && Object.prototype.hasOwnProperty.call(stored.user, "tenantId");
+  const storedTenantId = hasStoredTenantId ? stored.user.tenantId : null;
 
-  const [tenantId, setTenantId] = useState(stored?.user?.tenantId ?? stored?.user?.clientId ?? null);
+  const [tenantId, setTenantId] = useState(
+    hasStoredTenantId ? storedTenantId : stored?.user?.clientId ?? null,
+  );
   const [user, setUser] = useState(stored?.user ?? null);
   const [token, setToken] = useState(stored?.token ?? null);
   const [tenants, setTenants] = useState([]);
@@ -245,6 +250,17 @@ export function TenantProvider({ children }) {
       setTenantId((prev) => prev ?? user.clientId ?? list[0]?.id ?? null);
     }
   }, [user, tenants]);
+
+  useEffect(() => {
+    if (!user || !token) return;
+    if (user.tenantId === tenantId) {
+      setStoredSession({ token, user });
+      return;
+    }
+    const nextUser = { ...user, tenantId };
+    setUser(nextUser);
+    setStoredSession({ token, user: nextUser });
+  }, [tenantId, token, user]);
 
   const value = useMemo(() => {
     const isAdmin = user?.role === "admin";

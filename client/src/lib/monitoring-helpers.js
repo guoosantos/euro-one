@@ -68,7 +68,22 @@ export function pickSpeed(position) {
 }
 
 export function getIgnition(position, device) {
-  const candidates = [position?.attributes?.ignition, position?.ignition, device?.attributes?.ignition];
+  const attributes = position?.attributes || {};
+  const deviceAttributes = device?.attributes || {};
+  const candidates = [
+    attributes.ignition,
+    attributes.acc,
+    attributes.ign,
+    attributes.io1,
+    attributes.di1,
+    attributes.digitalInput1,
+    attributes.digitalInput,
+    attributes.input1,
+    position?.ignition,
+    deviceAttributes.ignition,
+    deviceAttributes.acc,
+    deviceAttributes.ign,
+  ];
 
   for (const value of candidates) {
     if (value === null || value === undefined) continue;

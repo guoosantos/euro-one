@@ -44,6 +44,16 @@ const VEHICLE_ICON_ASSETS = {
       </svg>
     `,
   },
+  airtag: {
+    label: "AirTag",
+    svg: `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="6" y="3" width="12" height="18" rx="6" />
+        <circle cx="12" cy="10" r="3.5" />
+        <path d="M12 13.5v4" />
+      </svg>
+    `,
+  },
   default: {
     label: "Dispositivo",
     svg: `
@@ -74,6 +84,7 @@ const TYPE_ALIASES = {
   ],
   motorcycle: ["motorcycle", "moto", "motocicleta", "bike"],
   person: ["person", "pessoa", "pedestrian", "walker", "walk"],
+  airtag: ["airtag", "air tag", "tag", "tracker", "beacon"],
 };
 
 export const VEHICLE_TYPE_OPTIONS = [

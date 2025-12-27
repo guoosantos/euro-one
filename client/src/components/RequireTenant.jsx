@@ -6,13 +6,13 @@ export function RequireTenant({ children }) {
   const { tenantId, tenants, role, loading, initialising, setTenantId } = useTenant();
   const hasTenant = Boolean(tenantId);
   const hasOptions = tenants?.length > 0;
-  const canProceed = hasTenant || (role === "admin" && !hasOptions);
+  const canProceed = hasTenant || role === "admin";
 
   useEffect(() => {
-    if (!tenantId && tenants?.length) {
+    if (!tenantId && tenants?.length && role !== "admin") {
       setTenantId(tenants[0].id);
     }
-  }, [tenantId, tenants, setTenantId]);
+  }, [role, tenantId, tenants, setTenantId]);
 
   if (loading || initialising) {
     return (
