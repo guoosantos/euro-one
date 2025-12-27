@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCachedReverse, reverseGeocode } from "../reverseGeocode.js";
 import { FALLBACK_ADDRESS } from "../utils/geocode.js";
 
-const DEFAULT_BATCH_SIZE = 4;
+const DEFAULT_BATCH_SIZE = Number.POSITIVE_INFINITY;
+const MAX_CONCURRENCY = 1;
+const MIN_INTERVAL_MS = 340;
 
 const shallowArrayEqual = (a, b) => {
   if (a === b) return true;
@@ -32,6 +34,11 @@ export default function useAddressLookup(
   const addressesRef = useRef({});
   const getKeyRef = useRef(getKey);
   const getCoordsRef = useRef(getCoords);
+  const queueRef = useRef([]);
+  const abortControllersRef = useRef(new Map());
+  const activeWorkersRef = useRef(0);
+  const lastDispatchRef = useRef(0);
+  const runIdRef = useRef(0);
 
   useEffect(() => {
     getKeyRef.current = getKey;
@@ -52,11 +59,101 @@ export default function useAddressLookup(
     return buildCoordKey(Number(lat), Number(lng));
   }, []);
 
+  const clearControllers = useCallback(() => {
+    abortControllersRef.current.forEach((controller) => controller.abort());
+    abortControllersRef.current.clear();
+    activeWorkersRef.current = 0;
+    inFlightRef.current = new Set();
+  }, []);
+
+  const scheduleLoadingKeys = useCallback((keys) => {
+    setLoadingKeys((prev) => {
+      const next = Array.from(new Set([...prev, ...keys]));
+      return shallowArrayEqual(prev, next) ? prev : next;
+    });
+  }, []);
+
+  const removeLoadingKey = useCallback((key) => {
+    setLoadingKeys((prev) => {
+      if (!prev.includes(key)) return prev;
+      const next = prev.filter((item) => item !== key);
+      return shallowArrayEqual(prev, next) ? prev : next;
+    });
+  }, []);
+
+  const launchWorker = useCallback(
+    (runId) => {
+      if (!enabled || activeWorkersRef.current >= MAX_CONCURRENCY) return;
+      if (!queueRef.current.length) return;
+
+      const entry = queueRef.current.shift();
+      if (!entry) return;
+
+      activeWorkersRef.current += 1;
+      const controller = new AbortController();
+      abortControllersRef.current.set(entry.key, controller);
+      scheduleLoadingKeys([entry.key]);
+
+      const run = async () => {
+        try {
+          const now = Date.now();
+          const waitMs = Math.max(0, MIN_INTERVAL_MS - (now - lastDispatchRef.current));
+          if (waitMs) {
+            await new Promise((resolve, reject) => {
+              const timeoutId = setTimeout(resolve, waitMs);
+              controller.signal.addEventListener(
+                "abort",
+                () => {
+                  clearTimeout(timeoutId);
+                  reject(new DOMException("Aborted", "AbortError"));
+                },
+                { once: true },
+              );
+            });
+          }
+
+          lastDispatchRef.current = Date.now();
+          const resolved = await reverseGeocode(entry.lat, entry.lng, { signal: controller.signal });
+          if (runIdRef.current !== runId) return;
+          setAddresses((prev) => {
+            const nextValue = resolved || FALLBACK_ADDRESS;
+            if (prev[entry.key] === nextValue) return prev;
+            return { ...prev, [entry.key]: nextValue };
+          });
+        } catch (error) {
+          if (controller.signal.aborted || error?.name === "AbortError" || runIdRef.current !== runId) return;
+          setAddresses((prev) => {
+            const nextValue = prev[entry.key] || FALLBACK_ADDRESS;
+            if (prev[entry.key] === nextValue) return prev;
+            return { ...prev, [entry.key]: nextValue };
+          });
+        } finally {
+          abortControllersRef.current.delete(entry.key);
+          removeLoadingKey(entry.key);
+          inFlightRef.current.delete(entry.key);
+          activeWorkersRef.current -= 1;
+          if (runIdRef.current === runId && queueRef.current.length) {
+            launchWorker(runId);
+          }
+        }
+      };
+
+      run();
+    },
+    [enabled, removeLoadingKey, scheduleLoadingKeys],
+  );
+
   useEffect(() => {
     if (!enabled) {
+      clearControllers();
       setLoadingKeys((prev) => (shallowArrayEqual(prev, []) ? prev : []));
       return undefined;
     }
+
+    const currentRunId = runIdRef.current + 1;
+    runIdRef.current = currentRunId;
+    lastDispatchRef.current = Date.now() - MIN_INTERVAL_MS;
+    clearControllers();
 
     const currentAddresses = addressesRef.current || {};
     const pending = list
@@ -99,53 +196,26 @@ export default function useAddressLookup(
 
     if (!missing.length) return undefined;
 
-    let cancelled = false;
-
+    const uniqueMissing = [];
+    const seen = new Set();
     missing.forEach((entry) => {
-      inFlightRef.current.add(entry.key);
+      if (seen.has(entry.key)) return;
+      seen.add(entry.key);
+      uniqueMissing.push(entry);
     });
 
-    setLoadingKeys((prev) => {
-      const next = Array.from(new Set([...prev, ...missing.map((entry) => entry.key)]));
-      return shallowArrayEqual(prev, next) ? prev : next;
-    });
+    queueRef.current = uniqueMissing;
+    uniqueMissing.forEach((entry) => inFlightRef.current.add(entry.key));
+    scheduleLoadingKeys(uniqueMissing.map((entry) => entry.key));
 
-    (async () => {
-      for (const entry of missing) {
-        try {
-          const resolved = await reverseGeocode(entry.lat, entry.lng);
-          if (!cancelled) {
-            setAddresses((prev) => {
-              const nextValue = resolved || FALLBACK_ADDRESS;
-              if (prev[entry.key] === nextValue) return prev;
-              return { ...prev, [entry.key]: nextValue };
-            });
-          }
-        } catch (_error) {
-          if (!cancelled) {
-            setAddresses((prev) => {
-              const nextValue = prev[entry.key] || FALLBACK_ADDRESS;
-              if (prev[entry.key] === nextValue) return prev;
-              return { ...prev, [entry.key]: nextValue };
-            });
-          }
-        } finally {
-          if (!cancelled) {
-            setLoadingKeys((prev) => {
-              if (!prev.includes(entry.key)) return prev;
-              const next = prev.filter((key) => key !== entry.key);
-              return shallowArrayEqual(prev, next) ? prev : next;
-            });
-          }
-          inFlightRef.current.delete(entry.key);
-        }
-      }
-    })();
+    launchWorker(currentRunId);
 
     return () => {
-      cancelled = true;
+      clearControllers();
+      queueRef.current = [];
+      setLoadingKeys((prev) => (shallowArrayEqual(prev, []) ? prev : []));
     };
-  }, [batchSize, enabled, list, resolveKey]);
+  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys]);
 
   return { addresses, loadingKeys: loadingKeySet };
 }
