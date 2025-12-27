@@ -798,15 +798,8 @@ export default function Trips() {
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
-  const isPlayingRef = useRef(false);
   const lastAvailableColumnsRef = useRef("");
-  const rafIdRef = useRef(null);
-  const lastFrameTimeRef = useRef(null);
-  const playbackIndexRef = useRef(0);
-  const playbackTimeRef = useRef(0);
-  const speedRef = useRef(1);
-  const routePointsRef = useRef([]);
-  const activeIndexRef = useRef(0);
+  const timerRef = useRef(null);
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
@@ -990,18 +983,26 @@ export default function Trips() {
   );
 
   const shouldLookupAddresses = useMemo(() => selectedColumns.includes("address"), [selectedColumns]);
+  const formatFallbackAddress = useCallback((lat, lng) => {
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return `${FALLBACK_ADDRESS} (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    }
+    return FALLBACK_ADDRESS;
+  }, []);
 
   // Memoize items passed to useAddressLookup to avoid render loops (maximum update depth exceeded).
   const addressItems = useMemo(
     () =>
       shouldLookupAddresses
-        ? timelineEntries.map((entry) => ({
-            addressKey: entry.addressKey,
-            lat: entry.lat,
-            lng: entry.lng,
-          }))
+        ? timelineEntries
+            .slice(Math.max(activeIndex - 8, 0), Math.min(activeIndex + 9, timelineEntries.length))
+            .map((entry) => ({
+              addressKey: entry.addressKey,
+              lat: entry.lat,
+              lng: entry.lng,
+            }))
         : [],
-    [shouldLookupAddresses, timelineEntries],
+    [activeIndex, shouldLookupAddresses, timelineEntries],
   );
 
   const resolveTimelineAddressKey = useCallback(
@@ -1015,6 +1016,46 @@ export default function Trips() {
     getCoords: resolveTimelineAddressCoords,
     batchSize: 6,
     enabled: shouldLookupAddresses && addressItems.length > 0,
+  });
+  const tripAddressItems = useMemo(() => {
+    if (!trips.length) return [];
+    const items = [];
+    const seen = new Set();
+    trips.forEach((trip) => {
+      const startLat = toFiniteNumber(trip.startLat ?? trip.startLatitude ?? trip.start?.latitude);
+      const startLng = toFiniteNumber(trip.startLon ?? trip.startLongitude ?? trip.start?.longitude);
+      const endLat = toFiniteNumber(trip.endLat ?? trip.endLatitude ?? trip.end?.latitude);
+      const endLng = toFiniteNumber(trip.endLon ?? trip.endLongitude ?? trip.end?.longitude);
+
+      if (!trip.startShortAddress && !trip.startAddress && Number.isFinite(startLat) && Number.isFinite(startLng)) {
+        const key = buildCoordKey(startLat, startLng);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          items.push({ addressKey: key, lat: startLat, lng: startLng });
+        }
+      }
+      if (!trip.endShortAddress && !trip.endAddress && Number.isFinite(endLat) && Number.isFinite(endLng)) {
+        const key = buildCoordKey(endLat, endLng);
+        if (key && !seen.has(key)) {
+          seen.add(key);
+          items.push({ addressKey: key, lat: endLat, lng: endLng });
+        }
+      }
+    });
+    return items;
+  }, [trips]);
+
+  const resolveTripAddressKey = useCallback(
+    (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
+    [],
+  );
+  const resolveTripAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
+
+  const { addresses: tripAddresses, loadingKeys: tripAddressLoading } = useAddressLookup(tripAddressItems, {
+    getKey: resolveTripAddressKey,
+    getCoords: resolveTripAddressCoords,
+    batchSize: 4,
+    enabled: tripAddressItems.length > 0,
   });
 
   const filteredTimelineEntries = useMemo(
@@ -1081,9 +1122,35 @@ export default function Trips() {
         return resolved;
       }
       if (key && addressLoading.has(key)) return "Carregando…";
-      return FALLBACK_ADDRESS;
+      return formatFallbackAddress(entry?.lat, entry?.lng);
     },
-    [addressLoading, resolvedAddresses],
+    [addressLoading, formatFallbackAddress, resolvedAddresses],
+  );
+  const resolveTripAddress = useCallback(
+    (trip, type) => {
+      const isStart = type === "start";
+      const lat = toFiniteNumber(
+        isStart ? trip.startLat ?? trip.startLatitude ?? trip.start?.latitude : trip.endLat ?? trip.endLatitude ?? trip.end?.latitude,
+      );
+      const lng = toFiniteNumber(
+        isStart ? trip.startLon ?? trip.startLongitude ?? trip.start?.longitude : trip.endLon ?? trip.endLongitude ?? trip.end?.longitude,
+      );
+      const backend = isStart
+        ? trip.startShortAddress || trip.startAddress
+        : trip.endShortAddress || trip.endAddress;
+      if (backend) return backend;
+      const key = buildCoordKey(lat, lng);
+      if (key && tripAddresses[key]) {
+        const resolved = tripAddresses[key];
+        if (typeof resolved === "string" && resolved.trim() === key) {
+          return formatFallbackAddress(lat, lng);
+        }
+        return resolved;
+      }
+      if (key && tripAddressLoading.has(key)) return "Carregando…";
+      return formatFallbackAddress(lat, lng);
+    },
+    [formatFallbackAddress, tripAddresses, tripAddressLoading],
   );
 
   const dynamicAttributeKeys = useMemo(() => {
@@ -1306,13 +1373,10 @@ export default function Trips() {
 
   const stopPlayback = useCallback(() => {
     setIsPlaying((prev) => (prev ? false : prev));
-    isPlayingRef.current = false;
-    if (rafIdRef.current) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
     }
-    lastFrameTimeRef.current = null;
-    playbackTimeRef.current = 0;
   }, []);
 
   useEffect(() => {
@@ -1373,10 +1437,6 @@ export default function Trips() {
     setSelectedEventType(null);
     setEventCursor(0);
     setTimelineFilter("all");
-    playbackIndexRef.current = 0;
-    playbackTimeRef.current = 0;
-    lastFrameTimeRef.current = null;
-    activeIndexRef.current = 0;
     const firstPoint = routePoints[0] || null;
     if (!firstPoint) {
       setAnimatedPoint((prev) => (prev ? null : prev));
@@ -1420,111 +1480,71 @@ export default function Trips() {
   }, [mapLayerKey]);
 
   useEffect(() => {
-    activeIndexRef.current = activeIndex;
-    if (!isPlayingRef.current) {
-      playbackIndexRef.current = activeIndex;
+    const currentPoint = routePoints[activeIndex] || routePoints[0] || null;
+    if (!currentPoint) {
+      setAnimatedPoint((prev) => (prev ? null : prev));
+      return;
     }
-  }, [activeIndex]);
+    const nextPoint = routePoints[Math.min(activeIndex + 1, routePoints.length - 1)] || currentPoint;
+    const heading = computeHeading(currentPoint, nextPoint);
+    setAnimatedPoint((prev) => {
+      if (prev && prev.lat === currentPoint.lat && prev.lng === currentPoint.lng && prev.heading === heading) {
+        return prev;
+      }
+      return { lat: currentPoint.lat, lng: currentPoint.lng, heading };
+    });
+  }, [activeIndex, routePoints]);
 
-  useEffect(() => {
-    isPlayingRef.current = isPlaying;
-  }, [isPlaying]);
-
-  useEffect(() => {
-    speedRef.current = speed;
-  }, [speed]);
-
-  useEffect(() => {
-    routePointsRef.current = smoothedRoute;
-  }, [smoothedRoute]);
+  const intervalMs = useMemo(() => {
+    if (!routePoints.length) return ANIMATION_BASE_MS;
+    const currentPoint = routePoints[activeIndex] || routePoints[0];
+    const nextPoint = routePoints[Math.min(activeIndex + 1, routePoints.length - 1)] || currentPoint;
+    const base = getSegmentDurationMs(currentPoint, nextPoint);
+    const safeSpeed = Math.max(speed, 0.1);
+    return Math.max(200, base / safeSpeed);
+  }, [activeIndex, routePoints, speed]);
 
   useEffect(() => {
     if (!isPlaying) {
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
-      lastFrameTimeRef.current = null;
       return undefined;
     }
 
-    if (rafIdRef.current) {
-      cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
+    if (!routePoints.length) {
+      setIsPlaying(false);
+      return undefined;
     }
 
-    const tick = (now) => {
-      if (!isPlayingRef.current) return;
-      const points = routePointsRef.current;
-      const total = points.length;
-      if (total <= 1) {
-        if (isPlayingRef.current) {
-          stopPlayback();
-        }
-        return;
-      }
-      if (lastFrameTimeRef.current === null) {
-        lastFrameTimeRef.current = now;
-      }
-      const delta = now - lastFrameTimeRef.current;
-      lastFrameTimeRef.current = now;
-      playbackTimeRef.current += delta * Math.max(speedRef.current, 0.1);
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
 
-      let nextIndex = playbackIndexRef.current;
-      let segmentDuration = getSegmentDurationMs(points[nextIndex], points[nextIndex + 1]);
-      while (nextIndex < total - 1 && playbackTimeRef.current >= segmentDuration) {
-        playbackTimeRef.current -= segmentDuration;
-        nextIndex += 1;
-        segmentDuration = getSegmentDurationMs(points[nextIndex], points[nextIndex + 1]);
-      }
-
-      if (nextIndex !== playbackIndexRef.current) {
-        playbackIndexRef.current = nextIndex;
-        setActiveIndex((current) => (current === nextIndex ? current : nextIndex));
-      }
-
-      if (nextIndex >= total - 1) {
-        const finalPoint = points[total - 1];
-        if (finalPoint) {
-          const previousPoint = points[Math.max(total - 2, 0)] || finalPoint;
-          const heading = computeHeading(previousPoint, finalPoint);
-          setAnimatedPoint((prev) => {
-            if (prev && prev.lat === finalPoint.lat && prev.lng === finalPoint.lng && prev.heading === heading) {
-              return prev;
-            }
-            return { lat: finalPoint.lat, lng: finalPoint.lng, heading };
-          });
-        }
-        stopPlayback();
-        return;
-      }
-
-      const currentPoint = points[nextIndex];
-      const nextPoint = points[nextIndex + 1] || currentPoint;
-      if (currentPoint && nextPoint) {
-        const progress = segmentDuration ? Math.min(playbackTimeRef.current / segmentDuration, 1) : 0;
-        const heading = computeHeading(currentPoint, nextPoint);
-        const lat = lerp(currentPoint.lat, nextPoint.lat, progress);
-        const lng = lerp(currentPoint.lng, nextPoint.lng, progress);
-        setAnimatedPoint((prev) => {
-          if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading) {
-            return prev;
+    timerRef.current = setInterval(() => {
+      setActiveIndex((prev) => {
+        const next = prev + 1;
+        if (next >= routePoints.length) {
+          if (timerRef.current) {
+            clearInterval(timerRef.current);
+            timerRef.current = null;
           }
-          return { lat, lng, heading };
-        });
-      }
+          setIsPlaying(false);
+          return routePoints.length - 1;
+        }
+        return next;
+      });
+    }, intervalMs);
 
-      rafIdRef.current = requestAnimationFrame(tick);
-    };
-
-    rafIdRef.current = requestAnimationFrame(tick);
     return () => {
-      if (rafIdRef.current) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
       }
     };
-  }, [isPlaying, stopPlayback]);
+  }, [intervalMs, isPlaying, routePoints.length]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {
@@ -1632,9 +1652,6 @@ export default function Trips() {
       setSelectedTrip(trip);
       setActiveIndex(0);
       stopPlayback();
-      playbackIndexRef.current = 0;
-      playbackTimeRef.current = 0;
-      lastFrameTimeRef.current = null;
       await loadRouteForTrip(trip);
     },
     [loadRouteForTrip, stopPlayback],
@@ -1644,9 +1661,6 @@ export default function Trips() {
     (nextIndex, options = {}) => {
       stopPlayback();
       setActiveIndex(nextIndex);
-      playbackIndexRef.current = nextIndex;
-      playbackTimeRef.current = 0;
-      lastFrameTimeRef.current = null;
       if (options.centerMap) {
         const target = timelineEntries[nextIndex];
         if (target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
@@ -1664,15 +1678,10 @@ export default function Trips() {
       return;
     }
 
-    if (activeIndexRef.current >= totalPoints - 1) {
-      playbackIndexRef.current = 0;
-      playbackTimeRef.current = 0;
-      lastFrameTimeRef.current = null;
-      activeIndexRef.current = 0;
+    if (activeIndex >= totalPoints - 1) {
       setActiveIndex(0);
-      const points = routePointsRef.current.length ? routePointsRef.current : routePoints;
-      const firstPoint = points[0] || null;
-      const secondPoint = points[1] || firstPoint;
+      const firstPoint = routePoints[0] || null;
+      const secondPoint = routePoints[1] || firstPoint;
       if (firstPoint) {
         setAnimatedPoint({
           lat: firstPoint.lat,
@@ -1685,7 +1694,7 @@ export default function Trips() {
     }
 
     setIsPlaying(true);
-  }, [isPlaying, routePoints, stopPlayback, totalPoints]);
+  }, [activeIndex, isPlaying, routePoints, stopPlayback, totalPoints]);
 
   const handleMapLayerChange = useCallback((nextKey) => {
     setMapLayerKey(getValidMapLayer(nextKey));
@@ -1855,8 +1864,8 @@ export default function Trips() {
                     <td className="py-2 pr-4 text-white/70">{formatDuration(trip.duration)}</td>
                     <td className="py-2 pr-4 text-white/70">{formatDistance(trip.distance)}</td>
                     <td className="py-2 pr-4 text-white/70">{formatSpeed(trip.averageSpeed)}</td>
-                    <td className="py-2 pr-4 text-white/70">{trip.startShortAddress || trip.startAddress || "—"}</td>
-                    <td className="py-2 pr-4 text-white/70">{trip.endShortAddress || trip.endAddress || "—"}</td>
+                    <td className="py-2 pr-4 text-white/70">{resolveTripAddress(trip, "start")}</td>
+                    <td className="py-2 pr-4 text-white/70">{resolveTripAddress(trip, "end")}</td>
                   </tr>
                 );
               })}
