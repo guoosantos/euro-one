@@ -989,15 +989,19 @@ export default function Trips() {
     [routePoints],
   );
 
+  const shouldLookupAddresses = useMemo(() => selectedColumns.includes("address"), [selectedColumns]);
+
   // Memoize items passed to useAddressLookup to avoid render loops (maximum update depth exceeded).
   const addressItems = useMemo(
     () =>
-      timelineEntries.map((entry) => ({
-        addressKey: entry.addressKey,
-        lat: entry.lat,
-        lng: entry.lng,
-      })),
-    [timelineEntries],
+      shouldLookupAddresses
+        ? timelineEntries.map((entry) => ({
+            addressKey: entry.addressKey,
+            lat: entry.lat,
+            lng: entry.lng,
+          }))
+        : [],
+    [shouldLookupAddresses, timelineEntries],
   );
 
   const resolveTimelineAddressKey = useCallback(
@@ -1010,7 +1014,7 @@ export default function Trips() {
     getKey: resolveTimelineAddressKey,
     getCoords: resolveTimelineAddressCoords,
     batchSize: 6,
-    enabled: addressItems.length > 0,
+    enabled: shouldLookupAddresses && addressItems.length > 0,
   });
 
   const filteredTimelineEntries = useMemo(
@@ -1076,7 +1080,7 @@ export default function Trips() {
         if (typeof resolved === "string" && resolved.trim() === key) return FALLBACK_ADDRESS;
         return resolved;
       }
-      if (key && addressLoading[key]) return "Carregando…";
+      if (key && addressLoading.has(key)) return "Carregando…";
       return FALLBACK_ADDRESS;
     },
     [addressLoading, resolvedAddresses],

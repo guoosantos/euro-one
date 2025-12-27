@@ -819,7 +819,7 @@ export default function Monitoring() {
       const formatted = formatAddress(row.rawAddress);
       const addressKey = row.addressKey || buildCoordKey(row.lat, row.lng);
       const cached = addressKey ? reverseAddresses[addressKey] : null;
-      const isLoading = addressKey ? addressLoading[addressKey] : false;
+      const isLoading = addressKey ? addressLoading.has(addressKey) : false;
       const resolved =
         formatted && formatted !== "—"
           ? formatted
