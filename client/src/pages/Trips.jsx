@@ -40,6 +40,9 @@ const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
 const REPLAY_SLIDER_RESOLUTION = 1000;
+const MIN_SEGMENT_DELAY_MS = 220;
+const MAX_SEGMENT_DELAY_MS = 3500;
+const DEFAULT_SEGMENT_DELAY_MS = 900;
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição registrada",
@@ -811,8 +814,7 @@ export default function Trips() {
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
   const lastQuerySelectionRef = useRef({ vehicleId: "", deviceId: "" });
-  const rafRef = useRef(null);
-  const lastFrameRef = useRef(null);
+  const timerRef = useRef(null);
   const playbackTimeRef = useRef(0);
   const activeIndexRef = useRef(0);
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
@@ -1393,18 +1395,17 @@ export default function Trips() {
   const totalEvents = tripEvents.length;
   const currentEventLabel = selectedEventSummary?.label || activeEvent?.label || "Nenhum evento";
 
-  const cancelAnimation = useCallback(() => {
-    if (rafRef.current) {
-      cancelAnimationFrame(rafRef.current);
-      rafRef.current = null;
+  const clearPlaybackTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
     }
   }, []);
 
   const stopPlayback = useCallback(() => {
     setIsPlaying((prev) => (prev ? false : prev));
-    cancelAnimation();
-    lastFrameRef.current = null;
-  }, [cancelAnimation]);
+    clearPlaybackTimer();
+  }, [clearPlaybackTimer]);
 
   useEffect(() => {
     if (initialisedRef.current) return;
@@ -1511,6 +1512,80 @@ export default function Trips() {
     }
   }, [mapLayerKey]);
 
+  const syncAnimatedPoint = useCallback(
+    (index) => {
+      if (!routePoints.length) return;
+      const clamped = Math.max(0, Math.min(index, routePoints.length - 1));
+      const current = routePoints[clamped];
+      const next = routePoints[Math.min(clamped + 1, routePoints.length - 1)] || current;
+      const previous = routePoints[Math.max(clamped - 1, 0)] || current;
+      const heading = computeHeading(current, next !== current ? next : previous);
+
+      activeIndexRef.current = clamped;
+      setActiveIndex(clamped);
+      const resolvedTime = current.t || 0;
+      playbackTimeRef.current = resolvedTime;
+      setPlaybackTimeMs(resolvedTime);
+      setAnimatedPoint((prev) => {
+        if (prev && prev.lat === current.lat && prev.lng === current.lng && prev.heading === heading) return prev;
+        return { lat: current.lat, lng: current.lng, heading, t: resolvedTime };
+      });
+    },
+    [routePoints],
+  );
+
+  const computeSegmentDelayMs = useCallback(
+    (fromIndex) => {
+      const current = routePoints[fromIndex];
+      const next = routePoints[fromIndex + 1];
+      if (!current || !next) return null;
+      const delta = Number.isFinite(current.t) && Number.isFinite(next.t) ? Math.abs(next.t - current.t) : DEFAULT_SEGMENT_DELAY_MS;
+      const baseDelay = clamp(delta || DEFAULT_SEGMENT_DELAY_MS, MIN_SEGMENT_DELAY_MS, MAX_SEGMENT_DELAY_MS);
+      const multiplier = Number.isFinite(speed) && speed > 0 ? speed : 1;
+      return Math.max(MIN_SEGMENT_DELAY_MS, Math.round(baseDelay / multiplier));
+    },
+    [routePoints, speed],
+  );
+
+  const scheduleNextSegment = useCallback(
+    (startIndex) => {
+      clearPlaybackTimer();
+      if (!isPlaying) return;
+      const currentIndex = Number.isFinite(startIndex) ? startIndex : activeIndexRef.current;
+      if (currentIndex >= routePoints.length - 1) {
+        stopPlayback();
+        return;
+      }
+
+      const delay = computeSegmentDelayMs(currentIndex) ?? MIN_SEGMENT_DELAY_MS;
+      const nextIndex = Math.min(currentIndex + 1, routePoints.length - 1);
+      const currentPoint = routePoints[currentIndex];
+      const nextPoint = routePoints[nextIndex];
+      if (!currentPoint || !nextPoint) {
+        stopPlayback();
+        return;
+      }
+      const previousPoint = routePoints[Math.max(nextIndex - 1, 0)] || nextPoint;
+      const nextHeading = computeHeading(currentPoint, nextPoint !== currentPoint ? nextPoint : previousPoint);
+
+      timerRef.current = setTimeout(() => {
+        activeIndexRef.current = nextIndex;
+        setActiveIndex(nextIndex);
+        const resolvedTime = nextPoint.t || playbackTimeRef.current || 0;
+        playbackTimeRef.current = resolvedTime;
+        setPlaybackTimeMs(resolvedTime);
+        setAnimatedPoint({ lat: nextPoint.lat, lng: nextPoint.lng, heading: nextHeading, t: resolvedTime });
+
+        if (nextIndex >= routePoints.length - 1) {
+          stopPlayback();
+        } else {
+          scheduleNextSegment(nextIndex);
+        }
+      }, delay);
+    },
+    [clearPlaybackTimer, computeSegmentDelayMs, isPlaying, routePoints, stopPlayback],
+  );
+
   const updateAnimatedState = useCallback(
     (nextTimeMs) => {
       if (!routePoints.length) return;
@@ -1554,53 +1629,25 @@ export default function Trips() {
         }
         return { lat, lng, heading, t: clampedTime };
       });
-
-      if (clampedTime >= end) {
-        setIsPlaying(false);
-        cancelAnimation();
-      }
     },
-    [cancelAnimation, playbackBounds.end, playbackBounds.start, routePoints],
+    [playbackBounds.end, playbackBounds.start, routePoints],
   );
-
-  const stepPlayback = useCallback(() => {
-    if (!isPlaying || !routePoints.length) return;
-    const now = performance.now();
-    const last = lastFrameRef.current ?? now;
-    const delta = now - last;
-    lastFrameRef.current = now;
-    const multiplier = Number.isFinite(speed) ? speed : 1;
-    const nextTime = playbackTimeRef.current + delta * multiplier;
-    updateAnimatedState(nextTime);
-    if (isPlaying && playbackTimeRef.current < playbackBounds.end) {
-      rafRef.current = requestAnimationFrame(stepPlayback);
-    }
-  }, [isPlaying, playbackBounds.end, routePoints.length, speed, updateAnimatedState]);
 
   useEffect(() => {
     if (!isPlaying) {
-      cancelAnimation();
-      lastFrameRef.current = null;
+      clearPlaybackTimer();
       return undefined;
     }
     if (routePoints.length <= 1) {
-      setIsPlaying(false);
-      cancelAnimation();
+      stopPlayback();
       return undefined;
     }
-    lastFrameRef.current = performance.now();
-    rafRef.current = requestAnimationFrame(stepPlayback);
-    return () => {
-      cancelAnimation();
-    };
-  }, [cancelAnimation, isPlaying, routePoints.length, stepPlayback]);
 
-  useEffect(
-    () => () => {
-      cancelAnimation();
-    },
-    [cancelAnimation],
-  );
+    scheduleNextSegment(activeIndexRef.current);
+    return () => {
+      clearPlaybackTimer();
+    };
+  }, [clearPlaybackTimer, isPlaying, routePoints.length, scheduleNextSegment, stopPlayback]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {
@@ -1716,20 +1763,21 @@ export default function Trips() {
 
   const handleSelectPoint = useCallback(
     (nextIndex, options = {}) => {
-      stopPlayback();
       const clampedIndex = Math.max(0, Math.min(nextIndex, timelineMax));
-      const target = routePoints[clampedIndex];
+      const target = routePoints[clampedIndex] || null;
       if (target) {
-        activeIndexRef.current = clampedIndex;
-        setActiveIndex(clampedIndex);
-        updateAnimatedState(target.t);
-        lastFrameRef.current = null;
+        syncAnimatedPoint(clampedIndex);
       }
       if (options.centerMap && target && Number.isFinite(target.lat) && Number.isFinite(target.lng)) {
         setManualCenter({ lat: target.lat, lng: target.lng, ts: Date.now() });
       }
+      if (isPlaying) {
+        scheduleNextSegment(clampedIndex);
+      } else {
+        clearPlaybackTimer();
+      }
     },
-    [routePoints, stopPlayback, timelineMax, updateAnimatedState],
+    [clearPlaybackTimer, isPlaying, routePoints, scheduleNextSegment, syncAnimatedPoint, timelineMax],
   );
 
   const handlePlayToggle = useCallback(() => {
@@ -1762,20 +1810,22 @@ export default function Trips() {
       }
     }
 
-    lastFrameRef.current = null;
     setIsPlaying(true);
   }, [activeIndex, isPlaying, playbackBounds.end, routePoints, stopPlayback, totalPoints]);
 
   const handleSliderChange = useCallback(
     (value) => {
       if (!routePoints.length) return;
-      stopPlayback();
       const ratio = clamp(Number(value) / REPLAY_SLIDER_RESOLUTION, 0, 1);
       const nextTime = lerp(playbackBounds.start, playbackBounds.end || playbackBounds.start, ratio);
-      lastFrameRef.current = null;
       updateAnimatedState(nextTime);
+      if (isPlaying) {
+        scheduleNextSegment(activeIndexRef.current);
+      } else {
+        clearPlaybackTimer();
+      }
     },
-    [playbackBounds.end, playbackBounds.start, routePoints.length, stopPlayback, updateAnimatedState],
+    [clearPlaybackTimer, isPlaying, playbackBounds.end, playbackBounds.start, routePoints.length, scheduleNextSegment, updateAnimatedState],
   );
 
   const handleMapLayerChange = useCallback((nextKey) => {

@@ -13,8 +13,10 @@ let loggedFallbackOnce = false;
 const FALLBACK_ADDRESS = "Endereço indisponível";
 const RATE_LIMIT_MS = 450;
 const RETRY_DELAYS = [300, 800, 1500];
+const FAILURE_CACHE_TTL = 15 * 1000;
 let lastRequestAt = 0;
 let rateLimitQueue = Promise.resolve();
+const failureCache = new Map();
 
 function buildKey(lat, lng, precision = 5) {
   const factor = 10 ** precision;
@@ -65,6 +67,20 @@ function setCachedReverse(key, value) {
   persistCache();
 }
 
+function getCachedFailure(key) {
+  const entry = failureCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > FAILURE_CACHE_TTL) {
+    failureCache.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedFailure(key, value) {
+  failureCache.set(key, { value, timestamp: Date.now() });
+}
+
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -109,6 +125,8 @@ export function getCachedReverse(lat, lng) {
 
 export async function reverseGeocode(lat, lng) {
   const key = buildKey(lat, lng);
+  const cachedFailure = getCachedFailure(key);
+  if (cachedFailure) return cachedFailure;
   const cached = getCachedReverse(lat, lng);
   if (cached) return cached;
   if (inFlight.has(key)) return inFlight.get(key);
@@ -227,7 +245,7 @@ export async function reverseGeocode(lat, lng) {
         loggedFallbackOnce = true;
         console.info("Geocode reverso falhou. Usando fallback.");
       }
-      setCachedReverse(key, FALLBACK_ADDRESS);
+      setCachedFailure(key, FALLBACK_ADDRESS);
       return FALLBACK_ADDRESS;
     } finally {
       inFlight.delete(key);
