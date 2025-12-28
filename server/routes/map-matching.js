@@ -33,12 +33,22 @@ function samplePoints(points = [], maxPoints = DEFAULT_MAX_POINTS) {
 
 async function requestOsrmMatch({ baseUrl, profile = "driving", points = [] }) {
   if (!baseUrl) return null;
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) {
+    throw createError(400, "Configuração OSRM inválida");
+  }
+
+  const sanitizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
   const coords = points.map((point) => `${point.lng},${point.lat}`).join(";");
   const timestamps = points
     .map((point) => (Number.isFinite(point.timestamp) ? Math.floor(point.timestamp / 1000) : null))
     .map((value) => (value === null ? "" : value))
     .join(";");
-  const url = new URL(`${baseUrl.replace(/\\/$/, "")}/match/v1/${profile}/${coords}`);
+  let url;
+  try {
+    url = new URL(`${sanitizedBaseUrl}/match/v1/${profile}/${coords}`);
+  } catch (error) {
+    throw createError(400, "Configuração OSRM inválida");
+  }
   url.searchParams.set("annotations", "false");
   url.searchParams.set("geometries", "geojson");
   url.searchParams.set("overview", "full");
