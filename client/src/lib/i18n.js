@@ -1,3 +1,4 @@
+import { useCallback, useMemo } from "react";
 import { useUI } from "./store.js";
 
 const TRANSLATIONS = {
@@ -619,8 +620,8 @@ const TRANSLATIONS = {
 export function useTranslation() {
   const locale = useUI((state) => state.locale) || "pt-BR";
   const dictionary = TRANSLATIONS[locale] || TRANSLATIONS["pt-BR"];
-  return {
-    t: (key, replacements = null) => {
+  const t = useCallback(
+    (key, replacements = null) => {
       const template = dictionary[key] ?? TRANSLATIONS["pt-BR"][key] ?? key;
       if (!replacements) return template;
       return Object.entries(replacements).reduce(
@@ -628,6 +629,7 @@ export function useTranslation() {
         template,
       );
     },
-    locale,
-  };
+    [dictionary],
+  );
+  return useMemo(() => ({ t, locale }), [t, locale]);
 }
