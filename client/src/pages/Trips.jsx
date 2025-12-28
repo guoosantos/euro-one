@@ -919,7 +919,7 @@ export default function Trips() {
               ? point.motion
               : null;
         const backendAddress = formatPointAddress(point);
-        const addressKey = point.addressKey || buildCoordKey(coords.lat, coords.lng);
+        const addressKey = point.addressKey || buildCoordKey(coords.lat, coords.lng) || null;
 
         return {
           ...point,
@@ -990,11 +990,19 @@ export default function Trips() {
 
   useEffect(() => {
     speedRef.current = Number.isFinite(speed) && speed > 0 ? speed : 1;
-  }, [speed]);
+    if (isPlaying) {
+      lastFrameRef.current = null;
+    }
+  }, [isPlaying, speed]);
 
   useEffect(() => {
     activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
+    const targetTime = routePoints[activeIndex]?.t;
+    if (!isPlaying && Number.isFinite(targetTime)) {
+      playbackTimeRef.current = targetTime;
+      setPlaybackTimeMs((prev) => (prev === targetTime ? prev : targetTime));
+    }
+  }, [activeIndex, isPlaying, routePoints]);
 
   const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
   const smoothedRoute = useMemo(() => smoothRoute(routePoints), [routePoints]);
@@ -1052,6 +1060,13 @@ export default function Trips() {
       })),
     [routePoints],
   );
+  const filteredTimelineEntries = useMemo(
+    () =>
+      timelineFilter === "all"
+        ? timelineEntries
+        : timelineEntries.filter((entry) => entry.eventType === timelineFilter),
+    [timelineEntries, timelineFilter],
+  );
 
   const shouldLookupAddresses = useMemo(
     () => selectedColumns.includes("address") && timelineEntries.length > 0,
@@ -1065,13 +1080,6 @@ export default function Trips() {
   }, []);
 
   const addressWindowSize = 80;
-  const filteredTimelineEntries = useMemo(
-    () =>
-      timelineFilter === "all"
-        ? timelineEntries
-        : timelineEntries.filter((entry) => entry.eventType === timelineFilter),
-    [timelineEntries, timelineFilter],
-  );
   const replayAddressItems = useMemo(() => {
     if (!shouldLookupAddresses || !timelineEntries.length) return [];
     const sourceEntries = filteredTimelineEntries.length ? filteredTimelineEntries : timelineEntries;
@@ -1636,38 +1644,44 @@ export default function Trips() {
     });
   }, []);
 
+  const updateAnimatedStateRef = useRef(updateAnimatedState);
+
+  useEffect(() => {
+    updateAnimatedStateRef.current = updateAnimatedState;
+  }, [updateAnimatedState]);
+
   useEffect(() => {
     if (!isPlaying || routePoints.length <= 1) {
-      cancelAnimation();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
       lastFrameRef.current = null;
       return undefined;
     }
 
-    let mounted = true;
+    let cancelled = false;
+    let rafId = null;
 
     const tick = (timestamp) => {
-      if (!mounted) return;
+      if (cancelled) return;
       if (lastFrameRef.current === null) {
         lastFrameRef.current = timestamp;
-        rafRef.current = requestAnimationFrame(tick);
-        return;
       }
 
-      const delta = timestamp - lastFrameRef.current;
+      const delta = lastFrameRef.current === null ? 0 : timestamp - lastFrameRef.current;
       const speedMultiplier = speedRef.current || 1;
       const bounds = playbackBoundsRef.current;
       const nextTime = (playbackTimeRef.current || bounds.start || 0) + delta * speedMultiplier;
       lastFrameRef.current = timestamp;
-      updateAnimatedState(nextTime);
+      updateAnimatedStateRef.current(nextTime);
 
       const endTime = bounds.end || bounds.start || 0;
+      const totalRoutePoints = routePointsRef.current.length;
       const reachedEnd =
         (Number.isFinite(endTime) && playbackTimeRef.current >= endTime) ||
-        activeIndexRef.current >= routePoints.length - 1;
+        activeIndexRef.current >= Math.max(totalRoutePoints - 1, 0);
       if (reachedEnd) {
-        updateAnimatedState(endTime);
+        updateAnimatedStateRef.current(endTime);
         setIsPlaying(false);
-        cancelAnimation();
         lastFrameRef.current = null;
         return;
       }
@@ -1677,21 +1691,24 @@ export default function Trips() {
         if (!lastLog || timestamp - lastLog >= 1000) {
           debugLogRef.current = timestamp;
           // eslint-disable-next-line no-console
-          console.debug("tick: playbackTimeMs=", playbackTimeRef.current, "activeIndex=", activeIndexRef.current, "routePointsLen=", routePoints.length);
+          console.debug("tick: playbackTimeMs=", playbackTimeRef.current, "activeIndex=", activeIndexRef.current, "routePointsLen=", totalRoutePoints);
         }
       }
 
-      rafRef.current = requestAnimationFrame(tick);
+      rafId = requestAnimationFrame(tick);
+      rafRef.current = rafId;
     };
 
-    rafRef.current = requestAnimationFrame(tick);
+    rafId = requestAnimationFrame(tick);
+    rafRef.current = rafId;
 
     return () => {
-      mounted = false;
-      cancelAnimation();
+      cancelled = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      rafRef.current = null;
       lastFrameRef.current = null;
     };
-  }, [cancelAnimation, isPlaying, routePoints.length, selectedTrip?.id, updateAnimatedState]);
+  }, [isPlaying, routePoints.length, selectedTrip?.id, speed]);
 
   const loadRouteForTrip = useCallback(
     async (trip) => {

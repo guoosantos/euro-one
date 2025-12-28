@@ -12,9 +12,7 @@ let storageHydrated = false;
 let loggedFallbackOnce = false;
 const FALLBACK_ADDRESS = "Endereço indisponível";
 const RATE_LIMIT_MS = 450;
-const RETRY_BASE_MS = 300;
-const RETRY_MAX_ATTEMPTS = 3;
-const RETRY_MAX_DELAY = 2000;
+const RETRY_DELAYS_MS = [300, 800, 1500];
 const FAILURE_CACHE_TTL = 15 * 1000;
 let lastRequestAt = 0;
 let rateLimitQueue = Promise.resolve();
@@ -99,39 +97,42 @@ function wait(ms, signal) {
   });
 }
 
-function isRetryableStatus(status) {
-  return status === 429 || status === 503 || status === 504;
-}
-
 function isTransientNetworkError(error) {
   const message = error?.message || "";
   return message.includes("ERR_NETWORK_CHANGED") || message.includes("NetworkChanged") || message.includes("Failed to fetch");
 }
 
-async function fetchWithRetry(fetcher, { maxAttempts = RETRY_MAX_ATTEMPTS, signal } = {}) {
+const isRetryableStatus = (status) => status === 429 || status >= 500;
+
+async function fetchWithRetry(fetcher, { signal } = {}) {
   let lastError;
-  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       const response = await fetcher();
       if (!response) throw new Error("Reverse geocode empty response");
       if (response.ok) return response;
-      if (!isRetryableStatus(response.status) || attempt === maxAttempts - 1) {
+      if (!isRetryableStatus(response.status)) {
         return response;
       }
+      lastError = new Error(`Reverse geocode HTTP ${response.status}`);
+      lastError.status = response.status;
     } catch (error) {
       lastError = error;
       if (signal?.aborted || error?.name === "AbortError") {
         throw error;
       }
       const transient = isTransientNetworkError(error);
-      if (!transient && attempt === maxAttempts - 1) {
-        throw error;
+      if (!transient) {
+        if (!isRetryableStatus(error?.status)) throw error;
       }
     }
-    const delay = Math.min(RETRY_MAX_DELAY, RETRY_BASE_MS * 2 ** attempt);
+
+    const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
     await wait(delay, signal);
   }
-  throw lastError || new Error("Excedeu número máximo de tentativas de geocodificação reversa.");
+
+  if (lastError) throw lastError;
+  throw new Error("Excedeu número máximo de tentativas de geocodificação reversa.");
 }
 
 export function getCachedReverse(lat, lng) {
@@ -181,10 +182,7 @@ export async function reverseGeocode(lat, lng, { signal } = {}) {
       const authorization = resolveAuthorizationHeader();
       if (authorization) headers.set("Authorization", authorization);
 
-      const response = await fetchWithRetry(() => fetch(url, { credentials: "include", headers, signal }), {
-        maxAttempts: RETRY_MAX_ATTEMPTS,
-        signal,
-      });
+      const response = await fetchWithRetry(() => fetch(url, { credentials: "include", headers, signal }), { signal });
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
@@ -205,7 +203,7 @@ export async function reverseGeocode(lat, lng, { signal } = {}) {
 
       const response = await fetchWithRetry(
         () => fetch(url.toString(), { headers: { Accept: "application/json" }, signal }),
-        { maxAttempts: RETRY_MAX_ATTEMPTS, signal },
+        { signal },
       );
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
@@ -262,13 +260,14 @@ export async function reverseGeocode(lat, lng, { signal } = {}) {
       }
 
       const isUnauthorized = error?.status === 401 || error?.status === 403;
-      const tryPublic = shouldRetryWithPublic(error);
+      const canUsePublic = shouldRetryWithPublic(error);
+      const forcePublicAsFallback = !canUsePublic;
 
       if (isUnauthorized && !useGuestReverse) {
         useGuestReverse = true;
       }
 
-      if (tryPublic) {
+      if (canUsePublic || forcePublicAsFallback) {
         try {
           const guestData = await runWithRateLimit(resolveFromPublic);
           const guestAddress = extractAddress(guestData);
