@@ -191,6 +191,15 @@ const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.faceRecognition": "Rec. Facial",
 };
 
+const arraysEqual = (a = [], b = []) => {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  return true;
+};
+
 const getColumnMinWidth = (key) => {
   const minWidths = typeof COLUMN_MIN_WIDTHS === "undefined" ? null : COLUMN_MIN_WIDTHS;
   return minWidths?.[key] ?? minWidths?.default ?? DEFAULT_COLUMN_MIN_WIDTH;
@@ -354,6 +363,7 @@ export default function Monitoring() {
   const [routeFilter, setRouteFilter] = useState(null);
   const [securityFilters, setSecurityFilters] = useState([]);
   const ignitionStateRef = useRef(new Map());
+  const searchParamsKey = searchParams.toString();
   const {
     selectedVehicleId: globalVehicleId,
     selectedTelemetryDeviceId: globalDeviceId,
@@ -365,23 +375,30 @@ export default function Monitoring() {
   const selectionRef = useRef({ vehicleId: null, deviceId: null });
   const selectedDeviceIdRef = useRef(null);
 
+  const queryFilters = useMemo(() => {
+    const params = new URLSearchParams(searchParamsKey);
+    const filter = params.get("filter");
+    const incomingRouteFilter = params.get("routeFilter");
+    const rawSecurityFilter = params.get("securityFilter") || "";
+    const normalizedSecurityFilters = rawSecurityFilter
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+    return {
+      filter: filter || null,
+      routeFilter: incomingRouteFilter || null,
+      securityFilters: normalizedSecurityFilters,
+    };
+  }, [searchParamsKey]);
+
   useEffect(() => {
-    const filter = searchParams.get("filter");
-    if (filter) setFilterMode(filter);
-    const incomingRouteFilter = searchParams.get("routeFilter");
-    setRouteFilter(incomingRouteFilter);
-    const rawSecurityFilter = searchParams.get("securityFilter");
-    if (rawSecurityFilter) {
-      setSecurityFilters(
-        rawSecurityFilter
-          .split(",")
-          .map((item) => item.trim())
-          .filter(Boolean),
-      );
-    } else {
-      setSecurityFilters([]);
+    if (queryFilters.filter) {
+      setFilterMode((prev) => (prev === queryFilters.filter ? prev : queryFilters.filter));
     }
-  }, [searchParams]);
+    const normalizedRouteFilter = queryFilters.routeFilter ?? null;
+    setRouteFilter((prev) => (prev === normalizedRouteFilter ? prev : normalizedRouteFilter));
+    setSecurityFilters((prev) => (arraysEqual(prev, queryFilters.securityFilters) ? prev : queryFilters.securityFilters));
+  }, [queryFilters]);
 
   useEffect(() => {
     setVehicleQuery("");
@@ -521,10 +538,6 @@ export default function Monitoring() {
       deviceId: globalDeviceId ? String(globalDeviceId) : null,
     };
   }, [globalDeviceId, globalVehicleId]);
-
-  useEffect(() => {
-    mapViewportRef.current = mapViewport;
-  }, [mapViewport]);
 
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry

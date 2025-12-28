@@ -65,11 +65,30 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 
    Para facilitar, deixe ambos os terminais abertos ou utilize ferramentas como `tmux`/`foreman` à sua escolha.
 
+5. Para evitar erros 500 no `/api` quando o front estiver em Vite sem backend rodando, utilize o atalho abaixo que sobe client e servidor juntos:
+
+   ```bash
+   npm run dev:all
+   ```
+
 ## Notas rápidas
 
 - O WebSocket de telemetria é servido em `/ws/live` e o front monta a URL a partir de `VITE_API_BASE_URL`, alternando entre `ws://` e `wss://` conforme o protocolo.
 - Para recursos de mapas/heatmap, configure `VITE_TRACCAR_BASE_URL` apontando para o mesmo host utilizado pelo backend (`TRACCAR_BASE_URL`).
 - Tiles customizados para o mapa podem ser definidos via `VITE_MAP_TILE_URL`.
+
+## Map matching (OSRM) para rotas mais precisas
+
+- O endpoint `/api/map-matching` do backend utiliza `OSRM_BASE_URL` (ou `MAP_MATCH_BASE_URL`) para ajustar trajetos às ruas.
+- Sem essa variável o backend devolve `provider="passthrough"` e o front exibe uma rota reta apenas ligando os pontos.
+- Exemplo de execução local do OSRM:
+
+  ```bash
+  docker run -p 5000:5000 osrm/osrm-backend osrm-routed --algorithm mld /data/region.osrm
+  export OSRM_BASE_URL=http://localhost:5000
+  ```
+
+- Defina `OSRM_BASE_URL` no ambiente do backend e mantenha `VITE_API_BASE_URL` apontando para ele para liberar rotas “estilo Google Maps” no módulo de Trajetos.
 
 ## Autenticação
 

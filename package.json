@@ -18,7 +18,8 @@
     "lint": "npm run lint --workspaces --if-present",
     "format": "npm run format --workspace client",
     "dev:server": "npm run dev --workspace server",
-    "start:server": "npm run start --workspace server"
+    "start:server": "npm run start --workspace server",
+    "dev:all": "node scripts/dev-all.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
