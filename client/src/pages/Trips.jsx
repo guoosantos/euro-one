@@ -26,7 +26,7 @@ import {
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
-import { getVehicleIconSvg } from "../lib/icons/vehicleIcons.js";
+import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -413,11 +413,26 @@ function alignPointsToPath(points = [], targetPath = []) {
 function simplifyPath(points = [], toleranceMeters = 5) {
   if (!Array.isArray(points)) return [];
   if (points.length <= 2 || !Number.isFinite(toleranceMeters) || toleranceMeters <= 0) return points;
+  const projector =
+    L?.CRS?.EPSG3857?.project ||
+    L?.Projection?.SphericalMercator?.project ||
+    L?.CRS?.Earth?.project ||
+    null;
+  if (!projector || !L?.latLng) return points;
+
   const projected = points
     .map((point, index) => {
       if (!Number.isFinite(point?.lat) || !Number.isFinite(point?.lng)) return null;
-      const proj = L.CRS.Earth.project(L.latLng(point.lat, point.lng));
-      return { index, point, projected: proj };
+      try {
+        const proj = projector.call(
+          L.CRS?.EPSG3857 || L.Projection?.SphericalMercator || L.CRS?.Earth,
+          L.latLng(point.lat, point.lng),
+        );
+        if (!proj || !Number.isFinite(proj.x) || !Number.isFinite(proj.y)) return null;
+        return { index, point, projected: proj };
+      } catch (_error) {
+        return null;
+      }
     })
     .filter(Boolean);
 
@@ -475,22 +490,24 @@ function simplifyPath(points = [], toleranceMeters = 5) {
   return simplified.length ? simplified : points;
 }
 
-function buildVehicleIcon(bearing = 0, iconType, color = "#86efac") {
-  const iconSvg = getVehicleIconSvg(iconType);
-  return L.divIcon({
-    className: "replay-vehicle",
-    html: `
-      <div style="position:relative;width:34px;height:34px;display:flex;align-items:center;justify-content:center;">
-        <div style="position:absolute;top:-6px;left:50%;transform:translateX(-50%) rotate(${bearing}deg);transform-origin:50% 100%;width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid rgba(37,99,235,0.95);filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3));"></div>
-        <div style="width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.8);display:flex;align-items:center;justify-content:center;border:1px solid rgba(148,163,184,0.35);box-shadow:0 6px 14px rgba(0,0,0,0.35);backdrop-filter:blur(6px);color:${color};">
-          <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
-        </div>
-      </div>
-    `,
-    iconSize: [32, 32],
-    iconAnchor: [16, 16],
-  });
+function runSimplifySelfCheck() {
+  if (typeof process !== "undefined" && process.env?.NODE_ENV === "production") return;
+  try {
+    simplifyPath(
+      [
+        { lat: 0, lng: 0 },
+        { lat: 0.0001, lng: 0.0001 },
+        { lat: 0.0002, lng: 0.0002 },
+      ],
+      5,
+    );
+  } catch (error) {
+    // eslint-disable-next-line no-console
+    console.warn("[trips] simplifyPath self-check failed", error);
+  }
 }
+
+runSimplifySelfCheck();
 
 function normalizeTripEvent(point, helpers = {}) {
   const rawEvent =
@@ -635,31 +652,62 @@ function ReplayMap({
     if (ignition === false) return "#ef4444";
     return "#86efac";
   }, [activePoint?.__ignition]);
-  const vehicleIcon = useMemo(
-    () =>
-      buildVehicleIcon(
-        animatedPoint?.heading || 0,
-        selectedVehicle?.iconType ||
-          selectedVehicle?.attributes?.iconType ||
-          selectedVehicle?.type ||
-          selectedVehicle?.vehicleType ||
-          selectedVehicle?.category ||
-          selectedVehicle?.attributes?.vehicleType ||
-          selectedVehicle?.attributes?.type,
-        ignitionColor,
-      ),
-    [
-      animatedPoint?.heading,
-      ignitionColor,
-      selectedVehicle?.attributes?.iconType,
-      selectedVehicle?.iconType,
-      selectedVehicle?.attributes?.type,
-      selectedVehicle?.attributes?.vehicleType,
-      selectedVehicle?.category,
-      selectedVehicle?.type,
-      selectedVehicle?.vehicleType,
-    ],
+  const mergedVehicleAttributes = useMemo(
+    () => ({
+      ...(selectedVehicle?.attributes || {}),
+      ...(selectedVehicle?.primaryDevice?.attributes || {}),
+      ...(selectedVehicle?.device?.attributes || {}),
+    }),
+    [selectedVehicle?.attributes, selectedVehicle?.device?.attributes, selectedVehicle?.primaryDevice?.attributes],
   );
+  const vehicleLabel = useMemo(
+    () => selectedVehicle?.plate || selectedVehicle?.name || selectedVehicle?.alias || selectedVehicle?.identifier || "",
+    [selectedVehicle?.alias, selectedVehicle?.identifier, selectedVehicle?.name, selectedVehicle?.plate],
+  );
+  const vehicleIcon = useMemo(() => {
+    const iconType = resolveMarkerIconType(
+      {
+        iconType: selectedVehicle?.iconType || mergedVehicleAttributes.iconType,
+        vehicleType: selectedVehicle?.vehicleType || selectedVehicle?.type || selectedVehicle?.category,
+        type: selectedVehicle?.type,
+        category: selectedVehicle?.category,
+        attributes: mergedVehicleAttributes,
+      },
+      [
+        mergedVehicleAttributes.vehicleType,
+        selectedVehicle?.vehicleType,
+        selectedVehicle?.type,
+        selectedVehicle?.category,
+      ],
+    );
+
+    const icon =
+      createVehicleMarkerIcon({
+        bearing: animatedPoint?.heading || 0,
+        iconType,
+        color: ignitionColor,
+        label: vehicleLabel,
+        plate: selectedVehicle?.plate,
+      }) ||
+      L.divIcon({
+        className: "replay-vehicle",
+        html: `<div style="width:18px;height:18px;border-radius:50%;background:${ignitionColor};"></div>`,
+        iconSize: [20, 20],
+        iconAnchor: [10, 10],
+      });
+
+    return icon;
+  }, [
+    animatedPoint?.heading,
+    ignitionColor,
+    mergedVehicleAttributes,
+    selectedVehicle?.category,
+    selectedVehicle?.iconType,
+    selectedVehicle?.plate,
+    selectedVehicle?.type,
+    selectedVehicle?.vehicleType,
+    vehicleLabel,
+  ]);
   const markerRef = useRef(null);
   const markerAnimationRef = useRef(null);
 
@@ -725,7 +773,12 @@ function ReplayMap({
           subdomains={resolvedSubdomains}
           maxZoom={resolvedMaxZoom}
         />
-        {positions.length ? <Polyline positions={positions} color={ROUTE_COLOR} weight={ROUTE_WEIGHT} opacity={ROUTE_OPACITY} /> : null}
+        {positions.length ? (
+          <>
+            <Polyline positions={positions} color="#0b1f42" weight={ROUTE_WEIGHT + 4} opacity={0.24} />
+            <Polyline positions={positions} color={ROUTE_COLOR} weight={ROUTE_WEIGHT} opacity={ROUTE_OPACITY} />
+          </>
+        ) : null}
         {animatedMarkerPosition ? <Marker ref={markerRef} position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
         <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} enabled={focusMode === "map" && isPlaying} />

@@ -22,10 +22,10 @@ export default function AddressCell({ address, lat, lng, className = "" }) {
 
   const resolved = formattedAddress !== "—" ? formattedAddress : reverseAddress || FALLBACK_ADDRESS;
   const display = loading && shouldReverse ? "Resolvendo endereço..." : resolved;
-  const tooltip = display !== resolved ? resolved : undefined;
+  const tooltip = resolved || undefined;
 
   return (
-    <span className={className} title={tooltip}>
+    <span className={`block min-w-0 truncate whitespace-nowrap text-ellipsis ${className}`} title={tooltip}>
       {display}
     </span>
   );
