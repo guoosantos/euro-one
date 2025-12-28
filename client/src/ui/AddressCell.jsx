@@ -1,13 +1,14 @@
 import React, { useMemo } from "react";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS, useReverseGeocode } from "../lib/utils/geocode.js";
+import AddressStatus from "./AddressStatus.jsx";
 
 function normalizeCoordinate(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export default function AddressCell({ address, lat, lng, className = "" }) {
+export default function AddressCell({ address, lat, lng, loading: externalLoading = false, className = "" }) {
   const formattedAddress = useMemo(() => formatAddress(address), [address]);
   const safeLat = normalizeCoordinate(lat);
   const safeLng = normalizeCoordinate(lng);
@@ -16,17 +17,22 @@ export default function AddressCell({ address, lat, lng, className = "" }) {
     Number.isFinite(safeLat) &&
     Number.isFinite(safeLng);
 
-  const { address: reverseAddress, loading } = useReverseGeocode(safeLat, safeLng, {
-    enabled: shouldReverse,
+  const { address: reverseAddress, loading, retry } = useReverseGeocode(safeLat, safeLng, {
+    enabled: shouldReverse && !externalLoading,
   });
 
   const resolved = formattedAddress !== "—" ? formattedAddress : reverseAddress || FALLBACK_ADDRESS;
-  const display = loading && shouldReverse ? "Resolvendo endereço..." : resolved;
-  const tooltip = resolved || undefined;
+  const shouldRetry = shouldReverse && resolved === FALLBACK_ADDRESS && !externalLoading;
+  const displayLoading = externalLoading || (loading && shouldReverse);
 
   return (
-    <span className={`block min-w-0 truncate whitespace-nowrap text-ellipsis ${className}`} title={tooltip}>
-      {display}
-    </span>
+    <AddressStatus
+      address={resolved}
+      loading={displayLoading}
+      lat={safeLat}
+      lng={safeLng}
+      onRetry={shouldRetry ? retry : null}
+      className={`min-w-0 ${className}`}
+    />
   );
 }

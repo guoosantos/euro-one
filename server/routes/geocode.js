@@ -8,7 +8,10 @@ const router = express.Router();
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
 const cache = createTtlCache(10 * 60 * 1000);
+const reverseCache = createTtlCache(30 * 60 * 1000);
 const pending = new Map();
+const reversePending = new Map();
+const RETRY_DELAYS_MS = [300, 800, 1500];
 
 function sanitizeTerm(term) {
   if (typeof term !== "string") return "";
@@ -40,6 +43,81 @@ function normalizeResult(item, fallbackLabel) {
     boundingBox: item?.boundingbox,
     raw: item,
   };
+}
+
+function buildReverseKey(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `${lat.toFixed(5)},${lng.toFixed(5)}`;
+}
+
+function buildShortAddress(payload) {
+  const details = payload?.address || {};
+  const street =
+    details.road ||
+    details.residential ||
+    details.cycleway ||
+    details.pedestrian ||
+    details.highway ||
+    details.footway ||
+    null;
+  const neighbourhood = details.neighbourhood || details.suburb || details.quarter || null;
+  const city = details.city || details.town || details.village || details.municipality || null;
+  const state = details.state || details.region || details.state_district || null;
+
+  const main = [street, neighbourhood].filter(Boolean).join(", ");
+  const tail = [city, state].filter(Boolean).join(" - ");
+  const combined = [main, tail].filter(Boolean).join(" - ");
+  return combined || formatAddress(payload?.display_name || "");
+}
+
+async function fetchReverse(lat, lng) {
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("lat", String(lat));
+  url.searchParams.set("lon", String(lng));
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("addressdetails", "1");
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": "Euro-One Monitoring Server",
+      Accept: "application/json",
+    },
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const error = createError(response.status, "Falha ao buscar endereço reverso");
+    error.payload = payload;
+    throw error;
+  }
+
+  return payload;
+}
+
+async function fetchReverseWithRetry(lat, lng) {
+  let lastError;
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await fetchReverse(lat, lng);
+    } catch (error) {
+      lastError = error;
+      const status = error?.status || error?.statusCode;
+      if (status !== 429 && status !== 503) {
+        throw error;
+      }
+      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError || createError(502, "Falha ao buscar endereço reverso");
 }
 
 async function queryProvider(term, limit = 5) {
@@ -118,22 +196,64 @@ router.get("/geocode/reverse", async (req, res) => {
     return res.status(400).json({ error: { message: "Coordenadas inválidas." } });
   }
 
-  try {
-    const resolved = await resolveShortAddress(lat, lng);
-    if (!resolved) {
-      return res.json({ lat, lng, address: null, formattedAddress: null, shortAddress: null });
+  const key = buildReverseKey(lat, lng);
+  const cached = key ? reverseCache.get(key) : null;
+  if (cached) {
+    return res.json({ ...cached, cached: true });
+  }
+
+  if (key && reversePending.has(key)) {
+    const shared = await reversePending.get(key).catch(() => null);
+    if (shared) return res.json(shared);
+  }
+
+  const promise = (async () => {
+    try {
+      const payload = await fetchReverseWithRetry(lat, lng);
+      const shortAddress = buildShortAddress(payload);
+      const formattedAddress = formatAddress(payload?.display_name || shortAddress);
+      const resolved = {
+        lat,
+        lng,
+        address: payload?.display_name || shortAddress || null,
+        formattedAddress,
+        shortAddress,
+      };
+      if (key) reverseCache.set(key, resolved);
+      return resolved;
+    } catch (error) {
+      console.warn("[geocode:reverse] Falha ao resolver endereço", {
+        status: error?.status || error?.statusCode,
+        message: error?.message,
+        payload: error?.payload,
+      });
+      return null;
+    } finally {
+      if (key) reversePending.delete(key);
+    }
+  })();
+
+  if (key) reversePending.set(key, promise);
+
+  const resolved = await promise;
+  if (!resolved) {
+    const fallback = await resolveShortAddress(lat, lng);
+    if (fallback) {
+      const payload = {
+        lat,
+        lng,
+        address: fallback.address || fallback.formattedAddress || fallback.shortAddress,
+        formattedAddress: fallback.formattedAddress || fallback.address || fallback.shortAddress,
+        shortAddress: fallback.shortAddress || fallback.formattedAddress || fallback.address,
+      };
+      if (key) reverseCache.set(key, payload);
+      return res.json(payload);
     }
 
-    return res.json({
-      lat,
-      lng,
-      address: resolved.address || resolved.formattedAddress || resolved.shortAddress,
-      formattedAddress: resolved.formattedAddress || resolved.address || resolved.shortAddress,
-      shortAddress: resolved.shortAddress || resolved.formattedAddress || resolved.address,
-    });
-  } catch (_error) {
     return res.status(502).json({ error: { message: "Não foi possível obter o endereço agora." } });
   }
+
+  return res.json(resolved);
 });
 
 export default router;

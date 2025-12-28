@@ -57,8 +57,23 @@ export function useReverseGeocode(lat, lon, { enabled = true, debounceMs = DEFAU
     };
   }, [debounceMs, enabled, key, safeLat, safeLon]);
 
+  const retry = async () => {
+    if (!key || !enabled || !Number.isFinite(safeLat) || !Number.isFinite(safeLon)) return null;
+    setState((prev) => ({ address: prev.address, loading: true }));
+    try {
+      const resolved = await reverseGeocode(safeLat, safeLon, { force: true });
+      if (activeKeyRef.current !== key) return null;
+      setState({ address: resolved || FALLBACK_ADDRESS, loading: false });
+      return resolved;
+    } catch (_error) {
+      if (activeKeyRef.current !== key) return null;
+      setState({ address: FALLBACK_ADDRESS, loading: false });
+      return null;
+    }
+  };
+
   const address = state.address || (enabled && key ? FALLBACK_ADDRESS : "");
-  return { address, loading: state.loading };
+  return { address, loading: state.loading, retry };
 }
 
 export default useReverseGeocode;

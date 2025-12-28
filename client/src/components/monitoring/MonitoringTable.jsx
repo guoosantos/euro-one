@@ -249,6 +249,7 @@ export default function MonitoringTable({
                         address={row.address || row.rawAddress || row.position?.address}
                         lat={row.lat}
                         lng={row.lng}
+                        loading={row.addressLoading}
                         className="max-w-full"
                       />
                     );

@@ -148,15 +148,15 @@ export function getCachedReverse(lat, lng) {
   return cached.value;
 }
 
-export async function reverseGeocode(lat, lng, { signal } = {}) {
+export async function reverseGeocode(lat, lng, { signal, force = false } = {}) {
   const normalizedLat = Number(lat);
   const normalizedLng = Number(lng);
   if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) return FALLBACK_ADDRESS;
   const key = buildKey(normalizedLat, normalizedLng);
   if (!key) return FALLBACK_ADDRESS;
-  const cachedFailure = getCachedFailure(key);
+  const cachedFailure = force ? null : getCachedFailure(key);
   if (cachedFailure) return cachedFailure;
-  const cached = getCachedReverse(lat, lng);
+  const cached = force ? null : getCachedReverse(lat, lng);
   if (cached) return cached;
   if (inFlight.has(key)) return inFlight.get(key);
 
@@ -183,12 +183,20 @@ export async function reverseGeocode(lat, lng, { signal } = {}) {
       if (authorization) headers.set("Authorization", authorization);
 
       const response = await fetchWithRetry(() => fetch(url, { credentials: "include", headers, signal }), { signal });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (_error) {
+        payload = null;
+      }
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
+        error.payload = payload;
+        console.warn("Reverse geocode API falhou", { status: response.status, payload });
         throw error;
       }
-      return response.json();
+      return payload;
     };
 
     const resolveFromPublic = async () => {
@@ -205,12 +213,20 @@ export async function reverseGeocode(lat, lng, { signal } = {}) {
         () => fetch(url.toString(), { headers: { Accept: "application/json" }, signal }),
         { signal },
       );
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (_error) {
+        payload = null;
+      }
       if (!response.ok) {
         const error = new Error(`Reverse geocode HTTP ${response.status}`);
         error.status = response.status;
+        error.payload = payload;
+        console.warn("Reverse geocode público falhou", { status: response.status, payload });
         throw error;
       }
-      return response.json();
+      return payload;
     };
 
     const runWithRateLimit = (fn) => {

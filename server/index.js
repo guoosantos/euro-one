@@ -44,6 +44,10 @@ async function bootstrap() {
     import("./config.js"),
   ]);
 
+  if (!config.osrm?.baseUrl) {
+    console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
+  }
+
   const PORT = Number(process.env.PORT) || 3001;
   const server = http.createServer(app);
   const liveSockets = new Map();

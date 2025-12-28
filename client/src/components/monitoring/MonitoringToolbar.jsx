@@ -1,15 +1,10 @@
 import React from "react";
 import { useTranslation } from "../../lib/i18n.js";
+import LocationSearch from "../map/LocationSearch.jsx";
 
 // --- ÍCONES SVG (Para não depender de bibliotecas externas) ---
 const SearchIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
-);
-const LocationIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 10c0 7-9 12-9 12s-9-5-9-12a9 9 0 1 1 18 0z"></path>
-    <circle cx="12" cy="10" r="3"></circle>
-  </svg>
 );
 const ColumnsIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -95,17 +90,17 @@ export default function MonitoringToolbar({
             icon={<SearchIcon />}
           />
 
-          <MonitoringSearchBox
+          <LocationSearch
             value={addressSearchTerm}
-            onChange={onAddressSearchChange}
-            placeholder={t("monitoring.searchRegionPlaceholder")}
+            onChange={(event) => onAddressSearchChange?.(event.target.value ?? event)}
+            onSubmit={() => onAddressSubmit?.(addressSearchTerm)}
             suggestions={addressSuggestions}
             onSelectSuggestion={onSelectAddressSuggestion}
-            icon={<LocationIcon />}
-            isLoading={isSearchingRegion}
-            onSubmit={onAddressSubmit}
-            onClear={onClearAddress}
+            isSearching={isSearchingRegion}
             errorMessage={addressError}
+            placeholder={t("monitoring.searchRegionPlaceholder")}
+            containerClassName="w-full"
+            onClear={onClearAddress}
           />
         </div>
 
