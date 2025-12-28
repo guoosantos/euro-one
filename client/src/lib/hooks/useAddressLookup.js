@@ -38,7 +38,6 @@ export default function useAddressLookup(
   items = [],
   { enabled = true, batchSize = DEFAULT_BATCH_SIZE, getKey, getCoords } = {},
 ) {
-  const list = useMemo(() => (Array.isArray(items) ? items : []), [items]);
   const [addresses, setAddresses] = useState({});
   const [loadingKeys, setLoadingKeys] = useState([]);
   const loadingKeySet = useMemo(() => new Set(loadingKeys), [loadingKeys]);
@@ -46,6 +45,7 @@ export default function useAddressLookup(
   const addressesRef = useRef({});
   const getKeyRef = useRef(getKey);
   const getCoordsRef = useRef(getCoords);
+  const normalizedItemsRef = useRef([]);
   const queueRef = useRef([]);
   const abortControllersRef = useRef(new Map());
   const activeWorkersRef = useRef(0);
@@ -70,6 +70,38 @@ export default function useAddressLookup(
     const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
     return buildCoordKey(Number(lat), Number(lng));
   }, []);
+
+  const normalizedItems = useMemo(() => {
+    const source = Array.isArray(items) ? items : [];
+    const seen = new Set();
+
+    return source
+      .map((item) => {
+        const coords = getCoords ? getCoords(item) : getCoordsRef.current ? getCoordsRef.current(item) : item;
+        const lat = coords?.lat ?? coords?.latitude;
+        const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
+        const key = getKey ? getKey(item) : resolveKey(item);
+        const normalizedLat = Number(lat);
+        const normalizedLng = Number(lng);
+        if (!key || !Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) return null;
+        if (seen.has(key)) return null;
+        seen.add(key);
+        return { key, lat: normalizedLat, lng: normalizedLng };
+      })
+      .filter(Boolean);
+  }, [getCoords, getKey, items, resolveKey]);
+
+  const listSignature = useMemo(
+    () =>
+      normalizedItems
+        .map((entry) => `${entry.key}:${entry.lat.toFixed(6)}:${entry.lng.toFixed(6)}`)
+        .join("|"),
+    [normalizedItems],
+  );
+
+  useEffect(() => {
+    normalizedItemsRef.current = normalizedItems;
+  }, [listSignature, normalizedItems]);
 
   const clearControllers = useCallback(() => {
     abortControllersRef.current.forEach((controller) => controller.abort());
@@ -184,21 +216,7 @@ export default function useAddressLookup(
     clearControllers();
 
     const currentAddresses = addressesRef.current || {};
-    const seenKeys = new Set();
-    const pending = list
-      .map((item) => {
-        const coords = getCoordsRef.current ? getCoordsRef.current(item) : item;
-        const lat = coords?.lat ?? coords?.latitude;
-        const lng = coords?.lng ?? coords?.lon ?? coords?.longitude;
-        const key = resolveKey(item);
-        return { key, lat: Number(lat), lng: Number(lng) };
-      })
-      .filter((entry) => entry.key && Number.isFinite(entry.lat) && Number.isFinite(entry.lng))
-      .filter((entry) => {
-        if (seenKeys.has(entry.key)) return false;
-        seenKeys.add(entry.key);
-        return true;
-      });
+    const pending = normalizedItemsRef.current;
 
     const cachedUpdates = {};
     pending.forEach((entry) => {
@@ -249,7 +267,16 @@ export default function useAddressLookup(
       queueRef.current = [];
       updateLoadingKeys(() => []);
     };
-  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys, updateAddresses, updateLoadingKeys]);
+  }, [
+    batchSize,
+    clearControllers,
+    enabled,
+    launchWorker,
+    listSignature,
+    scheduleLoadingKeys,
+    updateAddresses,
+    updateLoadingKeys,
+  ]);
 
   return { addresses, loadingKeys: loadingKeySet };
 }

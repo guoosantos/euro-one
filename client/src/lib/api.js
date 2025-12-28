@@ -235,6 +235,22 @@ async function request({
     return normalised;
   } catch (error) {
     clearTimeout(timer);
+    const isAborted = error?.name === "AbortError" || error?.message === abortReason?.message;
+    const isNetworkError =
+      !isAborted &&
+      (error?.name === "TypeError" ||
+        error?.code === "ECONNREFUSED" ||
+        error?.message?.includes?.("Failed to fetch") ||
+        error?.message?.includes?.("NetworkError") ||
+        error?.cause === abortReason);
+    if (isNetworkError) {
+      const friendly = new Error(
+        `API indisponível em ${BASE_URL}. Verifique o backend ou a variável VITE_API_BASE_URL.`,
+      );
+      friendly.status = 503;
+      friendly.code = "API_UNREACHABLE";
+      throw friendly;
+    }
     throw error;
   } finally {
     if (signal) {
