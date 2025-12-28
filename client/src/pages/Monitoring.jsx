@@ -360,6 +360,13 @@ export default function Monitoring() {
     setVehicleSelection,
     clearVehicleSelection,
   } = useVehicleSelection({ syncQuery: true });
+  const decoratedRowsRef = useRef([]);
+  const mapViewportRef = useRef(null);
+  const selectionRef = useRef({ vehicleId: null, deviceId: null });
+  const selectedDeviceIdRef = useRef(null);
+  const decoratedRowsRef = useRef([]);
+  const mapViewportRef = useRef(null);
+  const selectionRef = useRef({ vehicleId: null, deviceId: null });
 
   useEffect(() => {
     const filter = searchParams.get("filter");
@@ -498,6 +505,29 @@ export default function Monitoring() {
       // ignore
     }
   }, [mapLayerKey]);
+
+  useEffect(() => {
+    mapViewportRef.current = mapViewport;
+  }, [mapViewport]);
+
+  useEffect(() => {
+    decoratedRowsRef.current = decoratedRows;
+  }, [decoratedRows]);
+
+  useEffect(() => {
+    selectedDeviceIdRef.current = selectedDeviceId;
+  }, [selectedDeviceId]);
+
+  useEffect(() => {
+    selectionRef.current = {
+      vehicleId: globalVehicleId ? String(globalVehicleId) : null,
+      deviceId: globalDeviceId ? String(globalDeviceId) : null,
+    };
+  }, [globalDeviceId, globalVehicleId]);
+
+  useEffect(() => {
+    mapViewportRef.current = mapViewport;
+  }, [mapViewport]);
 
   // --- Lógica de Dados ---
   const normalizedTelemetry = useMemo(() => safeTelemetry
@@ -869,68 +899,74 @@ export default function Monitoring() {
     setDetailsDeviceId(deviceId);
   }, []);
 
-  const focusDevice = useCallback((deviceId, { openDetails = false, allowToggle = true } = {}) => {
-    if (!deviceId) return;
-    const isAlreadySelected = selectedDeviceId === deviceId;
+  const focusDevice = useCallback(
+    (deviceId, { openDetails = false, allowToggle = true } = {}) => {
+      if (!deviceId) return;
+      const isAlreadySelected = selectedDeviceIdRef.current === deviceId;
 
-    if (isAlreadySelected && allowToggle) {
-      setSelectedDeviceId(null);
-      setFocusTarget(null);
-      setDetailsDeviceId((prev) => (openDetails ? null : prev));
-      clearVehicleSelection();
-      return;
-    }
-
-    setSelectedDeviceId(deviceId);
-    const targetRow = decoratedRows.find((item) => item.deviceId === deviceId);
-    if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
-      const currentCenter = Array.isArray(mapViewport?.center) ? mapViewport.center : null;
-      const currentZoom = Number.isFinite(mapViewport?.zoom) ? mapViewport.zoom : null;
-      const distanceToCurrent = currentCenter
-        ? distanceKm(targetRow.lat, targetRow.lng, currentCenter[0], currentCenter[1]) * 1000
-        : null;
-      const alreadyFocused =
-        isAlreadySelected &&
-        distanceToCurrent !== null &&
-        distanceToCurrent < 50 &&
-        (currentZoom ?? 0) >= DEVICE_FOCUS_ZOOM - 1;
-
-      if (!alreadyFocused) {
-        const focus = {
-          center: [targetRow.lat, targetRow.lng],
-          zoom: DEVICE_FOCUS_ZOOM,
-          key: `device-${deviceId}-${Date.now()}`,
-        };
-        setFocusTarget(focus);
-        setMapViewport(focus);
+      if (isAlreadySelected && allowToggle) {
+        setSelectedDeviceId(null);
+        setFocusTarget(null);
+        setDetailsDeviceId((prev) => (openDetails ? null : prev));
+        clearVehicleSelection();
+        selectionRef.current = { vehicleId: null, deviceId: null };
+        return;
       }
-    }
-    if (openDetails) openDetailsFor(deviceId);
-    const targetVehicleId =
-      targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
-    const normalizedVehicleId = targetVehicleId ? String(targetVehicleId) : null;
-    const normalizedDeviceId = deviceId ? String(deviceId) : null;
-    const currentVehicleId = globalVehicleId ? String(globalVehicleId) : null;
-    const currentDeviceId = globalDeviceId ? String(globalDeviceId) : null;
-    if (normalizedVehicleId !== currentVehicleId || normalizedDeviceId !== currentDeviceId) {
-      setVehicleSelection(normalizedVehicleId, normalizedDeviceId);
-    }
-  }, [decoratedRows, globalDeviceId, globalVehicleId, mapViewport, openDetailsFor, selectedDeviceId, setVehicleSelection]);
+
+      setSelectedDeviceId((prev) => (prev === deviceId ? prev : deviceId));
+      const targetRow = decoratedRowsRef.current.find((item) => item.deviceId === deviceId);
+      if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
+        const currentViewport = mapViewportRef.current;
+        const currentCenter = Array.isArray(currentViewport?.center) ? currentViewport.center : null;
+        const currentZoom = Number.isFinite(currentViewport?.zoom) ? currentViewport.zoom : null;
+        const distanceToCurrent = currentCenter
+          ? distanceKm(targetRow.lat, targetRow.lng, currentCenter[0], currentCenter[1]) * 1000
+          : null;
+        const alreadyFocused =
+          isAlreadySelected &&
+          distanceToCurrent !== null &&
+          distanceToCurrent < 50 &&
+          (currentZoom ?? 0) >= DEVICE_FOCUS_ZOOM - 1;
+
+        if (!alreadyFocused) {
+          const focus = {
+            center: [targetRow.lat, targetRow.lng],
+            zoom: DEVICE_FOCUS_ZOOM,
+            key: `device-${deviceId}-${Date.now()}`,
+          };
+          setFocusTarget(focus);
+          setMapViewport(focus);
+          mapViewportRef.current = focus;
+        }
+      }
+      if (openDetails) openDetailsFor(deviceId);
+      const targetVehicleId =
+        targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
+      const normalizedVehicleId = targetVehicleId ? String(targetVehicleId) : null;
+      const normalizedDeviceId = deviceId ? String(deviceId) : null;
+      const currentVehicleId = selectionRef.current.vehicleId;
+      const currentDeviceId = selectionRef.current.deviceId;
+      if (normalizedVehicleId !== currentVehicleId || normalizedDeviceId !== currentDeviceId) {
+        selectionRef.current = { vehicleId: normalizedVehicleId, deviceId: normalizedDeviceId };
+        setVehicleSelection(normalizedVehicleId, normalizedDeviceId);
+      }
+    },
+    [clearVehicleSelection, openDetailsFor, setVehicleSelection],
+  );
 
   useEffect(() => {
     if (!globalDeviceId && !globalVehicleId) return;
+    const rowsSource = decoratedRowsRef.current || [];
     const target =
-      decoratedRows.find((row) => row.deviceId === globalDeviceId) ||
-      decoratedRows.find((row) => {
+      rowsSource.find((row) => row.deviceId === globalDeviceId) ||
+      rowsSource.find((row) => {
         const vehicleId = row.device?.vehicleId ?? row.device?.vehicle?.id ?? row.vehicle?.id;
         return vehicleId && globalVehicleId && String(vehicleId) === String(globalVehicleId);
       });
-    if (target) {
-      if (target.deviceId !== selectedDeviceId) {
-        focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
-      }
+    if (target && target.deviceId !== selectedDeviceIdRef.current) {
+      focusDevice(target.deviceId, { openDetails: false, allowToggle: false });
     }
-  }, [decoratedRows, focusDevice, globalDeviceId, globalVehicleId, selectedDeviceId]);
+  }, [focusDevice, globalDeviceId, globalVehicleId]);
 
   useEffect(() => {
     if (!isDetailsOpen) return undefined;
@@ -1247,6 +1283,7 @@ export default function Monitoring() {
     setDetailsDeviceId(null);
     setFocusTarget(null);
     clearVehicleSelection();
+    selectionRef.current = { vehicleId: null, deviceId: null };
   }, [clearVehicleSelection]);
 
   useEffect(() => {
