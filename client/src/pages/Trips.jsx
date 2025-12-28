@@ -42,6 +42,9 @@ const MAP_LAYER_STORAGE_KEY = MAP_LAYER_STORAGE_KEYS.trips;
 const MAX_INTERPOLATION_METERS = 120;
 const EVENT_OFFSET_METERS = 70;
 const REPLAY_SLIDER_RESOLUTION = 1000;
+const MAP_MATCH_MAX_POINTS = 240;
+const MAP_MATCH_CHUNK_SIZE = 90;
+const MAP_MATCH_PROFILE = "driving";
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição registrada",
@@ -917,11 +920,12 @@ export default function Trips() {
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
-  const [mapMatchingEnabled, setMapMatchingEnabled] = useState(false);
+  const [mapMatchingEnabled, setMapMatchingEnabled] = useState(true);
   const [mapMatchingLoading, setMapMatchingLoading] = useState(false);
   const [mapMatchingError, setMapMatchingError] = useState(null);
   const [mapMatchedPath, setMapMatchedPath] = useState(null);
   const [mapMatchingResult, setMapMatchingResult] = useState(null);
+  const [mapMatchingNotice, setMapMatchingNotice] = useState(null);
   const mapMatchingCacheRef = useRef(new Map());
   const lastAvailableColumnsRef = useRef("");
   const initialisedRef = useRef(false);
@@ -1089,6 +1093,20 @@ export default function Trips() {
     [mapMatchingEnabled, matchedRoutePoints, rawRoutePoints],
   );
 
+  const applyMapMatchingResult = useCallback((result) => {
+    const normalized = normalizeMapMatchingResponse(result);
+    const provider = normalized?.provider || normalized?.data?.provider || null;
+    const geometry = normalized?.geometry || [];
+    const shouldUseGeometry = provider === "osrm" && geometry.length >= 2;
+    setMapMatchingResult(normalized);
+    setMapMatchedPath(shouldUseGeometry ? geometry : null);
+    setMapMatchingNotice(provider === "passthrough" ? "Map matching desativado (configure OSRM_BASE_URL)." : null);
+    if (shouldUseGeometry || provider === "passthrough") {
+      setMapMatchingError(null);
+    }
+    return normalized;
+  }, []);
+
   const mapMatchingCacheKey = useMemo(() => {
     if (!mapMatchingEnabled) return null;
     const tripKey = selectedTrip?.id || selectedTrip?.startTime || playbackBoundsRef.current?.start || "";
@@ -1112,16 +1130,15 @@ export default function Trips() {
       setMapMatchedPath(null);
       setMapMatchingResult(null);
       setMapMatchingError(null);
+      setMapMatchingNotice(null);
       setMapMatchingLoading(false);
       return;
     }
     if (!rawRoutePoints.length) return;
     const cacheKey = mapMatchingCacheKey;
     if (cacheKey && mapMatchingCacheRef.current.has(cacheKey)) {
-      const cached = mapMatchingCacheRef.current.get(cacheKey);
-      setMapMatchingResult(cached);
-      setMapMatchedPath(cached.geometry || cached.path || null);
-      setMapMatchingError(null);
+      const cached = applyMapMatchingResult(mapMatchingCacheRef.current.get(cacheKey));
+      mapMatchingCacheRef.current.set(cacheKey, cached);
       return;
     }
 
@@ -1134,7 +1151,7 @@ export default function Trips() {
           originalIndex: index,
         }))
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
-      { maxPoints: 200, minDistanceMeters: 10 },
+      { maxPoints: MAP_MATCH_MAX_POINTS, minDistanceMeters: 10 },
     );
     if (sampled.length < 2) {
       return;
@@ -1146,7 +1163,13 @@ export default function Trips() {
     safeApi
       .post(
         API_ROUTES.mapMatching,
-        { points: sampled, cacheKey },
+        {
+          points: sampled,
+          cacheKey,
+          maxPoints: MAP_MATCH_MAX_POINTS,
+          chunkSize: MAP_MATCH_CHUNK_SIZE,
+          profile: MAP_MATCH_PROFILE,
+        },
         { timeout: 25_000, signal: abortController.signal },
       )
       .then(({ data, error }) => {
@@ -1154,13 +1177,14 @@ export default function Trips() {
         if (error) {
           throw error;
         }
-        const normalized = normalizeMapMatchingResponse(data);
+        const normalized = applyMapMatchingResult(data);
         mapMatchingCacheRef.current.set(cacheKey || `anon:${Date.now()}`, normalized);
-        setMapMatchingResult(normalized);
-        setMapMatchedPath(normalized.geometry || null);
       })
       .catch((error) => {
         if (abortController.signal.aborted) return;
+        setMapMatchedPath(null);
+        setMapMatchingResult(null);
+        setMapMatchingNotice(null);
         setMapMatchingError(
           error?.message || "Não foi possível ajustar a rota pelas ruas. Continuando com a rota original.",
         );
@@ -1172,7 +1196,7 @@ export default function Trips() {
       });
 
     return () => abortController.abort();
-  }, [mapMatchingCacheKey, mapMatchingEnabled, rawRoutePoints]);
+  }, [applyMapMatchingResult, mapMatchingCacheKey, mapMatchingEnabled, rawRoutePoints]);
 
   useEffect(() => {
     playbackBoundsRef.current = playbackBounds;
@@ -1270,8 +1294,8 @@ export default function Trips() {
   );
 
   const shouldLookupAddresses = useMemo(
-    () => selectedColumns.includes("address") && timelineEntries.length > 0,
-    [selectedColumns, timelineEntries.length],
+    () => selectedColumns.includes("address") && timelineEntries.length > 0 && !isPlaying,
+    [isPlaying, selectedColumns, timelineEntries.length],
   );
   const formatFallbackAddress = useCallback((lat, lng) => {
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
@@ -2358,12 +2382,16 @@ export default function Trips() {
                       setMapMatchingEnabled(event.target.checked);
                       if (!event.target.checked) {
                         setMapMatchingError(null);
+                        setMapMatchingNotice(null);
                       }
                     }}
                   />
                   <span>Rota por ruas (Map Matching)</span>
                   {mapMatchingLoading ? <span className="text-primary">⋯</span> : null}
                 </label>
+                {mapMatchingNotice ? (
+                  <span className="text-[11px] text-amber-200">{mapMatchingNotice}</span>
+                ) : null}
               </div>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
