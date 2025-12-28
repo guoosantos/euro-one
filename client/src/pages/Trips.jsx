@@ -13,6 +13,8 @@ import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
+import safeApi from "../lib/safe-api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -223,6 +225,60 @@ function offsetPoint(point, bearing, distanceMeters = EVENT_OFFSET_METERS) {
   return { lat: (nextLat * 180) / Math.PI, lng: ((nextLng * 180) / Math.PI + 540) % 360 - 180 };
 }
 
+function normalizeMapMatchingResponse(payload) {
+  const base = payload?.data ?? payload ?? {};
+  const geometry = Array.isArray(base.geometry)
+    ? base.geometry
+    : Array.isArray(base.path)
+      ? base.path
+      : Array.isArray(base.coordinates)
+        ? base.coordinates
+        : [];
+  const normalizedGeometry = geometry
+    .map((point) => {
+      const lat = toFiniteNumber(point?.lat ?? point?.latitude ?? point?.[1]);
+      const lng = toFiniteNumber(point?.lng ?? point?.lon ?? point?.longitude ?? point?.[0]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { lat, lng };
+    })
+    .filter(Boolean);
+
+  const tracepoints = Array.isArray(base.tracepoints) ? base.tracepoints.filter(Boolean) : [];
+  return { ...base, geometry: normalizedGeometry, tracepoints };
+}
+
+function sampleRouteForMatching(points = [], { maxPoints = 240, minDistanceMeters = 12 } = {}) {
+  if (!Array.isArray(points) || points.length <= maxPoints) {
+    return points.filter(Boolean);
+  }
+  const sampled = [];
+  let lastKept = null;
+
+  points.forEach((point, index) => {
+    if (!point) return;
+    if (sampled.length === 0 || index === points.length - 1) {
+      sampled.push(point);
+      lastKept = point;
+      return;
+    }
+    const distance = haversineDistance(
+      { lat: lastKept?.lat, lng: lastKept?.lng },
+      { lat: point.lat, lng: point.lng },
+    );
+    if (!Number.isFinite(distance) || distance >= minDistanceMeters) {
+      sampled.push(point);
+      lastKept = point;
+    }
+  });
+
+  if (sampled.length > maxPoints) {
+    const step = Math.ceil(sampled.length / maxPoints);
+    return sampled.filter((_, idx) => idx % step === 0 || idx === sampled.length - 1);
+  }
+
+  return sampled;
+}
+
 function smoothRoute(points) {
   if (!Array.isArray(points)) return [];
   const validPoints = points.filter((point) => Number.isFinite(point?.lat) && Number.isFinite(point?.lng));
@@ -384,8 +440,9 @@ function ReplayMap({
   points = [],
   activeIndex,
   animatedPoint,
+  animatedLivePointRef,
   mapLayer,
-  smoothedPath,
+  pathToRender,
   focusMode,
   isPlaying,
   manualCenter,
@@ -404,9 +461,9 @@ function ReplayMap({
   );
 
   const positions = useMemo(() => {
-    const basePath = smoothedPath?.length ? smoothedPath : routePoints;
+    const basePath = pathToRender?.length ? pathToRender : routePoints;
     return basePath.filter((point) => isValidLatLng(point.lat, point.lng)).map((point) => [point.lat, point.lng]);
-  }, [routePoints, smoothedPath]);
+  }, [pathToRender, routePoints]);
 
   const activePoint = routePoints[activeIndex] || routePoints[0] || null;
   const ignitionColor = useMemo(() => {
@@ -440,6 +497,29 @@ function ReplayMap({
       selectedVehicle?.vehicleType,
     ],
   );
+  const markerRef = useRef(null);
+  const markerAnimationRef = useRef(null);
+
+  useEffect(() => {
+    if (!animatedLivePointRef) return undefined;
+    let cancelled = false;
+
+    const animate = () => {
+      if (cancelled) return;
+      const next = animatedLivePointRef.current;
+      if (next && markerRef.current?.setLatLng) {
+        markerRef.current.setLatLng([next.lat, next.lng]);
+      }
+      markerAnimationRef.current = requestAnimationFrame(animate);
+    };
+
+    markerAnimationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      cancelled = true;
+      if (markerAnimationRef.current) cancelAnimationFrame(markerAnimationRef.current);
+    };
+  }, [animatedLivePointRef]);
   const tileLayer = mapLayer || MAP_LAYER_FALLBACK;
   const resolvedSubdomains = tileLayer.subdomains ?? "abc";
   const resolvedMaxZoom = Number.isFinite(tileLayer.maxZoom) ? tileLayer.maxZoom : 19;
@@ -483,7 +563,7 @@ function ReplayMap({
           maxZoom={resolvedMaxZoom}
         />
         {positions.length ? <Polyline positions={positions} color="#22c55e" weight={5} opacity={0.7} /> : null}
-        {animatedMarkerPosition ? <Marker position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
+        {animatedMarkerPosition ? <Marker ref={markerRef} position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
         <MapFocus point={activePoint} />
         <ReplayFollower point={normalizedAnimatedPoint} heading={animatedPoint?.heading} enabled={focusMode === "map" && isPlaying} />
         <ManualCenter target={manualCenter} />
@@ -837,6 +917,12 @@ export default function Trips() {
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
   const [manualCenter, setManualCenter] = useState(null);
   const [selectedColumns, setSelectedColumns] = useState(() => loadStoredColumns() || DEFAULT_COLUMN_PRESET);
+  const [mapMatchingEnabled, setMapMatchingEnabled] = useState(false);
+  const [mapMatchingLoading, setMapMatchingLoading] = useState(false);
+  const [mapMatchingError, setMapMatchingError] = useState(null);
+  const [mapMatchedPath, setMapMatchedPath] = useState(null);
+  const [mapMatchingResult, setMapMatchingResult] = useState(null);
+  const mapMatchingCacheRef = useRef(new Map());
   const lastAvailableColumnsRef = useRef("");
   const initialisedRef = useRef(false);
   const autoGenerateRef = useRef(false);
@@ -850,6 +936,9 @@ export default function Trips() {
   const rafRef = useRef(null);
   const lastFrameRef = useRef(null);
   const debugLogRef = useRef(0);
+  const animatedLivePointRef = useRef(null);
+  const playbackUiUpdateRef = useRef(0);
+  const animatedUiUpdateRef = useRef(0);
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
 
@@ -869,7 +958,7 @@ export default function Trips() {
     [data],
   );
 
-  const routePoints = useMemo(() => {
+  const rawRoutePoints = useMemo(() => {
     const positions = Array.isArray(routeData?.positions)
       ? routeData.positions
       : Array.isArray(routeData?.data)
@@ -974,6 +1063,40 @@ export default function Trips() {
     });
   }, [locale, routeData, t]);
 
+  const matchedRoutePoints = useMemo(() => {
+    if (!mapMatchingEnabled) return null;
+    const tracepoints = mapMatchingResult?.tracepoints || mapMatchingResult?.data?.tracepoints;
+    if (!Array.isArray(tracepoints) || !tracepoints.length) return null;
+    const matchByIndex = new Map();
+    tracepoints.forEach((item) => {
+      const idx = Number(item?.originalIndex);
+      if (!Number.isInteger(idx)) return;
+      const lat = toFiniteNumber(item?.lat ?? item?.latitude);
+      const lng = toFiniteNumber(item?.lng ?? item?.lon ?? item?.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      matchByIndex.set(idx, { lat, lng });
+    });
+    if (!matchByIndex.size) return null;
+    return rawRoutePoints.map((point, index) => {
+      const matched = matchByIndex.get(index);
+      if (!matched) return point;
+      return { ...point, lat: matched.lat, lng: matched.lng, __matched: true };
+    });
+  }, [mapMatchingEnabled, mapMatchingResult?.data?.tracepoints, mapMatchingResult?.tracepoints, rawRoutePoints]);
+
+  const routePoints = useMemo(
+    () => (mapMatchingEnabled && matchedRoutePoints ? matchedRoutePoints : rawRoutePoints),
+    [mapMatchingEnabled, matchedRoutePoints, rawRoutePoints],
+  );
+
+  const mapMatchingCacheKey = useMemo(() => {
+    if (!mapMatchingEnabled) return null;
+    const tripKey = selectedTrip?.id || selectedTrip?.startTime || playbackBoundsRef.current?.start || "";
+    const deviceKey = deviceId || vehicleId || "unknown";
+    if (!tripKey && !rawRoutePoints.length) return null;
+    return `${deviceKey}:${tripKey}:${rawRoutePoints.length}:${rawRoutePoints[0]?.t || 0}:${rawRoutePoints[rawRoutePoints.length - 1]?.t || 0}`;
+  }, [deviceId, mapMatchingEnabled, rawRoutePoints, selectedTrip?.id, selectedTrip?.startTime, vehicleId]);
+
   const playbackBounds = useMemo(() => {
     if (!routePoints.length) return { start: 0, end: 0 };
     return { start: routePoints[0].t || 0, end: routePoints[routePoints.length - 1].t || 0 };
@@ -983,6 +1106,73 @@ export default function Trips() {
     routePointsRef.current = routePoints;
     routeTimesRef.current = routePoints.map((point) => point.t || 0);
   }, [routePoints]);
+
+  useEffect(() => {
+    if (!mapMatchingEnabled) {
+      setMapMatchedPath(null);
+      setMapMatchingResult(null);
+      setMapMatchingError(null);
+      setMapMatchingLoading(false);
+      return;
+    }
+    if (!rawRoutePoints.length) return;
+    const cacheKey = mapMatchingCacheKey;
+    if (cacheKey && mapMatchingCacheRef.current.has(cacheKey)) {
+      const cached = mapMatchingCacheRef.current.get(cacheKey);
+      setMapMatchingResult(cached);
+      setMapMatchedPath(cached.geometry || cached.path || null);
+      setMapMatchingError(null);
+      return;
+    }
+
+    const sampled = sampleRouteForMatching(
+      rawRoutePoints
+        .map((point, index) => ({
+          lat: point.lat,
+          lng: point.lng,
+          timestamp: point.t,
+          originalIndex: index,
+        }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
+      { maxPoints: 200, minDistanceMeters: 10 },
+    );
+    if (sampled.length < 2) {
+      return;
+    }
+
+    const abortController = new AbortController();
+    setMapMatchingLoading(true);
+    setMapMatchingError(null);
+    safeApi
+      .post(
+        API_ROUTES.mapMatching,
+        { points: sampled, cacheKey },
+        { timeout: 25_000, signal: abortController.signal },
+      )
+      .then(({ data, error }) => {
+        if (abortController.signal.aborted) return;
+        if (error) {
+          throw error;
+        }
+        const normalized = normalizeMapMatchingResponse(data);
+        mapMatchingCacheRef.current.set(cacheKey || `anon:${Date.now()}`, normalized);
+        setMapMatchingResult(normalized);
+        setMapMatchedPath(normalized.geometry || null);
+      })
+      .catch((error) => {
+        if (abortController.signal.aborted) return;
+        setMapMatchingError(
+          error?.message || "Não foi possível ajustar a rota pelas ruas. Continuando com a rota original.",
+        );
+      })
+      .finally(() => {
+        if (!abortController.signal.aborted) {
+          setMapMatchingLoading(false);
+        }
+      });
+
+    return () => abortController.abort();
+  }, [mapMatchingCacheKey, mapMatchingEnabled, rawRoutePoints]);
 
   useEffect(() => {
     playbackBoundsRef.current = playbackBounds;
@@ -1001,12 +1191,23 @@ export default function Trips() {
     if (!isPlaying && Number.isFinite(targetTime)) {
       playbackTimeRef.current = targetTime;
       setPlaybackTimeMs((prev) => (prev === targetTime ? prev : targetTime));
+      const current = routePoints[activeIndex];
+      const next = routePoints[Math.min(activeIndex + 1, routePoints.length - 1)] || current;
+      const previous = routePoints[Math.max(activeIndex - 1, 0)] || current;
+      const heading = computeHeading(current, next !== current ? next : previous);
+      animatedLivePointRef.current = current
+        ? { lat: current.lat, lng: current.lng, heading, t: targetTime }
+        : animatedLivePointRef.current;
     }
-  }, [activeIndex, isPlaying, routePoints]);
+  }, [activeIndex, animatedLivePointRef, isPlaying, routePoints]);
 
   const activePoint = useMemo(() => routePoints[activeIndex] || routePoints[0] || null, [activeIndex, routePoints]);
   const smoothedRoute = useMemo(() => smoothRoute(routePoints), [routePoints]);
   const smoothedPath = useMemo(() => densifyPath(smoothedRoute), [smoothedRoute]);
+  const pathToRender = useMemo(
+    () => (mapMatchingEnabled && mapMatchedPath?.length ? mapMatchedPath : smoothedPath),
+    [mapMatchedPath, mapMatchingEnabled, smoothedPath],
+  );
   const mapLayer = useMemo(
     () => ENABLED_MAP_LAYERS.find((item) => item.key === mapLayerKey) || MAP_LAYER_FALLBACK,
     [mapLayerKey],
@@ -1594,6 +1795,7 @@ export default function Trips() {
       const resolvedTime = current.t || 0;
       playbackTimeRef.current = resolvedTime;
       setPlaybackTimeMs(resolvedTime);
+      animatedLivePointRef.current = { lat: current.lat, lng: current.lng, heading, t: resolvedTime };
       setAnimatedPoint((prev) => {
         if (prev && prev.lat === current.lat && prev.lng === current.lng && prev.heading === heading) return prev;
         return { lat: current.lat, lng: current.lng, heading, t: resolvedTime };
@@ -1610,14 +1812,20 @@ export default function Trips() {
     const start = bounds.start || 0;
     const end = bounds.end || start;
     const clampedTime = clamp(nextTimeMs, start, end);
+    const now = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
     playbackTimeRef.current = clampedTime;
-    setPlaybackTimeMs(clampedTime);
+    if (now - playbackUiUpdateRef.current >= 140) {
+      playbackUiUpdateRef.current = now;
+      setPlaybackTimeMs(clampedTime);
+    }
 
     if (times.length <= 1) {
       activeIndexRef.current = 0;
       setActiveIndex(0);
       const first = points[0];
-      setAnimatedPoint({ lat: first.lat, lng: first.lng, heading: 0, t: clampedTime });
+      const nextPoint = { lat: first.lat, lng: first.lng, heading: 0, t: clampedTime };
+      animatedLivePointRef.current = nextPoint;
+      setAnimatedPoint(nextPoint);
       return;
     }
 
@@ -1636,12 +1844,17 @@ export default function Trips() {
       setActiveIndex(baseIndex);
     }
 
-    setAnimatedPoint((prev) => {
-      if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading && prev.t === clampedTime) {
-        return prev;
-      }
-      return { lat, lng, heading, t: clampedTime };
-    });
+    const nextPoint = { lat, lng, heading, t: clampedTime };
+    animatedLivePointRef.current = nextPoint;
+    if (now - animatedUiUpdateRef.current >= 140) {
+      animatedUiUpdateRef.current = now;
+      setAnimatedPoint((prev) => {
+        if (prev && prev.lat === lat && prev.lng === lng && prev.heading === heading && prev.t === clampedTime) {
+          return prev;
+        }
+        return nextPoint;
+      });
+    }
   }, []);
 
   const updateAnimatedStateRef = useRef(updateAnimatedState);
@@ -2134,6 +2347,26 @@ export default function Trips() {
               </select>
             </div>
             <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
+              <div className="flex flex-col leading-tight">
+                <span className="text-white/50">Rota</span>
+                <label className="flex items-center gap-2 text-xs text-white/80">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-white/20 bg-transparent"
+                    checked={mapMatchingEnabled}
+                    onChange={(event) => {
+                      setMapMatchingEnabled(event.target.checked);
+                      if (!event.target.checked) {
+                        setMapMatchingError(null);
+                      }
+                    }}
+                  />
+                  <span>Rota por ruas (Map Matching)</span>
+                  {mapMatchingLoading ? <span className="text-primary">⋯</span> : null}
+                </label>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80">
               <span className="text-white/50">Foco</span>
               <div className="flex overflow-hidden rounded-md border border-white/10">
                 {[
@@ -2198,6 +2431,11 @@ export default function Trips() {
             {routeError.message}
           </div>
         )}
+        {mapMatchingError && (
+          <div className="mt-3 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3 text-xs text-yellow-100">
+            {mapMatchingError}
+          </div>
+        )}
 
         {totalPoints ? (
           <>
@@ -2206,8 +2444,9 @@ export default function Trips() {
                 points={routePoints}
                 activeIndex={activeIndex}
                 animatedPoint={animatedPoint}
+                animatedLivePointRef={animatedLivePointRef}
                 mapLayer={mapLayer}
-                smoothedPath={smoothedPath}
+                pathToRender={pathToRender}
                 focusMode={focusMode}
                 isPlaying={isPlaying}
                 manualCenter={manualCenter}

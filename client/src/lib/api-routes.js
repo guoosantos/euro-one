@@ -71,6 +71,7 @@ export const API_ROUTES = {
       summary: "traccar/reports/summary",
     },
   },
+  mapMatching: "map-matching",
   tracker: {
     devices: "tracker/devices",
     mappings: "tracker/mappings",
