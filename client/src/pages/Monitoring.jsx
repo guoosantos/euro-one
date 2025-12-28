@@ -364,9 +364,6 @@ export default function Monitoring() {
   const mapViewportRef = useRef(null);
   const selectionRef = useRef({ vehicleId: null, deviceId: null });
   const selectedDeviceIdRef = useRef(null);
-  const decoratedRowsRef = useRef([]);
-  const mapViewportRef = useRef(null);
-  const selectionRef = useRef({ vehicleId: null, deviceId: null });
 
   useEffect(() => {
     const filter = searchParams.get("filter");
