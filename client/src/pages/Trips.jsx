@@ -27,6 +27,7 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
+import AddressStatus from "../ui/AddressStatus.jsx";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -48,7 +49,7 @@ const MAP_MATCH_PROFILE = "driving";
 const LOGICAL_ROUTE_PROFILE = "driving";
 const ROUTE_COLOR = "#2563eb";
 const ROUTE_OPACITY = 0.85;
-const ROUTE_WEIGHT = 7;
+const ROUTE_WEIGHT = 8;
 
 const TRIP_EVENT_TRANSLATIONS = {
   "position registered": "Posição registrada",
@@ -209,6 +210,12 @@ function computeHeading(from, to) {
   return (bearing + 360) % 360;
 }
 
+function bearingDelta(a, b) {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 0;
+  const diff = Math.abs(a - b) % 360;
+  return diff > 180 ? 360 - diff : diff;
+}
+
 function offsetPoint(point, bearing, distanceMeters = EVENT_OFFSET_METERS) {
   if (!point || !Number.isFinite(point.lat) || !Number.isFinite(point.lng)) return null;
   const heading = Number.isFinite(bearing) ? bearing : 0;
@@ -278,36 +285,74 @@ function normalizeMapRouteResponse(payload) {
   return { ...base, geometry: normalizedGeometry, provider, distance, duration };
 }
 
-function sampleRouteForMatching(points = [], { maxPoints = 240, minDistanceMeters = 12 } = {}) {
-  if (!Array.isArray(points) || points.length <= maxPoints) {
-    return points.filter(Boolean);
+function sampleRouteForMatching(
+  points = [],
+  { maxPoints = 240, minDistanceMeters = 20, bearingDeltaThreshold = 35 } = {},
+) {
+  if (!Array.isArray(points) || points.length === 0) {
+    return [];
   }
+
   const sampled = [];
+  const priorityIndexes = new Set();
   let lastKept = null;
+  let lastBearing = null;
 
   points.forEach((point, index) => {
     if (!point) return;
-    if (sampled.length === 0 || index === points.length - 1) {
-      sampled.push(point);
-      lastKept = point;
-      return;
+    const isFirst = index === 0;
+    const isLast = index === points.length - 1;
+    const hasEvent =
+      Boolean(point.eventKey) ||
+      (typeof point.ignition === "boolean" && point.ignition !== lastKept?.ignition) ||
+      (typeof point.motion === "boolean" && point.motion !== lastKept?.motion);
+    let keep = isFirst || isLast || hasEvent;
+
+    if (!keep && lastKept) {
+      const distance = haversineDistance(
+        { lat: lastKept?.lat, lng: lastKept?.lng },
+        { lat: point.lat, lng: point.lng },
+      );
+      if (!Number.isFinite(distance) || distance >= minDistanceMeters) {
+        keep = true;
+      }
     }
-    const distance = haversineDistance(
-      { lat: lastKept?.lat, lng: lastKept?.lng },
-      { lat: point.lat, lng: point.lng },
-    );
-    if (!Number.isFinite(distance) || distance >= minDistanceMeters) {
+
+    if (!keep && lastKept) {
+      const bearing = computeHeading(lastKept, point);
+      if (bearingDelta(lastBearing ?? bearing, bearing) >= bearingDeltaThreshold) {
+        keep = true;
+      }
+    }
+
+    if (keep) {
       sampled.push(point);
+      if (hasEvent) priorityIndexes.add(sampled.length - 1);
+      const referenceBearing = Number.isFinite(point.heading)
+        ? point.heading
+        : lastKept
+          ? computeHeading(lastKept, point)
+          : null;
+      if (Number.isFinite(referenceBearing)) {
+        lastBearing = referenceBearing;
+      }
       lastKept = point;
     }
   });
 
-  if (sampled.length > maxPoints) {
-    const step = Math.ceil(sampled.length / maxPoints);
-    return sampled.filter((_, idx) => idx % step === 0 || idx === sampled.length - 1);
-  }
+  if (sampled.length <= maxPoints) return sampled;
 
-  return sampled;
+  const keepIndexes = new Set([0, sampled.length - 1, ...priorityIndexes]);
+  const remaining = sampled.map((_, idx) => idx).filter((idx) => !keepIndexes.has(idx));
+  const available = Math.max(0, maxPoints - keepIndexes.size);
+  const step = Math.max(1, Math.ceil(remaining.length / Math.max(1, available)));
+  remaining.forEach((idx, index) => {
+    if (keepIndexes.size < maxPoints && index % step === 0) {
+      keepIndexes.add(idx);
+    }
+  });
+
+  return sampled.filter((_point, index) => keepIndexes.has(index));
 }
 
 function smoothRoute(points) {
@@ -775,8 +820,22 @@ function ReplayMap({
         />
         {positions.length ? (
           <>
-            <Polyline positions={positions} color="#0b1f42" weight={ROUTE_WEIGHT + 4} opacity={0.24} />
-            <Polyline positions={positions} color={ROUTE_COLOR} weight={ROUTE_WEIGHT} opacity={ROUTE_OPACITY} />
+            <Polyline
+              positions={positions}
+              color="#1e40af"
+              weight={ROUTE_WEIGHT + 4}
+              opacity={0.28}
+              lineCap="round"
+              lineJoin="round"
+            />
+            <Polyline
+              positions={positions}
+              color={ROUTE_COLOR}
+              weight={ROUTE_WEIGHT}
+              opacity={ROUTE_OPACITY}
+              lineCap="round"
+              lineJoin="round"
+            />
           </>
         ) : null}
         {animatedMarkerPosition ? <Marker ref={markerRef} position={animatedMarkerPosition} icon={vehicleIcon} /> : null}
@@ -1342,11 +1401,14 @@ export default function Trips() {
     const providerKey = provider ? String(provider).toLowerCase() : null;
     const geometry = normalized?.geometry || [];
     const shouldUseGeometry = providerKey === "osrm" && geometry.length >= 2;
+    const notice = normalized?.notice || normalized?.data?.notice || null;
     setMapMatchingProvider(providerKey);
     setMapMatchingResult(normalized);
     setMapMatchedPath(shouldUseGeometry ? geometry : null);
     if (providerKey === "passthrough") {
-      setMapMatchingNotice("Rota original (provider=passthrough). Configure OSRM_BASE_URL no backend para ajustar às ruas.");
+      setMapMatchingNotice(
+        notice || "OSRM não configurado -> sem map matching. Configure OSRM_BASE_URL no backend.",
+      );
     } else if (providerKey === "osrm") {
       setMapMatchingNotice("Rota ajustada via OSRM (provider=osrm).");
     } else if (providerKey) {
@@ -1426,9 +1488,13 @@ export default function Trips() {
           lng: point.lng,
           timestamp: point.t,
           originalIndex: index,
+          heading: point.__heading,
+          ignition: point.__ignition,
+          motion: point.__motion,
+          eventKey: point.__event?.label || point.__event?.type || point.__event?.key || point.__event?.name,
         }))
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)),
-      { maxPoints: MAP_MATCH_MAX_POINTS, minDistanceMeters: 10 },
+      { maxPoints: MAP_MATCH_MAX_POINTS, minDistanceMeters: 20, bearingDeltaThreshold: 35 },
     );
     if (sampled.length < 2) {
       return;
@@ -1446,6 +1512,8 @@ export default function Trips() {
           maxPoints: MAP_MATCH_MAX_POINTS,
           chunkSize: MAP_MATCH_CHUNK_SIZE,
           profile: MAP_MATCH_PROFILE,
+          minDistanceMeters: 20,
+          bearingDeltaThreshold: 35,
         },
         { timeout: 25_000, signal: abortController.signal },
       )
@@ -1637,7 +1705,7 @@ export default function Trips() {
   );
   const formatFallbackAddress = useCallback((lat, lng) => {
     if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return `${FALLBACK_ADDRESS} (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     }
     return FALLBACK_ADDRESS;
   }, []);
@@ -1673,7 +1741,11 @@ export default function Trips() {
   const resolveTimelineAddressKey = useCallback((entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng), []);
   const resolveTimelineAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
 
-  const { addresses: resolvedAddresses, loadingKeys: addressLoading } = useAddressLookup(replayAddressItems, {
+  const {
+    addresses: resolvedAddresses,
+    loadingKeys: addressLoading,
+    refreshEntries: refreshTimelineAddresses,
+  } = useAddressLookup(replayAddressItems, {
     getKey: resolveTimelineAddressKey,
     getCoords: resolveTimelineAddressCoords,
     enabled: shouldLookupAddresses && replayAddressItems.length > 0,
@@ -1712,7 +1784,11 @@ export default function Trips() {
   );
   const resolveTripAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
 
-  const { addresses: tripAddresses, loadingKeys: tripAddressLoading } = useAddressLookup(tripAddressItems, {
+  const {
+    addresses: tripAddresses,
+    loadingKeys: tripAddressLoading,
+    refreshEntries: refreshTripAddresses,
+  } = useAddressLookup(tripAddressItems, {
     getKey: resolveTripAddressKey,
     getCoords: resolveTripAddressCoords,
     batchSize: 4,
@@ -1767,20 +1843,34 @@ export default function Trips() {
 
   const resolveEntryAddress = useCallback(
     (entry) => {
+      if (!entry) return "—";
       if (entry?.backendAddress) return entry.backendAddress;
       const key = entry?.addressKey || buildCoordKey(entry?.lat, entry?.lng);
-      if (key && resolvedAddresses[key]) {
-        const resolved = resolvedAddresses[key];
-        if (typeof resolved === "string" && resolved.trim() === key) return FALLBACK_ADDRESS;
-        return resolved;
-      }
-      if (key && addressLoading.has(key)) return "Resolvendo endereço...";
-      return formatFallbackAddress(entry?.lat, entry?.lng);
+      const resolved = key ? resolvedAddresses[key] : null;
+      const isLoading = key ? addressLoading.has(key) : false;
+      const fallback = formatFallbackAddress(entry?.lat, entry?.lng);
+      const display = resolved || fallback;
+      const shouldRetry = !isLoading && display === fallback;
+
+      return (
+        <AddressStatus
+          address={display}
+          loading={isLoading}
+          lat={entry?.lat}
+          lng={entry?.lng}
+          onRetry={
+            shouldRetry && key
+              ? () => refreshTimelineAddresses({ key, lat: entry?.lat, lng: entry?.lng })
+              : null
+          }
+        />
+      );
     },
-    [addressLoading, formatFallbackAddress, resolvedAddresses],
+    [addressLoading, buildCoordKey, formatFallbackAddress, refreshTimelineAddresses, resolvedAddresses],
   );
   const resolveTripAddress = useCallback(
     (trip, type) => {
+      if (!trip) return "—";
       const isStart = type === "start";
       const lat = toFiniteNumber(
         isStart ? trip.startLat ?? trip.startLatitude ?? trip.start?.latitude : trip.endLat ?? trip.endLatitude ?? trip.end?.latitude,
@@ -1792,19 +1882,27 @@ export default function Trips() {
         ? trip.startShortAddress || trip.startAddress
         : trip.endShortAddress || trip.endAddress;
       const normalizedBackend = normalizeAddressValue(backend);
-      if (normalizedBackend) return normalizedBackend;
-      const key = buildCoordKey(lat, lng);
-      if (key && tripAddresses[key]) {
-        const resolved = tripAddresses[key];
-        if (typeof resolved === "string" && resolved.trim() === key) {
-          return formatFallbackAddress(lat, lng);
-        }
-        return resolved;
+      if (normalizedBackend) {
+        return <AddressStatus address={normalizedBackend} loading={false} lat={lat} lng={lng} />;
       }
-      if (key && tripAddressLoading.has(key)) return "Resolvendo endereço...";
-      return formatFallbackAddress(lat, lng);
+      const key = buildCoordKey(lat, lng);
+      const resolved = key ? tripAddresses[key] : null;
+      const isLoading = key ? tripAddressLoading.has(key) : false;
+      const fallback = formatFallbackAddress(lat, lng);
+      const display = resolved || fallback;
+      const shouldRetry = !isLoading && display === fallback;
+
+      return (
+        <AddressStatus
+          address={display}
+          loading={isLoading}
+          lat={lat}
+          lng={lng}
+          onRetry={shouldRetry && key ? () => refreshTripAddresses({ key, lat, lng }) : null}
+        />
+      );
     },
-    [formatFallbackAddress, tripAddresses, tripAddressLoading],
+    [buildCoordKey, formatFallbackAddress, refreshTripAddresses, tripAddresses, tripAddressLoading],
   );
 
   const dynamicAttributeKeys = useMemo(() => {

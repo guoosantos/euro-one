@@ -80,7 +80,7 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 ## Map matching (OSRM) para rotas mais precisas
 
 - O endpoint `/api/map-matching` do backend utiliza `OSRM_BASE_URL` (ou `MAP_MATCH_BASE_URL`) para ajustar trajetos às ruas (apontando para o serviço `/match/v1/...` do OSRM, com ou sem barra no final).
-- Sem essa variável o backend devolve `provider="passthrough"` e o front exibe uma rota reta apenas ligando os pontos.
+- Sem essa variável o backend devolve `provider="passthrough"` e o front exibe um aviso explícito (“OSRM não configurado -> sem map matching”), mantendo a rota original sem ajuste às ruas.
 - O endpoint `/api/map-route` gera a rota lógica (apenas origem/destino) chamando `/route/v1/{profile}/{lon,lat};{lon,lat}` no mesmo `OSRM_BASE_URL`, com `geometries=geojson&overview=full`; sem a variável o backend retorna `provider="passthrough"`.
 - Exemplo de execução local do OSRM:
 

@@ -26,6 +26,13 @@ function normaliseTraccarBaseUrl(value) {
   return finalUrl || null;
 }
 
+function normaliseBaseUrl(value) {
+  if (!value) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/+$/, "") || null;
+}
+
 export const config = {
   port: toNumber(process.env.PORT, 3001),
   traccar: {
@@ -50,8 +57,11 @@ export const config = {
   cors: {
     origins: toArray(process.env.ALLOWED_ORIGINS || "http://localhost:5173"),
   },
+  osrm: {
+    baseUrl: normaliseBaseUrl(process.env.OSRM_BASE_URL || process.env.MAP_MATCH_BASE_URL),
+  },
 };
 
-export { normaliseTraccarBaseUrl };
+export { normaliseTraccarBaseUrl, normaliseBaseUrl };
 
 export default config;

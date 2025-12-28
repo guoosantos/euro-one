@@ -173,7 +173,10 @@ export default function useAddressLookup(
           }
 
           lastDispatchRef.current = Date.now();
-          const resolved = await reverseGeocode(entry.lat, entry.lng, { signal: controller.signal });
+          const resolved = await reverseGeocode(entry.lat, entry.lng, {
+            signal: controller.signal,
+            force: Boolean(entry.force),
+          });
           if (runIdRef.current !== runId) return;
           const nextValue = resolved || FALLBACK_ADDRESS;
           updateAddresses((prev) => {
@@ -201,6 +204,32 @@ export default function useAddressLookup(
       run();
     },
     [enabled, removeLoadingKey, scheduleLoadingKeys],
+  );
+
+  const refreshEntries = useCallback(
+    (entries = []) => {
+      if (!enabled) return;
+      const list = Array.isArray(entries) ? entries : [entries];
+      const normalized = list
+        .map((entry) => {
+          const key = entry?.key || resolveKey(entry);
+          const coords = entry?.lat != null && entry?.lng != null ? entry : getCoordsRef.current?.(entry) || entry;
+          const lat = Number(coords?.lat ?? coords?.latitude);
+          const lng = Number(coords?.lng ?? coords?.lon ?? coords?.longitude);
+          if (!key || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+          return { key, lat, lng, force: true };
+        })
+        .filter(Boolean);
+
+      if (!normalized.length) return;
+      const unique = normalized.filter((entry) => !inFlightRef.current.has(entry.key));
+      if (!unique.length) return;
+      unique.forEach((entry) => inFlightRef.current.add(entry.key));
+      scheduleLoadingKeys(unique.map((entry) => entry.key));
+      queueRef.current = [...unique, ...queueRef.current];
+      launchWorker(runIdRef.current);
+    },
+    [enabled, launchWorker, resolveKey, scheduleLoadingKeys],
   );
 
   useEffect(() => {
@@ -278,5 +307,5 @@ export default function useAddressLookup(
     updateLoadingKeys,
   ]);
 
-  return { addresses, loadingKeys: loadingKeySet };
+  return { addresses, loadingKeys: loadingKeySet, refreshEntries };
 }

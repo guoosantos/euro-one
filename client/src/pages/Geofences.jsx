@@ -13,7 +13,6 @@ import {
   Pencil,
   RefreshCw,
   Save,
-  Search,
   Trash2,
   Undo2,
   X,
@@ -28,6 +27,7 @@ import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
+import LocationSearch from "../components/map/LocationSearch.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
@@ -216,54 +216,6 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
     >
       <Icon size={16} />
     </button>
-  );
-}
-
-function GeofenceSearchBar({
-  value,
-  onChange,
-  onSubmit,
-  suggestions,
-  onSelectSuggestion,
-  isSearching,
-  geocodeError,
-}) {
-  return (
-    <div className="floating-search">
-      <form onSubmit={onSubmit} className="map-search-form shadow-2xl">
-        <Input
-          value={value}
-          onChange={onChange}
-          placeholder="Buscar endereço ou coordenada"
-          icon={Search}
-          className="map-search-input pr-12"
-        />
-        <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/70">
-          {isSearching ? "Buscando..." : geocodeError?.message || ""}
-        </div>
-      </form>
-      {suggestions.length > 0 && (
-        <div className="map-search-suggestions">
-          {suggestions.map((item, index) => {
-            const key = item.id || `${item.lat}-${item.lng}-${index}`;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => onSelectSuggestion?.(item)}
-                className="flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition hover:bg-white/5"
-              >
-                <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-                <span>
-                  <div className="font-semibold text-white">{item.concise || item.label}</div>
-                  <div className="text-xs text-white/60">Lat {item.lat.toFixed(4)} · Lng {item.lng.toFixed(4)}</div>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -979,14 +931,15 @@ export default function Geofences() {
         </MapContainer>
       </div>
 
-      <GeofenceSearchBar
+      <LocationSearch
         value={searchQuery}
         onChange={handleSearchChange}
         onSubmit={handleSearchSubmit}
         suggestions={suggestions}
         onSelectSuggestion={handleSuggestionSelect}
         isSearching={isSearching}
-        geocodeError={geocodeError}
+        errorMessage={geocodeError?.message}
+        floating
       />
 
       <div className="floating-toolbar">

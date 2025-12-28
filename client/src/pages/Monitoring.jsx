@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
+import LocationSearch from "../components/map/LocationSearch.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringToolbar, { MonitoringSearchBox } from "../components/monitoring/MonitoringToolbar.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
@@ -893,11 +894,12 @@ export default function Monitoring() {
       const resolved =
         formatted && formatted !== "—"
           ? formatted
-          : cached || (addressKey && isLoading ? "Resolvendo endereço..." : FALLBACK_ADDRESS);
+          : cached || FALLBACK_ADDRESS;
 
       return {
         ...row,
         address: resolved,
+        addressLoading: isLoading,
         isNearby: nearbyDeviceIds.includes(row.deviceId),
       };
     });
@@ -1459,16 +1461,16 @@ export default function Monitoring() {
                     containerClassName="bg-black/70 backdrop-blur-md"
                   />
 
-                  <MonitoringSearchBox
+                  <LocationSearch
                     value={addressQuery}
-                    onChange={setAddressQuery}
-                    placeholder={t("monitoring.searchRegionPlaceholder")}
+                    onChange={(event) => setAddressQuery(event.target.value ?? event)}
+                    onSubmit={() => handleAddressSubmit(addressQuery)}
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
-                    isLoading={isSearching}
-                    onClear={handleClearAddress}
-                    containerClassName="bg-black/70 backdrop-blur-md"
+                    isSearching={isSearching}
                     errorMessage={geocodeError?.message}
+                    containerClassName="bg-black/70 backdrop-blur-md"
+                    onClear={handleClearAddress}
                   />
                 </div>
 
@@ -1549,15 +1551,15 @@ export default function Monitoring() {
                     onSelectSuggestion={handleSelectVehicleSuggestion}
                   />
 
-                  <MonitoringSearchBox
+                  <LocationSearch
                     value={addressQuery}
-                    onChange={setAddressQuery}
-                    placeholder={t("monitoring.searchRegionPlaceholder")}
+                    onChange={(event) => setAddressQuery(event.target.value ?? event)}
+                    onSubmit={() => handleAddressSubmit(addressQuery)}
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
-                    isLoading={isSearching}
-                    onClear={handleClearAddress}
+                    isSearching={isSearching}
                     errorMessage={geocodeError?.message}
+                    onClear={handleClearAddress}
                   />
                 </div>
 
