@@ -51,6 +51,7 @@ import {
   pickSpeed,
 } from "../lib/monitoring-helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import { resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 
 import { TELEMETRY_COLUMNS } from "../features/telemetry/telemetryColumns.jsx";
 
@@ -782,10 +783,37 @@ export default function Monitoring() {
       const stalenessMinutes = minutesSince(lastActivity);
       const rawAddress = pos?.address || pos?.attributes?.formattedAddress;
       const addressKey = buildCoordKey(lat, lng);
+      const mergedAttributes = {
+        ...(vehicle?.attributes || {}),
+        ...(device?.attributes || {}),
+        ...(pos?.attributes || {}),
+      };
+      const vehicleType =
+        vehicle?.type ||
+        vehicle?.vehicleType ||
+        vehicle?.category ||
+        device?.vehicleType ||
+        device?.type ||
+        device?.attributes?.vehicleType ||
+        device?.vehicle?.type ||
+        device?.vehicle?.vehicleType ||
+        device?.vehicle?.category ||
+        null;
+      const iconType = resolveMarkerIconType(
+        {
+          iconType: vehicle?.iconType || device?.iconType || mergedAttributes.iconType,
+          vehicleType,
+          type: device?.type || vehicle?.type,
+          category: vehicle?.category,
+          attributes: mergedAttributes,
+        },
+        [mergedAttributes.vehicleType, mergedAttributes.type, vehicleType, vehicle?.category],
+      );
 
       const row = {
         key,
         device,
+        vehicle,
         deviceId: key,
         position: pos,
         lat,
@@ -822,17 +850,9 @@ export default function Monitoring() {
           pos?.attributes?.heading ??
           device?.heading ??
           null,
-        vehicleType:
-          vehicle?.type ||
-          vehicle?.vehicleType ||
-          vehicle?.category ||
-          device?.vehicleType ||
-          device?.type ||
-          device?.attributes?.vehicleType ||
-          device?.vehicle?.type ||
-          device?.vehicle?.vehicleType ||
-          device?.vehicle?.category ||
-          null,
+        vehicleType,
+        iconType,
+        attributes: mergedAttributes,
       };
 
       return row;
@@ -1027,6 +1047,16 @@ export default function Monitoring() {
 
         const ignitionColor =
           r.ignition === true ? "#22c55e" : r.ignition === false ? "#ef4444" : "#94a3b8";
+        const markerIconType = resolveMarkerIconType(
+          {
+            iconType: r.iconType,
+            vehicleType: r.vehicleType,
+            type: r.device?.type || r.vehicle?.type,
+            category: r.vehicle?.category,
+            attributes: r.attributes || r.device?.attributes || {},
+          },
+          [r.vehicleType, r.attributes?.vehicleType, r.vehicle?.category],
+        );
 
         return {
           id: r.deviceId,
@@ -1041,7 +1071,7 @@ export default function Monitoring() {
           accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
           muted: !r.isOnline,
           statusLabel,
-          iconType: r.vehicleType,
+          iconType: markerIconType,
           heading: r.heading,
         };
       });

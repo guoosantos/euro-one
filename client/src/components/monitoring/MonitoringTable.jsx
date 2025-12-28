@@ -241,12 +241,15 @@ export default function MonitoringTable({
                 {normalizedColumns.map((col) => {
                   let cellValue = col.render ? col.render(row) : row[col.key];
 
-                  if (col.key === "address" || col.key === "endereco") {
+                  const isAddressColumn = col.key === "address" || col.key === "endereco";
+
+                  if (isAddressColumn) {
                     cellValue = (
                       <AddressCell
                         address={row.address || row.rawAddress || row.position?.address}
                         lat={row.lat}
                         lng={row.lng}
+                        className="max-w-full"
                       />
                     );
                   } else if (typeof cellValue === "object" && cellValue !== null && !React.isValidElement(cellValue)) {
@@ -268,9 +271,11 @@ export default function MonitoringTable({
                         ? String(cellValue)
                         : undefined;
                   const displayValue = formatCompactValue(col, cellValue);
-                  const contentClass = React.isValidElement(displayValue)
-                    ? "flex items-center gap-1 overflow-visible"
-                    : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
+                  const contentClass = isAddressColumn
+                    ? "flex min-w-0 items-center gap-1 overflow-hidden"
+                    : React.isValidElement(displayValue)
+                      ? "flex items-center gap-1 overflow-visible"
+                      : "truncate whitespace-nowrap overflow-hidden text-ellipsis";
 
                   return (
                     <td
@@ -280,7 +285,7 @@ export default function MonitoringTable({
                       className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                     >
                       <div
-                        className={contentClass}
+                        className={`${contentClass} min-w-0`}
                         title={tooltipValue}
                       >
                         {displayValue}

@@ -553,9 +553,24 @@ function buildVehicleResponse(vehicle, context) {
   const principalPosition = principalDevice?.traccarId
     ? positionsByDeviceId.get(String(principalDevice.traccarId)) || null
     : null;
+  const mergedAttributes = {
+    ...(vehicle?.attributes || {}),
+    ...(principalDevice?.attributes || {}),
+  };
+  const iconType =
+    vehicle?.iconType ||
+    mergedAttributes.iconType ||
+    principalDevice?.iconType ||
+    principalDevice?.attributes?.iconType ||
+    vehicle?.type ||
+    vehicle?.category ||
+    null;
 
   return {
     ...vehicle,
+    vehicleType: vehicle?.type || vehicle?.vehicleType || null,
+    attributes: mergedAttributes,
+    iconType,
     device: principalDevice
       ? {
           id: principalDevice.id,
@@ -563,6 +578,8 @@ function buildVehicleResponse(vehicle, context) {
           name: principalDevice.name,
           traccarId: principalDevice.traccarId ? String(principalDevice.traccarId) : null,
           position: principalPosition,
+          attributes: principalDevice.attributes || {},
+          iconType: principalDevice.iconType || principalDevice.attributes?.iconType || null,
         }
       : null,
     devices: linkedDevices.map((item) => ({
@@ -571,6 +588,8 @@ function buildVehicleResponse(vehicle, context) {
       name: item.name,
       traccarId: item.traccarId ? String(item.traccarId) : null,
       vehicleId: item.vehicleId || null,
+      attributes: item.attributes || {},
+      iconType: item.iconType || item.attributes?.iconType || null,
     })),
     deviceCount: linkedDevices.length,
     position: principalPosition,

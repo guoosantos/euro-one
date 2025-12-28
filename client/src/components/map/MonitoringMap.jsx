@@ -3,14 +3,13 @@ import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker,
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
-import { getVehicleIconSvg } from "../../lib/icons/vehicleIcons.js";
+import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 15;
 
-const markerIconCache = new Map();
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
   className: "address-pin",
@@ -35,49 +34,6 @@ const STATUS_STYLES = {
 function getStatusStyle(status) {
   if (!status) return STATUS_STYLES.offline;
   return STATUS_STYLES[status] || STATUS_STYLES.offline;
-}
-
-function getMarkerIcon({ color, iconType, heading = 0, muted = false, accentColor = null, label, plate }) {
-  const roundedHeading = Number.isFinite(heading) ? Math.round(heading) : 0;
-  const labelText = (plate || label || "").trim();
-  const key = `${iconType || "default"}-${color || "default"}-${accentColor || "none"}-${roundedHeading}-${muted}-${labelText}`;
-  if (markerIconCache.has(key)) return markerIconCache.get(key);
-
-  const baseColor = color || "#94a3b8";
-  const iconSvg = getVehicleIconSvg(iconType);
-  const arrowColor = color || "#60a5fa";
-  const opacity = muted ? 0.55 : 1;
-  const ringColor = accentColor || "rgba(148,163,184,0.35)";
-  const labelHtml = labelText
-    ? `<div style="margin-top:4px;max-width:120px;padding:2px 6px;border-radius:999px;background:rgba(15,23,42,0.85);border:1px solid rgba(148,163,184,0.35);color:#f8fafc;font-size:10px;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-        ${labelText}
-      </div>`
-    : "";
-
-  const iconHtml = `
-    <div style="position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;width:120px;height:56px;opacity:${opacity};filter:drop-shadow(0 8px 14px rgba(0,0,0,0.35));">
-      <div style="position:absolute;top:4px;left:50%;transform:translate(-50%,-70%) rotate(${roundedHeading}deg);transform-origin:50% 100%;width:20px;height:20px;filter:drop-shadow(0 2px 4px rgba(0,0,0,0.45));">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="${arrowColor}" stroke="rgba(15,23,42,0.8)" stroke-width="1.2">
-          <path d="M12 2l7 9h-4v11h-6V11H5z" />
-        </svg>
-      </div>
-      <div style="display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:12px;background:rgba(15,23,42,0.9);border:1px solid ${ringColor};box-shadow:0 6px 12px rgba(0,0,0,0.35);color:${baseColor};">
-        <div style="width:18px;height:18px;display:flex;align-items:center;justify-content:center;">${iconSvg}</div>
-      </div>
-      ${labelHtml}
-    </div>
-  `;
-
-  const icon = L.divIcon({
-    className: "fleet-marker",
-    html: iconHtml,
-    iconSize: [120, 56],
-    iconAnchor: [60, 26],
-    popupAnchor: [0, -30],
-  });
-
-  markerIconCache.set(key, icon);
-  return icon;
 }
 
 function getClusterIcon(count) {
@@ -313,15 +269,23 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
       <Marker
         key={marker.id ?? `${marker.lat}-${marker.lng}`}
         position={[marker.lat, marker.lng]}
-        icon={getMarkerIcon({
-          color: marker.color,
-          iconType: marker.iconType,
-          heading: marker.heading,
-          muted: marker.muted,
-          accentColor: marker.accentColor,
-          label: marker.label,
-          plate: marker.plate,
-        })}
+        icon={
+          createVehicleMarkerIcon({
+            color: marker.color,
+            iconType: marker.iconType,
+            bearing: marker.heading,
+            muted: marker.muted,
+            accentColor: marker.accentColor,
+            label: marker.label,
+            plate: marker.plate,
+          }) ||
+          L.divIcon({
+            className: "fleet-marker",
+            html: `<div style="width:18px;height:18px;border-radius:50%;background:${marker.color || "#60a5fa"};"></div>`,
+            iconSize: [20, 20],
+            iconAnchor: [10, 10],
+          })
+        }
         eventHandlers={{
           click: () => {
             if (marker.id) {
