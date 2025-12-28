@@ -72,6 +72,7 @@ export const API_ROUTES = {
     },
   },
   mapMatching: "map-matching",
+  mapRoute: "map-route",
   tracker: {
     devices: "tracker/devices",
     mappings: "tracker/mappings",

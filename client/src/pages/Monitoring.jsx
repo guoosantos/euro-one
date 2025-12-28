@@ -525,10 +525,6 @@ export default function Monitoring() {
   }, [mapViewport]);
 
   useEffect(() => {
-    decoratedRowsRef.current = decoratedRows;
-  }, [decoratedRows]);
-
-  useEffect(() => {
     selectedDeviceIdRef.current = selectedDeviceId;
   }, [selectedDeviceId]);
 
@@ -886,6 +882,10 @@ export default function Monitoring() {
       };
     });
   }, [addressLoading, buildCoordKey, nearbyDeviceIds, reverseAddresses, rows]);
+
+  useEffect(() => {
+    decoratedRowsRef.current = decoratedRows;
+  }, [decoratedRows]);
 
   const displayRows = useMemo(
     () => (regionTarget ? decoratedRows.filter((row) => row.isNearby) : decoratedRows),

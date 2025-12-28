@@ -6,6 +6,7 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 
 const router = express.Router();
 const cache = createTtlCache(5 * 60 * 1000);
+const routeCache = createTtlCache(5 * 60 * 1000);
 const DEFAULT_MAX_POINTS = 250;
 const DEFAULT_CHUNK = 90;
 
@@ -59,6 +60,32 @@ async function requestOsrmMatch({ baseUrl, profile = "driving", points = [] }) {
   const response = await fetch(url.toString());
   if (!response.ok) {
     throw createError(response.status, "Falha ao solicitar map matching");
+  }
+  const data = await response.json();
+  return data;
+}
+
+async function requestOsrmRoute({ baseUrl, profile = "driving", points = [] }) {
+  if (!baseUrl) return null;
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) {
+    throw createError(400, "Configuração OSRM inválida");
+  }
+  const sanitizedBaseUrl = baseUrl.trim().replace(/\/+$/, "");
+  const [start, end] = points;
+  const coords = `${start.lng},${start.lat};${end.lng},${end.lat}`;
+  let url;
+  try {
+    url = new URL(`${sanitizedBaseUrl}/route/v1/${profile}/${coords}`);
+  } catch (error) {
+    throw createError(400, "Configuração OSRM inválida");
+  }
+  url.searchParams.set("annotations", "false");
+  url.searchParams.set("geometries", "geojson");
+  url.searchParams.set("overview", "full");
+
+  const response = await fetch(url.toString());
+  if (!response.ok) {
+    throw createError(response.status, "Falha ao solicitar rota lógica (OSRM route)");
   }
   const data = await response.json();
   return data;
@@ -133,6 +160,55 @@ router.post("/map-matching", async (req, res, next) => {
     };
     if (cacheKey) cache.set(cacheKey, resolved);
     return res.json(resolved);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/map-route", async (req, res, next) => {
+  try {
+    const {
+      points: rawPoints = [],
+      cacheKey = null,
+      profile = "driving",
+      baseUrl = process.env.OSRM_BASE_URL || process.env.MAP_MATCH_BASE_URL || null,
+    } = req.body || {};
+
+    const normalized = Array.isArray(rawPoints) ? rawPoints.map(normalizePoint).filter(Boolean) : [];
+    const endpoints = normalized.length >= 2 ? [normalized[0], normalized[normalized.length - 1]] : normalized;
+
+    if (endpoints.length < 2) {
+      return res.json({ geometry: endpoints, provider: "passthrough" });
+    }
+
+    if (cacheKey) {
+      const cached = routeCache.get(cacheKey);
+      if (cached) {
+        return res.json({ ...cached, cached: true });
+      }
+    }
+
+    if (!baseUrl) {
+      const fallback = { geometry: endpoints, provider: "passthrough" };
+      if (cacheKey) routeCache.set(cacheKey, fallback);
+      return res.json(fallback);
+    }
+
+    const response = await requestOsrmRoute({ baseUrl, profile, points: endpoints });
+    const route = response?.routes?.[0];
+    const geometry = (route?.geometry?.coordinates || [])
+      .map((pair) => ({ lng: Number(pair?.[0]), lat: Number(pair?.[1]) }))
+      .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+
+    const payload = {
+      geometry: geometry.length ? geometry : endpoints,
+      provider: "osrm-route",
+      distance: Number.isFinite(route?.distance) ? route.distance : undefined,
+      duration: Number.isFinite(route?.duration) ? route.duration : undefined,
+    };
+
+    if (cacheKey) routeCache.set(cacheKey, payload);
+    return res.json(payload);
   } catch (error) {
     return next(error);
   }
