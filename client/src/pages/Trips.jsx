@@ -926,6 +926,7 @@ export default function Trips() {
   const [mapMatchedPath, setMapMatchedPath] = useState(null);
   const [mapMatchingResult, setMapMatchingResult] = useState(null);
   const [mapMatchingNotice, setMapMatchingNotice] = useState(null);
+  const [mapMatchingProvider, setMapMatchingProvider] = useState(null);
   const mapMatchingCacheRef = useRef(new Map());
   const lastAvailableColumnsRef = useRef("");
   const initialisedRef = useRef(false);
@@ -1096,12 +1097,22 @@ export default function Trips() {
   const applyMapMatchingResult = useCallback((result) => {
     const normalized = normalizeMapMatchingResponse(result);
     const provider = normalized?.provider || normalized?.data?.provider || null;
+    const providerKey = provider ? String(provider).toLowerCase() : null;
     const geometry = normalized?.geometry || [];
-    const shouldUseGeometry = provider === "osrm" && geometry.length >= 2;
+    const shouldUseGeometry = providerKey === "osrm" && geometry.length >= 2;
+    setMapMatchingProvider(providerKey);
     setMapMatchingResult(normalized);
     setMapMatchedPath(shouldUseGeometry ? geometry : null);
-    setMapMatchingNotice(provider === "passthrough" ? "Map matching desativado (configure OSRM_BASE_URL)." : null);
-    if (shouldUseGeometry || provider === "passthrough") {
+    if (providerKey === "passthrough") {
+      setMapMatchingNotice("Rota original (provider=passthrough). Configure OSRM_BASE_URL no backend para ajustar às ruas.");
+    } else if (providerKey === "osrm") {
+      setMapMatchingNotice("Rota ajustada via OSRM (provider=osrm).");
+    } else if (providerKey) {
+      setMapMatchingNotice(`Provider: ${providerKey}`);
+    } else {
+      setMapMatchingNotice(null);
+    }
+    if (shouldUseGeometry || providerKey === "passthrough") {
       setMapMatchingError(null);
     }
     return normalized;
@@ -1131,10 +1142,15 @@ export default function Trips() {
       setMapMatchingResult(null);
       setMapMatchingError(null);
       setMapMatchingNotice(null);
+      setMapMatchingProvider(null);
       setMapMatchingLoading(false);
       return;
     }
-    if (!rawRoutePoints.length) return;
+    if (!rawRoutePoints.length) {
+      setMapMatchingProvider(null);
+      setMapMatchingNotice(null);
+      return;
+    }
     const cacheKey = mapMatchingCacheKey;
     if (cacheKey && mapMatchingCacheRef.current.has(cacheKey)) {
       const cached = applyMapMatchingResult(mapMatchingCacheRef.current.get(cacheKey));
@@ -2389,8 +2405,19 @@ export default function Trips() {
                   <span>Rota por ruas (Map Matching)</span>
                   {mapMatchingLoading ? <span className="text-primary">⋯</span> : null}
                 </label>
+                {mapMatchingProvider ? (
+                  <span className="text-[11px] text-white/70">
+                    Provider: <span className="font-semibold text-white">{mapMatchingProvider}</span>
+                  </span>
+                ) : null}
                 {mapMatchingNotice ? (
-                  <span className="text-[11px] text-amber-200">{mapMatchingNotice}</span>
+                  <span
+                    className={`text-[11px] ${
+                      mapMatchingProvider === "osrm" ? "text-emerald-200" : "text-amber-200"
+                    }`}
+                  >
+                    {mapMatchingNotice}
+                  </span>
                 ) : null}
               </div>
             </div>

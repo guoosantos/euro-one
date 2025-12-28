@@ -17,6 +17,31 @@ import {
 
 const router = express.Router();
 
+const DATABASE_UNAVAILABLE_CODES = new Set([
+  "P1000",
+  "P1001",
+  "P1002",
+  "P1003",
+  "P1008",
+  "P1010",
+  "P1011",
+  "P1017",
+  "P2024",
+  "ECONNREFUSED",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+]);
+
+function buildDatabaseUnavailableError(error) {
+  const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
+  unavailable.code = error?.code || "DATABASE_UNAVAILABLE";
+  unavailable.details = {
+    message: error?.message,
+    stack: error?.stack,
+  };
+  return unavailable;
+}
+
 const handleLogin = async (req, res, next) => {
   try {
     const { email, username, login, password } = req.body || {};
@@ -90,6 +115,14 @@ const handleLogin = async (req, res, next) => {
       clients: sessionPayload.clients,
     });
   } catch (error) {
+    console.error("[auth] falha no login", error?.message || error);
+    const status = Number(error?.status || error?.statusCode);
+    if (!status) {
+      const normalized = DATABASE_UNAVAILABLE_CODES.has(String(error?.code || "").toUpperCase())
+        ? buildDatabaseUnavailableError(error)
+        : null;
+      if (normalized) return next(normalized);
+    }
     return next(error);
   }
 };
@@ -205,9 +238,17 @@ async function buildSessionPayload(
       clients: availableClients,
     };
   } catch (error) {
-    console.error("[auth] falha ao construir sessão via Prisma", error?.message || error);
+    console.error("[auth] falha ao construir sessão via Prisma", error?.message || error, error?.stack);
     if (error?.status || error?.statusCode) {
       throw error;
+    }
+    const code = String(error?.code || error?.original?.code || "").toUpperCase();
+    if (DATABASE_UNAVAILABLE_CODES.has(code)) {
+      throw buildDatabaseUnavailableError(error);
+    }
+    const message = String(error?.message || "").toLowerCase();
+    if (message.includes("prisma") || message.includes("database")) {
+      throw buildDatabaseUnavailableError(error);
     }
     throw createError(500, "Falha ao montar sessão do usuário");
   }
