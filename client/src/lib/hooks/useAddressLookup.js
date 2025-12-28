@@ -6,6 +6,12 @@ const DEFAULT_BATCH_SIZE = Number.POSITIVE_INFINITY;
 const MAX_CONCURRENCY = 1;
 const MIN_INTERVAL_MS = 340;
 
+const buildCoordKey = (lat, lng, precision = 5) => {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
+  const factor = 10 ** precision;
+  return `${Math.round(lat * factor) / factor},${Math.round(lng * factor) / factor}`;
+};
+
 const shallowArrayEqual = (a, b) => {
   if (a === b) return true;
   if (!a || !b) return false;
@@ -16,10 +22,16 @@ const shallowArrayEqual = (a, b) => {
   return true;
 };
 
-const buildCoordKey = (lat, lng, precision = 5) => {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "";
-  const factor = 10 ** precision;
-  return `${Math.round(lat * factor) / factor},${Math.round(lng * factor) / factor}`;
+const shallowObjectEqual = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const key of keysA) {
+    if (a[key] !== b[key]) return false;
+  }
+  return true;
 };
 
 export default function useAddressLookup(
@@ -73,6 +85,14 @@ export default function useAddressLookup(
     });
   }, []);
 
+  const updateAddresses = useCallback((updater) => {
+    setAddresses((prev) => {
+      const next = updater(prev);
+      if (next === prev) return prev;
+      return shallowObjectEqual(prev, next) ? prev : next;
+    });
+  }, []);
+
   const scheduleLoadingKeys = useCallback(
     (keys) => {
       if (!keys || !keys.length) return;
@@ -123,14 +143,14 @@ export default function useAddressLookup(
           lastDispatchRef.current = Date.now();
           const resolved = await reverseGeocode(entry.lat, entry.lng, { signal: controller.signal });
           if (runIdRef.current !== runId) return;
-          setAddresses((prev) => {
-            const nextValue = resolved || FALLBACK_ADDRESS;
+          const nextValue = resolved || FALLBACK_ADDRESS;
+          updateAddresses((prev) => {
             if (prev[entry.key] === nextValue) return prev;
             return { ...prev, [entry.key]: nextValue };
           });
         } catch (error) {
           if (controller.signal.aborted || error?.name === "AbortError" || runIdRef.current !== runId) return;
-          setAddresses((prev) => {
+          updateAddresses((prev) => {
             const nextValue = prev[entry.key] || FALLBACK_ADDRESS;
             if (prev[entry.key] === nextValue) return prev;
             return { ...prev, [entry.key]: nextValue };
@@ -164,6 +184,7 @@ export default function useAddressLookup(
     clearControllers();
 
     const currentAddresses = addressesRef.current || {};
+    const seenKeys = new Set();
     const pending = list
       .map((item) => {
         const coords = getCoordsRef.current ? getCoordsRef.current(item) : item;
@@ -172,7 +193,12 @@ export default function useAddressLookup(
         const key = resolveKey(item);
         return { key, lat: Number(lat), lng: Number(lng) };
       })
-      .filter((entry) => entry.key && Number.isFinite(entry.lat) && Number.isFinite(entry.lng));
+      .filter((entry) => entry.key && Number.isFinite(entry.lat) && Number.isFinite(entry.lng))
+      .filter((entry) => {
+        if (seenKeys.has(entry.key)) return false;
+        seenKeys.add(entry.key);
+        return true;
+      });
 
     const cachedUpdates = {};
     pending.forEach((entry) => {
@@ -183,7 +209,7 @@ export default function useAddressLookup(
     });
 
     if (Object.keys(cachedUpdates).length) {
-      setAddresses((prev) => {
+      updateAddresses((prev) => {
         let changed = false;
         const next = { ...prev };
         Object.entries(cachedUpdates).forEach(([key, value]) => {
@@ -223,7 +249,7 @@ export default function useAddressLookup(
       queueRef.current = [];
       updateLoadingKeys(() => []);
     };
-  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys, updateLoadingKeys]);
+  }, [batchSize, clearControllers, enabled, launchWorker, list, resolveKey, scheduleLoadingKeys, updateAddresses, updateLoadingKeys]);
 
   return { addresses, loadingKeys: loadingKeySet };
 }
