@@ -364,6 +364,7 @@ export default function Monitoring() {
   const [routeFilter, setRouteFilter] = useState(null);
   const [securityFilters, setSecurityFilters] = useState([]);
   const ignitionStateRef = useRef(new Map());
+  const mapControllerRef = useRef(null);
   const searchParamsKey = searchParams.toString();
   const {
     selectedVehicleId: globalVehicleId,
@@ -1247,7 +1248,8 @@ export default function Monitoring() {
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
     const focusTimestamp = Date.now();
     const focusKey = buildAddressFocusKey(payload, lat, lng);
-    const focusZoom = Math.max(mapPreferences?.selectZoom ?? 16, 16);
+    const focusZoom = Math.max(mapPreferences?.selectZoom ?? 17, 17);
+    console.log("[ADDR_SELECT]", { lat, lng, zoom: focusZoom, t: focusTimestamp });
     const target = {
       lat,
       lng,
@@ -1265,6 +1267,12 @@ export default function Monitoring() {
       key: focusKey,
       ts: focusTimestamp,
     });
+
+    const appliedFocus = mapControllerRef.current?.focusAddress?.(lat, lng, focusZoom);
+    if (!appliedFocus && window.__EURO_ONE_FLY_TO__) {
+      window.__EURO_ONE_FLY_TO__(lat, lng, focusZoom);
+      mapControllerRef.current?.lockAddress?.(1500);
+    }
 
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
@@ -1436,6 +1444,7 @@ export default function Monitoring() {
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 h-full min-w-0 overflow-hidden border-b border-white/10">
           <MonitoringMap
+            ref={mapControllerRef}
             markers={markers}
             geofences={geofences}
             focusMarkerId={selectedDeviceId}
