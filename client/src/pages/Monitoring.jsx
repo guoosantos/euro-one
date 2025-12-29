@@ -914,6 +914,29 @@ export default function Monitoring() {
     });
   }, [addressLoading, buildCoordKey, nearbyDeviceIds, reverseAddresses, rows]);
 
+  const focusSelectedRowOnMap = useCallback((row, reason) => {
+    if (!row) return;
+    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return;
+    const ok = mapControllerRef.current?.focusDevice?.({
+      lat: row.lat,
+      lng: row.lng,
+      zoom: DEVICE_FOCUS_ZOOM,
+      animate: true,
+      reason,
+    });
+    if (!ok) {
+      setTimeout(() => {
+        mapControllerRef.current?.focusDevice?.({
+          lat: row.lat,
+          lng: row.lng,
+          zoom: DEVICE_FOCUS_ZOOM,
+          animate: true,
+          reason: `${reason}_RETRY`,
+        });
+      }, 200);
+    }
+  }, []);
+
   useEffect(() => {
     decoratedRowsRef.current = decoratedRows;
   }, [decoratedRows]);
@@ -999,29 +1022,6 @@ export default function Monitoring() {
     },
     [clearVehicleSelection, openDetailsFor, setVehicleSelection],
   );
-  const focusSelectedRowOnMap = useCallback((row, reason) => {
-    if (!row) return;
-    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return;
-    const ok = mapControllerRef.current?.focusDevice?.({
-      lat: row.lat,
-      lng: row.lng,
-      zoom: DEVICE_FOCUS_ZOOM,
-      animate: true,
-      reason,
-    });
-    if (!ok) {
-      setTimeout(() => {
-        mapControllerRef.current?.focusDevice?.({
-          lat: row.lat,
-          lng: row.lng,
-          zoom: DEVICE_FOCUS_ZOOM,
-          animate: true,
-          reason: `${reason}_RETRY`,
-        });
-      }, 200);
-    }
-  }, []);
-
   useEffect(() => {
     if (!globalDeviceId && !globalVehicleId) return;
     const rowsSource = decoratedRowsRef.current || [];
