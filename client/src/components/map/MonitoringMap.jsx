@@ -123,6 +123,7 @@ function MarkerLayer({
   onMarkerOpenDetails,
   suppressInitialFit = false,
   maxZoomLimit = 16,
+  addressFocusRef,
 }) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
@@ -228,6 +229,7 @@ function MarkerLayer({
   useEffect(() => {
     if (!map || hasInitialFitRef.current || suppressInitialFit) return;
     const applyInitialFit = () => {
+      if (Date.now() - addressFocusRef.current < 2000) return;
       // Se tiver viewport salvo nas preferências, usa ele
       if (mapViewport?.center && Array.isArray(mapViewport.center)) {
         const [lat, lng] = mapViewport.center;
@@ -317,7 +319,7 @@ function MarkerLayer({
   });
 }
 
-function RegionOverlay({ target, mapReady, autoFit = true }) {
+function RegionOverlay({ target, mapReady, autoFit = true, addressFocusRef }) {
   const map = useMap();
   const radius = target?.radius ?? 500;
 
@@ -327,6 +329,7 @@ function RegionOverlay({ target, mapReady, autoFit = true }) {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
+      if (Date.now() - addressFocusRef.current < 2000) return;
       try {
         const center = L.latLng(target.lat, target.lng);
         const circle = L.circle(center, { radius });
@@ -562,6 +565,7 @@ export default function MonitoringMap({
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
   const lastFocusRef = useRef({ ts: 0, key: null });
+  const addressFocusRef = useRef(0);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -616,6 +620,7 @@ export default function MonitoringMap({
     if (!mapReady) return undefined;
     const map = mapRef.current;
     if (!map?.invalidateSize) return undefined;
+    if (Date.now() - addressFocusRef.current < 2000) return undefined;
 
     const timer = setTimeout(() => map.invalidateSize(), 60);
     return () => clearTimeout(timer);
@@ -732,6 +737,7 @@ export default function MonitoringMap({
             currentZoom: map.getZoom?.(),
           });
         }
+        addressFocusRef.current = Date.now();
         map.stop?.();
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
         if (import.meta.env.DEV) {
@@ -758,6 +764,7 @@ export default function MonitoringMap({
               currentZoom: map.getZoom?.(),
             });
           }
+          addressFocusRef.current = Date.now();
           map.stop?.();
           map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
           if (import.meta.env.DEV) {
@@ -793,6 +800,7 @@ export default function MonitoringMap({
         currentZoom: map.getZoom?.(),
       });
     }
+    addressFocusRef.current = Date.now();
     map.stop?.();
     map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
     if (import.meta.env.DEV) {
@@ -873,9 +881,10 @@ export default function MonitoringMap({
           onMarkerOpenDetails={onMarkerOpenDetails}
           suppressInitialFit={Boolean(addressViewport || addressMarker || focusTarget)}
           maxZoomLimit={effectiveMaxZoom}
+          addressFocusRef={addressFocusRef}
         />
 
-        <RegionOverlay target={regionTarget} mapReady={mapReady} autoFit={!addressActive} />
+        <RegionOverlay target={regionTarget} mapReady={mapReady} autoFit={!addressActive} addressFocusRef={addressFocusRef} />
         <AddressMarker marker={addressMarker} />
 
         {/* Renderização de Geofences */}
