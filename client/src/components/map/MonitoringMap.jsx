@@ -807,6 +807,7 @@ export default function MonitoringMap({
           mapRef.current = instance;
           window._MAP_ = instance;
 
+          // Evita corrida no mapReady ao aguardar o Leaflet ficar pronto.
           if (instance?._loaded) {
             setMapReady(true);
           } else {
