@@ -840,7 +840,7 @@ export default function MonitoringMap({
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-          suppressInitialFit={Boolean(addressViewport || focusTarget)}
+        suppressInitialFit={Boolean(addressViewport || addressMarker || focusTarget)}
           maxZoomLimit={effectiveMaxZoom}
         />
 
