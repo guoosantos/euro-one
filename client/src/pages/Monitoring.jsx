@@ -352,7 +352,6 @@ export default function Monitoring() {
   const [regionTarget, setRegionTarget] = useState(null);
   const [addressPin, setAddressPin] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
-  const [focusTarget, setFocusTarget] = useState(null);
   const [detailsDeviceId, setDetailsDeviceId] = useState(null);
   const [drawerMounted, setDrawerMounted] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
@@ -412,7 +411,6 @@ export default function Monitoring() {
     setRegionTarget(null);
     setAddressPin(null);
     setNearbyDeviceIds([]);
-    setFocusTarget(null);
     setDetailsDeviceId(null);
     setPageIndex(0);
     setRouteFilter(null);
@@ -505,7 +503,7 @@ export default function Monitoring() {
       return `address:${label}`.trim().toLowerCase().replace(/\s+/g, "-");
     }
 
-    return `address:${Date.now()}`;
+    return "address:unknown";
   }, [buildCoordKey]);
 
   useEffect(() => {
@@ -933,7 +931,6 @@ export default function Monitoring() {
   const closeDetails = useCallback(() => {
     setDetailsDeviceId(null);
     setSelectedDeviceId(null);
-    setFocusTarget(null);
     clearVehicleSelection();
   }, [clearVehicleSelection]);
 
@@ -949,7 +946,6 @@ export default function Monitoring() {
 
       if (isAlreadySelected && allowToggle) {
         setSelectedDeviceId(null);
-        setFocusTarget(null);
         setDetailsDeviceId((prev) => (openDetails ? null : prev));
         clearVehicleSelection();
         selectionRef.current = { vehicleId: null, deviceId: null };
@@ -972,14 +968,10 @@ export default function Monitoring() {
           (currentZoom ?? 0) >= DEVICE_FOCUS_ZOOM - 1;
 
         if (!alreadyFocused) {
-          const focusTimestamp = Date.now();
           const focus = {
             center: [targetRow.lat, targetRow.lng],
             zoom: DEVICE_FOCUS_ZOOM,
-            key: `device-${deviceId}-${focusTimestamp}`,
-            ts: focusTimestamp,
           };
-          setFocusTarget(focus);
           setMapViewport(focus);
           mapViewportRef.current = focus;
         }
@@ -1246,10 +1238,7 @@ export default function Monitoring() {
     if (!payload || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
-    const focusTimestamp = Date.now();
     const focusKey = buildAddressFocusKey(payload, lat, lng);
-    const focusZoom = Math.max(mapPreferences?.selectZoom ?? 17, 17);
-    console.log("[ADDR_SELECT]", { lat, lng, zoom: focusZoom, t: focusTimestamp });
     const target = {
       lat,
       lng,
@@ -1265,27 +1254,15 @@ export default function Monitoring() {
       lng,
       label: payload.label || payload.description || "Local selecionado",
       key: focusKey,
-      ts: focusTimestamp,
     });
 
-    const appliedFocus = mapControllerRef.current?.focusAddress?.(lat, lng, focusZoom);
-    if (!appliedFocus && window.__EURO_ONE_FLY_TO__) {
-      window.__EURO_ONE_FLY_TO__(lat, lng, focusZoom);
-      mapControllerRef.current?.lockAddress?.(1500);
-    }
+    mapControllerRef.current?.focusAddress?.({ lat, lng });
 
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
-    setFocusTarget({
-      type: "address",
-      center: [lat, lng],
-      zoom: focusZoom,
-      key: `address-${lat}-${lng}`,
-      ts: focusTimestamp,
-    });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
     setMapInvalidateKey((prev) => prev + 1);
-  }, [buildAddressFocusKey, clampRadius, mapPreferences?.selectZoom, normaliseBoundingBox, radiusValue]);
+  }, [buildAddressFocusKey, clampRadius, normaliseBoundingBox, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
@@ -1303,7 +1280,6 @@ export default function Monitoring() {
     setAddressPin(null);
     setSelectedAddress(null);
     setNearbyDeviceIds([]);
-    setFocusTarget(null);
   }, []);
 
   useEffect(() => {
@@ -1334,7 +1310,6 @@ export default function Monitoring() {
   const clearSelection = useCallback(() => {
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
-    setFocusTarget(null);
     clearVehicleSelection();
     selectionRef.current = { vehicleId: null, deviceId: null };
   }, [clearVehicleSelection]);
@@ -1454,7 +1429,6 @@ export default function Monitoring() {
             onMarkerSelect={handleMarkerSelect}
             onMarkerOpenDetails={handleMarkerDetails}
             mapLayer={mapLayer}
-            focusTarget={focusTarget}
             addressMarker={addressPin}
             invalidateKey={mapInvalidateKey}
             mapPreferences={mapPreferences}
