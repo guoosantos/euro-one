@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -571,10 +571,9 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   mapLayer,
   focusTarget,
   addressMarker,
-  addressViewport = null,
   invalidateKey = 0,
   mapPreferences = null,
-}, ref) {
+}, _ref) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
@@ -592,31 +591,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     [mapPreferences?.selectZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
-  const addressActive = Boolean(addressMarker || addressViewport);
-
-  const focusAddress = useCallback(
-    ({ lat, lng }) => {
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const map = mapRef.current;
-      if (!map) return;
-
-      addressLockRef.current = true;
-      addressFocusRef.current = Date.now();
-
-      map.stop?.();
-      const minZoom = 15;
-      const maxZoom = mapPreferences?.maxZoom ?? 18;
-      const nextZoom = Math.min(Math.max(map.getZoom?.() ?? minZoom, minZoom), maxZoom);
-      map.setView([lat, lng], nextZoom, { animate: true });
-    },
-    [mapPreferences?.maxZoom],
-  );
-
-  const clearAddressLock = useCallback(() => {
-    addressLockRef.current = false;
-  }, []);
-
-  useImperativeHandle(ref, () => ({ focusAddress, clearAddressLock }), [clearAddressLock, focusAddress]);
+  const addressActive = Boolean(addressMarker);
 
   const shouldApplyFocus = useCallback((candidate) => {
     if (!candidate) return false;
@@ -762,30 +737,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     if (addressLockRef.current) return;
     if (!shouldApplyFocus(focusTarget)) return;
 
-    if (addressViewport || addressMarker) {
-      console.log("[ADDR] BEFORE", {
-        center: map.getCenter?.(),
-        zoom: map.getZoom?.(),
-        addressViewport,
-        addressMarker,
-        mapReady,
-        t: Date.now(),
-      });
-    }
-
     const bounds = focusTarget.bounds ? normaliseBounds(focusTarget.bounds) : null;
     if (bounds) {
       map.stop?.();
       map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
-      if (addressViewport || addressMarker) {
-        setTimeout(() => {
-          console.log("[ADDR] AFTER 200ms", {
-            center: map.getCenter?.(),
-            zoom: map.getZoom?.(),
-            t: Date.now(),
-          });
-        }, 200);
-      }
       return;
     }
 
@@ -801,15 +756,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     });
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-    if (addressViewport || addressMarker) {
-      setTimeout(() => {
-        console.log("[ADDR] AFTER 200ms", {
-          center: map.getCenter?.(),
-          zoom: map.getZoom?.(),
-          t: Date.now(),
-        });
-      }, 200);
-    }
   }, [focusTarget, mapReady, mapPreferences?.maxZoom, normaliseBounds, providerMaxZoom, selectZoom, shouldApplyFocus]);
 
   const rotateMap = useCallback((delta) => {
@@ -895,7 +841,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-          suppressInitialFit={Boolean(addressViewport || addressMarker || focusTarget)}
+          suppressInitialFit={Boolean(addressMarker || focusTarget)}
           maxZoomLimit={effectiveMaxZoom}
           addressFocusRef={addressFocusRef}
           addressLockRef={addressLockRef}

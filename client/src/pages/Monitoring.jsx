@@ -91,8 +91,6 @@ const normaliseLayoutVisibility = (value = {}) => ({
 });
 
 const DEVICE_FOCUS_ZOOM = 17;
-const ADDRESS_FOCUS_ZOOM = 17;
-
 const normaliseBoundingBox = (boundingBox) => {
   if (!boundingBox) return null;
   if (
@@ -352,7 +350,6 @@ export default function Monitoring() {
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
   const [mapViewport, setMapViewport] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
-  const [addressViewport, setAddressViewport] = useState(null);
   const [addressPin, setAddressPin] = useState(null);
   const [nearbyDeviceIds, setNearbyDeviceIds] = useState([]);
   const [focusTarget, setFocusTarget] = useState(null);
@@ -376,7 +373,6 @@ export default function Monitoring() {
   } = useVehicleSelection({ syncQuery: true });
   const decoratedRowsRef = useRef([]);
   const mapViewportRef = useRef(null);
-  const mapControllerRef = useRef(null);
   const selectionRef = useRef({ vehicleId: null, deviceId: null });
   const selectedDeviceIdRef = useRef(null);
 
@@ -413,7 +409,6 @@ export default function Monitoring() {
     setSelectedDeviceId(null);
     setMapViewport(null);
     setRegionTarget(null);
-    setAddressViewport(null);
     setAddressPin(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
@@ -1252,6 +1247,7 @@ export default function Monitoring() {
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
     const focusTimestamp = Date.now();
     const focusKey = buildAddressFocusKey(payload, lat, lng);
+    const focusZoom = Math.max(mapPreferences?.selectZoom ?? 16, 16);
     const target = {
       lat,
       lng,
@@ -1269,22 +1265,16 @@ export default function Monitoring() {
       key: focusKey,
       ts: focusTimestamp,
     });
-    mapControllerRef.current?.focusAddress({ lat, lng });
-
-    const focus = {
-      bounds: boundingBox,
-      center: [lat, lng],
-      zoom: mapPreferences?.selectZoom || ADDRESS_FOCUS_ZOOM,
-      key: focusKey,
-      ts: focusTimestamp,
-    };
-
-    setAddressViewport(focus);
 
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
-    setFocusTarget(focus);
-    setMapViewport({ center: [lat, lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
+    setFocusTarget({
+      type: "address",
+      center: [lat, lng],
+      zoom: focusZoom,
+      key: `address-${lat}-${lng}`,
+      ts: focusTimestamp,
+    });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
     setMapInvalidateKey((prev) => prev + 1);
   }, [buildAddressFocusKey, clampRadius, mapPreferences?.selectZoom, normaliseBoundingBox, radiusValue]);
@@ -1304,10 +1294,8 @@ export default function Monitoring() {
     setRegionTarget(null);
     setAddressPin(null);
     setSelectedAddress(null);
-    setAddressViewport(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
-    mapControllerRef.current?.clearAddressLock();
   }, []);
 
   useEffect(() => {
@@ -1448,7 +1436,6 @@ export default function Monitoring() {
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 h-full min-w-0 overflow-hidden border-b border-white/10">
           <MonitoringMap
-            ref={mapControllerRef}
             markers={markers}
             geofences={geofences}
             focusMarkerId={selectedDeviceId}
@@ -1460,7 +1447,6 @@ export default function Monitoring() {
             mapLayer={mapLayer}
             focusTarget={focusTarget}
             addressMarker={addressPin}
-            addressViewport={addressViewport}
             invalidateKey={mapInvalidateKey}
             mapPreferences={mapPreferences}
           />
