@@ -182,8 +182,7 @@ export default function MonitoringTable({
   };
 
   return (
-    <div ref={containerRef} className="h-full min-h-[260px] w-full overflow-auto bg-[#0b0f17]">
-
+    <div ref={containerRef} className="h-full min-h-[260px] min-w-0 w-full overflow-auto bg-[#0b0f17]">
       <table className="min-w-full w-full table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
 
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
