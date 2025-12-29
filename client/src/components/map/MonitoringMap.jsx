@@ -4,6 +4,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
+import { buildEffectiveMaxZoom, resolveFocusZoom } from "../../lib/map-config.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
@@ -121,6 +122,7 @@ function MarkerLayer({
   onMarkerSelect,
   onMarkerOpenDetails,
   suppressInitialFit = false,
+  maxZoomLimit = 16,
 }) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
@@ -239,7 +241,8 @@ function MarkerLayer({
       // Caso contrário, ajusta para ver todos os marcadores
       if (safeMarkers.length > 0) {
         const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
-        map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+        const mapMax = map.getMaxZoom?.() ?? maxZoomLimit ?? 16;
+        map.fitBounds(bounds, { padding: [50, 50], maxZoom: Math.min(mapMax, maxZoomLimit ?? 16) });
         hasInitialFitRef.current = true;
       } else {
         map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
@@ -326,7 +329,8 @@ function RegionOverlay({ target, mapReady }) {
       try {
         const center = L.latLng(target.lat, target.lng);
         const circle = L.circle(center, { radius });
-        map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: 16 });
+        const maxZoom = map.getMaxZoom?.() ?? 16;
+        map.fitBounds(circle.getBounds(), { padding: [48, 48], maxZoom: Math.min(maxZoom, 16) });
       } catch (_error) {
         // Evita falha ao ajustar bounds quando o mapa não está pronto
       }
@@ -376,7 +380,7 @@ function AddressMarker({ marker }) {
   );
 }
 
-function ClickToZoom({ mapReady }) {
+function ClickToZoom({ mapReady, maxZoom }) {
   const map = useMap();
 
   useEffect(() => {
@@ -384,8 +388,8 @@ function ClickToZoom({ mapReady }) {
 
     const handleClick = (event) => {
       const currentZoom = map.getZoom?.() ?? DEFAULT_ZOOM;
-      const maxZoom = map.getMaxZoom?.() ?? 18;
-      const nextZoom = Math.min(currentZoom + 1, maxZoom);
+      const allowedMax = Number.isFinite(maxZoom) ? maxZoom : map.getMaxZoom?.() ?? 18;
+      const nextZoom = Math.min(currentZoom + 1, allowedMax);
       const target = event?.latlng || map.getCenter();
 
       if (!target || typeof target.lat !== "number" || typeof target.lng !== "number") return;
@@ -401,7 +405,7 @@ function ClickToZoom({ mapReady }) {
   return null;
 }
 
-function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onRotateTo = null, onResetRotation = null }) {
+function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onRotateTo = null, onResetRotation = null, maxZoom }) {
   const map = useMap();
   const compassRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -411,7 +415,9 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const zoomIn = () => {
     if (!map) return;
     map.stop?.();
-    map.zoomIn?.(1, { animate: true });
+    const allowedMax = Number.isFinite(maxZoom) ? maxZoom : map.getMaxZoom?.() ?? 18;
+    const nextZoom = Math.min((map.getZoom?.() ?? DEFAULT_ZOOM) + 1, allowedMax);
+    map.flyTo(map.getCenter(), nextZoom, { duration: 0.15, easeLinearity: 0.35 });
   };
 
   const zoomOut = () => {
@@ -548,12 +554,23 @@ export default function MonitoringMap({
   addressMarker,
   addressViewport = null,
   invalidateKey = 0,
+  mapPreferences = null,
 }) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
   const lastFocusRef = useRef({ ts: 0, key: null });
+  const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
+  const effectiveMaxZoom = useMemo(
+    () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
+    [mapPreferences?.maxZoom, providerMaxZoom],
+  );
+  const selectZoom = useMemo(
+    () => (Number.isFinite(mapPreferences?.selectZoom) && mapPreferences.selectZoom > 0 ? mapPreferences.selectZoom : FOCUS_ZOOM),
+    [mapPreferences?.selectZoom],
+  );
+  const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
 
   const shouldApplyFocus = useCallback((candidate) => {
     if (!candidate) return false;
@@ -688,19 +705,23 @@ export default function MonitoringMap({
     const bounds = focusTarget.bounds ? normaliseBounds(focusTarget.bounds) : null;
     if (bounds) {
       map.stop?.();
-      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
       return;
     }
 
     if (!focusTarget.center) return;
     const [lat, lng] = focusTarget.center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const zoom = Number.isFinite(focusTarget.zoom)
-      ? Math.max(focusTarget.zoom, FOCUS_ZOOM)
-      : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+    const { zoom } = resolveFocusZoom({
+      requestedZoom: focusTarget.zoom,
+      selectZoom,
+      currentZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+      maxZoom: mapPreferences?.maxZoom,
+      providerMaxZoom,
+    });
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [focusTarget, mapReady, normaliseBounds, shouldApplyFocus]);
+  }, [focusTarget, mapReady, mapPreferences?.maxZoom, normaliseBounds, providerMaxZoom, selectZoom, shouldApplyFocus]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -711,7 +732,7 @@ export default function MonitoringMap({
       if (bounds) {
         if (!shouldApplyFocus(addressViewport)) return;
         map.stop?.();
-        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
         return;
       }
 
@@ -719,9 +740,13 @@ export default function MonitoringMap({
         if (!shouldApplyFocus(addressViewport)) return;
         const [lat, lng] = addressViewport.center;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          const targetZoom = Number.isFinite(addressViewport.zoom)
-            ? Math.max(addressViewport.zoom, FOCUS_ZOOM)
-            : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+          const { zoom: targetZoom } = resolveFocusZoom({
+            requestedZoom: addressViewport.zoom,
+            selectZoom,
+            currentZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+            maxZoom: mapPreferences?.maxZoom,
+            providerMaxZoom,
+          });
           map.stop?.();
           map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
         }
@@ -733,17 +758,23 @@ export default function MonitoringMap({
 
     const fallbackFocus = {
       center: [addressMarker.lat, addressMarker.lng],
-      zoom: Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM),
+      zoom: Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, selectZoom),
       key: addressMarker.key || `address-marker-${addressMarker.lat}-${addressMarker.lng}`,
       ts: addressMarker.ts,
     };
 
     if (!shouldApplyFocus(fallbackFocus)) return;
 
-    const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+    const { zoom: targetZoom } = resolveFocusZoom({
+      requestedZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+      selectZoom,
+      currentZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+      maxZoom: mapPreferences?.maxZoom,
+      providerMaxZoom,
+    });
     map.stop?.();
     map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [addressMarker, addressViewport, mapReady, normaliseBounds, shouldApplyFocus]);
+  }, [addressMarker, addressViewport, mapPreferences?.maxZoom, mapReady, normaliseBounds, providerMaxZoom, selectZoom, shouldApplyFocus]);
 
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => prev + delta);
@@ -761,11 +792,17 @@ export default function MonitoringMap({
 
   return (
     <div className="monitoring-map-root h-full w-full bg-[#0b0f17] relative z-0">
+      {shouldWarnMaxZoom ? (
+        <div className="pointer-events-none absolute left-3 bottom-3 z-[1300] rounded-md border border-amber-500/40 bg-[#1f1205]/85 px-3 py-2 text-[11px] font-medium text-amber-100 shadow-lg shadow-amber-900/30">
+          Zoom limitado a {effectiveMaxZoom} (web.maxZoom). Ajuste a configuração para permitir aproximação maior.
+        </div>
+      ) : null}
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
         className="h-full w-full outline-none"
         zoomControl={false}
+        maxZoom={effectiveMaxZoom}
         scrollWheelZoom={true}
         preferCanvas={true}
         updateWhenIdle={true}
@@ -779,11 +816,11 @@ export default function MonitoringMap({
           key={mapLayer?.key || tileUrl}
           url={tileUrl}
           attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
-          maxZoom={mapLayer?.maxZoom || 20}
+          maxZoom={effectiveMaxZoom}
           subdomains={tileSubdomains}
         />
 
-        <ClickToZoom mapReady={mapReady} />
+        <ClickToZoom mapReady={mapReady} maxZoom={effectiveMaxZoom} />
         <MapControls
           mapReady={mapReady}
           mapViewport={mapViewport}
@@ -792,6 +829,7 @@ export default function MonitoringMap({
           onRotate={rotateMap}
           onRotateTo={setMapBearingTo}
           onResetRotation={resetMapRotation}
+          maxZoom={effectiveMaxZoom}
         />
 
         <MarkerLayer
@@ -802,6 +840,7 @@ export default function MonitoringMap({
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
           suppressInitialFit={Boolean(addressViewport || focusTarget)}
+          maxZoomLimit={effectiveMaxZoom}
         />
 
         <RegionOverlay target={regionTarget} mapReady={mapReady} />

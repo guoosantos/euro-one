@@ -25,6 +25,7 @@ import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
+import { resolveMapPreferences } from "../lib/map-config.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 
@@ -307,7 +308,9 @@ export default function Geofences() {
   const [saving, setSaving] = useState(false);
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
-  const addressSearch = useAddressSearchState();
+  const { tenantId, user, tenant } = useTenant();
+  const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
+  const addressSearch = useAddressSearchState({ mapPreferences });
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
@@ -315,7 +318,6 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
-  const { tenantId, user } = useTenant();
 
   const {
     geofences: remoteGeofences,

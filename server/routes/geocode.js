@@ -2,11 +2,13 @@ import express from "express";
 import createError from "http-errors";
 
 import { createTtlCache } from "../utils/ttl-cache.js";
+import { config } from "../config.js";
 import { formatAddress, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const DEFAULT_GEOCODER_URL = "https://nominatim.openstreetmap.org";
+const GEOCODER_BASE_URL = config.geocoder?.baseUrl || DEFAULT_GEOCODER_URL;
 const cache = createTtlCache(10 * 60 * 1000);
 const reverseCache = createTtlCache(30 * 60 * 1000);
 const pending = new Map();
@@ -16,6 +18,24 @@ const RETRY_DELAYS_MS = [300, 800, 1500];
 function sanitizeTerm(term) {
   if (typeof term !== "string") return "";
   return term.replace(/\s+/g, " ").trim();
+}
+
+function buildGeocoderUrl(pathname = "search") {
+  try {
+    const url = new URL(GEOCODER_BASE_URL);
+    const basePath = url.pathname.replace(/\/+$/, "");
+    const targetPath = pathname.startsWith("/") ? pathname.slice(1) : pathname;
+    if (basePath.toLowerCase().endsWith(`/${targetPath.toLowerCase()}`)) {
+      url.pathname = basePath;
+    } else {
+      url.pathname = `${basePath}/${targetPath}`.replace(/\/{2,}/g, "/");
+    }
+    return url;
+  } catch (_error) {
+    const fallback = new URL(DEFAULT_GEOCODER_URL);
+    fallback.pathname = `${fallback.pathname.replace(/\/+$/, "")}/${pathname}`;
+    return fallback;
+  }
 }
 
 function normalizeResult(item, fallbackLabel) {
@@ -71,7 +91,7 @@ function buildShortAddress(payload) {
 }
 
 async function fetchReverse(lat, lng) {
-  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  const url = buildGeocoderUrl("reverse");
   url.searchParams.set("format", "json");
   url.searchParams.set("lat", String(lat));
   url.searchParams.set("lon", String(lng));
@@ -121,7 +141,7 @@ async function fetchReverseWithRetry(lat, lng) {
 }
 
 async function queryProvider(term, limit = 5) {
-  const url = new URL(NOMINATIM_URL);
+  const url = buildGeocoderUrl("search");
   url.searchParams.set("format", "json");
   url.searchParams.set("q", term);
   url.searchParams.set("limit", String(limit));

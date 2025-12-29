@@ -23,6 +23,7 @@ import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
+import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
 import {
@@ -305,11 +306,12 @@ export default function Monitoring() {
   const { t, locale } = useTranslation();
   const [searchParams] = useSearchParams();
 
-  const { tenantId, user } = useTenant();
+  const { tenantId, user, tenant } = useTenant();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
+  const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
 
   const activeTasks = useMemo(
     () =>
@@ -343,7 +345,7 @@ export default function Monitoring() {
   const setMonitoringTopbarVisible = useUI((state) => state.setMonitoringTopbarVisible);
 
   const [vehicleQuery, setVehicleQuery] = useState("");
-  const addressSearch = useAddressSearchState();
+  const addressSearch = useAddressSearchState({ mapPreferences });
   const clearAddressSearch = addressSearch?.onClear;
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
@@ -1270,7 +1272,7 @@ export default function Monitoring() {
     const focus = {
       bounds: boundingBox,
       center: [lat, lng],
-      zoom: ADDRESS_FOCUS_ZOOM,
+      zoom: mapPreferences?.selectZoom || ADDRESS_FOCUS_ZOOM,
       key: focusKey,
       ts: focusTimestamp,
     };
@@ -1283,7 +1285,7 @@ export default function Monitoring() {
     setMapViewport({ center: [lat, lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
     setMapInvalidateKey((prev) => prev + 1);
-  }, [buildAddressFocusKey, clampRadius, normaliseBoundingBox, radiusValue]);
+  }, [buildAddressFocusKey, clampRadius, mapPreferences?.selectZoom, normaliseBoundingBox, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
@@ -1456,6 +1458,7 @@ export default function Monitoring() {
             addressMarker={addressPin}
             addressViewport={addressViewport}
             invalidateKey={mapInvalidateKey}
+            mapPreferences={mapPreferences}
           />
 
           {!layoutVisibility.showTable && (

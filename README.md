@@ -30,11 +30,15 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
    - `VITE_API_BASE_URL`: **sempre** apontar para a origem do backend Euro One (dev: `http://localhost:3001`).
    - `VITE_TRACCAR_BASE_URL`: origem do Traccar para recursos de mapa/heatmap (ex.: `http://localhost:8082`).
    - `VITE_MAP_TILE_URL`: URL do tile server para o Leaflet (padrão OSM escuro).
+   - `VITE_WEB_SELECT_ZOOM`: zoom aplicado ao centralizar o mapa em um endereço/veículo (padrão: `15` ou o já utilizado pela UI).
+   - `VITE_WEB_MAX_ZOOM`: limite máximo de zoom permitido; se não informado, usa o limite do provedor de tiles. Evite valores muito baixos (<3).
+   - `VITE_WEB_GEOCODER_URL`: URL base para o geocoder (ex.: instância própria do Nominatim). Mantém o padrão público se ausente.
    - `VITE_GOOGLE_MAPS_KEY`: (opcional) chave para autocomplete/recursos do Google Maps.
    - `PORT`: porta do backend Express (padrão `3001`).
    - `TRACCAR_BASE_URL`: URL do servidor Traccar acessível pelo backend.
    - `TRACCAR_ADMIN_USER` / `TRACCAR_ADMIN_PASSWORD` ou `TRACCAR_ADMIN_TOKEN`: credenciais administrativas do Traccar.
    - `TRACCAR_SYNC_INTERVAL_MS`: intervalo (ms) entre sincronizações automáticas de devices/grupos/geofences.
+   - `GEOCODER_URL`: URL base (backend) do geocoder usado pelas rotas `/api/geocode/*`. Configure um endpoint próprio em produção para evitar rate limit/403 no serviço público.
 - `TRACCAR_DB_CLIENT`, `TRACCAR_DB_HOST`, `TRACCAR_DB_PORT`, `TRACCAR_DB_USER`, `TRACCAR_DB_PASSWORD`, `TRACCAR_DB_NAME`: conexão
   somente leitura com o banco do Traccar (MySQL/Postgres) para relatórios e telemetria de fallback.
 - `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend.
@@ -111,6 +115,12 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - **Exportação de posições**: download CSV de posições filtradas com `/api/positions/export`.
 - **Vídeo e visão computacional**: player HLS/RTSP com streams configuradas nos atributos dos dispositivos, módulo de reconhecimento facial e alertas de fadiga.
 - **Temas e i18n**: tema claro/escuro e tradução pt-BR/en-US (Topbar > ícone de idioma).
+
+## Zoom do mapa e geocoder
+
+- `web.selectZoom` / `VITE_WEB_SELECT_ZOOM`: zoom alvo ao centralizar o mapa após uma busca (padrão seguro: 15–17).
+- `web.maxZoom` / `VITE_WEB_MAX_ZOOM`: limite superior de zoom. Se configurado com valor muito baixo (<3), a UI exibirá aviso e impedirá aproximação excessiva.
+- `web.geocoderUrl` / `VITE_WEB_GEOCODER_URL` (front) e `GEOCODER_URL` (backend): permitem apontar para um geocoder próprio. Em produção, evite depender do Nominatim público para não sofrer bloqueios (403/429); configure um endpoint dedicado ou um provedor pago.
 
 ## Validação rápida de autenticação e tenant
 

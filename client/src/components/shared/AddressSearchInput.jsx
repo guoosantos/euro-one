@@ -3,9 +3,9 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import useGeocodeSearch from "../../lib/hooks/useGeocodeSearch.js";
 import LocationSearch from "../map/LocationSearch.jsx";
 
-export function useAddressSearchState({ initialValue = "" } = {}) {
+export function useAddressSearchState({ initialValue = "", mapPreferences = null } = {}) {
   const [query, setQuery] = useState(initialValue);
-  const { suggestions, isSearching, searchRegion, clearSuggestions, previewSuggestions, error } = useGeocodeSearch();
+  const { suggestions, isSearching, searchRegion, clearSuggestions, previewSuggestions, error } = useGeocodeSearch(mapPreferences);
 
   const handleChange = useCallback((eventOrValue) => {
     const nextValue = eventOrValue?.target?.value ?? eventOrValue ?? "";
