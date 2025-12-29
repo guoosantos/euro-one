@@ -7,6 +7,8 @@ import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
+const NEUTRAL_CENTER = [0, 0];
+const NEUTRAL_ZOOM = 2;
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
   className: "address-pin",
@@ -116,7 +118,6 @@ function MarkerLayer({
   onViewportChange,
   onMarkerSelect,
   onMarkerOpenDetails,
-  userActionRef,
 }) {
   const map = useMap();
   const markerRefs = useRef(new Map());
@@ -249,7 +250,6 @@ function MarkerLayer({
             const lat = Number(marker.lat);
             const lng = Number(marker.lng);
             if (Number.isFinite(lat) && Number.isFinite(lng)) {
-              userActionRef.current = true;
               console.info("[MAP] USER_VEHICLE_SELECT", { lat, lng });
               map.stop?.();
               map.setView([lat, lng], 17, { animate: true });
@@ -336,7 +336,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 }, _ref) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const mapRef = useRef(null);
-  const userActionRef = useRef(false);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -345,7 +344,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
 
   useEffect(() => {
-    console.info("[MAP] mounted — neutral state (no center, no zoom)");
+    console.info("[MAP] mounted neutral", { center: NEUTRAL_CENTER, zoom: NEUTRAL_ZOOM });
   }, []);
 
   useImperativeHandle(
@@ -357,7 +356,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
         const map = mapRef.current;
         if (!map) return false;
-        userActionRef.current = true;
         console.info("[MAP] USER_ADDRESS_SELECT", { lat: nextLat, lng: nextLng });
         map.stop?.();
         map.setView([nextLat, nextLng], 17, { animate: true });
@@ -386,10 +384,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         </div>
       ) : null}
       <MapContainer
-        ref={mapRef}
+        center={NEUTRAL_CENTER}
+        zoom={NEUTRAL_ZOOM}
         zoomControl
         scrollWheelZoom
         style={{ height: "100%", width: "100%" }}
+        whenCreated={(map) => {
+          mapRef.current = map;
+        }}
       >
         <TileLayer
           key={mapLayer?.key || tileUrl}
@@ -405,7 +407,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-          userActionRef={userActionRef}
         />
 
         <RegionOverlay target={regionTarget} />

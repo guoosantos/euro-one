@@ -28,6 +28,8 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
+const NEUTRAL_CENTER = [0, 0];
+const NEUTRAL_ZOOM = 2;
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -304,7 +306,6 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
-  const userActionRef = useRef(false);
 
   const {
     geofences: remoteGeofences,
@@ -340,7 +341,7 @@ export default function Geofences() {
   }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
 
   useEffect(() => {
-    console.info("[MAP] mounted — neutral state (no center, no zoom)");
+    console.info("[MAP] mounted neutral", { center: NEUTRAL_CENTER, zoom: NEUTRAL_ZOOM });
   }, []);
 
   useEffect(() => {
@@ -611,7 +612,6 @@ export default function Geofences() {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const map = mapRef.current;
       if (!map) return;
-      userActionRef.current = true;
       console.info("[MAP] USER_ADDRESS_SELECT", { lat, lng });
       map.stop?.();
       map.setView([lat, lng], 17, { animate: true });
@@ -695,10 +695,14 @@ export default function Geofences() {
     <div className="map-page">
       <div className="map-container">
         <MapContainer
+          center={NEUTRAL_CENTER}
+          zoom={NEUTRAL_ZOOM}
           scrollWheelZoom
           zoomControl
           style={{ height: "100%", width: "100%" }}
-          ref={mapRef}
+          whenCreated={(map) => {
+            mapRef.current = map;
+          }}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
