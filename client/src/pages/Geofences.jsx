@@ -22,6 +22,7 @@ import {
 
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
+import useLeafletFocus from "../lib/hooks/useLeafletFocus.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -32,6 +33,7 @@ import Input from "../ui/Input";
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
 const SEARCH_FOCUS_ZOOM = 17;
+const ADDRESS_FOCUS_LOCK_MS = 2000;
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -315,9 +317,11 @@ export default function Geofences() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [colorSeed, setColorSeed] = useState(0);
+  const addressFocusLockRef = useRef(0);
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
+  const { registerMap, focusLatLng, isManualFocusLocked } = useLeafletFocus({ page: "Geofences" });
   const focusMapAt = useCallback(({ lat, lng, zoom }) => {
     const map = mapRef.current;
     const nextLat = Number(lat);
@@ -363,6 +367,11 @@ export default function Geofences() {
 
   useEffect(() => {
     if (!selectedGeofence || !mapRef.current) return;
+    if (Date.now() < addressFocusLockRef.current) return;
+    if (isManualFocusLocked?.()) {
+      console.log("[AUTO_FIT] SKIPPED_DUE_TO_MANUAL_LOCK", { reason: "GEOFENCE_AUTO_FIT", page: "Geofences" });
+      return;
+    }
     const map = mapRef.current;
     if (selectedGeofence.type === "polygon" && selectedGeofence.points?.length) {
       const bounds = L.latLngBounds(selectedGeofence.points.map((point) => L.latLng(point[0], point[1])));
@@ -377,7 +386,7 @@ export default function Geofences() {
         zoom: Math.max(map.getZoom(), 14),
       });
     }
-  }, [focusMapAt, selectedGeofence]);
+  }, [focusMapAt, isManualFocusLocked, selectedGeofence]);
 
   useEffect(() => {
     invalidateMapSize();
@@ -650,11 +659,14 @@ export default function Geofences() {
       const lng = Number(payload.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      focusMapAt({ lat, lng, zoom: SEARCH_FOCUS_ZOOM });
+      addressFocusLockRef.current = Date.now() + ADDRESS_FOCUS_LOCK_MS;
+      focusLatLng?.({ lat, lng, zoom: SEARCH_FOCUS_ZOOM, reason: "ADDR_SELECT" });
+      setTimeout(() => mapRef.current?.invalidateSize?.(), 120);
+      setTimeout(() => mapRef.current?.invalidateSize?.(), 350);
 
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
     },
-    [focusMapAt],
+    [focusLatLng],
   );
 
   const handleSelectAddress = useCallback(
@@ -700,17 +712,18 @@ export default function Geofences() {
         const maxZoom = map.getMaxZoom?.() ?? 18;
         const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [32, 32]), maxZoom);
         const center = bounds.getCenter();
-        focusMapAt({ lat: center.lat, lng: center.lng, zoom: nextZoom });
+        focusLatLng?.({ lat: center.lat, lng: center.lng, zoom: nextZoom, reason: "GEOFENCE_SELECT" });
       } else if (geo.center) {
-        focusMapAt({
+        focusLatLng?.({
           lat: geo.center[0],
           lng: geo.center[1],
           zoom: Math.max(mapRef.current.getZoom(), 14),
+          reason: "GEOFENCE_SELECT",
         });
       }
       setSelectedId(geo.id);
     },
-    [focusMapAt],
+    [focusLatLng],
   );
 
   const guideLine = useMemo(() => {
@@ -764,6 +777,7 @@ export default function Geofences() {
           whenCreated={(map) => {
             mapRef.current = map;
             window.EURO_MAP = map;
+            registerMap(map);
             setTimeout(() => map.invalidateSize(), 120);
           }}
         >

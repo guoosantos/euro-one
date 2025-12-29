@@ -125,6 +125,7 @@ function MarkerLayer({
   maxZoomLimit = 16,
   logMapApply,
   focusLatLng,
+  isManualFocusLocked,
 }) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
@@ -233,6 +234,10 @@ function MarkerLayer({
   useEffect(() => {
     if (!map || hasInitialFitRef.current || suppressInitialFit) return;
     const applyInitialFit = () => {
+      if (isManualFocusLocked?.()) {
+        console.log("[AUTO_FIT] SKIPPED_DUE_TO_MANUAL_LOCK", { reason: "AUTO_FIT_INITIAL", page: "Monitoring" });
+        return;
+      }
       console.log("[AUTO_FIT] APPLY", {
         center: map.getCenter?.(),
         zoom: map.getZoom?.(),
@@ -269,7 +274,7 @@ function MarkerLayer({
     } else {
       map.whenReady(applyInitialFit);
     }
-  }, [map, mapViewport, safeMarkers, suppressInitialFit]);
+  }, [isManualFocusLocked, map, mapViewport, safeMarkers, suppressInitialFit]);
 
   return clusters.map((cluster) => {
     if (cluster.type === "cluster") {
@@ -332,7 +337,7 @@ function MarkerLayer({
   });
 }
 
-function RegionOverlay({ target, mapReady, autoFit = true, logMapApply }) {
+function RegionOverlay({ target, mapReady, autoFit = true, logMapApply, isManualFocusLocked }) {
   const map = useMap();
   const radius = target?.radius ?? 500;
 
@@ -342,6 +347,10 @@ function RegionOverlay({ target, mapReady, autoFit = true, logMapApply }) {
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
+      if (isManualFocusLocked?.()) {
+        console.log("[AUTO_FIT] SKIPPED_DUE_TO_MANUAL_LOCK", { reason: "REGION_AUTO_FIT", page: "Monitoring" });
+        return;
+      }
       console.log("[AUTO_FIT] APPLY", {
         center: map.getCenter?.(),
         zoom: map.getZoom?.(),
@@ -362,7 +371,7 @@ function RegionOverlay({ target, mapReady, autoFit = true, logMapApply }) {
 
     if (map._loaded) applyFit();
     else map.whenReady(applyFit);
-  }, [autoFit, map, mapReady, radius, target]);
+  }, [autoFit, isManualFocusLocked, map, mapReady, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
   return (
@@ -593,7 +602,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
-  const { registerMap, focusLatLng } = useLeafletFocus({ page: "Monitoring" });
+  const { registerMap, focusLatLng, isManualFocusLocked } = useLeafletFocus({ page: "Monitoring" });
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -615,19 +624,17 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     _ref,
     () => ({
       focusAddress: ({ lat, lng }) => {
-        const map = mapRef.current;
         const nextLat = Number(lat);
         const nextLng = Number(lng);
-        if (!map || !Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
-        map.stop?.();
-        map.setView([nextLat, nextLng], FOCUS_ZOOM, { animate: true });
+        if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+        focusLatLng?.({ lat: nextLat, lng: nextLng, zoom: FOCUS_ZOOM, reason: "ADDR_SELECT" });
         setTimeout(() => {
-          map.invalidateSize?.();
+          mapRef.current?.invalidateSize?.();
         }, 100);
         return true;
       },
     }),
-    [],
+    [focusLatLng],
   );
 
   useEffect(() => {
@@ -817,6 +824,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           maxZoomLimit={effectiveMaxZoom}
           logMapApply={logMapApply}
           focusLatLng={focusLatLng}
+          isManualFocusLocked={isManualFocusLocked}
         />
 
         <RegionOverlay
@@ -824,6 +832,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           mapReady={mapReady}
           autoFit={!addressMarker}
           logMapApply={logMapApply}
+          isManualFocusLocked={isManualFocusLocked}
         />
         <AddressMarker marker={addressMarker} />
 
