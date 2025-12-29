@@ -9,6 +9,7 @@ import { useTranslation } from "../../lib/i18n.js";
 import { translateEventType } from "../../lib/event-translations.js";
 import useGroups from "../../lib/hooks/useGroups.js";
 import { useHeatmapEvents } from "../../lib/hooks/useHeatmapEvents.js";
+import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 
 const CRIME_TYPES = ["crime", "theft", "assalto", "robbery"];
 const EVENT_TYPE_OPTIONS = [
@@ -62,6 +63,8 @@ export default function HeatmapAnalytics() {
   const { search } = useLocation();
   const [filters, setFilters] = useState({ from: "", to: "", eventTypes: [], groupId: "" });
   const { groups } = useGroups();
+  const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
   const tileUrl = useMemo(
     () => import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     [],
@@ -214,7 +217,14 @@ export default function HeatmapAnalytics() {
             {loading ? <span className="text-xs text-gray-500">{t("loading")}</span> : null}
           </div>
           <div className="relative">
-            <MapContainer center={center} zoom={points.length ? 12 : 4} style={{ height: 420 }} scrollWheelZoom>
+            <MapContainer
+              ref={mapRef}
+              center={center}
+              zoom={points.length ? 12 : 4}
+              style={{ height: 420 }}
+              scrollWheelZoom
+              whenReady={onMapReady}
+            >
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 url={tileUrl}

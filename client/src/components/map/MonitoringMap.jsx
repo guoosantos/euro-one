@@ -5,6 +5,9 @@ import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
+import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
+import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
+import MapZoomControls from "./MapZoomControls.jsx";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -118,9 +121,9 @@ function MarkerLayer({
   onMarkerOpenDetails,
   onUserAction,
   onFocusDevice,
+  markerRefs,
 }) {
   const map = useMap();
-  const markerRefs = useRef(new Map());
   const [clusters, setClusters] = useState([]);
   const clusterSignatureRef = useRef("");
   
@@ -333,9 +336,9 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const containerRef = useRef(null);
   const mapRef = useRef(null);
-  const didInitialRefreshRef = useRef(false);
-  const didWarmupRef = useRef(false);
   const userActionRef = useRef(false);
+  const markerRefs = useRef(new Map());
+  const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -383,34 +386,15 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
-    if (!map?.invalidateSize || didInitialRefreshRef.current) return;
-    didInitialRefreshRef.current = true;
-    requestAnimationFrame(() => map.invalidateSize?.());
-    setTimeout(() => map.invalidateSize?.(), 120);
-  }, []);
+    refreshMap();
+  }, [invalidateKey, mapLayer?.key, refreshMap]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    const container = containerRef.current;
-    if (!map?.invalidateSize || !container || typeof ResizeObserver === "undefined") return undefined;
-
-    const observer = new ResizeObserver(() => {
-      requestAnimationFrame(() => map.invalidateSize?.());
-      setTimeout(() => map.invalidateSize?.(), 80);
-    });
-
-    observer.observe(container);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map?.invalidateSize) return undefined;
-
-    const timer = setTimeout(() => map.invalidateSize(), 60);
-    return () => clearTimeout(timer);
-  }, [invalidateKey, mapLayer?.key]);
+  useMapDataRefresh(mapRef, {
+    markers,
+    layers: geofences,
+    selectedMarkerId: focusMarkerId,
+    markerRefs,
+  });
 
   const tileSubdomains = mapLayer?.subdomains ?? "abc";
 
@@ -424,23 +408,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       <div ref={containerRef} className="h-full w-full">
         <MapContainer
           ref={mapRef}
-          zoomControl
+          zoomControl={false}
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}
-          whenReady={(event) => {
-            const map = mapRef.current || event?.target || event;
-            if (!map?.invalidateSize) return;
-            if (!didWarmupRef.current) {
-              didWarmupRef.current = true;
-              map.invalidateSize?.();
-              map.setView([-14.235, -51.9253], 4, { animate: false });
-            }
-            if (!didInitialRefreshRef.current) {
-              didInitialRefreshRef.current = true;
-              requestAnimationFrame(() => map.invalidateSize?.());
-              setTimeout(() => map.invalidateSize?.(), 120);
-            }
-          }}
+          whenReady={onMapReady}
         >
           <TileLayer
             key={mapLayer?.key || tileUrl}
@@ -449,6 +420,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             maxZoom={effectiveMaxZoom}
             subdomains={tileSubdomains}
           />
+          <MapZoomControls variant="classic" />
 
           <MarkerLayer
             markers={markers}
@@ -460,6 +432,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
               userActionRef.current = true;
             }}
             onFocusDevice={focusDevice}
+            markerRefs={markerRefs}
           />
 
           <RegionOverlay target={regionTarget} />

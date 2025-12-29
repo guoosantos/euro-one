@@ -28,6 +28,7 @@ import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 import AddressStatus from "../ui/AddressStatus.jsx";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -795,6 +796,8 @@ function ReplayMap({
     normalizedAnimatedPoint,
   ]);
   const hasSelectedVehicle = Boolean(selectedVehicle);
+  const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
 
   if (!hasSelectedVehicle) {
     return (
@@ -807,9 +810,11 @@ function ReplayMap({
   return (
     <div className="relative h-[420px] w-full overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
       <MapContainer
+        ref={mapRef}
         center={initialCenter}
         zoom={initialZoom}
         className="h-full w-full"
+        whenReady={onMapReady}
       >
         <TileLayer
           key={tileLayer.key}

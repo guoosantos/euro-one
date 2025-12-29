@@ -456,6 +456,21 @@ html, body, #root { height: 100%; }
   z-index: 1100;
 }
 
+.map-zoom-controls {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1100;
+}
+
+.map-zoom-controls--classic .map-zoom-button {
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .layout-popover {
   position: absolute;
   top: -4px;

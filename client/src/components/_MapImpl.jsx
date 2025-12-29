@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useRef } from "react";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 
 const defaultIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -39,10 +40,18 @@ function getStatusIcon(status) {
 
 export default function MapImpl({ center = [-23.55, -46.63], zoom = 11, markers = [], height = 420, className }) {
   const containerClass = ["card p-0 overflow-hidden", className].filter(Boolean).join(" ");
+  const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
 
   return (
     <div className={containerClass} style={{ height }}>
-      <MapContainer center={center} zoom={zoom} style={{ height: "100%", width: "100%" }}>
+      <MapContainer
+        ref={mapRef}
+        center={center}
+        zoom={zoom}
+        style={{ height: "100%", width: "100%" }}
+        whenReady={onMapReady}
+      >
         <TileLayer url={import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"} />
         {markers.map((marker, index) => (
           <Marker
