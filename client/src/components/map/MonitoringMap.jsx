@@ -113,7 +113,15 @@ function PopupContent({ marker }) {
   );
 }
 
-function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, onMarkerSelect, onMarkerOpenDetails }) {
+function MarkerLayer({
+  markers,
+  focusMarkerId,
+  mapViewport,
+  onViewportChange,
+  onMarkerSelect,
+  onMarkerOpenDetails,
+  suppressInitialFit = false,
+}) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
@@ -216,7 +224,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
 
   // Ajuste inicial da viewport (Fit Bounds)
   useEffect(() => {
-    if (!map || hasInitialFitRef.current) return;
+    if (!map || hasInitialFitRef.current || suppressInitialFit) return;
     const applyInitialFit = () => {
       // Se tiver viewport salvo nas preferências, usa ele
       if (mapViewport?.center && Array.isArray(mapViewport.center)) {
@@ -244,7 +252,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
     } else {
       map.whenReady(applyInitialFit);
     }
-  }, [map, safeMarkers, mapViewport]);
+  }, [map, mapViewport, safeMarkers, suppressInitialFit]);
 
   return clusters.map((cluster) => {
     if (cluster.type === "cluster") {
@@ -482,7 +490,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
   const displayBearing = ((bearing % 360) + 360) % 360;
 
   return (
-    <div className="pointer-events-none absolute right-3 top-3 z-[999] flex flex-col items-end gap-2">
+    <div className="monitoring-map-controls pointer-events-none absolute right-3 top-3 z-[1200] flex flex-col items-end gap-2">
       <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/80 text-white/80 shadow-sm backdrop-blur-md">
         <button
           type="button"
@@ -545,6 +553,27 @@ export default function MonitoringMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
+  const lastFocusRef = useRef({ ts: 0, key: null });
+
+  const shouldApplyFocus = useCallback((candidate) => {
+    if (!candidate) return false;
+    const rawTs = Number(candidate.ts ?? 0);
+    const key = candidate.key ?? null;
+    const last = lastFocusRef.current;
+    const hasTimestamp = Number.isFinite(rawTs) && rawTs > 0;
+
+    if (hasTimestamp) {
+      if (rawTs < last.ts) return false;
+      if (rawTs === last.ts && key && key === last.key) return false;
+      lastFocusRef.current = { ts: rawTs, key };
+      return true;
+    }
+
+    if (last.ts > 0) return false;
+    if (key && key === last.key) return false;
+    lastFocusRef.current = { ts: Date.now(), key };
+    return true;
+  }, []);
 
   const normaliseBounds = useCallback((bounds) => {
     if (!bounds) return null;
@@ -654,11 +683,12 @@ export default function MonitoringMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !focusTarget) return;
+    if (!shouldApplyFocus(focusTarget)) return;
 
     const bounds = focusTarget.bounds ? normaliseBounds(focusTarget.bounds) : null;
     if (bounds) {
       map.stop?.();
-      map.fitBounds(bounds, { padding: [48, 48], maxZoom: 17 });
+      map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
       return;
     }
 
@@ -666,43 +696,53 @@ export default function MonitoringMap({
     const [lat, lng] = focusTarget.center;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const zoom = Number.isFinite(focusTarget.zoom)
-      ? focusTarget.zoom
+      ? Math.max(focusTarget.zoom, FOCUS_ZOOM)
       : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [focusTarget, mapReady, normaliseBounds]);
+  }, [focusTarget, mapReady, normaliseBounds, shouldApplyFocus]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
     if (addressViewport) {
+      const bounds = normaliseBounds(addressViewport.bounds);
+      if (bounds) {
+        if (!shouldApplyFocus(addressViewport)) return;
+        map.stop?.();
+        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
+        return;
+      }
+
       if (addressViewport.center) {
+        if (!shouldApplyFocus(addressViewport)) return;
         const [lat, lng] = addressViewport.center;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
           const targetZoom = Number.isFinite(addressViewport.zoom)
-            ? addressViewport.zoom
+            ? Math.max(addressViewport.zoom, FOCUS_ZOOM)
             : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
           map.stop?.();
           map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
         }
         return;
       }
-
-      const bounds = normaliseBounds(addressViewport.bounds);
-      if (bounds) {
-        map.stop?.();
-        map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
-        return;
-      }
     }
 
     if (!addressMarker || !Number.isFinite(addressMarker.lat) || !Number.isFinite(addressMarker.lng)) return;
 
+    const fallbackFocus = {
+      center: [addressMarker.lat, addressMarker.lng],
+      zoom: Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM),
+      key: `address-marker-${addressMarker.lat}-${addressMarker.lng}`,
+    };
+
+    if (!shouldApplyFocus(fallbackFocus)) return;
+
     const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
     map.stop?.();
     map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [addressMarker, addressViewport, mapReady, normaliseBounds]);
+  }, [addressMarker, addressViewport, mapReady, normaliseBounds, shouldApplyFocus]);
 
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => prev + delta);
@@ -719,7 +759,7 @@ export default function MonitoringMap({
   const tileSubdomains = mapLayer?.subdomains ?? "abc";
 
   return (
-    <div className="h-full w-full bg-[#0b0f17] relative z-0">
+    <div className="monitoring-map-root h-full w-full bg-[#0b0f17] relative z-0">
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
@@ -760,6 +800,7 @@ export default function MonitoringMap({
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
+          suppressInitialFit={Boolean(addressViewport || focusTarget)}
         />
 
         <RegionOverlay target={regionTarget} mapReady={mapReady} />
