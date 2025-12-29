@@ -1,6 +1,5 @@
 import { useCallback, useRef } from "react";
 
-const DEFAULT_DURATION = 0.6;
 const FALLBACK_DELAY_MS = 120;
 const CENTER_EPSILON = 0.00005;
 
@@ -36,18 +35,13 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
 
       const targetZoom = Number.isFinite(payload?.zoom) ? Number(payload.zoom) : map.getZoom?.();
       const animate = payload?.animate !== false;
-      const duration = Number.isFinite(payload?.duration) ? Number(payload.duration) : DEFAULT_DURATION;
       const reason = payload?.reason || "UNKNOWN";
       const fromCenter = map.getCenter?.();
       const fromZoom = map.getZoom?.();
       const targetCenter = { lat, lng };
 
       map.stop?.();
-      if (animate && map.flyTo) {
-        map.flyTo([lat, lng], targetZoom, { duration, easeLinearity: 0.25 });
-      } else {
-        map.setView([lat, lng], targetZoom, { animate });
-      }
+      map.setView([lat, lng], targetZoom, { animate });
 
       log("[MAP_FOCUS_APPLY]", {
         page,

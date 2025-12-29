@@ -615,11 +615,19 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     _ref,
     () => ({
       focusAddress: ({ lat, lng }) => {
-        focusLatLng({ lat: Number(lat), lng: Number(lng), zoom: FOCUS_ZOOM, reason: "ADDR_SELECT" });
+        const map = mapRef.current;
+        const nextLat = Number(lat);
+        const nextLng = Number(lng);
+        if (!map || !Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+        map.stop?.();
+        map.setView([nextLat, nextLng], FOCUS_ZOOM, { animate: true });
+        setTimeout(() => {
+          map.invalidateSize?.();
+        }, 100);
         return true;
       },
     }),
-    [focusLatLng],
+    [],
   );
 
   useEffect(() => {
@@ -734,6 +742,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         whenCreated={(instance) => {
           mapRef.current = instance;
           registerMap(instance);
+          window.EURO_MAP = instance;
           window._MAP_ = instance;
           window._EURO_ONE_MAP_ = instance;
           window.__EURO_ONE_FLY_TO__ = (lat, lng, zoom = 17) => {
