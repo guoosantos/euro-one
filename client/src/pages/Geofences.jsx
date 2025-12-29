@@ -20,14 +20,13 @@ import {
   ZoomOut,
 } from "lucide-react";
 
-import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
+import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
-import LocationSearch from "../components/map/LocationSearch.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
@@ -308,7 +307,7 @@ export default function Geofences() {
   const [saving, setSaving] = useState(false);
   const [uiError, setUiError] = useState(null);
   const [status, setStatus] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  const addressSearch = useAddressSearchState();
   const [geofenceFilter, setGeofenceFilter] = useState("");
   const [panelOpen, setPanelOpen] = useState(true);
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
@@ -327,15 +326,6 @@ export default function Geofences() {
     updateGeofence,
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
-
-  const {
-    suggestions = [],
-    isSearching = false,
-    searchRegion = async () => null,
-    clearSuggestions = () => {},
-    previewSuggestions: previewSearchSuggestions = () => Promise.resolve([]),
-    error: geocodeError = null,
-  } = useGeocodeSearch() || {};
 
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
@@ -640,15 +630,6 @@ export default function Geofences() {
     [colorSeed, localGeofences.length],
   );
 
-  const handleSearchChange = useCallback(
-    (event) => {
-      const value = event.target.value;
-      setSearchQuery(value);
-      previewSearchSuggestions(value);
-    },
-    [previewSearchSuggestions],
-  );
-
   const flyTo = useCallback((lat, lng, bounds) => {
     const map = mapRef.current;
     if (!map) return;
@@ -683,49 +664,21 @@ export default function Geofences() {
 
       flyTo(lat, lng, payload.boundingBox || payload.bounds);
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
-      clearSuggestions();
     },
-    [clearSuggestions, flyTo],
+    [flyTo],
   );
 
-  const parseCoordinates = useCallback((term) => {
-    if (!term) return null;
-    const parts = term
-      .replace(/;/g, ",")
-      .trim()
-      .split(/[\s,]+/)
-      .map((value) => Number(value.trim()))
-      .filter((num) => Number.isFinite(num));
-    if (parts.length < 2) return null;
-    const [lat, lng] = parts;
-    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return null;
-    return { lat, lng, label: `${lat.toFixed(5)}, ${lng.toFixed(5)}` };
-  }, []);
-
-  const handleSearchSubmit = useCallback(
-    async (event) => {
-      event.preventDefault();
-      const best = await searchRegion(searchQuery);
-      if (best?.lat && best?.lng) {
-        focusSearchResult(best);
-        return;
-      }
-
-      const manual = parseCoordinates(searchQuery);
-      if (manual) {
-        focusSearchResult(manual);
-      }
-    },
-    [focusSearchResult, parseCoordinates, searchQuery, searchRegion],
-  );
-
-  const handleSuggestionSelect = useCallback(
-    (item) => {
-      setSearchQuery(item.concise || item.label || "");
-      focusSearchResult(item);
+  const handleSelectAddress = useCallback(
+    (payload) => {
+      if (!payload) return;
+      focusSearchResult(payload);
     },
     [focusSearchResult],
   );
+
+  const handleClearSearch = useCallback(() => {
+    setSearchMarker(null);
+  }, []);
 
   const handleToggleTopbar = useCallback(() => {
     setGeofencesTopbarVisible(!geofencesTopbarVisible);
@@ -931,14 +884,10 @@ export default function Geofences() {
         </MapContainer>
       </div>
 
-      <LocationSearch
-        value={searchQuery}
-        onChange={handleSearchChange}
-        onSubmit={handleSearchSubmit}
-        suggestions={suggestions}
-        onSelectSuggestion={handleSuggestionSelect}
-        isSearching={isSearching}
-        errorMessage={geocodeError?.message}
+      <AddressSearchInput
+        state={addressSearch}
+        onSelect={handleSelectAddress}
+        onClear={handleClearSearch}
         floating
       />
 

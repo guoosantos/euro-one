@@ -3,13 +3,13 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
-import LocationSearch from "../components/map/LocationSearch.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringToolbar, { MonitoringSearchBox } from "../components/monitoring/MonitoringToolbar.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
 import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
+import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import DataState from "../ui/DataState.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
@@ -17,7 +17,6 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
-import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
 import useAddressLookup from "../lib/hooks/useAddressLookup.js";
@@ -90,7 +89,7 @@ const normaliseLayoutVisibility = (value = {}) => ({
   showTopbar: value.showTopbar !== false,
 });
 
-const DEVICE_FOCUS_ZOOM = 16;
+const DEVICE_FOCUS_ZOOM = 17;
 const ADDRESS_FOCUS_ZOOM = 17;
 
 const normaliseBoundingBox = (boundingBox) => {
@@ -344,7 +343,7 @@ export default function Monitoring() {
   const setMonitoringTopbarVisible = useUI((state) => state.setMonitoringTopbarVisible);
 
   const [vehicleQuery, setVehicleQuery] = useState("");
-  const [addressQuery, setAddressQuery] = useState("");
+  const addressSearch = useAddressSearchState();
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
@@ -473,15 +472,6 @@ export default function Monitoring() {
     [tenantId, user?.id],
   );
 
-  const {
-    isSearching,
-    suggestions: addressSuggestions,
-    previewSuggestions,
-    clearSuggestions,
-    searchRegion,
-    error: geocodeError,
-  } = useGeocodeSearch();
-
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
     Math.max(MIN_MAP_HEIGHT, Number.isFinite(Number(value)) ? Number(value) : DEFAULT_MAP_HEIGHT),
@@ -496,14 +486,6 @@ export default function Monitoring() {
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     return `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
   }, []);
-
-  useEffect(() => {
-    if (addressQuery.trim()) {
-      previewSuggestions(addressQuery);
-    } else {
-      clearSuggestions();
-    }
-  }, [addressQuery, clearSuggestions, previewSuggestions]);
 
   useEffect(() => {
     try {
@@ -662,8 +644,6 @@ export default function Monitoring() {
     if (!term) return [];
     return vehicleOptions.filter((option) => option.searchValue.includes(term)).slice(0, 8);
   }, [vehicleOptions, vehicleQuery]);
-
-  const addressSuggestionOptions = useMemo(() => addressSuggestions, [addressSuggestions]);
 
   const searchFiltered = useMemo(() => {
     const term = vehicleQuery.toLowerCase().trim();
@@ -1277,45 +1257,21 @@ export default function Monitoring() {
     if (!option) return;
     setVehicleQuery(option.label ?? "");
     focusDevice(option.deviceId, { openDetails: true });
-    clearSuggestions();
-  }, [clearSuggestions, focusDevice]);
+  }, [focusDevice]);
 
-  const handleSelectAddressSuggestion = useCallback((option) => {
+  const handleSelectAddress = useCallback((option) => {
     if (!option) return;
-    setAddressQuery(option.concise || option.label || "");
     applyAddressTarget(option);
-    clearSuggestions();
-  }, [applyAddressTarget, clearSuggestions]);
-
-  const handleAddressSubmit = useCallback(async (queryValue) => {
-    const term = queryValue?.trim();
-    if (!term) return;
-    const result = await searchRegion(term);
-    if (result) {
-      setAddressQuery(result.concise || result.label || term);
-      applyAddressTarget(result);
-      clearSuggestions();
-    }
-  }, [applyAddressTarget, clearSuggestions, searchRegion]);
+  }, [applyAddressTarget]);
 
   const handleClearAddress = useCallback(() => {
     setRegionTarget(null);
     setAddressPin(null);
-    setAddressQuery("");
     setSelectedAddress(null);
     setAddressViewport(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
-    clearSuggestions();
-  }, [clearSuggestions]);
-
-  const handleAddressSearchChange = useCallback(
-    (eventOrValue) => {
-      const nextValue = eventOrValue?.target?.value ?? eventOrValue ?? "";
-      setAddressQuery(String(nextValue));
-    },
-    [],
-  );
+  }, []);
 
   useEffect(() => {
     if (!regionTarget) {
@@ -1483,16 +1439,11 @@ export default function Monitoring() {
                     containerClassName="bg-black/70 backdrop-blur-md"
                   />
 
-                  <LocationSearch
-                    value={addressQuery}
-                    onChange={handleAddressSearchChange}
-                    onSubmit={() => handleAddressSubmit(addressQuery)}
-                    suggestions={addressSuggestionOptions}
-                    onSelectSuggestion={handleSelectAddressSuggestion}
-                    isSearching={isSearching}
-                    errorMessage={geocodeError?.message}
-                    containerClassName="bg-black/70 backdrop-blur-md"
+                  <AddressSearchInput
+                    state={addressSearch}
+                    onSelect={handleSelectAddress}
                     onClear={handleClearAddress}
+                    containerClassName="bg-black/70 backdrop-blur-md"
                     variant="toolbar"
                   />
                 </div>
@@ -1546,18 +1497,13 @@ export default function Monitoring() {
                 onVehicleSearchChange={handleVehicleSearchChange}
                 vehicleSuggestions={vehicleSuggestions}
                 onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
-                addressSearchTerm={addressQuery}
-                onAddressSearchChange={handleAddressSearchChange}
-                onAddressSubmit={handleAddressSubmit}
-                addressSuggestions={addressSuggestionOptions}
-                onSelectAddressSuggestion={handleSelectAddressSuggestion}
-                addressError={geocodeError?.message}
+                addressSearchState={addressSearch}
+                onSelectAddress={handleSelectAddress}
                 filterMode={filterMode}
                 onFilterChange={setFilterMode}
                 summary={summary}
                 activePopup={activePopup}
                 onTogglePopup={handleTogglePopup}
-                isSearchingRegion={isSearching}
                 layoutButtonRef={layoutButtonRef}
                 onClearAddress={handleClearAddress}
                 hasSelection={Boolean(selectedDeviceId)}
@@ -1574,14 +1520,9 @@ export default function Monitoring() {
                     onSelectSuggestion={handleSelectVehicleSuggestion}
                   />
 
-                  <LocationSearch
-                    value={addressQuery}
-                    onChange={handleAddressSearchChange}
-                    onSubmit={() => handleAddressSubmit(addressQuery)}
-                    suggestions={addressSuggestionOptions}
-                    onSelectSuggestion={handleSelectAddressSuggestion}
-                    isSearching={isSearching}
-                    errorMessage={geocodeError?.message}
+                  <AddressSearchInput
+                    state={addressSearch}
+                    onSelect={handleSelectAddress}
                     onClear={handleClearAddress}
                     variant="toolbar"
                   />

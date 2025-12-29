@@ -8,7 +8,7 @@ import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
-const FOCUS_ZOOM = 15;
+const FOCUS_ZOOM = 17;
 
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
