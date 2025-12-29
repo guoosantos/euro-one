@@ -14,6 +14,16 @@ test("resolveFocusZoom respeita selectZoom padrão quando zoom atual é baixo", 
   assert.equal(zoom, 15);
 });
 
+test("resolveFocusZoom mantém selectZoom quando requestedZoom é menor", () => {
+  const { zoom } = resolveFocusZoom({ requestedZoom: 12, selectZoom: 15, currentZoom: 11, maxZoom: null, providerMaxZoom: 19 });
+  assert.equal(zoom, 15);
+});
+
+test("resolveFocusZoom aplica clamp com providerMaxZoom", () => {
+  const { zoom } = resolveFocusZoom({ requestedZoom: 18, selectZoom: 15, currentZoom: 12, maxZoom: 20, providerMaxZoom: 16 });
+  assert.equal(zoom, 16);
+});
+
 test("resolveMapPreferences ativa aviso quando maxZoom é muito baixo", () => {
   const prefs = resolveMapPreferences({ "web.maxZoom": 2 });
   assert.equal(prefs.shouldWarnMaxZoom, true);
