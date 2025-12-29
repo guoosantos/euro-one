@@ -5,13 +5,12 @@ import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
+import useLeafletFocus from "../../lib/hooks/useLeafletFocus.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 17;
-const DEBUG_MAP = true;
-
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
   className: "address-pin",
@@ -59,14 +58,6 @@ function getClusterIcon(count) {
 
   clusterIconCache.set(key, icon);
   return icon;
-}
-
-function applySearchFocus(map, lat, lng) {
-  if (!map) return;
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-  console.log("[MAP_SEARCH_APPLY]", { lat, lng, zoom: FOCUS_ZOOM });
-  map.stop?.();
-  map.setView([lat, lng], FOCUS_ZOOM, { animate: true });
 }
 
 // --- COMPONENTES INTERNOS ---
@@ -133,6 +124,7 @@ function MarkerLayer({
   suppressInitialFit = false,
   maxZoomLimit = 16,
   logMapApply,
+  focusLatLng,
 }) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
@@ -222,10 +214,12 @@ function MarkerLayer({
 
     const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
     if (target) {
-      logMapApply?.("FOCUS_MARKER", map, [target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM));
-      map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), {
+      focusLatLng?.({
+        lat: target.lat,
+        lng: target.lng,
+        zoom: Math.max(map.getZoom(), FOCUS_ZOOM),
+        reason: "VEHICLE_SELECT",
         duration: 0.7,
-        easeLinearity: 0.3
       });
 
       setTimeout(() => {
@@ -233,7 +227,7 @@ function MarkerLayer({
         if (instance) instance.openPopup();
       }, 1200);
     }
-  }, [focusMarkerId, map, safeMarkers]);
+  }, [focusLatLng, focusMarkerId, map, safeMarkers]);
 
   // Ajuste inicial da viewport (Fit Bounds)
   useEffect(() => {
@@ -599,37 +593,33 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
+  const { registerMap, focusLatLng } = useLeafletFocus({ page: "Monitoring" });
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
     [mapPreferences?.maxZoom, providerMaxZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
-  const logMapApply = useCallback(
-    (reason, map, toCenter, toZoom, extra = {}) => {
-      if (!DEBUG_MAP || !map) return;
-      console.log("[MAP_APPLY]", {
-        page: "Monitoring",
-        reason,
-        from: { center: map.getCenter?.(), zoom: map.getZoom?.() },
-        to: { center: toCenter, zoom: toZoom },
-        t: Date.now(),
-        ...extra,
-      });
-    },
-    [],
-  );
+  const logMapApply = useCallback((reason, map, toCenter, toZoom, extra = {}) => {
+    console.log("[MAP_APPLY]", {
+      page: "Monitoring",
+      reason,
+      from: { center: map.getCenter?.(), zoom: map.getZoom?.() },
+      to: { center: toCenter, zoom: toZoom },
+      t: Date.now(),
+      ...extra,
+    });
+  }, []);
 
   useImperativeHandle(
     _ref,
     () => ({
       focusAddress: ({ lat, lng }) => {
-        const map = mapRef.current;
-        applySearchFocus(map, Number(lat), Number(lng));
+        focusLatLng({ lat: Number(lat), lng: Number(lng), zoom: FOCUS_ZOOM, reason: "ADDR_SELECT" });
         return true;
       },
     }),
-    [],
+    [focusLatLng],
   );
 
   useEffect(() => {
@@ -743,6 +733,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         wheelPxPerZoomLevel={70}
         whenCreated={(instance) => {
           mapRef.current = instance;
+          registerMap(instance);
           window._MAP_ = instance;
           window._EURO_ONE_MAP_ = instance;
           window.__EURO_ONE_FLY_TO__ = (lat, lng, zoom = 17) => {
@@ -816,6 +807,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           suppressInitialFit={Boolean(addressMarker)}
           maxZoomLimit={effectiveMaxZoom}
           logMapApply={logMapApply}
+          focusLatLng={focusLatLng}
         />
 
         <RegionOverlay
