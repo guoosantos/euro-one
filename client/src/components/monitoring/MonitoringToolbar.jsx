@@ -1,6 +1,6 @@
 import React from "react";
 import { useTranslation } from "../../lib/i18n.js";
-import LocationSearch from "../map/LocationSearch.jsx";
+import AddressSearchInput from "../shared/AddressSearchInput.jsx";
 
 // --- ÍCONES SVG (Para não depender de bibliotecas externas) ---
 const SearchIcon = () => (
@@ -42,11 +42,8 @@ export default function MonitoringToolbar({
   onVehicleSearchChange,
   vehicleSuggestions,
   onSelectVehicleSuggestion,
-  addressSearchTerm,
-  onAddressSearchChange,
-  onAddressSubmit,
-  addressSuggestions,
-  onSelectAddressSuggestion,
+  addressSearchState,
+  onSelectAddress,
   filterMode,
   onFilterChange,
   summary,
@@ -54,10 +51,8 @@ export default function MonitoringToolbar({
   onTogglePopup,   // Props novas
   onOpenColumns,   // Props antigas (fallback)
   onOpenLayout,    // Props antigas (fallback)
-  isSearchingRegion,
   layoutButtonRef,
   onClearAddress,
-  addressError,
   hasSelection,
   onClearSelection,
 }) {
@@ -90,17 +85,12 @@ export default function MonitoringToolbar({
             icon={<SearchIcon />}
           />
 
-          <LocationSearch
-            value={addressSearchTerm}
-            onChange={(event) => onAddressSearchChange?.(event.target.value ?? event)}
-            onSubmit={() => onAddressSubmit?.(addressSearchTerm)}
-            suggestions={addressSuggestions}
-            onSelectSuggestion={onSelectAddressSuggestion}
-            isSearching={isSearchingRegion}
-            errorMessage={addressError}
+          <AddressSearchInput
+            state={addressSearchState}
+            onSelect={onSelectAddress}
+            onClear={onClearAddress}
             placeholder={t("monitoring.searchRegionPlaceholder")}
             containerClassName="w-full"
-            onClear={onClearAddress}
             variant="toolbar"
           />
         </div>
