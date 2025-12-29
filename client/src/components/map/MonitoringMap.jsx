@@ -117,18 +117,14 @@ function PopupContent({ marker }) {
 function MarkerLayer({
   markers,
   focusMarkerId,
-  mapViewport,
   onViewportChange,
   onMarkerSelect,
   onMarkerOpenDetails,
-  suppressInitialFit = false,
   maxZoomLimit = 16,
   logMapApply,
   focusLatLng,
-  isManualFocusLocked,
 }) {
   const map = useMap();
-  const hasInitialFitRef = useRef(false);
   const markerRefs = useRef(new Map());
   const [clusters, setClusters] = useState([]);
   const clusterSignatureRef = useRef("");
@@ -230,52 +226,6 @@ function MarkerLayer({
     }
   }, [focusLatLng, focusMarkerId, map, safeMarkers]);
 
-  // Ajuste inicial da viewport (Fit Bounds)
-  useEffect(() => {
-    if (!map || hasInitialFitRef.current || suppressInitialFit) return;
-    const applyInitialFit = () => {
-      if (isManualFocusLocked?.()) {
-        console.log("[AUTO_FIT] SKIPPED_DUE_TO_MANUAL_LOCK", { reason: "AUTO_FIT_INITIAL", page: "Monitoring" });
-        return;
-      }
-      console.log("[AUTO_FIT] APPLY", {
-        center: map.getCenter?.(),
-        zoom: map.getZoom?.(),
-        t: Date.now(),
-      });
-      // Se tiver viewport salvo nas preferências, usa ele
-      if (mapViewport?.center && Array.isArray(mapViewport.center)) {
-        const [lat, lng] = mapViewport.center;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          logMapApply?.("AUTO_FIT_VIEWPORT", map, [lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
-          map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
-          hasInitialFitRef.current = true;
-          return;
-        }
-      }
-
-      // Caso contrário, ajusta para ver todos os marcadores
-      if (safeMarkers.length > 0) {
-        const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
-        const mapMax = map.getMaxZoom?.() ?? maxZoomLimit ?? 16;
-        const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [50, 50]), Math.min(mapMax, maxZoomLimit ?? 16));
-        logMapApply?.("AUTO_FIT_MARKERS", map, [bounds.getCenter().lat, bounds.getCenter().lng], nextZoom);
-        map.setView(bounds.getCenter(), nextZoom);
-        hasInitialFitRef.current = true;
-      } else {
-        logMapApply?.("AUTO_FIT_DEFAULT", map, DEFAULT_CENTER, DEFAULT_ZOOM);
-        map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
-        hasInitialFitRef.current = true;
-      }
-    };
-
-    if (map._loaded) {
-      applyInitialFit();
-    } else {
-      map.whenReady(applyInitialFit);
-    }
-  }, [isManualFocusLocked, map, mapViewport, safeMarkers, suppressInitialFit]);
-
   return clusters.map((cluster) => {
     if (cluster.type === "cluster") {
       return (
@@ -337,41 +287,8 @@ function MarkerLayer({
   });
 }
 
-function RegionOverlay({ target, mapReady, autoFit = true, logMapApply, isManualFocusLocked }) {
-  const map = useMap();
+function RegionOverlay({ target }) {
   const radius = target?.radius ?? 500;
-
-  useEffect(() => {
-    if (!map || !target || !mapReady) return;
-    if (!autoFit) return;
-    if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
-
-    const applyFit = () => {
-      if (isManualFocusLocked?.()) {
-        console.log("[AUTO_FIT] SKIPPED_DUE_TO_MANUAL_LOCK", { reason: "REGION_AUTO_FIT", page: "Monitoring" });
-        return;
-      }
-      console.log("[AUTO_FIT] APPLY", {
-        center: map.getCenter?.(),
-        zoom: map.getZoom?.(),
-        t: Date.now(),
-      });
-      try {
-        const center = L.latLng(target.lat, target.lng);
-        const circle = L.circle(center, { radius });
-        const maxZoom = map.getMaxZoom?.() ?? 16;
-        const bounds = circle.getBounds();
-        const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [48, 48]), Math.min(maxZoom, 16));
-        logMapApply?.("REGION_AUTO_FIT", map, [bounds.getCenter().lat, bounds.getCenter().lng], nextZoom);
-        map.setView(bounds.getCenter(), nextZoom);
-      } catch (_error) {
-        // Evita falha ao ajustar bounds quando o mapa não está pronto
-      }
-    };
-
-    if (map._loaded) applyFit();
-    else map.whenReady(applyFit);
-  }, [autoFit, isManualFocusLocked, map, mapReady, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
   return (
@@ -441,7 +358,6 @@ function ClickToZoom({ mapReady, maxZoom, logMapApply }) {
 
 function MapControls({
   mapReady,
-  mapViewport,
   bearing = 0,
   onRotate = null,
   onRotateTo = null,
@@ -588,7 +504,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   markers = [],
   geofences = [],
   focusMarkerId = null,
-  mapViewport = null,
   onViewportChange = null,
   regionTarget = null,
   onMarkerSelect = null,
@@ -602,7 +517,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [mapReady, setMapReady] = useState(false);
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
-  const { registerMap, focusLatLng, isManualFocusLocked } = useLeafletFocus({ page: "Monitoring" });
+  const { registerMap, focusLatLng } = useLeafletFocus({ page: "Monitoring" });
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -627,14 +542,16 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         const nextLat = Number(lat);
         const nextLng = Number(lng);
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
-        focusLatLng?.({ lat: nextLat, lng: nextLng, zoom: FOCUS_ZOOM, reason: "ADDR_SELECT" });
-        setTimeout(() => {
-          mapRef.current?.invalidateSize?.();
-        }, 100);
+        const map = mapRef.current;
+        if (!map) return false;
+        map.stop?.();
+        map.setView([nextLat, nextLng], FOCUS_ZOOM, { animate: true });
+        setTimeout(() => map.invalidateSize?.(), 120);
+        setTimeout(() => map.invalidateSize?.(), 350);
         return true;
       },
     }),
-    [focusLatLng],
+    [],
   );
 
   useEffect(() => {
@@ -804,7 +721,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         />
         <MapControls
           mapReady={mapReady}
-          mapViewport={mapViewport}
           bearing={mapBearing}
           onRotate={rotateMap}
           onRotateTo={setMapBearingTo}
@@ -816,24 +732,15 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         <MarkerLayer
           markers={markers}
           focusMarkerId={focusMarkerId}
-          mapViewport={mapViewport}
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-          suppressInitialFit={Boolean(addressMarker)}
           maxZoomLimit={effectiveMaxZoom}
           logMapApply={logMapApply}
           focusLatLng={focusLatLng}
-          isManualFocusLocked={isManualFocusLocked}
         />
 
-        <RegionOverlay
-          target={regionTarget}
-          mapReady={mapReady}
-          autoFit={!addressMarker}
-          logMapApply={logMapApply}
-          isManualFocusLocked={isManualFocusLocked}
-        />
+        <RegionOverlay target={regionTarget} />
         <AddressMarker marker={addressMarker} />
 
         {/* Renderização de Geofences */}
