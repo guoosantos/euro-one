@@ -1,16 +1,12 @@
-import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
-import useLeafletFocus from "../../lib/hooks/useLeafletFocus.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
-const DEFAULT_CENTER = [-19.9167, -43.9345];
-const DEFAULT_ZOOM = 12;
-const FOCUS_ZOOM = 17;
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
   className: "address-pin",
@@ -120,9 +116,7 @@ function MarkerLayer({
   onViewportChange,
   onMarkerSelect,
   onMarkerOpenDetails,
-  maxZoomLimit = 16,
-  logMapApply,
-  focusLatLng,
+  userActionRef,
 }) {
   const map = useMap();
   const markerRefs = useRef(new Map());
@@ -207,24 +201,14 @@ function MarkerLayer({
 
   // Focar no marcador quando selecionado
   useEffect(() => {
-    if (!map || !focusMarkerId) return;
-
-    const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
-    if (target) {
-      focusLatLng?.({
-        lat: target.lat,
-        lng: target.lng,
-        zoom: Math.max(map.getZoom(), FOCUS_ZOOM),
-        reason: "VEHICLE_SELECT",
-        duration: 0.7,
-      });
-
-      setTimeout(() => {
-        const instance = markerRefs.current.get(focusMarkerId);
-        if (instance) instance.openPopup();
-      }, 1200);
-    }
-  }, [focusLatLng, focusMarkerId, map, safeMarkers]);
+    if (!focusMarkerId) return;
+    const instance = markerRefs.current.get(focusMarkerId);
+    if (!instance) return;
+    const timer = setTimeout(() => {
+      instance.openPopup();
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [focusMarkerId]);
 
   return clusters.map((cluster) => {
     if (cluster.type === "cluster") {
@@ -233,12 +217,6 @@ function MarkerLayer({
           key={cluster.id}
           position={[cluster.lat, cluster.lng]}
           icon={getClusterIcon(cluster.count)}
-        eventHandlers={{
-          click: () => {
-            logMapApply?.("CLUSTER_CLICK", map, [cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18));
-            map.flyTo([cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18), { duration: 0.35 });
-          },
-        }}
         />
       );
     }
@@ -268,6 +246,17 @@ function MarkerLayer({
         }
         eventHandlers={{
           click: () => {
+            const lat = Number(marker.lat);
+            const lng = Number(marker.lng);
+            if (Number.isFinite(lat) && Number.isFinite(lng)) {
+              userActionRef.current = true;
+              console.info("[MAP] USER_VEHICLE_SELECT", { lat, lng });
+              map.stop?.();
+              map.setView([lat, lng], 17, { animate: true });
+              setTimeout(() => {
+                map.invalidateSize?.();
+              }, 50);
+            }
             if (marker.id) {
               onMarkerSelect?.(marker.id);
               onMarkerOpenDetails?.(marker.id);
@@ -330,174 +319,6 @@ function AddressMarker({ marker }) {
   );
 }
 
-function ClickToZoom({ mapReady, maxZoom, logMapApply }) {
-  const map = useMap();
-
-  useEffect(() => {
-    if (!map || !mapReady) return undefined;
-
-    const handleClick = (event) => {
-      const currentZoom = map.getZoom?.() ?? DEFAULT_ZOOM;
-      const allowedMax = Number.isFinite(maxZoom) ? maxZoom : map.getMaxZoom?.() ?? 18;
-      const nextZoom = Math.min(currentZoom + 1, allowedMax);
-      const target = event?.latlng || map.getCenter();
-
-      if (!target || typeof target.lat !== "number" || typeof target.lng !== "number") return;
-
-      map.stop?.();
-      logMapApply?.("MAP_CLICK_ZOOM", map, [target.lat, target.lng], nextZoom);
-      map.flyTo(target, nextZoom, { duration: 0.25, easeLinearity: 0.35 });
-    };
-
-    map.on("click", handleClick);
-    return () => map.off("click", handleClick);
-  }, [map, mapReady, maxZoom, logMapApply]);
-
-  return null;
-}
-
-function MapControls({
-  mapReady,
-  bearing = 0,
-  onRotate = null,
-  onRotateTo = null,
-  onResetRotation = null,
-  maxZoom,
-  logMapApply,
-}) {
-  const map = useMap();
-  const compassRef = useRef(null);
-  const dragStateRef = useRef(null);
-  const dragMovedRef = useRef(false);
-  const pointerIdRef = useRef(null);
-
-  const zoomIn = () => {
-    if (!map) return;
-    map.stop?.();
-    const allowedMax = Number.isFinite(maxZoom) ? maxZoom : map.getMaxZoom?.() ?? 18;
-    const nextZoom = Math.min((map.getZoom?.() ?? DEFAULT_ZOOM) + 1, allowedMax);
-    logMapApply?.("MAP_ZOOM_IN", map, [map.getCenter().lat, map.getCenter().lng], nextZoom);
-    map.flyTo(map.getCenter(), nextZoom, { duration: 0.15, easeLinearity: 0.35 });
-  };
-
-  const zoomOut = () => {
-    if (!map) return;
-    map.stop?.();
-    map.zoomOut?.(1, { animate: true });
-  };
-
-  const getPointerAngle = (event) => {
-    const rect = compassRef.current?.getBoundingClientRect();
-    if (!rect) return null;
-    const cx = rect.left + rect.width / 2;
-    const cy = rect.top + rect.height / 2;
-    const angle = (Math.atan2(event.clientY - cy, event.clientX - cx) * 180) / Math.PI + 90;
-    return Number.isFinite(angle) ? angle : null;
-  };
-
-  const handleCompassPointerDown = (event) => {
-    event.preventDefault();
-    const startAngle = getPointerAngle(event);
-    if (startAngle === null) return;
-
-    pointerIdRef.current = event.pointerId;
-    dragStateRef.current = { startAngle, startBearing: bearing, lastAngle: startAngle, accumulated: 0, hasMoved: false };
-    dragMovedRef.current = false;
-
-    const handleMove = (moveEvent) => {
-      if (pointerIdRef.current !== null && moveEvent.pointerId !== pointerIdRef.current) return;
-      const angle = getPointerAngle(moveEvent);
-      const state = dragStateRef.current;
-      if (angle === null || !state) return;
-      let delta = angle - state.lastAngle;
-      if (delta > 180) delta -= 360;
-      else if (delta < -180) delta += 360;
-
-      state.accumulated += delta;
-      state.lastAngle = angle;
-
-      if (Math.abs(state.accumulated) > 0.5) {
-        state.hasMoved = true;
-        dragMovedRef.current = true;
-      }
-
-      const nextBearing = state.startBearing + state.accumulated;
-      if (onRotateTo) {
-        onRotateTo(nextBearing);
-      } else if (onRotate) {
-        onRotate(state.accumulated);
-      }
-    };
-
-    const handleUp = (upEvent) => {
-      if (pointerIdRef.current !== null && upEvent.pointerId !== pointerIdRef.current) return;
-      const state = dragStateRef.current;
-      dragStateRef.current = null;
-      pointerIdRef.current = null;
-      window.removeEventListener("pointermove", handleMove);
-      window.removeEventListener("pointerup", handleUp);
-      compassRef.current?.releasePointerCapture?.(event.pointerId);
-      if (!state?.hasMoved) return;
-    };
-
-    compassRef.current?.setPointerCapture?.(event.pointerId);
-    window.addEventListener("pointermove", handleMove);
-    window.addEventListener("pointerup", handleUp);
-  };
-
-  const handleCompassClick = () => {
-    if (dragMovedRef.current) {
-      dragMovedRef.current = false;
-      return;
-    }
-    onResetRotation?.();
-  };
-
-  const displayBearing = ((bearing % 360) + 360) % 360;
-
-  return (
-    <div className="monitoring-map-controls pointer-events-none absolute right-3 top-3 z-[1200] flex flex-col items-end gap-2">
-      <div className="pointer-events-auto flex flex-col overflow-hidden rounded-md border border-white/15 bg-[#0f141c]/80 text-white/80 shadow-sm backdrop-blur-md">
-        <button
-          type="button"
-          className="flex h-9 w-9 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-          aria-label="Aumentar zoom"
-          onClick={zoomIn}
-        >
-          +
-        </button>
-        <div className="h-px bg-white/10" />
-        <button
-          type="button"
-          className="flex h-9 w-9 items-center justify-center text-[13px] font-semibold transition hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-          aria-label="Reduzir zoom"
-          onClick={zoomOut}
-        >
-          −
-        </button>
-      </div>
-
-      <button
-        ref={compassRef}
-        type="button"
-        onPointerDown={handleCompassPointerDown}
-        onClick={handleCompassClick}
-        className={`pointer-events-auto flex h-9 w-9 items-center justify-center rounded-md border px-0.5 text-[11px] font-semibold uppercase shadow-sm transition backdrop-blur-md ${
-          displayBearing !== 0 ? "border-primary/60 bg-[#0f141c]/85 text-primary" : "border-white/15 bg-[#0f141c]/80 text-white/80"
-        } hover:border-primary/60 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60`}
-        aria-label="Controle de rotação do mapa"
-      >
-        <span
-          className="relative flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-white/5"
-          style={{ transform: `rotate(${bearing}deg)` }}
-        >
-          <span className="text-[10px] font-bold text-white">N</span>
-        </span>
-      </button>
-    </div>
-  );
-}
-
 // --- COMPONENTE PRINCIPAL ---
 
 const MonitoringMap = React.forwardRef(function MonitoringMap({
@@ -514,25 +335,17 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   mapPreferences = null,
 }, _ref) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-  const [mapReady, setMapReady] = useState(false);
-  const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
-  const { registerMap, focusLatLng } = useLeafletFocus({ page: "Monitoring" });
+  const userActionRef = useRef(false);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
     [mapPreferences?.maxZoom, providerMaxZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
-  const logMapApply = useCallback((reason, map, toCenter, toZoom, extra = {}) => {
-    console.log("[MAP_APPLY]", {
-      page: "Monitoring",
-      reason,
-      from: { center: map.getCenter?.(), zoom: map.getZoom?.() },
-      to: { center: toCenter, zoom: toZoom },
-      t: Date.now(),
-      ...extra,
-    });
+
+  useEffect(() => {
+    console.info("[MAP] mounted — neutral state (no center, no zoom)");
   }, []);
 
   useImperativeHandle(
@@ -544,10 +357,11 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
         const map = mapRef.current;
         if (!map) return false;
+        userActionRef.current = true;
+        console.info("[MAP] USER_ADDRESS_SELECT", { lat: nextLat, lng: nextLng });
         map.stop?.();
-        map.setView([nextLat, nextLng], FOCUS_ZOOM, { animate: true });
-        setTimeout(() => map.invalidateSize?.(), 120);
-        setTimeout(() => map.invalidateSize?.(), 350);
+        map.setView([nextLat, nextLng], 17, { animate: true });
+        setTimeout(() => map.invalidateSize?.(), 50);
         return true;
       },
     }),
@@ -555,93 +369,12 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   );
 
   useEffect(() => {
-    if (!mapReady) return undefined;
     const map = mapRef.current;
     if (!map?.invalidateSize) return undefined;
 
     const timer = setTimeout(() => map.invalidateSize(), 60);
     return () => clearTimeout(timer);
-  }, [invalidateKey, mapLayer?.key, mapReady]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return undefined;
-    const appliedBearing = mapBearing;
-
-    const baseLatLngToContainerPoint = map.latLngToContainerPoint?.bind(map);
-    const baseContainerPointToLatLng = map.containerPointToLatLng?.bind(map);
-    const baseContainerPointToLayerPoint = map.containerPointToLayerPoint?.bind(map);
-    const baseLayerPointToContainerPoint = map.layerPointToContainerPoint?.bind(map);
-    const baseMouseEventToContainerPoint = map.mouseEventToContainerPoint?.bind(map);
-
-    const rotatePoint = (point, angleDeg) => {
-      if (!point || typeof point.x !== "number" || typeof point.y !== "number") return point;
-      const size = map.getSize();
-      const center = L.point(size.x / 2, size.y / 2);
-      const angle = (angleDeg * Math.PI) / 180;
-      const cos = Math.cos(angle);
-      const sin = Math.sin(angle);
-      const dx = point.x - center.x;
-      const dy = point.y - center.y;
-      return L.point(center.x + dx * cos - dy * sin, center.y + dx * sin + dy * cos);
-    };
-
-    const applyRotation = () => {
-      const panes = map._panes || {};
-      Object.values(panes).forEach((currentPane) => {
-        if (!currentPane?.style) return;
-        const current = currentPane.style.transform || "";
-        const withoutRotate = current.replace(/ rotate\([^)]*\)/, "").trim();
-        currentPane.style.transform = `${withoutRotate} rotate(${appliedBearing}deg)`;
-        currentPane.style.transformOrigin = "50% 50%";
-      });
-    };
-
-    if (baseLatLngToContainerPoint && baseContainerPointToLatLng) {
-      map.latLngToContainerPoint = (latlng, zoom) => rotatePoint(baseLatLngToContainerPoint(latlng, zoom), appliedBearing);
-      map.containerPointToLatLng = (point, zoom) => baseContainerPointToLatLng(rotatePoint(point, -appliedBearing), zoom);
-    }
-
-    if (baseContainerPointToLayerPoint && baseLayerPointToContainerPoint) {
-      map.containerPointToLayerPoint = (point) => rotatePoint(baseContainerPointToLayerPoint(rotatePoint(point, -appliedBearing)), appliedBearing);
-      map.layerPointToContainerPoint = (point) => rotatePoint(baseLayerPointToContainerPoint(rotatePoint(point, -appliedBearing)), appliedBearing);
-    }
-
-    if (baseMouseEventToContainerPoint) {
-      map.mouseEventToContainerPoint = (event) => rotatePoint(baseMouseEventToContainerPoint(event), appliedBearing);
-    }
-
-    map.on("move", applyRotation);
-    map.on("zoom", applyRotation);
-    applyRotation();
-
-    return () => {
-      if (baseLatLngToContainerPoint) map.latLngToContainerPoint = baseLatLngToContainerPoint;
-      if (baseContainerPointToLatLng) map.containerPointToLatLng = baseContainerPointToLatLng;
-      if (baseContainerPointToLayerPoint) map.containerPointToLayerPoint = baseContainerPointToLayerPoint;
-      if (baseLayerPointToContainerPoint) map.layerPointToContainerPoint = baseLayerPointToContainerPoint;
-      if (baseMouseEventToContainerPoint) map.mouseEventToContainerPoint = baseMouseEventToContainerPoint;
-      map.off("move", applyRotation);
-      map.off("zoom", applyRotation);
-      const panes = map._panes || {};
-      Object.values(panes).forEach((currentPane) => {
-        if (!currentPane?.style) return;
-        currentPane.style.transform = (currentPane.style.transform || "").replace(/ rotate\([^)]*\)/, "").trim();
-      });
-    };
-  }, [mapBearing, mapReady]);
-
-  const rotateMap = useCallback((delta) => {
-    setMapBearing((prev) => prev + delta);
-  }, []);
-
-  const setMapBearingTo = useCallback((value) => {
-    setMapBearing(value);
-  }, []);
-
-  const resetMapRotation = useCallback(() => {
-    setMapBearing(0);
-  }, []);
+  }, [invalidateKey, mapLayer?.key]);
 
   const tileSubdomains = mapLayer?.subdomains ?? "abc";
 
@@ -653,58 +386,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         </div>
       ) : null}
       <MapContainer
-        center={DEFAULT_CENTER}
-        zoom={DEFAULT_ZOOM}
-        className="h-full w-full outline-none"
-        zoomControl={false}
-        maxZoom={effectiveMaxZoom}
-        scrollWheelZoom={true}
-        preferCanvas={true}
-        updateWhenIdle={true}
-        wheelDebounceTime={120}
-        wheelPxPerZoomLevel={70}
-        whenCreated={(instance) => {
-          mapRef.current = instance;
-          registerMap(instance);
-          window.EURO_MAP = instance;
-          window._MAP_ = instance;
-          window._EURO_ONE_MAP_ = instance;
-          window.__EURO_ONE_FLY_TO__ = (lat, lng, zoom = 17) => {
-            const map = window._EURO_ONE_MAP_;
-            if (!map) return false;
-            map.stop?.();
-            logMapApply("DEBUG_FLY_TO", map, [lat, lng], zoom);
-            map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-            return true;
-          };
-          window.__EURO_ONE_SET_VIEW__ = (lat, lng, zoom = 17) => {
-            const map = window._EURO_ONE_MAP_;
-            if (!map) return false;
-            map.stop?.();
-            logMapApply("DEBUG_SET_VIEW", map, [lat, lng], zoom);
-            map.setView([lat, lng], zoom, { animate: true });
-            return true;
-          };
-
-          // Evita corrida no mapReady ao aguardar o Leaflet ficar pronto.
-          if (instance?._loaded) {
-            console.log("[MAP] READY", {
-              center: instance.getCenter?.(),
-              zoom: instance.getZoom?.(),
-              t: Date.now(),
-            });
-            setMapReady(true);
-          } else {
-            instance.whenReady(() => {
-              console.log("[MAP] READY", {
-                center: instance.getCenter?.(),
-                zoom: instance.getZoom?.(),
-                t: Date.now(),
-              });
-              setMapReady(true);
-            });
-          }
-        }}
+        ref={mapRef}
+        zoomControl
+        scrollWheelZoom
+        style={{ height: "100%", width: "100%" }}
       >
         <TileLayer
           key={mapLayer?.key || tileUrl}
@@ -714,30 +399,13 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           subdomains={tileSubdomains}
         />
 
-        <ClickToZoom
-          mapReady={mapReady}
-          maxZoom={effectiveMaxZoom}
-          logMapApply={logMapApply}
-        />
-        <MapControls
-          mapReady={mapReady}
-          bearing={mapBearing}
-          onRotate={rotateMap}
-          onRotateTo={setMapBearingTo}
-          onResetRotation={resetMapRotation}
-          maxZoom={effectiveMaxZoom}
-          logMapApply={logMapApply}
-        />
-
         <MarkerLayer
           markers={markers}
           focusMarkerId={focusMarkerId}
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-          maxZoomLimit={effectiveMaxZoom}
-          logMapApply={logMapApply}
-          focusLatLng={focusLatLng}
+          userActionRef={userActionRef}
         />
 
         <RegionOverlay target={regionTarget} />
