@@ -586,9 +586,11 @@ export default function MonitoringMap({
       return true;
     }
 
-    if (last.ts > 0) return false;
-    if (key && key === last.key) return false;
-    lastFocusRef.current = { ts: Date.now(), key };
+    const now = Date.now();
+    const sameKey = key && key === last.key;
+    const tooSoon = Number.isFinite(last.ts) && now - last.ts < 1200;
+    if (sameKey && tooSoon) return false;
+    lastFocusRef.current = { ts: now, key };
     return true;
   }, []);
 
