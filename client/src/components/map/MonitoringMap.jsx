@@ -727,7 +727,9 @@ export default function MonitoringMap({
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
-    if (addressViewport) {
+    const hasValidViewport = addressViewport && (addressViewport.bounds || addressViewport.center);
+
+    if (hasValidViewport) {
       const bounds = normaliseBounds(addressViewport.bounds);
       if (bounds) {
         if (!shouldApplyFocus(addressViewport)) return;
