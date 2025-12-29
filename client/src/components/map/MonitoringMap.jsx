@@ -317,12 +317,13 @@ function MarkerLayer({
   });
 }
 
-function RegionOverlay({ target, mapReady }) {
+function RegionOverlay({ target, mapReady, autoFit = true }) {
   const map = useMap();
   const radius = target?.radius ?? 500;
 
   useEffect(() => {
     if (!map || !target || !mapReady) return;
+    if (!autoFit) return;
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
@@ -338,7 +339,7 @@ function RegionOverlay({ target, mapReady }) {
 
     if (map._loaded) applyFit();
     else map.whenReady(applyFit);
-  }, [map, mapReady, radius, target]);
+  }, [autoFit, map, mapReady, radius, target]);
 
   if (!target || !Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return null;
   return (
@@ -571,6 +572,7 @@ export default function MonitoringMap({
     [mapPreferences?.selectZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
+  const addressActive = Boolean(addressMarker || addressViewport);
 
   const shouldApplyFocus = useCallback((candidate) => {
     if (!candidate) return false;
@@ -844,11 +846,11 @@ export default function MonitoringMap({
           onViewportChange={onViewportChange}
           onMarkerSelect={onMarkerSelect}
           onMarkerOpenDetails={onMarkerOpenDetails}
-        suppressInitialFit={Boolean(addressViewport || addressMarker || focusTarget)}
+          suppressInitialFit={Boolean(addressViewport || addressMarker || focusTarget)}
           maxZoomLimit={effectiveMaxZoom}
         />
 
-        <RegionOverlay target={regionTarget} mapReady={mapReady} />
+        <RegionOverlay target={regionTarget} mapReady={mapReady} autoFit={!addressActive} />
         <AddressMarker marker={addressMarker} />
 
         {/* Renderização de Geofences */}
