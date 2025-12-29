@@ -343,6 +343,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
 
+  useEffect(() => {
+    console.info("[MAP] mounted neutral", { center: NEUTRAL_CENTER, zoom: NEUTRAL_ZOOM });
+  }, []);
+
   useImperativeHandle(
     _ref,
     () => ({
