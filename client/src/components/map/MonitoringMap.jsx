@@ -276,8 +276,7 @@ function MarkerLayer({ markers, focusMarkerId, mapViewport, onViewportChange, on
             bearing: marker.heading,
             muted: marker.muted,
             accentColor: marker.accentColor,
-            label: marker.label,
-            plate: marker.plate,
+            label: marker.mapLabel || marker.plate,
           }) ||
           L.divIcon({
             className: "fleet-marker",
@@ -678,20 +677,22 @@ export default function MonitoringMap({
     if (!map || !mapReady) return;
 
     if (addressViewport) {
+      if (addressViewport.center) {
+        const [lat, lng] = addressViewport.center;
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          const targetZoom = Number.isFinite(addressViewport.zoom)
+            ? addressViewport.zoom
+            : Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
+          map.stop?.();
+          map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
+        }
+        return;
+      }
+
       const bounds = normaliseBounds(addressViewport.bounds);
       if (bounds) {
         map.stop?.();
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: 17 });
-        return;
-      }
-
-      if (addressViewport.center) {
-        const [lat, lng] = addressViewport.center;
-        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-          const targetZoom = Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM);
-          map.stop?.();
-          map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
-        }
         return;
       }
     }
