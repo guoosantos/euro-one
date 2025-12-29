@@ -32,6 +32,16 @@ import Input from "../ui/Input";
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
 const SEARCH_FOCUS_ZOOM = 17;
+const MIN_SEARCH_ZOOM = 16;
+
+const clampZoom = (value, maxZoom) => {
+  const zoomValue = Number.isFinite(Number(value)) ? Number(value) : SEARCH_FOCUS_ZOOM;
+  const safeZoom = Math.max(zoomValue, MIN_SEARCH_ZOOM);
+  if (Number.isFinite(Number(maxZoom)) && Number(maxZoom) > 0) {
+    return Math.min(safeZoom, Number(maxZoom));
+  }
+  return safeZoom;
+};
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -360,16 +370,6 @@ export default function Geofences() {
   }, [selectedGeofence]);
 
   useEffect(() => {
-    if (!searchMarker || !mapRef.current) return;
-    const { lat, lng } = searchMarker;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const map = mapRef.current;
-    const targetZoom = Math.max(map.getZoom?.() ?? SEARCH_FOCUS_ZOOM, SEARCH_FOCUS_ZOOM);
-    map.stop?.();
-    map.flyTo([lat, lng], targetZoom, { duration: 0.45, easeLinearity: 0.25 });
-  }, [searchMarker]);
-
-  useEffect(() => {
     invalidateMapSize();
   }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
 
@@ -632,42 +632,29 @@ export default function Geofences() {
     [colorSeed, localGeofences.length],
   );
 
-  const flyTo = useCallback((lat, lng, bounds) => {
+  const focusMap = useCallback((lat, lng, zoom = SEARCH_FOCUS_ZOOM) => {
     const map = mapRef.current;
-    if (!map) return;
-    if (Array.isArray(bounds) && bounds.length === 4) {
-      const south = Number(bounds[0]);
-      const north = Number(bounds[1]);
-      const west = Number(bounds[2]);
-      const east = Number(bounds[3]);
-      if ([south, north, west, east].every((value) => Number.isFinite(value))) {
-        map.fitBounds(
-          L.latLngBounds(
-            L.latLng(south, west),
-            L.latLng(north, east),
-          ),
-          { padding: [32, 32] },
-        );
-        return;
-      }
-    }
+    if (!map) return false;
+    if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return false;
+    const targetZoom = clampZoom(zoom, map.getMaxZoom?.());
     map.stop?.();
-    map.setView([lat, lng], SEARCH_FOCUS_ZOOM, { animate: true });
+    map.setView([Number(lat), Number(lng)], targetZoom, { animate: true });
+    return true;
   }, []);
 
   const focusSearchResult = useCallback(
     (payload = null) => {
-      const map = mapRef.current;
-      if (!payload || !map) return;
+      if (!payload) return;
 
       const lat = Number(payload.lat);
       const lng = Number(payload.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
-      flyTo(lat, lng, payload.boundingBox || payload.bounds);
+      console.log("[GEOFENCE_ADDR_SELECT]", { lat, lng, result: payload, t: Date.now() });
+      focusMap(lat, lng, payload.zoom);
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
     },
-    [flyTo],
+    [focusMap],
   );
 
   const handleSelectAddress = useCallback(
@@ -769,6 +756,8 @@ export default function Geofences() {
           className="h-full w-full"
           whenCreated={(map) => {
             mapRef.current = map;
+            window.EURO_GEOFENCES_MAP = map;
+            window.EURO_GEOFENCES_FOCUS = (lat, lng, zoom = SEARCH_FOCUS_ZOOM) => focusMap(lat, lng, zoom);
             setTimeout(() => map.invalidateSize(), 120);
           }}
         >
