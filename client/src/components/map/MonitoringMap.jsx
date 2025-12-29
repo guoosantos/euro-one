@@ -334,6 +334,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const didInitialRefreshRef = useRef(false);
+  const didWarmupRef = useRef(false);
   const userActionRef = useRef(false);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
@@ -429,10 +430,16 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           whenReady={(event) => {
             const map = mapRef.current || event?.target || event;
             if (!map?.invalidateSize) return;
-            if (didInitialRefreshRef.current) return;
-            didInitialRefreshRef.current = true;
-            requestAnimationFrame(() => map.invalidateSize?.());
-            setTimeout(() => map.invalidateSize?.(), 120);
+            if (!didWarmupRef.current) {
+              didWarmupRef.current = true;
+              map.invalidateSize?.();
+              map.setView([-14.235, -51.9253], 4, { animate: false });
+            }
+            if (!didInitialRefreshRef.current) {
+              didInitialRefreshRef.current = true;
+              requestAnimationFrame(() => map.invalidateSize?.());
+              setTimeout(() => map.invalidateSize?.(), 120);
+            }
           }}
         >
           <TileLayer
