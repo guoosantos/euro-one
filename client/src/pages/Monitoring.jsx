@@ -344,6 +344,7 @@ export default function Monitoring() {
 
   const [vehicleQuery, setVehicleQuery] = useState("");
   const addressSearch = useAddressSearchState();
+  const clearAddressSearch = addressSearch?.onClear;
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [filterMode, setFilterMode] = useState("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState(null);
@@ -403,7 +404,7 @@ export default function Monitoring() {
 
   useEffect(() => {
     setVehicleQuery("");
-    setAddressQuery("");
+    clearAddressSearch?.();
     setSelectedAddress(null);
     setFilterMode("all");
     setSelectedDeviceId(null);
@@ -418,7 +419,7 @@ export default function Monitoring() {
     setRouteFilter(null);
     setSecurityFilters([]);
     clearVehicleSelection();
-  }, [clearVehicleSelection, tenantId]);
+  }, [clearAddressSearch, clearVehicleSelection, tenantId]);
 
   // Controle de Popups
   const [activePopup, setActivePopup] = useState(null); // 'columns' | 'layout' | null
@@ -922,8 +923,9 @@ export default function Monitoring() {
 
   const focusDevice = useCallback(
     (deviceId, { openDetails = false, allowToggle = true } = {}) => {
-      if (!deviceId) return;
-      const isAlreadySelected = selectedDeviceIdRef.current === deviceId;
+      const normalizedDeviceId = deviceId ? String(deviceId) : null;
+      if (!normalizedDeviceId) return;
+      const isAlreadySelected = selectedDeviceIdRef.current === normalizedDeviceId;
 
       if (isAlreadySelected && allowToggle) {
         setSelectedDeviceId(null);
@@ -934,8 +936,8 @@ export default function Monitoring() {
         return;
       }
 
-      setSelectedDeviceId((prev) => (prev === deviceId ? prev : deviceId));
-      const targetRow = decoratedRowsRef.current.find((item) => item.deviceId === deviceId);
+      setSelectedDeviceId((prev) => (prev === normalizedDeviceId ? prev : normalizedDeviceId));
+      const targetRow = decoratedRowsRef.current.find((item) => item.deviceId === normalizedDeviceId);
       if (targetRow && Number.isFinite(targetRow.lat) && Number.isFinite(targetRow.lng)) {
         const currentViewport = mapViewportRef.current;
         const currentCenter = Array.isArray(currentViewport?.center) ? currentViewport.center : null;
@@ -960,11 +962,10 @@ export default function Monitoring() {
           mapViewportRef.current = focus;
         }
       }
-      if (openDetails) openDetailsFor(deviceId);
+      if (openDetails) openDetailsFor(normalizedDeviceId);
       const targetVehicleId =
         targetRow?.device?.vehicleId ?? targetRow?.device?.vehicle?.id ?? targetRow?.vehicle?.id ?? null;
       const normalizedVehicleId = targetVehicleId ? String(targetVehicleId) : null;
-      const normalizedDeviceId = deviceId ? String(deviceId) : null;
       const currentVehicleId = selectionRef.current.vehicleId;
       const currentDeviceId = selectionRef.current.deviceId;
       if (normalizedVehicleId !== currentVehicleId || normalizedDeviceId !== currentDeviceId) {
@@ -1218,12 +1219,14 @@ export default function Monitoring() {
   const radiusValue = useMemo(() => clampRadius(searchRadius ?? DEFAULT_RADIUS), [clampRadius, searchRadius]);
 
   const applyAddressTarget = useCallback((payload) => {
-    if (!payload || !Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) return;
+    const lat = Number(payload?.lat);
+    const lng = Number(payload?.lng);
+    if (!payload || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
     const target = {
-      lat: payload.lat,
-      lng: payload.lng,
+      lat,
+      lng,
       label: payload.label,
       address: payload.description || payload.address || payload.label,
       radius,
@@ -1232,13 +1235,13 @@ export default function Monitoring() {
     setRegionTarget(target);
     setSelectedAddress(target);
     setAddressPin({
-      lat: payload.lat,
-      lng: payload.lng,
+      lat,
+      lng,
       label: payload.label || payload.description || "Local selecionado",
     });
 
     const focus = {
-      center: [payload.lat, payload.lng],
+      center: [lat, lng],
       zoom: ADDRESS_FOCUS_ZOOM,
       key: `address-${Date.now()}`,
     };
@@ -1248,7 +1251,7 @@ export default function Monitoring() {
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
     setFocusTarget(focus);
-    setMapViewport({ center: [payload.lat, payload.lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
+    setMapViewport({ center: [lat, lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
     setMapInvalidateKey((prev) => prev + 1);
   }, [clampRadius, normaliseBoundingBox, radiusValue]);
@@ -1427,9 +1430,9 @@ export default function Monitoring() {
           />
 
           {!layoutVisibility.showTable && (
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-2 px-3 py-2 lg:pr-28">
-              <div className="flex flex-col items-start gap-2 lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
-                <div className="pointer-events-auto flex w-full flex-col gap-2 lg:w-auto lg:flex-row lg:flex-wrap lg:items-center">
+            <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex flex-col gap-2 overflow-visible px-3 py-2 lg:pr-28">
+              <div className="flex flex-col items-start gap-2 overflow-visible lg:flex-row lg:flex-wrap lg:items-center lg:gap-3">
+                <div className="pointer-events-auto flex w-full flex-col gap-2 overflow-visible lg:w-auto lg:flex-row lg:flex-wrap lg:items-center">
                   <MonitoringSearchBox
                     value={vehicleQuery}
                     onChange={handleVehicleSearchChange}
@@ -1448,7 +1451,7 @@ export default function Monitoring() {
                   />
                 </div>
 
-                <div className="pointer-events-auto flex items-center gap-2">
+                <div className="pointer-events-auto flex items-center gap-2 overflow-visible">
                   <button
                     ref={layoutButtonRef}
                     type="button"
@@ -1489,8 +1492,8 @@ export default function Monitoring() {
       )}
 
       {layoutVisibility.showTable && (
-        <div className="relative z-20 flex h-full min-h-0 flex-col overflow-hidden bg-[#0f141c]">
-          <div className="border-b border-white/10 px-3 py-2">
+        <div className="relative z-20 flex h-full min-h-0 flex-col overflow-visible bg-[#0f141c]">
+          <div className="relative z-30 overflow-visible border-b border-white/10 px-3 py-2">
             {layoutVisibility.showToolbar ? (
               <MonitoringToolbar
                 vehicleSearchTerm={vehicleQuery}

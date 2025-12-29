@@ -73,9 +73,9 @@ export default function MonitoringToolbar({
   const isLayoutActive = activePopup === 'layout';
 
   return (
-    <div className="flex h-full w-full flex-col gap-3 text-[11px] text-white/80">
-      <div className="flex flex-wrap items-start gap-2 lg:items-center lg:gap-3">
-        <div className="flex min-w-[280px] flex-1 flex-col gap-2 lg:flex-row lg:items-center lg:gap-2">
+    <div className="flex h-full w-full flex-col gap-3 overflow-visible text-[11px] text-white/80">
+      <div className="flex flex-wrap items-start gap-2 overflow-visible lg:items-center lg:gap-3">
+        <div className="flex min-w-[280px] flex-1 flex-col gap-2 overflow-visible lg:flex-row lg:items-center lg:gap-2">
           <MonitoringSearchBox
             value={vehicleSearchTerm}
             onChange={onVehicleSearchChange}
@@ -95,7 +95,7 @@ export default function MonitoringToolbar({
           />
         </div>
 
-        <div className="ml-auto flex h-full items-center gap-1">
+        <div className="ml-auto flex h-full items-center gap-1 overflow-visible">
           <ActionButton
             icon={<SlidersIcon />}
             active={isColumnsActive}
@@ -164,7 +164,7 @@ export function MonitoringSearchBox({
 
   return (
     <div
-      className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}
+      className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 overflow-visible rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${containerClassName}`}
     >
       <div className="pointer-events-none flex items-center justify-center text-white/40">
         {icon}
