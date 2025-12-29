@@ -613,18 +613,6 @@ export default function MonitoringMap({
   }, []);
 
   useEffect(() => {
-    const instance = mapRef.current;
-    if (!instance) return undefined;
-
-    if (instance._loaded) {
-      setMapReady(true);
-      return undefined;
-    }
-
-    instance.whenReady(() => setMapReady(true));
-  }, [mapLayer?.key]);
-
-  useEffect(() => {
     if (!mapReady) return undefined;
     const map = mapRef.current;
     if (!map?.invalidateSize) return undefined;
@@ -817,6 +805,13 @@ export default function MonitoringMap({
         wheelPxPerZoomLevel={70}
         whenCreated={(instance) => {
           mapRef.current = instance;
+          window._MAP_ = instance;
+
+          if (instance?._loaded) {
+            setMapReady(true);
+          } else {
+            instance.whenReady(() => setMapReady(true));
+          }
         }}
       >
         <TileLayer
