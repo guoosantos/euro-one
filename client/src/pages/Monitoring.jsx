@@ -364,6 +364,7 @@ export default function Monitoring() {
   const [securityFilters, setSecurityFilters] = useState([]);
   const ignitionStateRef = useRef(new Map());
   const mapControllerRef = useRef(null);
+  const didWakeUpRef = useRef(false);
   const searchParamsKey = searchParams.toString();
   const {
     selectedVehicleId: globalVehicleId,
@@ -1191,6 +1192,9 @@ export default function Monitoring() {
   }, [focusDevice]);
 
   const handleRowClick = useCallback((row) => {
+    if (row && Number.isFinite(row.lat) && Number.isFinite(row.lng)) {
+      mapControllerRef.current?.focusMap?.({ lat: row.lat, lng: row.lng, zoom: DEVICE_FOCUS_ZOOM });
+    }
     focusDevice(row.deviceId, { openDetails: true });
   }, [focusDevice]);
 
@@ -1324,6 +1328,38 @@ export default function Monitoring() {
   useEffect(() => {
     setMapInvalidateKey((prev) => prev + 1);
   }, [layoutVisibility.showMap, layoutVisibility.showTable, localMapHeight]);
+
+  useEffect(() => {
+    if (didWakeUpRef.current) return undefined;
+    if (loading) return undefined;
+    if (!layoutVisibility.showMap) return undefined;
+    if (!mapControllerRef.current) return undefined;
+
+    let timeoutId;
+    const rafId = requestAnimationFrame(() => {
+      timeoutId = setTimeout(() => {
+        if (didWakeUpRef.current) return;
+        didWakeUpRef.current = true;
+        const firstDevice = rows.find((row) => Number.isFinite(row.lat) && Number.isFinite(row.lng));
+        if (firstDevice) {
+          mapControllerRef.current?.wakeUpWithDevice?.({
+            lat: firstDevice.lat,
+            lng: firstDevice.lng,
+            zoom: 11,
+          });
+        } else {
+          mapControllerRef.current?.invalidateMap?.();
+        }
+      }, 150);
+    });
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [layoutVisibility.showMap, loading, rows]);
 
   const handleMapResize = useCallback(
     (value) => {

@@ -358,6 +358,37 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         setTimeout(() => map.invalidateSize?.(), 50);
         return true;
       },
+      focusMap: ({ lat, lng, zoom = 17 }) => {
+        const nextLat = Number(lat);
+        const nextLng = Number(lng);
+        const nextZoom = Number.isFinite(zoom) ? zoom : 17;
+        if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+        const map = mapRef.current;
+        if (!map) return false;
+        console.info("[MAP] USER_VEHICLE_SELECT", { lat: nextLat, lng: nextLng });
+        map.stop?.();
+        map.setView([nextLat, nextLng], nextZoom, { animate: true });
+        setTimeout(() => map.invalidateSize?.(), 50);
+        return true;
+      },
+      invalidateMap: () => {
+        const map = mapRef.current;
+        if (!map?.invalidateSize) return false;
+        setTimeout(() => map.invalidateSize?.(), 50);
+        return true;
+      },
+      wakeUpWithDevice: ({ lat, lng, zoom = 11 } = {}) => {
+        const nextLat = Number(lat);
+        const nextLng = Number(lng);
+        const nextZoom = Number.isFinite(zoom) ? zoom : 11;
+        if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+        const map = mapRef.current;
+        if (!map) return false;
+        map.invalidateSize?.();
+        map.setView([nextLat, nextLng], nextZoom, { animate: false });
+        setTimeout(() => map.invalidateSize?.(), 50);
+        return true;
+      },
     }),
     [],
   );
