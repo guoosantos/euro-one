@@ -1260,7 +1260,6 @@ export default function Monitoring() {
     const focus = {
       center: [payload.lat, payload.lng],
       zoom: ADDRESS_FOCUS_ZOOM,
-      bounds: boundingBox,
       key: `address-${Date.now()}`,
     };
 
@@ -1494,6 +1493,7 @@ export default function Monitoring() {
                     errorMessage={geocodeError?.message}
                     containerClassName="bg-black/70 backdrop-blur-md"
                     onClear={handleClearAddress}
+                    variant="toolbar"
                   />
                 </div>
 
@@ -1583,6 +1583,7 @@ export default function Monitoring() {
                     isSearching={isSearching}
                     errorMessage={geocodeError?.message}
                     onClear={handleClearAddress}
+                    variant="toolbar"
                   />
                 </div>
 

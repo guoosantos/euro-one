@@ -101,6 +101,7 @@ export default function MonitoringToolbar({
             placeholder={t("monitoring.searchRegionPlaceholder")}
             containerClassName="w-full"
             onClear={onClearAddress}
+            variant="toolbar"
           />
         </div>
 

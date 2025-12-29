@@ -1,7 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 
 import Input from "../../ui/Input.jsx";
+
+function buildSuggestionLines(item) {
+  if (!item) return { title: "", subtitle: "" };
+  const title = item.concise || item.label || item.address || "";
+  const candidates = [item.label, item.address, item.subtitle, item.description].filter(Boolean);
+  const subtitle = candidates.find((value) => value !== title) || "";
+  return { title, subtitle };
+}
 
 export default function LocationSearch({
   value,
@@ -15,10 +23,16 @@ export default function LocationSearch({
   containerClassName = "",
   floating = false,
   onClear,
+  variant = "map",
 }) {
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [isFocused, setIsFocused] = useState(false);
   const safeSuggestions = useMemo(() => (Array.isArray(suggestions) ? suggestions : []), [suggestions]);
+  const trimmedValue = String(value ?? "").trim();
   const hasSuggestions = safeSuggestions.length > 0;
+  const showSuggestions = isFocused && Boolean(trimmedValue) && hasSuggestions;
+  const showClearButton = Boolean(onClear) && Boolean(trimmedValue);
+  const isToolbar = variant === "toolbar";
 
   useEffect(() => {
     setActiveIndex(-1);
@@ -37,6 +51,7 @@ export default function LocationSearch({
       if (selected) {
         event.preventDefault();
         onSelectSuggestion?.(selected);
+        setIsFocused(false);
       } else if (onSubmit) {
         event.preventDefault();
         onSubmit();
@@ -44,8 +59,97 @@ export default function LocationSearch({
     }
   };
 
+  const suggestionList = showSuggestions ? (
+    <div
+      className={
+        isToolbar
+          ? "absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl"
+          : "map-search-suggestions"
+      }
+    >
+      <ul className="max-h-64 overflow-auto text-xs text-white/80">
+        {safeSuggestions.map((item, index) => {
+          const key = item.id || `${item.lat}-${item.lng}-${index}`;
+          const isActive = index === activeIndex;
+          const { title, subtitle } = buildSuggestionLines(item);
+          return (
+            <li
+              key={key}
+              className={`flex cursor-pointer items-start gap-2 px-3 py-2 text-left transition ${
+                isActive ? "bg-white/10" : "hover:bg-white/5"
+              }`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onSelectSuggestion?.(item);
+                setIsFocused(false);
+              }}
+            >
+              <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-white">{title}</span>
+                {subtitle ? (
+                  <span className="truncate text-[10px] text-white/60">{subtitle}</span>
+                ) : null}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  ) : null;
+
+  if (isToolbar) {
+    return (
+      <div
+        className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${
+          containerClassName
+        }`}
+      >
+        <div className="pointer-events-none flex items-center justify-center text-white/40">
+          <Search size={16} />
+        </div>
+        <input
+          type="text"
+          value={value}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
+          onChange={onChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          className="ml-2 w-full bg-transparent pr-10 text-xs text-white placeholder-white/40 focus:outline-none"
+        />
+
+        <div className="pointer-events-none absolute inset-y-0 right-3 flex items-center gap-2 text-white/40">
+          {isSearching ? (
+            <div
+              className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-transparent"
+              aria-label="loading"
+            />
+          ) : null}
+          {showClearButton ? (
+            <button
+              type="button"
+              className="pointer-events-auto text-white/50 transition hover:text-white"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onClear?.()}
+              aria-label="Limpar busca"
+            >
+              <X size={14} />
+            </button>
+          ) : null}
+        </div>
+
+        {suggestionList}
+
+        {errorMessage ? (
+          <div className="absolute -bottom-5 left-0 text-[10px] text-amber-300/80">{errorMessage}</div>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <div className={`${floating ? "floating-search" : ""} ${containerClassName}`.trim()}>
+    <div className={`relative ${floating ? "floating-search" : ""} ${containerClassName}`.trim()}>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -56,6 +160,8 @@ export default function LocationSearch({
         <Input
           value={value}
           onChange={onChange}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           placeholder={placeholder}
           icon={Search}
           className="map-search-input pr-12"
@@ -63,43 +169,20 @@ export default function LocationSearch({
         />
         <div className="absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-2 text-xs text-white/70">
           {isSearching ? "Buscando..." : errorMessage || ""}
-          {onClear && value ? (
+          {showClearButton ? (
             <button
               type="button"
-              className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/70 hover:text-white"
-              onClick={onClear}
+              className="text-white/70 transition hover:text-white"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => onClear?.()}
+              aria-label="Limpar busca"
             >
-              Limpar
+              <X size={12} />
             </button>
           ) : null}
         </div>
       </form>
-      {hasSuggestions && (
-        <div className="map-search-suggestions">
-          {safeSuggestions.map((item, index) => {
-            const key = item.id || `${item.lat}-${item.lng}-${index}`;
-            const isActive = index === activeIndex;
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => onSelectSuggestion?.(item)}
-                className={`flex w-full items-start gap-2 px-3 py-2 text-left text-sm text-white/80 transition ${
-                  isActive ? "bg-white/10" : "hover:bg-white/5"
-                }`}
-              >
-                <span className="mt-1 h-2 w-2 rounded-full bg-primary/80" />
-                <span>
-                  <div className="font-semibold text-white">{item.concise || item.label}</div>
-                  <div className="text-xs text-white/60">
-                    Lat {Number(item.lat).toFixed(4)} · Lng {Number(item.lng).toFixed(4)}
-                  </div>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
+      {suggestionList}
     </div>
   );
 }
