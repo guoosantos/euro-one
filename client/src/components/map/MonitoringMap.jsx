@@ -331,6 +331,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   mapPreferences = null,
 }, _ref) {
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+  const containerRef = useRef(null);
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
@@ -381,6 +382,20 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    const container = containerRef.current;
+    if (!map?.invalidateSize || !container || typeof ResizeObserver === "undefined") return undefined;
+
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(() => map.invalidateSize?.());
+      setTimeout(() => map.invalidateSize?.(), 80);
+    });
+
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
     if (!map?.invalidateSize) return undefined;
 
     const timer = setTimeout(() => map.invalidateSize(), 60);
@@ -396,52 +411,60 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           Zoom limitado a {effectiveMaxZoom} (web.maxZoom). Ajuste a configuração para permitir aproximação maior.
         </div>
       ) : null}
-      <MapContainer
-        ref={mapRef}
-        zoomControl
-        scrollWheelZoom
-        style={{ height: "100%", width: "100%" }}
-      >
-        <TileLayer
-          key={mapLayer?.key || tileUrl}
-          url={tileUrl}
-          attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
-          maxZoom={effectiveMaxZoom}
-          subdomains={tileSubdomains}
-        />
-
-        <MarkerLayer
-          markers={markers}
-          focusMarkerId={focusMarkerId}
-          onViewportChange={onViewportChange}
-          onMarkerSelect={onMarkerSelect}
-          onMarkerOpenDetails={onMarkerOpenDetails}
-          onUserAction={() => {
-            userActionRef.current = true;
+      <div ref={containerRef} className="h-full w-full">
+        <MapContainer
+          ref={mapRef}
+          zoomControl
+          scrollWheelZoom
+          style={{ height: "100%", width: "100%" }}
+          whenReady={(event) => {
+            const map = mapRef.current || event?.target || event;
+            if (!map?.invalidateSize) return;
+            requestAnimationFrame(() => map.invalidateSize?.());
+            setTimeout(() => map.invalidateSize?.(), 80);
           }}
-          onFocusDevice={focusDevice}
-        />
+        >
+          <TileLayer
+            key={mapLayer?.key || tileUrl}
+            url={tileUrl}
+            attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+            maxZoom={effectiveMaxZoom}
+            subdomains={tileSubdomains}
+          />
 
-        <RegionOverlay target={regionTarget} />
-        <AddressMarker marker={addressMarker} />
+          <MarkerLayer
+            markers={markers}
+            focusMarkerId={focusMarkerId}
+            onViewportChange={onViewportChange}
+            onMarkerSelect={onMarkerSelect}
+            onMarkerOpenDetails={onMarkerOpenDetails}
+            onUserAction={() => {
+              userActionRef.current = true;
+            }}
+            onFocusDevice={focusDevice}
+          />
 
-        {/* Renderização de Geofences */}
-        {geofences.map((geo) => {
-          if (!geo.coordinates || geo.coordinates.length === 0) return null;
-          return (
-            <Polygon
-              key={geo.id}
-              positions={geo.coordinates}
-              pathOptions={{
-                color: geo.color || "#3b82f6",
-                fillColor: geo.color || "#3b82f6",
-                fillOpacity: 0.15,
-                weight: 2,
-              }}
-            />
-          );
-        })}
-      </MapContainer>
+          <RegionOverlay target={regionTarget} />
+          <AddressMarker marker={addressMarker} />
+
+          {/* Renderização de Geofences */}
+          {geofences.map((geo) => {
+            if (!geo.coordinates || geo.coordinates.length === 0) return null;
+            return (
+              <Polygon
+                key={geo.id}
+                positions={geo.coordinates}
+                pathOptions={{
+                  color: geo.color || "#3b82f6",
+                  fillColor: geo.color || "#3b82f6",
+                  fillOpacity: 0.15,
+                  weight: 2,
+                }}
+              />
+            );
+          })}
+        </MapContainer>
+      </div>
     </div>
   );
 });
