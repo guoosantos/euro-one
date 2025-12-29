@@ -14,6 +14,7 @@ function hasCenterMoved(fromCenter, toCenter, fromZoom, toZoom) {
 export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const mapRef = useRef(null);
   const pendingFocusRef = useRef(null);
+  const manualFocusUntilRef = useRef(0);
   const isDev = Boolean(import.meta?.env?.DEV);
 
   const log = useCallback(
@@ -23,6 +24,13 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
     },
     [isDev],
   );
+
+  const lockManualFocus = useCallback((ms = 1800, reason = "UNKNOWN") => {
+    manualFocusUntilRef.current = Date.now() + ms;
+    console.log("[MANUAL_FOCUS_LOCK]", { page, until: manualFocusUntilRef.current, reason });
+  }, [page]);
+
+  const isManualFocusLocked = useCallback(() => Date.now() < manualFocusUntilRef.current, []);
 
   const applyFocusLatLng = useCallback(
     (payload, { pendingApplied = false } = {}) => {
@@ -146,6 +154,10 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const focusLatLng = useCallback(
     (payload) => {
       const map = mapRef.current;
+      const reason = payload?.reason;
+      if (["ADDR_SELECT", "GEOFENCE_SELECT", "VEHICLE_SELECT", "GEOFENCE_FOCUS"].includes(reason)) {
+        lockManualFocus(2000, reason);
+      }
       if (!map || !map._loaded) {
         setPendingFocus({ type: "latlng", payload });
         if (map?.whenReady) {
@@ -155,7 +167,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
       }
       return applyFocusLatLng(payload);
     },
-    [applyFocusLatLng, applyPending, setPendingFocus],
+    [applyFocusLatLng, applyPending, lockManualFocus, setPendingFocus],
   );
 
   const fitBounds = useCallback(
@@ -179,5 +191,6 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
     focusLatLng,
     fitBounds,
     setPendingFocus,
+    isManualFocusLocked,
   };
 }
