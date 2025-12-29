@@ -91,7 +91,7 @@ const normaliseLayoutVisibility = (value = {}) => ({
 });
 
 const DEVICE_FOCUS_ZOOM = 16;
-const ADDRESS_FOCUS_ZOOM = 16;
+const ADDRESS_FOCUS_ZOOM = 17;
 
 const normaliseBoundingBox = (boundingBox) => {
   if (!boundingBox) return null;
@@ -636,15 +636,26 @@ export default function Monitoring() {
     [normalizedTelemetry],
   );
 
-  const vehicleOptions = useMemo(() => linkedTelemetry.map(({ device }) => {
-    const name = device.name ?? device.alias ?? "";
-    const plate = device.plate ?? device.registrationNumber ?? "";
-    const identifier = device.identifier ?? device.uniqueId ?? "";
-    const label = name || plate || identifier || "Veículo";
-    const description = plate && name ? `${plate} · ${name}` : plate || name || identifier;
-    const searchValue = `${label} ${plate} ${identifier}`.toLowerCase();
-    return { type: "vehicle", deviceId: getDeviceKey(device), label, description, searchValue };
-  }), [linkedTelemetry]);
+  const vehicleOptions = useMemo(
+    () =>
+      linkedTelemetry.map(({ device, vehicle }) => {
+        const name = device.name ?? device.alias ?? "";
+        const plate = device.plate ?? device.registrationNumber ?? vehicle?.plate ?? "";
+        const identifier = device.identifier ?? device.uniqueId ?? "";
+        const clientName =
+          device.clientName ||
+          device.client?.name ||
+          vehicle?.clientName ||
+          vehicle?.client?.name ||
+          "";
+        const label = plate || "Sem placa";
+        const descriptionParts = [name || identifier, clientName].filter(Boolean);
+        const description = descriptionParts.length ? descriptionParts.join(" · ") : undefined;
+        const searchValue = `${label} ${plate} ${name} ${identifier} ${clientName}`.toLowerCase();
+        return { type: "vehicle", deviceId: getDeviceKey(device), label, description, searchValue };
+      }),
+    [linkedTelemetry],
+  );
 
   const vehicleSuggestions = useMemo(() => {
     const term = vehicleQuery.toLowerCase().trim();
@@ -652,32 +663,30 @@ export default function Monitoring() {
     return vehicleOptions.filter((option) => option.searchValue.includes(term)).slice(0, 8);
   }, [vehicleOptions, vehicleQuery]);
 
-  const addressSuggestionOptions = useMemo(() => {
-    return addressSuggestions.map((item) => ({
-      type: "address",
-      id: item.id,
-      label: item.label,
-      description: item.concise,
-      lat: item.lat,
-      lng: item.lng,
-      boundingBox: item.boundingBox,
-    }));
-  }, [addressSuggestions]);
+  const addressSuggestionOptions = useMemo(() => addressSuggestions, [addressSuggestions]);
 
   const searchFiltered = useMemo(() => {
     const term = vehicleQuery.toLowerCase().trim();
     if (!term) return linkedTelemetry;
 
-    return linkedTelemetry.filter(({ device }) => {
+    return linkedTelemetry.filter(({ device, vehicle }) => {
       const name = (device.name ?? device.alias ?? "").toLowerCase();
-      const plate = (device.plate ?? device.registrationNumber ?? "").toLowerCase();
+      const plate = (device.plate ?? device.registrationNumber ?? vehicle?.plate ?? "").toLowerCase();
       const identifier = (device.identifier ?? device.uniqueId ?? "").toLowerCase();
       const deviceKey = (getDeviceKey(device) ?? "").toLowerCase();
+      const clientName = (
+        device.clientName ||
+        device.client?.name ||
+        vehicle?.clientName ||
+        vehicle?.client?.name ||
+        ""
+      ).toLowerCase();
       return (
         name.includes(term) ||
         plate.includes(term) ||
         identifier.includes(term) ||
-        deviceKey.includes(term)
+        deviceKey.includes(term) ||
+        clientName.includes(term)
       );
     });
   }, [linkedTelemetry, vehicleQuery]);
@@ -1060,12 +1069,15 @@ export default function Monitoring() {
           [r.vehicleType, r.attributes?.vehicleType, r.vehicle?.category],
         );
 
+        const plateLabel = (r.vehicle?.plate ?? r.device?.plate ?? r.plate ?? "").trim() || "Sem placa";
+
         return {
           id: r.deviceId,
           lat: r.lat,
           lng: r.lng,
           label: r.deviceName,
-          plate: r.plate,
+          mapLabel: plateLabel,
+          plate: plateLabel,
           address: r.address,
           speedLabel: `${r.speed ?? 0} km/h`,
           lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
@@ -1245,9 +1257,12 @@ export default function Monitoring() {
       label: payload.label || payload.description || "Local selecionado",
     });
 
-    const focus = boundingBox
-      ? { bounds: boundingBox, center: [payload.lat, payload.lng], key: `address-${Date.now()}` }
-      : { center: [payload.lat, payload.lng], zoom: ADDRESS_FOCUS_ZOOM, key: `address-${Date.now()}` };
+    const focus = {
+      center: [payload.lat, payload.lng],
+      zoom: ADDRESS_FOCUS_ZOOM,
+      bounds: boundingBox,
+      key: `address-${Date.now()}`,
+    };
 
     setAddressViewport(focus);
 
@@ -1268,7 +1283,7 @@ export default function Monitoring() {
 
   const handleSelectAddressSuggestion = useCallback((option) => {
     if (!option) return;
-    setAddressQuery(option.label ?? "");
+    setAddressQuery(option.concise || option.label || "");
     applyAddressTarget(option);
     clearSuggestions();
   }, [applyAddressTarget, clearSuggestions]);
@@ -1278,7 +1293,7 @@ export default function Monitoring() {
     if (!term) return;
     const result = await searchRegion(term);
     if (result) {
-      setAddressQuery(result.label ?? term);
+      setAddressQuery(result.concise || result.label || term);
       applyAddressTarget(result);
       clearSuggestions();
     }
@@ -1294,6 +1309,14 @@ export default function Monitoring() {
     setFocusTarget(null);
     clearSuggestions();
   }, [clearSuggestions]);
+
+  const handleAddressSearchChange = useCallback(
+    (eventOrValue) => {
+      const nextValue = eventOrValue?.target?.value ?? eventOrValue ?? "";
+      setAddressQuery(String(nextValue));
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!regionTarget) {
@@ -1463,7 +1486,7 @@ export default function Monitoring() {
 
                   <LocationSearch
                     value={addressQuery}
-                    onChange={(event) => setAddressQuery(event.target.value ?? event)}
+                    onChange={handleAddressSearchChange}
                     onSubmit={() => handleAddressSubmit(addressQuery)}
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
@@ -1524,7 +1547,7 @@ export default function Monitoring() {
                 vehicleSuggestions={vehicleSuggestions}
                 onSelectVehicleSuggestion={handleSelectVehicleSuggestion}
                 addressSearchTerm={addressQuery}
-                onAddressSearchChange={setAddressQuery}
+                onAddressSearchChange={handleAddressSearchChange}
                 onAddressSubmit={handleAddressSubmit}
                 addressSuggestions={addressSuggestionOptions}
                 onSelectAddressSuggestion={handleSelectAddressSuggestion}
@@ -1553,7 +1576,7 @@ export default function Monitoring() {
 
                   <LocationSearch
                     value={addressQuery}
-                    onChange={(event) => setAddressQuery(event.target.value ?? event)}
+                    onChange={handleAddressSearchChange}
                     onSubmit={() => handleAddressSubmit(addressQuery)}
                     suggestions={addressSuggestionOptions}
                     onSelectSuggestion={handleSelectAddressSuggestion}
