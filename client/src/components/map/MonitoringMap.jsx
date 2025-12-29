@@ -756,9 +756,10 @@ export default function MonitoringMap({
 
     if (!addressMarker || !Number.isFinite(addressMarker.lat) || !Number.isFinite(addressMarker.lng)) return;
 
+    const currentZoom = map.getZoom?.() ?? DEFAULT_ZOOM;
     const fallbackFocus = {
       center: [addressMarker.lat, addressMarker.lng],
-      zoom: Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, selectZoom),
+      zoom: Math.max(currentZoom, selectZoom),
       key: addressMarker.key || `address-marker-${addressMarker.lat}-${addressMarker.lng}`,
       ts: addressMarker.ts,
     };
@@ -766,9 +767,9 @@ export default function MonitoringMap({
     if (!shouldApplyFocus(fallbackFocus)) return;
 
     const { zoom: targetZoom } = resolveFocusZoom({
-      requestedZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+      requestedZoom: fallbackFocus.zoom,
       selectZoom,
-      currentZoom: map.getZoom?.() ?? DEFAULT_ZOOM,
+      currentZoom,
       maxZoom: mapPreferences?.maxZoom,
       providerMaxZoom,
     });

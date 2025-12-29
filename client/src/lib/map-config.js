@@ -60,10 +60,11 @@ export function resolveFocusZoom({
   providerMaxZoom = PROVIDER_MAX_ZOOM_FALLBACK,
 } = {}) {
   const baseSelect = Number.isFinite(selectZoom) && selectZoom > 0 ? selectZoom : DEFAULT_SELECT_ZOOM;
-  const desired = Number.isFinite(requestedZoom) && requestedZoom > 0 ? requestedZoom : baseSelect;
+  const desiredRaw = Number.isFinite(requestedZoom) && requestedZoom > 0 ? requestedZoom : baseSelect;
+  const desired = Math.max(desiredRaw, baseSelect);
   const effectiveMaxZoom = buildEffectiveMaxZoom(maxZoom, providerMaxZoom);
   const current = Number.isFinite(currentZoom) ? currentZoom : null;
-  const target = Math.min(Math.max(desired, baseSelect, current ?? desired), effectiveMaxZoom);
+  const target = Math.min(Math.max(desired, current ?? desired), effectiveMaxZoom);
   return { zoom: target, effectiveMaxZoom };
 }
 
