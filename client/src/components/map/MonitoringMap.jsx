@@ -1,4 +1,4 @@
-import React, { useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -117,6 +117,7 @@ function MarkerLayer({
   onMarkerSelect,
   onMarkerOpenDetails,
   onUserAction,
+  onFocusDevice,
 }) {
   const map = useMap();
   const markerRefs = useRef(new Map());
@@ -250,12 +251,7 @@ function MarkerLayer({
             const lng = Number(marker.lng);
             if (Number.isFinite(lat) && Number.isFinite(lng)) {
               onUserAction?.();
-              console.info("[MAP] USER_VEHICLE_SELECT", { lat, lng });
-              map.stop?.();
-              map.setView([lat, lng], 17, { animate: true });
-              setTimeout(() => {
-                map.invalidateSize?.();
-              }, 50);
+              onFocusDevice?.({ lat, lng, reason: "MARKER_SELECT" });
             }
             if (marker.id) {
               onMarkerSelect?.(marker.id);
@@ -343,6 +339,25 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     [mapPreferences?.maxZoom, providerMaxZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
+  const focusDevice = useCallback(
+    ({ lat, lng, zoom = 17, animate = true, reason } = {}) => {
+      const nextLat = Number(lat);
+      const nextLng = Number(lng);
+      if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
+      const map = mapRef.current;
+      if (!map) return false;
+      userActionRef.current = true;
+      console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
+      map.stop?.();
+      map.invalidateSize?.();
+      requestAnimationFrame(() => {
+        map.setView([nextLat, nextLng], zoom, { animate });
+        setTimeout(() => map.invalidateSize?.(), 50);
+      });
+      return true;
+    },
+    [],
+  );
 
   useImperativeHandle(
     _ref,
@@ -353,15 +368,11 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
         const map = mapRef.current;
         if (!map) return false;
-        userActionRef.current = true;
-        console.info("[MAP] USER_ADDRESS_SELECT", { lat: nextLat, lng: nextLng });
-        map.stop?.();
-        map.setView([nextLat, nextLng], 17, { animate: true });
-        setTimeout(() => map.invalidateSize?.(), 50);
-        return true;
+        return focusDevice({ lat: nextLat, lng: nextLng, zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
       },
+      focusDevice,
     }),
-    [],
+    [focusDevice],
   );
 
   useEffect(() => {
@@ -408,6 +419,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           onUserAction={() => {
             userActionRef.current = true;
           }}
+          onFocusDevice={focusDevice}
         />
 
         <RegionOverlay target={regionTarget} />

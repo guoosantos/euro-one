@@ -364,6 +364,7 @@ export default function Monitoring() {
   const [securityFilters, setSecurityFilters] = useState([]);
   const ignitionStateRef = useRef(new Map());
   const mapControllerRef = useRef(null);
+  const pendingFocusDeviceIdRef = useRef(null);
   const searchParamsKey = searchParams.toString();
   const {
     selectedVehicleId: globalVehicleId,
@@ -917,6 +918,15 @@ export default function Monitoring() {
     decoratedRowsRef.current = decoratedRows;
   }, [decoratedRows]);
 
+  useEffect(() => {
+    const pendingId = pendingFocusDeviceIdRef.current;
+    if (!pendingId) return;
+    const row = decoratedRows.find((item) => item.deviceId === pendingId);
+    if (!row) return;
+    focusSelectedRowOnMap(row, "GLOBAL_SEARCH_SELECT");
+    pendingFocusDeviceIdRef.current = null;
+  }, [decoratedRows, focusSelectedRowOnMap]);
+
   const displayRows = useMemo(
     () => (regionTarget ? decoratedRows.filter((row) => row.isNearby) : decoratedRows),
     [decoratedRows, regionTarget],
@@ -989,6 +999,28 @@ export default function Monitoring() {
     },
     [clearVehicleSelection, openDetailsFor, setVehicleSelection],
   );
+  const focusSelectedRowOnMap = useCallback((row, reason) => {
+    if (!row) return;
+    if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return;
+    const ok = mapControllerRef.current?.focusDevice?.({
+      lat: row.lat,
+      lng: row.lng,
+      zoom: DEVICE_FOCUS_ZOOM,
+      animate: true,
+      reason,
+    });
+    if (!ok) {
+      setTimeout(() => {
+        mapControllerRef.current?.focusDevice?.({
+          lat: row.lat,
+          lng: row.lng,
+          zoom: DEVICE_FOCUS_ZOOM,
+          animate: true,
+          reason: `${reason}_RETRY`,
+        });
+      }, 200);
+    }
+  }, []);
 
   useEffect(() => {
     if (!globalDeviceId && !globalVehicleId) return;
@@ -1191,8 +1223,9 @@ export default function Monitoring() {
   }, [focusDevice]);
 
   const handleRowClick = useCallback((row) => {
+    focusSelectedRowOnMap(row, "TABLE_SELECT");
     focusDevice(row.deviceId, { openDetails: true });
-  }, [focusDevice]);
+  }, [focusDevice, focusSelectedRowOnMap]);
 
   const handleMarkerSelect = useCallback((deviceId) => {
     focusDevice(deviceId);
@@ -1267,8 +1300,15 @@ export default function Monitoring() {
   const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
     setVehicleQuery(option.label ?? "");
+    const targetRow = decoratedRowsRef.current.find((item) => item.deviceId === option.deviceId);
+    if (targetRow) {
+      focusSelectedRowOnMap(targetRow, "GLOBAL_SEARCH_SELECT");
+      pendingFocusDeviceIdRef.current = null;
+    } else {
+      pendingFocusDeviceIdRef.current = option.deviceId ?? null;
+    }
     focusDevice(option.deviceId, { openDetails: true });
-  }, [focusDevice]);
+  }, [focusDevice, focusSelectedRowOnMap]);
 
   const handleSelectAddress = useCallback((option) => {
     if (!option) return;
