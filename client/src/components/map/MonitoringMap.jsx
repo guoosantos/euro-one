@@ -734,7 +734,8 @@ export default function MonitoringMap({
     const fallbackFocus = {
       center: [addressMarker.lat, addressMarker.lng],
       zoom: Math.max(map.getZoom?.() ?? DEFAULT_ZOOM, FOCUS_ZOOM),
-      key: `address-marker-${addressMarker.lat}-${addressMarker.lng}`,
+      key: addressMarker.key || `address-marker-${addressMarker.lat}-${addressMarker.lng}`,
+      ts: addressMarker.ts,
     };
 
     if (!shouldApplyFocus(fallbackFocus)) return;

@@ -488,6 +488,27 @@ export default function Monitoring() {
     return `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
   }, []);
 
+  const buildAddressFocusKey = useCallback((payload, lat, lng) => {
+    const rawKey =
+      payload?.key ||
+      payload?.id ||
+      payload?.placeId ||
+      payload?.place_id ||
+      payload?.raw?.place_id ||
+      payload?.raw?.placeId;
+    if (rawKey) return `address:${rawKey}`;
+
+    const coordKey = buildCoordKey(lat, lng);
+    if (coordKey) return `address:${coordKey}`;
+
+    const label = payload?.label || payload?.description || payload?.address || payload?.concise;
+    if (label) {
+      return `address:${label}`.trim().toLowerCase().replace(/\s+/g, "-");
+    }
+
+    return `address:${Date.now()}`;
+  }, [buildCoordKey]);
+
   useEffect(() => {
     try {
       const storedLayer = localStorage.getItem(MAP_LAYER_STORAGE_KEY);
@@ -1227,7 +1248,7 @@ export default function Monitoring() {
     const radius = clampRadius(payload.radius ?? radiusValue);
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
     const focusTimestamp = Date.now();
-    const focusKey = `address-${focusTimestamp}`;
+    const focusKey = buildAddressFocusKey(payload, lat, lng);
     const target = {
       lat,
       lng,
@@ -1242,6 +1263,8 @@ export default function Monitoring() {
       lat,
       lng,
       label: payload.label || payload.description || "Local selecionado",
+      key: focusKey,
+      ts: focusTimestamp,
     });
 
     const focus = {
@@ -1260,7 +1283,7 @@ export default function Monitoring() {
     setMapViewport({ center: [lat, lng], zoom: focus.zoom || ADDRESS_FOCUS_ZOOM });
     setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
     setMapInvalidateKey((prev) => prev + 1);
-  }, [clampRadius, normaliseBoundingBox, radiusValue]);
+  }, [buildAddressFocusKey, clampRadius, normaliseBoundingBox, radiusValue]);
 
   const handleSelectVehicleSuggestion = useCallback((option) => {
     if (!option) return;
@@ -1418,7 +1441,7 @@ export default function Monitoring() {
       style={{ gridTemplateRows }}
     >
       {layoutVisibility.showMap && (
-        <div className="relative min-h-0 h-full border-b border-white/10">
+        <div className="relative min-h-0 h-full min-w-0 overflow-hidden border-b border-white/10">
           <MonitoringMap
             markers={markers}
             geofences={geofences}
@@ -1498,7 +1521,7 @@ export default function Monitoring() {
       )}
 
       {layoutVisibility.showTable && (
-        <div className="relative z-20 flex h-full min-h-0 flex-col overflow-visible bg-[#0f141c]">
+        <div className="relative z-20 flex h-full min-h-0 min-w-0 flex-col overflow-visible bg-[#0f141c]">
           <div className="relative z-30 overflow-visible border-b border-white/10 px-3 py-2">
             {layoutVisibility.showToolbar ? (
               <MonitoringToolbar
@@ -1589,8 +1612,8 @@ export default function Monitoring() {
             )}
           </div>
 
-          <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
-            <div className="h-full min-h-0 overflow-hidden">
+          <div className="relative z-10 flex-1 min-h-0 min-w-0 overflow-hidden">
+            <div className="h-full min-h-0 min-w-0 overflow-hidden">
               <MonitoringTable
                 rows={paginatedRows}
                 columns={visibleColumnsWithWidths}
