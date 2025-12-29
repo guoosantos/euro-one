@@ -758,8 +758,6 @@ export default function MonitoringMap({
       ts: addressMarker.ts,
     };
 
-    if (!shouldApplyFocus(fallbackFocus)) return;
-
     const { zoom: targetZoom } = resolveFocusZoom({
       requestedZoom: fallbackFocus.zoom,
       selectZoom,
