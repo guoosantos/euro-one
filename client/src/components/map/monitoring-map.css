@@ -53,3 +53,16 @@
   padding: 0 6px;
   line-height: 1;
 }
+
+.monitoring-map-root {
+  isolation: isolate;
+}
+
+.monitoring-map-controls {
+  z-index: 1200;
+  pointer-events: none;
+}
+
+.monitoring-map-controls > * {
+  pointer-events: auto;
+}
