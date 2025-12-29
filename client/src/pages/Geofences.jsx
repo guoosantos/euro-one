@@ -32,7 +32,8 @@ import Input from "../ui/Input";
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
 const SEARCH_FOCUS_ZOOM = 17;
-const MIN_SEARCH_ZOOM = 16;
+const MIN_SEARCH_ZOOM = 15;
+const DEBUG_MAP = true;
 
 const clampZoom = (value, maxZoom) => {
   const zoomValue = Number.isFinite(Number(value)) ? Number(value) : SEARCH_FOCUS_ZOOM;
@@ -308,6 +309,7 @@ function GeofencePanel({
 export default function Geofences() {
   const mapRef = useRef(null);
   const importInputRef = useRef(null);
+  const addressLockRef = useRef({ until: 0, reason: null, lat: null, lng: null, zoom: null });
   const [drawMode, setDrawMode] = useState(null);
   const [draftPolygon, setDraftPolygon] = useState([]);
   const [draftCircle, setDraftCircle] = useState({ center: null, edge: null });
@@ -328,6 +330,29 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
+  const isAddressLockActive = useCallback(() => Date.now() < (addressLockRef.current.until || 0), []);
+  const logMapApply = useCallback(
+    (reason, map, toCenter, toZoom, extra = {}) => {
+      if (!DEBUG_MAP || !map) return;
+      console.log("[MAP_APPLY]", {
+        page: "Geofences",
+        reason,
+        lockActive: isAddressLockActive(),
+        from: { center: map.getCenter?.(), zoom: map.getZoom?.() },
+        to: { center: toCenter, zoom: toZoom },
+        t: Date.now(),
+        ...extra,
+      });
+    },
+    [isAddressLockActive],
+  );
+  const logMapSkip = useCallback((reason) => {
+    if (!DEBUG_MAP) return;
+    console.log("[MAP_SKIP]", { page: "Geofences", reason, t: Date.now() });
+  }, []);
+  const lockAddress = useCallback((lat, lng, zoom, ms = 6000, reason = "ADDR_SELECT") => {
+    addressLockRef.current = { until: Date.now() + ms, reason, lat, lng, zoom };
+  }, []);
 
   const {
     geofences: remoteGeofences,
@@ -360,14 +385,21 @@ export default function Geofences() {
 
   useEffect(() => {
     if (!selectedGeofence || !mapRef.current) return;
+    if (isAddressLockActive()) {
+      logMapSkip("GEOFENCE_SELECT");
+      return;
+    }
     const map = mapRef.current;
     if (selectedGeofence.type === "polygon" && selectedGeofence.points?.length) {
       const bounds = L.latLngBounds(selectedGeofence.points.map((point) => L.latLng(point[0], point[1])));
+      const nextZoom = map.getBoundsZoom(bounds, false, [32, 32]);
+      logMapApply("GEOFENCE_SELECT", map, [bounds.getCenter().lat, bounds.getCenter().lng], nextZoom);
       map.fitBounds(bounds, { padding: [32, 32] });
     } else if (selectedGeofence.center) {
+      logMapApply("GEOFENCE_SELECT", map, selectedGeofence.center, Math.max(map.getZoom(), 14));
       map.flyTo(selectedGeofence.center, Math.max(map.getZoom(), 14));
     }
-  }, [selectedGeofence]);
+  }, [isAddressLockActive, logMapApply, logMapSkip, selectedGeofence]);
 
   useEffect(() => {
     invalidateMapSize();
@@ -636,11 +668,16 @@ export default function Geofences() {
     const map = mapRef.current;
     if (!map) return false;
     if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return false;
+    if (isAddressLockActive()) {
+      logMapSkip("FOCUS_MAP");
+      return false;
+    }
     const targetZoom = clampZoom(zoom, map.getMaxZoom?.());
     map.stop?.();
+    logMapApply("FOCUS_MAP", map, [Number(lat), Number(lng)], targetZoom);
     map.setView([Number(lat), Number(lng)], targetZoom, { animate: true });
     return true;
-  }, []);
+  }, [isAddressLockActive, logMapApply, logMapSkip]);
 
   const focusSearchResult = useCallback(
     (payload = null) => {
@@ -651,10 +688,38 @@ export default function Geofences() {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
       console.log("[GEOFENCE_ADDR_SELECT]", { lat, lng, result: payload, t: Date.now() });
-      focusMap(lat, lng, payload.zoom);
+      const map = mapRef.current;
+      if (!map) return;
+      const preferredZoom = Number.isFinite(Number(payload.zoom)) ? Number(payload.zoom) : (mapPreferences?.selectZoom ?? SEARCH_FOCUS_ZOOM);
+      const targetZoom = clampZoom(preferredZoom, map.getMaxZoom?.());
+      lockAddress(lat, lng, targetZoom, 6000, "ADDR_SELECT");
+      map.stop?.();
+      map.invalidateSize?.();
+
+      const boundingBox = payload.boundingBox || payload.boundingbox;
+      if (Array.isArray(boundingBox) && boundingBox.length === 4) {
+        const bounds = L.latLngBounds(
+          L.latLng(Number(boundingBox[0]), Number(boundingBox[2])),
+          L.latLng(Number(boundingBox[1]), Number(boundingBox[3])),
+        );
+        const boundsZoom = map.getBoundsZoom(bounds, false, [32, 32]);
+        logMapApply("ADDR_SELECT_BOUNDS", map, [bounds.getCenter().lat, bounds.getCenter().lng], boundsZoom);
+        map.fitBounds(bounds, { padding: [32, 32] });
+      }
+
+      const applyView = (reason) => {
+        logMapApply(reason, map, [lat, lng], targetZoom);
+        map.setView([lat, lng], targetZoom, { animate: true });
+      };
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => applyView("ADDR_SELECT"));
+      });
+      setTimeout(() => applyView("ADDR_SELECT_FALLBACK"), 250);
+
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
     },
-    [focusMap],
+    [lockAddress, logMapApply, mapPreferences?.selectZoom],
   );
 
   const handleSelectAddress = useCallback(
@@ -694,15 +759,22 @@ export default function Geofences() {
   const focusOnGeofence = useCallback(
     (geo) => {
       if (!geo || !mapRef.current) return;
+      if (isAddressLockActive()) {
+        logMapSkip("GEOFENCE_FOCUS");
+        return;
+      }
       const bounds = resolveGeofenceBounds(geo);
       if (bounds) {
+        const boundsZoom = mapRef.current.getBoundsZoom(bounds, false, [32, 32]);
+        logMapApply("GEOFENCE_FOCUS", mapRef.current, [bounds.getCenter().lat, bounds.getCenter().lng], boundsZoom);
         mapRef.current.fitBounds(bounds, { padding: [32, 32] });
       } else if (geo.center) {
+        logMapApply("GEOFENCE_FOCUS", mapRef.current, geo.center, Math.max(mapRef.current.getZoom(), 14));
         mapRef.current.flyTo(geo.center, Math.max(mapRef.current.getZoom(), 14));
       }
       setSelectedId(geo.id);
     },
-    [],
+    [isAddressLockActive, logMapApply, logMapSkip],
   );
 
   const guideLine = useMemo(() => {

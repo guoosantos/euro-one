@@ -10,6 +10,7 @@ import { buildEffectiveMaxZoom, resolveFocusZoom } from "../../lib/map-config.js
 const DEFAULT_CENTER = [-19.9167, -43.9345];
 const DEFAULT_ZOOM = 12;
 const FOCUS_ZOOM = 17;
+const DEBUG_MAP = true;
 
 const clusterIconCache = new Map();
 const ADDRESS_PIN_ICON = L.divIcon({
@@ -124,6 +125,8 @@ function MarkerLayer({
   suppressInitialFit = false,
   maxZoomLimit = 16,
   isAddressLocked,
+  logMapApply,
+  logMapSkip,
 }) {
   const map = useMap();
   const hasInitialFitRef = useRef(false);
@@ -210,10 +213,14 @@ function MarkerLayer({
   // Focar no marcador quando selecionado
   useEffect(() => {
     if (!map || !focusMarkerId) return;
-    if (isAddressLocked?.()) return;
+    if (isAddressLocked?.()) {
+      logMapSkip?.("FOCUS_MARKER");
+      return;
+    }
 
     const target = safeMarkers.find((marker) => marker.id === focusMarkerId);
     if (target) {
+      logMapApply?.("FOCUS_MARKER", map, [target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM));
       map.flyTo([target.lat, target.lng], Math.max(map.getZoom(), FOCUS_ZOOM), {
         duration: 0.7,
         easeLinearity: 0.3
@@ -230,7 +237,10 @@ function MarkerLayer({
   useEffect(() => {
     if (!map || hasInitialFitRef.current || suppressInitialFit) return;
     const applyInitialFit = () => {
-      if (isAddressLocked?.()) return;
+      if (isAddressLocked?.()) {
+        logMapSkip?.("AUTO_FIT");
+        return;
+      }
       console.log("[AUTO_FIT] APPLY", {
         center: map.getCenter?.(),
         zoom: map.getZoom?.(),
@@ -240,6 +250,7 @@ function MarkerLayer({
       if (mapViewport?.center && Array.isArray(mapViewport.center)) {
         const [lat, lng] = mapViewport.center;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          logMapApply?.("AUTO_FIT_VIEWPORT", map, [lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
           map.setView([lat, lng], mapViewport.zoom || DEFAULT_ZOOM);
           hasInitialFitRef.current = true;
           return;
@@ -251,9 +262,11 @@ function MarkerLayer({
         const bounds = L.latLngBounds(safeMarkers.map((m) => [m.lat, m.lng]));
         const mapMax = map.getMaxZoom?.() ?? maxZoomLimit ?? 16;
         const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [50, 50]), Math.min(mapMax, maxZoomLimit ?? 16));
+        logMapApply?.("AUTO_FIT_MARKERS", map, [bounds.getCenter().lat, bounds.getCenter().lng], nextZoom);
         map.setView(bounds.getCenter(), nextZoom);
         hasInitialFitRef.current = true;
       } else {
+        logMapApply?.("AUTO_FIT_DEFAULT", map, DEFAULT_CENTER, DEFAULT_ZOOM);
         map.setView(DEFAULT_CENTER, DEFAULT_ZOOM);
         hasInitialFitRef.current = true;
       }
@@ -273,11 +286,12 @@ function MarkerLayer({
           key={cluster.id}
           position={[cluster.lat, cluster.lng]}
           icon={getClusterIcon(cluster.count)}
-          eventHandlers={{
-            click: () => {
-              map.flyTo([cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18), { duration: 0.35 });
-            },
-          }}
+        eventHandlers={{
+          click: () => {
+            logMapApply?.("CLUSTER_CLICK", map, [cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18));
+            map.flyTo([cluster.lat, cluster.lng], Math.min(map.getZoom() + 2, 18), { duration: 0.35 });
+          },
+        }}
         />
       );
     }
@@ -326,18 +340,24 @@ function MarkerLayer({
   });
 }
 
-function RegionOverlay({ target, mapReady, autoFit = true, isAddressLocked }) {
+function RegionOverlay({ target, mapReady, autoFit = true, isAddressLocked, logMapApply, logMapSkip }) {
   const map = useMap();
   const radius = target?.radius ?? 500;
 
   useEffect(() => {
     if (!map || !target || !mapReady) return;
     if (!autoFit) return;
-    if (isAddressLocked?.()) return;
+    if (isAddressLocked?.()) {
+      logMapSkip?.("REGION_AUTO_FIT");
+      return;
+    }
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
-      if (isAddressLocked?.()) return;
+      if (isAddressLocked?.()) {
+        logMapSkip?.("REGION_AUTO_FIT");
+        return;
+      }
       console.log("[AUTO_FIT] APPLY", {
         center: map.getCenter?.(),
         zoom: map.getZoom?.(),
@@ -349,6 +369,7 @@ function RegionOverlay({ target, mapReady, autoFit = true, isAddressLocked }) {
         const maxZoom = map.getMaxZoom?.() ?? 16;
         const bounds = circle.getBounds();
         const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [48, 48]), Math.min(maxZoom, 16));
+        logMapApply?.("REGION_AUTO_FIT", map, [bounds.getCenter().lat, bounds.getCenter().lng], nextZoom);
         map.setView(bounds.getCenter(), nextZoom);
       } catch (_error) {
         // Evita falha ao ajustar bounds quando o mapa não está pronto
@@ -399,7 +420,7 @@ function AddressMarker({ marker }) {
   );
 }
 
-function ClickToZoom({ mapReady, maxZoom }) {
+function ClickToZoom({ mapReady, maxZoom, logMapApply }) {
   const map = useMap();
 
   useEffect(() => {
@@ -414,6 +435,7 @@ function ClickToZoom({ mapReady, maxZoom }) {
       if (!target || typeof target.lat !== "number" || typeof target.lng !== "number") return;
 
       map.stop?.();
+      logMapApply?.("MAP_CLICK_ZOOM", map, [target.lat, target.lng], nextZoom);
       map.flyTo(target, nextZoom, { duration: 0.25, easeLinearity: 0.35 });
     };
 
@@ -424,7 +446,7 @@ function ClickToZoom({ mapReady, maxZoom }) {
   return null;
 }
 
-function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onRotateTo = null, onResetRotation = null, maxZoom }) {
+function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate = null, onRotateTo = null, onResetRotation = null, maxZoom, logMapApply }) {
   const map = useMap();
   const compassRef = useRef(null);
   const dragStateRef = useRef(null);
@@ -436,6 +458,7 @@ function MapControls({ mapReady, mapViewport, focusTarget, bearing = 0, onRotate
     map.stop?.();
     const allowedMax = Number.isFinite(maxZoom) ? maxZoom : map.getMaxZoom?.() ?? 18;
     const nextZoom = Math.min((map.getZoom?.() ?? DEFAULT_ZOOM) + 1, allowedMax);
+    logMapApply?.("MAP_ZOOM_IN", map, [map.getCenter().lat, map.getCenter().lng], nextZoom);
     map.flyTo(map.getCenter(), nextZoom, { duration: 0.15, easeLinearity: 0.35 });
   };
 
@@ -579,7 +602,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const [mapBearing, setMapBearing] = useState(0);
   const mapRef = useRef(null);
   const lastFocusRef = useRef({ ts: 0, key: null });
-  const addressLockRef = useRef({ until: 0, reason: "" });
+  const addressLockRef = useRef({ until: 0, reason: null, lat: null, lng: null, zoom: null });
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -590,10 +613,29 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     [mapPreferences?.selectZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
-  const lockAddress = useCallback((ms = 1500, reason = "address") => {
-    addressLockRef.current = { until: Date.now() + ms, reason };
+  const lockAddress = useCallback((lat, lng, zoom, ms = 6000, reason = "ADDR_SELECT") => {
+    addressLockRef.current = { until: Date.now() + ms, reason, lat, lng, zoom };
   }, []);
   const isAddressLocked = useCallback(() => Date.now() < (addressLockRef.current.until || 0), []);
+  const logMapApply = useCallback(
+    (reason, map, toCenter, toZoom, extra = {}) => {
+      if (!DEBUG_MAP || !map) return;
+      console.log("[MAP_APPLY]", {
+        page: "Monitoring",
+        reason,
+        lockActive: isAddressLocked(),
+        from: { center: map.getCenter?.(), zoom: map.getZoom?.() },
+        to: { center: toCenter, zoom: toZoom },
+        t: Date.now(),
+        ...extra,
+      });
+    },
+    [isAddressLocked],
+  );
+  const logMapSkip = useCallback((reason) => {
+    if (!DEBUG_MAP) return;
+    console.log("[MAP_SKIP]", { page: "Monitoring", reason, t: Date.now() });
+  }, []);
   const shouldApplyFocus = useCallback((candidate) => {
     if (!candidate) return false;
     const rawTs = Number(candidate.ts ?? 0);
@@ -625,33 +667,29 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
         const maxAllowed = map.getMaxZoom?.() ?? effectiveMaxZoom;
         const nextZoom = Number.isFinite(maxAllowed) ? Math.min(zoom, maxAllowed) : zoom;
-        const beforeCenter = map.getCenter?.();
-        const beforeZoom = map.getZoom?.();
-
-        lockAddress(1500, "address");
+        lockAddress(lat, lng, nextZoom, 6000, "ADDR_SELECT");
         map.stop?.();
-        map.flyTo([lat, lng], nextZoom, { duration: 0.6, easeLinearity: 0.25 });
+        map.invalidateSize?.();
 
-        setTimeout(() => {
-          const afterCenter = map.getCenter?.();
-          const afterZoom = map.getZoom?.();
-          console.log("[ADDR_FOCUS_APPLY]", {
-            beforeCenter,
-            beforeZoom,
-            afterCenter,
-            afterZoom,
-            lockedUntil: addressLockRef.current.until,
-          });
-        }, 200);
+        const applyView = (reason) => {
+          logMapApply(reason, map, [lat, lng], nextZoom);
+          map.setView([lat, lng], nextZoom, { animate: true });
+        };
+
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => applyView("ADDR_SELECT"));
+        });
+
+        setTimeout(() => applyView("ADDR_SELECT_FALLBACK"), 250);
 
         return true;
       },
       lockAddress: (ms = 1500) => {
-        lockAddress(ms, "external");
+        lockAddress(null, null, null, ms, "external");
         return true;
       },
     }),
-    [effectiveMaxZoom, lockAddress],
+    [effectiveMaxZoom, lockAddress, logMapApply],
   );
 
   useEffect(() => {
@@ -740,7 +778,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       t: Date.now(),
     });
     if (!map || !mapReady || !focusTarget) return;
-    if (isAddressLocked()) return;
+    if (isAddressLocked()) {
+      logMapSkip("FOCUS_TARGET");
+      return;
+    }
     if (!shouldApplyFocus(focusTarget)) return;
     if (focusTarget.type === "address") return;
 
@@ -755,8 +796,9 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       providerMaxZoom,
     });
     map.stop?.();
+    logMapApply("FOCUS_TARGET", map, [lat, lng], zoom);
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [focusTarget, isAddressLocked, mapReady, mapPreferences?.maxZoom, providerMaxZoom, selectZoom, shouldApplyFocus]);
+  }, [focusTarget, isAddressLocked, logMapApply, logMapSkip, mapReady, mapPreferences?.maxZoom, providerMaxZoom, selectZoom, shouldApplyFocus]);
 
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => prev + delta);
@@ -798,6 +840,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             const map = window._EURO_ONE_MAP_;
             if (!map) return false;
             map.stop?.();
+            logMapApply("DEBUG_FLY_TO", map, [lat, lng], zoom);
             map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
             return true;
           };
@@ -805,6 +848,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
             const map = window._EURO_ONE_MAP_;
             if (!map) return false;
             map.stop?.();
+            logMapApply("DEBUG_SET_VIEW", map, [lat, lng], zoom);
             map.setView([lat, lng], zoom, { animate: true });
             return true;
           };
@@ -837,7 +881,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           subdomains={tileSubdomains}
         />
 
-        <ClickToZoom mapReady={mapReady} maxZoom={effectiveMaxZoom} />
+        <ClickToZoom mapReady={mapReady} maxZoom={effectiveMaxZoom} logMapApply={logMapApply} />
         <MapControls
           mapReady={mapReady}
           mapViewport={mapViewport}
@@ -847,6 +891,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           onRotateTo={setMapBearingTo}
           onResetRotation={resetMapRotation}
           maxZoom={effectiveMaxZoom}
+          logMapApply={logMapApply}
         />
 
         <MarkerLayer
@@ -859,6 +904,8 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           suppressInitialFit={Boolean(addressMarker || focusTarget)}
           maxZoomLimit={effectiveMaxZoom}
           isAddressLocked={isAddressLocked}
+          logMapApply={logMapApply}
+          logMapSkip={logMapSkip}
         />
 
         <RegionOverlay
@@ -866,6 +913,8 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           mapReady={mapReady}
           autoFit={!addressMarker}
           isAddressLocked={isAddressLocked}
+          logMapApply={logMapApply}
+          logMapSkip={logMapSkip}
         />
         <AddressMarker marker={addressMarker} />
 
