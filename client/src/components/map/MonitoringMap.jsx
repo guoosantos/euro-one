@@ -724,14 +724,23 @@ export default function MonitoringMap({
     if (hasValidViewport) {
       const bounds = normaliseBounds(addressViewport.bounds);
       if (bounds) {
-        if (!shouldApplyFocus(addressViewport)) return;
+        if (import.meta.env.DEV) {
+          console.debug("address focus", {
+            addressViewport,
+            addressMarker,
+            targetZoom: Math.min(effectiveMaxZoom, 17),
+            currentZoom: map.getZoom?.(),
+          });
+        }
         map.stop?.();
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
+        if (import.meta.env.DEV) {
+          setTimeout(() => console.debug("after focus", map.getCenter?.(), map.getZoom?.()), 80);
+        }
         return;
       }
 
       if (addressViewport.center) {
-        if (!shouldApplyFocus(addressViewport)) return;
         const [lat, lng] = addressViewport.center;
         if (Number.isFinite(lat) && Number.isFinite(lng)) {
           const { zoom: targetZoom } = resolveFocusZoom({
@@ -741,8 +750,19 @@ export default function MonitoringMap({
             maxZoom: mapPreferences?.maxZoom,
             providerMaxZoom,
           });
+          if (import.meta.env.DEV) {
+            console.debug("address focus", {
+              addressViewport,
+              addressMarker,
+              targetZoom,
+              currentZoom: map.getZoom?.(),
+            });
+          }
           map.stop?.();
           map.flyTo([lat, lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
+          if (import.meta.env.DEV) {
+            setTimeout(() => console.debug("after focus", map.getCenter?.(), map.getZoom?.()), 80);
+          }
         }
         return;
       }
@@ -765,9 +785,20 @@ export default function MonitoringMap({
       maxZoom: mapPreferences?.maxZoom,
       providerMaxZoom,
     });
+    if (import.meta.env.DEV) {
+      console.debug("address focus", {
+        addressViewport,
+        addressMarker,
+        targetZoom,
+        currentZoom: map.getZoom?.(),
+      });
+    }
     map.stop?.();
     map.flyTo([addressMarker.lat, addressMarker.lng], targetZoom, { duration: 0.6, easeLinearity: 0.25 });
-  }, [addressMarker, addressViewport, mapPreferences?.maxZoom, mapReady, normaliseBounds, providerMaxZoom, selectZoom, shouldApplyFocus]);
+    if (import.meta.env.DEV) {
+      setTimeout(() => console.debug("after focus", map.getCenter?.(), map.getZoom?.()), 80);
+    }
+  }, [addressMarker, addressViewport, mapPreferences?.maxZoom, mapReady, normaliseBounds, providerMaxZoom, selectZoom]);
 
   const rotateMap = useCallback((delta) => {
     setMapBearing((prev) => prev + delta);
