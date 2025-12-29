@@ -232,6 +232,11 @@ function MarkerLayer({
     if (!map || hasInitialFitRef.current || suppressInitialFit) return;
     if (addressLockRef?.current) return;
     const applyInitialFit = () => {
+      console.log("[AUTO_FIT] APPLY", {
+        center: map.getCenter?.(),
+        zoom: map.getZoom?.(),
+        t: Date.now(),
+      });
       if (Date.now() - addressFocusRef.current < 2000) return;
       // Se tiver viewport salvo nas preferências, usa ele
       if (mapViewport?.center && Array.isArray(mapViewport.center)) {
@@ -334,6 +339,11 @@ function RegionOverlay({ target, mapReady, autoFit = true, addressFocusRef, addr
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return;
 
     const applyFit = () => {
+      console.log("[AUTO_FIT] APPLY", {
+        center: map.getCenter?.(),
+        zoom: map.getZoom?.(),
+        t: Date.now(),
+      });
       if (Date.now() - addressFocusRef.current < 2000) return;
       try {
         const center = L.latLng(target.lat, target.lng);
@@ -742,14 +752,40 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    console.log("[FOCUS_TARGET] APPLY", {
+      focusTarget,
+      center: map?.getCenter?.(),
+      zoom: map?.getZoom?.(),
+      t: Date.now(),
+    });
     if (!map || !mapReady || !focusTarget) return;
     if (addressLockRef.current) return;
     if (!shouldApplyFocus(focusTarget)) return;
+
+    if (addressViewport || addressMarker) {
+      console.log("[ADDR] BEFORE", {
+        center: map.getCenter?.(),
+        zoom: map.getZoom?.(),
+        addressViewport,
+        addressMarker,
+        mapReady,
+        t: Date.now(),
+      });
+    }
 
     const bounds = focusTarget.bounds ? normaliseBounds(focusTarget.bounds) : null;
     if (bounds) {
       map.stop?.();
       map.fitBounds(bounds, { padding: [60, 60], maxZoom: Math.min(effectiveMaxZoom, 17) });
+      if (addressViewport || addressMarker) {
+        setTimeout(() => {
+          console.log("[ADDR] AFTER 200ms", {
+            center: map.getCenter?.(),
+            zoom: map.getZoom?.(),
+            t: Date.now(),
+          });
+        }, 200);
+      }
       return;
     }
 
@@ -765,6 +801,15 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     });
     map.stop?.();
     map.flyTo([lat, lng], zoom, { duration: 0.6, easeLinearity: 0.25 });
+    if (addressViewport || addressMarker) {
+      setTimeout(() => {
+        console.log("[ADDR] AFTER 200ms", {
+          center: map.getCenter?.(),
+          zoom: map.getZoom?.(),
+          t: Date.now(),
+        });
+      }, 200);
+    }
   }, [focusTarget, mapReady, mapPreferences?.maxZoom, normaliseBounds, providerMaxZoom, selectZoom, shouldApplyFocus]);
 
   const rotateMap = useCallback((delta) => {
@@ -805,9 +850,21 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
           // Evita corrida no mapReady ao aguardar o Leaflet ficar pronto.
           if (instance?._loaded) {
+            console.log("[MAP] READY", {
+              center: instance.getCenter?.(),
+              zoom: instance.getZoom?.(),
+              t: Date.now(),
+            });
             setMapReady(true);
           } else {
-            instance.whenReady(() => setMapReady(true));
+            instance.whenReady(() => {
+              console.log("[MAP] READY", {
+                center: instance.getCenter?.(),
+                zoom: instance.getZoom?.(),
+                t: Date.now(),
+              });
+              setMapReady(true);
+            });
           }
         }}
       >
