@@ -376,6 +376,7 @@ export default function Monitoring() {
   } = useVehicleSelection({ syncQuery: true });
   const decoratedRowsRef = useRef([]);
   const mapViewportRef = useRef(null);
+  const mapControllerRef = useRef(null);
   const selectionRef = useRef({ vehicleId: null, deviceId: null });
   const selectedDeviceIdRef = useRef(null);
 
@@ -1268,6 +1269,7 @@ export default function Monitoring() {
       key: focusKey,
       ts: focusTimestamp,
     });
+    mapControllerRef.current?.focusAddress({ lat, lng });
 
     const focus = {
       bounds: boundingBox,
@@ -1305,6 +1307,7 @@ export default function Monitoring() {
     setAddressViewport(null);
     setNearbyDeviceIds([]);
     setFocusTarget(null);
+    mapControllerRef.current?.clearAddressLock();
   }, []);
 
   useEffect(() => {
@@ -1445,6 +1448,7 @@ export default function Monitoring() {
       {layoutVisibility.showMap && (
         <div className="relative min-h-0 h-full min-w-0 overflow-hidden border-b border-white/10">
           <MonitoringMap
+            ref={mapControllerRef}
             markers={markers}
             geofences={geofences}
             focusMarkerId={selectedDeviceId}
