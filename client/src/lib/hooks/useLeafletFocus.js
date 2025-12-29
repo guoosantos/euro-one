@@ -1,4 +1,5 @@
 import { useCallback, useRef } from "react";
+import L from "leaflet";
 
 const FALLBACK_DELAY_MS = 120;
 const CENTER_EPSILON = 0.00005;
@@ -9,6 +10,33 @@ function hasCenterMoved(fromCenter, toCenter, fromZoom, toZoom) {
   const lngMoved = Math.abs(Number(fromCenter.lng) - Number(toCenter.lng)) > CENTER_EPSILON;
   const zoomMoved = Number.isFinite(fromZoom) && Number.isFinite(toZoom) ? Math.abs(fromZoom - toZoom) > 0.01 : true;
   return latMoved || lngMoved || zoomMoved;
+}
+
+function normalizeLatLngPoint(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw)) {
+    const [lat, lng] = raw;
+    const latNum = Number(lat);
+    const lngNum = Number(lng);
+    if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+    return [latNum, lngNum];
+  }
+  if (typeof raw === "object") {
+    const latNum = Number(raw.lat ?? raw.latitude);
+    const lngNum = Number(raw.lng ?? raw.lon ?? raw.longitude);
+    if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+    return [latNum, lngNum];
+  }
+  return null;
+}
+
+function normalizeGeometryPoints(geometry) {
+  if (!Array.isArray(geometry)) return [];
+  return geometry.map(normalizeLatLngPoint).filter(Boolean);
+}
+
+function isValidBounds(bounds) {
+  return Boolean(bounds && typeof bounds.isValid === "function" && bounds.isValid());
 }
 
 export default function useLeafletFocus({ page = "Unknown" } = {}) {
@@ -80,7 +108,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const applyFitBounds = useCallback(
     (payload, { pendingApplied = false } = {}) => {
       const map = mapRef.current;
-      if (!map || !payload?.bounds) return false;
+      if (!map || !payload?.bounds || !isValidBounds(payload.bounds)) return false;
 
       const fromCenter = map.getCenter?.();
       const fromZoom = map.getZoom?.();
@@ -160,6 +188,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
 
   const fitBounds = useCallback(
     (bounds, options = {}, reason = "UNKNOWN") => {
+      if (!isValidBounds(bounds)) return false;
       const map = mapRef.current;
       const payload = { bounds, options, reason };
       if (!map || !map._loaded) {
@@ -174,10 +203,25 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
     [applyFitBounds, applyPending, setPendingFocus],
   );
 
+  const focusGeometry = useCallback(
+    (geometry, options = {}, reason = "UNKNOWN") => {
+      const points = normalizeGeometryPoints(geometry);
+      if (!points.length) return false;
+      if (points.length === 1) {
+        const [lat, lng] = points[0];
+        return focusLatLng({ lat, lng, zoom: options.zoom, animate: options.animate, reason });
+      }
+      const bounds = L.latLngBounds(points);
+      return fitBounds(bounds, options, reason);
+    },
+    [fitBounds, focusLatLng],
+  );
+
   return {
     registerMap,
     focusLatLng,
     fitBounds,
+    focusGeometry,
     setPendingFocus,
   };
 }

@@ -4,15 +4,15 @@ import { Download, Eye, EyeOff, Map as MapIcon, Plus, Route, Save, Target, Trash
 import "leaflet/dist/leaflet.css";
 
 import useGeofences from "../lib/hooks/useGeofences.js";
-import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import useMapController from "../lib/map/useMapController.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
-
-const DEFAULT_CENTER = [-23.55052, -46.633308];
+import PageHeader from "../ui/PageHeader.jsx";
+import MapZoomControls from "../components/map/MapZoomControls.jsx";
 
 const circleStyle = {
   color: "#38bdf8",
@@ -56,9 +56,16 @@ function Drawer({ open, onClose, title, description, children }) {
 export default function Itineraries() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
+  const { registerMap, focusGeometry } = useMapController({ page: "Itineraries" });
+  const userActionRef = useRef(false);
+  const handleMapReady = useCallback(
+    (event) => {
+      onMapReady(event);
+      registerMap(event?.target || event);
+    },
+    [onMapReady, registerMap],
+  );
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
-  // Alvos: usamos veículos existentes como referência para o agrupador (não cria novas entidades).
-  const { vehicles } = useVehicles({ includeUnlinked: true });
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -77,7 +84,11 @@ export default function Itineraries() {
 
   const geofenceById = useMemo(() => new Map(geofences.map((geo) => [String(geo.id), geo])), [geofences]);
   const routeById = useMemo(() => new Map(routes.map((route) => [String(route.id), route])), [routes]);
-  const targetById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
+  const targetGeofences = useMemo(() => geofences.filter((geo) => geo.isTarget), [geofences]);
+  const targetById = useMemo(
+    () => new Map(targetGeofences.map((target) => [String(target.id), target])),
+    [targetGeofences],
+  );
 
   const loadRoutes = useCallback(async () => {
     try {
@@ -191,6 +202,7 @@ export default function Itineraries() {
   };
 
   const handleSelect = (itinerary) => {
+    userActionRef.current = true;
     setSelectedId(itinerary.id);
     setForm(itinerary);
     setVisibleIds(new Set((itinerary.items || []).map((item) => `${item.type}:${item.id}`)));
@@ -242,49 +254,94 @@ export default function Itineraries() {
     }
   };
 
-  const center = useMemo(() => {
-    if (selectedGeofences[0]?.center) return selectedGeofences[0].center;
-    if (selectedRoutes[0]?.points?.[0]) return selectedRoutes[0].points[0];
-    return DEFAULT_CENTER;
-  }, [selectedGeofences, selectedRoutes]);
-
   const resolveTargetPosition = useCallback((target) => {
     if (!target) return null;
-    const position = target.position || target.device?.position || null;
-    const lat = position?.latitude ?? position?.lat ?? target.lat;
-    const lng = position?.longitude ?? position?.lon ?? target.lng;
+    const center = target.center || null;
+    if (Array.isArray(center) && center.length >= 2) {
+      const [lat, lng] = center;
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    }
+    if (Array.isArray(target.points) && target.points.length) {
+      const [lat, lng] = target.points[0] || [];
+      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
+    }
+    const lat = target.latitude ?? target.lat;
+    const lng = target.longitude ?? target.lng;
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
     return [lat, lng];
   }, []);
 
+  const focusPoints = useMemo(() => {
+    const points = [];
+    selectedGeofences.forEach((geo) => {
+      if (!visibleIds.has(`geofence:${geo.id}`)) return;
+      if (geo.type === "circle") {
+        const lat = Number(geo.latitude ?? geo.lat);
+        const lng = Number(geo.longitude ?? geo.lng);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
+      } else if (Array.isArray(geo.points)) {
+        geo.points.forEach((point) => {
+          if (Array.isArray(point) && point.length >= 2) {
+            const [lat, lng] = point;
+            if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
+          }
+        });
+      }
+    });
+    selectedRoutes.forEach((route) => {
+      if (!visibleIds.has(`route:${route.id}`)) return;
+      (route.points || []).forEach((point) => {
+        if (Array.isArray(point) && point.length >= 2) {
+          const [lat, lng] = point;
+          if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
+        }
+      });
+    });
+    selectedTargets.forEach((target) => {
+      if (!visibleIds.has(`target:${target.id}`)) return;
+      const position = resolveTargetPosition(target);
+      if (position) points.push(position);
+    });
+    return points;
+  }, [resolveTargetPosition, selectedGeofences, selectedRoutes, selectedTargets, visibleIds]);
+
+  useEffect(() => {
+    if (!userActionRef.current) return;
+    if (!focusPoints.length) return;
+    focusGeometry(focusPoints, { padding: [32, 32], maxZoom: 16 }, "ITINERARY_SELECT");
+    userActionRef.current = false;
+  }, [focusGeometry, focusPoints]);
+
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Itinerários</p>
-          <h1 className="text-lg font-semibold text-white">Agrupadores de cercas, rotas e alvos</h1>
-          <p className="text-xs text-white/70">Organize entidades existentes sem criar novos itens.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <span className="map-status-pill">
-            <span className="dot" />
-            {itineraries.length} itinerários
-          </span>
-          {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
-          {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-        </div>
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+      <div className="-mx-4 space-y-4 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
+        <PageHeader
+          eyebrow="Itinerários"
+          title="Itinerários"
+          description="Agrupadores de cercas, rotas e alvos para o mesmo cliente."
+          right={(
+            <>
+              <span className="map-status-pill">
+                <span className="dot" />
+                {itineraries.length} itinerários
+              </span>
+              {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
+              {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
+              <Button size="sm" onClick={handleCreateNew} icon={Plus}>
+                Criar novo
+              </Button>
+            </>
+          )}
+        />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-4 shadow-2xl">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Lista</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Lista</p>
               <h2 className="text-base font-semibold text-white">Itinerários</h2>
             </div>
-            <Button size="sm" onClick={handleCreateNew} icon={Plus}>
-              Criar novo
-            </Button>
           </div>
           <div className="mt-3 space-y-2">
             {itineraries.map((item) => (
@@ -293,12 +350,16 @@ export default function Itineraries() {
                 type="button"
                 onClick={() => handleSelect(item)}
                 className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
-                  selectedId === item.id ? "border-primary/50 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
+                  selectedId === item.id
+                    ? "border-primary/50 bg-primary/10 text-white"
+                    : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
                 }`}
               >
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-white">{item.name}</p>
-                  <span className="text-[11px] text-white/60">{new Date(item.updatedAt || item.createdAt || Date.now()).toLocaleDateString()}</span>
+                  <span className="text-[11px] text-white/60">
+                    {new Date(item.updatedAt || item.createdAt || Date.now()).toLocaleDateString()}
+                  </span>
                 </div>
                 <p className="text-[11px] text-white/60">{item.items?.length || 0} itens</p>
               </button>
@@ -307,15 +368,17 @@ export default function Itineraries() {
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-xl border border-white/10 bg-[#0f141c]">
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-2xl">
           <MapContainer
             ref={mapRef}
-            center={center}
-            zoom={13}
+            center={undefined}
+            zoom={undefined}
             className="h-[540px] w-full"
-            whenReady={onMapReady}
+            zoomControl={false}
+            whenReady={handleMapReady}
           >
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+            <MapZoomControls variant="classic" />
 
             {selectedGeofences.map((geo) => {
               const key = `geofence:${geo.id}`;
@@ -348,9 +411,11 @@ export default function Itineraries() {
             {selectedRoutes.map((route) => {
               const key = `route:${route.id}`;
               const visible = visibleIds.has(key);
+              const points = Array.isArray(route.points) ? route.points : [];
+              if (!points.length) return null;
               return (
                 visible && (
-                  <Polyline key={key} positions={route.points || []} pathOptions={{ color: "#eab308", weight: 4, opacity: 0.8 }}>
+                  <Polyline key={key} positions={points} pathOptions={{ color: "#eab308", weight: 4, opacity: 0.8 }}>
                     <Tooltip>{route.name}</Tooltip>
                   </Polyline>
                 )
@@ -436,7 +501,7 @@ export default function Itineraries() {
                     ? geofenceById.get(String(item.id))?.name || `Cerca ${item.id}`
                     : item.type === "route"
                     ? routeById.get(String(item.id))?.name || `Rota ${item.id}`
-                    : targetById.get(String(item.id))?.name || targetById.get(String(item.id))?.plate || `Alvo ${item.id}`;
+                    : targetById.get(String(item.id))?.name || `Alvo ${item.id}`;
                 const Icon = item.type === "geofence" ? MapIcon : item.type === "route" ? Route : Target;
                 return (
                   <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-sm text-white">
@@ -525,24 +590,24 @@ export default function Itineraries() {
             <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-semibold text-white">Alvos disponíveis</p>
-                <span className="text-[11px] text-white/60">{vehicles.length} disponíveis</span>
+                <span className="text-[11px] text-white/60">{targetGeofences.length} disponíveis</span>
               </div>
               <div className="max-h-64 space-y-1 overflow-y-auto">
-                {vehicles.map((vehicle) => (
+                {targetGeofences.map((target) => (
                   <button
-                    key={vehicle.id}
+                    key={target.id}
                     type="button"
                     className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                    onClick={() => handleAddItem({ type: "target", id: vehicle.id })}
+                    onClick={() => handleAddItem({ type: "target", id: target.id })}
                   >
                     <span className="flex items-center gap-2">
                       <Target size={14} />
-                      {vehicle.name || vehicle.plate || `Veículo ${vehicle.id}`}
+                      {target.name || `Alvo ${target.id}`}
                     </span>
-                    <span className="text-[11px] text-white/50">{vehicle.plate || vehicle.identifier || ""}</span>
+                    <span className="text-[11px] text-white/50">{target.type === "circle" ? "Círculo" : `${target.points?.length || 0} pts`}</span>
                   </button>
                 ))}
-                {vehicles.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
+                {targetGeofences.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
               </div>
             </div>
           )}

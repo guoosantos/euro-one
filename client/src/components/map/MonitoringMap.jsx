@@ -408,6 +408,8 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       <div ref={containerRef} className="h-full w-full">
         <MapContainer
           ref={mapRef}
+          center={undefined}
+          zoom={undefined}
           zoomControl={false}
           scrollWheelZoom
           style={{ height: "100%", width: "100%" }}
