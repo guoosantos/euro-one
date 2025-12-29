@@ -16,13 +16,10 @@ import {
   Trash2,
   Undo2,
   X,
-  ZoomIn,
-  ZoomOut,
 } from "lucide-react";
 
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import { useGeofences } from "../lib/hooks/useGeofences.js";
-import useLeafletFocus from "../lib/hooks/useLeafletFocus.js";
 import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -30,9 +27,7 @@ import { resolveMapPreferences } from "../lib/map-config.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 
-const DEFAULT_CENTER = [-19.9167, -43.9345];
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
-const SEARCH_FOCUS_ZOOM = 17;
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -161,8 +156,9 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
   }
 
   if (geofence.type === "circle") {
-    const center = geofence.center || DEFAULT_CENTER;
-    const radius = geofence.radius || 200;
+    if (!geofence.center || !geofence.radius) return null;
+    const center = geofence.center;
+    const radius = geofence.radius;
     const radiusHandle = movePoint(center, radius, 90);
     return (
       <>
@@ -193,17 +189,6 @@ function GeofenceHandles({ geofence, onUpdatePolygon, onUpdateCircle }) {
     );
   }
 
-  return null;
-}
-
-function resolveGeofenceBounds(geo) {
-  if (!geo) return null;
-  if (geo.type === "circle" && geo.center && geo.radius) {
-    return L.circle(geo.center, geo.radius).getBounds();
-  }
-  if (geo.points?.length) {
-    return L.latLngBounds(geo.points.map((point) => L.latLng(point[0], point[1])));
-  }
   return null;
 }
 
@@ -319,7 +304,7 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
-  const { registerMap, focusLatLng } = useLeafletFocus({ page: "Geofences" });
+  const userActionRef = useRef(false);
 
   const {
     geofences: remoteGeofences,
@@ -353,6 +338,10 @@ export default function Geofences() {
   useEffect(() => {
     invalidateMapSize();
   }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
+
+  useEffect(() => {
+    console.info("[MAP] mounted — neutral state (no center, no zoom)");
+  }, []);
 
   useEffect(() => {
     if (hasUnsavedChanges) return;
@@ -593,7 +582,7 @@ export default function Geofences() {
       const parsed = kmlToGeofences(text);
       const mapped = parsed.map((item, index) => {
         const id = generateLocalId("kml");
-        const center = item.center || item.points?.[0] || DEFAULT_CENTER;
+        const center = item.center || item.points?.[0] || null;
         return {
           id,
           name: item.name || `KML ${index + 1}`,
@@ -622,10 +611,11 @@ export default function Geofences() {
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       const map = mapRef.current;
       if (!map) return;
+      userActionRef.current = true;
+      console.info("[MAP] USER_ADDRESS_SELECT", { lat, lng });
       map.stop?.();
-      map.setView([lat, lng], SEARCH_FOCUS_ZOOM, { animate: true });
-      setTimeout(() => map.invalidateSize?.(), 120);
-      setTimeout(() => map.invalidateSize?.(), 350);
+      map.setView([lat, lng], 17, { animate: true });
+      setTimeout(() => map.invalidateSize?.(), 50);
 
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
     },
@@ -654,39 +644,12 @@ export default function Geofences() {
     setLayoutMenuOpen(false);
   }, []);
 
-  const handleZoomIn = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    map.zoomIn();
-  }, []);
-
-  const handleZoomOut = useCallback(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    map.zoomOut();
-  }, []);
-
   const focusOnGeofence = useCallback(
     (geo) => {
-      if (!geo || !mapRef.current) return;
-      const bounds = resolveGeofenceBounds(geo);
-      if (bounds) {
-        const map = mapRef.current;
-        const maxZoom = map.getMaxZoom?.() ?? 18;
-        const nextZoom = Math.min(map.getBoundsZoom(bounds, false, [32, 32]), maxZoom);
-        const center = bounds.getCenter();
-        focusLatLng?.({ lat: center.lat, lng: center.lng, zoom: nextZoom, reason: "GEOFENCE_SELECT" });
-      } else if (geo.center) {
-        focusLatLng?.({
-          lat: geo.center[0],
-          lng: geo.center[1],
-          zoom: Math.max(mapRef.current.getZoom(), 14),
-          reason: "GEOFENCE_SELECT",
-        });
-      }
+      if (!geo) return;
       setSelectedId(geo.id);
     },
-    [focusLatLng],
+    [],
   );
 
   const guideLine = useMemo(() => {
@@ -732,17 +695,10 @@ export default function Geofences() {
     <div className="map-page">
       <div className="map-container">
         <MapContainer
-          center={DEFAULT_CENTER}
-          zoom={12}
           scrollWheelZoom
-          zoomControl={false}
-          className="h-full w-full"
-          whenCreated={(map) => {
-            mapRef.current = map;
-            window.EURO_MAP = map;
-            registerMap(map);
-            setTimeout(() => map.invalidateSize(), 120);
-          }}
+          zoomControl
+          style={{ height: "100%", width: "100%" }}
+          ref={mapRef}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -926,8 +882,6 @@ export default function Geofences() {
           title="Importar KML"
         />
         <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
-        <ToolbarButton icon={ZoomIn} onClick={handleZoomIn} title="Aproximar mapa" />
-        <ToolbarButton icon={ZoomOut} onClick={handleZoomOut} title="Afastar mapa" />
       </div>
 
       <div className="geofence-status-stack">
