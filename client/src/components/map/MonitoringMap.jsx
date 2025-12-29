@@ -333,6 +333,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const tileUrl = mapLayer?.url || import.meta.env.VITE_MAP_TILE_URL || "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
   const containerRef = useRef(null);
   const mapRef = useRef(null);
+  const didInitialRefreshRef = useRef(false);
   const userActionRef = useRef(false);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
@@ -382,6 +383,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   useEffect(() => {
     const map = mapRef.current;
+    if (!map?.invalidateSize || didInitialRefreshRef.current) return;
+    didInitialRefreshRef.current = true;
+    requestAnimationFrame(() => map.invalidateSize?.());
+    setTimeout(() => map.invalidateSize?.(), 120);
+  }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
     const container = containerRef.current;
     if (!map?.invalidateSize || !container || typeof ResizeObserver === "undefined") return undefined;
 
@@ -420,8 +429,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           whenReady={(event) => {
             const map = mapRef.current || event?.target || event;
             if (!map?.invalidateSize) return;
+            if (didInitialRefreshRef.current) return;
+            didInitialRefreshRef.current = true;
             requestAnimationFrame(() => map.invalidateSize?.());
-            setTimeout(() => map.invalidateSize?.(), 80);
+            setTimeout(() => map.invalidateSize?.(), 120);
           }}
         >
           <TileLayer
