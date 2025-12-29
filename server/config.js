@@ -60,6 +60,9 @@ export const config = {
   osrm: {
     baseUrl: normaliseBaseUrl(process.env.OSRM_BASE_URL || process.env.MAP_MATCH_BASE_URL),
   },
+  geocoder: {
+    baseUrl: normaliseBaseUrl(process.env.GEOCODER_URL || process.env.NOMINATIM_URL),
+  },
 };
 
 export { normaliseTraccarBaseUrl, normaliseBaseUrl };
