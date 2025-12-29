@@ -952,10 +952,12 @@ export default function Monitoring() {
           (currentZoom ?? 0) >= DEVICE_FOCUS_ZOOM - 1;
 
         if (!alreadyFocused) {
+          const focusTimestamp = Date.now();
           const focus = {
             center: [targetRow.lat, targetRow.lng],
             zoom: DEVICE_FOCUS_ZOOM,
-            key: `device-${deviceId}-${Date.now()}`,
+            key: `device-${deviceId}-${focusTimestamp}`,
+            ts: focusTimestamp,
           };
           setFocusTarget(focus);
           setMapViewport(focus);
@@ -1224,6 +1226,8 @@ export default function Monitoring() {
     if (!payload || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
     const radius = clampRadius(payload.radius ?? radiusValue);
     const boundingBox = normaliseBoundingBox(payload.viewport || payload.boundingBox || payload.boundingbox);
+    const focusTimestamp = Date.now();
+    const focusKey = `address-${focusTimestamp}`;
     const target = {
       lat,
       lng,
@@ -1241,9 +1245,11 @@ export default function Monitoring() {
     });
 
     const focus = {
+      bounds: boundingBox,
       center: [lat, lng],
       zoom: ADDRESS_FOCUS_ZOOM,
-      key: `address-${Date.now()}`,
+      key: focusKey,
+      ts: focusTimestamp,
     };
 
     setAddressViewport(focus);
