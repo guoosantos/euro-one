@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, Circle, Polygon, useMapEvents, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -10,6 +10,7 @@ import {
   exportGeofencesToKml,
   parseKmlPlacemarks,
 } from "../lib/kml";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
@@ -60,6 +61,8 @@ function MapClickCapture({ onAddPoint }) {
 }
 
 export default function Fences() {
+  const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
   const { geofences, loading, error, createGeofence, updateGeofence } = useGeofences({ autoRefreshMs: 60_000 });
   const {
     groups,
@@ -371,11 +374,13 @@ export default function Fences() {
   return (
     <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
       <MapContainer
+        ref={mapRef}
         center={mapCenter}
         zoom={13}
         className="absolute inset-0 z-0 h-full w-full"
         preferCanvas
         attributionControl={false}
+        whenReady={onMapReady}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import { Download, FileUp, Play, Save, Undo2 } from "lucide-react";
+import { Clock3, Download, FileUp, PanelRight, Play, Route, Save, Undo2, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
@@ -13,6 +13,8 @@ import api from "../lib/api.js";
 import { deduplicatePath, downloadKml, exportRoutesToKml, parseKmlPlacemarks, simplifyPath } from "../lib/kml.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import MapZoomControls from "../components/map/MapZoomControls.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const GRAPH_HOPPER_URL = (import.meta?.env?.VITE_GRAPHHOPPER_URL || import.meta?.env?.VITE_GRAPH_HOPPER_URL || "").replace(/\/$/, "");
@@ -48,9 +50,13 @@ function normaliseWaypoint(raw, fallbackLabel) {
 
 function normalizeStopOrders(waypoints) {
   const stops = waypoints.filter((item) => item.type === "stop").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const others = waypoints.filter((item) => item.type !== "stop");
-  const reindexed = stops.map((stop, index) => ({ ...stop, order: index }));
-  return [...others, ...reindexed];
+  const checkpoints = waypoints
+    .filter((item) => item.type === "checkpoint")
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const others = waypoints.filter((item) => item.type !== "stop" && item.type !== "checkpoint");
+  const reindexedStops = stops.map((stop, index) => ({ ...stop, order: index }));
+  const reindexedCheckpoints = checkpoints.map((checkpoint, index) => ({ ...checkpoint, order: index }));
+  return [...others, ...reindexedStops, ...reindexedCheckpoints];
 }
 
 function deriveWaypoints(metadataWaypoints, points) {
@@ -117,7 +123,10 @@ function splitWaypoints(waypoints) {
   const origin = waypoints.find((item) => item.type === "origin") || null;
   const destination = waypoints.find((item) => item.type === "destination") || null;
   const stops = waypoints.filter((item) => item.type === "stop").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  return { origin, destination, stops };
+  const checkpoints = waypoints
+    .filter((item) => item.type === "checkpoint")
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  return { origin, destination, stops, checkpoints };
 }
 
 async function buildOsrmPath(waypoints) {
@@ -284,17 +293,111 @@ function WaypointInput({ label, placeholder, value, onChange }) {
   );
 }
 
+function RoutePanel({
+  open,
+  routes,
+  activeRouteId,
+  searchTerm,
+  onSearch,
+  onSelect,
+  onDelete,
+  onExport,
+  onClose,
+  loading,
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="geofence-panel">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Rotas</p>
+          <h2 className="text-base font-semibold text-white">Embarcadas</h2>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="map-status-pill bg-white/5 text-white/70">{routes.length} itens</span>
+          <button type="button" className="map-tool-button" onClick={onClose} title="Recolher painel">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        <Input
+          value={searchTerm}
+          onChange={(event) => onSearch(event.target.value)}
+          placeholder="Buscar rota"
+          className="map-compact-input"
+        />
+        <div className="geofence-panel-list">
+          {routes.map((route) => (
+            <button
+              key={route.id || route.name}
+              type="button"
+              className={`geofence-panel-item text-left transition ${
+                activeRouteId === route.id ? "border-primary/50 bg-primary/10" : "hover:border-white/20"
+              }`}
+              onClick={() => onSelect(route)}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-white">{route.name || "Rota sem nome"}</p>
+                  <p className="text-[11px] text-white/60">{route.points?.length || 0} pontos</p>
+                </div>
+                {route.updatedAt && (
+                  <span className="text-[11px] text-white/60">
+                    {new Date(route.updatedAt).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+              <div className="mt-2 flex gap-2">
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(route.id);
+                  }}
+                >
+                  Excluir
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onExport(route);
+                  }}
+                >
+                  Exportar
+                </Button>
+              </div>
+            </button>
+          ))}
+          {routes.length === 0 && !loading && <p className="text-xs text-white/60">Nenhuma rota salva ainda.</p>}
+          {loading && <p className="text-xs text-white/60">Carregando...</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function RoutesPage() {
   const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
   const fileInputRef = useRef(null);
   const [routes, setRoutes] = useState([]);
   const [draftRoute, setDraftRoute] = useState(withWaypoints(emptyRoute()));
   const [baselineRoute, setBaselineRoute] = useState(withWaypoints(emptyRoute()));
   const [activeRouteId, setActiveRouteId] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [routeFilter, setRouteFilter] = useState("");
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
+  const [mode, setMode] = useState("manual");
+  const [modePanelOpen, setModePanelOpen] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -323,6 +426,12 @@ export default function RoutesPage() {
     return map;
   }, [vehicles]);
 
+  const filteredRoutes = useMemo(() => {
+    const term = routeFilter.trim().toLowerCase();
+    if (!term) return routes;
+    return routes.filter((route) => route.name?.toLowerCase().includes(term));
+  }, [routeFilter, routes]);
+
   useEffect(() => {
     if (!historyForm.vehicleId && vehicleOptions.length === 1) {
       setHistoryForm((current) => ({ ...current, vehicleId: String(vehicleOptions[0].value) }));
@@ -337,7 +446,7 @@ export default function RoutesPage() {
   }, [historyForm.vehicleId, vehicleId]);
 
   const waypoints = useMemo(() => normalizeStopOrders(draftRoute.metadata?.waypoints || []), [draftRoute.metadata?.waypoints]);
-  const { origin, destination, stops } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
+  const { origin, destination, stops, checkpoints } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
 
   const loadRoutes = useCallback(async () => {
     setLoadingRoutes(true);
@@ -444,19 +553,25 @@ export default function RoutesPage() {
     setActiveRouteId(null);
   };
 
+  const toggleMode = useCallback(() => {
+    setMode((current) => (current === "manual" ? "history" : "manual"));
+    setModePanelOpen(true);
+  }, []);
+
   const updateWaypoint = useCallback(
     (type, payload, index = 0) => {
       if (!payload) return;
       setDraftRoute((current) => {
         const existing = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
-        const filtered = existing.filter((item) => item.type !== type || (type === "stop" && item.order !== index));
+        const isOrderedType = type === "stop" || type === "checkpoint";
+        const filtered = existing.filter((item) => item.type !== type || (isOrderedType && item.order !== index));
         const nextWaypoint = normalizeStopOrders([
           ...filtered,
           {
             ...payload,
             id: payload.id || uid(),
             type,
-            order: type === "stop" ? index : payload.order,
+            order: isOrderedType ? index : payload.order,
           },
         ]);
         return { ...current, metadata: { ...(current.metadata || {}), waypoints: nextWaypoint } };
@@ -473,13 +588,21 @@ export default function RoutesPage() {
     });
   }, []);
 
+  const removeCheckpoint = useCallback((index) => {
+    setDraftRoute((current) => {
+      const waypointsList = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
+      const filtered = normalizeStopOrders(waypointsList.filter((item) => !(item.type === "checkpoint" && item.order === index)));
+      return { ...current, metadata: { ...(current.metadata || {}), waypoints: filtered } };
+    });
+  }, []);
+
   const handleAddStopFromMap = (coords) => {
     const [lat, lng] = coords;
     updateWaypoint("stop", { lat, lng, label: `Parada (${lat.toFixed(4)}, ${lng.toFixed(4)})` }, stops.length);
   };
 
   const buildRouteFromWaypoints = async () => {
-    const ordered = [origin, ...stops, destination].filter(Boolean);
+    const ordered = [origin, ...checkpoints, ...stops, destination].filter(Boolean);
     if (ordered.length < 2) {
       alert("Defina origem e destino para gerar a rota.");
       return;
@@ -500,15 +623,17 @@ export default function RoutesPage() {
         path = ordered.map((point) => [point.lat, point.lng]);
       }
       const simplified = simplifyPath(deduplicatePath(path), 0.00005);
-      setDraftRoute((current) => ({
-        ...current,
+      const nextRoute = {
+        ...draftRoute,
         points: simplified,
         metadata: {
-          ...(current.metadata || {}),
-          source: current.metadata?.source || "osrm",
+          ...(draftRoute.metadata || {}),
+          source: draftRoute.metadata?.source || "osrm",
           waypoints: normalizeStopOrders(ordered.map((item) => ({ ...item, id: item.id || uid() }))),
         },
-      }));
+      };
+      setDraftRoute(nextRoute);
+      handleExportSingle(nextRoute);
     } catch (error) {
       console.error(error);
       alert(error?.message || "Falha ao gerar rota.");
@@ -570,6 +695,7 @@ export default function RoutesPage() {
       if (saved) {
         setBaselineRoute(saved);
       }
+      handleExportSingle(historyRoute);
     } catch (error) {
       console.error(error);
       alert(error?.message || "Não foi possível gerar a rota do histórico.");
@@ -623,14 +749,15 @@ export default function RoutesPage() {
     <div className="map-page">
       <div className="map-container">
         <MapContainer
+          ref={mapRef}
           center={mapCenter}
           zoom={draftRoute.points?.length ? 13 : 5}
           className="h-full w-full"
-          whenCreated={(mapInstance) => {
-            mapRef.current = mapInstance;
-          }}
+          zoomControl={false}
+          whenReady={onMapReady}
         >
           <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+          <MapZoomControls variant="classic" />
           <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
           {routes
             .filter((route) => !draftRoute.id || route.id !== draftRoute.id)
@@ -650,202 +777,218 @@ export default function RoutesPage() {
               pathOptions={{ color: "#f97316", fillColor: "#f97316" }}
             />
           ) : null}
+          {checkpoints.map((checkpoint) => (
+            <CircleMarker
+              key={checkpoint.id}
+              center={[checkpoint.lat, checkpoint.lng]}
+              radius={7}
+              pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
+            />
+          ))}
           {stops.map((stop) => (
             <Marker key={stop.id} position={[stop.lat, stop.lng]} />
           ))}
           <FitToRoute points={draftRoute.points} />
         </MapContainer>
       </div>
+      <div className="geofence-status-stack">
+        <span className="map-status-pill">
+          <span className="dot" />
+          {routes.length} rotas
+        </span>
+        {mapAddsStops && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Clique no mapa para adicionar paradas</span>}
+        {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
+      </div>
 
-      <div className="floating-top-bar">
-        <div className="flex w-full flex-col gap-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
+      <RoutePanel
+        open={panelOpen}
+        routes={filteredRoutes}
+        activeRouteId={activeRouteId}
+        searchTerm={routeFilter}
+        onSearch={setRouteFilter}
+        onSelect={handleSelectRoute}
+        onDelete={handleDeleteRoute}
+        onExport={handleExportSingle}
+        onClose={() => setPanelOpen(false)}
+        loading={loadingRoutes}
+      />
+
+      {modePanelOpen && (
+        <div className="geofence-inspector">
+          <div className="flex items-start justify-between gap-2">
             <div>
-              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas</p>
-              <h1 className="text-lg font-semibold text-white">Mapa protagonista</h1>
-              <p className="text-xs text-white/70">Origem, paradas e destino sem empurrar o mapa.</p>
+              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
+              <h2 className="text-sm font-semibold text-white">{mode === "manual" ? "Modo manual" : "Modo histórico"}</h2>
+              <p className="text-[11px] text-white/60">
+                {mode === "manual" ? "Desenhe por endereços e pontos obrigatórios." : "Gere a rota a partir do histórico do veículo."}
+              </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="map-status-pill">
-                <span className="dot" />
-                {routes.length} rotas
-              </span>
-              {mapAddsStops && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Clique no mapa para adicionar</span>}
-              {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="floating-left-panel">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Construtor de rotas</p>
-            <h2 className="text-base font-semibold text-white">Leve e flutuante</h2>
-            <p className="text-xs text-white/60">Origem, paradas e destino sempre à vista.</p>
-          </div>
-          <Button onClick={handleNewRoute} size="sm">
-            Nova rota
-          </Button>
-        </div>
-
-        <div className="mt-3 space-y-3">
-          <Input
-            label="Nome"
-            value={draftRoute.name}
-            onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
-            className="map-compact-input"
-          />
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <WaypointInput
-              label="Origem"
-              placeholder="Endereço ou lat,long"
-              value={origin}
-              onChange={(value) => updateWaypoint("origin", value)}
-            />
-            <WaypointInput
-              label="Destino"
-              placeholder="Endereço ou lat,long"
-              value={destination}
-              onChange={(value) => updateWaypoint("destination", value)}
-            />
-          </div>
-
-          <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
-              >
-                Adicionar parada
-              </Button>
-            </div>
-            {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
-            {stops.map((stop, index) => (
-              <div key={stop.id} className="flex items-center gap-2">
-                <WaypointInput
-                  label={`Parada ${index + 1}`}
-                  placeholder="Endereço ou lat,long"
-                  value={{ ...stop, order: index }}
-                  onChange={(value) => updateWaypoint("stop", value, index)}
-                />
-                <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
-                  Remover
-                </Button>
-              </div>
-            ))}
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
-              <input
-                type="checkbox"
-                className="rounded border-white/30 bg-transparent"
-                checked={mapAddsStops}
-                onChange={(event) => setMapAddsStops(event.target.checked)}
-              />
-              Clique no mapa para adicionar paradas.
-            </label>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Button onClick={buildRouteFromWaypoints} disabled={isRouting}>
-              {isRouting ? "Gerando rota..." : "Gerar rota"}
-            </Button>
-            <Button variant="secondary" onClick={handleSave} disabled={saving}>
-              {saving ? "Salvando..." : "Salvar rota"}
-            </Button>
-            <Button variant="ghost" onClick={handleCancel}>
-              Cancelar alterações
-            </Button>
-          </div>
-
-          <form className="space-y-2 rounded-xl border border-primary/20 bg-primary/10 p-3" onSubmit={handleHistoryRoute}>
-            <p className="text-sm font-semibold text-white">Gerar a partir do histórico</p>
-            <Select
-              value={historyForm.vehicleId}
-              onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
-            >
-              <option value="">Selecione um veículo</option>
-              {vehicleOptions.map((vehicle) => (
-                <option key={vehicle.value} value={vehicle.value}>
-                  {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
-                </option>
-              ))}
-            </Select>
-            {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
-            {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
-            {historyForm.vehicleId && !historyDeviceId && (
-              <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
-            )}
-            <div className="grid gap-2 md:grid-cols-2">
-              <Input
-                label="Início"
-                type="datetime-local"
-                value={historyForm.from}
-                onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
-                className="map-compact-input"
-              />
-              <Input
-                label="Fim"
-                type="datetime-local"
-                value={historyForm.to}
-                onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
-                className="map-compact-input"
-              />
-            </div>
-            <Button type="submit" disabled={loadingHistory || !historyDeviceId}>
-              {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
-            </Button>
-          </form>
-        </div>
-      </div>
-
-      <div className="floating-right-panel">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-semibold text-white">Rotas salvas</p>
-          {loadingRoutes && <span className="text-[11px] text-white/60">Carregando...</span>}
-        </div>
-        {routes.length === 0 && <p className="mt-2 text-xs text-white/60">Nenhuma rota salva ainda.</p>}
-        <div className="mt-2 space-y-2">
-          {routes.map((route) => (
-            <button
-              key={route.id}
-              type="button"
-              className={`w-full rounded-xl border px-3 py-2 text-left ${
-                activeRouteId === route.id ? "border-primary/50 bg-primary/10" : "border-white/10 bg-white/5 hover:border-white/20"
-              }`}
-              onClick={() => handleSelectRoute(route)}
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">{route.name}</p>
-                {route.updatedAt && (
-                  <span className="text-[11px] text-white/60">
-                    {new Date(route.updatedAt).toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-white/60">{route.points?.length || 0} pontos</p>
-              <div className="mt-1 flex gap-2">
-                <Button size="xs" variant="secondary" onClick={(event) => {
-                  event.stopPropagation();
-                  handleDeleteRoute(route.id);
-                }}>
-                  Excluir
-                </Button>
-                <Button size="xs" variant="ghost" onClick={(event) => {
-                  event.stopPropagation();
-                  handleExportSingle(route);
-                }}>
-                  Exportar
-                </Button>
-              </div>
+            <button type="button" className="map-tool-button" onClick={() => setModePanelOpen(false)} title="Fechar painel">
+              <X size={16} />
             </button>
-          ))}
+          </div>
+
+          {mode === "manual" ? (
+            <div className="mt-3 space-y-3">
+              <Input
+                label="Nome"
+                value={draftRoute.name}
+                onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+                className="map-compact-input"
+              />
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <WaypointInput
+                  label="Origem"
+                  placeholder="Endereço ou lat,long"
+                  value={origin}
+                  onChange={(value) => updateWaypoint("origin", value)}
+                />
+                <WaypointInput
+                  label="Destino"
+                  placeholder="Endereço ou lat,long"
+                  value={destination}
+                  onChange={(value) => updateWaypoint("destination", value)}
+                />
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => updateWaypoint("checkpoint", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" }, checkpoints.length)}
+                  >
+                    Adicionar ponto
+                  </Button>
+                </div>
+                {checkpoints.length === 0 && <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>}
+                {checkpoints.map((checkpoint, index) => (
+                  <div key={checkpoint.id} className="flex items-center gap-2">
+                    <WaypointInput
+                      label={`Obrigatório ${index + 1}`}
+                      placeholder="Endereço ou lat,long"
+                      value={{ ...checkpoint, order: index }}
+                      onChange={(value) => updateWaypoint("checkpoint", value, index)}
+                    />
+                    <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
+                      Remover
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
+                  >
+                    Adicionar parada
+                  </Button>
+                </div>
+                {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
+                {stops.map((stop, index) => (
+                  <div key={stop.id} className="flex items-center gap-2">
+                    <WaypointInput
+                      label={`Parada ${index + 1}`}
+                      placeholder="Endereço ou lat,long"
+                      value={{ ...stop, order: index }}
+                      onChange={(value) => updateWaypoint("stop", value, index)}
+                    />
+                    <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
+                      Remover
+                    </Button>
+                  </div>
+                ))}
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
+                  <input
+                    type="checkbox"
+                    className="rounded border-white/30 bg-transparent"
+                    checked={mapAddsStops}
+                    onChange={(event) => setMapAddsStops(event.target.checked)}
+                  />
+                  Clique no mapa para adicionar paradas.
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Button onClick={buildRouteFromWaypoints} disabled={isRouting}>
+                  {isRouting ? "Gerando rota..." : "Gerar rota"}
+                </Button>
+                <Button variant="secondary" onClick={handleSave} disabled={saving}>
+                  {saving ? "Salvando..." : "Salvar rota"}
+                </Button>
+                <Button variant="ghost" onClick={handleCancel}>
+                  Cancelar alterações
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <form className="mt-3 space-y-2" onSubmit={handleHistoryRoute}>
+              <Select
+                value={historyForm.vehicleId}
+                onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
+              >
+                <option value="">Selecione um veículo</option>
+                {vehicleOptions.map((vehicle) => (
+                  <option key={vehicle.value} value={vehicle.value}>
+                    {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
+                  </option>
+                ))}
+              </Select>
+              {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
+              {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
+              {historyForm.vehicleId && !historyDeviceId && (
+                <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
+              )}
+              <div className="grid gap-2 md:grid-cols-2">
+                <Input
+                  label="Início"
+                  type="datetime-local"
+                  value={historyForm.from}
+                  onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
+                  className="map-compact-input"
+                />
+                <Input
+                  label="Fim"
+                  type="datetime-local"
+                  value={historyForm.to}
+                  onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
+                  className="map-compact-input"
+                />
+              </div>
+              <Button type="submit" disabled={loadingHistory || !historyDeviceId}>
+                {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
+              </Button>
+            </form>
+          )}
         </div>
-      </div>
+      )}
 
       <div className="floating-toolbar">
+        <button
+          type="button"
+          className={`map-tool-button ${panelOpen ? "is-active" : ""}`}
+          onClick={() => setPanelOpen((open) => !open)}
+          title={panelOpen ? "Recolher lista" : "Mostrar lista"}
+        >
+          <PanelRight size={16} />
+        </button>
+        <button
+          type="button"
+          className={`map-tool-button ${modePanelOpen ? "is-active" : ""}`}
+          onClick={toggleMode}
+          title={mode === "manual" ? "Modo histórico" : "Modo manual"}
+        >
+          {mode === "manual" ? <Clock3 size={16} /> : <Route size={16} />}
+        </button>
+        <button type="button" className="map-tool-button" onClick={handleNewRoute} title="Nova rota">
+          <Route size={16} />
+        </button>
         <button type="button" className="map-tool-button" onClick={buildRouteFromWaypoints} title="Gerar rota">
           {isRouting ? <Play size={16} className="animate-pulse" /> : <Play size={16} />}
         </button>

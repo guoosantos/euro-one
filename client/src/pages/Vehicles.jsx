@@ -17,6 +17,7 @@ import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 import { resolveVehicleIconType, VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import VehicleForm from "../components/vehicles/VehicleForm.jsx";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 
 function VehicleRow({
   vehicle,
@@ -116,6 +117,8 @@ function VehicleRow({
 }
 
 export default function Vehicles() {
+  const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
   const navigate = useNavigate();
   const [vehicles, setVehicles] = useState([]);
@@ -635,12 +638,14 @@ export default function Vehicles() {
         {mapTarget?.position ? (
           <div className="h-[420px] overflow-hidden rounded-xl">
             <MapContainer
+              ref={mapRef}
               center={[
                 Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
                 Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? 0),
               ]}
               zoom={15}
               style={{ height: "100%", width: "100%" }}
+              whenReady={onMapReady}
             >
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
               <Marker

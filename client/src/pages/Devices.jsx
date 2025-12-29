@@ -33,6 +33,7 @@ import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -355,6 +356,7 @@ export default function Devices() {
   const [query, setQuery] = useState("");
   const [mapTarget, setMapTarget] = useState(null);
   const mapRef = useRef(null);
+  const { onMapReady } = useMapLifecycle({ mapRef });
   const toastTimeoutRef = useRef(null);
   const [toast, setToast] = useState(null);
   const conflictMatch = useMemo(() => {
@@ -1682,16 +1684,14 @@ export default function Devices() {
         {mapTarget?.position ? (
           <div className="h-[420px] overflow-hidden rounded-xl">
             <MapContainer
+              ref={mapRef}
               center={[
                 Number(mapTarget.position.latitude ?? mapTarget.position.lat ?? 0),
                 Number(mapTarget.position.longitude ?? mapTarget.position.lon ?? mapTarget.position.lng ?? 0),
               ]}
               zoom={15}
               style={{ height: "100%", width: "100%" }}
-              whenCreated={(map) => {
-                mapRef.current = map;
-                setTimeout(() => map.invalidateSize(), 50);
-              }}
+              whenReady={onMapReady}
             >
               <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
               <Marker

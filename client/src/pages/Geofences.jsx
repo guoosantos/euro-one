@@ -24,6 +24,8 @@ import { downloadKml, geofencesToKml, kmlToGeofences } from "../lib/kml.js";
 import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
+import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import MapZoomControls from "../components/map/MapZoomControls.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 
@@ -285,6 +287,7 @@ export default function Geofences() {
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
   const importInputRef = useRef(null);
+  const polygonFinalizeRef = useRef(false);
   const [drawMode, setDrawMode] = useState(null);
   const [draftPolygon, setDraftPolygon] = useState([]);
   const [draftCircle, setDraftCircle] = useState({ center: null, edge: null });
@@ -305,6 +308,7 @@ export default function Geofences() {
   const geofencesTopbarVisible = useUI((state) => state.geofencesTopbarVisible !== false);
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
+  const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
 
   const {
     geofences: remoteGeofences,
@@ -327,13 +331,8 @@ export default function Geofences() {
   );
 
   const invalidateMapSize = useCallback(() => {
-    if (!mapRef.current) return;
-    setTimeout(() => {
-      if (mapRef.current) {
-        mapRef.current.invalidateSize();
-      }
-    }, 80);
-  }, []);
+    refreshMap();
+  }, [refreshMap]);
 
   useEffect(() => {
     invalidateMapSize();
@@ -366,20 +365,29 @@ export default function Geofences() {
     setStatus(mode === "polygon" ? "Clique para adicionar vértices. Clique no primeiro ponto para fechar." : "Clique para posicionar o centro do círculo, depois defina o raio.");
   }, []);
 
+  const finalizePolygon = useCallback(() => {
+    if (polygonFinalizeRef.current || draftPolygon.length < 3) return;
+    polygonFinalizeRef.current = true;
+    const newId = generateLocalId("local");
+    const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
+    const next = [...draftPolygon];
+    setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null }]);
+    setColorSeed((value) => value + 1);
+    setSelectedId(newId);
+    setHasUnsavedChanges(true);
+    resetDrafts();
+    setTimeout(() => {
+      polygonFinalizeRef.current = false;
+    }, 0);
+  }, [colorSeed, draftPolygon, localGeofences.length, resetDrafts]);
+
   const handleMapClick = useCallback(
     (latlng) => {
       setLayoutMenuOpen(false);
       const point = [latlng.lat, latlng.lng];
       if (drawMode === "polygon") {
         if (draftPolygon.length >= 3 && distanceBetween(draftPolygon[0], point) < 12) {
-          const newId = generateLocalId("local");
-          const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
-          const next = [...draftPolygon];
-          setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null }]);
-          setColorSeed((value) => value + 1);
-          setSelectedId(newId);
-          setHasUnsavedChanges(true);
-          resetDrafts();
+          finalizePolygon();
           return;
         }
         setDraftPolygon((current) => [...current, point]);
@@ -407,7 +415,7 @@ export default function Geofences() {
 
       setSelectedId(null);
     },
-    [colorSeed, drawMode, draftCircle.center, draftPolygon, localGeofences.length, resetDrafts],
+    [drawMode, draftCircle.center, draftPolygon, finalizePolygon],
   );
 
   const handleMouseMove = useCallback(
@@ -697,13 +705,15 @@ export default function Geofences() {
         <MapContainer
           ref={mapRef}
           scrollWheelZoom
-          zoomControl
+          zoomControl={false}
           style={{ height: "100%", width: "100%" }}
+          whenReady={onMapReady}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
+          <MapZoomControls variant="classic" />
 
           <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
 
@@ -773,15 +783,10 @@ export default function Geofences() {
                 radius={5}
                 pathOptions={{ color: index === 0 && draftPolygon.length >= 3 ? "#f59e0b" : "#22c55e", weight: 2, fillOpacity: 1 }}
                 eventHandlers={{
-                  click: () => {
+                  click: (event) => {
+                    event.originalEvent?.stopPropagation();
                     if (index === 0 && draftPolygon.length >= 3) {
-                      const newId = generateLocalId("local");
-                      const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
-                      setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: draftPolygon, color, center: draftPolygon[0], radius: null }]);
-                      setColorSeed((value) => value + 1);
-                      setSelectedId(newId);
-                      setHasUnsavedChanges(true);
-                      resetDrafts();
+                      finalizePolygon();
                     }
                   },
                 }}
