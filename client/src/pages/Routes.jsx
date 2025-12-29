@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMap, useMapEvents } from "react-leaflet";
-import { Clock3, Download, FileUp, PanelRight, Play, Route, Save, Undo2, X } from "lucide-react";
+import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
+import { Clock3, Download, FileUp, Play, Route, Save, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
@@ -14,6 +14,7 @@ import { deduplicatePath, downloadKml, exportRoutesToKml, parseKmlPlacemarks, si
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import useMapController from "../lib/map/useMapController.js";
 import MapZoomControls from "../components/map/MapZoomControls.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
@@ -184,17 +185,17 @@ function extractPositionsFromPayload(payload) {
     .filter((pair) => pair.every((value) => Number.isFinite(value)));
 }
 
-function FitToRoute({ points }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!map) return;
-    if (Array.isArray(points) && points.length > 1) {
-      map.fitBounds(points, { padding: [32, 32] });
-    } else if (Array.isArray(points) && points.length === 1) {
-      map.setView(points[0], 14);
-    }
-  }, [map, points]);
-  return null;
+function normalizeLatLngPair(raw) {
+  if (!Array.isArray(raw)) return null;
+  const [lat, lng] = raw;
+  const latNum = Number(lat);
+  const lngNum = Number(lng);
+  if (!Number.isFinite(latNum) || !Number.isFinite(lngNum)) return null;
+  return [latNum, lngNum];
+}
+
+function normalizeRoutePoints(points) {
+  return (Array.isArray(points) ? points : []).map(normalizeLatLngPair).filter(Boolean);
 }
 
 function MapClickHandler({ enabled, onAdd }) {
@@ -294,7 +295,6 @@ function WaypointInput({ label, placeholder, value, onChange }) {
 }
 
 function RoutePanel({
-  open,
   routes,
   activeRouteId,
   searchTerm,
@@ -302,13 +302,10 @@ function RoutePanel({
   onSelect,
   onDelete,
   onExport,
-  onClose,
   loading,
 }) {
-  if (!open) return null;
-
   return (
-    <div className="geofence-panel">
+    <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
           <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Rotas</p>
@@ -316,9 +313,6 @@ function RoutePanel({
         </div>
         <div className="flex items-center gap-1">
           <span className="map-status-pill bg-white/5 text-white/70">{routes.length} itens</span>
-          <button type="button" className="map-tool-button" onClick={onClose} title="Recolher painel">
-            <X size={16} />
-          </button>
         </div>
       </div>
 
@@ -385,19 +379,26 @@ function RoutePanel({
 export default function RoutesPage() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
+  const { registerMap, focusGeometry } = useMapController({ page: "Routes" });
+  const userActionRef = useRef(false);
+  const handleMapReady = useCallback(
+    (event) => {
+      onMapReady(event);
+      registerMap(event?.target || event);
+    },
+    [onMapReady, registerMap],
+  );
   const fileInputRef = useRef(null);
   const [routes, setRoutes] = useState([]);
   const [draftRoute, setDraftRoute] = useState(withWaypoints(emptyRoute()));
   const [baselineRoute, setBaselineRoute] = useState(withWaypoints(emptyRoute()));
   const [activeRouteId, setActiveRouteId] = useState(null);
-  const [panelOpen, setPanelOpen] = useState(true);
   const [routeFilter, setRouteFilter] = useState("");
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
   const [mode, setMode] = useState("manual");
-  const [modePanelOpen, setModePanelOpen] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -520,6 +521,7 @@ export default function RoutesPage() {
 
   const handleSelectRoute = (route) => {
     const normalized = withWaypoints(route);
+    userActionRef.current = true;
     setDraftRoute(normalized);
     setBaselineRoute(normalized);
     setActiveRouteId(normalized.id || null);
@@ -548,14 +550,14 @@ export default function RoutesPage() {
 
   const handleNewRoute = () => {
     const fresh = withWaypoints(emptyRoute());
+    userActionRef.current = true;
     setDraftRoute(fresh);
     setBaselineRoute(fresh);
     setActiveRouteId(null);
   };
 
-  const toggleMode = useCallback(() => {
-    setMode((current) => (current === "manual" ? "history" : "manual"));
-    setModePanelOpen(true);
+  const handleToggleMode = useCallback((nextMode) => {
+    setMode(nextMode);
   }, []);
 
   const updateWaypoint = useCallback(
@@ -632,6 +634,7 @@ export default function RoutesPage() {
           waypoints: normalizeStopOrders(ordered.map((item) => ({ ...item, id: item.id || uid() }))),
         },
       };
+      userActionRef.current = true;
       setDraftRoute(nextRoute);
       handleExportSingle(nextRoute);
     } catch (error) {
@@ -690,6 +693,7 @@ export default function RoutesPage() {
           },
         },
       });
+      userActionRef.current = true;
       setDraftRoute(historyRoute);
       const saved = await persistRoute(historyRoute);
       if (saved) {
@@ -723,6 +727,7 @@ export default function RoutesPage() {
       try {
         const saved = await persistRoute(route);
         if (saved) {
+          userActionRef.current = true;
           setDraftRoute(saved);
           setBaselineRoute(saved);
         }
@@ -743,282 +748,291 @@ export default function RoutesPage() {
     downloadKml("routes.kml", kml);
   };
 
-  const mapCenter = useMemo(() => draftRoute.points?.[0] || routes[0]?.points?.[0] || DEFAULT_CENTER, [draftRoute.points, routes]);
+  const normalizedDraftPoints = useMemo(() => normalizeRoutePoints(draftRoute.points), [draftRoute.points]);
+  const normalizedRoutes = useMemo(
+    () =>
+      (Array.isArray(routes) ? routes : []).map((route) => ({
+        ...route,
+        points: normalizeRoutePoints(route.points),
+      })),
+    [routes],
+  );
+  useEffect(() => {
+    if (!userActionRef.current) return;
+    if (!normalizedDraftPoints.length) return;
+    focusGeometry(normalizedDraftPoints, { padding: [32, 32], maxZoom: 16 }, "ROUTE_SELECT");
+    userActionRef.current = false;
+  }, [focusGeometry, normalizedDraftPoints]);
 
   return (
-    <div className="map-page">
-      <div className="map-container">
-        <MapContainer
-          ref={mapRef}
-          center={mapCenter}
-          zoom={draftRoute.points?.length ? 13 : 5}
-          className="h-full w-full"
-          zoomControl={false}
-          whenReady={onMapReady}
-        >
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-          <MapZoomControls variant="classic" />
-          <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
-          {routes
-            .filter((route) => !draftRoute.id || route.id !== draftRoute.id)
-            .map((route) => (
-              <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
-            ))}
-          {draftRoute.points?.length ? (
-            <Polyline positions={draftRoute.points} pathOptions={{ color: "#22d3ee", weight: 5 }} />
-          ) : null}
-          {origin ? (
-            <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
-          ) : null}
-          {destination ? (
-            <CircleMarker
-              center={[destination.lat, destination.lng]}
-              radius={8}
-              pathOptions={{ color: "#f97316", fillColor: "#f97316" }}
-            />
-          ) : null}
-          {checkpoints.map((checkpoint) => (
-            <CircleMarker
-              key={checkpoint.id}
-              center={[checkpoint.lat, checkpoint.lng]}
-              radius={7}
-              pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
-            />
+    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
+      <MapContainer
+        ref={mapRef}
+        center={undefined}
+        zoom={undefined}
+        className="absolute inset-0 z-0 h-full w-full"
+        zoomControl={false}
+        whenReady={handleMapReady}
+      >
+        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+        <MapZoomControls variant="classic" />
+        <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
+        {normalizedRoutes
+          .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
+          .map((route) => (
+            <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
           ))}
-          {stops.map((stop) => (
-            <Marker key={stop.id} position={[stop.lat, stop.lng]} />
-          ))}
-          <FitToRoute points={draftRoute.points} />
-        </MapContainer>
+        {normalizedDraftPoints.length ? (
+          <Polyline positions={normalizedDraftPoints} pathOptions={{ color: "#22d3ee", weight: 5 }} />
+        ) : null}
+        {origin ? (
+          <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
+        ) : null}
+        {destination ? (
+          <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
+        ) : null}
+        {checkpoints.map((checkpoint) => (
+          <CircleMarker
+            key={checkpoint.id}
+            center={[checkpoint.lat, checkpoint.lng]}
+            radius={7}
+            pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
+          />
+        ))}
+        {stops.map((stop) => (
+          <Marker key={stop.id} position={[stop.lat, stop.lng]} />
+        ))}
+      </MapContainer>
+
+      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col gap-4">
+        <div className="pointer-events-auto flex flex-wrap gap-2 px-4 pt-4">
+          <Button size="sm" onClick={handleNewRoute} icon={Route}>
+            Nova rota
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()} icon={FileUp}>
+            Importar KML
+          </Button>
+          <Button size="sm" variant="secondary" onClick={handleExportKml} icon={Download}>
+            Exportar KML
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} icon={Save}>
+            {saving ? "Salvando..." : "Salvar"}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={handleCancel} icon={Undo2}>
+            Cancelar
+          </Button>
+        </div>
+
+        <div className="pointer-events-auto grid flex-1 gap-4 px-4 pb-6 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <div className="rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">
+            <RoutePanel
+              routes={filteredRoutes}
+              activeRouteId={activeRouteId}
+              searchTerm={routeFilter}
+              onSearch={setRouteFilter}
+              onSelect={handleSelectRoute}
+              onDelete={handleDeleteRoute}
+              onExport={handleExportSingle}
+              loading={loadingRoutes}
+            />
+          </div>
+
+          <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
+                <h2 className="text-sm font-semibold text-white">{mode === "manual" ? "Modo manual" : "Modo histórico"}</h2>
+                <p className="text-[11px] text-white/60">
+                  {mode === "manual" ? "Desenhe por endereços e pontos obrigatórios." : "Gere a rota a partir do histórico do veículo."}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
+                <button
+                  type="button"
+                  className={`map-tool-button ${mode === "history" ? "is-active" : ""}`}
+                  onClick={() => handleToggleMode("history")}
+                  title="Modo histórico"
+                >
+                  <Clock3 size={16} />
+                </button>
+                <button
+                  type="button"
+                  className={`map-tool-button ${mode === "manual" ? "is-active" : ""}`}
+                  onClick={() => handleToggleMode("manual")}
+                  title="Modo manual"
+                >
+                  <Route size={16} />
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 flex-1 overflow-y-auto pr-1">
+              {mode === "manual" ? (
+                <div className="space-y-3">
+                  <Input
+                    label="Nome"
+                    value={draftRoute.name}
+                    onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+                    className="map-compact-input"
+                  />
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <WaypointInput
+                      label="Origem"
+                      placeholder="Endereço ou lat,long"
+                      value={origin}
+                      onChange={(value) => updateWaypoint("origin", value)}
+                    />
+                    <WaypointInput
+                      label="Destino"
+                      placeholder="Endereço ou lat,long"
+                      value={destination}
+                      onChange={(value) => updateWaypoint("destination", value)}
+                    />
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() =>
+                          updateWaypoint(
+                            "checkpoint",
+                            { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" },
+                            checkpoints.length,
+                          )
+                        }
+                      >
+                        Adicionar ponto
+                      </Button>
+                    </div>
+                    {checkpoints.length === 0 && <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>}
+                    {checkpoints.map((checkpoint, index) => (
+                      <div key={checkpoint.id} className="flex items-center gap-2">
+                        <WaypointInput
+                          label={`Obrigatório ${index + 1}`}
+                          placeholder="Endereço ou lat,long"
+                          value={{ ...checkpoint, order: index }}
+                          onChange={(value) => updateWaypoint("checkpoint", value, index)}
+                        />
+                        <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
+                          Remover
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
+                      >
+                        Adicionar parada
+                      </Button>
+                    </div>
+                    {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
+                    {stops.map((stop, index) => (
+                      <div key={stop.id} className="flex items-center gap-2">
+                        <WaypointInput
+                          label={`Parada ${index + 1}`}
+                          placeholder="Endereço ou lat,long"
+                          value={{ ...stop, order: index }}
+                          onChange={(value) => updateWaypoint("stop", value, index)}
+                        />
+                        <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
+                          Remover
+                        </Button>
+                      </div>
+                    ))}
+                    <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
+                      <input
+                        type="checkbox"
+                        className="rounded border-white/30 bg-transparent"
+                        checked={mapAddsStops}
+                        onChange={(event) => setMapAddsStops(event.target.checked)}
+                      />
+                      Clique no mapa para adicionar paradas.
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3">
+                    <Button onClick={buildRouteFromWaypoints} disabled={isRouting} icon={Play}>
+                      {isRouting ? "Gerando rota..." : "Gerar rota"}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <form className="space-y-3" onSubmit={handleHistoryRoute}>
+                  <Select
+                    value={historyForm.vehicleId}
+                    onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
+                  >
+                    <option value="">Selecione um veículo</option>
+                    {vehicleOptions.map((vehicle) => (
+                      <option key={vehicle.value} value={vehicle.value}>
+                        {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
+                      </option>
+                    ))}
+                  </Select>
+                  {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
+                  {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
+                  {historyForm.vehicleId && !historyDeviceId && (
+                    <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
+                  )}
+
+                  <div className="grid gap-2 md:grid-cols-2">
+                    <Input
+                      label="Início"
+                      type="datetime-local"
+                      value={historyForm.from}
+                      onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
+                      className="map-compact-input"
+                    />
+                    <Input
+                      label="Fim"
+                      type="datetime-local"
+                      value={historyForm.to}
+                      onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
+                      className="map-compact-input"
+                    />
+                  </div>
+
+                  {(historyVehicle || historyForm.from || historyForm.to) && (
+                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                      <p>Veículo: {historyVehicle?.plate || historyVehicle?.name || "—"}</p>
+                      <p>Período: {historyForm.from || "—"} → {historyForm.to || "—"}</p>
+                    </div>
+                  )}
+
+                  <Button type="submit" disabled={loadingHistory || !historyDeviceId} icon={Clock3}>
+                    {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
+                  </Button>
+                </form>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
+
       <div className="geofence-status-stack">
         <span className="map-status-pill">
           <span className="dot" />
           {routes.length} rotas
         </span>
-        {mapAddsStops && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Clique no mapa para adicionar paradas</span>}
+        {mapAddsStops && (
+          <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">
+            Clique no mapa para adicionar paradas
+          </span>
+        )}
         {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
       </div>
 
-      <RoutePanel
-        open={panelOpen}
-        routes={filteredRoutes}
-        activeRouteId={activeRouteId}
-        searchTerm={routeFilter}
-        onSearch={setRouteFilter}
-        onSelect={handleSelectRoute}
-        onDelete={handleDeleteRoute}
-        onExport={handleExportSingle}
-        onClose={() => setPanelOpen(false)}
-        loading={loadingRoutes}
-      />
-
-      {modePanelOpen && (
-        <div className="geofence-inspector">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
-              <h2 className="text-sm font-semibold text-white">{mode === "manual" ? "Modo manual" : "Modo histórico"}</h2>
-              <p className="text-[11px] text-white/60">
-                {mode === "manual" ? "Desenhe por endereços e pontos obrigatórios." : "Gere a rota a partir do histórico do veículo."}
-              </p>
-            </div>
-            <button type="button" className="map-tool-button" onClick={() => setModePanelOpen(false)} title="Fechar painel">
-              <X size={16} />
-            </button>
-          </div>
-
-          {mode === "manual" ? (
-            <div className="mt-3 space-y-3">
-              <Input
-                label="Nome"
-                value={draftRoute.name}
-                onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
-                className="map-compact-input"
-              />
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <WaypointInput
-                  label="Origem"
-                  placeholder="Endereço ou lat,long"
-                  value={origin}
-                  onChange={(value) => updateWaypoint("origin", value)}
-                />
-                <WaypointInput
-                  label="Destino"
-                  placeholder="Endereço ou lat,long"
-                  value={destination}
-                  onChange={(value) => updateWaypoint("destination", value)}
-                />
-              </div>
-
-              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => updateWaypoint("checkpoint", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" }, checkpoints.length)}
-                  >
-                    Adicionar ponto
-                  </Button>
-                </div>
-                {checkpoints.length === 0 && <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>}
-                {checkpoints.map((checkpoint, index) => (
-                  <div key={checkpoint.id} className="flex items-center gap-2">
-                    <WaypointInput
-                      label={`Obrigatório ${index + 1}`}
-                      placeholder="Endereço ou lat,long"
-                      value={{ ...checkpoint, order: index }}
-                      onChange={(value) => updateWaypoint("checkpoint", value, index)}
-                    />
-                    <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
-                      Remover
-                    </Button>
-                  </div>
-                ))}
-              </div>
-
-              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
-                  >
-                    Adicionar parada
-                  </Button>
-                </div>
-                {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
-                {stops.map((stop, index) => (
-                  <div key={stop.id} className="flex items-center gap-2">
-                    <WaypointInput
-                      label={`Parada ${index + 1}`}
-                      placeholder="Endereço ou lat,long"
-                      value={{ ...stop, order: index }}
-                      onChange={(value) => updateWaypoint("stop", value, index)}
-                    />
-                    <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
-                      Remover
-                    </Button>
-                  </div>
-                ))}
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
-                  <input
-                    type="checkbox"
-                    className="rounded border-white/30 bg-transparent"
-                    checked={mapAddsStops}
-                    onChange={(event) => setMapAddsStops(event.target.checked)}
-                  />
-                  Clique no mapa para adicionar paradas.
-                </label>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <Button onClick={buildRouteFromWaypoints} disabled={isRouting}>
-                  {isRouting ? "Gerando rota..." : "Gerar rota"}
-                </Button>
-                <Button variant="secondary" onClick={handleSave} disabled={saving}>
-                  {saving ? "Salvando..." : "Salvar rota"}
-                </Button>
-                <Button variant="ghost" onClick={handleCancel}>
-                  Cancelar alterações
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <form className="mt-3 space-y-2" onSubmit={handleHistoryRoute}>
-              <Select
-                value={historyForm.vehicleId}
-                onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
-              >
-                <option value="">Selecione um veículo</option>
-                {vehicleOptions.map((vehicle) => (
-                  <option key={vehicle.value} value={vehicle.value}>
-                    {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
-                  </option>
-                ))}
-              </Select>
-              {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
-              {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
-              {historyForm.vehicleId && !historyDeviceId && (
-                <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
-              )}
-              <div className="grid gap-2 md:grid-cols-2">
-                <Input
-                  label="Início"
-                  type="datetime-local"
-                  value={historyForm.from}
-                  onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
-                  className="map-compact-input"
-                />
-                <Input
-                  label="Fim"
-                  type="datetime-local"
-                  value={historyForm.to}
-                  onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
-                  className="map-compact-input"
-                />
-              </div>
-              <Button type="submit" disabled={loadingHistory || !historyDeviceId}>
-                {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
-              </Button>
-            </form>
-          )}
-        </div>
-      )}
-
-      <div className="floating-toolbar">
-        <button
-          type="button"
-          className={`map-tool-button ${panelOpen ? "is-active" : ""}`}
-          onClick={() => setPanelOpen((open) => !open)}
-          title={panelOpen ? "Recolher lista" : "Mostrar lista"}
-        >
-          <PanelRight size={16} />
-        </button>
-        <button
-          type="button"
-          className={`map-tool-button ${modePanelOpen ? "is-active" : ""}`}
-          onClick={toggleMode}
-          title={mode === "manual" ? "Modo histórico" : "Modo manual"}
-        >
-          {mode === "manual" ? <Clock3 size={16} /> : <Route size={16} />}
-        </button>
-        <button type="button" className="map-tool-button" onClick={handleNewRoute} title="Nova rota">
-          <Route size={16} />
-        </button>
-        <button type="button" className="map-tool-button" onClick={buildRouteFromWaypoints} title="Gerar rota">
-          {isRouting ? <Play size={16} className="animate-pulse" /> : <Play size={16} />}
-        </button>
-        <button
-          type="button"
-          className="map-tool-button disabled:cursor-not-allowed disabled:opacity-50"
-          onClick={handleSave}
-          disabled={saving}
-          title="Salvar rota"
-        >
-          {saving ? <Undo2 size={16} className="animate-spin" /> : <Save size={16} />}
-        </button>
-        <button type="button" className="map-tool-button" onClick={handleCancel} title="Cancelar alterações">
-          <Undo2 size={16} />
-        </button>
-        <button type="button" className="map-tool-button" onClick={() => fileInputRef.current?.click()} title="Importar KML">
-          <FileUp size={16} />
-        </button>
-        <button type="button" className="map-tool-button" onClick={handleExportKml} title="Exportar KML">
-          <Download size={16} />
-        </button>
-      </div>
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".kml"
-        className="hidden"
-        onChange={handleImportKml}
-      />
+      <input ref={fileInputRef} type="file" accept=".kml" className="hidden" onChange={handleImportKml} />
     </div>
   );
 }

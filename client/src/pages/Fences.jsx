@@ -11,6 +11,8 @@ import {
   parseKmlPlacemarks,
 } from "../lib/kml";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import useMapController from "../lib/map/useMapController.js";
+import MapZoomControls from "../components/map/MapZoomControls.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
@@ -63,6 +65,15 @@ function MapClickCapture({ onAddPoint }) {
 export default function Fences() {
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
+  const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Fences" });
+  const userActionRef = useRef(false);
+  const handleMapReady = useCallback(
+    (event) => {
+      onMapReady(event);
+      registerMap(event?.target || event);
+    },
+    [onMapReady, registerMap],
+  );
   const { geofences, loading, error, createGeofence, updateGeofence } = useGeofences({ autoRefreshMs: 60_000 });
   const {
     groups,
@@ -104,6 +115,7 @@ export default function Fences() {
           center,
           radius: fence.radius || 300,
           enabled: true,
+          isTarget: Boolean(fence.isTarget ?? fence?.raw?.attributes?.isTarget ?? fence?.raw?.isTarget),
           geofenceGroupIds,
           color: fence.color || colorFromGroup || "#22c55e",
         };
@@ -150,6 +162,7 @@ export default function Fences() {
       center: DEFAULT_CENTER,
       radius: 300,
       enabled: true,
+      isTarget: false,
       geofenceGroupIds: [],
       color: type === "circle" ? "#22c55e" : "#38bdf8",
     };
@@ -207,6 +220,7 @@ export default function Fences() {
           radius: layer.radius,
           center: layer.center,
           points: layer.points,
+          attributes: { isTarget: Boolean(layer.isTarget) },
         });
         let result;
         if (layer.id && !String(layer.id).startsWith("local-")) {
@@ -332,7 +346,6 @@ export default function Fences() {
     });
   };
 
-  const mapCenter = normalizeLatLngPoint(selectedLayer?.center) || DEFAULT_CENTER;
 
   const { drawableShapes, invalidCount } = useMemo(() => {
     let invalid = 0;
@@ -371,21 +384,45 @@ export default function Fences() {
     setSelectedId(mapped[0]?.id || null);
   };
 
+  const handleSelectLayer = useCallback((id) => {
+    userActionRef.current = true;
+    setSelectedId(id);
+  }, []);
+
+  useEffect(() => {
+    if (!userActionRef.current) return;
+    if (!selectedLayer) return;
+    if (selectedLayer.type === "circle") {
+      const center = normalizeLatLngPoint(selectedLayer.center);
+      if (center) {
+        focusDevice({ lat: center[0], lng: center[1] }, { zoom: 15, reason: "GEOFENCE_SELECT" });
+      }
+    } else {
+      const points = normalizePolygonPoints(selectedLayer.points);
+      if (points.length) {
+        focusGeometry(points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
+      }
+    }
+    userActionRef.current = false;
+  }, [focusDevice, focusGeometry, selectedLayer]);
+
   return (
     <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
       <MapContainer
         ref={mapRef}
-        center={mapCenter}
-        zoom={13}
+        center={undefined}
+        zoom={undefined}
         className="absolute inset-0 z-0 h-full w-full"
         preferCanvas
         attributionControl={false}
-        whenReady={onMapReady}
+        zoomControl={false}
+        whenReady={handleMapReady}
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapZoomControls variant="classic" />
         <MapClickCapture onAddPoint={handleAddPoint} />
         {drawableShapes.map((layer) => {
           if (layer.type === "circle") {
@@ -546,7 +583,7 @@ export default function Fences() {
                       <div>
                         <button
                           type="button"
-                          onClick={() => setSelectedId(layer.id)}
+                          onClick={() => handleSelectLayer(layer.id)}
                           className="text-left text-sm font-semibold text-white"
                         >
                           {layer.name}
@@ -603,6 +640,15 @@ export default function Fences() {
                     <option value="polygon">Polígono</option>
                     <option value="circle">Círculo</option>
                   </Select>
+                  <label className="flex items-center gap-2 text-xs text-white/70">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedLayer.isTarget)}
+                      onChange={(event) => updateLayer(selectedLayer.id, { isTarget: event.target.checked })}
+                      className="rounded border-white/30 bg-transparent"
+                    />
+                    Marcar como Alvo
+                  </label>
                   {selectedLayer.type === "circle" && (
                     <Input
                       label="Raio (m)"

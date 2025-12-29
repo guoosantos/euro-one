@@ -3,24 +3,28 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import useGeocodeSearch from "../../lib/hooks/useGeocodeSearch.js";
 import LocationSearch from "../map/LocationSearch.jsx";
 
-export function useAddressSearchState({ initialValue = "", mapPreferences = null } = {}) {
+export function useAddressSearchState({ initialValue = "Brasil", mapPreferences = null } = {}) {
   const [query, setQuery] = useState(initialValue);
+  const [hasInteracted, setHasInteracted] = useState(false);
   const { suggestions, isSearching, searchRegion, clearSuggestions, previewSuggestions, error } = useGeocodeSearch(mapPreferences);
 
   const handleChange = useCallback((eventOrValue) => {
     const nextValue = eventOrValue?.target?.value ?? eventOrValue ?? "";
     setQuery(String(nextValue));
+    setHasInteracted(true);
   }, []);
 
   const handleSelectSuggestion = useCallback((option) => {
     if (!option) return null;
     setQuery(option.concise || option.label || option.address || "");
+    setHasInteracted(true);
     return option;
   }, []);
 
   const handleSubmit = useCallback(async () => {
     const term = query?.trim();
     if (!term) return null;
+    setHasInteracted(true);
     const result = await searchRegion(term);
     if (result) {
       setQuery(result.concise || result.label || term);
@@ -31,15 +35,17 @@ export function useAddressSearchState({ initialValue = "", mapPreferences = null
   const handleClear = useCallback(() => {
     setQuery("");
     clearSuggestions();
+    setHasInteracted(true);
   }, [clearSuggestions]);
 
   useEffect(() => {
+    if (!hasInteracted) return;
     if (query.trim()) {
       previewSuggestions(query);
     } else {
       clearSuggestions();
     }
-  }, [clearSuggestions, previewSuggestions, query]);
+  }, [clearSuggestions, hasInteracted, previewSuggestions, query]);
 
   return useMemo(() => ({
     query,

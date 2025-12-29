@@ -458,8 +458,8 @@ html, body, #root { height: 100%; }
 
 .map-zoom-controls {
   position: absolute;
-  top: 16px;
-  left: 16px;
+  right: 16px;
+  bottom: 16px;
   display: flex;
   flex-direction: column;
   gap: 6px;

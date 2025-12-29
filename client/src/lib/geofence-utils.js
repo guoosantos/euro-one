@@ -1,9 +1,10 @@
-export function buildGeofencePayload({ name, shapeType, radius, center, points }) {
+export function buildGeofencePayload({ name, shapeType, radius, center, points, attributes }) {
   if (shapeType === "polygon" && Array.isArray(points) && points.length >= 3) {
     return {
       name,
       type: "polygon",
       area: points.map((point) => point.join(" ")).join(","),
+      ...(attributes ? { attributes } : {}),
     };
   }
   const [latitude, longitude] = center || [];
@@ -13,6 +14,7 @@ export function buildGeofencePayload({ name, shapeType, radius, center, points }
     radius,
     latitude,
     longitude,
+    ...(attributes ? { attributes } : {}),
   };
 }
 

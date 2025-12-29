@@ -25,6 +25,7 @@ import { useUI } from "../lib/store.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import useMapController from "../lib/map/useMapController.js";
 import MapZoomControls from "../components/map/MapZoomControls.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -309,6 +310,14 @@ export default function Geofences() {
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
+  const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Geofences" });
+  const handleMapReady = useCallback(
+    (event) => {
+      onMapReady(event);
+      registerMap(event?.target || event);
+    },
+    [onMapReady, registerMap],
+  );
 
   const {
     geofences: remoteGeofences,
@@ -329,6 +338,20 @@ export default function Geofences() {
     () => activeGeofences.find((geo) => geo.id === selectedId) || null,
     [activeGeofences, selectedId],
   );
+  useEffect(() => {
+    if (!userActionRef.current) return;
+    if (!selectedGeofence) return;
+    if (selectedGeofence.type === "circle") {
+      const lat = Number(selectedGeofence.latitude ?? selectedGeofence.lat);
+      const lng = Number(selectedGeofence.longitude ?? selectedGeofence.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
+      }
+    } else if (selectedGeofence.points?.length) {
+      focusGeometry(selectedGeofence.points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
+    }
+    userActionRef.current = false;
+  }, [focusDevice, focusGeometry, selectedGeofence]);
 
   const invalidateMapSize = useCallback(() => {
     refreshMap();
@@ -371,7 +394,10 @@ export default function Geofences() {
     const newId = generateLocalId("local");
     const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
     const next = [...draftPolygon];
-    setLocalGeofences((current) => [...current, { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null }]);
+    setLocalGeofences((current) => [
+      ...current,
+      { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null, isTarget: false },
+    ]);
     setColorSeed((value) => value + 1);
     setSelectedId(newId);
     setHasUnsavedChanges(true);
@@ -404,7 +430,7 @@ export default function Geofences() {
         const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
         setLocalGeofences((current) => [
           ...current,
-          { id: newId, name: `Círculo ${current.length + 1}`, type: "circle", center: draftCircle.center, radius: Math.max(25, radius), color, points: [] },
+          { id: newId, name: `Círculo ${current.length + 1}`, type: "circle", center: draftCircle.center, radius: Math.max(25, radius), color, points: [], isTarget: false },
         ]);
         setColorSeed((value) => value + 1);
         setSelectedId(newId);
@@ -523,6 +549,7 @@ export default function Geofences() {
         points: sanitized,
         center: null,
         radius: null,
+        attributes: { isTarget: Boolean(geo.isTarget) },
       };
     }
 
@@ -541,6 +568,7 @@ export default function Geofences() {
       centerLat: circle.center[0],
       centerLng: circle.center[1],
       radius: circle.radius,
+      attributes: { isTarget: Boolean(geo.isTarget) },
     };
   }, []);
 
@@ -599,6 +627,7 @@ export default function Geofences() {
           center,
           radius: item.radius || null,
           color: item.color || COLOR_PALETTE[(localGeofences.length + colorSeed + index) % COLOR_PALETTE.length],
+          isTarget: false,
         };
       });
       setLocalGeofences((current) => [...current, ...mapped]);
@@ -617,17 +646,12 @@ export default function Geofences() {
       const lat = Number(payload.lat);
       const lng = Number(payload.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-      const map = mapRef.current;
-      if (!map) return;
-      userActionRef.current = true;
       console.info("[MAP] USER_ADDRESS_SELECT", { lat, lng });
-      map.stop?.();
-      map.setView([lat, lng], 17, { animate: true });
-      setTimeout(() => map.invalidateSize?.(), 50);
+      focusDevice({ lat, lng }, { zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
 
       setSearchMarker({ lat, lng, label: payload.label || payload.concise || "Local encontrado" });
     },
-    [],
+    [focusDevice],
   );
 
   const handleSelectAddress = useCallback(
@@ -652,13 +676,11 @@ export default function Geofences() {
     setLayoutMenuOpen(false);
   }, []);
 
-  const focusOnGeofence = useCallback(
-    (geo) => {
-      if (!geo) return;
-      setSelectedId(geo.id);
-    },
-    [],
-  );
+  const focusOnGeofence = useCallback((geo) => {
+    if (!geo) return;
+    userActionRef.current = true;
+    setSelectedId(geo.id);
+  }, []);
 
   const guideLine = useMemo(() => {
     if (drawMode !== "polygon") return [];
@@ -706,8 +728,10 @@ export default function Geofences() {
           ref={mapRef}
           scrollWheelZoom
           zoomControl={false}
+          center={undefined}
+          zoom={undefined}
           style={{ height: "100%", width: "100%" }}
-          whenReady={onMapReady}
+          whenReady={handleMapReady}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -934,6 +958,21 @@ export default function Geofences() {
             value={selectedGeofence.name}
             onChange={(event) => handleRenameSelected(event.target.value)}
           />
+          <label className="flex items-center gap-2 text-xs text-white/70">
+            <input
+              type="checkbox"
+              checked={Boolean(selectedGeofence.isTarget)}
+              onChange={(event) => {
+                const checked = event.target.checked;
+                setLocalGeofences((current) =>
+                  current.map((geo) => (geo.id === selectedGeofence.id ? { ...geo, isTarget: checked } : geo)),
+                );
+                setHasUnsavedChanges(true);
+              }}
+              className="rounded border-white/30 bg-transparent"
+            />
+            Marcar como Alvo
+          </label>
           <div className="flex items-center justify-between text-xs text-white/70">
             <span>
               {selectedGeofence.type === "circle"
