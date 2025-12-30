@@ -63,17 +63,17 @@ const SEVERITY_LEVELS = [
 ];
 
 const DEFAULT_COLUMNS = [
-  { id: "time", label: "Hora GPS", defaultVisible: true },
-  { id: "device", label: "Veículo", defaultVisible: true },
-  { id: "type", label: "Tipo", defaultVisible: true },
-  { id: "description", label: "Descrição", defaultVisible: true },
-  { id: "severity", label: "Criticidade", defaultVisible: true },
-  { id: "address", label: "Endereço", defaultVisible: true },
-  { id: "speed", label: "Velocidade", defaultVisible: false },
-  { id: "ignition", label: "Ignição", defaultVisible: false },
-  { id: "battery", label: "Bateria", defaultVisible: false },
-  { id: "latitude", label: "Lat", defaultVisible: false },
-  { id: "longitude", label: "Lng", defaultVisible: false },
+  { id: "time", label: "Hora GPS", defaultVisible: true, width: 140 },
+  { id: "device", label: "Veículo", defaultVisible: true, width: 180 },
+  { id: "type", label: "Tipo", defaultVisible: true, width: 190 },
+  { id: "description", label: "Descrição", defaultVisible: true, width: 220 },
+  { id: "severity", label: "Criticidade", defaultVisible: true, width: 130 },
+  { id: "address", label: "Endereço", defaultVisible: true, width: 360 },
+  { id: "speed", label: "Velocidade", defaultVisible: false, width: 120 },
+  { id: "ignition", label: "Ignição", defaultVisible: false, width: 110 },
+  { id: "battery", label: "Bateria", defaultVisible: false, width: 110 },
+  { id: "latitude", label: "Lat", defaultVisible: false, width: 120 },
+  { id: "longitude", label: "Lng", defaultVisible: false, width: 120 },
 ];
 const COLUMNS_STORAGE_KEY = "events:columns:v1";
 
@@ -163,14 +163,34 @@ function normalizeSeverityToken(value) {
   return normalized;
 }
 
-function getSeverityClassName(severity) {
+function getSeverityStyle(severity) {
   const token = normalizeSeverityToken(severity);
   const palette = {
-    critical: "border-red-500/60 bg-red-500/20 text-red-200",
-    high: "border-orange-500/60 bg-orange-500/20 text-orange-200",
-    medium: "border-yellow-400/70 bg-yellow-400/20 text-yellow-100",
-    low: "border-green-500/60 bg-green-500/20 text-green-200",
-    info: "border-white/30 bg-white/10 text-white/70",
+    critical: {
+      backgroundColor: "rgba(185, 28, 28, 0.4)",
+      borderColor: "rgba(248, 113, 113, 0.8)",
+      color: "#fee2e2",
+    },
+    high: {
+      backgroundColor: "rgba(194, 65, 12, 0.35)",
+      borderColor: "rgba(251, 146, 60, 0.85)",
+      color: "#ffedd5",
+    },
+    medium: {
+      backgroundColor: "rgba(202, 138, 4, 0.35)",
+      borderColor: "rgba(253, 224, 71, 0.85)",
+      color: "#fef9c3",
+    },
+    low: {
+      backgroundColor: "rgba(21, 128, 61, 0.35)",
+      borderColor: "rgba(74, 222, 128, 0.85)",
+      color: "#dcfce7",
+    },
+    info: {
+      backgroundColor: "rgba(148, 163, 184, 0.2)",
+      borderColor: "rgba(226, 232, 240, 0.4)",
+      color: "#e2e8f0",
+    },
   };
   return palette[token] || palette.info;
 }
@@ -518,16 +538,16 @@ export default function Events() {
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
-      <section className="card flex min-h-0 flex-1 flex-col gap-4">
-        <header className="space-y-2">
+    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
+      <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
+        <header className="space-y-2 px-6 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de eventos</p>
               <p className="text-xs text-white/60">Relatórios no estilo Traccar com criticidade por protocolo.</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div className="flex flex-wrap gap-2">
               {EVENT_TABS.map((tab) => (
                 <button
@@ -607,7 +627,7 @@ export default function Events() {
 
         {activeTab === "Relatório" && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <div className="mx-6 flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
               <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 Buscar veículo
                 <Input
@@ -670,7 +690,15 @@ export default function Events() {
             </div>
 
             <div className="min-h-0 flex-1 overflow-auto">
-              <table className="min-w-full text-sm">
+              <table className="w-full min-w-full table-fixed text-sm">
+                <colgroup>
+                  {visibleColumns.map((column) => (
+                    <col
+                      key={column.id}
+                      style={{ width: column.width ? `${column.width}px` : "auto" }}
+                    />
+                  ))}
+                </colgroup>
                 <thead className="text-left text-xs uppercase tracking-wider text-white/50">
                   <tr>
                     {visibleColumns.map((column) => (
@@ -718,7 +746,7 @@ export default function Events() {
         )}
 
         {activeTab === "Criticidade" && (
-          <div className="space-y-4">
+          <div className="space-y-4 px-6 pb-6">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <label className="text-xs uppercase tracking-wide text-white/60">
                 Protocolo
@@ -872,9 +900,12 @@ function normalizeTitle(value) {
 function renderSeverityBadge(severity) {
   if (!severity) return "—";
   const label = String(severity);
-  const className = getSeverityClassName(label);
+  const style = getSeverityStyle(label);
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${className}`}>
+    <span
+      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+      style={style}
+    >
       {label}
     </span>
   );
