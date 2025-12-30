@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, Circle, Polygon, useMapEvents, Popup } from "react-leaflet";
+import { TileLayer, Circle, Polygon, useMapEvents, Popup } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import { useGeofences } from "../lib/hooks/useGeofences";
@@ -13,6 +13,7 @@ import {
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
 import MapZoomControls from "../components/map/MapZoomControls.jsx";
+import AppMap from "../components/map/AppMap.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
@@ -407,11 +408,11 @@ export default function Fences() {
   }, [focusDevice, focusGeometry, selectedLayer]);
 
   return (
-    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
-      <MapContainer
+    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] min-w-0 overflow-hidden bg-neutral-900">
+      <AppMap
         ref={mapRef}
-        center={undefined}
-        zoom={undefined}
+        center={DEFAULT_CENTER}
+        zoom={12}
         className="absolute inset-0 z-0 h-full w-full"
         preferCanvas
         attributionControl={false}
@@ -443,7 +444,7 @@ export default function Fences() {
             </Polygon>
           );
         })}
-      </MapContainer>
+      </AppMap>
 
       <div className="pointer-events-none absolute inset-0 z-20 flex flex-col gap-3">
         {geometryWarning && (
