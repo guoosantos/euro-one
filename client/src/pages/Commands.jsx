@@ -13,14 +13,23 @@ const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
 const STORAGE_KEY = "protocol-templates-v1";
 const COLUMNS_STORAGE_KEY = "commands:columns:v1";
 
-const HISTORY_COLUMNS = [
-  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 220 },
+const COMMAND_COLUMNS = [
+  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 180 },
   { id: "command", label: "Comando", defaultVisible: true, width: 200 },
-  { id: "sentAt", label: "Enviado em", defaultVisible: true, width: 140 },
-  { id: "status", label: "Status", defaultVisible: true, width: 90 },
-  { id: "response", label: "Resposta", defaultVisible: true, width: 260 },
+  { id: "description", label: "Descrição", defaultVisible: true, width: 260 },
+  { id: "action", label: "Ação", defaultVisible: true, width: 140 },
   { id: "protocol", label: "Protocolo", defaultVisible: false, width: 120 },
-  { id: "payload", label: "JSON completo", defaultVisible: false, width: 260 },
+  { id: "json", label: "JSON", defaultVisible: false, width: 240 },
+];
+
+const HISTORY_COLUMNS = [
+  { id: "device", label: "Dispositivo (Placa)", width: 220 },
+  { id: "command", label: "Comando", width: 200 },
+  { id: "sentAt", label: "Enviado em", width: 140 },
+  { id: "status", label: "Status", width: 90 },
+  { id: "response", label: "Resposta", width: 260 },
+  { id: "protocol", label: "Protocolo", width: 120 },
+  { id: "payload", label: "JSON completo", width: 260 },
 ];
 
 const DEFAULT_COMMAND_CATALOG = [
@@ -276,8 +285,8 @@ function loadTemplates() {
   }
 }
 
-function buildInitialHistoryColumns() {
-  return HISTORY_COLUMNS.reduce((acc, column) => {
+function buildInitialCommandColumns() {
+  return COMMAND_COLUMNS.reduce((acc, column) => {
     acc[column.id] = column.defaultVisible;
     return acc;
   }, {});
@@ -310,6 +319,8 @@ export default function Commands() {
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState(null);
   const [formErrorContext, setFormErrorContext] = useState(null);
+  const [formSuccess, setFormSuccess] = useState(null);
+  const [formSuccessContext, setFormSuccessContext] = useState(null);
   const [manualType, setManualType] = useState("custom");
   const [manualPayload, setManualPayload] = useState("");
   const [manualChannel, setManualChannel] = useState("");
@@ -322,13 +333,13 @@ export default function Commands() {
   const [columnsVisibility, setColumnsVisibility] = useState(() => {
     try {
       const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
-      if (!raw) return buildInitialHistoryColumns();
+      if (!raw) return buildInitialCommandColumns();
       const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return buildInitialHistoryColumns();
-      const defaults = buildInitialHistoryColumns();
+      if (!parsed || typeof parsed !== "object") return buildInitialCommandColumns();
+      const defaults = buildInitialCommandColumns();
       return { ...defaults, ...parsed };
     } catch (_error) {
-      return buildInitialHistoryColumns();
+      return buildInitialCommandColumns();
     }
   });
   const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
@@ -422,8 +433,8 @@ export default function Commands() {
     return map;
   }, [vehicles]);
 
-  const visibleHistoryColumns = useMemo(
-    () => HISTORY_COLUMNS.filter((column) => columnsVisibility[column.id]),
+  const visibleCommandColumns = useMemo(
+    () => COMMAND_COLUMNS.filter((column) => columnsVisibility[column.id]),
     [columnsVisibility],
   );
 
@@ -604,7 +615,9 @@ export default function Commands() {
   async function handleSendCommand(payload, { context } = {}) {
     setFormError(null);
     setFormErrorContext(context || null);
-    if (!selectedDeviceId) {
+    setFormSuccess(null);
+    setFormSuccessContext(null);
+    if (!selectedVehicleId) {
       setFormError(new Error("Selecione um veículo com equipamento vinculado."));
       return;
     }
@@ -616,14 +629,19 @@ export default function Commands() {
     setSending(true);
     try {
       await api.post(API_ROUTES.commands, {
-        deviceId: selectedDeviceId,
+        deviceId: selectedVehicleId,
         type: commandType,
         attributes: payload?.params && Object.keys(payload.params).length ? payload.params : undefined,
       });
       setHistoryRefreshKey((value) => value + 1);
+      setFormSuccess(new Error("Comando enviado com sucesso."));
+      setFormSuccessContext(context || null);
     } catch (requestError) {
-      const fallbackMessage = "Não foi possível enviar o comando. Verifique os dados e tente novamente.";
-      setFormError(requestError instanceof Error ? requestError : new Error(fallbackMessage));
+      const message =
+        requestError?.response?.data?.message ||
+        requestError?.message ||
+        "Não foi possível enviar o comando. Verifique os dados e tente novamente.";
+      setFormError(new Error(`Erro ao enviar comando: ${message}`));
     } finally {
       setSending(false);
     }
@@ -746,8 +764,8 @@ export default function Commands() {
           {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
         </header>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
-          <div className="flex flex-wrap items-end gap-3">
+        <div className="flex items-center gap-3 overflow-x-auto border-b border-white/10 pb-3">
+          <div className="flex flex-nowrap items-end gap-3">
             <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Placa do veículo
               <Select
@@ -772,13 +790,13 @@ export default function Commands() {
                 className="mt-2"
               />
             </label>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-nowrap items-center gap-2">
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
                 Protocolo: {protocolLabel}
               </span>
               {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
             </div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-nowrap gap-2">
               {COMMAND_TABS.map((tab) => (
                 <button
                   key={tab}
@@ -800,7 +818,7 @@ export default function Commands() {
               <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
             )}
           </div>
-          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
+          <div className="ml-auto flex items-center justify-end gap-2 whitespace-nowrap">
             <Button type="button" onClick={handleRefreshHistory}>
               Mostrar
             </Button>
@@ -822,7 +840,7 @@ export default function Commands() {
                 <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
                   <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
                   <div className="space-y-2">
-                    {HISTORY_COLUMNS.map((column) => (
+                    {COMMAND_COLUMNS.map((column) => (
                       <label key={column.id} className="flex items-center gap-2">
                         <input
                           type="checkbox"
@@ -847,13 +865,6 @@ export default function Commands() {
                 </div>
               )}
             </div>
-            <Button
-              type="button"
-              variant={activeTab === "JSON" ? "secondary" : "outline"}
-              onClick={() => setActiveTab("JSON")}
-            >
-              JSON
-            </Button>
           </div>
         </div>
 
@@ -873,77 +884,123 @@ export default function Commands() {
                 </div>
                 <div className="overflow-x-auto">
                   <table className="min-w-full text-sm">
+                    <colgroup>
+                      {visibleCommandColumns.map((column) => (
+                        <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+                      ))}
+                    </colgroup>
                     <thead className="text-left text-xs uppercase tracking-wide text-white/50">
                       <tr>
-                        <th className="py-2 pr-6">Comando</th>
-                        <th className="py-2 pr-6">Descrição</th>
-                        <th className="py-2 pr-6">Ação</th>
+                        {visibleCommandColumns.map((column) => (
+                          <th key={column.id} className="py-2 pr-6">
+                            {column.label}
+                          </th>
+                        ))}
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/40">
                       {commandsLoading && (
                         <tr>
-                          <td colSpan={3} className="py-4 text-center text-sm text-white/60">
+                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
                             Carregando comandos…
                           </td>
                         </tr>
                       )}
                       {commandsError && (
                         <tr>
-                          <td colSpan={3} className="py-4 text-center text-sm text-red-300">
+                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-red-300">
                             {commandsError.message}
                           </td>
                         </tr>
                       )}
                       {!commandsLoading && filteredCommands.length === 0 && (
                         <tr>
-                          <td colSpan={3} className="py-4 text-center text-sm text-white/60">
+                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
                             Nenhum comando disponível para este protocolo.
                           </td>
                         </tr>
                       )}
                       {filteredCommands.map((command) => (
                         <tr key={command.id} className="hover:bg-white/5">
-                          <td className="py-2 pr-6 text-white/80">
-                            <div className="text-sm font-semibold text-white">{command.name}</div>
-                            {command.tags?.length ? (
-                              <div className="mt-1 flex flex-wrap gap-2">
-                                {command.tags.map((tag) => (
-                                  <span
-                                    key={tag}
-                                    className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            ) : null}
-                          </td>
-                          <td className="py-2 pr-6 text-white/60">{command.description}</td>
-                          <td className="py-2 pr-6">
-                            {command.parameters?.length ? (
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={() => handleSelectCommand(command)}
-                              >
-                                Configurar
-                              </Button>
-                            ) : (
-                              <Button
-                                size="xs"
-                                onClick={() =>
-                                  handleSendCommand(
-                                    { command: command.type || command.id },
-                                    { context: "quick" },
-                                  )
-                                }
-                                disabled={sending}
-                              >
-                                Enviar
-                              </Button>
-                            )}
-                          </td>
+                          {visibleCommandColumns.map((column) => {
+                            switch (column.id) {
+                              case "device":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/70">
+                                    {selectedVehicle?.plate || selectedVehicle?.name || "—"}
+                                  </td>
+                                );
+                              case "command":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/80">
+                                    <div className="text-sm font-semibold text-white">{command.name}</div>
+                                    {command.tags?.length ? (
+                                      <div className="mt-1 flex flex-wrap gap-2">
+                                        {command.tags.map((tag) => (
+                                          <span
+                                            key={tag}
+                                            className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
+                                          >
+                                            {tag}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </td>
+                                );
+                              case "description":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/60">
+                                    {command.description}
+                                  </td>
+                                );
+                              case "action":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6">
+                                    {command.parameters?.length ? (
+                                      <Button
+                                        size="xs"
+                                        variant="secondary"
+                                        onClick={() => handleSelectCommand(command)}
+                                      >
+                                        Configurar
+                                      </Button>
+                                    ) : (
+                                      <Button
+                                        size="xs"
+                                        onClick={() =>
+                                          handleSendCommand(
+                                            { command: command.type || command.id },
+                                            { context: "quick" },
+                                          )
+                                        }
+                                        disabled={sending}
+                                      >
+                                        {sending ? "Enviando…" : "Enviar"}
+                                      </Button>
+                                    )}
+                                  </td>
+                                );
+                              case "protocol":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/60">
+                                    {protocolLabel}
+                                  </td>
+                                );
+                              case "json":
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/60">
+                                    {formatCommandTemplatePayload(command)}
+                                  </td>
+                                );
+                              default:
+                                return (
+                                  <td key={column.id} className="py-2 pr-6 text-white/60">
+                                    —
+                                  </td>
+                                );
+                            }
+                          })}
                         </tr>
                       ))}
                     </tbody>
@@ -1008,6 +1065,9 @@ export default function Commands() {
                       >
                         {sending ? "Enviando…" : "Enviar comando"}
                       </Button>
+                      {formSuccess && formSuccessContext === "selected" && (
+                        <p className="text-xs text-emerald-200">{formSuccess.message}</p>
+                      )}
                       {formError && formErrorContext === "selected" && (
                         <p className="text-xs text-red-300">{formError.message}</p>
                       )}
@@ -1067,6 +1127,9 @@ export default function Commands() {
             >
               {sending ? "Enviando…" : "Enviar comando avançado"}
             </Button>
+            {formSuccess && formSuccessContext === "advanced" && (
+              <p className="text-xs text-emerald-200">{formSuccess.message}</p>
+            )}
             {formError && formErrorContext === "advanced" && (
               <p className="text-xs text-red-300">{formError.message}</p>
             )}
@@ -1211,6 +1274,9 @@ export default function Commands() {
                   {!smsDraftValidation.valid && (
                     <p className="text-xs text-amber-200/80">{smsDraftValidation.error}</p>
                   )}
+                  {formSuccess && formSuccessContext === "sms" && (
+                    <p className="text-xs text-emerald-200">{formSuccess.message}</p>
+                  )}
                   {formError && formErrorContext === "sms" && (
                     <p className="text-xs text-red-300">{formError.message}</p>
                   )}
@@ -1325,9 +1391,15 @@ export default function Commands() {
           </div>
         )}
 
-        {(formError || historyError) && (
-          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-            {formError?.message || historyError?.message}
+        {(formError || historyError || formSuccess) && (
+          <div
+            className={`rounded-lg border p-3 text-sm ${
+              formSuccess
+                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                : "border-red-500/30 bg-red-500/10 text-red-200"
+            }`}
+          >
+            {formSuccess?.message || formError?.message || historyError?.message}
           </div>
         )}
       </section>
@@ -1346,13 +1418,13 @@ export default function Commands() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-full table-fixed text-sm">
             <colgroup>
-              {visibleHistoryColumns.map((column) => (
+              {HISTORY_COLUMNS.map((column) => (
                 <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
               ))}
             </colgroup>
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                {visibleHistoryColumns.map((column) => (
+                {HISTORY_COLUMNS.map((column) => (
                   <th key={column.id} className="py-2 pr-6">
                     {column.label}
                   </th>
@@ -1362,21 +1434,21 @@ export default function Commands() {
             <tbody className="divide-y divide-border/40">
               {historyLoading && (
                 <tr>
-                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm opacity-60">
                     Carregando comandos…
                   </td>
                 </tr>
               )}
               {!historyLoading && historyError && (
                 <tr>
-                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm text-red-300">
+                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm text-red-300">
                     {historyError.message}
                   </td>
                 </tr>
               )}
               {!historyLoading && !list.length && (
                 <tr>
-                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm opacity-60">
                     Nenhum comando encontrado para o período selecionado.
                   </td>
                 </tr>
@@ -1388,7 +1460,7 @@ export default function Commands() {
                 const plateLabel = vehicle?.plate || vehicle?.name || command.device?.name || "—";
                 return (
                   <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`} className="hover:bg-white/5">
-                    {visibleHistoryColumns.map((column) => {
+                    {HISTORY_COLUMNS.map((column) => {
                       switch (column.id) {
                         case "device":
                           return (
@@ -1461,6 +1533,25 @@ function formatDate(value) {
     return new Date(value).toLocaleString();
   } catch (_error) {
     return String(value);
+  }
+}
+
+function formatCommandTemplatePayload(command) {
+  if (!command) return "—";
+  const attributes = (command.parameters || []).reduce((acc, param) => {
+    if (param.defaultValue !== undefined && param.defaultValue !== null && param.defaultValue !== "") {
+      acc[param.key] = param.defaultValue;
+    }
+    return acc;
+  }, {});
+  const payload = {
+    type: command.type || command.id,
+    ...(Object.keys(attributes).length ? { attributes } : {}),
+  };
+  try {
+    return JSON.stringify(payload);
+  } catch (_error) {
+    return String(payload.type || "—");
   }
 }
 
