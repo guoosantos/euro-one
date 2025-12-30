@@ -877,6 +877,15 @@ router.get("/groups", async (req, res, next) => {
   }
 });
 
+router.get("/traccar/groups", async (req, res, next) => {
+  try {
+    const data = await traccarProxy("get", "/groups", { params: req.query, asAdmin: true });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/groups", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const data = await traccarProxy("post", "/groups", { data: req.body, asAdmin: true });

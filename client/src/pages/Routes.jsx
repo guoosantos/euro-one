@@ -847,43 +847,45 @@ export default function RoutesPage() {
   }, [setRoutesTopbarVisible]);
 
   return (
-    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] min-w-0 overflow-hidden bg-neutral-900">
-      <AppMap
-        ref={mapRef}
-        className="absolute inset-0 z-0 h-full w-full"
-        zoomControl={false}
-        zoom={12}
-        invalidateKey={mapInvalidateKey}
-        whenReady={handleMapReady}
-      >
-        <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-        <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
-        {normalizedRoutes
-          .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
-          .map((route) => (
-            <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
+    <div className="map-page">
+      <div className="map-container">
+        <AppMap
+          ref={mapRef}
+          className="absolute inset-0 z-0 h-full w-full"
+          zoomControl={false}
+          zoom={12}
+          invalidateKey={mapInvalidateKey}
+          whenReady={handleMapReady}
+        >
+          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
+          <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
+          {normalizedRoutes
+            .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
+            .map((route) => (
+              <Polyline key={route.id} positions={route.points} pathOptions={{ color: "#475569", weight: 3, opacity: 0.4 }} />
+            ))}
+          {normalizedDraftPoints.length ? (
+            <Polyline positions={normalizedDraftPoints} pathOptions={{ color: "#22d3ee", weight: 5 }} />
+          ) : null}
+          {origin ? (
+            <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
+          ) : null}
+          {destination ? (
+            <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
+          ) : null}
+          {checkpoints.map((checkpoint) => (
+            <CircleMarker
+              key={checkpoint.id}
+              center={[checkpoint.lat, checkpoint.lng]}
+              radius={7}
+              pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
+            />
           ))}
-        {normalizedDraftPoints.length ? (
-          <Polyline positions={normalizedDraftPoints} pathOptions={{ color: "#22d3ee", weight: 5 }} />
-        ) : null}
-        {origin ? (
-          <CircleMarker center={[origin.lat, origin.lng]} radius={8} pathOptions={{ color: "#22d3ee", fillColor: "#22d3ee" }} />
-        ) : null}
-        {destination ? (
-          <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
-        ) : null}
-        {checkpoints.map((checkpoint) => (
-          <CircleMarker
-            key={checkpoint.id}
-            center={[checkpoint.lat, checkpoint.lng]}
-            radius={7}
-            pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
-          />
-        ))}
-        {stops.map((stop) => (
-          <Marker key={stop.id} position={[stop.lat, stop.lng]} />
-        ))}
-      </AppMap>
+          {stops.map((stop) => (
+            <Marker key={stop.id} position={[stop.lat, stop.lng]} />
+          ))}
+        </AppMap>
+      </div>
 
       <div className="pointer-events-none absolute inset-0 z-20">
         <div className="pointer-events-auto absolute left-4 top-4 flex flex-col items-start gap-3">

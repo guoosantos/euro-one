@@ -1,0 +1,187 @@
+{
+  "protocols": [
+    {
+      "id": "gt06",
+      "label": "GT06",
+      "description": "Rastreadores da família GT06/GT02"
+    },
+    {
+      "id": "iotm",
+      "label": "IOTM",
+      "description": "Linha IOTM (IoT M)"
+    },
+    {
+      "id": "suntech",
+      "label": "Suntech",
+      "description": "Linha Suntech"
+    }
+  ],
+  "commands": {
+    "gt06": [
+      {
+        "id": "engineStop",
+        "name": "Bloquear motor",
+        "description": "Corta a ignição do veículo imediatamente.",
+        "type": "engineStop",
+        "tags": ["motor", "seguranca"],
+        "parameters": []
+      },
+      {
+        "id": "engineResume",
+        "name": "Desbloquear motor",
+        "description": "Restaura a ignição e libera o veículo.",
+        "type": "engineResume",
+        "tags": ["motor", "seguranca"],
+        "parameters": []
+      },
+      {
+        "id": "positionSingle",
+        "name": "Solicitar posição",
+        "description": "Solicita uma posição instantânea ao rastreador.",
+        "type": "positionSingle",
+        "tags": ["posicao"],
+        "parameters": []
+      },
+      {
+        "id": "positionPeriodic",
+        "name": "Atualização periódica",
+        "description": "Define o intervalo de envio de posições.",
+        "type": "positionPeriodic",
+        "tags": ["posicao", "config"],
+        "parameters": [
+          {
+            "key": "frequency",
+            "label": "Intervalo (segundos)",
+            "type": "number",
+            "min": 10,
+            "defaultValue": 60
+          }
+        ]
+      }
+    ],
+    "iotm": [
+      {
+        "id": "sos",
+        "name": "Alerta SOS",
+        "description": "Aciona o modo de emergência do equipamento.",
+        "type": "alarmSos",
+        "tags": ["emergencia"],
+        "parameters": []
+      },
+      {
+        "id": "engineStop",
+        "name": "Bloquear motor",
+        "description": "Corta a ignição do veículo imediatamente.",
+        "type": "engineStop",
+        "tags": ["motor"],
+        "parameters": []
+      },
+      {
+        "id": "engineResume",
+        "name": "Desbloquear motor",
+        "description": "Libera a ignição para uso normal.",
+        "type": "engineResume",
+        "tags": ["motor"],
+        "parameters": []
+      },
+      {
+        "id": "setSpeedLimit",
+        "name": "Limite de velocidade",
+        "description": "Configura o limite máximo de velocidade do dispositivo.",
+        "type": "setSpeedLimit",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "speed",
+            "label": "Velocidade máxima (km/h)",
+            "type": "number",
+            "min": 5,
+            "defaultValue": 80
+          }
+        ]
+      }
+    ],
+    "suntech": [
+      {
+        "id": "rebootDevice",
+        "name": "Reiniciar equipamento",
+        "description": "Reinicia remotamente o rastreador.",
+        "type": "rebootDevice",
+        "tags": ["config"],
+        "parameters": []
+      },
+      {
+        "id": "positionSingle",
+        "name": "Solicitar posição",
+        "description": "Solicita uma posição instantânea ao rastreador.",
+        "type": "positionSingle",
+        "tags": ["posicao"],
+        "parameters": []
+      },
+      {
+        "id": "engineStop",
+        "name": "Bloquear motor",
+        "description": "Corta a ignição do veículo imediatamente.",
+        "type": "engineStop",
+        "tags": ["motor"],
+        "parameters": []
+      },
+      {
+        "id": "engineResume",
+        "name": "Desbloquear motor",
+        "description": "Restaura a ignição e libera o veículo.",
+        "type": "engineResume",
+        "tags": ["motor"],
+        "parameters": []
+      }
+    ]
+  },
+  "events": {
+    "gt06": [
+      {
+        "id": "sos",
+        "name": "SOS",
+        "description": "Acionamento do botão de pânico."
+      },
+      {
+        "id": "ignitionOn",
+        "name": "Ignição ligada",
+        "description": "Veículo ligado."
+      },
+      {
+        "id": "ignitionOff",
+        "name": "Ignição desligada",
+        "description": "Veículo desligado."
+      }
+    ],
+    "iotm": [
+      {
+        "id": "sos",
+        "name": "SOS",
+        "description": "Acionamento do botão de pânico."
+      },
+      {
+        "id": "speed",
+        "name": "Excesso de velocidade",
+        "description": "Velocidade acima do limite configurado."
+      }
+    ],
+    "suntech": [
+      {
+        "id": "sos",
+        "name": "SOS",
+        "description": "Acionamento do botão de pânico."
+      },
+      {
+        "id": "geofenceEnter",
+        "name": "Entrada em cerca",
+        "description": "Dispositivo entrou em uma área monitorada."
+      },
+      {
+        "id": "geofenceExit",
+        "name": "Saída de cerca",
+        "description": "Dispositivo saiu de uma área monitorada."
+      }
+    ]
+  }
+}
