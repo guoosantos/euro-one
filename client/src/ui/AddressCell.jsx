@@ -12,7 +12,11 @@ export default function AddressCell({ address, lat, lng, loading: externalLoadin
   const formattedAddress = useMemo(() => formatAddress(address), [address]);
   const safeLat = normalizeCoordinate(lat);
   const safeLng = normalizeCoordinate(lng);
-  const isMissingAddress = formattedAddress === "—" || formattedAddress === FALLBACK_ADDRESS;
+  const isUnavailable =
+    formattedAddress === "Endereço não disponível" ||
+    formattedAddress === "Endereco nao disponivel" ||
+    formattedAddress === FALLBACK_ADDRESS;
+  const isMissingAddress = formattedAddress === "—" || isUnavailable;
   const shouldReverse = isMissingAddress && Number.isFinite(safeLat) && Number.isFinite(safeLng);
 
   const { address: reverseAddress, loading, retry } = useReverseGeocode(safeLat, safeLng, {

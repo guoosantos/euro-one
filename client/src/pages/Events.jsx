@@ -31,6 +31,7 @@ const EVENT_TYPES = [
   "alarm",
   "sos",
   "powerCut",
+  "powerDisconnected",
   "lowBattery",
   "jamming",
   "towing",
@@ -92,7 +93,7 @@ const SEVERITY_LABELS = {
   critical: "Crítica",
 };
 
-const CRITICAL_EVENT_TYPES = new Set(["deviceoffline", "deviceinactive", "deviceunknown"]);
+const CRITICAL_EVENT_TYPES = new Set(["deviceoffline", "deviceinactive", "deviceunknown", "powercut", "powerdisconnected"]);
 const MODERATE_EVENT_TYPES = new Set([
   "ignitionon",
   "ignitionoff",
@@ -102,6 +103,81 @@ const MODERATE_EVENT_TYPES = new Set([
   "tripstop",
 ]);
 const LOW_EVENT_TYPES = new Set(["deviceonline"]);
+const UNAVAILABLE_ADDRESSES = new Set(["Endereço não disponível", "Endereco nao disponivel", "Endereço indisponível"]);
+const POWER_DISCONNECTED_TYPES = new Set([
+  "powerdisconnected",
+  "powerdisconnect",
+  "externalpowerdisconnected",
+  "externalpowerdisconnect",
+  "powercut",
+]);
+
+function cleanAddress(address) {
+  if (!address) return null;
+  const text = String(address).trim();
+  return UNAVAILABLE_ADDRESSES.has(text) ? null : text;
+}
+
+function resolveEventCoordinates({ event, deviceId, positionsById, positionsByDeviceId }) {
+  const directLat = Number(event?.latitude);
+  const directLng = Number(event?.longitude);
+  if (Number.isFinite(directLat) && Number.isFinite(directLng)) {
+    return { latitude: directLat, longitude: directLng };
+  }
+
+  const positionId = event?.positionId ?? event?.position?.id ?? event?.attributes?.positionId ?? null;
+  const positionFromId = positionId ? positionsById.get(String(positionId)) : null;
+  const positionFromEvent = !positionFromId ? event?.position || event?.attributes?.position || null : null;
+  const position = positionFromId || positionFromEvent;
+  const positionLat = Number(position?.latitude);
+  const positionLng = Number(position?.longitude);
+  if (Number.isFinite(positionLat) && Number.isFinite(positionLng)) {
+    return { latitude: positionLat, longitude: positionLng };
+  }
+
+  const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
+  const fallbackLat = Number(fallbackPosition?.latitude);
+  const fallbackLng = Number(fallbackPosition?.longitude);
+  if (Number.isFinite(fallbackLat) && Number.isFinite(fallbackLng)) {
+    return { latitude: fallbackLat, longitude: fallbackLng };
+  }
+
+  return { latitude: null, longitude: null };
+}
+
+function normalizeEventTypeKey(value) {
+  return String(value || "")
+    .trim()
+    .replace(/[^a-z0-9]+/gi, "")
+    .toLowerCase();
+}
+
+function normalizeSeverityToken(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (["critica", "crítica", "critical"].includes(normalized)) return "critical";
+  if (["alta", "high"].includes(normalized)) return "high";
+  if (["moderada", "media", "média", "medium"].includes(normalized)) return "medium";
+  if (["baixa", "low"].includes(normalized)) return "low";
+  if (["informativa", "info"].includes(normalized)) return "info";
+  return normalized;
+}
+
+function getSeverityClassName(severity) {
+  const token = normalizeSeverityToken(severity);
+  const palette = {
+    critical: "border-red-500/60 bg-red-500/20 text-red-200",
+    high: "border-orange-500/60 bg-orange-500/20 text-orange-200",
+    medium: "border-yellow-400/70 bg-yellow-400/20 text-yellow-100",
+    low: "border-green-500/60 bg-green-500/20 text-green-200",
+    info: "border-white/30 bg-white/10 text-white/70",
+  };
+  return palette[token] || palette.info;
+}
+
+function isPowerDisconnectedType(value) {
+  return POWER_DISCONNECTED_TYPES.has(normalizeEventTypeKey(value));
+}
 
 function buildInitialColumns() {
   return DEFAULT_COLUMNS.reduce((acc, column) => {
@@ -256,11 +332,12 @@ export default function Events() {
       const deviceIdsToQuery = selectedVehicle?.deviceIds?.length
         ? selectedVehicle.deviceIds
         : allDeviceIds;
+      const shouldFilterPowerDisconnected = eventType === "powerDisconnected";
       const params = {
         from: from ? new Date(from).toISOString() : undefined,
         to: to ? new Date(to).toISOString() : undefined,
         deviceIds: deviceIdsToQuery.length ? deviceIdsToQuery : undefined,
-        type: eventType === "all" ? undefined : eventType,
+        type: eventType === "all" || shouldFilterPowerDisconnected ? undefined : eventType,
         limit: 200,
       };
 
@@ -270,7 +347,10 @@ export default function Events() {
         : Array.isArray(response?.data?.data?.events)
         ? response.data.data.events
         : [];
-      setReportEvents(list);
+      const filtered = shouldFilterPowerDisconnected
+        ? list.filter((event) => isPowerDisconnectedType(event?.type || event?.attributes?.type || event?.event))
+        : list;
+      setReportEvents(filtered);
     } catch (error) {
       setReportError(error instanceof Error ? error : new Error("Erro ao carregar eventos"));
       setReportEvents([]);
@@ -333,24 +413,12 @@ export default function Events() {
       const positionFromId = event?.positionId ? positionsById.get(String(event.positionId)) : null;
       const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
       const position = positionFromEvent || positionFromId || fallbackPosition || {};
-      const latitude =
-        event?.latitude ??
-        event?.attributes?.latitude ??
-        event?.attributes?.lat ??
-        positionFromEvent?.latitude ??
-        positionFromId?.latitude ??
-        position?.latitude ??
-        fallbackPosition?.latitude ??
-        null;
-      const longitude =
-        event?.longitude ??
-        event?.attributes?.longitude ??
-        event?.attributes?.lng ??
-        positionFromEvent?.longitude ??
-        positionFromId?.longitude ??
-        position?.longitude ??
-        fallbackPosition?.longitude ??
-        null;
+      const { latitude, longitude } = resolveEventCoordinates({
+        event,
+        deviceId,
+        positionsById,
+        positionsByDeviceId,
+      });
       const rawSeverity =
         event?.severity ??
         event?.attributes?.severity ??
@@ -365,14 +433,15 @@ export default function Events() {
         type: event?.type || event?.attributes?.type || event?.event,
         description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
         severity,
-        address:
+        address: cleanAddress(
           event?.address ||
-          positionFromEvent?.address ||
-          positionFromId?.address ||
-          position?.address ||
-          event?.attributes?.address ||
-          fallbackPosition?.address ||
-          null,
+            positionFromEvent?.address ||
+            positionFromId?.address ||
+            position?.address ||
+            event?.attributes?.address ||
+            fallbackPosition?.address ||
+            null,
+        ),
         speed: position?.speed ?? event?.speed ?? null,
         ignition: event?.ignition ?? position?.ignition ?? null,
         battery: event?.batteryLevel ?? position?.batteryLevel ?? null,
@@ -803,18 +872,7 @@ function normalizeTitle(value) {
 function renderSeverityBadge(severity) {
   if (!severity) return "—";
   const label = String(severity);
-  const normalized = label.toLowerCase();
-  const styles = {
-    informativa: "border-white/10 bg-white/5 text-white/60",
-    baixa: "border-emerald-400/20 bg-emerald-500/10 text-emerald-200",
-    moderada: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
-    média: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
-    media: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
-    alta: "border-orange-400/30 bg-orange-500/10 text-orange-200",
-    crítica: "border-red-500/30 bg-red-500/15 text-red-200",
-    critica: "border-red-500/30 bg-red-500/15 text-red-200",
-  };
-  const className = styles[normalized] || "border-white/10 bg-white/5 text-white/60";
+  const className = getSeverityClassName(label);
   return (
     <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${className}`}>
       {label}
