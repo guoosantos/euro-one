@@ -6,8 +6,7 @@ const DEFAULT_DEBOUNCE_MS = 350;
 
 const buildCoordKey = (lat, lon, precision = 5) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return "";
-  const factor = 10 ** precision;
-  return `${Math.round(lat * factor) / factor},${Math.round(lon * factor) / factor}`;
+  return `${Number(lat).toFixed(precision)},${Number(lon).toFixed(precision)}`;
 };
 
 export function useReverseGeocode(lat, lon, { enabled = true, debounceMs = DEFAULT_DEBOUNCE_MS } = {}) {
@@ -17,7 +16,7 @@ export function useReverseGeocode(lat, lon, { enabled = true, debounceMs = DEFAU
   const [state, setState] = useState(() => {
     if (!key) return { address: "", loading: false };
     const cached = getCachedReverse(safeLat, safeLon);
-    return { address: cached || "", loading: false };
+    return { address: cached || "", loading: enabled && !cached };
   });
   const activeKeyRef = useRef(key);
 

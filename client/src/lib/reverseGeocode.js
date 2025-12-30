@@ -19,8 +19,7 @@ let rateLimitQueue = Promise.resolve();
 const failureCache = new Map();
 
 function buildKey(lat, lng, precision = 5) {
-  const factor = 10 ** precision;
-  return `${Math.round(lat * factor) / factor},${Math.round(lng * factor) / factor}`;
+  return `${Number(lat).toFixed(precision)},${Number(lng).toFixed(precision)}`;
 }
 
 function hydrateFromStorage() {
