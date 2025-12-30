@@ -12,6 +12,231 @@ import { API_ROUTES } from "../lib/api-routes.js";
 const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
 const STORAGE_KEY = "protocol-templates-v1";
 
+const DEFAULT_COMMAND_CATALOG = [
+  {
+    id: "engineStop",
+    name: "Bloquear motor",
+    description: "Interrompe o motor para bloqueio remoto.",
+    type: "engineStop",
+    tags: ["segurança", "motor"],
+  },
+  {
+    id: "engineResume",
+    name: "Desbloquear motor",
+    description: "Libera o motor após bloqueio remoto.",
+    type: "engineResume",
+    tags: ["segurança", "motor"],
+  },
+  {
+    id: "positionSingle",
+    name: "Atualizar posição",
+    description: "Solicita uma posição única do equipamento.",
+    type: "positionSingle",
+    tags: ["posição"],
+  },
+  {
+    id: "positionPeriodic",
+    name: "Posição periódica",
+    description: "Configura intervalo de envio de posição.",
+    type: "positionPeriodic",
+    tags: ["posição"],
+    parameters: [
+      { key: "frequency", label: "Intervalo (segundos)", type: "number", defaultValue: 60, required: true },
+    ],
+  },
+  {
+    id: "outputOn",
+    name: "Ativar saída",
+    description: "Liga a saída digital configurada.",
+    type: "outputOn",
+    tags: ["io"],
+    parameters: [
+      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true },
+    ],
+  },
+  {
+    id: "outputOff",
+    name: "Desativar saída",
+    description: "Desliga a saída digital configurada.",
+    type: "outputOff",
+    tags: ["io"],
+    parameters: [
+      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true },
+    ],
+  },
+  {
+    id: "setSpeedLimit",
+    name: "Definir limite de velocidade",
+    description: "Define o limite de velocidade no equipamento.",
+    type: "setSpeedLimit",
+    tags: ["segurança", "velocidade"],
+    parameters: [
+      { key: "speed", label: "Velocidade (km/h)", type: "number", defaultValue: 80, required: true },
+    ],
+  },
+  {
+    id: "setOdometer",
+    name: "Ajustar hodômetro",
+    description: "Atualiza o valor do hodômetro do dispositivo.",
+    type: "setOdometer",
+    tags: ["telemetria"],
+    parameters: [
+      { key: "odometer", label: "Hodômetro (km)", type: "number", defaultValue: 0, required: true },
+    ],
+  },
+  {
+    id: "setTimezone",
+    name: "Ajustar fuso horário",
+    description: "Define o timezone do dispositivo.",
+    type: "setTimezone",
+    tags: ["config"],
+    parameters: [
+      { key: "timezone", label: "Timezone", type: "text", defaultValue: "America/Sao_Paulo", required: true },
+    ],
+  },
+  {
+    id: "setLock",
+    name: "Travar portas",
+    description: "Envia comando de travamento de portas.",
+    type: "setLock",
+    tags: ["segurança"],
+  },
+  {
+    id: "setUnlock",
+    name: "Destravar portas",
+    description: "Envia comando de destravamento de portas.",
+    type: "setUnlock",
+    tags: ["segurança"],
+  },
+  {
+    id: "alarmArm",
+    name: "Armar alarme",
+    description: "Ativa o modo alarme do equipamento.",
+    type: "alarmArm",
+    tags: ["segurança"],
+  },
+  {
+    id: "alarmDisarm",
+    name: "Desarmar alarme",
+    description: "Desativa o modo alarme do equipamento.",
+    type: "alarmDisarm",
+    tags: ["segurança"],
+  },
+  {
+    id: "rebootDevice",
+    name: "Reiniciar equipamento",
+    description: "Reinicia o equipamento remotamente.",
+    type: "rebootDevice",
+    tags: ["manutenção"],
+  },
+  {
+    id: "factoryReset",
+    name: "Resetar para fábrica",
+    description: "Restaura as configurações padrão do dispositivo.",
+    type: "factoryReset",
+    tags: ["manutenção"],
+  },
+  {
+    id: "clearAlarm",
+    name: "Limpar alarme",
+    description: "Limpa alarmes ativos.",
+    type: "clearAlarm",
+    tags: ["segurança"],
+  },
+  {
+    id: "setDriver",
+    name: "Definir motorista",
+    description: "Associa um motorista ao equipamento.",
+    type: "setDriver",
+    tags: ["telemetria"],
+    parameters: [
+      { key: "driverId", label: "ID do motorista", type: "text", required: true },
+    ],
+  },
+  {
+    id: "setFuel",
+    name: "Atualizar combustível",
+    description: "Ajusta nível de combustível registrado.",
+    type: "setFuel",
+    tags: ["telemetria"],
+    parameters: [
+      { key: "fuel", label: "Combustível (%)", type: "number", defaultValue: 0, required: true },
+    ],
+  },
+  {
+    id: "sendSms",
+    name: "Enviar SMS",
+    description: "Envia SMS direto para o equipamento.",
+    type: "sendSms",
+    tags: ["sms"],
+    parameters: [
+      { key: "text", label: "Mensagem", type: "text", required: true },
+    ],
+  },
+  {
+    id: "voiceMessage",
+    name: "Mensagem de voz",
+    description: "Envia comando de mensagem de voz.",
+    type: "voiceMessage",
+    tags: ["voz"],
+    parameters: [
+      { key: "text", label: "Mensagem", type: "text", required: true },
+    ],
+  },
+  {
+    id: "setAgps",
+    name: "Atualizar AGPS",
+    description: "Dispara atualização de dados A-GPS.",
+    type: "setAgps",
+    tags: ["gps"],
+  },
+  {
+    id: "setRoaming",
+    name: "Configurar roaming",
+    description: "Habilita ou desabilita roaming.",
+    type: "setRoaming",
+    tags: ["config"],
+    parameters: [
+      { key: "enabled", label: "Ativo", type: "text", defaultValue: "true", required: true },
+    ],
+  },
+  {
+    id: "setIndicator",
+    name: "Ativar buzzer/LED",
+    description: "Aciona indicador do equipamento.",
+    type: "setIndicator",
+    tags: ["io"],
+    parameters: [
+      { key: "duration", label: "Duração (seg)", type: "number", defaultValue: 10, required: true },
+    ],
+  },
+  {
+    id: "setParameter",
+    name: "Definir parâmetro",
+    description: "Configura um parâmetro genérico do equipamento.",
+    type: "setParameter",
+    tags: ["config"],
+    parameters: [
+      { key: "key", label: "Chave", type: "text", required: true },
+      { key: "value", label: "Valor", type: "text", required: true },
+    ],
+  },
+  {
+    id: "custom",
+    name: "Comando customizado",
+    description: "Envia comando personalizado pelo protocolo.",
+    type: "custom",
+    tags: ["avançado"],
+    parameters: [
+      { key: "data", label: "Payload", type: "text", required: true },
+    ],
+  },
+];
+
+const PROTOCOL_COMMANDS = {
+  default: DEFAULT_COMMAND_CATALOG,
+};
+
 function normalizeProtocol(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -179,14 +404,17 @@ export default function Commands() {
       try {
         const response = await api.get(`${API_ROUTES.protocols}/${protocolKey}/commands`);
         const list = Array.isArray(response?.data?.commands) ? response.data.commands : [];
-        commandsCacheRef.current.set(protocolKey, list);
+        const fallback = PROTOCOL_COMMANDS[protocolKey] || PROTOCOL_COMMANDS.default;
+        const finalList = list.length ? list : fallback;
+        commandsCacheRef.current.set(protocolKey, finalList);
         if (mounted) {
-          setProtocolCommands(list);
+          setProtocolCommands(finalList);
         }
       } catch (requestError) {
+        const fallback = PROTOCOL_COMMANDS[protocolKey] || PROTOCOL_COMMANDS.default;
         if (mounted) {
           setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
-          setProtocolCommands([]);
+          setProtocolCommands(fallback);
         }
       } finally {
         if (mounted) {
@@ -346,13 +574,13 @@ export default function Commands() {
           {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
         </header>
 
-        <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-          <label className="space-y-2 text-sm">
-            <span className="text-xs uppercase tracking-wide text-white/60">Selecionar veículo</span>
+        <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-3">
+          <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+            Veículo
             <Select
               value={selectedVehicleId}
               onChange={(event) => setSelectedVehicleId(event.target.value)}
-              className="w-full bg-layer text-sm"
+              className="mt-2 w-full bg-layer text-sm"
             >
               <option value="">Selecione um veículo</option>
               {vehicleOptions.map((vehicle) => (
@@ -361,51 +589,47 @@ export default function Commands() {
                 </option>
               ))}
             </Select>
-            {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
-            {vehiclesError && <span className="text-xs text-red-300">{vehiclesError.message}</span>}
-            {selectedVehicle && !selectedDeviceId && (
-              <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
-            )}
           </label>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs text-white/60">
-            <p className="text-xs uppercase tracking-wide text-white/50">Resumo</p>
-            <p className="mt-2">Veículo: {selectedVehicle ? formatVehicleLabel(selectedVehicle) : "—"}</p>
-            <p>Equipamento: {selectedDevice?.name || selectedDevice?.uniqueId || selectedDeviceId || "—"}</p>
-            <p>Protocolo: {protocolLabel || "—"}</p>
+          <label className="flex min-w-[260px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+            Buscar comando
+            <Input
+              value={commandSearch}
+              onChange={(event) => setCommandSearch(event.target.value)}
+              placeholder="Buscar comando"
+              className="mt-2"
+            />
+          </label>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
+              Protocolo: {protocolLabel}
+            </span>
+            {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
           </div>
-        </div>
-
-        <div className="flex flex-wrap gap-2 border-b border-white/10 pb-2">
-          {COMMAND_TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
-                activeTab === tab
-                  ? "bg-primary/20 text-white border border-primary/40"
-                  : "border border-white/10 text-white/60 hover:text-white"
-              }`}
-            >
-              {tab}
-            </button>
-          ))}
+          <div className="flex flex-wrap gap-2">
+            {COMMAND_TABS.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setActiveTab(tab)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                  activeTab === tab
+                    ? "bg-primary/20 text-white border border-primary/40"
+                    : "border border-white/10 text-white/60 hover:text-white"
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
+          {vehiclesError && <span className="text-xs text-red-300">{vehiclesError.message}</span>}
+          {selectedVehicle && !selectedDeviceId && (
+            <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
+          )}
         </div>
 
         {activeTab === "Comandos" && (
           <div className="space-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <Input
-                value={commandSearch}
-                onChange={(event) => setCommandSearch(event.target.value)}
-                placeholder="Buscar comando por nome, descrição ou tag"
-                className="flex-1"
-              />
-              <Button type="button" variant="outline" onClick={reload}>
-                Atualizar histórico
-              </Button>
-            </div>
-
             {!protocolKey && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                 Selecione um veículo com protocolo definido para visualizar comandos.
@@ -413,88 +637,123 @@ export default function Commands() {
             )}
 
             {protocolKey && (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                    <span>Comandos homologados</span>
-                    <span>{filteredCommands.length} itens</span>
-                  </div>
-                  <div className="space-y-2">
-                    {commandsLoading && <p className="text-xs text-white/60">Carregando comandos…</p>}
-                    {commandsError && <p className="text-xs text-red-300">{commandsError.message}</p>}
-                    {!commandsLoading && filteredCommands.length === 0 && (
-                      <p className="text-xs text-white/60">Nenhum comando disponível para este protocolo.</p>
-                    )}
-                    {filteredCommands.map((command) => (
-                      <button
-                        key={command.id}
-                        type="button"
-                        onClick={() => handleSelectCommand(command)}
-                        className={`w-full rounded-2xl border px-4 py-3 text-left text-sm transition ${
-                          selectedCommandId === command.id
-                            ? "border-primary/60 bg-primary/10 text-white"
-                            : "border-white/10 bg-white/5 text-white/70 hover:border-white/30"
-                        }`}
-                      >
-                        <div className="text-sm font-semibold text-white">{command.name}</div>
-                        <p className="mt-1 text-xs text-white/60">{command.description}</p>
-                        {command.tags?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {command.tags.map((tag) => (
-                              <span
-                                key={tag}
-                                className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
+              <div className="space-y-4">
+                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
+                  <span>Comandos homologados</span>
+                  <span>{filteredCommands.length} itens</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="text-left text-xs uppercase tracking-wide text-white/50">
+                      <tr>
+                        <th className="py-2 pr-6">Comando</th>
+                        <th className="py-2 pr-6">Descrição</th>
+                        <th className="py-2 pr-6">Ação</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/40">
+                      {commandsLoading && (
+                        <tr>
+                          <td colSpan={3} className="py-4 text-center text-sm text-white/60">
+                            Carregando comandos…
+                          </td>
+                        </tr>
+                      )}
+                      {commandsError && (
+                        <tr>
+                          <td colSpan={3} className="py-4 text-center text-sm text-red-300">
+                            {commandsError.message}
+                          </td>
+                        </tr>
+                      )}
+                      {!commandsLoading && filteredCommands.length === 0 && (
+                        <tr>
+                          <td colSpan={3} className="py-4 text-center text-sm text-white/60">
+                            Nenhum comando disponível para este protocolo.
+                          </td>
+                        </tr>
+                      )}
+                      {filteredCommands.map((command) => (
+                        <tr key={command.id} className="hover:bg-white/5">
+                          <td className="py-2 pr-6 text-white/80">
+                            <div className="text-sm font-semibold text-white">{command.name}</div>
+                            {command.tags?.length ? (
+                              <div className="mt-1 flex flex-wrap gap-2">
+                                {command.tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="py-2 pr-6 text-white/60">{command.description}</td>
+                          <td className="py-2 pr-6">
+                            {command.parameters?.length ? (
+                              <Button
+                                size="xs"
+                                variant="secondary"
+                                onClick={() => handleSelectCommand(command)}
                               >
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
+                                Configurar
+                              </Button>
+                            ) : (
+                              <Button
+                                size="xs"
+                                onClick={() => handleSendCommand({ type: command.type })}
+                                disabled={sending}
+                              >
+                                Enviar
+                              </Button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
 
-                <div className="space-y-3">
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
                   <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
                     <span>Parâmetros do comando</span>
                     <span>{selectedCommand ? selectedCommand.type : "Selecione um comando"}</span>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                    {!selectedCommand && <p className="text-xs text-white/60">Selecione um comando para configurar.</p>}
-                    {selectedCommand && (
-                      <div className="space-y-3">
-                        <div>
-                          <div className="text-sm font-semibold text-white">{selectedCommand.name}</div>
-                          <p className="text-xs text-white/60">{selectedCommand.description}</p>
-                        </div>
-                        {selectedCommand.parameters?.length ? (
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {selectedCommand.parameters.map((param) => (
-                              <label key={param.key} className="text-xs uppercase tracking-wide text-white/60">
-                                {param.label}
-                                <input
-                                  type={param.type === "number" ? "number" : "text"}
-                                  min={param.min}
-                                  value={commandParams[param.key] ?? ""}
-                                  onChange={(event) =>
-                                    setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                                  required={param.required}
-                                />
-                              </label>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
-                        )}
-                        <Button type="button" onClick={handleSendSelectedCommand} disabled={sending}>
-                          {sending ? "Enviando…" : "Enviar comando"}
-                        </Button>
+                  {!selectedCommand && <p className="mt-3 text-xs text-white/60">Selecione um comando para configurar.</p>}
+                  {selectedCommand && (
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <div className="text-sm font-semibold text-white">{selectedCommand.name}</div>
+                        <p className="text-xs text-white/60">{selectedCommand.description}</p>
                       </div>
-                    )}
-                  </div>
+                      {selectedCommand.parameters?.length ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {selectedCommand.parameters.map((param) => (
+                            <label key={param.key} className="text-xs uppercase tracking-wide text-white/60">
+                              {param.label}
+                              <input
+                                type={param.type === "number" ? "number" : "text"}
+                                min={param.min}
+                                value={commandParams[param.key] ?? ""}
+                                onChange={(event) =>
+                                  setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
+                                }
+                                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                                required={param.required}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
+                      )}
+                      <Button type="button" onClick={handleSendSelectedCommand} disabled={sending}>
+                        {sending ? "Enviando…" : "Enviar comando"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -769,7 +1028,12 @@ export default function Commands() {
       <section className="card space-y-4">
         <header className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Histórico de comandos</h3>
-          <span className="text-xs opacity-60">{list.length} registros</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs opacity-60">{list.length} registros</span>
+            <Button type="button" size="xs" variant="outline" onClick={reload}>
+              Atualizar histórico
+            </Button>
+          </div>
         </header>
 
         <div className="overflow-x-auto">
@@ -777,36 +1041,44 @@ export default function Commands() {
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
                 <th className="py-2 pr-6">Dispositivo</th>
-                <th className="py-2 pr-6">Tipo</th>
+                <th className="py-2 pr-6">Comando</th>
                 <th className="py-2 pr-6">Enviado em</th>
-                <th className="py-2 pr-6">Executado</th>
+                <th className="py-2 pr-6">Status</th>
+                <th className="py-2 pr-6">Resposta</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
               {loading && (
                 <tr>
-                  <td colSpan={4} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={5} className="py-4 text-center text-sm opacity-60">
                     Carregando comandos…
                   </td>
                 </tr>
               )}
               {!loading && !list.length && (
                 <tr>
-                  <td colSpan={4} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={5} className="py-4 text-center text-sm opacity-60">
                     Nenhum comando encontrado para o período selecionado.
                   </td>
                 </tr>
               )}
-              {list.map((command) => (
-                <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`}
-                  className="hover:bg-white/5"
-                >
-                  <td className="py-2 pr-6 text-white/80">{command.deviceId ?? command.device?.name ?? "—"}</td>
-                  <td className="py-2 pr-6 text-white/70">{command.type ?? "—"}</td>
-                  <td className="py-2 pr-6 text-white/60">{formatDate(command.sentAt || command.sentTime)}</td>
-                  <td className="py-2 pr-6 text-white/60">{formatDate(command.deliveredAt || command.resultTime)}</td>
-                </tr>
-              ))}
+              {list.map((command) => {
+                const status = resolveCommandStatus(command);
+                const response = resolveCommandResponse(command);
+                return (
+                  <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`} className="hover:bg-white/5">
+                    <td className="py-2 pr-6 text-white/80">{command.deviceId ?? command.device?.name ?? "—"}</td>
+                    <td className="py-2 pr-6 text-white/70">{command.type ?? "—"}</td>
+                    <td className="py-2 pr-6 text-white/60">{formatDate(command.sentAt || command.sentTime)}</td>
+                    <td className="py-2 pr-6">
+                      <span className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${status.className}`}>
+                        {status.label}
+                      </span>
+                    </td>
+                    <td className="py-2 pr-6 text-white/60">{response || "—"}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -822,4 +1094,35 @@ function formatDate(value) {
   } catch (_error) {
     return String(value);
   }
+}
+
+function resolveCommandStatus(command) {
+  const error = command?.error || command?.attributes?.error || command?.result?.error;
+  const statusRaw = String(command?.status || command?.attributes?.status || "").toLowerCase();
+  const result = command?.result || command?.attributes?.result;
+  const delivered = command?.deliveredAt || command?.resultTime || command?.attributes?.deliveredAt;
+  if (error || statusRaw.includes("fail") || statusRaw.includes("error")) {
+    return { label: "erro", className: "border-red-500/40 bg-red-500/10 text-red-200" };
+  }
+  if (result || delivered) {
+    return { label: "confirmado", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
+  }
+  if (command?.sentAt || command?.sentTime) {
+    return { label: "enviado", className: "border-blue-500/40 bg-blue-500/10 text-blue-200" };
+  }
+  return { label: "pendente", className: "border-amber-500/40 bg-amber-500/10 text-amber-200" };
+}
+
+function resolveCommandResponse(command) {
+  const response =
+    command?.response ||
+    command?.result ||
+    command?.attributes?.response ||
+    command?.attributes?.result ||
+    command?.attributes?.message ||
+    command?.message ||
+    command?.error;
+  if (response) return String(response);
+  const payload = command?.attributes?.payload || command?.attributes?.text || command?.attributes?.data;
+  return payload ? String(payload) : "";
 }

@@ -555,7 +555,7 @@ export default function RoutesPage() {
   const resetAutocomplete = useCallback(() => {
     setAutocompleteResetKey((current) => current + 1);
     addressSearch?.resetSuggestions?.();
-  }, [addressSearch]);
+  }, [addressSearch?.resetSuggestions]);
 
   const loadRoutes = useCallback(async () => {
     setLoadingRoutes(true);
@@ -688,6 +688,14 @@ export default function RoutesPage() {
   useEffect(() => {
     resetAutocomplete();
   }, [activePanel, editorMode, resetAutocomplete]);
+
+  const handlePanelToggle = useCallback(
+    (panel) => {
+      setActivePanel((current) => (current === panel ? null : panel));
+      resetAutocomplete();
+    },
+    [resetAutocomplete],
+  );
 
   const updateWaypoint = useCallback(
     (type, payload, index = 0) => {
@@ -910,7 +918,7 @@ export default function RoutesPage() {
 
   const showEditorCard = showEditorPanel && activePanel === "editor";
   const showRoutesCard = showRoutesPanel && activePanel === "routes";
-  const showToolsCard = showToolsPanel && activePanel === "tools";
+  const showToolsCard = showToolsPanel;
   const editorTitle =
     editorMode === "history" ? "Modo histórico" : editorMode === "stops" ? "Modo paradas" : "Modo manual";
   const editorDescription =
@@ -975,18 +983,40 @@ export default function RoutesPage() {
       </div>
 
       <div className="pointer-events-none absolute inset-0 z-20">
-        <div className="pointer-events-auto absolute left-4 top-4 flex flex-col items-start gap-3">
+        <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
             <SidebarCard className="w-[440px] md:w-[460px]">
-              <div className="flex flex-wrap items-center gap-2">
-                <AddressSearchInput
-                  state={addressSearch}
-                  onSelect={handleSelectAddress}
-                  variant="toolbar"
-                  containerClassName="flex-1 min-w-[240px]"
-                  placeholder="Buscar endereço rápido"
-                />
+              <div className="space-y-3">
                 <div className="flex items-center gap-2">
+                  <AddressSearchInput
+                    state={addressSearch}
+                    onSelect={handleSelectAddress}
+                    variant="toolbar"
+                    containerClassName="flex-1 min-w-[240px]"
+                    placeholder="Buscar endereço rápido"
+                  />
+                  <div className="flex items-center gap-1">
+                    <ToolbarButton
+                      icon={SlidersHorizontal}
+                      title="Ferramentas"
+                      active={activePanel === "tools"}
+                      onClick={() => handlePanelToggle("tools")}
+                    />
+                    <ToolbarButton
+                      icon={Route}
+                      title="Editor"
+                      active={activePanel === "editor"}
+                      onClick={() => handlePanelToggle("editor")}
+                    />
+                    <ToolbarButton
+                      icon={List}
+                      title="Minhas rotas"
+                      active={activePanel === "routes"}
+                      onClick={() => handlePanelToggle("routes")}
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
                   <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
                   <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
                   <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
@@ -1160,15 +1190,6 @@ export default function RoutesPage() {
         </div>
 
         <MapToolbar className="floating-toolbar pointer-events-auto" map={mapInstance}>
-          <ToolbarButton
-            icon={SlidersHorizontal}
-            title="Ferramentas"
-            active={activePanel === "tools"}
-            onClick={() => {
-              setActivePanel((current) => (current === "tools" ? null : "tools"));
-              resetAutocomplete();
-            }}
-          />
           <div className="relative">
             <ToolbarButton
               icon={LayoutGrid}
@@ -1226,15 +1247,6 @@ export default function RoutesPage() {
             onClick={() => {
               setActivePanel((current) => (current === "editor" && editorMode === "stops" ? null : "editor"));
               setEditorMode("stops");
-              resetAutocomplete();
-            }}
-          />
-          <ToolbarButton
-            icon={List}
-            title="Minhas rotas"
-            active={activePanel === "routes"}
-            onClick={() => {
-              setActivePanel((current) => (current === "routes" ? null : "routes"));
               resetAutocomplete();
             }}
           />

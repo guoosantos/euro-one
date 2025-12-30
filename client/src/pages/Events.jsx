@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Columns3 } from "lucide-react";
 
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
@@ -117,27 +118,58 @@ export default function Events() {
     return map;
   }, [vehicles]);
 
-  const deviceOptions = useMemo(
-    () =>
-      (Array.isArray(devices) ? devices : [])
-        .map((device) => toDeviceKey(device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId))
-        .filter(Boolean),
-    [devices],
-  );
+  const deviceIdByKey = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(devices) ? devices : []).forEach((device) => {
+      const candidates = [
+        device?.traccarId,
+        device?.id,
+        device?.deviceId,
+        device?.device_id,
+        device?.uniqueId,
+        device?.unique_id,
+      ];
+      const numericId = candidates
+        .map((value) => Number(value))
+        .find((value) => Number.isFinite(value) && value > 0);
+      if (!numericId) return;
+      candidates.forEach((value) => {
+        const key = toDeviceKey(value);
+        if (key) map.set(key, numericId);
+      });
+    });
+    return map;
+  }, [devices]);
 
   const vehicleOptions = useMemo(
     () =>
       vehicles.map((vehicle) => {
         const deviceIds = normalizeVehicleDevices(vehicle)
-          .map((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId))
+          .map((device) => {
+            const candidates = [
+              device?.traccarId,
+              device?.id,
+              device?.deviceId,
+              device?.device_id,
+              device?.uniqueId,
+              device?.unique_id,
+            ];
+            const numericId = candidates
+              .map((value) => Number(value))
+              .find((value) => Number.isFinite(value) && value > 0);
+            if (numericId) return numericId;
+            const lookupKeys = candidates.map((value) => toDeviceKey(value)).filter(Boolean);
+            const mappedId = lookupKeys.map((key) => deviceIdByKey.get(key)).find((value) => value);
+            return mappedId || null;
+          })
           .filter(Boolean);
         return {
           id: vehicle.id,
           label: formatVehicleLabel(vehicle),
-          deviceIds,
+          deviceIds: Array.from(new Set(deviceIds)),
         };
       }),
-    [vehicles],
+    [deviceIdByKey, vehicles],
   );
 
   const filteredVehicleOptions = useMemo(() => {
@@ -151,10 +183,7 @@ export default function Events() {
     [selectedVehicleId, vehicleOptions],
   );
 
-  const allDeviceIds = useMemo(() => {
-    const fromVehicles = vehicleOptions.flatMap((vehicle) => vehicle.deviceIds).filter(Boolean);
-    return Array.from(new Set([...fromVehicles, ...deviceOptions]));
-  }, [deviceOptions, vehicleOptions]);
+  const allDeviceIds = useMemo(() => Array.from(new Set(deviceIdByKey.values())), [deviceIdByKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -348,126 +377,122 @@ export default function Events() {
 
         {activeTab === "Relatório" && (
           <div className="space-y-4">
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="text-xs uppercase tracking-wide text-white/60">
-                    Buscar veículo
-                    <Input
-                      value={vehicleSearch}
-                      onChange={(event) => setVehicleSearch(event.target.value)}
-                      placeholder="Digite placa ou nome"
-                      className="mt-2"
-                    />
-                  </label>
-                  <label className="text-xs uppercase tracking-wide text-white/60">
-                    Veículo
-                    <Select
-                      value={selectedVehicleId}
-                      onChange={(event) => setSelectedVehicleId(event.target.value)}
-                      className="mt-2 w-full bg-layer text-sm"
-                    >
-                      <option value="">Todos os veículos</option>
-                      {filteredVehicleOptions.map((vehicle) => (
-                        <option key={vehicle.id} value={vehicle.id}>
-                          {vehicle.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </label>
-                </div>
-
-                <label className="text-xs uppercase tracking-wide text-white/60">
-                  Tipo de evento
-                  <Select
-                    value={eventType}
-                    onChange={(event) => setEventType(event.target.value)}
-                    className="mt-2 w-full bg-layer text-sm"
-                  >
-                    {EVENT_TYPES.map((option) => (
-                      <option key={option} value={option}>
-                        {option === "all" ? "Todos" : translateEventType(option, locale)}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-
-                {selectedVehicle && selectedVehicle.deviceIds.length === 0 && (
-                  <p className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
-                )}
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  <label className="text-xs uppercase tracking-wide text-white/60">
-                    De
-                    <input
-                      type="datetime-local"
-                      value={from}
-                      onChange={(event) => setFrom(event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="text-xs uppercase tracking-wide text-white/60">
-                    Até
-                    <input
-                      type="datetime-local"
-                      value={to}
-                      onChange={(event) => setTo(event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" onClick={fetchReport}>
-                    Mostrar
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedVehicleId("");
-                      setVehicleSearch("");
-                      setEventType("all");
-                    }}
-                  >
-                    Limpar filtros
-                  </Button>
-                </div>
+            <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Buscar veículo
+                <Input
+                  value={vehicleSearch}
+                  onChange={(event) => setVehicleSearch(event.target.value)}
+                  placeholder="Digite placa ou nome"
+                  className="mt-2"
+                />
+              </label>
+              <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Veículo
+                <Select
+                  value={selectedVehicleId}
+                  onChange={(event) => setSelectedVehicleId(event.target.value)}
+                  className="mt-2 w-full bg-layer text-sm"
+                >
+                  <option value="">Todos os veículos</option>
+                  {filteredVehicleOptions.map((vehicle) => (
+                    <option key={vehicle.id} value={vehicle.id}>
+                      {vehicle.label}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Tipo de evento
+                <Select
+                  value={eventType}
+                  onChange={(event) => setEventType(event.target.value)}
+                  className="mt-2 w-full bg-layer text-sm"
+                >
+                  {EVENT_TYPES.map((option) => (
+                    <option key={option} value={option}>
+                      {option === "all" ? "Todos" : translateEventType(option, locale)}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                De
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Até
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                <Button type="button" onClick={fetchReport}>
+                  Mostrar
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedVehicleId("");
+                    setVehicleSearch("");
+                    setEventType("all");
+                  }}
+                >
+                  Limpar filtros
+                </Button>
               </div>
-
-              <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-white/50">Colunas</p>
-                  <Button type="button" size="xs" variant="secondary" onClick={() => setShowColumns((open) => !open)}>
-                    Editar
-                  </Button>
-                </div>
+              <div className="relative flex items-center">
+                <button
+                  type="button"
+                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
+                    showColumns ? "bg-white/10" : "bg-transparent"
+                  }`}
+                  onClick={() => setShowColumns((open) => !open)}
+                  aria-label="Colunas"
+                >
+                  <Columns3 size={18} />
+                </button>
                 {showColumns && (
-                  <div className="space-y-2 text-xs text-white/70">
-                    {DEFAULT_COLUMNS.map((column) => (
-                      <label key={column.id} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={columnsVisibility[column.id]}
-                          onChange={(event) =>
-                            setColumnsVisibility((current) => ({
-                              ...current,
-                              [column.id]: event.target.checked,
-                            }))
-                          }
-                          className="rounded border-white/20 bg-transparent"
-                        />
-                        <span>{column.label}</span>
-                      </label>
-                    ))}
+                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
+                    <div className="space-y-2">
+                      {DEFAULT_COLUMNS.map((column) => (
+                        <label key={column.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={columnsVisibility[column.id]}
+                            onChange={(event) =>
+                              setColumnsVisibility((current) => ({
+                                ...current,
+                                [column.id]: event.target.checked,
+                              }))
+                            }
+                            className="rounded border-white/20 bg-transparent"
+                          />
+                          <span>{column.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button type="button" size="xs" variant="secondary" onClick={() => setShowColumns(false)}>
+                        Salvar
+                      </Button>
+                    </div>
                   </div>
                 )}
-                {!showColumns && (
-                  <p className="text-xs text-white/60">
-                    {visibleColumns.map((column) => column.label).join(" · ")}
-                  </p>
-                )}
               </div>
+              {selectedVehicle && selectedVehicle.deviceIds.length === 0 && (
+                <p className="w-full text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
+              )}
             </div>
 
             <div className="overflow-x-auto">

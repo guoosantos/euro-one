@@ -30,7 +30,9 @@ export function useCommands({ params = {}, autoRefreshMs = 60_000 } = {}) {
         setData(normaliseCommands(response?.data));
       } catch (requestError) {
         if (cancelled) return;
-        console.error("Failed to load commands", requestError);
+        if (import.meta?.env?.DEV) {
+          console.error("Failed to load commands", requestError);
+        }
         setError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
         setData([]);
       } finally {
