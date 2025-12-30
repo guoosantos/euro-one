@@ -80,41 +80,28 @@ const SEVERITY_LABELS = {
   informativa: "Informativa",
   baixa: "Baixa",
   low: "Baixa",
-  moderada: "Média",
-  media: "Média",
-  medium: "Média",
+  moderada: "Moderada",
+  media: "Moderada",
+  "média": "Moderada",
+  medium: "Moderada",
+  moderate: "Moderada",
   alta: "Alta",
   high: "Alta",
   critica: "Crítica",
+  "crítica": "Crítica",
   critical: "Crítica",
 };
 
-const EVENT_SEVERITY_MAP = {
-  deviceoffline: "Crítica",
-  sos: "Crítica",
-  alarm: "Alta",
-  crash: "Crítica",
-  powercut: "Alta",
-  jamming: "Alta",
-  towing: "Alta",
-  tampering: "Alta",
-  speeding: "Alta",
-  overspeed: "Alta",
-  speedlimit: "Média",
-  geofenceenter: "Média",
-  geofenceexit: "Média",
-  lowbattery: "Média",
-  ignitionoff: "Baixa",
-  ignitionon: "Baixa",
-  devicemoving: "Baixa",
-  devicestopped: "Baixa",
-  deviceinactive: "Baixa",
-  deviceunknown: "Média",
-  maintenance: "Baixa",
-  door: "Média",
-  idle: "Baixa",
-  parking: "Baixa",
-};
+const CRITICAL_EVENT_TYPES = new Set(["deviceoffline", "deviceinactive", "deviceunknown"]);
+const MODERATE_EVENT_TYPES = new Set([
+  "ignitionon",
+  "ignitionoff",
+  "devicemoving",
+  "devicestopped",
+  "tripstart",
+  "tripstop",
+]);
+const LOW_EVENT_TYPES = new Set(["deviceonline"]);
 
 function buildInitialColumns() {
   return DEFAULT_COLUMNS.reduce((acc, column) => {
@@ -326,26 +313,42 @@ export default function Events() {
   }, [activeTab, selectedProtocol]);
 
   const reportRows = useMemo(() => {
+    const positionsById = new Map();
+    Object.values(positionsByDeviceId || {}).forEach((position) => {
+      const positionId = position?.id;
+      if (positionId != null) positionsById.set(String(positionId), position);
+    });
+    reportEvents.forEach((event) => {
+      const position = event?.position || event?.attributes?.position || null;
+      const positionId = event?.positionId ?? position?.id;
+      if (positionId && position) {
+        positionsById.set(String(positionId), position);
+      }
+    });
+
     return reportEvents.map((event) => {
       const deviceId = toDeviceKey(event?.deviceId ?? event?.device?.id ?? event?.device);
       const vehicle = deviceId ? vehicleByDeviceId.get(String(deviceId)) : null;
       const positionFromEvent = event?.position || event?.attributes?.position || null;
+      const positionFromId = event?.positionId ? positionsById.get(String(event.positionId)) : null;
       const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
-      const position = positionFromEvent || fallbackPosition || {};
+      const position = positionFromEvent || positionFromId || fallbackPosition || {};
       const latitude =
         event?.latitude ??
-        positionFromEvent?.latitude ??
-        position?.latitude ??
         event?.attributes?.latitude ??
         event?.attributes?.lat ??
+        positionFromEvent?.latitude ??
+        positionFromId?.latitude ??
+        position?.latitude ??
         fallbackPosition?.latitude ??
         null;
       const longitude =
         event?.longitude ??
-        positionFromEvent?.longitude ??
-        position?.longitude ??
         event?.attributes?.longitude ??
         event?.attributes?.lng ??
+        positionFromEvent?.longitude ??
+        positionFromId?.longitude ??
+        position?.longitude ??
         fallbackPosition?.longitude ??
         null;
       const rawSeverity =
@@ -365,6 +368,7 @@ export default function Events() {
         address:
           event?.address ||
           positionFromEvent?.address ||
+          positionFromId?.address ||
           position?.address ||
           event?.attributes?.address ||
           fallbackPosition?.address ||
@@ -472,45 +476,61 @@ export default function Events() {
               ))}
             </div>
             {activeTab === "Relatório" && (
-              <div className="relative flex items-center">
-                <button
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Button type="button" onClick={fetchReport}>
+                  Mostrar
+                </Button>
+                <Button
                   type="button"
-                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
-                    showColumns ? "bg-white/10" : "bg-transparent"
-                  }`}
-                  onClick={() => setShowColumns((open) => !open)}
-                  aria-label="Colunas"
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedVehicleId("");
+                    setVehicleSearch("");
+                    setEventType("all");
+                  }}
                 >
-                  <Columns3 size={18} />
-                </button>
-                {showColumns && (
-                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
-                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
-                    <div className="space-y-2">
-                      {DEFAULT_COLUMNS.map((column) => (
-                        <label key={column.id} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={columnsDraft[column.id]}
-                            onChange={(event) =>
-                              setColumnsDraft((current) => ({
-                                ...current,
-                                [column.id]: event.target.checked,
-                              }))
-                            }
-                            className="rounded border-white/20 bg-transparent"
-                          />
-                          <span>{column.label}</span>
-                        </label>
-                      ))}
+                  Limpar filtros
+                </Button>
+                <div className="relative flex items-center">
+                  <button
+                    type="button"
+                    className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
+                      showColumns ? "bg-white/10" : "bg-transparent"
+                    }`}
+                    onClick={() => setShowColumns((open) => !open)}
+                    aria-label="Colunas"
+                  >
+                    <Columns3 size={18} />
+                  </button>
+                  {showColumns && (
+                    <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                      <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
+                      <div className="space-y-2">
+                        {DEFAULT_COLUMNS.map((column) => (
+                          <label key={column.id} className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={columnsDraft[column.id]}
+                              onChange={(event) =>
+                                setColumnsDraft((current) => ({
+                                  ...current,
+                                  [column.id]: event.target.checked,
+                                }))
+                              }
+                              className="rounded border-white/20 bg-transparent"
+                            />
+                            <span>{column.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="mt-3 flex justify-end">
+                        <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
+                          Salvar
+                        </Button>
+                      </div>
                     </div>
-                    <div className="mt-3 flex justify-end">
-                      <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
-                        Salvar
-                      </Button>
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -518,22 +538,6 @@ export default function Events() {
 
         {activeTab === "Relatório" && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button type="button" onClick={fetchReport}>
-                Mostrar
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  setSelectedVehicleId("");
-                  setVehicleSearch("");
-                  setEventType("all");
-                }}
-              >
-                Limpar filtros
-              </Button>
-            </div>
             <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
               <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 Buscar veículo
@@ -784,7 +788,10 @@ function resolveEventSeverity(rawSeverity, eventType) {
   }
 
   const typeKey = String(eventType || "").trim().toLowerCase();
-  return EVENT_SEVERITY_MAP[typeKey] || "Baixa";
+  if (CRITICAL_EVENT_TYPES.has(typeKey)) return "Crítica";
+  if (MODERATE_EVENT_TYPES.has(typeKey)) return "Moderada";
+  if (LOW_EVENT_TYPES.has(typeKey)) return "Baixa";
+  return "Informativa";
 }
 
 function normalizeTitle(value) {
@@ -800,6 +807,7 @@ function renderSeverityBadge(severity) {
   const styles = {
     informativa: "border-white/10 bg-white/5 text-white/60",
     baixa: "border-emerald-400/20 bg-emerald-500/10 text-emerald-200",
+    moderada: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
     média: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
     media: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
     alta: "border-orange-400/30 bg-orange-500/10 text-orange-200",
