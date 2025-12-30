@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleMarker, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
-import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, PanelTop, Play, Route, Save, Undo2 } from "lucide-react";
+import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, PanelTop, Play, Route, Save, SlidersHorizontal, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
@@ -53,14 +53,13 @@ function normaliseWaypoint(raw, fallbackLabel) {
 }
 
 function normalizeStopOrders(waypoints) {
-  const stops = waypoints.filter((item) => item.type === "stop").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const checkpoints = waypoints
-    .filter((item) => item.type === "checkpoint")
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const others = waypoints.filter((item) => item.type !== "stop" && item.type !== "checkpoint");
+  const normalized = (Array.isArray(waypoints) ? waypoints : [])
+    .filter(Boolean)
+    .map((item) => (item?.type === "checkpoint" ? { ...item, type: "stop" } : item));
+  const stops = normalized.filter((item) => item.type === "stop").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const others = normalized.filter((item) => item.type !== "stop");
   const reindexedStops = stops.map((stop, index) => ({ ...stop, order: index }));
-  const reindexedCheckpoints = checkpoints.map((checkpoint, index) => ({ ...checkpoint, order: index }));
-  return [...others, ...reindexedStops, ...reindexedCheckpoints];
+  return [...others, ...reindexedStops];
 }
 
 function deriveWaypoints(metadataWaypoints, points) {
@@ -127,15 +126,25 @@ function splitWaypoints(waypoints) {
   const origin = waypoints.find((item) => item.type === "origin") || null;
   const destination = waypoints.find((item) => item.type === "destination") || null;
   const stops = waypoints.filter((item) => item.type === "stop").sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  const checkpoints = waypoints
-    .filter((item) => item.type === "checkpoint")
-    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  return { origin, destination, stops, checkpoints };
+  return { origin, destination, stops };
+}
+
+function normalizeRoutingWaypoints(rawWaypoints) {
+  return (Array.isArray(rawWaypoints) ? rawWaypoints : [])
+    .map((point) => {
+      if (!point) return null;
+      const lat = Number(point.lat ?? point.latitude ?? (Array.isArray(point) ? point[0] : null));
+      const lng = Number(point.lng ?? point.lon ?? point.longitude ?? (Array.isArray(point) ? point[1] : null));
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return { ...point, lat, lng };
+    })
+    .filter(Boolean);
 }
 
 async function buildOsrmPath(waypoints) {
-  if (!Array.isArray(waypoints) || waypoints.length < 2) return [];
-  const coordinates = waypoints.map((point) => `${point.lng},${point.lat}`).join(";");
+  const normalized = normalizeRoutingWaypoints(waypoints);
+  if (normalized.length < 2) return [];
+  const coordinates = normalized.map((point) => `${point.lng},${point.lat}`).join(";");
   const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
@@ -154,12 +163,14 @@ async function buildOsrmPath(waypoints) {
 
 async function buildGraphHopperPath(waypoints) {
   if (!GRAPH_HOPPER_URL || !GRAPH_HOPPER_KEY) return null;
+  const normalized = normalizeRoutingWaypoints(waypoints);
+  if (normalized.length < 2) return null;
   const url = new URL(`${GRAPH_HOPPER_URL}/route`);
   url.searchParams.set("profile", "car");
   url.searchParams.set("points_encoded", "false");
   url.searchParams.set("locale", "pt-BR");
   url.searchParams.set("key", GRAPH_HOPPER_KEY);
-  waypoints.forEach((point) => {
+  normalized.forEach((point) => {
     url.searchParams.append("point", `${point.lat},${point.lng}`);
   });
 
@@ -211,14 +222,20 @@ function MapClickHandler({ enabled, onAdd }) {
   return null;
 }
 
-function WaypointInput({ label, placeholder, value, onChange }) {
+function WaypointInput({ label, placeholder, value, onChange, onClear, resetKey }) {
   const [query, setQuery] = useState(value?.label || "");
   const { suggestions, isSearching, clearSuggestions, searchRegion, error } = useGeocodeSearch();
+  const [isFocused, setIsFocused] = useState(false);
   const debounceRef = useRef(null);
 
   useEffect(() => {
     setQuery(value?.label || "");
   }, [value?.id]);
+
+  useEffect(() => {
+    clearSuggestions();
+    setIsFocused(false);
+  }, [clearSuggestions, resetKey]);
 
   useEffect(() => {
     if (query && query.length >= 3) {
@@ -248,12 +265,13 @@ function WaypointInput({ label, placeholder, value, onChange }) {
         type: value?.type || "stop",
         lat: candidate.lat,
         lng: candidate.lng,
-        label: candidate.concise || candidate.label || query,
+        label: candidate.label || candidate.concise || query,
         order: value?.order,
       };
       onChange(payload);
-      setQuery(payload.label || "");
+      setQuery(candidate.concise || payload.label || "");
       clearSuggestions();
+      setIsFocused(false);
     },
     [clearSuggestions, onChange, query, value?.id, value?.order, value?.type],
   );
@@ -268,16 +286,37 @@ function WaypointInput({ label, placeholder, value, onChange }) {
   return (
     <div className="relative">
       <label className="text-xs font-semibold text-white/70">{label}</label>
-      <input
-        className="mt-1 w-full truncate rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white focus:border-primary focus:outline-none"
-        placeholder={placeholder}
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        onBlur={handleBlur}
-        title={query}
-      />
+      <div className="relative">
+        <input
+          className="mt-1 w-full truncate rounded-xl border border-white/10 bg-white/5 px-3 py-1 pr-7 text-xs text-white focus:border-primary focus:outline-none"
+          placeholder={placeholder}
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => {
+            setIsFocused(false);
+            handleBlur();
+          }}
+          title={value?.label || query}
+        />
+        {query ? (
+          <button
+            type="button"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-white/50 transition hover:text-white"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setQuery("");
+              clearSuggestions();
+              onClear?.();
+            }}
+            aria-label="Limpar endereço"
+          >
+            ×
+          </button>
+        ) : null}
+      </div>
       {error && <p className="mt-1 text-xs text-red-400">{error.message}</p>}
-      {(suggestions.length > 0 || isSearching) && (
+      {isFocused && (suggestions.length > 0 || isSearching) && (
         <div className="absolute z-10 mt-1 w-full rounded-xl border border-white/10 bg-neutral-900/95 p-2 shadow-lg">
           {isSearching && <p className="px-2 py-1 text-xs text-white/60">Buscando endereços...</p>}
           {suggestions.map((item) => (
@@ -333,7 +372,7 @@ function RoutePanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <h2 className="text-base font-semibold text-white">Embarcadas</h2>
+          <h2 className="text-base font-semibold text-white">Minhas rotas</h2>
         </div>
         <div className="flex items-center gap-1">
           <span className="map-status-pill bg-white/5 text-white/70">{routes.length} itens</span>
@@ -379,16 +418,6 @@ function RoutePanel({
               <div className="mt-2 flex gap-2">
                 <Button
                   size="xs"
-                  variant="secondary"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDelete(route.id);
-                  }}
-                >
-                  Excluir
-                </Button>
-                <Button
-                  size="xs"
                   variant="ghost"
                   onClick={(event) => {
                     event.stopPropagation();
@@ -396,6 +425,16 @@ function RoutePanel({
                   }}
                 >
                   Exportar
+                </Button>
+                <Button
+                  size="xs"
+                  variant="secondary"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onDelete(route.id);
+                  }}
+                >
+                  Excluir
                 </Button>
               </div>
             </div>
@@ -435,17 +474,21 @@ export default function RoutesPage() {
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
-  const [activePanel, setActivePanel] = useState("manual");
+  const [activePanel, setActivePanel] = useState("editor");
+  const [editorMode, setEditorMode] = useState("manual");
   const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
   const [showRoutesPanel, setShowRoutesPanel] = useState(true);
   const [showEditorPanel, setShowEditorPanel] = useState(true);
   const [showToolsPanel, setShowToolsPanel] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const toastTimeoutRef = useRef(null);
+  const [toast, setToast] = useState(null);
+  const [autocompleteResetKey, setAutocompleteResetKey] = useState(0);
   const addressSearch = useAddressSearchState();
   const mapInvalidateKey = useMemo(
-    () => `${showRoutesPanel}-${showEditorPanel}-${showToolsPanel}-${activePanel}-${routesTopbarVisible}`,
-    [activePanel, routesTopbarVisible, showEditorPanel, showRoutesPanel, showToolsPanel],
+    () => `${showRoutesPanel}-${showEditorPanel}-${showToolsPanel}-${activePanel}-${editorMode}-${routesTopbarVisible}`,
+    [activePanel, editorMode, routesTopbarVisible, showEditorPanel, showRoutesPanel, showToolsPanel],
   );
 
   const {
@@ -493,7 +536,26 @@ export default function RoutesPage() {
   }, [historyForm.vehicleId, vehicleId]);
 
   const waypoints = useMemo(() => normalizeStopOrders(draftRoute.metadata?.waypoints || []), [draftRoute.metadata?.waypoints]);
-  const { origin, destination, stops, checkpoints } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
+  const { origin, destination, stops } = useMemo(() => splitWaypoints(waypoints), [waypoints]);
+
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
+
+  const showToast = useCallback((message, type = "success") => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
+  const resetAutocomplete = useCallback(() => {
+    setAutocompleteResetKey((current) => current + 1);
+    addressSearch?.resetSuggestions?.();
+  }, [addressSearch]);
 
   const loadRoutes = useCallback(async () => {
     setLoadingRoutes(true);
@@ -520,19 +582,25 @@ export default function RoutesPage() {
 
   const persistRoute = useCallback(
     async (routePayload = draftRoute) => {
+      const trimmedName = routePayload?.name?.trim();
       const payload = withWaypoints({
         ...routePayload,
+        name: trimmedName,
         metadata: {
           ...(routePayload.metadata || {}),
           waypoints: normalizeStopOrders(routePayload.metadata?.waypoints || waypoints || []),
         },
       });
+      if (!payload.name) {
+        throw new Error("Informe um nome para a rota.");
+      }
       if (!payload.points || payload.points.length < 2) {
         throw new Error("A rota precisa de pelo menos dois pontos.");
       }
       setSaving(true);
       try {
-        const response = payload.id
+        const shouldUpdate = payload.id !== null && payload.id !== undefined && String(payload.id).trim() !== "";
+        const response = shouldUpdate
           ? await api.put(`${API_ROUTES.routes}/${payload.id}`, payload)
           : await api.post(API_ROUTES.routes, payload);
         const saved = withWaypoints(response?.data?.data || response?.data?.route || response?.data || payload);
@@ -543,6 +611,7 @@ export default function RoutesPage() {
         setDraftRoute(saved);
         setBaselineRoute(saved);
         setActiveRouteId(saved.id || null);
+        showToast("Rota salva com sucesso.");
         return saved;
       } finally {
         setSaving(false);
@@ -571,6 +640,7 @@ export default function RoutesPage() {
     setDraftRoute(normalized);
     setBaselineRoute(normalized);
     setActiveRouteId(normalized.id || null);
+    resetAutocomplete();
   };
 
   const handleDeleteRoute = async (id) => {
@@ -600,23 +670,31 @@ export default function RoutesPage() {
     setDraftRoute(fresh);
     setBaselineRoute(fresh);
     setActiveRouteId(null);
+    resetAutocomplete();
   };
 
   useEffect(() => {
     if (activePanel === "routes" && !showRoutesPanel) {
-      setActivePanel("manual");
+      setActivePanel(showEditorPanel ? "editor" : showToolsPanel ? "tools" : null);
     }
-    if (["manual", "history", "stops"].includes(activePanel) && !showEditorPanel) {
-      setActivePanel(showRoutesPanel ? "routes" : "manual");
+    if (activePanel === "editor" && !showEditorPanel) {
+      setActivePanel(showRoutesPanel ? "routes" : showToolsPanel ? "tools" : null);
     }
-  }, [activePanel, showEditorPanel, showRoutesPanel]);
+    if (activePanel === "tools" && !showToolsPanel) {
+      setActivePanel(showEditorPanel ? "editor" : showRoutesPanel ? "routes" : null);
+    }
+  }, [activePanel, showEditorPanel, showRoutesPanel, showToolsPanel]);
+
+  useEffect(() => {
+    resetAutocomplete();
+  }, [activePanel, editorMode, resetAutocomplete]);
 
   const updateWaypoint = useCallback(
     (type, payload, index = 0) => {
       if (!payload) return;
       setDraftRoute((current) => {
         const existing = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
-        const isOrderedType = type === "stop" || type === "checkpoint";
+        const isOrderedType = type === "stop";
         const filtered = existing.filter((item) => item.type !== type || (isOrderedType && item.order !== index));
         const nextWaypoint = normalizeStopOrders([
           ...filtered,
@@ -633,18 +711,18 @@ export default function RoutesPage() {
     [],
   );
 
-  const removeStop = useCallback((index) => {
+  const removeWaypoint = useCallback((type) => {
     setDraftRoute((current) => {
       const waypointsList = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
-      const filtered = normalizeStopOrders(waypointsList.filter((item) => !(item.type === "stop" && item.order === index)));
+      const filtered = normalizeStopOrders(waypointsList.filter((item) => item.type !== type));
       return { ...current, metadata: { ...(current.metadata || {}), waypoints: filtered } };
     });
   }, []);
 
-  const removeCheckpoint = useCallback((index) => {
+  const removeStop = useCallback((index) => {
     setDraftRoute((current) => {
       const waypointsList = Array.isArray(current.metadata?.waypoints) ? current.metadata.waypoints : [];
-      const filtered = normalizeStopOrders(waypointsList.filter((item) => !(item.type === "checkpoint" && item.order === index)));
+      const filtered = normalizeStopOrders(waypointsList.filter((item) => !(item.type === "stop" && item.order === index)));
       return { ...current, metadata: { ...(current.metadata || {}), waypoints: filtered } };
     });
   }, []);
@@ -655,7 +733,7 @@ export default function RoutesPage() {
   };
 
   const buildRouteFromWaypoints = async () => {
-    const ordered = [origin, ...checkpoints, ...stops, destination].filter(Boolean);
+    const ordered = normalizeRoutingWaypoints([origin, ...stops, destination].filter(Boolean));
     if (ordered.length < 2) {
       alert("Defina origem e destino para gerar a rota.");
       return;
@@ -682,7 +760,7 @@ export default function RoutesPage() {
         metadata: {
           ...(draftRoute.metadata || {}),
           source: draftRoute.metadata?.source || "osrm",
-          waypoints: normalizeStopOrders(ordered.map((item) => ({ ...item, id: item.id || uid() }))),
+          waypoints: normalizeStopOrders(ordered.map((item) => ({ ...item, id: item.id || uid(), type: item.type || "stop" }))),
         },
       };
       userActionRef.current = true;
@@ -698,6 +776,10 @@ export default function RoutesPage() {
 
   const handleHistoryRoute = async (event) => {
     event.preventDefault();
+    if (!draftRoute.name || !draftRoute.name.trim()) {
+      alert("Informe um nome para a rota antes de salvar.");
+      return;
+    }
     if (!historyDeviceId || !historyForm.from || !historyForm.to) {
       alert("Selecione um veículo com equipamento vinculado e informe o período.");
       return;
@@ -731,7 +813,7 @@ export default function RoutesPage() {
       const simplified = simplifyPath(deduplicatePath(positions), 0.00005);
       const historyRoute = withWaypoints({
         ...draftRoute,
-        name: draftRoute.name || `Histórico ${historyVehicle?.plate || historyVehicle?.name || historyDeviceId}`,
+        name: draftRoute.name.trim(),
         points: simplified,
         metadata: {
           ...(draftRoute.metadata || {}),
@@ -826,16 +908,17 @@ export default function RoutesPage() {
     userActionRef.current = false;
   }, [focusGeometry, normalizedDraftPoints]);
 
-  const showEditorCard = showEditorPanel && ["manual", "history", "stops"].includes(activePanel);
+  const showEditorCard = showEditorPanel && activePanel === "editor";
   const showRoutesCard = showRoutesPanel && activePanel === "routes";
+  const showToolsCard = showToolsPanel && activePanel === "tools";
   const editorTitle =
-    activePanel === "history" ? "Modo histórico" : activePanel === "stops" ? "Modo paradas" : "Modo manual";
+    editorMode === "history" ? "Modo histórico" : editorMode === "stops" ? "Modo paradas" : "Modo manual";
   const editorDescription =
-    activePanel === "history"
+    editorMode === "history"
       ? "Gere a rota a partir do histórico do veículo."
-      : activePanel === "stops"
-        ? "Adicione paradas e checkpoints antes de gerar a rota."
-        : "Desenhe por endereços e pontos obrigatórios.";
+      : editorMode === "stops"
+        ? "Adicione paradas intermediárias antes de gerar a rota."
+        : "Desenhe por endereços e paradas intermediárias.";
 
   useEffect(() => {
     refreshMap();
@@ -848,6 +931,18 @@ export default function RoutesPage() {
 
   return (
     <div className="map-page">
+      {toast && (
+        <div
+          className={
+            "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+            (toast.type === "warning"
+              ? "border-amber-500/40 bg-amber-500/20 text-amber-50"
+              : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50")
+          }
+        >
+          {toast.message}
+        </div>
+      )}
       <div className="map-container">
         <AppMap
           ref={mapRef}
@@ -873,14 +968,6 @@ export default function RoutesPage() {
           {destination ? (
             <CircleMarker center={[destination.lat, destination.lng]} radius={8} pathOptions={{ color: "#f97316", fillColor: "#f97316" }} />
           ) : null}
-          {checkpoints.map((checkpoint) => (
-            <CircleMarker
-              key={checkpoint.id}
-              center={[checkpoint.lat, checkpoint.lng]}
-              radius={7}
-              pathOptions={{ color: "#f59e0b", fillColor: "#f59e0b" }}
-            />
-          ))}
           {stops.map((stop) => (
             <Marker key={stop.id} position={[stop.lat, stop.lng]} />
           ))}
@@ -889,8 +976,8 @@ export default function RoutesPage() {
 
       <div className="pointer-events-none absolute inset-0 z-20">
         <div className="pointer-events-auto absolute left-4 top-4 flex flex-col items-start gap-3">
-          {showToolsPanel && (
-            <SidebarCard className="w-[560px]">
+          {showToolsCard && (
+            <SidebarCard className="w-[440px] md:w-[460px]">
               <div className="flex flex-wrap items-center gap-2">
                 <AddressSearchInput
                   state={addressSearch}
@@ -911,7 +998,7 @@ export default function RoutesPage() {
           )}
 
           {showRoutesCard && (
-            <SidebarCard className="w-[340px]">
+            <SidebarCard className="w-[440px] md:w-[460px]">
               <RoutePanel
                 routes={filteredRoutes}
                 activeRouteId={activeRouteId}
@@ -926,7 +1013,7 @@ export default function RoutesPage() {
           )}
 
           {showEditorCard && (
-            <SidebarCard className="w-[420px]">
+            <SidebarCard className="w-[440px] md:w-[460px]">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
@@ -936,8 +1023,14 @@ export default function RoutesPage() {
               </div>
 
               <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1">
-                {activePanel === "history" ? (
+                {editorMode === "history" ? (
                   <form className="space-y-3" onSubmit={handleHistoryRoute}>
+                    <Input
+                      label="Nome da rota"
+                      value={draftRoute.name}
+                      onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+                      className="map-compact-input"
+                    />
                     <Select
                       value={historyForm.vehicleId}
                       onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
@@ -987,7 +1080,7 @@ export default function RoutesPage() {
                 ) : (
                   <div className="space-y-3">
                     <Input
-                      label="Nome"
+                      label="Nome da rota"
                       value={draftRoute.name}
                       onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
                       className="map-compact-input"
@@ -999,52 +1092,21 @@ export default function RoutesPage() {
                         placeholder="Endereço ou lat,long"
                         value={origin}
                         onChange={(value) => updateWaypoint("origin", value)}
+                        onClear={() => removeWaypoint("origin")}
+                        resetKey={autocompleteResetKey}
                       />
                       <WaypointInput
                         label="Destino"
                         placeholder="Endereço ou lat,long"
                         value={destination}
                         onChange={(value) => updateWaypoint("destination", value)}
+                        onClear={() => removeWaypoint("destination")}
+                        resetKey={autocompleteResetKey}
                       />
                     </div>
 
-                    {activePanel === "stops" && (
+                    {editorMode === "stops" && (
                       <>
-                        <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() =>
-                                updateWaypoint(
-                                  "checkpoint",
-                                  { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" },
-                                  checkpoints.length,
-                                )
-                              }
-                            >
-                              Adicionar ponto
-                            </Button>
-                          </div>
-                          {checkpoints.length === 0 && (
-                            <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>
-                          )}
-                          {checkpoints.map((checkpoint, index) => (
-                            <div key={checkpoint.id} className="flex items-center gap-2">
-                              <WaypointInput
-                                label={`Obrigatório ${index + 1}`}
-                                placeholder="Endereço ou lat,long"
-                                value={{ ...checkpoint, order: index }}
-                                onChange={(value) => updateWaypoint("checkpoint", value, index)}
-                              />
-                              <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
-                                Remover
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-
                         <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
                           <div className="flex items-center justify-between">
                             <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
@@ -1064,6 +1126,8 @@ export default function RoutesPage() {
                                 placeholder="Endereço ou lat,long"
                                 value={{ ...stop, order: index }}
                                 onChange={(value) => updateWaypoint("stop", value, index)}
+                                onClear={() => removeStop(index)}
+                                resetKey={autocompleteResetKey}
                               />
                               <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
                                 Remover
@@ -1096,6 +1160,15 @@ export default function RoutesPage() {
         </div>
 
         <MapToolbar className="floating-toolbar pointer-events-auto" map={mapInstance}>
+          <ToolbarButton
+            icon={SlidersHorizontal}
+            title="Ferramentas"
+            active={activePanel === "tools"}
+            onClick={() => {
+              setActivePanel((current) => (current === "tools" ? null : "tools"));
+              resetAutocomplete();
+            }}
+          />
           <div className="relative">
             <ToolbarButton
               icon={LayoutGrid}
@@ -1129,26 +1202,41 @@ export default function RoutesPage() {
           <ToolbarButton
             icon={Route}
             title="Criar rota manual"
-            active={activePanel === "manual"}
-            onClick={() => setActivePanel("manual")}
+            active={activePanel === "editor" && editorMode === "manual"}
+            onClick={() => {
+              setActivePanel((current) => (current === "editor" && editorMode === "manual" ? null : "editor"));
+              setEditorMode("manual");
+              resetAutocomplete();
+            }}
           />
           <ToolbarButton
             icon={Clock3}
             title="Criar rota por histórico"
-            active={activePanel === "history"}
-            onClick={() => setActivePanel("history")}
+            active={activePanel === "editor" && editorMode === "history"}
+            onClick={() => {
+              setActivePanel((current) => (current === "editor" && editorMode === "history" ? null : "editor"));
+              setEditorMode("history");
+              resetAutocomplete();
+            }}
           />
           <ToolbarButton
             icon={MapPin}
             title="Criar rota com paradas"
-            active={activePanel === "stops"}
-            onClick={() => setActivePanel("stops")}
+            active={activePanel === "editor" && editorMode === "stops"}
+            onClick={() => {
+              setActivePanel((current) => (current === "editor" && editorMode === "stops" ? null : "editor"));
+              setEditorMode("stops");
+              resetAutocomplete();
+            }}
           />
           <ToolbarButton
             icon={List}
             title="Minhas rotas"
             active={activePanel === "routes"}
-            onClick={() => setActivePanel("routes")}
+            onClick={() => {
+              setActivePanel((current) => (current === "routes" ? null : "routes"));
+              resetAutocomplete();
+            }}
           />
         </MapToolbar>
       </div>

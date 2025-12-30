@@ -615,7 +615,7 @@ export default function Geofences() {
         points: sanitized,
         center: null,
         radius: null,
-        attributes: { isTarget: Boolean(geo.isTarget) },
+        isTarget: Boolean(geo.isTarget),
       };
     }
 
@@ -634,7 +634,7 @@ export default function Geofences() {
       centerLat: circle.center[0],
       centerLng: circle.center[1],
       radius: circle.radius,
-      attributes: { isTarget: Boolean(geo.isTarget) },
+      isTarget: Boolean(geo.isTarget),
     };
   }, []);
 

@@ -90,6 +90,7 @@ function mapGeofence(record) {
     description: record.description,
     type: record.type,
     color: record.color,
+    isTarget: Boolean(record.isTarget),
     radius: record.radius,
     latitude: record.centerLat,
     longitude: record.centerLng,
@@ -178,6 +179,7 @@ export async function createGeofence({
   description = null,
   type,
   color = null,
+  isTarget = false,
   radius = null,
   center = null,
   latitude = null,
@@ -209,6 +211,7 @@ export async function createGeofence({
     description: description || null,
     type: normalizedType,
     color: color || null,
+    isTarget: Boolean(isTarget),
     points: [],
     centerLat: null,
     centerLng: null,
@@ -269,6 +272,10 @@ export async function updateGeofence(id, updates = {}) {
     name: updates.name ? String(updates.name) : existing.name,
     description: Object.prototype.hasOwnProperty.call(updates, "description") ? updates.description || null : existing.description,
     color: Object.prototype.hasOwnProperty.call(updates, "color") ? updates.color || null : existing.color,
+    isTarget:
+      Object.prototype.hasOwnProperty.call(updates, "isTarget") && updates.isTarget !== undefined
+        ? Boolean(updates.isTarget)
+        : existing.isTarget,
     type: nextType,
     kml: Object.prototype.hasOwnProperty.call(updates, "kml") ? updates.kml || null : existing.kml,
     geometryJson: Object.prototype.hasOwnProperty.call(updates, "geometryJson")

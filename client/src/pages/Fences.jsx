@@ -221,7 +221,7 @@ export default function Fences() {
           radius: layer.radius,
           center: layer.center,
           points: layer.points,
-          attributes: { isTarget: Boolean(layer.isTarget) },
+          isTarget: Boolean(layer.isTarget),
         });
         let result;
         if (layer.id && !String(layer.id).startsWith("local-")) {

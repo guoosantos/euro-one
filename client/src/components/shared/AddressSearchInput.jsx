@@ -38,6 +38,11 @@ export function useAddressSearchState({ initialValue = "Brasil", mapPreferences 
     setHasInteracted(true);
   }, [clearSuggestions]);
 
+  const resetSuggestions = useCallback(() => {
+    clearSuggestions();
+    setHasInteracted(false);
+  }, [clearSuggestions]);
+
   useEffect(() => {
     if (!hasInteracted) return;
     if (query.trim()) {
@@ -57,7 +62,8 @@ export function useAddressSearchState({ initialValue = "Brasil", mapPreferences 
     onSubmit: handleSubmit,
     onSelectSuggestion: handleSelectSuggestion,
     onClear: handleClear,
-  }), [error, handleChange, handleClear, handleSelectSuggestion, handleSubmit, isSearching, query, suggestions]);
+    resetSuggestions,
+  }), [error, handleChange, handleClear, handleSelectSuggestion, handleSubmit, isSearching, query, resetSuggestions, suggestions]);
 }
 
 export default function AddressSearchInput({
