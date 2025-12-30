@@ -14,9 +14,14 @@ export default function Layout({ children, title, hideTitle = false }) {
   const isMonitoringPage = location.pathname.startsWith("/monitoring");
   const isGeofencesPage = location.pathname.startsWith("/geofences");
   const isRoutesPage = location.pathname.startsWith("/routes");
+  const isEventsPage = location.pathname.startsWith("/events");
   // Rotas fullscreen (sem container / sem padding)
   const isFullWidthPage =
-    isMonitoringPage || isGeofencesPage || isRoutesPage || location.pathname.startsWith("/realtime");
+    isMonitoringPage ||
+    isGeofencesPage ||
+    isRoutesPage ||
+    isEventsPage ||
+    location.pathname.startsWith("/realtime");
 
   const sidebarOpen = useUI((state) => state.sidebarOpen);
   const sidebarCollapsed = useUI((state) => state.sidebarCollapsed);
@@ -85,7 +90,7 @@ export default function Layout({ children, title, hideTitle = false }) {
 
         <main
           className={`flex min-h-0 flex-1 min-w-0 flex-col bg-[#0b0f17] ${
-            isMonitoringPage
+            isFullWidthPage
               ? "h-full w-full max-w-none overflow-y-auto p-0"
               : "overflow-hidden p-6"
           }`}
