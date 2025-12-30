@@ -20,6 +20,7 @@
     "gt06": [
       {
         "id": "engineStop",
+        "code": "engineStop",
         "name": "Bloquear motor",
         "description": "Corta a ignição do veículo imediatamente.",
         "type": "engineStop",
@@ -28,6 +29,7 @@
       },
       {
         "id": "engineResume",
+        "code": "engineResume",
         "name": "Desbloquear motor",
         "description": "Restaura a ignição e libera o veículo.",
         "type": "engineResume",
@@ -36,6 +38,7 @@
       },
       {
         "id": "positionSingle",
+        "code": "positionSingle",
         "name": "Solicitar posição",
         "description": "Solicita uma posição instantânea ao rastreador.",
         "type": "positionSingle",
@@ -44,6 +47,7 @@
       },
       {
         "id": "positionPeriodic",
+        "code": "positionPeriodic",
         "name": "Atualização periódica",
         "description": "Define o intervalo de envio de posições.",
         "type": "positionPeriodic",
@@ -57,11 +61,167 @@
             "defaultValue": 60
           }
         ]
+      },
+      {
+        "id": "setSpeedLimit",
+        "code": "setSpeedLimit",
+        "name": "Limite de velocidade",
+        "description": "Configura o limite máximo de velocidade do dispositivo.",
+        "type": "setSpeedLimit",
+        "tags": ["config", "velocidade"],
+        "parameters": [
+          {
+            "key": "speed",
+            "label": "Velocidade máxima (km/h)",
+            "type": "number",
+            "min": 5,
+            "defaultValue": 80
+          }
+        ]
+      },
+      {
+        "id": "setOdometer",
+        "code": "setOdometer",
+        "name": "Ajustar odômetro",
+        "description": "Atualiza o valor do odômetro no dispositivo.",
+        "type": "setOdometer",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "distance",
+            "label": "Odômetro (km)",
+            "type": "number",
+            "min": 0,
+            "defaultValue": 10000
+          }
+        ]
+      },
+      {
+        "id": "alarmArm",
+        "code": "alarmArm",
+        "name": "Armar alarme",
+        "description": "Ativa o modo de segurança do equipamento.",
+        "type": "alarmArm",
+        "tags": ["seguranca"],
+        "parameters": []
+      },
+      {
+        "id": "alarmDisarm",
+        "code": "alarmDisarm",
+        "name": "Desarmar alarme",
+        "description": "Desativa o modo de segurança do equipamento.",
+        "type": "alarmDisarm",
+        "tags": ["seguranca"],
+        "parameters": []
+      },
+      {
+        "id": "rebootDevice",
+        "code": "rebootDevice",
+        "name": "Reiniciar equipamento",
+        "description": "Reinicia remotamente o rastreador.",
+        "type": "rebootDevice",
+        "tags": ["config"],
+        "parameters": []
+      },
+      {
+        "id": "setTimezone",
+        "code": "setTimezone",
+        "name": "Configurar fuso horário",
+        "description": "Atualiza o fuso horário do dispositivo.",
+        "type": "setTimezone",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "timezone",
+            "label": "Fuso horário (ex: America/Sao_Paulo)",
+            "type": "text",
+            "defaultValue": "America/Sao_Paulo"
+          }
+        ]
+      },
+      {
+        "id": "sendSms",
+        "code": "sendSms",
+        "name": "Enviar SMS",
+        "description": "Envia um SMS direto ao equipamento.",
+        "type": "sendSms",
+        "tags": ["sms"],
+        "parameters": [
+          {
+            "key": "phone",
+            "label": "Telefone",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "message",
+            "label": "Mensagem",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "setOutput",
+        "code": "setOutput",
+        "name": "Ativar saída",
+        "description": "Ativa uma saída digital do dispositivo.",
+        "type": "setOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          },
+          {
+            "key": "data",
+            "label": "Valor",
+            "type": "text",
+            "defaultValue": "1"
+          }
+        ]
+      },
+      {
+        "id": "clearOutput",
+        "code": "clearOutput",
+        "name": "Desativar saída",
+        "description": "Desativa uma saída digital do dispositivo.",
+        "type": "clearOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          }
+        ]
+      },
+      {
+        "id": "custom",
+        "code": "custom",
+        "name": "Comando customizado",
+        "description": "Envio de comando bruto conforme manual do protocolo.",
+        "type": "custom",
+        "tags": ["avancado"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload",
+            "type": "text",
+            "required": true
+          }
+        ]
       }
     ],
     "iotm": [
       {
-        "id": "sos",
+        "id": "alarmSos",
+        "code": "alarmSos",
         "name": "Alerta SOS",
         "description": "Aciona o modo de emergência do equipamento.",
         "type": "alarmSos",
@@ -70,6 +230,7 @@
       },
       {
         "id": "engineStop",
+        "code": "engineStop",
         "name": "Bloquear motor",
         "description": "Corta a ignição do veículo imediatamente.",
         "type": "engineStop",
@@ -78,6 +239,7 @@
       },
       {
         "id": "engineResume",
+        "code": "engineResume",
         "name": "Desbloquear motor",
         "description": "Libera a ignição para uso normal.",
         "type": "engineResume",
@@ -85,7 +247,34 @@
         "parameters": []
       },
       {
+        "id": "positionSingle",
+        "code": "positionSingle",
+        "name": "Solicitar posição",
+        "description": "Solicita uma posição instantânea ao rastreador.",
+        "type": "positionSingle",
+        "tags": ["posicao"],
+        "parameters": []
+      },
+      {
+        "id": "positionPeriodic",
+        "code": "positionPeriodic",
+        "name": "Atualização periódica",
+        "description": "Define o intervalo de envio de posições.",
+        "type": "positionPeriodic",
+        "tags": ["posicao", "config"],
+        "parameters": [
+          {
+            "key": "frequency",
+            "label": "Intervalo (segundos)",
+            "type": "number",
+            "min": 10,
+            "defaultValue": 60
+          }
+        ]
+      },
+      {
         "id": "setSpeedLimit",
+        "code": "setSpeedLimit",
         "name": "Limite de velocidade",
         "description": "Configura o limite máximo de velocidade do dispositivo.",
         "type": "setSpeedLimit",
@@ -99,11 +288,43 @@
             "defaultValue": 80
           }
         ]
-      }
-    ],
-    "suntech": [
+      },
+      {
+        "id": "setOdometer",
+        "code": "setOdometer",
+        "name": "Ajustar odômetro",
+        "description": "Atualiza o valor do odômetro no dispositivo.",
+        "type": "setOdometer",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "distance",
+            "label": "Odômetro (km)",
+            "type": "number",
+            "min": 0,
+            "defaultValue": 10000
+          }
+        ]
+      },
+      {
+        "id": "setTimezone",
+        "code": "setTimezone",
+        "name": "Configurar fuso horário",
+        "description": "Atualiza o fuso horário do dispositivo.",
+        "type": "setTimezone",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "timezone",
+            "label": "Fuso horário (ex: America/Sao_Paulo)",
+            "type": "text",
+            "defaultValue": "America/Sao_Paulo"
+          }
+        ]
+      },
       {
         "id": "rebootDevice",
+        "code": "rebootDevice",
         "name": "Reiniciar equipamento",
         "description": "Reinicia remotamente o rastreador.",
         "type": "rebootDevice",
@@ -111,15 +332,88 @@
         "parameters": []
       },
       {
-        "id": "positionSingle",
-        "name": "Solicitar posição",
-        "description": "Solicita uma posição instantânea ao rastreador.",
-        "type": "positionSingle",
-        "tags": ["posicao"],
-        "parameters": []
+        "id": "sendSms",
+        "code": "sendSms",
+        "name": "Enviar SMS",
+        "description": "Envia um SMS direto ao equipamento.",
+        "type": "sendSms",
+        "tags": ["sms"],
+        "parameters": [
+          {
+            "key": "phone",
+            "label": "Telefone",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "message",
+            "label": "Mensagem",
+            "type": "text",
+            "required": true
+          }
+        ]
       },
       {
+        "id": "setOutput",
+        "code": "setOutput",
+        "name": "Ativar saída",
+        "description": "Ativa uma saída digital do dispositivo.",
+        "type": "setOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          },
+          {
+            "key": "data",
+            "label": "Valor",
+            "type": "text",
+            "defaultValue": "1"
+          }
+        ]
+      },
+      {
+        "id": "clearOutput",
+        "code": "clearOutput",
+        "name": "Desativar saída",
+        "description": "Desativa uma saída digital do dispositivo.",
+        "type": "clearOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          }
+        ]
+      },
+      {
+        "id": "custom",
+        "code": "custom",
+        "name": "Comando customizado",
+        "description": "Envio de comando bruto conforme manual do protocolo.",
+        "type": "custom",
+        "tags": ["avancado"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload",
+            "type": "text",
+            "required": true
+          }
+        ]
+      }
+    ],
+    "suntech": [
+      {
         "id": "engineStop",
+        "code": "engineStop",
         "name": "Bloquear motor",
         "description": "Corta a ignição do veículo imediatamente.",
         "type": "engineStop",
@@ -128,60 +422,292 @@
       },
       {
         "id": "engineResume",
+        "code": "engineResume",
         "name": "Desbloquear motor",
         "description": "Restaura a ignição e libera o veículo.",
         "type": "engineResume",
         "tags": ["motor"],
         "parameters": []
+      },
+      {
+        "id": "positionSingle",
+        "code": "positionSingle",
+        "name": "Solicitar posição",
+        "description": "Solicita uma posição instantânea ao rastreador.",
+        "type": "positionSingle",
+        "tags": ["posicao"],
+        "parameters": []
+      },
+      {
+        "id": "positionPeriodic",
+        "code": "positionPeriodic",
+        "name": "Atualização periódica",
+        "description": "Define o intervalo de envio de posições.",
+        "type": "positionPeriodic",
+        "tags": ["posicao", "config"],
+        "parameters": [
+          {
+            "key": "frequency",
+            "label": "Intervalo (segundos)",
+            "type": "number",
+            "min": 10,
+            "defaultValue": 60
+          }
+        ]
+      },
+      {
+        "id": "setSpeedLimit",
+        "code": "setSpeedLimit",
+        "name": "Limite de velocidade",
+        "description": "Configura o limite máximo de velocidade do dispositivo.",
+        "type": "setSpeedLimit",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "speed",
+            "label": "Velocidade máxima (km/h)",
+            "type": "number",
+            "min": 5,
+            "defaultValue": 80
+          }
+        ]
+      },
+      {
+        "id": "setOdometer",
+        "code": "setOdometer",
+        "name": "Ajustar odômetro",
+        "description": "Atualiza o valor do odômetro no dispositivo.",
+        "type": "setOdometer",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "distance",
+            "label": "Odômetro (km)",
+            "type": "number",
+            "min": 0,
+            "defaultValue": 10000
+          }
+        ]
+      },
+      {
+        "id": "setTimezone",
+        "code": "setTimezone",
+        "name": "Configurar fuso horário",
+        "description": "Atualiza o fuso horário do dispositivo.",
+        "type": "setTimezone",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "timezone",
+            "label": "Fuso horário (ex: America/Sao_Paulo)",
+            "type": "text",
+            "defaultValue": "America/Sao_Paulo"
+          }
+        ]
+      },
+      {
+        "id": "rebootDevice",
+        "code": "rebootDevice",
+        "name": "Reiniciar equipamento",
+        "description": "Reinicia remotamente o rastreador.",
+        "type": "rebootDevice",
+        "tags": ["config"],
+        "parameters": []
+      },
+      {
+        "id": "sendSms",
+        "code": "sendSms",
+        "name": "Enviar SMS",
+        "description": "Envia um SMS direto ao equipamento.",
+        "type": "sendSms",
+        "tags": ["sms"],
+        "parameters": [
+          {
+            "key": "phone",
+            "label": "Telefone",
+            "type": "text",
+            "required": true
+          },
+          {
+            "key": "message",
+            "label": "Mensagem",
+            "type": "text",
+            "required": true
+          }
+        ]
+      },
+      {
+        "id": "setOutput",
+        "code": "setOutput",
+        "name": "Ativar saída",
+        "description": "Ativa uma saída digital do dispositivo.",
+        "type": "setOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          },
+          {
+            "key": "data",
+            "label": "Valor",
+            "type": "text",
+            "defaultValue": "1"
+          }
+        ]
+      },
+      {
+        "id": "clearOutput",
+        "code": "clearOutput",
+        "name": "Desativar saída",
+        "description": "Desativa uma saída digital do dispositivo.",
+        "type": "clearOutput",
+        "tags": ["config"],
+        "parameters": [
+          {
+            "key": "index",
+            "label": "Saída",
+            "type": "number",
+            "min": 1,
+            "defaultValue": 1
+          }
+        ]
+      },
+      {
+        "id": "custom",
+        "code": "custom",
+        "name": "Comando customizado",
+        "description": "Envio de comando bruto conforme manual do protocolo.",
+        "type": "custom",
+        "tags": ["avancado"],
+        "parameters": [
+          {
+            "key": "payload",
+            "label": "Payload",
+            "type": "text",
+            "required": true
+          }
+        ]
       }
     ]
   },
   "events": {
     "gt06": [
-      {
-        "id": "sos",
-        "name": "SOS",
-        "description": "Acionamento do botão de pânico."
-      },
-      {
-        "id": "ignitionOn",
-        "name": "Ignição ligada",
-        "description": "Veículo ligado."
-      },
-      {
-        "id": "ignitionOff",
-        "name": "Ignição desligada",
-        "description": "Veículo desligado."
-      }
+      { "id": "deviceOnline", "name": "Equipamento online", "description": "Dispositivo voltou a comunicar." },
+      { "id": "deviceOffline", "name": "Equipamento offline", "description": "Dispositivo sem comunicação." },
+      { "id": "deviceUnknown", "name": "Dispositivo desconhecido", "description": "Dispositivo não identificado." },
+      { "id": "deviceInactive", "name": "Dispositivo inativo", "description": "Sem atividade registrada." },
+      { "id": "deviceMoving", "name": "Veículo em movimento", "description": "Veículo iniciou movimento." },
+      { "id": "deviceStopped", "name": "Veículo parado", "description": "Veículo parado por período." },
+      { "id": "ignitionOn", "name": "Ignição ligada", "description": "Ignição do veículo ligada." },
+      { "id": "ignitionOff", "name": "Ignição desligada", "description": "Ignição do veículo desligada." },
+      { "id": "tripStart", "name": "Início de trajeto", "description": "Trajeto iniciado." },
+      { "id": "tripStop", "name": "Fim de trajeto", "description": "Trajeto finalizado." },
+      { "id": "geofenceEnter", "name": "Entrada em cerca", "description": "Dispositivo entrou em uma área monitorada." },
+      { "id": "geofenceExit", "name": "Saída de cerca", "description": "Dispositivo saiu de uma área monitorada." },
+      { "id": "alarm", "name": "Alarme", "description": "Alarme do dispositivo." },
+      { "id": "sos", "name": "SOS", "description": "Acionamento do botão de pânico." },
+      { "id": "powerCut", "name": "Corte de energia", "description": "Alimentação externa desligada." },
+      { "id": "lowBattery", "name": "Bateria baixa", "description": "Bateria interna baixa." },
+      { "id": "jamming", "name": "Jammer detectado", "description": "Interferência de sinal detectada." },
+      { "id": "towing", "name": "Reboque", "description": "Reboque detectado." },
+      { "id": "tampering", "name": "Violação", "description": "Violação ou abertura indevida." },
+      { "id": "door", "name": "Porta", "description": "Mudança no estado de porta/sensor." },
+      { "id": "speeding", "name": "Excesso de velocidade", "description": "Velocidade acima do limite." },
+      { "id": "overspeed", "name": "Overspeed", "description": "Velocidade acima do limite configurado." },
+      { "id": "speedLimit", "name": "Limite de velocidade", "description": "Velocidade excedida." },
+      { "id": "fuelUp", "name": "Abastecimento", "description": "Aumento de combustível." },
+      { "id": "fuelDrop", "name": "Queda de combustível", "description": "Redução abrupta de combustível." },
+      { "id": "maintenance", "name": "Manutenção", "description": "Evento de manutenção." },
+      { "id": "driverChanged", "name": "Troca de motorista", "description": "Motorista alterado." },
+      { "id": "harshAcceleration", "name": "Aceleração brusca", "description": "Aceleração acima do limite." },
+      { "id": "harshBraking", "name": "Frenagem brusca", "description": "Frenagem acima do limite." },
+      { "id": "harshCornering", "name": "Curva brusca", "description": "Curva acima do limite." },
+      { "id": "crash", "name": "Colisão", "description": "Impacto ou colisão detectada." },
+      { "id": "idle", "name": "Veículo ocioso", "description": "Veículo parado com ignição ligada." },
+      { "id": "parking", "name": "Estacionado", "description": "Veículo estacionado." },
+      { "id": "commandResult", "name": "Resultado de comando", "description": "Resposta do dispositivo a comandos." },
+      { "id": "textMessage", "name": "Mensagem", "description": "Mensagem recebida do dispositivo." },
+      { "id": "media", "name": "Mídia", "description": "Foto ou mídia recebida." }
     ],
     "iotm": [
-      {
-        "id": "sos",
-        "name": "SOS",
-        "description": "Acionamento do botão de pânico."
-      },
-      {
-        "id": "speed",
-        "name": "Excesso de velocidade",
-        "description": "Velocidade acima do limite configurado."
-      }
+      { "id": "deviceOnline", "name": "Equipamento online", "description": "Dispositivo voltou a comunicar." },
+      { "id": "deviceOffline", "name": "Equipamento offline", "description": "Dispositivo sem comunicação." },
+      { "id": "deviceUnknown", "name": "Dispositivo desconhecido", "description": "Dispositivo não identificado." },
+      { "id": "deviceInactive", "name": "Dispositivo inativo", "description": "Sem atividade registrada." },
+      { "id": "deviceMoving", "name": "Veículo em movimento", "description": "Veículo iniciou movimento." },
+      { "id": "deviceStopped", "name": "Veículo parado", "description": "Veículo parado por período." },
+      { "id": "ignitionOn", "name": "Ignição ligada", "description": "Ignição do veículo ligada." },
+      { "id": "ignitionOff", "name": "Ignição desligada", "description": "Ignição do veículo desligada." },
+      { "id": "tripStart", "name": "Início de trajeto", "description": "Trajeto iniciado." },
+      { "id": "tripStop", "name": "Fim de trajeto", "description": "Trajeto finalizado." },
+      { "id": "geofenceEnter", "name": "Entrada em cerca", "description": "Dispositivo entrou em uma área monitorada." },
+      { "id": "geofenceExit", "name": "Saída de cerca", "description": "Dispositivo saiu de uma área monitorada." },
+      { "id": "alarm", "name": "Alarme", "description": "Alarme do dispositivo." },
+      { "id": "sos", "name": "SOS", "description": "Acionamento do botão de pânico." },
+      { "id": "powerCut", "name": "Corte de energia", "description": "Alimentação externa desligada." },
+      { "id": "lowBattery", "name": "Bateria baixa", "description": "Bateria interna baixa." },
+      { "id": "jamming", "name": "Jammer detectado", "description": "Interferência de sinal detectada." },
+      { "id": "towing", "name": "Reboque", "description": "Reboque detectado." },
+      { "id": "tampering", "name": "Violação", "description": "Violação ou abertura indevida." },
+      { "id": "door", "name": "Porta", "description": "Mudança no estado de porta/sensor." },
+      { "id": "speeding", "name": "Excesso de velocidade", "description": "Velocidade acima do limite." },
+      { "id": "overspeed", "name": "Overspeed", "description": "Velocidade acima do limite configurado." },
+      { "id": "speedLimit", "name": "Limite de velocidade", "description": "Velocidade excedida." },
+      { "id": "fuelUp", "name": "Abastecimento", "description": "Aumento de combustível." },
+      { "id": "fuelDrop", "name": "Queda de combustível", "description": "Redução abrupta de combustível." },
+      { "id": "maintenance", "name": "Manutenção", "description": "Evento de manutenção." },
+      { "id": "driverChanged", "name": "Troca de motorista", "description": "Motorista alterado." },
+      { "id": "harshAcceleration", "name": "Aceleração brusca", "description": "Aceleração acima do limite." },
+      { "id": "harshBraking", "name": "Frenagem brusca", "description": "Frenagem acima do limite." },
+      { "id": "harshCornering", "name": "Curva brusca", "description": "Curva acima do limite." },
+      { "id": "crash", "name": "Colisão", "description": "Impacto ou colisão detectada." },
+      { "id": "idle", "name": "Veículo ocioso", "description": "Veículo parado com ignição ligada." },
+      { "id": "parking", "name": "Estacionado", "description": "Veículo estacionado." },
+      { "id": "commandResult", "name": "Resultado de comando", "description": "Resposta do dispositivo a comandos." },
+      { "id": "textMessage", "name": "Mensagem", "description": "Mensagem recebida do dispositivo." },
+      { "id": "media", "name": "Mídia", "description": "Foto ou mídia recebida." }
     ],
     "suntech": [
-      {
-        "id": "sos",
-        "name": "SOS",
-        "description": "Acionamento do botão de pânico."
-      },
-      {
-        "id": "geofenceEnter",
-        "name": "Entrada em cerca",
-        "description": "Dispositivo entrou em uma área monitorada."
-      },
-      {
-        "id": "geofenceExit",
-        "name": "Saída de cerca",
-        "description": "Dispositivo saiu de uma área monitorada."
-      }
+      { "id": "deviceOnline", "name": "Equipamento online", "description": "Dispositivo voltou a comunicar." },
+      { "id": "deviceOffline", "name": "Equipamento offline", "description": "Dispositivo sem comunicação." },
+      { "id": "deviceUnknown", "name": "Dispositivo desconhecido", "description": "Dispositivo não identificado." },
+      { "id": "deviceInactive", "name": "Dispositivo inativo", "description": "Sem atividade registrada." },
+      { "id": "deviceMoving", "name": "Veículo em movimento", "description": "Veículo iniciou movimento." },
+      { "id": "deviceStopped", "name": "Veículo parado", "description": "Veículo parado por período." },
+      { "id": "ignitionOn", "name": "Ignição ligada", "description": "Ignição do veículo ligada." },
+      { "id": "ignitionOff", "name": "Ignição desligada", "description": "Ignição do veículo desligada." },
+      { "id": "tripStart", "name": "Início de trajeto", "description": "Trajeto iniciado." },
+      { "id": "tripStop", "name": "Fim de trajeto", "description": "Trajeto finalizado." },
+      { "id": "geofenceEnter", "name": "Entrada em cerca", "description": "Dispositivo entrou em uma área monitorada." },
+      { "id": "geofenceExit", "name": "Saída de cerca", "description": "Dispositivo saiu de uma área monitorada." },
+      { "id": "alarm", "name": "Alarme", "description": "Alarme do dispositivo." },
+      { "id": "sos", "name": "SOS", "description": "Acionamento do botão de pânico." },
+      { "id": "powerCut", "name": "Corte de energia", "description": "Alimentação externa desligada." },
+      { "id": "lowBattery", "name": "Bateria baixa", "description": "Bateria interna baixa." },
+      { "id": "jamming", "name": "Jammer detectado", "description": "Interferência de sinal detectada." },
+      { "id": "towing", "name": "Reboque", "description": "Reboque detectado." },
+      { "id": "tampering", "name": "Violação", "description": "Violação ou abertura indevida." },
+      { "id": "door", "name": "Porta", "description": "Mudança no estado de porta/sensor." },
+      { "id": "speeding", "name": "Excesso de velocidade", "description": "Velocidade acima do limite." },
+      { "id": "overspeed", "name": "Overspeed", "description": "Velocidade acima do limite configurado." },
+      { "id": "speedLimit", "name": "Limite de velocidade", "description": "Velocidade excedida." },
+      { "id": "fuelUp", "name": "Abastecimento", "description": "Aumento de combustível." },
+      { "id": "fuelDrop", "name": "Queda de combustível", "description": "Redução abrupta de combustível." },
+      { "id": "maintenance", "name": "Manutenção", "description": "Evento de manutenção." },
+      { "id": "driverChanged", "name": "Troca de motorista", "description": "Motorista alterado." },
+      { "id": "harshAcceleration", "name": "Aceleração brusca", "description": "Aceleração acima do limite." },
+      { "id": "harshBraking", "name": "Frenagem brusca", "description": "Frenagem acima do limite." },
+      { "id": "harshCornering", "name": "Curva brusca", "description": "Curva acima do limite." },
+      { "id": "crash", "name": "Colisão", "description": "Impacto ou colisão detectada." },
+      { "id": "idle", "name": "Veículo ocioso", "description": "Veículo parado com ignição ligada." },
+      { "id": "parking", "name": "Estacionado", "description": "Veículo estacionado." },
+      { "id": "commandResult", "name": "Resultado de comando", "description": "Resposta do dispositivo a comandos." },
+      { "id": "textMessage", "name": "Mensagem", "description": "Mensagem recebida do dispositivo." },
+      { "id": "media", "name": "Mídia", "description": "Foto ou mídia recebida." }
     ]
   }
 }

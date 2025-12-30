@@ -52,7 +52,7 @@ function normaliseGeofence(item) {
     description: item.description || "",
     type,
     color: item.color || DEFAULT_COLOR,
-    isTarget: Boolean(item?.attributes?.isTarget ?? item?.isTarget),
+    isTarget: Boolean(item?.isTarget ?? item?.attributes?.isTarget),
     points,
     center,
     radius: Number.isFinite(radius) ? radius : null,

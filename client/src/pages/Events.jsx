@@ -8,7 +8,6 @@ import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices.js";
 import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
-import useTraccarGroups from "../lib/hooks/useTraccarGroups.js";
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -18,15 +17,40 @@ const EVENT_TYPES = [
   "all",
   "deviceOnline",
   "deviceOffline",
+  "deviceUnknown",
+  "deviceInactive",
+  "deviceMoving",
+  "deviceStopped",
+  "ignitionOn",
+  "ignitionOff",
+  "tripStart",
+  "tripStop",
   "geofenceEnter",
   "geofenceExit",
-  "speedLimit",
   "alarm",
+  "sos",
+  "powerCut",
+  "lowBattery",
+  "jamming",
+  "towing",
+  "tampering",
+  "door",
+  "speeding",
+  "overspeed",
+  "speedLimit",
+  "fuelUp",
+  "fuelDrop",
   "maintenance",
   "driverChanged",
   "harshAcceleration",
   "harshBraking",
   "harshCornering",
+  "crash",
+  "idle",
+  "parking",
+  "commandResult",
+  "textMessage",
+  "media",
 ];
 const SEVERITY_LEVELS = [
   { value: "informativa", label: "Informativa" },
@@ -60,15 +84,13 @@ export default function Events() {
   const { locale } = useTranslation();
   const { devices } = useDevices();
   const { vehicles } = useVehicles();
-  const { groups, loading: groupsLoading } = useTraccarGroups({ autoRefreshMs: 120_000 });
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
-  const [selectedGroupId, setSelectedGroupId] = useState("");
-  const [selectedDeviceIds, setSelectedDeviceIds] = useState([]);
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
   const [eventType, setEventType] = useState("all");
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
-  const [showDevicePicker, setShowDevicePicker] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
   const [columnsVisibility, setColumnsVisibility] = useState(buildInitialColumns);
   const [reportEvents, setReportEvents] = useState([]);
@@ -95,29 +117,44 @@ export default function Events() {
     return map;
   }, [vehicles]);
 
-  const deviceOptions = useMemo(() => {
-    return (Array.isArray(devices) ? devices : []).map((device) => {
-      const id = toDeviceKey(device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId);
-      const vehicle = id ? vehicleByDeviceId.get(String(id)) : null;
-      return {
-        id,
-        name: vehicle ? formatVehicleLabel(vehicle) : device?.name || device?.uniqueId || id,
-        groupId: device?.groupId ?? null,
-      };
-    });
-  }, [devices, vehicleByDeviceId]);
+  const deviceOptions = useMemo(
+    () =>
+      (Array.isArray(devices) ? devices : [])
+        .map((device) => toDeviceKey(device?.deviceId ?? device?.traccarId ?? device?.id ?? device?.uniqueId))
+        .filter(Boolean),
+    [devices],
+  );
 
-  const filteredDeviceOptions = useMemo(() => {
-    if (!selectedGroupId) return deviceOptions;
-    return deviceOptions.filter((device) => String(device.groupId || "") === String(selectedGroupId));
-  }, [deviceOptions, selectedGroupId]);
+  const vehicleOptions = useMemo(
+    () =>
+      vehicles.map((vehicle) => {
+        const deviceIds = normalizeVehicleDevices(vehicle)
+          .map((device) => toDeviceKey(device?.id ?? device?.deviceId ?? device?.uniqueId ?? device?.traccarId))
+          .filter(Boolean);
+        return {
+          id: vehicle.id,
+          label: formatVehicleLabel(vehicle),
+          deviceIds,
+        };
+      }),
+    [vehicles],
+  );
 
-  useEffect(() => {
-    if (!selectedGroupId) return;
-    setSelectedDeviceIds((current) =>
-      current.filter((deviceId) => filteredDeviceOptions.some((device) => String(device.id) === String(deviceId))),
-    );
-  }, [filteredDeviceOptions, selectedGroupId]);
+  const filteredVehicleOptions = useMemo(() => {
+    const term = vehicleSearch.trim().toLowerCase();
+    if (!term) return vehicleOptions;
+    return vehicleOptions.filter((vehicle) => vehicle.label.toLowerCase().includes(term));
+  }, [vehicleOptions, vehicleSearch]);
+
+  const selectedVehicle = useMemo(
+    () => vehicleOptions.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)) || null,
+    [selectedVehicleId, vehicleOptions],
+  );
+
+  const allDeviceIds = useMemo(() => {
+    const fromVehicles = vehicleOptions.flatMap((vehicle) => vehicle.deviceIds).filter(Boolean);
+    return Array.from(new Set([...fromVehicles, ...deviceOptions]));
+  }, [deviceOptions, vehicleOptions]);
 
   useEffect(() => {
     let mounted = true;
@@ -140,9 +177,9 @@ export default function Events() {
     setReportLoading(true);
     setReportError(null);
     try {
-      const deviceIdsToQuery = selectedDeviceIds.length
-        ? selectedDeviceIds
-        : filteredDeviceOptions.map((device) => device.id).filter(Boolean);
+      const deviceIdsToQuery = selectedVehicle?.deviceIds?.length
+        ? selectedVehicle.deviceIds
+        : allDeviceIds;
       const params = {
         from: from ? new Date(from).toISOString() : undefined,
         to: to ? new Date(to).toISOString() : undefined,
@@ -164,7 +201,7 @@ export default function Events() {
     } finally {
       setReportLoading(false);
     }
-  }, [eventType, filteredDeviceOptions, from, selectedDeviceIds, to]);
+  }, [allDeviceIds, eventType, from, selectedVehicle, to]);
 
   useEffect(() => {
     if (activeTab !== "Criticidade" || !selectedProtocol) return;
@@ -203,7 +240,11 @@ export default function Events() {
     return reportEvents.map((event) => {
       const deviceId = toDeviceKey(event?.deviceId ?? event?.device?.id ?? event?.device);
       const vehicle = deviceId ? vehicleByDeviceId.get(String(deviceId)) : null;
-      const position = event?.position || {};
+      const position = event?.position || event?.attributes?.position || {};
+      const latitude =
+        event?.latitude ?? position?.latitude ?? event?.attributes?.latitude ?? event?.attributes?.lat ?? null;
+      const longitude =
+        event?.longitude ?? position?.longitude ?? event?.attributes?.longitude ?? event?.attributes?.lng ?? null;
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
@@ -214,8 +255,8 @@ export default function Events() {
         speed: position?.speed ?? event?.speed ?? null,
         ignition: event?.ignition ?? position?.ignition ?? null,
         battery: event?.batteryLevel ?? position?.batteryLevel ?? null,
-        latitude: event?.latitude ?? position?.latitude ?? null,
-        longitude: event?.longitude ?? position?.longitude ?? null,
+        latitude,
+        longitude,
       };
     });
   }, [reportEvents, vehicleByDeviceId]);
@@ -309,84 +350,51 @@ export default function Events() {
           <div className="space-y-4">
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
               <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="relative">
-                    <Button type="button" variant="secondary" onClick={() => setShowDevicePicker((open) => !open)}>
-                      Dispositivos ({selectedDeviceIds.length || filteredDeviceOptions.length})
-                    </Button>
-                    {showDevicePicker && (
-                      <div className="absolute z-20 mt-2 w-[280px] rounded-2xl border border-white/10 bg-neutral-900 p-3 shadow-xl">
-                        <p className="text-xs uppercase tracking-wide text-white/50">Selecionar dispositivos</p>
-                        <div className="mt-2 max-h-52 space-y-2 overflow-auto pr-1 text-sm">
-                          {filteredDeviceOptions.map((device) => (
-                            <label key={device.id} className="flex items-center gap-2 text-xs text-white/70">
-                              <input
-                                type="checkbox"
-                                checked={selectedDeviceIds.includes(device.id)}
-                                onChange={(event) => {
-                                  setSelectedDeviceIds((current) => {
-                                    if (event.target.checked) return [...current, device.id];
-                                    return current.filter((id) => id !== device.id);
-                                  });
-                                }}
-                                className="rounded border-white/20 bg-transparent"
-                              />
-                              <span>{device.name}</span>
-                            </label>
-                          ))}
-                          {filteredDeviceOptions.length === 0 && (
-                            <p className="text-xs text-white/50">Nenhum dispositivo no grupo selecionado.</p>
-                          )}
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="xs"
-                            variant="ghost"
-                            onClick={() => setSelectedDeviceIds(filteredDeviceOptions.map((device) => device.id))}
-                          >
-                            Selecionar todos
-                          </Button>
-                          <Button type="button" size="xs" variant="ghost" onClick={() => setSelectedDeviceIds([])}>
-                            Limpar
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <label className="flex-1 text-xs uppercase tracking-wide text-white/60">
-                    Grupo
-                    <Select
-                      value={selectedGroupId}
-                      onChange={(event) => setSelectedGroupId(event.target.value)}
-                      className="mt-2 w-full bg-layer text-sm"
-                    >
-                      <option value="">Todos os grupos</option>
-                      {groups.map((group) => (
-                        <option key={group.id} value={group.id}>
-                          {group.name}
-                        </option>
-                      ))}
-                    </Select>
-                    {groupsLoading && <span className="mt-1 block text-[11px] text-white/50">Carregando grupos…</span>}
+                <div className="grid gap-3 md:grid-cols-2">
+                  <label className="text-xs uppercase tracking-wide text-white/60">
+                    Buscar veículo
+                    <Input
+                      value={vehicleSearch}
+                      onChange={(event) => setVehicleSearch(event.target.value)}
+                      placeholder="Digite placa ou nome"
+                      className="mt-2"
+                    />
                   </label>
-
-                  <label className="flex-1 text-xs uppercase tracking-wide text-white/60">
-                    Tipo de evento
+                  <label className="text-xs uppercase tracking-wide text-white/60">
+                    Veículo
                     <Select
-                      value={eventType}
-                      onChange={(event) => setEventType(event.target.value)}
+                      value={selectedVehicleId}
+                      onChange={(event) => setSelectedVehicleId(event.target.value)}
                       className="mt-2 w-full bg-layer text-sm"
                     >
-                      {EVENT_TYPES.map((option) => (
-                        <option key={option} value={option}>
-                          {option === "all" ? "Todos" : translateEventType(option, locale)}
+                      <option value="">Todos os veículos</option>
+                      {filteredVehicleOptions.map((vehicle) => (
+                        <option key={vehicle.id} value={vehicle.id}>
+                          {vehicle.label}
                         </option>
                       ))}
                     </Select>
                   </label>
                 </div>
+
+                <label className="text-xs uppercase tracking-wide text-white/60">
+                  Tipo de evento
+                  <Select
+                    value={eventType}
+                    onChange={(event) => setEventType(event.target.value)}
+                    className="mt-2 w-full bg-layer text-sm"
+                  >
+                    {EVENT_TYPES.map((option) => (
+                      <option key={option} value={option}>
+                        {option === "all" ? "Todos" : translateEventType(option, locale)}
+                      </option>
+                    ))}
+                  </Select>
+                </label>
+
+                {selectedVehicle && selectedVehicle.deviceIds.length === 0 && (
+                  <p className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
+                )}
 
                 <div className="grid gap-3 md:grid-cols-2">
                   <label className="text-xs uppercase tracking-wide text-white/60">
@@ -413,7 +421,15 @@ export default function Events() {
                   <Button type="button" onClick={fetchReport}>
                     Mostrar
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => setSelectedDeviceIds([])}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedVehicleId("");
+                      setVehicleSearch("");
+                      setEventType("all");
+                    }}
+                  >
                     Limpar filtros
                   </Button>
                 </div>
@@ -614,7 +630,10 @@ function renderColumnValue(columnId, row, locale) {
     case "description":
       return row.description || "—";
     case "address":
-      return row.address ? <AddressCell address={row.address} lat={row.latitude} lng={row.longitude} /> : "—";
+      if (row.address || (Number.isFinite(row.latitude) && Number.isFinite(row.longitude))) {
+        return <AddressCell address={row.address} lat={row.latitude} lng={row.longitude} />;
+      }
+      return "—";
     case "speed":
       return row.speed != null ? `${Number(row.speed).toFixed(1)} km/h` : "—";
     case "ignition":
