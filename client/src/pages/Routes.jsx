@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
-import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, Play, Route, Save, Undo2 } from "lucide-react";
+import { CircleMarker, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
+import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, PanelTop, Play, Route, Save, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
+import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useGeocodeSearch from "../lib/hooks/useGeocodeSearch.js";
 import Button from "../ui/Button";
@@ -15,7 +16,9 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
-import MapZoomControls from "../components/map/MapZoomControls.jsx";
+import MapToolbar from "../components/map/MapToolbar.jsx";
+import { useUI } from "../lib/store.js";
+import AppMap from "../components/map/AppMap.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const GRAPH_HOPPER_URL = (import.meta?.env?.VITE_GRAPHHOPPER_URL || import.meta?.env?.VITE_GRAPH_HOPPER_URL || "").replace(/\/$/, "");
@@ -266,11 +269,12 @@ function WaypointInput({ label, placeholder, value, onChange }) {
     <div className="relative">
       <label className="text-xs font-semibold text-white/70">{label}</label>
       <input
-        className="mt-1 w-full rounded-xl border border-white/10 bg-white/5 px-3 py-1.5 text-[13px] text-white focus:border-primary focus:outline-none"
+        className="mt-1 w-full truncate rounded-xl border border-white/10 bg-white/5 px-3 py-1 text-xs text-white focus:border-primary focus:outline-none"
         placeholder={placeholder}
         value={query}
         onChange={(event) => setQuery(event.target.value)}
         onBlur={handleBlur}
+        title={query}
       />
       {error && <p className="mt-1 text-xs text-red-400">{error.message}</p>}
       {(suggestions.length > 0 || isSearching) && (
@@ -307,8 +311,12 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
   );
 }
 
-function SidebarCard({ children }) {
-  return <div className="w-[320px] rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">{children}</div>;
+function SidebarCard({ children, className = "" }) {
+  return (
+    <div className={`rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl ${className}`.trim()}>
+      {children}
+    </div>
+  );
 }
 
 function RoutePanel({
@@ -325,7 +333,6 @@ function RoutePanel({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Rotas</p>
           <h2 className="text-base font-semibold text-white">Embarcadas</h2>
         </div>
         <div className="flex items-center gap-1">
@@ -403,13 +410,18 @@ function RoutePanel({
 
 export default function RoutesPage() {
   const mapRef = useRef(null);
-  const { onMapReady } = useMapLifecycle({ mapRef });
-  const { registerMap, focusGeometry } = useMapController({ page: "Routes" });
+  const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
+  const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Routes" });
   const userActionRef = useRef(false);
+  const [mapInstance, setMapInstance] = useState(null);
+  const routesTopbarVisible = useUI((state) => state.routesTopbarVisible !== false);
+  const setRoutesTopbarVisible = useUI((state) => state.setRoutesTopbarVisible);
   const handleMapReady = useCallback(
     (event) => {
+      const map = event?.target || event;
       onMapReady(event);
-      registerMap(event?.target || event);
+      registerMap(map);
+      setMapInstance(map || null);
     },
     [onMapReady, registerMap],
   );
@@ -430,6 +442,11 @@ export default function RoutesPage() {
   const [showToolsPanel, setShowToolsPanel] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const addressSearch = useAddressSearchState();
+  const mapInvalidateKey = useMemo(
+    () => `${showRoutesPanel}-${showEditorPanel}-${showToolsPanel}-${activePanel}-${routesTopbarVisible}`,
+    [activePanel, routesTopbarVisible, showEditorPanel, showRoutesPanel, showToolsPanel],
+  );
 
   const {
     vehicles,
@@ -782,6 +799,17 @@ export default function RoutesPage() {
     downloadKml("routes.kml", kml);
   };
 
+  const handleSelectAddress = useCallback(
+    (payload) => {
+      if (!payload) return;
+      focusDevice(
+        { lat: Number(payload.lat), lng: Number(payload.lng) },
+        { zoom: 16, animate: true, reason: "ROUTE_ADDRESS" },
+      );
+    },
+    [focusDevice],
+  );
+
   const normalizedDraftPoints = useMemo(() => normalizeRoutePoints(draftRoute.points), [draftRoute.points]);
   const normalizedRoutes = useMemo(
     () =>
@@ -809,18 +837,26 @@ export default function RoutesPage() {
         ? "Adicione paradas e checkpoints antes de gerar a rota."
         : "Desenhe por endereços e pontos obrigatórios.";
 
+  useEffect(() => {
+    refreshMap();
+  }, [mapInvalidateKey, refreshMap]);
+
+  useEffect(() => {
+    setRoutesTopbarVisible(false);
+    return () => setRoutesTopbarVisible(true);
+  }, [setRoutesTopbarVisible]);
+
   return (
-    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
-      <MapContainer
+    <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] min-w-0 overflow-hidden bg-neutral-900">
+      <AppMap
         ref={mapRef}
-        center={undefined}
-        zoom={undefined}
         className="absolute inset-0 z-0 h-full w-full"
         zoomControl={false}
+        zoom={12}
+        invalidateKey={mapInvalidateKey}
         whenReady={handleMapReady}
       >
         <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-        <MapZoomControls variant="classic" />
         <MapClickHandler enabled={mapAddsStops} onAdd={handleAddStopFromMap} />
         {normalizedRoutes
           .filter((route) => route.points.length && (!draftRoute.id || route.id !== draftRoute.id))
@@ -847,36 +883,33 @@ export default function RoutesPage() {
         {stops.map((stop) => (
           <Marker key={stop.id} position={[stop.lat, stop.lng]} />
         ))}
-      </MapContainer>
+      </AppMap>
 
       <div className="pointer-events-none absolute inset-0 z-20">
-        <div className="pointer-events-auto absolute right-4 top-4 flex flex-col items-end gap-3">
+        <div className="pointer-events-auto absolute left-4 top-4 flex flex-col items-start gap-3">
           {showToolsPanel && (
-            <SidebarCard>
-              <div className="space-y-2">
-                <Button size="sm" onClick={handleNewRoute} icon={Route}>
-                  Nova rota
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()} icon={FileUp}>
-                  Importar KML
-                </Button>
-                <Button size="sm" variant="secondary" onClick={handleExportKml} icon={Download}>
-                  Exportar KML
-                </Button>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} icon={Save}>
-                    {saving ? "Salvando..." : "Salvar"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={handleCancel} icon={Undo2}>
-                    Cancelar
-                  </Button>
+            <SidebarCard className="w-[560px]">
+              <div className="flex flex-wrap items-center gap-2">
+                <AddressSearchInput
+                  state={addressSearch}
+                  onSelect={handleSelectAddress}
+                  variant="toolbar"
+                  containerClassName="flex-1 min-w-[240px]"
+                  placeholder="Buscar endereço rápido"
+                />
+                <div className="flex items-center gap-2">
+                  <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
+                  <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
+                  <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
+                  <ToolbarButton icon={Save} title="Salvar rota" onClick={handleSave} disabled={saving} />
+                  <ToolbarButton icon={Undo2} title="Cancelar alterações" onClick={handleCancel} />
                 </div>
               </div>
             </SidebarCard>
           )}
 
           {showRoutesCard && (
-            <SidebarCard>
+            <SidebarCard className="w-[340px]">
               <RoutePanel
                 routes={filteredRoutes}
                 activeRouteId={activeRouteId}
@@ -891,7 +924,7 @@ export default function RoutesPage() {
           )}
 
           {showEditorCard && (
-            <SidebarCard>
+            <SidebarCard className="w-[420px]">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
@@ -906,6 +939,7 @@ export default function RoutesPage() {
                     <Select
                       value={historyForm.vehicleId}
                       onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
+                      className="map-compact-input text-xs"
                     >
                       <option value="">Selecione um veículo</option>
                       {vehicleOptions.map((vehicle) => (
@@ -1059,59 +1093,62 @@ export default function RoutesPage() {
           )}
         </div>
 
-        <div className="pointer-events-auto absolute right-4 top-1/2 -translate-y-1/2">
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-[#0f141c]/90 p-2 shadow-2xl">
-            <div className="relative">
-              <ToolbarButton
-                icon={LayoutGrid}
-                title="Layout"
-                className={layoutMenuOpen ? "is-active" : ""}
-                onClick={() => setLayoutMenuOpen((open) => !open)}
-              />
-              {layoutMenuOpen && (
-                <div className="layout-popover right-14 top-0">
-                  <label className="layout-toggle">
-                    <input type="checkbox" checked={showToolsPanel} onChange={() => setShowToolsPanel((value) => !value)} />
-                    <span>Ferramentas</span>
-                  </label>
-                  <label className="layout-toggle">
-                    <input type="checkbox" checked={showEditorPanel} onChange={() => setShowEditorPanel((value) => !value)} />
-                    <span>Editor</span>
-                  </label>
-                  <label className="layout-toggle">
-                    <input type="checkbox" checked={showRoutesPanel} onChange={() => setShowRoutesPanel((value) => !value)} />
-                    <span>Minhas rotas</span>
-                  </label>
-                </div>
-              )}
-            </div>
-            <div className="h-px w-full bg-white/10" />
+        <MapToolbar className="floating-toolbar pointer-events-auto" map={mapInstance}>
+          <div className="relative">
             <ToolbarButton
-              icon={Route}
-              title="Criar rota manual"
-              active={activePanel === "manual"}
-              onClick={() => setActivePanel("manual")}
+              icon={LayoutGrid}
+              title="Layout"
+              className={layoutMenuOpen ? "is-active" : ""}
+              onClick={() => setLayoutMenuOpen((open) => !open)}
             />
-            <ToolbarButton
-              icon={Clock3}
-              title="Criar rota por histórico"
-              active={activePanel === "history"}
-              onClick={() => setActivePanel("history")}
-            />
-            <ToolbarButton
-              icon={MapPin}
-              title="Criar rota com paradas"
-              active={activePanel === "stops"}
-              onClick={() => setActivePanel("stops")}
-            />
-            <ToolbarButton
-              icon={List}
-              title="Minhas rotas"
-              active={activePanel === "routes"}
-              onClick={() => setActivePanel("routes")}
-            />
+            {layoutMenuOpen && (
+              <div className="layout-popover right-14 top-0">
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={showToolsPanel} onChange={() => setShowToolsPanel((value) => !value)} />
+                  <span>Ferramentas</span>
+                </label>
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={showEditorPanel} onChange={() => setShowEditorPanel((value) => !value)} />
+                  <span>Editor</span>
+                </label>
+                <label className="layout-toggle">
+                  <input type="checkbox" checked={showRoutesPanel} onChange={() => setShowRoutesPanel((value) => !value)} />
+                  <span>Minhas rotas</span>
+                </label>
+              </div>
+            )}
           </div>
-        </div>
+          <ToolbarButton
+            icon={PanelTop}
+            title={routesTopbarVisible ? "Ocultar topbar" : "Mostrar topbar"}
+            className={!routesTopbarVisible ? "is-active" : ""}
+            onClick={() => setRoutesTopbarVisible(!routesTopbarVisible)}
+          />
+          <ToolbarButton
+            icon={Route}
+            title="Criar rota manual"
+            active={activePanel === "manual"}
+            onClick={() => setActivePanel("manual")}
+          />
+          <ToolbarButton
+            icon={Clock3}
+            title="Criar rota por histórico"
+            active={activePanel === "history"}
+            onClick={() => setActivePanel("history")}
+          />
+          <ToolbarButton
+            icon={MapPin}
+            title="Criar rota com paradas"
+            active={activePanel === "stops"}
+            onClick={() => setActivePanel("stops")}
+          />
+          <ToolbarButton
+            icon={List}
+            title="Minhas rotas"
+            active={activePanel === "routes"}
+            onClick={() => setActivePanel("routes")}
+          />
+        </MapToolbar>
       </div>
 
       <div className="geofence-status-stack">

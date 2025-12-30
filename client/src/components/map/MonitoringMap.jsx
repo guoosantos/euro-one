@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { MapContainer, Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
+import { Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -8,6 +8,7 @@ import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
 import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
 import MapZoomControls from "./MapZoomControls.jsx";
+import AppMap from "./AppMap.jsx";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -399,20 +400,19 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const tileSubdomains = mapLayer?.subdomains ?? "abc";
 
   return (
-    <div className="monitoring-map-root h-full w-full bg-[#0b0f17] relative z-0">
+    <div className="monitoring-map-root h-full w-full min-w-0 bg-[#0b0f17] relative z-0">
       {shouldWarnMaxZoom ? (
         <div className="pointer-events-none absolute left-3 bottom-3 z-[1300] rounded-md border border-amber-500/40 bg-[#1f1205]/85 px-3 py-2 text-[11px] font-medium text-amber-100 shadow-lg shadow-amber-900/30">
           Zoom limitado a {effectiveMaxZoom} (web.maxZoom). Ajuste a configuração para permitir aproximação maior.
         </div>
       ) : null}
       <div ref={containerRef} className="h-full w-full">
-        <MapContainer
+        <AppMap
           ref={mapRef}
-          center={undefined}
-          zoom={undefined}
           zoomControl={false}
           scrollWheelZoom
-          style={{ height: "100%", width: "100%" }}
+          zoom={mapPreferences?.selectZoom}
+          invalidateKey={invalidateKey}
           whenReady={onMapReady}
         >
           <TileLayer
@@ -456,7 +456,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
               />
             );
           })}
-        </MapContainer>
+        </AppMap>
       </div>
     </div>
   );

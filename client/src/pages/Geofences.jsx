@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle as LeafletCircle, CircleMarker, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
+import { Circle as LeafletCircle, CircleMarker, Marker, Polygon, Polyline, TileLayer, Tooltip, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
@@ -26,7 +26,8 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import useMapController from "../lib/map/useMapController.js";
-import MapZoomControls from "../components/map/MapZoomControls.jsx";
+import AppMap from "../components/map/AppMap.jsx";
+import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 
@@ -331,6 +332,7 @@ export default function Geofences() {
   const importInputRef = useRef(null);
   const polygonFinalizeRef = useRef(false);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [mapInstance, setMapInstance] = useState(null);
   const [drawMode, setDrawMode] = useState(null);
   const [draftPolygon, setDraftPolygon] = useState([]);
   const [draftCircle, setDraftCircle] = useState({ center: null, edge: null });
@@ -355,8 +357,10 @@ export default function Geofences() {
   const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Geofences" });
   const handleMapReady = useCallback(
     (event) => {
+      const map = event?.target || event;
       onMapReady(event);
-      registerMap(event?.target || event);
+      registerMap(map);
+      setMapInstance(map || null);
       setIsMapReady(true);
     },
     [onMapReady, registerMap],
@@ -415,13 +419,9 @@ export default function Geofences() {
     userActionRef.current = false;
   }, [focusDevice, focusGeometry, safeSelectedGeofence]);
 
-  const invalidateMapSize = useCallback(() => {
-    refreshMap();
-  }, [refreshMap]);
-
   useEffect(() => {
-    invalidateMapSize();
-  }, [invalidateMapSize, panelOpen, geofencesTopbarVisible]);
+    refreshMap();
+  }, [panelOpen, geofencesTopbarVisible, refreshMap]);
 
   useEffect(() => {
     console.info("[MAP] mounted — neutral state (no center, no zoom)");
@@ -598,13 +598,17 @@ export default function Geofences() {
   }, [baselineGeofences, resetDrafts]);
 
   const buildPayload = useCallback((geo) => {
+    const name = String(geo?.name || "").trim();
+    if (!name) {
+      throw new Error("Informe um nome para a cerca.");
+    }
     if (geo.type === "polygon") {
       const sanitized = sanitizePolygon(geo.points);
       if (sanitized.length < 3) {
         throw new Error("Polígono precisa de pelo menos 3 vértices válidos.");
       }
       return {
-        name: geo.name || "Cerca virtual",
+        name,
         description: geo.description || "",
         type: geo.type,
         color: geo.color,
@@ -621,7 +625,7 @@ export default function Geofences() {
     }
 
     return {
-      name: geo.name || "Cerca virtual",
+      name,
       description: geo.description || "",
       type: geo.type,
       color: geo.color,
@@ -802,20 +806,19 @@ export default function Geofences() {
   return (
     <div className="map-page">
       <div className="map-container">
-        <MapContainer
+        <AppMap
           ref={mapRef}
           scrollWheelZoom
           zoomControl={false}
           center={initialCenter}
           zoom={initialZoom}
-          style={{ height: "100%", width: "100%" }}
+          invalidateKey={`${panelOpen}-${geofencesTopbarVisible}`}
           whenReady={handleMapReady}
         >
           <TileLayer
             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           />
-          <MapZoomControls variant="classic" />
 
           <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
 
@@ -919,7 +922,7 @@ export default function Geofences() {
               onUpdateCircle={(payload) => handleUpdateCircle(safeSelectedGeofence.id, payload)}
             />
           )}
-        </MapContainer>
+        </AppMap>
       </div>
 
       <AddressSearchInput
@@ -929,7 +932,7 @@ export default function Geofences() {
         floating
       />
 
-      <div className="floating-toolbar">
+      <MapToolbar className="floating-toolbar" map={mapInstance}>
         <div className="relative">
           <ToolbarButton
             icon={LayoutGrid}
@@ -990,10 +993,10 @@ export default function Geofences() {
           title="Importar KML"
         />
         <ToolbarButton icon={Download} onClick={handleExport} title="Exportar KML" />
-      </div>
+      </MapToolbar>
 
       <div className="geofence-status-stack">
-        <span className="map-status-pill">
+        <span className="map-status-pill map-status-pill--emphasis">
           <span className="dot" />
           {activeGeofences.length} cercas
         </span>
@@ -1069,6 +1072,14 @@ export default function Geofences() {
                 Remover
               </Button>
             </div>
+          </div>
+          <div className="geofence-inspector-footer flex items-center justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={handleCancelChanges} disabled={!hasUnsavedChanges}>
+              Cancelar
+            </Button>
+            <Button size="sm" onClick={handleSave} disabled={!hasUnsavedChanges || isBusy}>
+              {saving ? "Salvando..." : "Salvar"}
+            </Button>
           </div>
         </div>
       )}

@@ -13,9 +13,10 @@ export default function Layout({ children, title, hideTitle = false }) {
 
   const isMonitoringPage = location.pathname.startsWith("/monitoring");
   const isGeofencesPage = location.pathname.startsWith("/geofences");
+  const isRoutesPage = location.pathname.startsWith("/routes");
   // Rotas fullscreen (sem container / sem padding)
   const isFullWidthPage =
-    isMonitoringPage || isGeofencesPage || location.pathname.startsWith("/realtime");
+    isMonitoringPage || isGeofencesPage || isRoutesPage || location.pathname.startsWith("/realtime");
 
   const sidebarOpen = useUI((state) => state.sidebarOpen);
   const sidebarCollapsed = useUI((state) => state.sidebarCollapsed);
@@ -26,6 +27,7 @@ export default function Layout({ children, title, hideTitle = false }) {
   const accentColor = tenant?.brandColor;
   const showMonitoringTopbar = useUI((state) => state.monitoringTopbarVisible !== false);
   const showGeofencesTopbar = useUI((state) => state.geofencesTopbarVisible !== false);
+  const showRoutesTopbar = useUI((state) => state.routesTopbarVisible !== false);
 
   useEffect(() => {
     if (!title) return;
@@ -76,9 +78,10 @@ export default function Layout({ children, title, hideTitle = false }) {
       {/* CONTEÚDO PRINCIPAL */}
       <div className="flex min-h-0 flex-1 min-w-0 flex-col">
         {/* No monitoring a própria página cuida do cabeçalho */}
-        {((!isMonitoringPage && !isGeofencesPage) ||
+        {((!isMonitoringPage && !isGeofencesPage && !isRoutesPage) ||
           (isMonitoringPage && showMonitoringTopbar) ||
-          (isGeofencesPage && showGeofencesTopbar)) && <Topbar title={isFullWidthPage ? null : title} />}
+          (isGeofencesPage && showGeofencesTopbar) ||
+          (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : title} />}
 
         <main
           className={`flex min-h-0 flex-1 min-w-0 flex-col bg-[#0b0f17] ${
