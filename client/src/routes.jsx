@@ -95,7 +95,7 @@ export const routeConfig = [
     requireTenant: true,
     roles: ["admin"],
   },
-  { path: "/events", element: Events, title: "Eventos", requireTenant: true },
+  { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true },
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true },
