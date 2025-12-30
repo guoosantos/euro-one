@@ -8,7 +8,7 @@ import AddressCell from "../ui/AddressCell.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices.js";
-import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -287,6 +287,7 @@ export default function Events() {
   const vehicleOptions = useMemo(
     () =>
       vehicles.map((vehicle) => {
+        const plate = vehicle?.plate ? String(vehicle.plate).trim() : "";
         const deviceIds = normalizeVehicleDevices(vehicle)
           .map((device) => {
             const candidates = [
@@ -308,7 +309,8 @@ export default function Events() {
           .filter(Boolean);
         return {
           id: vehicle.id,
-          label: formatVehicleLabel(vehicle),
+          label: plate || "—",
+          searchLabel: `${plate} ${vehicle?.name ?? ""} ${vehicle?.identifier ?? ""}`.trim().toLowerCase(),
           deviceIds: Array.from(new Set(deviceIds)),
         };
       }),
@@ -318,7 +320,7 @@ export default function Events() {
   const filteredVehicleOptions = useMemo(() => {
     const term = vehicleSearch.trim().toLowerCase();
     if (!term) return vehicleOptions;
-    return vehicleOptions.filter((vehicle) => vehicle.label.toLowerCase().includes(term));
+    return vehicleOptions.filter((vehicle) => (vehicle.searchLabel || vehicle.label.toLowerCase()).includes(term));
   }, [vehicleOptions, vehicleSearch]);
 
   const selectedVehicle = useMemo(
@@ -357,7 +359,6 @@ export default function Events() {
         from: from ? new Date(from).toISOString() : undefined,
         to: to ? new Date(to).toISOString() : undefined,
         deviceIds: deviceIdsToQuery.length ? deviceIdsToQuery : undefined,
-        type: eventType === "all" || shouldFilterPowerDisconnected ? undefined : eventType,
         limit: 200,
       };
 
@@ -367,9 +368,17 @@ export default function Events() {
         : Array.isArray(response?.data?.data?.events)
         ? response.data.data.events
         : [];
-      const filtered = shouldFilterPowerDisconnected
-        ? list.filter((event) => isPowerDisconnectedType(event?.type || event?.attributes?.type || event?.event))
-        : list;
+      const selectedTypeKey = normalizeEventTypeKey(eventType);
+      const filtered =
+        eventType === "all"
+          ? list
+          : list.filter((event) => {
+              const eventTypeValue = event?.type || event?.attributes?.type || event?.event;
+              if (shouldFilterPowerDisconnected) {
+                return isPowerDisconnectedType(eventTypeValue);
+              }
+              return normalizeEventTypeKey(eventTypeValue) === selectedTypeKey;
+            });
       setReportEvents(filtered);
     } catch (error) {
       setReportError(error instanceof Error ? error : new Error("Erro ao carregar eventos"));
@@ -429,6 +438,7 @@ export default function Events() {
     return reportEvents.map((event) => {
       const deviceId = toDeviceKey(event?.deviceId ?? event?.device?.id ?? event?.device);
       const vehicle = deviceId ? vehicleByDeviceId.get(String(deviceId)) : null;
+      const plate = vehicle?.plate ? String(vehicle.plate).trim() : "";
       const positionFromEvent = event?.position || event?.attributes?.position || null;
       const positionFromId = event?.positionId ? positionsById.get(String(event.positionId)) : null;
       const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
@@ -449,7 +459,7 @@ export default function Events() {
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
-        device: vehicle ? formatVehicleLabel(vehicle) : event?.device?.name || event?.deviceName || deviceId || "—",
+        device: plate || "—",
         type: event?.type || event?.attributes?.type || event?.event,
         description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
         severity,
