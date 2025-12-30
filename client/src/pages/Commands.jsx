@@ -56,23 +56,24 @@ const DEFAULT_COMMAND_CATALOG = [
     ],
   },
   {
-    id: "outputOn",
+    id: "setOutput",
     name: "Ativar saída",
-    description: "Liga a saída digital configurada.",
-    type: "outputOn",
+    description: "Ativa uma saída digital configurada.",
+    type: "setOutput",
     tags: ["io"],
     parameters: [
-      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true },
+      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true, min: 1, max: 4 },
+      { key: "data", label: "Valor", type: "text", defaultValue: "1", required: true },
     ],
   },
   {
-    id: "outputOff",
+    id: "clearOutput",
     name: "Desativar saída",
-    description: "Desliga a saída digital configurada.",
-    type: "outputOff",
+    description: "Desativa uma saída digital configurada.",
+    type: "clearOutput",
     tags: ["io"],
     parameters: [
-      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true },
+      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true, min: 1, max: 4 },
     ],
   },
   {
@@ -181,7 +182,8 @@ const DEFAULT_COMMAND_CATALOG = [
     type: "sendSms",
     tags: ["sms"],
     parameters: [
-      { key: "text", label: "Mensagem", type: "text", required: true },
+      { key: "phone", label: "Telefone", type: "text", required: true },
+      { key: "message", label: "Mensagem", type: "text", required: true },
     ],
   },
   {
@@ -298,6 +300,7 @@ export default function Commands() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedCommandId, setSelectedCommandId] = useState("");
   const [commandParams, setCommandParams] = useState({});
+  const [commandsRefreshKey, setCommandsRefreshKey] = useState(0);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
@@ -306,11 +309,13 @@ export default function Commands() {
   const [historyTo] = useState(() => new Date().toISOString());
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState(null);
+  const [formErrorContext, setFormErrorContext] = useState(null);
   const [manualType, setManualType] = useState("custom");
   const [manualPayload, setManualPayload] = useState("");
   const [manualChannel, setManualChannel] = useState("");
   const [templatesByProtocol, setTemplatesByProtocol] = useState(loadTemplates);
   const [smsDraft, setSmsDraft] = useState({ id: null, name: "", content: "", variables: "" });
+  const [smsPhone, setSmsPhone] = useState("");
   const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
   const [copiedId, setCopiedId] = useState(null);
   const [showColumns, setShowColumns] = useState(false);
@@ -398,6 +403,16 @@ export default function Commands() {
     }
   }, [jsonDraft.payload]);
 
+  const smsDraftValidation = useMemo(() => {
+    if (!smsDraft.name.trim() || !smsDraft.content.trim()) {
+      return { valid: false, error: "Informe nome amigável e conteúdo do SMS." };
+    }
+    if (!smsPhone.trim()) {
+      return { valid: false, error: "Informe o telefone para envio do SMS." };
+    }
+    return { valid: true, error: null };
+  }, [smsDraft.content, smsDraft.name, smsPhone]);
+
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
@@ -411,6 +426,28 @@ export default function Commands() {
     () => HISTORY_COLUMNS.filter((column) => columnsVisibility[column.id]),
     [columnsVisibility],
   );
+
+  const commandParamsValidation = useMemo(() => {
+    if (!selectedCommand?.parameters?.length) {
+      return { valid: true, missing: [] };
+    }
+    const missing = selectedCommand.parameters
+      .filter((param) => param.required)
+      .filter((param) => {
+        const value = commandParams[param.key];
+        return value === "" || value === undefined || value === null;
+      })
+      .map((param) => param.label || param.key);
+    return { valid: missing.length === 0, missing };
+  }, [commandParams, selectedCommand]);
+
+  const manualCommandValidation = useMemo(() => {
+    const type = manualType.trim();
+    if (!type) {
+      return { valid: false, error: "Informe o tipo do comando." };
+    }
+    return { valid: true, error: null };
+  }, [manualType]);
 
   useEffect(() => {
     setColumnsDraft(columnsVisibility);
@@ -456,7 +493,7 @@ export default function Commands() {
         setCommandsError(null);
         return;
       }
-      if (commandsCacheRef.current.has(selectedDeviceId)) {
+      if (commandsCacheRef.current.has(selectedDeviceId) && commandsRefreshKey === 0) {
         setProtocolCommands(commandsCacheRef.current.get(selectedDeviceId));
         setCommandsError(null);
         return;
@@ -494,7 +531,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [protocolKey, selectedDeviceId]);
+  }, [protocolKey, selectedDeviceId, commandsRefreshKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -507,7 +544,7 @@ export default function Commands() {
       setHistoryLoading(true);
       setHistoryError(null);
       try {
-        const response = await api.get(`${API_ROUTES.commands}/history`, {
+        const response = await api.get(API_ROUTES.commands, {
           params: { deviceId: selectedDeviceId, from: historyFrom, to: historyTo },
         });
         const entries = Array.isArray(response?.data?.commands)
@@ -564,22 +601,29 @@ export default function Commands() {
     });
   }
 
-  async function handleSendCommand(payload) {
+  async function handleSendCommand(payload, { context } = {}) {
     setFormError(null);
+    setFormErrorContext(context || null);
     if (!selectedDeviceId) {
       setFormError(new Error("Selecione um veículo com equipamento vinculado."));
       return;
     }
-    if (!payload?.command) {
+    const commandType = String(payload?.command || "").trim();
+    if (!commandType) {
       setFormError(new Error("Informe o tipo do comando."));
       return;
     }
     setSending(true);
     try {
-      await api.post(API_ROUTES.commands, { deviceId: selectedDeviceId, ...payload });
+      await api.post(API_ROUTES.commands, {
+        deviceId: selectedDeviceId,
+        type: commandType,
+        attributes: payload?.params && Object.keys(payload.params).length ? payload.params : undefined,
+      });
       setHistoryRefreshKey((value) => value + 1);
     } catch (requestError) {
-      setFormError(requestError instanceof Error ? requestError : new Error("Erro ao enviar comando"));
+      const fallbackMessage = "Não foi possível enviar o comando. Verifique os dados e tente novamente.";
+      setFormError(requestError instanceof Error ? requestError : new Error(fallbackMessage));
     } finally {
       setSending(false);
     }
@@ -601,12 +645,22 @@ export default function Commands() {
   };
 
   const handleRefreshHistory = () => {
+    if (selectedDeviceId) {
+      commandsCacheRef.current.delete(selectedDeviceId);
+    }
+    setCommandsRefreshKey((value) => value + 1);
     setHistoryRefreshKey((value) => value + 1);
   };
 
   async function handleSendSelectedCommand() {
     if (!selectedCommand) {
       setFormError(new Error("Selecione um comando para enviar."));
+      setFormErrorContext("selected");
+      return;
+    }
+    if (!commandParamsValidation.valid) {
+      setFormError(new Error("Preencha todos os parâmetros obrigatórios antes de enviar."));
+      setFormErrorContext("selected");
       return;
     }
     const params = (selectedCommand.parameters || []).reduce((acc, param) => {
@@ -620,7 +674,7 @@ export default function Commands() {
       acc[param.key] = value;
       return acc;
     }, {});
-    await handleSendCommand({ command: selectedCommand.type || selectedCommand.id, params });
+    await handleSendCommand({ command: selectedCommand.type || selectedCommand.id, params }, { context: "selected" });
   }
 
   function handleSaveSmsTemplate(event) {
@@ -746,7 +800,7 @@ export default function Commands() {
               <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
             )}
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center justify-end gap-2 whitespace-nowrap">
             <Button type="button" onClick={handleRefreshHistory}>
               Mostrar
             </Button>
@@ -793,6 +847,13 @@ export default function Commands() {
                 </div>
               )}
             </div>
+            <Button
+              type="button"
+              variant={activeTab === "JSON" ? "secondary" : "outline"}
+              onClick={() => setActiveTab("JSON")}
+            >
+              JSON
+            </Button>
           </div>
         </div>
 
@@ -871,7 +932,12 @@ export default function Commands() {
                             ) : (
                               <Button
                                 size="xs"
-                                onClick={() => handleSendCommand({ command: command.type || command.id })}
+                                onClick={() =>
+                                  handleSendCommand(
+                                    { command: command.type || command.id },
+                                    { context: "quick" },
+                                  )
+                                }
                                 disabled={sending}
                               >
                                 Enviar
@@ -901,25 +967,55 @@ export default function Commands() {
                           {selectedCommand.parameters.map((param) => (
                             <label key={param.key} className="text-xs uppercase tracking-wide text-white/60">
                               {param.label}
-                              <input
-                                type={param.type === "number" ? "number" : "text"}
-                                min={param.min}
-                                value={commandParams[param.key] ?? ""}
-                                onChange={(event) =>
-                                  setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
-                                }
-                                className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                                required={param.required}
-                              />
+                              {param.key === "index" ? (
+                                <Select
+                                  value={commandParams[param.key] ?? ""}
+                                  onChange={(event) =>
+                                    setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
+                                  }
+                                  className="mt-1 w-full bg-layer text-sm"
+                                >
+                                  <option value="">Selecione</option>
+                                  {[1, 2, 3, 4].map((value) => (
+                                    <option key={value} value={value}>
+                                      Saída {value}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <input
+                                  type={param.type === "number" ? "number" : "text"}
+                                  min={param.min}
+                                  max={param.max}
+                                  value={commandParams[param.key] ?? ""}
+                                  onChange={(event) =>
+                                    setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
+                                  }
+                                  className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                                  required={param.required}
+                                />
+                              )}
                             </label>
                           ))}
                         </div>
                       ) : (
                         <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
                       )}
-                      <Button type="button" onClick={handleSendSelectedCommand} disabled={sending}>
+                      <Button
+                        type="button"
+                        onClick={handleSendSelectedCommand}
+                        disabled={sending || !commandParamsValidation.valid}
+                      >
                         {sending ? "Enviando…" : "Enviar comando"}
                       </Button>
+                      {formError && formErrorContext === "selected" && (
+                        <p className="text-xs text-red-300">{formError.message}</p>
+                      )}
+                      {!commandParamsValidation.valid && (
+                        <p className="text-xs text-amber-200/80">
+                          Preencha: {commandParamsValidation.missing.join(", ")}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -956,18 +1052,27 @@ export default function Commands() {
             <Button
               type="button"
               onClick={() =>
-                handleSendCommand({
-                  command: manualType.trim(),
-                  params: {
-                    payload: manualPayload.trim(),
-                    channel: manualChannel.trim() || undefined,
+                handleSendCommand(
+                  {
+                    command: manualType.trim(),
+                    params: {
+                      payload: manualPayload.trim(),
+                      channel: manualChannel.trim() || undefined,
+                    },
                   },
-                })
+                  { context: "advanced" },
+                )
               }
-              disabled={sending}
+              disabled={sending || !manualCommandValidation.valid}
             >
               {sending ? "Enviando…" : "Enviar comando avançado"}
             </Button>
+            {formError && formErrorContext === "advanced" && (
+              <p className="text-xs text-red-300">{formError.message}</p>
+            )}
+            {!manualCommandValidation.valid && (
+              <p className="text-xs text-amber-200/80">{manualCommandValidation.error}</p>
+            )}
           </div>
         )}
 
@@ -1055,6 +1160,15 @@ export default function Commands() {
                     />
                   </label>
                   <label className="space-y-2 text-sm">
+                    <span className="text-xs uppercase tracking-wide text-white/60">Telefone para envio</span>
+                    <Input
+                      value={smsPhone}
+                      onChange={(event) => setSmsPhone(event.target.value)}
+                      placeholder="+55 11 99999-0000"
+                      className="map-compact-input"
+                    />
+                  </label>
+                  <label className="space-y-2 text-sm">
                     <span className="text-xs uppercase tracking-wide text-white/60">Variáveis (opcional)</span>
                     <Input
                       value={smsDraft.variables}
@@ -1065,6 +1179,25 @@ export default function Commands() {
                   </label>
                   <div className="flex flex-wrap gap-2">
                     <Button type="submit">Salvar template</Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      disabled={!smsDraftValidation.valid || sending}
+                      onClick={() =>
+                        handleSendCommand(
+                          {
+                            command: "sendSms",
+                            params: {
+                              phone: smsPhone.trim(),
+                              message: smsDraft.content.trim(),
+                            },
+                          },
+                          { context: "sms" },
+                        )
+                      }
+                    >
+                      {sending ? "Enviando…" : "Enviar SMS"}
+                    </Button>
                     {smsDraft.id && (
                       <Button
                         type="button"
@@ -1075,6 +1208,12 @@ export default function Commands() {
                       </Button>
                     )}
                   </div>
+                  {!smsDraftValidation.valid && (
+                    <p className="text-xs text-amber-200/80">{smsDraftValidation.error}</p>
+                  )}
+                  {formError && formErrorContext === "sms" && (
+                    <p className="text-xs text-red-300">{formError.message}</p>
+                  )}
                 </form>
               </div>
             )}
