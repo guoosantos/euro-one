@@ -66,6 +66,7 @@ const DEFAULT_COLUMNS = [
   { id: "device", label: "Veículo", defaultVisible: true },
   { id: "type", label: "Tipo", defaultVisible: true },
   { id: "description", label: "Descrição", defaultVisible: true },
+  { id: "severity", label: "Criticidade", defaultVisible: true },
   { id: "address", label: "Endereço", defaultVisible: true },
   { id: "speed", label: "Velocidade", defaultVisible: false },
   { id: "ignition", label: "Ignição", defaultVisible: false },
@@ -73,6 +74,47 @@ const DEFAULT_COLUMNS = [
   { id: "latitude", label: "Lat", defaultVisible: false },
   { id: "longitude", label: "Lng", defaultVisible: false },
 ];
+const COLUMNS_STORAGE_KEY = "events:columns:v1";
+
+const SEVERITY_LABELS = {
+  informativa: "Informativa",
+  baixa: "Baixa",
+  low: "Baixa",
+  moderada: "Média",
+  media: "Média",
+  medium: "Média",
+  alta: "Alta",
+  high: "Alta",
+  critica: "Crítica",
+  critical: "Crítica",
+};
+
+const EVENT_SEVERITY_MAP = {
+  deviceoffline: "Crítica",
+  sos: "Crítica",
+  alarm: "Alta",
+  crash: "Crítica",
+  powercut: "Alta",
+  jamming: "Alta",
+  towing: "Alta",
+  tampering: "Alta",
+  speeding: "Alta",
+  overspeed: "Alta",
+  speedlimit: "Média",
+  geofenceenter: "Média",
+  geofenceexit: "Média",
+  lowbattery: "Média",
+  ignitionoff: "Baixa",
+  ignitionon: "Baixa",
+  devicemoving: "Baixa",
+  devicestopped: "Baixa",
+  deviceinactive: "Baixa",
+  deviceunknown: "Média",
+  maintenance: "Baixa",
+  door: "Média",
+  idle: "Baixa",
+  parking: "Baixa",
+};
 
 function buildInitialColumns() {
   return DEFAULT_COLUMNS.reduce((acc, column) => {
@@ -83,7 +125,7 @@ function buildInitialColumns() {
 
 export default function Events() {
   const { locale } = useTranslation();
-  const { devices } = useDevices();
+  const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
@@ -93,7 +135,19 @@ export default function Events() {
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
   const [showColumns, setShowColumns] = useState(false);
-  const [columnsVisibility, setColumnsVisibility] = useState(buildInitialColumns);
+  const [columnsVisibility, setColumnsVisibility] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+      if (!raw) return buildInitialColumns();
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return buildInitialColumns();
+      const defaults = buildInitialColumns();
+      return { ...defaults, ...parsed };
+    } catch (_error) {
+      return buildInitialColumns();
+    }
+  });
+  const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
   const [reportEvents, setReportEvents] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
@@ -140,6 +194,12 @@ export default function Events() {
     });
     return map;
   }, [devices]);
+
+  useEffect(() => {
+    if (showColumns) {
+      setColumnsDraft(columnsVisibility);
+    }
+  }, [columnsVisibility, showColumns]);
 
   const vehicleOptions = useMemo(
     () =>
@@ -269,18 +329,46 @@ export default function Events() {
     return reportEvents.map((event) => {
       const deviceId = toDeviceKey(event?.deviceId ?? event?.device?.id ?? event?.device);
       const vehicle = deviceId ? vehicleByDeviceId.get(String(deviceId)) : null;
-      const position = event?.position || event?.attributes?.position || {};
+      const positionFromEvent = event?.position || event?.attributes?.position || null;
+      const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
+      const position = positionFromEvent || fallbackPosition || {};
       const latitude =
-        event?.latitude ?? position?.latitude ?? event?.attributes?.latitude ?? event?.attributes?.lat ?? null;
+        event?.latitude ??
+        positionFromEvent?.latitude ??
+        position?.latitude ??
+        event?.attributes?.latitude ??
+        event?.attributes?.lat ??
+        fallbackPosition?.latitude ??
+        null;
       const longitude =
-        event?.longitude ?? position?.longitude ?? event?.attributes?.longitude ?? event?.attributes?.lng ?? null;
+        event?.longitude ??
+        positionFromEvent?.longitude ??
+        position?.longitude ??
+        event?.attributes?.longitude ??
+        event?.attributes?.lng ??
+        fallbackPosition?.longitude ??
+        null;
+      const rawSeverity =
+        event?.severity ??
+        event?.attributes?.severity ??
+        event?.criticality ??
+        event?.attributes?.criticality ??
+        null;
+      const severity = resolveEventSeverity(rawSeverity, event?.type || event?.attributes?.type || event?.event);
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
         device: vehicle ? formatVehicleLabel(vehicle) : event?.device?.name || event?.deviceName || deviceId || "—",
         type: event?.type || event?.attributes?.type || event?.event,
         description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
-        address: event?.address || position?.address || event?.attributes?.address || null,
+        severity,
+        address:
+          event?.address ||
+          positionFromEvent?.address ||
+          position?.address ||
+          event?.attributes?.address ||
+          fallbackPosition?.address ||
+          null,
         speed: position?.speed ?? event?.speed ?? null,
         ignition: event?.ignition ?? position?.ignition ?? null,
         battery: event?.batteryLevel ?? position?.batteryLevel ?? null,
@@ -288,7 +376,7 @@ export default function Events() {
         longitude,
       };
     });
-  }, [reportEvents, vehicleByDeviceId]);
+  }, [positionsByDeviceId, reportEvents, vehicleByDeviceId]);
 
   const visibleColumns = useMemo(
     () => DEFAULT_COLUMNS.filter((column) => columnsVisibility[column.id]),
@@ -346,37 +434,106 @@ export default function Events() {
     }
   };
 
+  const handleSaveColumns = () => {
+    setColumnsVisibility(columnsDraft);
+    try {
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columnsDraft));
+    } catch (_error) {
+      // ignore storage failures
+    }
+    setShowColumns(false);
+  };
+
   return (
-    <div className="space-y-6">
-      <section className="card space-y-4">
+    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+      <section className="card flex min-h-0 flex-1 flex-col gap-4">
         <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de eventos</p>
-              <h2 className="text-lg font-semibold">Eventos</h2>
               <p className="text-xs text-white/60">Relatórios no estilo Traccar com criticidade por protocolo.</p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2 border-b border-white/10 pb-2">
-            {EVENT_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
-                  activeTab === tab
-                    ? "bg-primary/20 text-white border border-primary/40"
-                    : "border border-white/10 text-white/60 hover:text-white"
-                }`}
-              >
-                {tab}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-2">
+            <div className="flex flex-wrap gap-2">
+              {EVENT_TABS.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                    activeTab === tab
+                      ? "bg-primary/20 text-white border border-primary/40"
+                      : "border border-white/10 text-white/60 hover:text-white"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            {activeTab === "Relatório" && (
+              <div className="relative flex items-center">
+                <button
+                  type="button"
+                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
+                    showColumns ? "bg-white/10" : "bg-transparent"
+                  }`}
+                  onClick={() => setShowColumns((open) => !open)}
+                  aria-label="Colunas"
+                >
+                  <Columns3 size={18} />
+                </button>
+                {showColumns && (
+                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
+                    <div className="space-y-2">
+                      {DEFAULT_COLUMNS.map((column) => (
+                        <label key={column.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={columnsDraft[column.id]}
+                            onChange={(event) =>
+                              setColumnsDraft((current) => ({
+                                ...current,
+                                [column.id]: event.target.checked,
+                              }))
+                            }
+                            className="rounded border-white/20 bg-transparent"
+                          />
+                          <span>{column.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
+                        Salvar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 
         {activeTab === "Relatório" && (
-          <div className="space-y-4">
+          <div className="flex min-h-0 flex-1 flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button type="button" onClick={fetchReport}>
+                Mostrar
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setSelectedVehicleId("");
+                  setVehicleSearch("");
+                  setEventType("all");
+                }}
+              >
+                Limpar filtros
+              </Button>
+            </div>
             <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
               <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 Buscar veículo
@@ -434,68 +591,12 @@ export default function Events() {
                   className="mt-2 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
                 />
               </label>
-              <div className="flex items-center gap-2">
-                <Button type="button" onClick={fetchReport}>
-                  Mostrar
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => {
-                    setSelectedVehicleId("");
-                    setVehicleSearch("");
-                    setEventType("all");
-                  }}
-                >
-                  Limpar filtros
-                </Button>
-              </div>
-              <div className="relative flex items-center">
-                <button
-                  type="button"
-                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
-                    showColumns ? "bg-white/10" : "bg-transparent"
-                  }`}
-                  onClick={() => setShowColumns((open) => !open)}
-                  aria-label="Colunas"
-                >
-                  <Columns3 size={18} />
-                </button>
-                {showColumns && (
-                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
-                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
-                    <div className="space-y-2">
-                      {DEFAULT_COLUMNS.map((column) => (
-                        <label key={column.id} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={columnsVisibility[column.id]}
-                            onChange={(event) =>
-                              setColumnsVisibility((current) => ({
-                                ...current,
-                                [column.id]: event.target.checked,
-                              }))
-                            }
-                            className="rounded border-white/20 bg-transparent"
-                          />
-                          <span>{column.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex justify-end">
-                      <Button type="button" size="xs" variant="secondary" onClick={() => setShowColumns(false)}>
-                        Salvar
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
               {selectedVehicle && selectedVehicle.deviceIds.length === 0 && (
                 <p className="w-full text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
               )}
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="min-w-full text-sm">
                 <thead className="text-left text-xs uppercase tracking-wider text-white/50">
                   <tr>
@@ -654,6 +755,8 @@ function renderColumnValue(columnId, row, locale) {
       return translateEventType(row.type || "", locale) || "—";
     case "description":
       return row.description || "—";
+    case "severity":
+      return renderSeverityBadge(row.severity);
     case "address":
       if (row.address || (Number.isFinite(row.latitude) && Number.isFinite(row.longitude))) {
         return <AddressCell address={row.address} lat={row.latitude} lng={row.longitude} />;
@@ -672,4 +775,41 @@ function renderColumnValue(columnId, row, locale) {
     default:
       return "—";
   }
+}
+
+function resolveEventSeverity(rawSeverity, eventType) {
+  const normalizedSeverity = String(rawSeverity || "").trim().toLowerCase();
+  if (normalizedSeverity) {
+    return SEVERITY_LABELS[normalizedSeverity] || normalizeTitle(normalizedSeverity);
+  }
+
+  const typeKey = String(eventType || "").trim().toLowerCase();
+  return EVENT_SEVERITY_MAP[typeKey] || "Baixa";
+}
+
+function normalizeTitle(value) {
+  if (!value) return "—";
+  const cleaned = value.replace(/_/g, " ").trim();
+  return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : "—";
+}
+
+function renderSeverityBadge(severity) {
+  if (!severity) return "—";
+  const label = String(severity);
+  const normalized = label.toLowerCase();
+  const styles = {
+    informativa: "border-white/10 bg-white/5 text-white/60",
+    baixa: "border-emerald-400/20 bg-emerald-500/10 text-emerald-200",
+    média: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
+    media: "border-yellow-400/30 bg-yellow-500/10 text-yellow-200",
+    alta: "border-orange-400/30 bg-orange-500/10 text-orange-200",
+    crítica: "border-red-500/30 bg-red-500/15 text-red-200",
+    critica: "border-red-500/30 bg-red-500/15 text-red-200",
+  };
+  const className = styles[normalized] || "border-white/10 bg-white/5 text-white/60";
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${className}`}>
+      {label}
+    </span>
+  );
 }
