@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CircleMarker, MapContainer, Marker, Polyline, TileLayer, useMapEvents } from "react-leaflet";
-import { Clock3, Download, FileUp, Play, Route, Save, Undo2 } from "lucide-react";
+import { Clock3, Download, FileUp, LayoutGrid, List, MapPin, Play, Route, Save, Undo2 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
 
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
@@ -294,6 +294,23 @@ function WaypointInput({ label, placeholder, value, onChange }) {
   );
 }
 
+function ToolbarButton({ icon: Icon, active = false, title, className = "", ...props }) {
+  return (
+    <button
+      type="button"
+      className={`map-tool-button ${active ? "is-active" : ""} ${className}`.trim()}
+      title={title}
+      {...props}
+    >
+      <Icon size={16} />
+    </button>
+  );
+}
+
+function SidebarCard({ children }) {
+  return <div className="w-[320px] rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">{children}</div>;
+}
+
 function RoutePanel({
   routes,
   activeRouteId,
@@ -325,13 +342,21 @@ function RoutePanel({
         />
         <div className="geofence-panel-list">
           {routes.map((route) => (
-            <button
+            <div
               key={route.id || route.name}
-              type="button"
+              role="button"
+              tabIndex={0}
+              aria-pressed={activeRouteId === route.id}
               className={`geofence-panel-item text-left transition ${
                 activeRouteId === route.id ? "border-primary/50 bg-primary/10" : "hover:border-white/20"
               }`}
               onClick={() => onSelect(route)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelect(route);
+                }
+              }}
             >
               <div className="flex items-center justify-between gap-2">
                 <div>
@@ -366,7 +391,7 @@ function RoutePanel({
                   Exportar
                 </Button>
               </div>
-            </button>
+            </div>
           ))}
           {routes.length === 0 && !loading && <p className="text-xs text-white/60">Nenhuma rota salva ainda.</p>}
           {loading && <p className="text-xs text-white/60">Carregando...</p>}
@@ -398,7 +423,11 @@ export default function RoutesPage() {
   const [saving, setSaving] = useState(false);
   const [isRouting, setIsRouting] = useState(false);
   const [mapAddsStops, setMapAddsStops] = useState(false);
-  const [mode, setMode] = useState("manual");
+  const [activePanel, setActivePanel] = useState("manual");
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const [showRoutesPanel, setShowRoutesPanel] = useState(true);
+  const [showEditorPanel, setShowEditorPanel] = useState(true);
+  const [showToolsPanel, setShowToolsPanel] = useState(true);
   const [historyForm, setHistoryForm] = useState({ vehicleId: "", from: "", to: "" });
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -556,9 +585,14 @@ export default function RoutesPage() {
     setActiveRouteId(null);
   };
 
-  const handleToggleMode = useCallback((nextMode) => {
-    setMode(nextMode);
-  }, []);
+  useEffect(() => {
+    if (activePanel === "routes" && !showRoutesPanel) {
+      setActivePanel("manual");
+    }
+    if (["manual", "history", "stops"].includes(activePanel) && !showEditorPanel) {
+      setActivePanel(showRoutesPanel ? "routes" : "manual");
+    }
+  }, [activePanel, showEditorPanel, showRoutesPanel]);
 
   const updateWaypoint = useCallback(
     (type, payload, index = 0) => {
@@ -764,6 +798,17 @@ export default function RoutesPage() {
     userActionRef.current = false;
   }, [focusGeometry, normalizedDraftPoints]);
 
+  const showEditorCard = showEditorPanel && ["manual", "history", "stops"].includes(activePanel);
+  const showRoutesCard = showRoutesPanel && activePanel === "routes";
+  const editorTitle =
+    activePanel === "history" ? "Modo histórico" : activePanel === "stops" ? "Modo paradas" : "Modo manual";
+  const editorDescription =
+    activePanel === "history"
+      ? "Gere a rota a partir do histórico do veículo."
+      : activePanel === "stops"
+        ? "Adicione paradas e checkpoints antes de gerar a rota."
+        : "Desenhe por endereços e pontos obrigatórios.";
+
   return (
     <div className="relative -mx-6 -mt-4 h-[calc(100vh-96px)] overflow-hidden bg-neutral-900">
       <MapContainer
@@ -804,217 +849,267 @@ export default function RoutesPage() {
         ))}
       </MapContainer>
 
-      <div className="pointer-events-none absolute inset-0 z-20 flex flex-col gap-4">
-        <div className="pointer-events-auto flex flex-wrap gap-2 px-4 pt-4">
-          <Button size="sm" onClick={handleNewRoute} icon={Route}>
-            Nova rota
-          </Button>
-          <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()} icon={FileUp}>
-            Importar KML
-          </Button>
-          <Button size="sm" variant="secondary" onClick={handleExportKml} icon={Download}>
-            Exportar KML
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} icon={Save}>
-            {saving ? "Salvando..." : "Salvar"}
-          </Button>
-          <Button size="sm" variant="ghost" onClick={handleCancel} icon={Undo2}>
-            Cancelar
-          </Button>
+      <div className="pointer-events-none absolute inset-0 z-20">
+        <div className="pointer-events-auto absolute right-4 top-4 flex flex-col items-end gap-3">
+          {showToolsPanel && (
+            <SidebarCard>
+              <div className="space-y-2">
+                <Button size="sm" onClick={handleNewRoute} icon={Route}>
+                  Nova rota
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => fileInputRef.current?.click()} icon={FileUp}>
+                  Importar KML
+                </Button>
+                <Button size="sm" variant="secondary" onClick={handleExportKml} icon={Download}>
+                  Exportar KML
+                </Button>
+                <div className="flex gap-2">
+                  <Button size="sm" variant="ghost" onClick={handleSave} disabled={saving} icon={Save}>
+                    {saving ? "Salvando..." : "Salvar"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={handleCancel} icon={Undo2}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            </SidebarCard>
+          )}
+
+          {showRoutesCard && (
+            <SidebarCard>
+              <RoutePanel
+                routes={filteredRoutes}
+                activeRouteId={activeRouteId}
+                searchTerm={routeFilter}
+                onSearch={setRouteFilter}
+                onSelect={handleSelectRoute}
+                onDelete={handleDeleteRoute}
+                onExport={handleExportSingle}
+                loading={loadingRoutes}
+              />
+            </SidebarCard>
+          )}
+
+          {showEditorCard && (
+            <SidebarCard>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
+                  <h2 className="text-sm font-semibold text-white">{editorTitle}</h2>
+                  <p className="text-[11px] text-white/60">{editorDescription}</p>
+                </div>
+              </div>
+
+              <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1">
+                {activePanel === "history" ? (
+                  <form className="space-y-3" onSubmit={handleHistoryRoute}>
+                    <Select
+                      value={historyForm.vehicleId}
+                      onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
+                    >
+                      <option value="">Selecione um veículo</option>
+                      {vehicleOptions.map((vehicle) => (
+                        <option key={vehicle.value} value={vehicle.value}>
+                          {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
+                        </option>
+                      ))}
+                    </Select>
+                    {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
+                    {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
+                    {historyForm.vehicleId && !historyDeviceId && (
+                      <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
+                    )}
+
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <Input
+                        label="Início"
+                        type="datetime-local"
+                        value={historyForm.from}
+                        onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
+                        className="map-compact-input"
+                      />
+                      <Input
+                        label="Fim"
+                        type="datetime-local"
+                        value={historyForm.to}
+                        onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
+                        className="map-compact-input"
+                      />
+                    </div>
+
+                    {(historyVehicle || historyForm.from || historyForm.to) && (
+                      <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                        <p>Veículo: {historyVehicle?.plate || historyVehicle?.name || "—"}</p>
+                        <p>Período: {historyForm.from || "—"} → {historyForm.to || "—"}</p>
+                      </div>
+                    )}
+
+                    <Button type="submit" disabled={loadingHistory || !historyDeviceId} icon={Clock3}>
+                      {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
+                    </Button>
+                  </form>
+                ) : (
+                  <div className="space-y-3">
+                    <Input
+                      label="Nome"
+                      value={draftRoute.name}
+                      onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+                      className="map-compact-input"
+                    />
+
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <WaypointInput
+                        label="Origem"
+                        placeholder="Endereço ou lat,long"
+                        value={origin}
+                        onChange={(value) => updateWaypoint("origin", value)}
+                      />
+                      <WaypointInput
+                        label="Destino"
+                        placeholder="Endereço ou lat,long"
+                        value={destination}
+                        onChange={(value) => updateWaypoint("destination", value)}
+                      />
+                    </div>
+
+                    {activePanel === "stops" && (
+                      <>
+                        <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() =>
+                                updateWaypoint(
+                                  "checkpoint",
+                                  { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" },
+                                  checkpoints.length,
+                                )
+                              }
+                            >
+                              Adicionar ponto
+                            </Button>
+                          </div>
+                          {checkpoints.length === 0 && (
+                            <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>
+                          )}
+                          {checkpoints.map((checkpoint, index) => (
+                            <div key={checkpoint.id} className="flex items-center gap-2">
+                              <WaypointInput
+                                label={`Obrigatório ${index + 1}`}
+                                placeholder="Endereço ou lat,long"
+                                value={{ ...checkpoint, order: index }}
+                                onChange={(value) => updateWaypoint("checkpoint", value, index)}
+                              />
+                              <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
+                                Remover
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
+                            >
+                              Adicionar parada
+                            </Button>
+                          </div>
+                          {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
+                          {stops.map((stop, index) => (
+                            <div key={stop.id} className="flex items-center gap-2">
+                              <WaypointInput
+                                label={`Parada ${index + 1}`}
+                                placeholder="Endereço ou lat,long"
+                                value={{ ...stop, order: index }}
+                                onChange={(value) => updateWaypoint("stop", value, index)}
+                              />
+                              <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
+                                Remover
+                              </Button>
+                            </div>
+                          ))}
+                          <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
+                            <input
+                              type="checkbox"
+                              className="rounded border-white/30 bg-transparent"
+                              checked={mapAddsStops}
+                              onChange={(event) => setMapAddsStops(event.target.checked)}
+                            />
+                            Clique no mapa para adicionar paradas.
+                          </label>
+                        </div>
+                      </>
+                    )}
+
+                    <div className="flex flex-wrap gap-3">
+                      <Button onClick={buildRouteFromWaypoints} disabled={isRouting} icon={Play}>
+                        {isRouting ? "Gerando rota..." : "Gerar rota"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </SidebarCard>
+          )}
         </div>
 
-        <div className="pointer-events-auto grid flex-1 gap-4 px-4 pb-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">
-            <RoutePanel
-              routes={filteredRoutes}
-              activeRouteId={activeRouteId}
-              searchTerm={routeFilter}
-              onSearch={setRouteFilter}
-              onSelect={handleSelectRoute}
-              onDelete={handleDeleteRoute}
-              onExport={handleExportSingle}
-              loading={loadingRoutes}
-            />
-          </div>
-
-          <div className="flex h-full flex-col rounded-2xl border border-white/10 bg-[#0f141c]/90 p-4 shadow-2xl">
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
-                <h2 className="text-sm font-semibold text-white">{mode === "manual" ? "Modo manual" : "Modo histórico"}</h2>
-                <p className="text-[11px] text-white/60">
-                  {mode === "manual" ? "Desenhe por endereços e pontos obrigatórios." : "Gere a rota a partir do histórico do veículo."}
-                </p>
-              </div>
-              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-1">
-                <button
-                  type="button"
-                  className={`map-tool-button ${mode === "history" ? "is-active" : ""}`}
-                  onClick={() => handleToggleMode("history")}
-                  title="Modo histórico"
-                >
-                  <Clock3 size={16} />
-                </button>
-                <button
-                  type="button"
-                  className={`map-tool-button ${mode === "manual" ? "is-active" : ""}`}
-                  onClick={() => handleToggleMode("manual")}
-                  title="Modo manual"
-                >
-                  <Route size={16} />
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-3 flex-1 overflow-y-auto pr-1">
-              {mode === "manual" ? (
-                <div className="space-y-3">
-                  <Input
-                    label="Nome"
-                    value={draftRoute.name}
-                    onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
-                    className="map-compact-input"
-                  />
-
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <WaypointInput
-                      label="Origem"
-                      placeholder="Endereço ou lat,long"
-                      value={origin}
-                      onChange={(value) => updateWaypoint("origin", value)}
-                    />
-                    <WaypointInput
-                      label="Destino"
-                      placeholder="Endereço ou lat,long"
-                      value={destination}
-                      onChange={(value) => updateWaypoint("destination", value)}
-                    />
-                  </div>
-
-                  <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-white">Pontos obrigatórios</p>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() =>
-                          updateWaypoint(
-                            "checkpoint",
-                            { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Ponto obrigatório" },
-                            checkpoints.length,
-                          )
-                        }
-                      >
-                        Adicionar ponto
-                      </Button>
-                    </div>
-                    {checkpoints.length === 0 && <p className="text-xs text-white/60">Nenhum ponto obrigatório adicionado.</p>}
-                    {checkpoints.map((checkpoint, index) => (
-                      <div key={checkpoint.id} className="flex items-center gap-2">
-                        <WaypointInput
-                          label={`Obrigatório ${index + 1}`}
-                          placeholder="Endereço ou lat,long"
-                          value={{ ...checkpoint, order: index }}
-                          onChange={(value) => updateWaypoint("checkpoint", value, index)}
-                        />
-                        <Button size="sm" variant="ghost" onClick={() => removeCheckpoint(index)}>
-                          Remover
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-semibold text-white">Paradas intermediárias</p>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => updateWaypoint("stop", { lat: DEFAULT_CENTER[0], lng: DEFAULT_CENTER[1], label: "Parada" }, stops.length)}
-                      >
-                        Adicionar parada
-                      </Button>
-                    </div>
-                    {stops.length === 0 && <p className="text-xs text-white/60">Nenhuma parada adicionada.</p>}
-                    {stops.map((stop, index) => (
-                      <div key={stop.id} className="flex items-center gap-2">
-                        <WaypointInput
-                          label={`Parada ${index + 1}`}
-                          placeholder="Endereço ou lat,long"
-                          value={{ ...stop, order: index }}
-                          onChange={(value) => updateWaypoint("stop", value, index)}
-                        />
-                        <Button size="sm" variant="ghost" onClick={() => removeStop(index)}>
-                          Remover
-                        </Button>
-                      </div>
-                    ))}
-                    <label className="flex cursor-pointer items-center gap-2 text-xs text-white/70">
-                      <input
-                        type="checkbox"
-                        className="rounded border-white/30 bg-transparent"
-                        checked={mapAddsStops}
-                        onChange={(event) => setMapAddsStops(event.target.checked)}
-                      />
-                      Clique no mapa para adicionar paradas.
-                    </label>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <Button onClick={buildRouteFromWaypoints} disabled={isRouting} icon={Play}>
-                      {isRouting ? "Gerando rota..." : "Gerar rota"}
-                    </Button>
-                  </div>
+        <div className="pointer-events-auto absolute right-4 top-1/2 -translate-y-1/2">
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-[#0f141c]/90 p-2 shadow-2xl">
+            <div className="relative">
+              <ToolbarButton
+                icon={LayoutGrid}
+                title="Layout"
+                className={layoutMenuOpen ? "is-active" : ""}
+                onClick={() => setLayoutMenuOpen((open) => !open)}
+              />
+              {layoutMenuOpen && (
+                <div className="layout-popover right-14 top-0">
+                  <label className="layout-toggle">
+                    <input type="checkbox" checked={showToolsPanel} onChange={() => setShowToolsPanel((value) => !value)} />
+                    <span>Ferramentas</span>
+                  </label>
+                  <label className="layout-toggle">
+                    <input type="checkbox" checked={showEditorPanel} onChange={() => setShowEditorPanel((value) => !value)} />
+                    <span>Editor</span>
+                  </label>
+                  <label className="layout-toggle">
+                    <input type="checkbox" checked={showRoutesPanel} onChange={() => setShowRoutesPanel((value) => !value)} />
+                    <span>Minhas rotas</span>
+                  </label>
                 </div>
-              ) : (
-                <form className="space-y-3" onSubmit={handleHistoryRoute}>
-                  <Select
-                    value={historyForm.vehicleId}
-                    onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
-                  >
-                    <option value="">Selecione um veículo</option>
-                    {vehicleOptions.map((vehicle) => (
-                      <option key={vehicle.value} value={vehicle.value}>
-                        {vehicle.label} {vehicle.hasDevice ? "" : "— Sem equipamento vinculado"}
-                      </option>
-                    ))}
-                  </Select>
-                  {loadingVehicles && <p className="text-xs text-white/60">Carregando veículos…</p>}
-                  {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
-                  {historyForm.vehicleId && !historyDeviceId && (
-                    <p className="text-xs text-amber-200/80">Sem equipamento vinculado para este veículo.</p>
-                  )}
-
-                  <div className="grid gap-2 md:grid-cols-2">
-                    <Input
-                      label="Início"
-                      type="datetime-local"
-                      value={historyForm.from}
-                      onChange={(event) => setHistoryForm((current) => ({ ...current, from: event.target.value }))}
-                      className="map-compact-input"
-                    />
-                    <Input
-                      label="Fim"
-                      type="datetime-local"
-                      value={historyForm.to}
-                      onChange={(event) => setHistoryForm((current) => ({ ...current, to: event.target.value }))}
-                      className="map-compact-input"
-                    />
-                  </div>
-
-                  {(historyVehicle || historyForm.from || historyForm.to) && (
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
-                      <p>Veículo: {historyVehicle?.plate || historyVehicle?.name || "—"}</p>
-                      <p>Período: {historyForm.from || "—"} → {historyForm.to || "—"}</p>
-                    </div>
-                  )}
-
-                  <Button type="submit" disabled={loadingHistory || !historyDeviceId} icon={Clock3}>
-                    {loadingHistory ? "Buscando histórico..." : "Gerar rota do histórico"}
-                  </Button>
-                </form>
               )}
             </div>
+            <div className="h-px w-full bg-white/10" />
+            <ToolbarButton
+              icon={Route}
+              title="Criar rota manual"
+              active={activePanel === "manual"}
+              onClick={() => setActivePanel("manual")}
+            />
+            <ToolbarButton
+              icon={Clock3}
+              title="Criar rota por histórico"
+              active={activePanel === "history"}
+              onClick={() => setActivePanel("history")}
+            />
+            <ToolbarButton
+              icon={MapPin}
+              title="Criar rota com paradas"
+              active={activePanel === "stops"}
+              onClick={() => setActivePanel("stops")}
+            />
+            <ToolbarButton
+              icon={List}
+              title="Minhas rotas"
+              active={activePanel === "routes"}
+              onClick={() => setActivePanel("routes")}
+            />
           </div>
         </div>
       </div>

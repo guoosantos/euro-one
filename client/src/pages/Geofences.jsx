@@ -31,6 +31,8 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
+const DEFAULT_CENTER = [-23.55052, -46.633308];
+const DEFAULT_ZOOM = 12;
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -70,6 +72,45 @@ function clampCoordinate(value, min, max) {
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
   return Math.min(Math.max(num, min), max);
+}
+
+function normalizeLatLng(raw) {
+  if (!raw) return null;
+  if (Array.isArray(raw) && raw.length >= 2) {
+    const lat = clampCoordinate(raw[0], -90, 90);
+    const lng = clampCoordinate(raw[1], -180, 180);
+    if (lat === null || lng === null) return null;
+    return [lat, lng];
+  }
+  if (typeof raw === "string") {
+    const [latRaw, lngRaw] = raw.split(",").map((value) => value.trim());
+    const lat = clampCoordinate(latRaw, -90, 90);
+    const lng = clampCoordinate(lngRaw, -180, 180);
+    if (lat === null || lng === null) return null;
+    return [lat, lng];
+  }
+  if (typeof raw === "object") {
+    const lat = clampCoordinate(raw.lat ?? raw.latitude, -90, 90);
+    const lng = clampCoordinate(raw.lng ?? raw.lon ?? raw.longitude, -180, 180);
+    if (lat === null || lng === null) return null;
+    return [lat, lng];
+  }
+  return null;
+}
+
+function resolveInitialCenter(attributes) {
+  return (
+    normalizeLatLng(attributes?.web?.mapCenter) ||
+    normalizeLatLng(attributes?.mapCenter) ||
+    normalizeLatLng(attributes?.center) ||
+    null
+  );
+}
+
+function resolveInitialZoom(attributes) {
+  const raw = attributes?.web?.mapZoom ?? attributes?.mapZoom ?? attributes?.zoom;
+  const zoom = Number(raw);
+  return Number.isFinite(zoom) && zoom > 0 ? zoom : null;
 }
 
 function sanitizePolygon(points = []) {
@@ -289,6 +330,7 @@ export default function Geofences() {
   const userActionRef = useRef(false);
   const importInputRef = useRef(null);
   const polygonFinalizeRef = useRef(false);
+  const [isMapReady, setIsMapReady] = useState(false);
   const [drawMode, setDrawMode] = useState(null);
   const [draftPolygon, setDraftPolygon] = useState([]);
   const [draftCircle, setDraftCircle] = useState({ center: null, edge: null });
@@ -315,8 +357,17 @@ export default function Geofences() {
     (event) => {
       onMapReady(event);
       registerMap(event?.target || event);
+      setIsMapReady(true);
     },
     [onMapReady, registerMap],
+  );
+  const initialCenter = useMemo(
+    () => resolveInitialCenter(tenant?.attributes) || DEFAULT_CENTER,
+    [tenant?.attributes],
+  );
+  const initialZoom = useMemo(
+    () => resolveInitialZoom(tenant?.attributes) || mapPreferences?.selectZoom || DEFAULT_ZOOM,
+    [mapPreferences?.selectZoom, tenant?.attributes],
   );
 
   const {
@@ -338,20 +389,31 @@ export default function Geofences() {
     () => activeGeofences.find((geo) => geo.id === selectedId) || null,
     [activeGeofences, selectedId],
   );
+  const safeSelectedGeofence = useMemo(() => {
+    if (!selectedGeofence) return null;
+    if (selectedGeofence.type === "circle") {
+      const center = selectedGeofence.center || [selectedGeofence.latitude ?? selectedGeofence.lat, selectedGeofence.longitude ?? selectedGeofence.lng];
+      const circle = sanitizeCircleGeometry({ center, radius: selectedGeofence.radius });
+      if (!circle) return null;
+      return { ...selectedGeofence, center: circle.center, radius: circle.radius };
+    }
+    const points = sanitizePolygon(selectedGeofence.points);
+    if (points.length < 3) return null;
+    return { ...selectedGeofence, points };
+  }, [selectedGeofence]);
   useEffect(() => {
     if (!userActionRef.current) return;
-    if (!selectedGeofence) return;
-    if (selectedGeofence.type === "circle") {
-      const lat = Number(selectedGeofence.latitude ?? selectedGeofence.lat);
-      const lng = Number(selectedGeofence.longitude ?? selectedGeofence.lng);
+    if (!safeSelectedGeofence) return;
+    if (safeSelectedGeofence.type === "circle") {
+      const [lat, lng] = safeSelectedGeofence.center || [];
       if (Number.isFinite(lat) && Number.isFinite(lng)) {
         focusDevice({ lat, lng }, { zoom: 15, animate: true, reason: "GEOFENCE_SELECT" });
       }
-    } else if (selectedGeofence.points?.length) {
-      focusGeometry(selectedGeofence.points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
+    } else if (safeSelectedGeofence.points?.length) {
+      focusGeometry(safeSelectedGeofence.points, { padding: [24, 24], maxZoom: 16 }, "GEOFENCE_SELECT");
     }
     userActionRef.current = false;
-  }, [focusDevice, focusGeometry, selectedGeofence]);
+  }, [focusDevice, focusGeometry, safeSelectedGeofence]);
 
   const invalidateMapSize = useCallback(() => {
     refreshMap();
@@ -693,6 +755,22 @@ export default function Geofences() {
     () => activeGeofences.filter((geo) => !hiddenIds.has(geo.id)),
     [activeGeofences, hiddenIds],
   );
+  const safeVisibleGeofences = useMemo(() => {
+    return visibleGeofences
+      .map((geo) => {
+        if (!geo) return null;
+        if (geo.type === "circle") {
+          const center = geo.center || [geo.latitude ?? geo.lat, geo.longitude ?? geo.lng];
+          const circle = sanitizeCircleGeometry({ center, radius: geo.radius });
+          if (!circle) return null;
+          return { ...geo, center: circle.center, radius: circle.radius };
+        }
+        const points = sanitizePolygon(geo.points);
+        if (points.length < 3) return null;
+        return { ...geo, points };
+      })
+      .filter(Boolean);
+  }, [visibleGeofences]);
 
   const filteredGeofences = useMemo(() => {
     const term = geofenceFilter.trim().toLowerCase();
@@ -728,8 +806,8 @@ export default function Geofences() {
           ref={mapRef}
           scrollWheelZoom
           zoomControl={false}
-          center={undefined}
-          zoom={undefined}
+          center={initialCenter}
+          zoom={initialZoom}
           style={{ height: "100%", width: "100%" }}
           whenReady={handleMapReady}
         >
@@ -741,7 +819,7 @@ export default function Geofences() {
 
           <MapBridge onClick={handleMapClick} onMove={handleMouseMove} />
 
-          {searchMarker && (
+          {isMapReady && searchMarker && (
             <CircleMarker
               center={[searchMarker.lat, searchMarker.lng]}
               radius={9}
@@ -749,9 +827,9 @@ export default function Geofences() {
             />
           )}
 
-          {visibleGeofences.map((geo) => {
+          {isMapReady &&
+            safeVisibleGeofences.map((geo) => {
             if (geo.type === "circle") {
-              if (!geo.center || !geo.radius) return null;
               return (
                 <LeafletCircle
                   key={geo.id}
@@ -795,11 +873,12 @@ export default function Geofences() {
             );
           })}
 
-          {drawMode === "polygon" && guideLine.length >= 2 && (
+          {isMapReady && drawMode === "polygon" && guideLine.length >= 2 && (
             <Polyline positions={guideLine} pathOptions={{ color: "#22c55e", dashArray: "10 6", weight: 2 }} />
           )}
 
-          {drawMode === "polygon" &&
+          {isMapReady &&
+            drawMode === "polygon" &&
             draftPolygon.map((point, index) => (
               <CircleMarker
                 key={`draft-${index}`}
@@ -817,7 +896,7 @@ export default function Geofences() {
               />
             ))}
 
-          {drawMode === "circle" && draftCircle.center && draftRadius && (
+          {isMapReady && drawMode === "circle" && draftCircle.center && draftRadius && (
             <LeafletCircle
               center={draftCircle.center}
               radius={draftRadius}
@@ -825,7 +904,7 @@ export default function Geofences() {
             />
           )}
 
-          {searchMarker && (
+          {isMapReady && searchMarker && (
             <Marker position={[searchMarker.lat, searchMarker.lng]}>
               <Tooltip direction="top" sticky>
                 {searchMarker.label || "Endereço encontrado"}
@@ -833,11 +912,11 @@ export default function Geofences() {
             </Marker>
           )}
 
-          {selectedGeofence && (
+          {isMapReady && safeSelectedGeofence && (
             <GeofenceHandles
-              geofence={selectedGeofence}
-              onUpdatePolygon={(points) => handleUpdatePolygon(selectedGeofence.id, points)}
-              onUpdateCircle={(payload) => handleUpdateCircle(selectedGeofence.id, payload)}
+              geofence={safeSelectedGeofence}
+              onUpdatePolygon={(points) => handleUpdatePolygon(safeSelectedGeofence.id, points)}
+              onUpdateCircle={(payload) => handleUpdateCircle(safeSelectedGeofence.id, payload)}
             />
           )}
         </MapContainer>
