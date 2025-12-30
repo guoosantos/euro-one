@@ -28,6 +28,7 @@ import itineraryRoutes from "./routes/itineraries.js";
 import euroRoutes from "./routes/euro-routes.js";
 import trackerMappingRoutes from "./routes/tracker-mappings.js";
 import mapMatchingRoutes from "./routes/map-matching.js";
+import protocolRoutes from "./routes/protocols.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -101,6 +102,7 @@ app.use("/api", proxyRoutes);
 app.use("/api", itineraryRoutes);
 app.use("/api", euroRoutes);
 app.use("/api", mapMatchingRoutes);
+app.use("/api", protocolRoutes);
 
 
 app.use((req, _res, next) => {

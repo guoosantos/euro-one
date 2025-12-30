@@ -64,6 +64,7 @@ export const API_ROUTES = {
   traccarHealth: "health/traccar",
   traccar: {
     events: "traccar/events",
+    groups: "traccar/groups",
     reports: {
       trips: "traccar/reports/trips",
       route: "traccar/reports/route",
@@ -73,6 +74,9 @@ export const API_ROUTES = {
   },
   mapMatching: "map-matching",
   mapRoute: "map-route",
+  protocols: "protocols",
+  protocolEvents: (protocol) => `protocols/${protocol}/events`,
+  protocolEventSeverity: (protocol) => `protocols/${protocol}/events/severity`,
   tracker: {
     devices: "tracker/devices",
     mappings: "tracker/mappings",
