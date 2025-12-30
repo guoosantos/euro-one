@@ -1,16 +1,27 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Columns3 } from "lucide-react";
 
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
-import useCommands from "../lib/hooks/useCommands";
 import useDevices from "../lib/hooks/useDevices";
-import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles";
+import useVehicles from "../lib/hooks/useVehicles";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
 const STORAGE_KEY = "protocol-templates-v1";
+const COLUMNS_STORAGE_KEY = "commands:columns:v1";
+
+const HISTORY_COLUMNS = [
+  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 220 },
+  { id: "command", label: "Comando", defaultVisible: true, width: 200 },
+  { id: "sentAt", label: "Enviado em", defaultVisible: true, width: 140 },
+  { id: "status", label: "Status", defaultVisible: true, width: 90 },
+  { id: "response", label: "Resposta", defaultVisible: true, width: 260 },
+  { id: "protocol", label: "Protocolo", defaultVisible: false, width: 120 },
+  { id: "payload", label: "JSON completo", defaultVisible: false, width: 260 },
+];
 
 const DEFAULT_COMMAND_CATALOG = [
   {
@@ -263,11 +274,17 @@ function loadTemplates() {
   }
 }
 
+function buildInitialHistoryColumns() {
+  return HISTORY_COLUMNS.reduce((acc, column) => {
+    acc[column.id] = column.defaultVisible;
+    return acc;
+  }, {});
+}
+
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading, error: vehiclesError } = useVehicles();
   const { devices: deviceList } = useDevices();
   const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
-  const { commands, loading, error, reload, sendCommand } = useCommands({ autoRefreshMs: 45_000 });
   const commandsCacheRef = useRef(new Map());
 
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
@@ -281,6 +298,12 @@ export default function Commands() {
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedCommandId, setSelectedCommandId] = useState("");
   const [commandParams, setCommandParams] = useState({});
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const [historyFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  const [historyTo] = useState(() => new Date().toISOString());
   const [sending, setSending] = useState(false);
   const [formError, setFormError] = useState(null);
   const [manualType, setManualType] = useState("custom");
@@ -290,13 +313,26 @@ export default function Commands() {
   const [smsDraft, setSmsDraft] = useState({ id: null, name: "", content: "", variables: "" });
   const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
   const [copiedId, setCopiedId] = useState(null);
+  const [showColumns, setShowColumns] = useState(false);
+  const [columnsVisibility, setColumnsVisibility] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
+      if (!raw) return buildInitialHistoryColumns();
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return buildInitialHistoryColumns();
+      const defaults = buildInitialHistoryColumns();
+      return { ...defaults, ...parsed };
+    } catch (_error) {
+      return buildInitialHistoryColumns();
+    }
+  });
+  const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
 
-  const list = Array.isArray(commands) ? commands : [];
   const vehicleOptions = useMemo(
     () =>
       vehicles.map((vehicle) => ({
         id: vehicle.id,
-        label: formatVehicleLabel(vehicle),
+        label: vehicle.plate || "Placa não informada",
         deviceId: vehicle.primaryDeviceId,
       })),
     [vehicles],
@@ -307,6 +343,7 @@ export default function Commands() {
     [selectedVehicleId, vehicles],
   );
   const selectedDeviceId = selectedVehicle?.primaryDeviceId || "";
+  const list = Array.isArray(history) ? history : [];
   const selectedDevice = useMemo(() => {
     if (!selectedDeviceId) return null;
     return (
@@ -315,14 +352,21 @@ export default function Commands() {
       ) || null
     );
   }, [devices, selectedDeviceId]);
-  const protocolKey = useMemo(
-    () =>
-      normalizeProtocol(
-        selectedDevice?.protocol || selectedDevice?.attributes?.protocol || selectedDevice?.modelProtocol || "",
-      ),
-    [selectedDevice],
-  );
+  const protocolKey = useMemo(() => {
+    const rawProtocol =
+      selectedDevice?.protocol ||
+      selectedDevice?.attributes?.protocol ||
+      selectedDevice?.modelProtocol ||
+      selectedVehicle?.protocol ||
+      selectedVehicle?.attributes?.protocol ||
+      selectedVehicle?.primaryDevice?.protocol ||
+      "";
+    const normalized = normalizeProtocol(rawProtocol);
+    if (normalized) return normalized;
+    return selectedVehicleId ? "default" : "";
+  }, [selectedDevice, selectedVehicle, selectedVehicleId]);
   const protocolLabel = useMemo(() => {
+    if (protocolKey === "default") return "Padrão";
     const protocol = protocols.find((item) => normalizeProtocol(item.id) === protocolKey);
     return protocol?.label || protocolKey.toUpperCase() || "—";
   }, [protocolKey, protocols]);
@@ -353,6 +397,24 @@ export default function Commands() {
       return { valid: false, error: "JSON inválido" };
     }
   }, [jsonDraft.payload]);
+
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      if (!vehicle.primaryDeviceId) return;
+      map.set(String(vehicle.primaryDeviceId), vehicle);
+    });
+    return map;
+  }, [vehicles]);
+
+  const visibleHistoryColumns = useMemo(
+    () => HISTORY_COLUMNS.filter((column) => columnsVisibility[column.id]),
+    [columnsVisibility],
+  );
+
+  useEffect(() => {
+    setColumnsDraft(columnsVisibility);
+  }, [columnsVisibility]);
 
   useEffect(() => {
     let mounted = true;
@@ -389,24 +451,30 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!protocolKey) {
+      if (!selectedDeviceId) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
       }
-      if (commandsCacheRef.current.has(protocolKey)) {
-        setProtocolCommands(commandsCacheRef.current.get(protocolKey));
+      if (commandsCacheRef.current.has(selectedDeviceId)) {
+        setProtocolCommands(commandsCacheRef.current.get(selectedDeviceId));
         setCommandsError(null);
         return;
       }
       setCommandsLoading(true);
       setCommandsError(null);
       try {
-        const response = await api.get(`${API_ROUTES.protocols}/${protocolKey}/commands`);
-        const list = Array.isArray(response?.data?.commands) ? response.data.commands : [];
+        const response = await api.get(API_ROUTES.commands, { params: { deviceId: selectedDeviceId } });
+        const responseList = Array.isArray(response?.data?.commands)
+          ? response.data.commands
+          : Array.isArray(response?.data)
+            ? response.data
+            : Array.isArray(response?.data?.data)
+              ? response.data.data
+              : [];
         const fallback = PROTOCOL_COMMANDS[protocolKey] || PROTOCOL_COMMANDS.default;
-        const finalList = list.length ? list : fallback;
-        commandsCacheRef.current.set(protocolKey, finalList);
+        const finalList = responseList.length ? responseList : fallback;
+        commandsCacheRef.current.set(selectedDeviceId, finalList);
         if (mounted) {
           setProtocolCommands(finalList);
         }
@@ -426,7 +494,46 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [protocolKey]);
+  }, [protocolKey, selectedDeviceId]);
+
+  useEffect(() => {
+    let mounted = true;
+    async function loadHistory() {
+      if (!selectedDeviceId) {
+        setHistory([]);
+        setHistoryError(null);
+        return;
+      }
+      setHistoryLoading(true);
+      setHistoryError(null);
+      try {
+        const response = await api.get(`${API_ROUTES.commands}/history`, {
+          params: { deviceId: selectedDeviceId, from: historyFrom, to: historyTo },
+        });
+        const entries = Array.isArray(response?.data?.commands)
+          ? response.data.commands
+          : Array.isArray(response?.data)
+            ? response.data
+            : [];
+        if (mounted) {
+          setHistory(entries);
+        }
+      } catch (requestError) {
+        if (mounted) {
+          setHistoryError(requestError instanceof Error ? requestError : new Error("Erro ao carregar histórico"));
+          setHistory([]);
+        }
+      } finally {
+        if (mounted) {
+          setHistoryLoading(false);
+        }
+      }
+    }
+    loadHistory();
+    return () => {
+      mounted = false;
+    };
+  }, [historyFrom, historyRefreshKey, historyTo, selectedDeviceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -463,14 +570,14 @@ export default function Commands() {
       setFormError(new Error("Selecione um veículo com equipamento vinculado."));
       return;
     }
-    if (!payload?.type) {
+    if (!payload?.command) {
       setFormError(new Error("Informe o tipo do comando."));
       return;
     }
     setSending(true);
     try {
-      await sendCommand({ deviceId: selectedDeviceId, ...payload });
-      reload();
+      await api.post(API_ROUTES.commands, { deviceId: selectedDeviceId, ...payload });
+      setHistoryRefreshKey((value) => value + 1);
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError : new Error("Erro ao enviar comando"));
     } finally {
@@ -478,12 +585,31 @@ export default function Commands() {
     }
   }
 
+  const handleSaveColumns = () => {
+    setColumnsVisibility(columnsDraft);
+    try {
+      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columnsDraft));
+    } catch (_error) {
+      // ignore storage failures
+    }
+    setShowColumns(false);
+  };
+
+  const handleClearFilters = () => {
+    setSelectedVehicleId("");
+    setCommandSearch("");
+  };
+
+  const handleRefreshHistory = () => {
+    setHistoryRefreshKey((value) => value + 1);
+  };
+
   async function handleSendSelectedCommand() {
     if (!selectedCommand) {
       setFormError(new Error("Selecione um comando para enviar."));
       return;
     }
-    const attributes = (selectedCommand.parameters || []).reduce((acc, param) => {
+    const params = (selectedCommand.parameters || []).reduce((acc, param) => {
       const value = commandParams[param.key];
       if (value === "" || value === undefined || value === null) return acc;
       if (param.type === "number") {
@@ -494,7 +620,7 @@ export default function Commands() {
       acc[param.key] = value;
       return acc;
     }, {});
-    await handleSendCommand({ type: selectedCommand.type, attributes });
+    await handleSendCommand({ command: selectedCommand.type || selectedCommand.id, params });
   }
 
   function handleSaveSmsTemplate(event) {
@@ -562,81 +688,123 @@ export default function Commands() {
               <h2 className="text-lg font-semibold">Enviar comandos</h2>
               <p className="text-xs text-white/60">Os comandos são encaminhados diretamente ao dispositivo via Traccar.</p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/60">
-                Protocolo: {protocolLabel}
-              </span>
-              {protocolsLoading && (
-                <span className="text-xs text-white/50">Carregando protocolos…</span>
-              )}
-            </div>
           </div>
           {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
         </header>
 
-        <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-3">
-          <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-            Veículo
-            <Select
-              value={selectedVehicleId}
-              onChange={(event) => setSelectedVehicleId(event.target.value)}
-              className="mt-2 w-full bg-layer text-sm"
-            >
-              <option value="">Selecione um veículo</option>
-              {vehicleOptions.map((vehicle) => (
-                <option key={vehicle.id} value={vehicle.id}>
-                  {vehicle.label}
-                </option>
-              ))}
-            </Select>
-          </label>
-          <label className="flex min-w-[260px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-            Buscar comando
-            <Input
-              value={commandSearch}
-              onChange={(event) => setCommandSearch(event.target.value)}
-              placeholder="Buscar comando"
-              className="mt-2"
-            />
-          </label>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
-              Protocolo: {protocolLabel}
-            </span>
-            {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {COMMAND_TABS.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
-                  activeTab === tab
-                    ? "bg-primary/20 text-white border border-primary/40"
-                    : "border border-white/10 text-white/60 hover:text-white"
-                }`}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Placa do veículo
+              <Select
+                value={selectedVehicleId}
+                onChange={(event) => setSelectedVehicleId(event.target.value)}
+                className="mt-2 w-full bg-layer text-sm"
               >
-                {tab}
-              </button>
-            ))}
+                <option value="">Selecione uma placa</option>
+                {vehicleOptions.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex min-w-[260px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Buscar comando
+              <Input
+                value={commandSearch}
+                onChange={(event) => setCommandSearch(event.target.value)}
+                placeholder="Buscar comando"
+                className="mt-2"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
+                Protocolo: {protocolLabel}
+              </span>
+              {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {COMMAND_TABS.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                    activeTab === tab
+                      ? "bg-primary/20 text-white border border-primary/40"
+                      : "border border-white/10 text-white/60 hover:text-white"
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+            {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
+            {vehiclesError && <span className="text-xs text-red-300">{vehiclesError.message}</span>}
+            {selectedVehicle && !selectedDeviceId && (
+              <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
+            )}
           </div>
-          {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
-          {vehiclesError && <span className="text-xs text-red-300">{vehiclesError.message}</span>}
-          {selectedVehicle && !selectedDeviceId && (
-            <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" onClick={handleRefreshHistory}>
+              Mostrar
+            </Button>
+            <Button type="button" variant="outline" onClick={handleClearFilters}>
+              Limpar filtros
+            </Button>
+            <div className="relative flex items-center">
+              <button
+                type="button"
+                className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
+                  showColumns ? "bg-white/10" : "bg-transparent"
+                }`}
+                onClick={() => setShowColumns((open) => !open)}
+                aria-label="Colunas"
+              >
+                <Columns3 size={18} />
+              </button>
+              {showColumns && (
+                <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                  <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
+                  <div className="space-y-2">
+                    {HISTORY_COLUMNS.map((column) => (
+                      <label key={column.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={columnsDraft[column.id]}
+                          onChange={(event) =>
+                            setColumnsDraft((current) => ({
+                              ...current,
+                              [column.id]: event.target.checked,
+                            }))
+                          }
+                          className="rounded border-white/20 bg-transparent"
+                        />
+                        <span>{column.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 flex justify-end">
+                    <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
+                      Salvar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {activeTab === "Comandos" && (
           <div className="space-y-4">
-            {!protocolKey && (
+            {!selectedDeviceId && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Selecione um veículo com protocolo definido para visualizar comandos.
+                Selecione um veículo para visualizar comandos disponíveis.
               </div>
             )}
 
-            {protocolKey && (
+            {selectedDeviceId && (
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
                   <span>Comandos homologados</span>
@@ -703,7 +871,7 @@ export default function Commands() {
                             ) : (
                               <Button
                                 size="xs"
-                                onClick={() => handleSendCommand({ type: command.type })}
+                                onClick={() => handleSendCommand({ command: command.type || command.id })}
                                 disabled={sending}
                               >
                                 Enviar
@@ -789,8 +957,8 @@ export default function Commands() {
               type="button"
               onClick={() =>
                 handleSendCommand({
-                  type: manualType.trim(),
-                  attributes: {
+                  command: manualType.trim(),
+                  params: {
                     payload: manualPayload.trim(),
                     channel: manualChannel.trim() || undefined,
                   },
@@ -1018,9 +1186,9 @@ export default function Commands() {
           </div>
         )}
 
-        {(formError || error) && (
+        {(formError || historyError) && (
           <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-            {formError?.message || error?.message}
+            {formError?.message || historyError?.message}
           </div>
         )}
       </section>
@@ -1030,34 +1198,46 @@ export default function Commands() {
           <h3 className="text-lg font-semibold">Histórico de comandos</h3>
           <div className="flex items-center gap-2">
             <span className="text-xs opacity-60">{list.length} registros</span>
-            <Button type="button" size="xs" variant="outline" onClick={reload}>
+            <Button type="button" size="xs" variant="outline" onClick={handleRefreshHistory}>
               Atualizar histórico
             </Button>
           </div>
         </header>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
+          <table className="w-full min-w-full table-fixed text-sm">
+            <colgroup>
+              {visibleHistoryColumns.map((column) => (
+                <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+              ))}
+            </colgroup>
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
-                <th className="py-2 pr-6">Dispositivo</th>
-                <th className="py-2 pr-6">Comando</th>
-                <th className="py-2 pr-6">Enviado em</th>
-                <th className="py-2 pr-6">Status</th>
-                <th className="py-2 pr-6">Resposta</th>
+                {visibleHistoryColumns.map((column) => (
+                  <th key={column.id} className="py-2 pr-6">
+                    {column.label}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40">
-              {loading && (
+              {historyLoading && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm opacity-60">
                     Carregando comandos…
                   </td>
                 </tr>
               )}
-              {!loading && !list.length && (
+              {!historyLoading && historyError && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-sm opacity-60">
+                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm text-red-300">
+                    {historyError.message}
+                  </td>
+                </tr>
+              )}
+              {!historyLoading && !list.length && (
+                <tr>
+                  <td colSpan={visibleHistoryColumns.length} className="py-4 text-center text-sm opacity-60">
                     Nenhum comando encontrado para o período selecionado.
                   </td>
                 </tr>
@@ -1065,17 +1245,66 @@ export default function Commands() {
               {list.map((command) => {
                 const status = resolveCommandStatus(command);
                 const response = resolveCommandResponse(command);
+                const vehicle = vehicleByDeviceId.get(String(command.deviceId ?? command.device?.id ?? ""));
+                const plateLabel = vehicle?.plate || vehicle?.name || command.device?.name || "—";
                 return (
                   <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`} className="hover:bg-white/5">
-                    <td className="py-2 pr-6 text-white/80">{command.deviceId ?? command.device?.name ?? "—"}</td>
-                    <td className="py-2 pr-6 text-white/70">{command.type ?? "—"}</td>
-                    <td className="py-2 pr-6 text-white/60">{formatDate(command.sentAt || command.sentTime)}</td>
-                    <td className="py-2 pr-6">
-                      <span className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${status.className}`}>
-                        {status.label}
-                      </span>
-                    </td>
-                    <td className="py-2 pr-6 text-white/60">{response || "—"}</td>
+                    {visibleHistoryColumns.map((column) => {
+                      switch (column.id) {
+                        case "device":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/80">
+                              {plateLabel}
+                            </td>
+                          );
+                        case "command":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/70">
+                              {command.command || command.type || command.name || "—"}
+                            </td>
+                          );
+                        case "sentAt":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/60">
+                              {formatDate(command.sentAt || command.sentTime)}
+                            </td>
+                          );
+                        case "status":
+                          return (
+                            <td key={column.id} className="py-2 pr-6">
+                              <span
+                                className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${status.className}`}
+                              >
+                                {status.label}
+                              </span>
+                            </td>
+                          );
+                        case "response":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/60">
+                              {response}
+                            </td>
+                          );
+                        case "protocol":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/60">
+                              {resolveCommandProtocol(command)}
+                            </td>
+                          );
+                        case "payload":
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/60">
+                              {formatCommandPayload(command)}
+                            </td>
+                          );
+                        default:
+                          return (
+                            <td key={column.id} className="py-2 pr-6 text-white/60">
+                              —
+                            </td>
+                          );
+                      }
+                    })}
                   </tr>
                 );
               })}
@@ -1102,13 +1331,19 @@ function resolveCommandStatus(command) {
   const result = command?.result || command?.attributes?.result;
   const delivered = command?.deliveredAt || command?.resultTime || command?.attributes?.deliveredAt;
   if (error || statusRaw.includes("fail") || statusRaw.includes("error")) {
-    return { label: "erro", className: "border-red-500/40 bg-red-500/10 text-red-200" };
+    return { label: "erro", className: "border-slate-500/40 bg-slate-500/10 text-slate-200" };
+  }
+  if (statusRaw.includes("reject") || statusRaw.includes("denied")) {
+    return { label: "rejeitado", className: "border-red-500/40 bg-red-500/10 text-red-200" };
+  }
+  if (statusRaw.includes("accept") || statusRaw.includes("success")) {
+    return { label: "aceito", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
   }
   if (result || delivered) {
-    return { label: "confirmado", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
+    return { label: "aceito", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
   }
   if (command?.sentAt || command?.sentTime) {
-    return { label: "enviado", className: "border-blue-500/40 bg-blue-500/10 text-blue-200" };
+    return { label: "pendente", className: "border-amber-500/40 bg-amber-500/10 text-amber-200" };
   }
   return { label: "pendente", className: "border-amber-500/40 bg-amber-500/10 text-amber-200" };
 }
@@ -1124,5 +1359,26 @@ function resolveCommandResponse(command) {
     command?.error;
   if (response) return String(response);
   const payload = command?.attributes?.payload || command?.attributes?.text || command?.attributes?.data;
-  return payload ? String(payload) : "";
+  return payload ? String(payload) : "Sem resposta";
+}
+
+function resolveCommandProtocol(command) {
+  const protocol =
+    command?.protocol ||
+    command?.device?.protocol ||
+    command?.device?.attributes?.protocol ||
+    command?.attributes?.protocol;
+  if (!protocol) return "—";
+  return String(protocol).toUpperCase();
+}
+
+function formatCommandPayload(command) {
+  const payload = command?.attributes?.payload ?? command?.attributes?.data ?? command?.attributes?.text ?? command?.payload;
+  if (payload == null) return "—";
+  if (typeof payload === "string") return payload;
+  try {
+    return JSON.stringify(payload);
+  } catch (_error) {
+    return String(payload);
+  }
 }
