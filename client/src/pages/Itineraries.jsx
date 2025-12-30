@@ -1,37 +1,55 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Circle as LeafletCircle, MapContainer, Marker, Polygon, Polyline, TileLayer, Tooltip } from "react-leaflet";
-import { Download, Eye, EyeOff, Map as MapIcon, Plus, Route, Save, Target, Trash, X } from "lucide-react";
-import "leaflet/dist/leaflet.css";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { Download, Map as MapIcon, Pencil, Plus, Route, Save, Target, Trash2, X } from "lucide-react";
 
 import useGeofences from "../lib/hooks/useGeofences.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
-import useMapLifecycle from "../lib/map/useMapLifecycle.js";
-import useMapController from "../lib/map/useMapController.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
-import MapZoomControls from "../components/map/MapZoomControls.jsx";
+import Select from "../ui/Select.jsx";
 
-const circleStyle = {
-  color: "#38bdf8",
-  weight: 2,
-  fillOpacity: 0.12,
-};
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  return `${Number(bytes).toLocaleString("pt-BR")} B`;
+}
 
-const polygonStyle = {
-  color: "#22c55e",
-  weight: 2,
-  fillOpacity: 0.12,
-};
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
+}
 
-function Drawer({ open, onClose, title, description, children }) {
+function resolveLastEmbark(itinerary) {
+  return itinerary?.lastEmbark || itinerary?.lastEmbarked || itinerary?.embark || null;
+}
+
+function ItineraryModal({
+  open,
+  onClose,
+  title,
+  description,
+  saving,
+  onSave,
+  onDelete,
+  form,
+  onChange,
+  panelTab,
+  onTabChange,
+  geofences,
+  routes,
+  targetGeofences,
+  onAddItem,
+  onRemoveItem,
+}) {
   if (!open) return null;
+
   return (
-    <div className="fixed inset-0 z-[9998] flex">
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.12em] text-white/50">Editor de itinerários</p>
@@ -47,48 +65,190 @@ function Drawer({ open, onClose, title, description, children }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="h-[calc(100%-80px)] overflow-y-auto px-6 py-4">{children}</div>
+        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Detalhes</h3>
+              {onDelete && (
+                <Button size="sm" variant="ghost" onClick={onDelete} icon={Trash2}>
+                  Excluir
+                </Button>
+              )}
+            </div>
+            <Input
+              placeholder="Nome do itinerário"
+              value={form.name}
+              onChange={(event) => onChange({ ...form, name: event.target.value })}
+            />
+            <LTextArea
+              placeholder="Descrição"
+              value={form.description}
+              onChange={(event) => onChange({ ...form, description: event.target.value })}
+              rows={3}
+            />
+
+            <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Itens vinculados</p>
+                <Button size="xs" onClick={onSave} disabled={saving} icon={Save}>
+                  {saving ? "Salvando..." : "Salvar"}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(form.items || []).map((item) => {
+                  const key = `${item.type}:${item.id}`;
+                  const label =
+                    item.type === "geofence"
+                      ? geofences.find((geo) => String(geo.id) === String(item.id))?.name || `Cerca ${item.id}`
+                      : item.type === "route"
+                      ? routes.find((route) => String(route.id) === String(item.id))?.name || `Rota ${item.id}`
+                      : targetGeofences.find((target) => String(target.id) === String(item.id))?.name || `Alvo ${item.id}`;
+                  const Icon = item.type === "geofence" ? MapIcon : item.type === "route" ? Route : Target;
+                  return (
+                    <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-sm text-white">
+                      <span className="flex items-center gap-2">
+                        <Icon size={14} />
+                        {label}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-white/60 hover:text-white"
+                        onClick={() => onRemoveItem(item)}
+                        title="Remover"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })}
+                {(form.items || []).length === 0 && <p className="text-xs text-white/60">Nenhum item adicionado.</p>}
+              </div>
+            </div>
+
+            <div>
+              <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+                {[
+                  { key: "cercas", label: "Cercas" },
+                  { key: "rotas", label: "Rotas" },
+                  { key: "alvos", label: "Alvos" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => onTabChange(tab.key)}
+                    className={`rounded-md px-3 py-2 transition ${
+                      panelTab === tab.key ? "border border-primary/40 bg-primary/20 text-white" : "border border-transparent hover:border-white/20"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {panelTab === "cercas" && (
+                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Cercas disponíveis</p>
+                    <span className="text-[11px] text-white/60">{geofences.length} disponíveis</span>
+                  </div>
+                  <div className="max-h-56 space-y-1 overflow-y-auto">
+                    {geofences.map((geo) => (
+                      <button
+                        key={geo.id}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
+                        onClick={() => onAddItem({ type: "geofence", id: geo.id })}
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full" style={{ background: geo.color || "#22c55e" }} />
+                          {geo.name}
+                        </span>
+                        <span className="text-[11px] text-white/50">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
+                      </button>
+                    ))}
+                    {geofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca disponível.</p>}
+                  </div>
+                </div>
+              )}
+
+              {panelTab === "rotas" && (
+                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Rotas disponíveis</p>
+                    <span className="text-[11px] text-white/60">{routes.length} disponíveis</span>
+                  </div>
+                  <div className="max-h-56 space-y-1 overflow-y-auto">
+                    {routes.map((route) => (
+                      <button
+                        key={route.id}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
+                        onClick={() => onAddItem({ type: "route", id: route.id })}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Route size={14} />
+                          {route.name}
+                        </span>
+                        <span className="text-[11px] text-white/50">{route.points?.length || 0} pts</span>
+                      </button>
+                    ))}
+                    {routes.length === 0 && <p className="text-xs text-white/60">Nenhuma rota disponível.</p>}
+                  </div>
+                </div>
+              )}
+
+              {panelTab === "alvos" && (
+                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Alvos disponíveis</p>
+                    <span className="text-[11px] text-white/60">{targetGeofences.length} disponíveis</span>
+                  </div>
+                  <div className="max-h-56 space-y-1 overflow-y-auto">
+                    {targetGeofences.map((target) => (
+                      <button
+                        key={target.id}
+                        type="button"
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
+                        onClick={() => onAddItem({ type: "target", id: target.id })}
+                      >
+                        <span className="flex items-center gap-2">
+                          <Target size={14} />
+                          {target.name || `Alvo ${target.id}`}
+                        </span>
+                        <span className="text-[11px] text-white/50">{target.type === "circle" ? "Círculo" : `${target.points?.length || 0} pts`}</span>
+                      </button>
+                    ))}
+                    {targetGeofences.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
 export default function Itineraries() {
-  const mapRef = useRef(null);
-  const { onMapReady } = useMapLifecycle({ mapRef });
-  const { registerMap, focusGeometry } = useMapController({ page: "Itineraries" });
-  const userActionRef = useRef(false);
-  const handleMapReady = useCallback(
-    (event) => {
-      onMapReady(event);
-      registerMap(event?.target || event);
-    },
-    [onMapReady, registerMap],
-  );
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
+  const { tenants } = useTenant();
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", items: [] });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [visibleIds, setVisibleIds] = useState(new Set());
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerTab, setDrawerTab] = useState("cercas");
+  const [panelTab, setPanelTab] = useState("cercas");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [embarkedFilter, setEmbarkedFilter] = useState("all");
+  const [kmlSizes, setKmlSizes] = useState(() => new Map());
 
-  const selected = useMemo(() => itineraries.find((item) => item.id === selectedId) || null, [itineraries, selectedId]);
-  const activeItems = useMemo(
-    () => (drawerOpen ? form.items || [] : selected?.items || []),
-    [drawerOpen, form.items, selected],
+  const clientNameById = useMemo(
+    () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
+    [tenants],
   );
-
-  const geofenceById = useMemo(() => new Map(geofences.map((geo) => [String(geo.id), geo])), [geofences]);
-  const routeById = useMemo(() => new Map(routes.map((route) => [String(route.id), route])), [routes]);
   const targetGeofences = useMemo(() => geofences.filter((geo) => geo.isTarget), [geofences]);
-  const targetById = useMemo(
-    () => new Map(targetGeofences.map((target) => [String(target.id), target])),
-    [targetGeofences],
-  );
 
   const loadRoutes = useCallback(async () => {
     try {
@@ -106,15 +266,10 @@ export default function Itineraries() {
       const response = await api.get(API_ROUTES.itineraries);
       const list = response?.data?.data || [];
       setItineraries(list);
-      if (list[0] && !selectedId) {
-        setSelectedId(list[0].id);
-        setForm(list[0]);
-        setVisibleIds(new Set((list[0].items || []).map((item) => `${item.type}:${item.id}`)));
-      }
     } finally {
       setLoading(false);
     }
-  }, [selectedId]);
+  }, []);
 
   useEffect(() => {
     void loadRoutes();
@@ -124,20 +279,21 @@ export default function Itineraries() {
   const resetForm = () => {
     setForm({ name: "", description: "", items: [] });
     setSelectedId(null);
-    setVisibleIds(new Set());
   };
 
-  const handleToggleItem = (item) => {
-    setVisibleIds((current) => {
-      const key = `${item.type}:${item.id}`;
-      const next = new Set(current);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
-      return next;
-    });
+  const openEditor = (itinerary = null) => {
+    if (itinerary) {
+      setSelectedId(itinerary.id);
+      setForm({
+        name: itinerary.name || "",
+        description: itinerary.description || "",
+        items: itinerary.items || [],
+      });
+    } else {
+      resetForm();
+    }
+    setPanelTab("cercas");
+    setEditorOpen(true);
   };
 
   const handleAddItem = (item) => {
@@ -145,9 +301,7 @@ export default function Itineraries() {
     setForm((current) => {
       const exists = (current.items || []).some((entry) => entry.type === item.type && String(entry.id) === String(item.id));
       if (exists) return current;
-      const next = { ...current, items: [...(current.items || []), { type: item.type, id: String(item.id) }] };
-      setVisibleIds((prev) => new Set([...prev, `${item.type}:${item.id}`]));
-      return next;
+      return { ...current, items: [...(current.items || []), { type: item.type, id: String(item.id) }] };
     });
   };
 
@@ -157,11 +311,6 @@ export default function Itineraries() {
       const nextItems = (current.items || []).filter(
         (entry) => !(entry.type === item.type && String(entry.id) === String(item.id)),
       );
-      setVisibleIds((prev) => {
-        const next = new Set(prev);
-        next.delete(`${item.type}:${item.id}`);
-        return next;
-      });
       return { ...current, items: nextItems };
     });
   };
@@ -180,6 +329,7 @@ export default function Itineraries() {
       const saved = response?.data?.data || payload;
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
+      setEditorOpen(false);
     } catch (error) {
       console.error(error);
       alert(error?.message || "Não foi possível salvar o itinerário.");
@@ -201,46 +351,10 @@ export default function Itineraries() {
     }
   };
 
-  const handleSelect = (itinerary) => {
-    userActionRef.current = true;
-    setSelectedId(itinerary.id);
-    setForm(itinerary);
-    setVisibleIds(new Set((itinerary.items || []).map((item) => `${item.type}:${item.id}`)));
-    setDrawerOpen(true);
-  };
-
-  const handleCreateNew = () => {
-    resetForm();
-    setDrawerTab("cercas");
-    setDrawerOpen(true);
-  };
-
-  const selectedGeofences = useMemo(() => {
-    return activeItems
-      .filter((item) => item.type === "geofence")
-      .map((item) => geofenceById.get(String(item.id)))
-      .filter(Boolean);
-  }, [activeItems, geofenceById]);
-
-  const selectedRoutes = useMemo(() => {
-    return activeItems
-      .filter((item) => item.type === "route")
-      .map((item) => routeById.get(String(item.id)))
-      .filter(Boolean);
-  }, [activeItems, routeById]);
-
-  const selectedTargets = useMemo(() => {
-    return activeItems
-      .filter((item) => item.type === "target")
-      .map((item) => targetById.get(String(item.id)))
-      .filter(Boolean);
-  }, [activeItems, targetById]);
-
   const exportKml = async (id) => {
-    const target = id || selectedId;
-    if (!target) return;
+    if (!id) return;
     try {
-      const response = await api.get(`${API_ROUTES.itineraries}/${target}/export/kml`, { responseType: "blob" });
+      const response = await api.get(`${API_ROUTES.itineraries}/${id}/export/kml`, { responseType: "blob" });
       const blob = new Blob([response.data], { type: "application/vnd.google-earth.kml+xml" });
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -248,69 +362,33 @@ export default function Itineraries() {
       a.download = "itinerary.kml";
       a.click();
       window.URL.revokeObjectURL(url);
+      setKmlSizes((current) => {
+        const next = new Map(current);
+        next.set(id, blob.size);
+        return next;
+      });
     } catch (error) {
       console.error(error);
       alert(error?.message || "Não foi possível exportar o KML.");
     }
   };
 
-  const resolveTargetPosition = useCallback((target) => {
-    if (!target) return null;
-    const center = target.center || null;
-    if (Array.isArray(center) && center.length >= 2) {
-      const [lat, lng] = center;
-      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
-    }
-    if (Array.isArray(target.points) && target.points.length) {
-      const [lat, lng] = target.points[0] || [];
-      if (Number.isFinite(lat) && Number.isFinite(lng)) return [lat, lng];
-    }
-    const lat = target.latitude ?? target.lat;
-    const lng = target.longitude ?? target.lng;
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-    return [lat, lng];
-  }, []);
+  const filteredItineraries = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return itineraries.filter((item) => {
+      const name = item.name?.toLowerCase() || "";
+      if (term && !name.includes(term)) return false;
+      const lastEmbark = resolveLastEmbark(item);
+      const isEmbarked = Boolean(item.isEmbarked ?? item.embarked ?? lastEmbark?.embarkedAt);
+      if (embarkedFilter === "yes" && !isEmbarked) return false;
+      if (embarkedFilter === "no" && isEmbarked) return false;
+      return true;
+    });
+  }, [embarkedFilter, itineraries, query]);
 
-  const focusPoints = useMemo(() => {
-    const points = [];
-    selectedGeofences.forEach((geo) => {
-      if (!visibleIds.has(`geofence:${geo.id}`)) return;
-      if (geo.type === "circle") {
-        const lat = Number(geo.latitude ?? geo.lat);
-        const lng = Number(geo.longitude ?? geo.lng);
-        if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
-      } else if (Array.isArray(geo.points)) {
-        geo.points.forEach((point) => {
-          if (Array.isArray(point) && point.length >= 2) {
-            const [lat, lng] = point;
-            if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
-          }
-        });
-      }
-    });
-    selectedRoutes.forEach((route) => {
-      if (!visibleIds.has(`route:${route.id}`)) return;
-      (route.points || []).forEach((point) => {
-        if (Array.isArray(point) && point.length >= 2) {
-          const [lat, lng] = point;
-          if (Number.isFinite(lat) && Number.isFinite(lng)) points.push([lat, lng]);
-        }
-      });
-    });
-    selectedTargets.forEach((target) => {
-      if (!visibleIds.has(`target:${target.id}`)) return;
-      const position = resolveTargetPosition(target);
-      if (position) points.push(position);
-    });
-    return points;
-  }, [resolveTargetPosition, selectedGeofences, selectedRoutes, selectedTargets, visibleIds]);
+  const selected = useMemo(() => itineraries.find((item) => item.id === selectedId) || null, [itineraries, selectedId]);
 
-  useEffect(() => {
-    if (!userActionRef.current) return;
-    if (!focusPoints.length) return;
-    focusGeometry(focusPoints, { padding: [32, 32], maxZoom: 16 }, "ITINERARY_SELECT");
-    userActionRef.current = false;
-  }, [focusGeometry, focusPoints]);
+  const tableColCount = 8;
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
@@ -325,294 +403,145 @@ export default function Itineraries() {
                 <span className="dot" />
                 {itineraries.length} itinerários
               </span>
-              {saving && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Salvando...</span>}
               {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-              <Button size="sm" onClick={handleCreateNew} icon={Plus}>
+              <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
                 Criar novo
               </Button>
             </>
           )}
         />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-4 shadow-2xl">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Lista</p>
-              <h2 className="text-base font-semibold text-white">Itinerários</h2>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="w-full md:max-w-xs">
+            <Input
+              placeholder="Buscar itinerário"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <div className="flex flex-1 flex-wrap items-center gap-3 md:justify-end">
+            <div className="min-w-[200px]">
+              <Select
+                value={embarkedFilter}
+                onChange={(event) => setEmbarkedFilter(event.target.value)}
+                className="w-full text-sm text-white/80"
+              >
+                <option value="all">Embarcados: Todos</option>
+                <option value="yes">Embarcados: Sim</option>
+                <option value="no">Embarcados: Não</option>
+              </Select>
             </div>
           </div>
-          <div className="mt-3 space-y-2">
-            {itineraries.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleSelect(item)}
-                className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition ${
-                  selectedId === item.id
-                    ? "border-primary/50 bg-primary/10 text-white"
-                    : "border-white/10 bg-white/5 text-white/80 hover:border-white/20"
-                }`}
-              >
-                <div className="flex items-center justify-between">
-                  <p className="font-semibold text-white">{item.name}</p>
-                  <span className="text-[11px] text-white/60">
-                    {new Date(item.updatedAt || item.createdAt || Date.now()).toLocaleDateString()}
-                  </span>
-                </div>
-                <p className="text-[11px] text-white/60">{item.items?.length || 0} itens</p>
-              </button>
-            ))}
-            {itineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário salvo.</p>}
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-2xl">
-          <MapContainer
-            ref={mapRef}
-            center={undefined}
-            zoom={undefined}
-            className="h-[540px] w-full"
-            zoomControl={false}
-            whenReady={handleMapReady}
-          >
-            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
-            <MapZoomControls variant="classic" />
-
-            {selectedGeofences.map((geo) => {
-              const key = `geofence:${geo.id}`;
-              const visible = visibleIds.has(key);
-              if (geo.type === "circle") {
-                if (!geo.latitude || !geo.longitude || !geo.radius) return null;
-                return (
-                  visible && (
-                    <LeafletCircle
-                      key={key}
-                      center={[geo.latitude, geo.longitude]}
-                      radius={geo.radius}
-                      pathOptions={{ ...circleStyle, color: geo.color || circleStyle.color }}
-                    >
-                      <Tooltip>{geo.name}</Tooltip>
-                    </LeafletCircle>
-                  )
-                );
-              }
-              if (!geo.points?.length) return null;
-              return (
-                visible && (
-                  <Polygon key={key} positions={geo.points} pathOptions={{ ...polygonStyle, color: geo.color || polygonStyle.color }}>
-                    <Tooltip>{geo.name}</Tooltip>
-                  </Polygon>
-                )
-              );
-            })}
-
-            {selectedRoutes.map((route) => {
-              const key = `route:${route.id}`;
-              const visible = visibleIds.has(key);
-              const points = Array.isArray(route.points) ? route.points : [];
-              if (!points.length) return null;
-              return (
-                visible && (
-                  <Polyline key={key} positions={points} pathOptions={{ color: "#eab308", weight: 4, opacity: 0.8 }}>
-                    <Tooltip>{route.name}</Tooltip>
-                  </Polyline>
-                )
-              );
-            })}
-
-            {selectedTargets.map((target) => {
-              const key = `target:${target.id}`;
-              const visible = visibleIds.has(key);
-              const position = resolveTargetPosition(target);
-              if (!visible || !position) return null;
-              return (
-                <Marker key={key} position={position}>
-                  <Tooltip>{target.name || target.plate || "Alvo"}</Tooltip>
-                </Marker>
-              );
-            })}
-          </MapContainer>
         </div>
       </div>
 
-      <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
+      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm text-white/80">
+            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+              <tr>
+                <th className="px-4 py-3 text-left">Nome</th>
+                <th className="px-4 py-3 text-left">Cliente</th>
+                <th className="px-4 py-3 text-left">Cercas</th>
+                <th className="px-4 py-3 text-left">Rotas</th>
+                <th className="px-4 py-3 text-left">Alvos</th>
+                <th className="px-4 py-3 text-left">Tamanho do arquivo</th>
+                <th className="px-4 py-3 text-left">Último embarque</th>
+                <th className="px-4 py-3 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {loading && (
+                <tr>
+                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
+                    Carregando itinerários…
+                  </td>
+                </tr>
+              )}
+              {!loading && filteredItineraries.length === 0 && (
+                <tr>
+                  <td colSpan={tableColCount} className="px-4 py-10 text-center text-white/60">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-white">Nenhum itinerário encontrado</p>
+                      <p className="text-xs text-white/60">Ajuste os filtros ou crie um novo itinerário.</p>
+                      <div className="flex justify-center gap-2 text-xs">
+                        <Button
+                          variant="ghost"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => {
+                            setEmbarkedFilter("all");
+                            setQuery("");
+                          }}
+                        >
+                          Limpar filtros
+                        </Button>
+                        <Button className="inline-flex items-center gap-2" onClick={() => openEditor(null)}>
+                          <Plus className="h-4 w-4" />
+                          Criar novo
+                        </Button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!loading &&
+                filteredItineraries.map((item) => {
+                  const items = item.items || [];
+                  const geofenceCount = items.filter((entry) => entry.type === "geofence").length;
+                  const routeCount = items.filter((entry) => entry.type === "route").length;
+                  const targetCount = items.filter((entry) => entry.type === "target").length;
+                  const lastEmbark = resolveLastEmbark(item);
+                  const lastEmbarkLabel = lastEmbark
+                    ? `${lastEmbark.vehicleName || lastEmbark.plate || "Veículo"} · ${formatDateTime(lastEmbark.embarkedAt || lastEmbark.at)}`
+                    : "—";
+                  return (
+                    <tr key={item.id}>
+                      <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
+                      <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
+                      <td className="px-4 py-3">{geofenceCount}</td>
+                      <td className="px-4 py-3">{routeCount}</td>
+                      <td className="px-4 py-3">{targetCount}</td>
+                      <td className="px-4 py-3">{formatBytes(kmlSizes.get(item.id))}</td>
+                      <td className="px-4 py-3">{lastEmbarkLabel}</td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex flex-wrap justify-end gap-2">
+                          <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
+                            Exportar KML
+                          </Button>
+                          <Button size="xs" variant="ghost" onClick={() => openEditor(item)} icon={Pencil}>
+                            Editar
+                          </Button>
+                          <Button size="xs" variant="ghost" onClick={() => handleDelete(item.id)} icon={Trash2}>
+                            Excluir
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* TODO: preencher último embarque quando API disponibilizar */}
+      <ItineraryModal
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
         title={selected ? "Editar itinerário" : "Novo itinerário"}
         description="Organize cercas, rotas e alvos existentes em um agrupador."
-      >
-        <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-          {[
-            { key: "cercas", label: "Cercas" },
-            { key: "rotas", label: "Rotas" },
-            { key: "alvos", label: "Alvos" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setDrawerTab(tab.key)}
-              className={`rounded-md px-3 py-2 transition ${drawerTab === tab.key ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"}`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">{selected ? "Detalhes" : "Novo itinerário"}</h3>
-            {selected && (
-              <Button size="sm" variant="ghost" onClick={() => handleDelete(selected.id)} icon={Trash}>
-                Excluir
-              </Button>
-            )}
-          </div>
-          <Input
-            label="Nome"
-            value={form.name}
-            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          />
-          <LTextArea
-            label="Descrição"
-            value={form.description}
-            onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            rows={3}
-          />
-
-          <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-white">Itens vinculados</p>
-              <div className="flex gap-2">
-                <Button size="xs" variant="secondary" onClick={() => selectedId && exportKml(selectedId)} icon={Download}>
-                  Exportar KML
-                </Button>
-                <Button size="xs" onClick={handleSave} disabled={saving} icon={Save}>
-                  {saving ? "Salvando..." : "Salvar"}
-                </Button>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {(form.items || []).map((item) => {
-                const key = `${item.type}:${item.id}`;
-                const visible = visibleIds.has(key);
-                const label =
-                  item.type === "geofence"
-                    ? geofenceById.get(String(item.id))?.name || `Cerca ${item.id}`
-                    : item.type === "route"
-                    ? routeById.get(String(item.id))?.name || `Rota ${item.id}`
-                    : targetById.get(String(item.id))?.name || `Alvo ${item.id}`;
-                const Icon = item.type === "geofence" ? MapIcon : item.type === "route" ? Route : Target;
-                return (
-                  <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-sm text-white">
-                    <span className="flex items-center gap-2">
-                      <Icon size={14} />
-                      {label}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="text-white/70 hover:text-white"
-                        onClick={() => handleToggleItem(item)}
-                        title={visible ? "Ocultar" : "Exibir"}
-                      >
-                        {visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                      </button>
-                      <button
-                        type="button"
-                        className="text-white/60 hover:text-white"
-                        onClick={() => handleRemoveItem(item)}
-                        title="Remover"
-                      >
-                        <Trash size={14} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              {(form.items || []).length === 0 && <p className="text-xs text-white/60">Nenhum item adicionado.</p>}
-            </div>
-          </div>
-
-          {drawerTab === "cercas" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Cercas disponíveis</p>
-                <span className="text-[11px] text-white/60">{geofences.length} disponíveis</span>
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {geofences.map((geo) => (
-                  <button
-                    key={geo.id}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                    onClick={() => handleAddItem({ type: "geofence", id: geo.id })}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span className="h-2 w-2 rounded-full" style={{ background: geo.color || "#22c55e" }} />
-                      {geo.name}
-                    </span>
-                    <span className="text-[11px] text-white/50">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
-                  </button>
-                ))}
-                {geofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca disponível.</p>}
-              </div>
-            </div>
-          )}
-
-          {drawerTab === "rotas" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Rotas disponíveis</p>
-                <span className="text-[11px] text-white/60">{routes.length} disponíveis</span>
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {routes.map((route) => (
-                  <button
-                    key={route.id}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                    onClick={() => handleAddItem({ type: "route", id: route.id })}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Route size={14} />
-                      {route.name}
-                    </span>
-                    <span className="text-[11px] text-white/50">{route.points?.length || 0} pts</span>
-                  </button>
-                ))}
-                {routes.length === 0 && <p className="text-xs text-white/60">Nenhuma rota disponível.</p>}
-              </div>
-            </div>
-          )}
-
-          {drawerTab === "alvos" && (
-            <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Alvos disponíveis</p>
-                <span className="text-[11px] text-white/60">{targetGeofences.length} disponíveis</span>
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {targetGeofences.map((target) => (
-                  <button
-                    key={target.id}
-                    type="button"
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                    onClick={() => handleAddItem({ type: "target", id: target.id })}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Target size={14} />
-                      {target.name || `Alvo ${target.id}`}
-                    </span>
-                    <span className="text-[11px] text-white/50">{target.type === "circle" ? "Círculo" : `${target.points?.length || 0} pts`}</span>
-                  </button>
-                ))}
-                {targetGeofences.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
-              </div>
-            </div>
-          )}
-        </div>
-      </Drawer>
+        saving={saving}
+        onSave={handleSave}
+        onDelete={selected ? () => handleDelete(selected.id) : null}
+        form={form}
+        onChange={setForm}
+        panelTab={panelTab}
+        onTabChange={setPanelTab}
+        geofences={geofences}
+        routes={routes}
+        targetGeofences={targetGeofences}
+        onAddItem={handleAddItem}
+        onRemoveItem={handleRemoveItem}
+      />
     </div>
   );
 }
