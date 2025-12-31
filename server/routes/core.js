@@ -1897,12 +1897,15 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       });
     }
 
+    const resolvedProtocol = traccarDevice?.protocol ?? device?.protocol ?? null;
     return res.json({
       device: {
         ...traccarDevice,
-        id: traccarDevice.id,
-        uniqueId: traccarDevice.uniqueId || null,
-        protocol: traccarDevice?.protocol ?? null,
+        id: device.id,
+        uniqueId: traccarDevice?.uniqueId || device?.uniqueId || null,
+        protocol: resolvedProtocol,
+        traccarId: traccarDevice?.id ?? device?.traccarId ?? null,
+        euroOneDeviceId: device.id,
       },
     });
   } catch (error) {
