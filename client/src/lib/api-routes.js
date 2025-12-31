@@ -26,6 +26,7 @@ export const API_ROUTES = {
   commandsHistory: "commands/history",
   commandsSend: "commands/send",
   commandsTypes: "commands/types",
+  commandsCustom: "commands/custom",
   notifications: "notifications",
   groups: "groups",
   userPreferences: "user/preferences",

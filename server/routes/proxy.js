@@ -1,6 +1,7 @@
 // server/routes/proxy.js
 import express from "express";
 import createError from "http-errors";
+import { randomUUID } from "node:crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
@@ -31,6 +32,7 @@ import { enrichPositionsWithAddresses, formatAddress, resolveShortAddress } from
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -98,6 +100,148 @@ function resolveCommandPayload(req) {
     type: match.type || match.code || match.id,
     attributes: req.body?.params || {},
   };
+}
+
+function ensureCommandPrismaModel(modelName) {
+  if (!isPrismaAvailable()) {
+    throw createError(503, "Persistência de comandos indisponível no momento.");
+  }
+  const model = prisma?.[modelName];
+  if (!model || typeof model.findMany !== "function") {
+    throw createError(503, `Prisma Client sem o modelo ${modelName}. Rode prisma generate e redeploy.`);
+  }
+  return model;
+}
+
+async function resolveTraccarDeviceFromVehicle(req, vehicleId) {
+  const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
+  const host = req.get("x-forwarded-host") || req.get("host");
+  if (!host) {
+    throw createError(500, "Host indisponível para resolver veículo");
+  }
+
+  const url = new URL(`/api/core/vehicles/${vehicleId}/traccar-device`, `${protocol}://${host}`);
+  const clientId = req.body?.clientId || req.query?.clientId;
+  if (clientId) {
+    url.searchParams.set("clientId", String(clientId));
+  }
+
+  const headers = { Accept: "application/json" };
+  if (req.headers.authorization) {
+    headers.Authorization = req.headers.authorization;
+  }
+  if (req.headers.cookie) {
+    headers.Cookie = req.headers.cookie;
+  }
+
+  const coreResponse = await fetch(url, { method: "GET", headers });
+  let payload = null;
+  try {
+    payload = await coreResponse.json();
+  } catch (_error) {
+    payload = null;
+  }
+
+  if (!coreResponse.ok || payload?.ok === false || payload?.error) {
+    const message = payload?.message || "Erro ao resolver veículo";
+    throw createError(coreResponse.status || 500, message);
+  }
+
+  return payload?.device || null;
+}
+
+function resolveCustomCommandPayload(customCommand) {
+  const kind = String(customCommand?.kind || "").toUpperCase();
+  const payload = customCommand?.payload && typeof customCommand.payload === "object" ? customCommand.payload : {};
+
+  if (kind === "SMS") {
+    if (!payload.phone || !payload.message) {
+      throw createError(400, "Comando SMS sem telefone ou mensagem");
+    }
+    return { type: "sendSms", attributes: { phone: payload.phone, message: payload.message } };
+  }
+
+  if (kind === "JSON") {
+    if (!payload.type) {
+      throw createError(400, "Comando JSON sem type definido");
+    }
+    const attributes = payload.attributes && typeof payload.attributes === "object" ? payload.attributes : {};
+    return { type: payload.type, attributes };
+  }
+
+  if (kind === "RAW") {
+    if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
+      throw createError(400, "Comando RAW sem conteúdo");
+    }
+    return { type: "custom", attributes: { data: payload.data } };
+  }
+
+  throw createError(400, "Tipo de comando personalizado inválido");
+}
+
+function normalizeCustomCommandInput(body = {}) {
+  const name = String(body?.name || "").trim();
+  const description = body?.description ? String(body.description).trim() : null;
+  const kind = String(body?.kind || "").toUpperCase();
+  const visible = body?.visible !== undefined ? Boolean(body.visible) : true;
+  const payload = body?.payload && typeof body.payload === "object" ? body.payload : {};
+
+  if (!name) {
+    throw createError(400, "Nome do comando é obrigatório");
+  }
+
+  if (!["SMS", "JSON", "RAW"].includes(kind)) {
+    throw createError(400, "Tipo de comando personalizado inválido");
+  }
+
+  if (kind === "SMS") {
+    if (!payload.phone || !payload.message) {
+      throw createError(400, "Comando SMS requer telefone e mensagem");
+    }
+  }
+
+  if (kind === "JSON") {
+    if (!payload.type) {
+      throw createError(400, "Comando JSON requer type");
+    }
+    if (payload.attributes && typeof payload.attributes !== "object") {
+      throw createError(400, "Comando JSON requer attributes como objeto");
+    }
+  }
+
+  if (kind === "RAW") {
+    if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
+      throw createError(400, "Comando RAW requer conteúdo");
+    }
+  }
+
+  return {
+    name,
+    description,
+    kind,
+    visible,
+    payload,
+  };
+}
+
+function resolveCommandNameFromEvent(event) {
+  const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
+  return (
+    attributes.command ||
+    attributes.commandType ||
+    attributes.type ||
+    attributes.commandId ||
+    event?.type ||
+    null
+  );
+}
+
+function resolveCommandResultText(event) {
+  const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
+  if (typeof attributes.result === "string" && attributes.result.trim()) return attributes.result;
+  if (typeof attributes.commandResult === "string" && attributes.commandResult.trim()) return attributes.commandResult;
+  if (typeof event?.result === "string" && event.result.trim()) return event.result;
+  return null;
 }
 
 const TRIP_CSV_COLUMNS = [
@@ -1027,25 +1171,117 @@ router.get("/commands/send", async (req, res, next) => {
 
 router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const allowed = resolveAllowedDeviceIds(req);
-    const traccarDeviceId = resolveTraccarDeviceId(req, allowed);
-    if (!traccarDeviceId) {
-      throw createError(400, "deviceId é obrigatório");
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    if (!vehicleId) {
+      throw createError(400, "vehicleId é obrigatório");
     }
 
-    const commandPayload = resolveCommandPayload(req);
+    const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+
+    const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+    const traccarId = Number(traccarDevice?.traccarId);
+    if (!Number.isFinite(traccarId)) {
+      throw createError(409, "Equipamento vinculado sem traccarId");
+    }
+
+    let commandPayload = null;
+    let commandName = null;
+    let commandKey = null;
+
+    if (req.body?.customCommandId) {
+      const customCommandModel = ensureCommandPrismaModel("customCommand");
+      const customCommandId = String(req.body.customCommandId);
+      const customCommand = await customCommandModel.findFirst({
+        where: {
+          id: customCommandId,
+          ...(clientId ? { clientId } : {}),
+        },
+      });
+      if (!customCommand) {
+        throw createError(404, "Comando personalizado não encontrado");
+      }
+      commandPayload = resolveCustomCommandPayload(customCommand);
+      commandName = customCommand.name;
+      commandKey = customCommand.id;
+    } else {
+      commandPayload = resolveCommandPayload(req);
+      commandName = req.body?.commandName || req.body?.commandKey || commandPayload?.type || null;
+      commandKey = req.body?.commandKey || commandPayload?.type || null;
+    }
+
     const payload = {
-      type: commandPayload.type,
-      attributes: commandPayload.attributes || {},
-      deviceId: Number(traccarDeviceId),
+      type: commandPayload?.type,
+      attributes: commandPayload?.attributes || {},
+      deviceId: traccarId,
     };
 
     if (!payload.type) {
       throw createError(400, "type é obrigatório");
     }
 
-    const data = await traccarProxy("post", "/commands/send", { data: payload, asAdmin: true });
-    res.status(201).json(data);
+    const requestId = randomUUID();
+    const sentAt = new Date();
+    let dispatchStatus = "sent";
+    let traccarStatus = null;
+    let traccarErrorMessage = null;
+
+    let traccarResponse = null;
+    try {
+      traccarResponse = await traccarRequest(
+        { method: "POST", url: "/commands/send", data: payload },
+        req,
+        { asAdmin: true },
+      );
+    } catch (requestError) {
+      dispatchStatus = "failed";
+      traccarStatus = Number(requestError?.status) || null;
+      traccarErrorMessage = requestError?.message || "Falha ao enviar comando ao Traccar";
+    }
+
+    if (traccarResponse && !traccarResponse.ok) {
+      dispatchStatus = "failed";
+      traccarStatus = Number(traccarResponse?.error?.code) || null;
+    } else if (traccarResponse?.ok) {
+      traccarStatus = traccarResponse?.status ?? 201;
+    }
+
+    await commandDispatchModel.create({
+      data: {
+        id: requestId,
+        clientId: clientId || undefined,
+        vehicleId,
+        traccarId,
+        commandKey,
+        commandName,
+        payloadSummary: { type: payload.type, attributes: payload.attributes },
+        sentAt,
+        status: dispatchStatus,
+        createdBy: req.user?.id || undefined,
+      },
+    });
+
+    console.info("[commands] dispatch", {
+      vehicleId,
+      euroOneDeviceId: traccarDevice?.id || null,
+      traccarId,
+      payloadType: payload.type,
+      status: dispatchStatus,
+      traccarStatus,
+    });
+
+    if (!traccarResponse?.ok) {
+      const status = Number.isFinite(traccarStatus) ? traccarStatus : 502;
+      throw createError(status, traccarResponse?.error?.message || traccarErrorMessage || "Falha ao enviar comando ao Traccar");
+    }
+
+    res.status(201).json({
+      ok: true,
+      vehicleId,
+      traccarId,
+      sentAt: sentAt.toISOString(),
+      requestId,
+    });
   } catch (error) {
     next(error);
   }
@@ -1069,6 +1305,7 @@ router.get("/commands/history", async (req, res, next) => {
     if (!vehicleId) {
       throw createError(400, "vehicleId é obrigatório");
     }
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
 
     const now = new Date();
     const from = parseDateOrThrow(
@@ -1081,72 +1318,212 @@ router.get("/commands/history", async (req, res, next) => {
       throw createError(400, "limit inválido");
     }
 
-    const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
-    const host = req.get("x-forwarded-host") || req.get("host");
-    if (!host) {
-      throw createError(500, "Host indisponível para resolver veículo");
-    }
-
-    const url = new URL(`/api/core/vehicles/${vehicleId}/traccar-device`, `${protocol}://${host}`);
-    if (req.query?.clientId) {
-      url.searchParams.set("clientId", String(req.query.clientId));
-    }
-
-    const headers = { Accept: "application/json" };
-    if (req.headers.authorization) {
-      headers.Authorization = req.headers.authorization;
-    }
-    if (req.headers.cookie) {
-      headers.Cookie = req.headers.cookie;
-    }
-
-    const coreResponse = await fetch(url, { method: "GET", headers });
-    let payload = null;
-    try {
-      payload = await coreResponse.json();
-    } catch (_error) {
-      payload = null;
-    }
-
-    if (!coreResponse.ok || payload?.ok === false || payload?.error) {
-      const message = payload?.message || "Erro ao resolver veículo";
-      throw createError(coreResponse.status || 500, message);
-    }
-
-    const traccarDevice = payload?.device || null;
+    const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
     const traccarId = Number(traccarDevice?.traccarId);
     if (!Number.isFinite(traccarId)) {
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
     const events = await fetchEventsWithFallback([String(traccarId)], from, to, limit);
-    const items = events
+    const eventItems = events
       .filter((event) => event?.type === "commandResult")
       .map((event) => {
-        const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
-        const result =
-          typeof attributes.result === "string"
-            ? attributes.result
-            : typeof attributes.commandResult === "string"
-            ? attributes.commandResult
-            : null;
         return {
           id: event.id ?? null,
           eventTime: event.eventTime ?? null,
-          type: event.type ?? null,
-          result,
-          attributes,
+          result: resolveCommandResultText(event),
+          commandName: resolveCommandNameFromEvent(event),
+          attributes: event?.attributes || {},
         };
       });
+
+    let dispatches = [];
+    if (isPrismaAvailable()) {
+      const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+      dispatches = await dispatchModel.findMany({
+        where: {
+          vehicleId,
+          ...(clientId ? { clientId } : {}),
+          sentAt: {
+            gte: from,
+            lte: to,
+          },
+        },
+        orderBy: { sentAt: "asc" },
+      });
+    }
+
+    const parsedEvents = eventItems
+      .map((event) => ({
+        ...event,
+        parsedTime: event.eventTime ? new Date(event.eventTime) : null,
+      }))
+      .filter((event) => event.parsedTime && Number.isFinite(event.parsedTime.getTime()))
+      .sort((a, b) => a.parsedTime - b.parsedTime);
+
+    const usedEventIds = new Set();
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(to).getTime();
+    const matchWindowMs = Number.isFinite(toMs - fromMs)
+      ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
+      : 2 * 60 * 60 * 1000;
+    const dispatchItems = dispatches.map((dispatch) => {
+      const sentTime = new Date(dispatch.sentAt);
+      const sentMs = sentTime.getTime();
+      let matched = null;
+
+      if (dispatch.status === "sent") {
+        matched = parsedEvents.find((event) => {
+          if (!event?.parsedTime) return false;
+          if (usedEventIds.has(event.id)) return false;
+          const eventMs = event.parsedTime.getTime();
+          if (eventMs < sentMs) return false;
+          if (eventMs - sentMs > matchWindowMs) return false;
+          return true;
+        });
+      }
+
+      if (matched?.id) {
+        usedEventIds.add(matched.id);
+      }
+
+      const status =
+        dispatch.status === "failed" ? "Falhou" : matched ? "Respondido" : "Enviado";
+
+      return {
+        requestId: dispatch.id,
+        sentAt: dispatch.sentAt,
+        responseAt: matched?.eventTime || null,
+        commandName: dispatch.commandName || dispatch.commandKey || null,
+        status,
+        result: matched?.result || null,
+      };
+    });
+
+    const unmatchedEvents = parsedEvents
+      .filter((event) => !usedEventIds.has(event.id))
+      .map((event) => ({
+        requestId: event.id ? `event-${event.id}` : `event-${event.eventTime}`,
+        sentAt: null,
+        responseAt: event.eventTime,
+        commandName: event.commandName,
+        status: "Respondido",
+        result: event.result,
+      }));
+
+    const merged = [...dispatchItems, ...unmatchedEvents]
+      .filter((item) => item.sentAt || item.responseAt)
+      .sort((a, b) => {
+        const timeA = new Date(a.responseAt || a.sentAt).getTime();
+        const timeB = new Date(b.responseAt || b.sentAt).getTime();
+        return timeB - timeA;
+      })
+      .slice(0, limit);
 
     res.json({
       data: {
         vehicleId,
         traccarId,
-        items,
+        items: merged,
       },
       error: null,
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/commands/custom", async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
+    const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
+    const customCommandModel = ensureCommandPrismaModel("customCommand");
+
+    const commands = await customCommandModel.findMany({
+      where: {
+        clientId,
+        ...(canSeeHidden ? {} : { visible: true }),
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    res.json({ data: commands, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/commands/custom", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const customCommandModel = ensureCommandPrismaModel("customCommand");
+    const input = normalizeCustomCommandInput(req.body);
+
+    const command = await customCommandModel.create({
+      data: {
+        clientId,
+        name: input.name,
+        description: input.description,
+        kind: input.kind,
+        payload: input.payload,
+        visible: input.visible,
+        createdBy: req.user?.id || undefined,
+      },
+    });
+
+    res.status(201).json({ data: command, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const customCommandModel = ensureCommandPrismaModel("customCommand");
+    const input = normalizeCustomCommandInput(req.body);
+
+    const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      throw createError(404, "Comando personalizado não encontrado");
+    }
+    if (String(existing.clientId) !== String(clientId) && req.user?.role !== "admin") {
+      throw createError(403, "Operação não permitida para este cliente");
+    }
+
+    const command = await customCommandModel.update({
+      where: { id: req.params.id },
+      data: {
+        name: input.name,
+        description: input.description,
+        kind: input.kind,
+        payload: input.payload,
+        visible: input.visible,
+      },
+    });
+
+    res.json({ data: command, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const customCommandModel = ensureCommandPrismaModel("customCommand");
+
+    const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      throw createError(404, "Comando personalizado não encontrado");
+    }
+    if (String(existing.clientId) !== String(clientId) && req.user?.role !== "admin") {
+      throw createError(403, "Operação não permitida para este cliente");
+    }
+
+    await customCommandModel.delete({ where: { id: req.params.id } });
+    res.status(204).send();
   } catch (error) {
     next(error);
   }
