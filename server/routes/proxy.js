@@ -6,6 +6,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
+import { getProtocolCommands, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import {
   fetchDevicesMetadata,
@@ -70,6 +71,33 @@ function resolveTraccarDeviceId(req, allowed = null) {
   }
 
   return String(match.traccarId);
+}
+
+function resolveCommandPayload(req) {
+  const commandKey = req.body?.commandKey;
+  const protocol = req.body?.protocol;
+  if (!commandKey || !protocol) {
+    return {
+      type: req.body?.type,
+      attributes: req.body?.attributes || {},
+    };
+  }
+
+  const protocolKey = normalizeProtocolKey(protocol);
+  const commands = getProtocolCommands(protocolKey);
+  if (!commands) {
+    throw createError(404, "Protocolo não encontrado");
+  }
+
+  const match = commands.find((command) => command?.id === commandKey || command?.code === commandKey);
+  if (!match) {
+    throw createError(404, "Comando não encontrado para o protocolo");
+  }
+
+  return {
+    type: match.type || match.code || match.id,
+    attributes: req.body?.params || {},
+  };
 }
 
 const TRIP_CSV_COLUMNS = [
@@ -994,9 +1022,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       throw createError(400, "deviceId é obrigatório");
     }
 
+    const commandPayload = resolveCommandPayload(req);
     const payload = {
-      type: req.body?.type,
-      attributes: req.body?.attributes || {},
+      type: commandPayload.type,
+      attributes: commandPayload.attributes || {},
       deviceId: Number(traccarDeviceId),
     };
 
