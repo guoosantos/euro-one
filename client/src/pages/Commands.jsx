@@ -6,7 +6,7 @@ import Input from "../ui/Input";
 import Select from "../ui/Select";
 import useDevices from "../lib/hooks/useDevices";
 import useVehicles from "../lib/hooks/useVehicles";
-import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 
@@ -186,7 +186,6 @@ export default function Commands() {
       device?.attributes?.protocol ||
       device?.modelProtocol ||
       vehicle?.protocol ||
-      vehicle?.attributes?.protocol ||
       "";
     return normalizeProtocol(rawProtocol);
   };
@@ -225,9 +224,21 @@ export default function Commands() {
   const deviceByKey = useMemo(() => {
     const map = new Map();
     devices.forEach((device) => {
-      const key = getDeviceKey(device);
-      if (!key) return;
-      map.set(key, device);
+      const keys = [
+        device?.id,
+        device?.deviceId,
+        device?.device_id,
+        device?.uniqueId,
+        device?.unique_id,
+        device?.traccarId,
+      ]
+        .map((value) => toDeviceKey(value))
+        .filter(Boolean);
+      keys.forEach((key) => {
+        if (!map.has(key)) {
+          map.set(key, device);
+        }
+      });
     });
     return map;
   }, [devices]);
@@ -894,7 +905,9 @@ export default function Commands() {
                 <div className="space-y-4">
                   {!protocolKey && (
                     <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                      Veículo sem protocolo/equipamento.
+                      {selectedVehicle?.primaryDeviceId
+                        ? "Veículo sem protocolo configurado."
+                        : "Veículo sem equipamento vinculado."}
                     </div>
                   )}
                   <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
