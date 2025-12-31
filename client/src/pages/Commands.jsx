@@ -73,6 +73,7 @@ export default function Commands() {
 
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [vehicleSearch, setVehicleSearch] = useState("");
   const [protocols, setProtocols] = useState([]);
   const [protocolsLoading, setProtocolsLoading] = useState(false);
   const [protocolError, setProtocolError] = useState(null);
@@ -104,6 +105,9 @@ export default function Commands() {
   const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
   const [copiedId, setCopiedId] = useState(null);
   const [showColumns, setShowColumns] = useState(false);
+  const [commandsByProtocol, setCommandsByProtocol] = useState({});
+  const [commandsByProtocolLoading, setCommandsByProtocolLoading] = useState(false);
+  const [commandsByProtocolError, setCommandsByProtocolError] = useState(null);
   const [columnsVisibility, setColumnsVisibility] = useState(() => {
     try {
       const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
@@ -127,6 +131,47 @@ export default function Commands() {
       })),
     [vehicles],
   );
+
+  const protocolLabelById = useMemo(() => {
+    return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.label]));
+  }, [protocols]);
+
+  const getVehicleProtocolKey = (vehicle) => {
+    if (!vehicle) return "";
+    const rawProtocol =
+      vehicle?.primaryDevice?.protocol ||
+      vehicle?.primaryDevice?.attributes?.protocol ||
+      vehicle?.primaryDevice?.modelProtocol ||
+      vehicle?.protocol ||
+      vehicle?.attributes?.protocol ||
+      "";
+    return normalizeProtocol(rawProtocol);
+  };
+
+  const formatProtocolLabel = (protocolKeyValue) => {
+    if (!protocolKeyValue) return "—";
+    return protocolLabelById.get(protocolKeyValue) || protocolKeyValue.toUpperCase();
+  };
+
+  const filteredVehicleOptions = useMemo(() => {
+    const term = vehicleSearch.trim().toLowerCase();
+    if (!term) return vehicleOptions;
+    return vehicleOptions.filter(
+      (vehicle) =>
+        vehicle.label?.toLowerCase().includes(term) ||
+        String(vehicle.id).toLowerCase().includes(term),
+    );
+  }, [vehicleOptions, vehicleSearch]);
+
+  const vehicleSearchResults = useMemo(() => {
+    if (!vehicleSearch.trim()) return [];
+    const term = vehicleSearch.trim().toLowerCase();
+    return vehicles.filter((vehicle) => {
+      const plate = vehicle?.plate || "";
+      const name = vehicle?.name || "";
+      return plate.toLowerCase().includes(term) || name.toLowerCase().includes(term);
+    });
+  }, [vehicleSearch, vehicles]);
 
   const selectedVehicle = useMemo(
     () => vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)) || null,
@@ -157,26 +202,30 @@ export default function Commands() {
     const normalized = normalizeProtocol(rawProtocol);
     return normalized;
   }, [selectedDevice, selectedVehicle, selectedVehicleId]);
-  const protocolLabel = useMemo(() => {
-    if (!protocolKey) return "—";
-    const protocol = protocols.find((item) => normalizeProtocol(item.id) === protocolKey);
-    return protocol?.label || protocolKey.toUpperCase();
-  }, [protocolKey, protocols]);
+  const protocolLabel = formatProtocolLabel(protocolKey);
 
   const selectedCommand = useMemo(
     () => protocolCommands.find((command) => command.id === selectedCommandId) || null,
     [protocolCommands, selectedCommandId],
   );
-  const filteredCommands = useMemo(() => {
+  const matchesCommandSearch = useMemo(() => {
     const term = commandSearch.trim().toLowerCase();
-    if (!term) return protocolCommands;
-    return protocolCommands.filter(
-      (command) =>
-        command.name?.toLowerCase().includes(term) ||
-        command.description?.toLowerCase().includes(term) ||
-        command.tags?.some((tag) => String(tag).toLowerCase().includes(term)),
-    );
-  }, [commandSearch, protocolCommands]);
+    if (!term) return () => true;
+    return (command) =>
+      command.name?.toLowerCase().includes(term) ||
+      command.description?.toLowerCase().includes(term) ||
+      command.tags?.some((tag) => String(tag).toLowerCase().includes(term));
+  }, [commandSearch]);
+  const filteredCommands = useMemo(() => {
+    return protocolCommands.filter(matchesCommandSearch);
+  }, [matchesCommandSearch, protocolCommands]);
+
+  const filteredCommandsByProtocol = useMemo(() => {
+    return Object.entries(commandsByProtocol).reduce((acc, [protocolId, list]) => {
+      acc[protocolId] = Array.isArray(list) ? list.filter(matchesCommandSearch) : [];
+      return acc;
+    }, {});
+  }, [commandsByProtocol, matchesCommandSearch]);
 
   const jsonDraftValidation = useMemo(() => {
     if (!jsonDraft.payload.trim()) {
@@ -268,6 +317,49 @@ export default function Commands() {
   }, []);
 
   useEffect(() => {
+    let mounted = true;
+    async function loadCommandsByProtocol() {
+      if (!protocols.length) {
+        if (mounted) {
+          setCommandsByProtocol({});
+          setCommandsByProtocolError(null);
+          setCommandsByProtocolLoading(false);
+        }
+        return;
+      }
+      setCommandsByProtocolLoading(true);
+      setCommandsByProtocolError(null);
+      try {
+        const entries = await Promise.all(
+          protocols.map(async (protocol) => {
+            const response = await api.get(API_ROUTES.protocolCommands(protocol.id));
+            const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
+            return [protocol.id, responseList];
+          }),
+        );
+        if (mounted) {
+          setCommandsByProtocol(Object.fromEntries(entries));
+        }
+      } catch (requestError) {
+        if (mounted) {
+          setCommandsByProtocolError(
+            requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"),
+          );
+          setCommandsByProtocol({});
+        }
+      } finally {
+        if (mounted) {
+          setCommandsByProtocolLoading(false);
+        }
+      }
+    }
+    loadCommandsByProtocol();
+    return () => {
+      mounted = false;
+    };
+  }, [protocols]);
+
+  useEffect(() => {
     setSelectedCommandId("");
     setCommandParams({});
   }, [protocolKey]);
@@ -275,7 +367,7 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedDeviceId || !protocolKey) {
+      if (!protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
@@ -291,15 +383,21 @@ export default function Commands() {
       try {
         const response = await api.get(API_ROUTES.protocolCommands(protocolKey));
         const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
-        const finalList = responseList.length ? responseList : [];
+        const fallbackList = Array.isArray(commandsByProtocol[protocolKey])
+          ? commandsByProtocol[protocolKey]
+          : [];
+        const finalList = responseList.length ? responseList : fallbackList;
         commandsCacheRef.current.set(cacheKey, finalList);
         if (mounted) {
           setProtocolCommands(finalList);
         }
       } catch (requestError) {
         if (mounted) {
+          const fallbackList = Array.isArray(commandsByProtocol[protocolKey])
+            ? commandsByProtocol[protocolKey]
+            : [];
           setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
-          setProtocolCommands([]);
+          setProtocolCommands(fallbackList);
         }
       } finally {
         if (mounted) {
@@ -311,7 +409,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [protocolKey, selectedDeviceId, commandsRefreshKey]);
+  }, [commandsByProtocol, protocolKey, commandsRefreshKey]);
 
   useEffect(() => {
     let mounted = true;
@@ -446,6 +544,7 @@ export default function Commands() {
 
   const handleClearFilters = () => {
     setSelectedVehicleId("");
+    setVehicleSearch("");
     setCommandSearch("");
   };
 
@@ -541,43 +640,7 @@ export default function Commands() {
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
       <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
         <header className="space-y-2 px-6 pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
-              <p className="text-xs text-white/60">Os comandos são encaminhados diretamente ao dispositivo via Traccar.</p>
-            </div>
-          </div>
-          <div className="flex flex-nowrap items-center gap-3 overflow-x-auto border-b border-white/10 pb-4">
-            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-              Veículo
-              <Select
-                value={selectedVehicleId}
-                onChange={(event) => setSelectedVehicleId(event.target.value)}
-                className="mt-2 w-full bg-layer text-sm"
-              >
-                <option value="">Selecione uma placa</option>
-                {vehicleOptions.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.label}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex min-w-[260px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-              Buscar comando
-              <Input
-                value={commandSearch}
-                onChange={(event) => setCommandSearch(event.target.value)}
-                placeholder="Buscar comando"
-                className="mt-2"
-              />
-            </label>
-            <div className="flex flex-nowrap items-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
-                Protocolo: {protocolLabel}
-              </span>
-              {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
-            </div>
+          <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto border-b border-white/10 pb-4">
             <div className="flex flex-nowrap gap-2">
               {COMMAND_TABS.map((tab) => (
                 <button
@@ -594,7 +657,7 @@ export default function Commands() {
                 </button>
               ))}
             </div>
-            <div className="ml-auto flex items-center justify-end gap-2 whitespace-nowrap">
+            <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
               <Button type="button" onClick={handleRefreshHistory}>
                 Mostrar
               </Button>
@@ -613,7 +676,7 @@ export default function Commands() {
                   <Columns3 size={18} />
                 </button>
                 {showColumns && (
-                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                  <div className="absolute right-0 top-12 z-20 w-52 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
                     <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
                     <div className="space-y-2">
                       {COMMAND_COLUMNS.map((column) => (
@@ -652,222 +715,439 @@ export default function Commands() {
         </header>
 
         <div className="space-y-4 px-6 pb-6">
+          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Buscar veículo
+              <Input
+                value={vehicleSearch}
+                onChange={(event) => setVehicleSearch(event.target.value)}
+                placeholder="Digite placa ou nome"
+                className="mt-2"
+              />
+            </label>
+            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Veículo
+              <Select
+                value={selectedVehicleId}
+                onChange={(event) => setSelectedVehicleId(event.target.value)}
+                className="mt-2 w-full bg-layer text-sm"
+              >
+                <option value="">Selecione uma placa</option>
+                {filteredVehicleOptions.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
+                    {vehicle.label}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Buscar comando
+              <Input
+                value={commandSearch}
+                onChange={(event) => setCommandSearch(event.target.value)}
+                placeholder="Buscar comando"
+                className="mt-2"
+              />
+            </label>
+            <div className="flex flex-nowrap items-center gap-2">
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
+                Protocolo: {protocolLabel}
+              </span>
+              {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
+            </div>
+          </div>
 
-        {activeTab === "Comandos" && (
-          <div className="space-y-4">
-            {!selectedDeviceId && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Selecione um veículo para visualizar comandos disponíveis.
-              </div>
-            )}
-
-            {selectedDeviceId && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                  <span>Comandos homologados</span>
-                  <span>{filteredCommands.length} itens</span>
+          {vehicleSearch.trim() && (
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {vehicleSearchResults.length === 0 && (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                  Nenhum veículo encontrado.
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <colgroup>
-                      {visibleCommandColumns.map((column) => (
-                        <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
-                      ))}
-                    </colgroup>
-                    <thead className="text-left text-xs uppercase tracking-wide text-white/50">
-                      <tr>
-                        {visibleCommandColumns.map((column) => (
-                          <th key={column.id} className="py-2 pr-6">
-                            {column.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/40">
-                      {commandsLoading && (
-                        <tr>
-                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                            Carregando comandos…
-                          </td>
-                        </tr>
-                      )}
-                      {commandsError && (
-                        <tr>
-                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-red-300">
-                            {commandsError.message}
-                          </td>
-                        </tr>
-                      )}
-                      {!commandsLoading && filteredCommands.length === 0 && (
-                        <tr>
-                          <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                            Nenhum comando disponível para este protocolo.
-                          </td>
-                        </tr>
-                      )}
-                      {filteredCommands.map((command) => (
-                        <tr key={command.id} className="hover:bg-white/5">
-                          {visibleCommandColumns.map((column) => {
-                            switch (column.id) {
-                              case "device":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/70">
-                                    {selectedVehicle?.plate || selectedVehicle?.name || "—"}
-                                  </td>
-                                );
-                              case "command":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/80">
-                                    <div className="text-sm font-semibold text-white">{command.name}</div>
-                                    {command.tags?.length ? (
-                                      <div className="mt-1 flex flex-wrap gap-2">
-                                        {command.tags.map((tag) => (
-                                          <span
-                                            key={tag}
-                                            className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
-                                          >
-                                            {tag}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </td>
-                                );
-                              case "description":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/60">
-                                    {command.description}
-                                  </td>
-                                );
-                              case "action":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6">
-                                    {command.parameters?.length ? (
-                                      <Button
-                                        size="xs"
-                                        variant="secondary"
-                                        onClick={() => handleSelectCommand(command)}
-                                      >
-                                        Configurar
-                                      </Button>
-                                    ) : (
-                                      <Button
-                                        size="xs"
-                                        onClick={() =>
-                                          handleSendCommand(
-                                            { command: command.type || command.id },
-                                            { context: "quick" },
-                                          )
-                                        }
-                                        disabled={sending}
-                                      >
-                                        {sending ? "Enviando…" : "Enviar"}
-                                      </Button>
-                                    )}
-                                  </td>
-                                );
-                              case "protocol":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/60">
-                                    {protocolLabel}
-                                  </td>
-                                );
-                              case "json":
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/60">
-                                    {formatCommandTemplatePayload(command)}
-                                  </td>
-                                );
-                              default:
-                                return (
-                                  <td key={column.id} className="py-2 pr-6 text-white/60">
-                                    —
-                                  </td>
-                                );
-                            }
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                    <span>Parâmetros do comando</span>
-                    <span>{selectedCommand ? selectedCommand.type : "Selecione um comando"}</span>
-                  </div>
-                  {!selectedCommand && <p className="mt-3 text-xs text-white/60">Selecione um comando para configurar.</p>}
-                  {selectedCommand && (
-                    <div className="mt-3 space-y-3">
-                      <div>
-                        <div className="text-sm font-semibold text-white">{selectedCommand.name}</div>
-                        <p className="text-xs text-white/60">{selectedCommand.description}</p>
-                      </div>
-                      {selectedCommand.parameters?.length ? (
-                        <div className="grid gap-3 md:grid-cols-2">
-                          {selectedCommand.parameters.map((param) => (
-                            <label key={param.key} className="text-xs uppercase tracking-wide text-white/60">
-                              {param.label}
-                              {param.key === "index" ? (
-                                <Select
-                                  value={commandParams[param.key] ?? ""}
-                                  onChange={(event) =>
-                                    setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
-                                  }
-                                  className="mt-1 w-full bg-layer text-sm"
-                                >
-                                  <option value="">Selecione</option>
-                                  {[1, 2, 3, 4].map((value) => (
-                                    <option key={value} value={value}>
-                                      Saída {value}
-                                    </option>
-                                  ))}
-                                </Select>
-                              ) : (
-                                <input
-                                  type={param.type === "number" ? "number" : "text"}
-                                  min={param.min}
-                                  max={param.max}
-                                  value={commandParams[param.key] ?? ""}
-                                  onChange={(event) =>
-                                    setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                                  required={param.required}
-                                />
-                              )}
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
-                      )}
+              )}
+              {vehicleSearchResults.map((vehicle) => {
+                const vehicleProtocolKey = getVehicleProtocolKey(vehicle);
+                return (
+                  <div
+                    key={vehicle.id}
+                    className="flex flex-col justify-between gap-3 rounded-2xl border border-white/10 bg-[#0b0f17] p-4"
+                  >
+                    <div className="space-y-1">
+                      <div className="text-sm font-semibold text-white">{vehicle.plate || "Placa não informada"}</div>
+                      {vehicle.name && <div className="text-xs text-white/60">{vehicle.name}</div>}
+                      <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide text-white/60">
+                        {formatProtocolLabel(vehicleProtocolKey)}
+                      </span>
+                    </div>
+                    <div className="flex justify-end">
                       <Button
                         type="button"
-                        onClick={handleSendSelectedCommand}
-                        disabled={sending || !commandParamsValidation.valid}
+                        size="xs"
+                        onClick={() => {
+                          setSelectedVehicleId(vehicle.id);
+                          setVehicleSearch("");
+                        }}
                       >
-                        {sending ? "Enviando…" : "Enviar comando"}
+                        Selecionar
                       </Button>
-                      {formSuccess && formSuccessContext === "selected" && (
-                        <p className="text-xs text-emerald-200">{formSuccess.message}</p>
-                      )}
-                      {formError && formErrorContext === "selected" && (
-                        <p className="text-xs text-red-300">{formError.message}</p>
-                      )}
-                      {!commandParamsValidation.valid && (
-                        <p className="text-xs text-amber-200/80">
-                          Preencha: {commandParamsValidation.missing.join(", ")}
-                        </p>
-                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {activeTab === "Comandos" && (
+            <div className="space-y-4">
+              {!selectedVehicleId && commandsByProtocolLoading && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                  Carregando comandos…
+                </div>
+              )}
+              {!selectedVehicleId && commandsByProtocolError && (
+                <div className="rounded-xl border border-red-300/40 bg-red-500/10 p-4 text-sm text-red-200">
+                  {commandsByProtocolError.message}
+                </div>
+              )}
+
+              {selectedVehicleId && (
+                <div className="space-y-4">
+                  {!protocolKey && (
+                    <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                      Protocolo não identificado para este veículo.
                     </div>
                   )}
+                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
+                    <span>Comandos homologados</span>
+                    <span>{filteredCommands.length} itens</span>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <colgroup>
+                        {visibleCommandColumns.map((column) => (
+                          <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+                        ))}
+                      </colgroup>
+                      <thead className="text-left text-xs uppercase tracking-wide text-white/50">
+                        <tr>
+                          {visibleCommandColumns.map((column) => (
+                            <th key={column.id} className="py-2 pr-6">
+                              {column.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/40">
+                        {commandsLoading && (
+                          <tr>
+                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
+                              Carregando comandos…
+                            </td>
+                          </tr>
+                        )}
+                        {commandsError && (
+                          <tr>
+                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-red-300">
+                              {commandsError.message}
+                            </td>
+                          </tr>
+                        )}
+                        {!commandsLoading && filteredCommands.length === 0 && (
+                          <tr>
+                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
+                              Nenhum comando disponível para este protocolo.
+                            </td>
+                          </tr>
+                        )}
+                        {filteredCommands.map((command) => (
+                          <tr key={command.id} className="hover:bg-white/5">
+                            {visibleCommandColumns.map((column) => {
+                              switch (column.id) {
+                                case "device":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/70">
+                                      {selectedVehicle?.plate || selectedVehicle?.name || "—"}
+                                    </td>
+                                  );
+                                case "command":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/80">
+                                      <div className="text-sm font-semibold text-white">{command.name}</div>
+                                      {command.tags?.length ? (
+                                        <div className="mt-1 flex flex-wrap gap-2">
+                                          {command.tags.map((tag) => (
+                                            <span
+                                              key={tag}
+                                              className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
+                                            >
+                                              {tag}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </td>
+                                  );
+                                case "description":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/60">
+                                      {command.description}
+                                    </td>
+                                  );
+                                case "action":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6">
+                                      {command.parameters?.length ? (
+                                        <Button
+                                          size="xs"
+                                          variant="secondary"
+                                          onClick={() => handleSelectCommand(command)}
+                                        >
+                                          Configurar
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          size="xs"
+                                          onClick={() =>
+                                            handleSendCommand(
+                                              { command: command.type || command.id },
+                                              { context: "quick" },
+                                            )
+                                          }
+                                          disabled={sending}
+                                        >
+                                          {sending ? "Enviando…" : "Enviar"}
+                                        </Button>
+                                      )}
+                                    </td>
+                                  );
+                                case "protocol":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/60">
+                                      {protocolLabel}
+                                    </td>
+                                  );
+                                case "json":
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/60">
+                                      {formatCommandTemplatePayload(command)}
+                                    </td>
+                                  );
+                                default:
+                                  return (
+                                    <td key={column.id} className="py-2 pr-6 text-white/60">
+                                      —
+                                    </td>
+                                  );
+                              }
+                            })}
+                          </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
+                    <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
+                      <span>Parâmetros do comando</span>
+                      <span>{selectedCommand ? selectedCommand.type : "Selecione um comando"}</span>
+                    </div>
+                    {!selectedCommand && (
+                      <p className="mt-3 text-xs text-white/60">Selecione um comando para configurar.</p>
+                    )}
+                    {selectedCommand && (
+                      <div className="mt-3 space-y-3">
+                        <div>
+                          <div className="text-sm font-semibold text-white">{selectedCommand.name}</div>
+                          <p className="text-xs text-white/60">{selectedCommand.description}</p>
+                        </div>
+                        {selectedCommand.parameters?.length ? (
+                          <div className="grid gap-3 md:grid-cols-2">
+                            {selectedCommand.parameters.map((param) => (
+                              <label key={param.key} className="text-xs uppercase tracking-wide text-white/60">
+                                {param.label}
+                                {param.key === "index" ? (
+                                  <Select
+                                    value={commandParams[param.key] ?? ""}
+                                    onChange={(event) =>
+                                      setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
+                                    }
+                                    className="mt-1 w-full bg-layer text-sm"
+                                  >
+                                    <option value="">Selecione</option>
+                                    {[1, 2, 3, 4].map((value) => (
+                                      <option key={value} value={value}>
+                                        Saída {value}
+                                      </option>
+                                    ))}
+                                  </Select>
+                                ) : (
+                                  <input
+                                    type={param.type === "number" ? "number" : "text"}
+                                    min={param.min}
+                                    max={param.max}
+                                    value={commandParams[param.key] ?? ""}
+                                    onChange={(event) =>
+                                      setCommandParams((prev) => ({ ...prev, [param.key]: event.target.value }))
+                                    }
+                                    className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                                    required={param.required}
+                                  />
+                                )}
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
+                        )}
+                        <Button
+                          type="button"
+                          onClick={handleSendSelectedCommand}
+                          disabled={sending || !commandParamsValidation.valid}
+                        >
+                          {sending ? "Enviando…" : "Enviar comando"}
+                        </Button>
+                        {formSuccess && formSuccessContext === "selected" && (
+                          <p className="text-xs text-emerald-200">{formSuccess.message}</p>
+                        )}
+                        {formError && formErrorContext === "selected" && (
+                          <p className="text-xs text-red-300">{formError.message}</p>
+                        )}
+                        {!commandParamsValidation.valid && (
+                          <p className="text-xs text-amber-200/80">
+                            Preencha: {commandParamsValidation.missing.join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+              {!selectedVehicleId && !commandsByProtocolLoading && !commandsByProtocolError && (
+                <div className="space-y-5">
+                  {protocols.map((protocol) => {
+                    const commands = filteredCommandsByProtocol[protocol.id] || [];
+                    return (
+                      <div key={protocol.id} className="space-y-3">
+                        <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
+                          <span>{protocol.label}</span>
+                          <span>{commands.length} itens</span>
+                        </div>
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full text-sm">
+                            <colgroup>
+                              {visibleCommandColumns.map((column) => (
+                                <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+                              ))}
+                            </colgroup>
+                            <thead className="text-left text-xs uppercase tracking-wide text-white/50">
+                              <tr>
+                                {visibleCommandColumns.map((column) => (
+                                  <th key={column.id} className="py-2 pr-6">
+                                    {column.label}
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/40">
+                              {commands.length === 0 && (
+                                <tr>
+                                  <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
+                                    Nenhum comando disponível para este protocolo.
+                                  </td>
+                                </tr>
+                              )}
+                              {commands.map((command) => (
+                                <tr key={`${protocol.id}-${command.id}`} className="hover:bg-white/5">
+                                  {visibleCommandColumns.map((column) => {
+                                    switch (column.id) {
+                                      case "device":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/70">
+                                            —
+                                          </td>
+                                        );
+                                      case "command":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/80">
+                                            <div className="text-sm font-semibold text-white">{command.name}</div>
+                                            {command.tags?.length ? (
+                                              <div className="mt-1 flex flex-wrap gap-2">
+                                                {command.tags.map((tag) => (
+                                                  <span
+                                                    key={tag}
+                                                    className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
+                                                  >
+                                                    {tag}
+                                                  </span>
+                                                ))}
+                                              </div>
+                                            ) : null}
+                                          </td>
+                                        );
+                                      case "description":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/60">
+                                            {command.description}
+                                          </td>
+                                        );
+                                      case "action":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6">
+                                            {command.parameters?.length ? (
+                                              <Button
+                                                size="xs"
+                                                variant="secondary"
+                                                onClick={() => handleSelectCommand(command)}
+                                              >
+                                                Configurar
+                                              </Button>
+                                            ) : (
+                                              <Button
+                                                size="xs"
+                                                onClick={() =>
+                                                  handleSendCommand(
+                                                    { command: command.type || command.id },
+                                                    { context: "quick" },
+                                                  )
+                                                }
+                                                disabled={sending}
+                                              >
+                                                {sending ? "Enviando…" : "Enviar"}
+                                              </Button>
+                                            )}
+                                          </td>
+                                        );
+                                      case "protocol":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/60">
+                                            {protocol.label}
+                                          </td>
+                                        );
+                                      case "json":
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/60">
+                                            {formatCommandTemplatePayload(command)}
+                                          </td>
+                                        );
+                                      default:
+                                        return (
+                                          <td key={column.id} className="py-2 pr-6 text-white/60">
+                                            —
+                                          </td>
+                                        );
+                                    }
+                                  })}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
         {activeTab === "Avançado" && (
           <div className="space-y-4">
