@@ -119,13 +119,11 @@ function buildProtocolDebugHint({ coreDeviceId, traccarDeviceId, uniqueId }) {
 }
 
 function normalizeManualType(input) {
-  if (input && typeof input === "object") {
-    const candidate = input.value ?? input.type ?? input.label ?? "";
-    const manualTypeStr = typeof candidate === "string" ? candidate : String(candidate ?? "");
-    return manualTypeStr.trim();
-  }
-  const manualTypeStr = typeof input === "string" ? input : String(input ?? "");
-  return manualTypeStr.trim();
+  const candidate =
+    input && typeof input === "object"
+      ? input.value ?? input.type ?? input.label ?? ""
+      : input ?? "";
+  return String(candidate ?? "").trim();
 }
 
 function loadTemplates() {
@@ -364,7 +362,7 @@ export default function Commands() {
     if (selectedTraccarDeviceId === null) return null;
     return vehicleByDeviceId.get(String(selectedTraccarDeviceId)) || null;
   }, [selectedTraccarDeviceId, selectedVehicleId, vehicleByDeviceId, vehicleById]);
-  const hasSelectedVehicle = selectedVehicleId !== null;
+  const hasSelectedVehicle = Boolean(selectedVehicle);
   const hasSelectedDevice = selectedTraccarDeviceId !== null;
   const list = Array.isArray(history) ? history : [];
   const selectedDevice = useMemo(() => {
@@ -637,6 +635,7 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function resolveProtocolFallback() {
+      const missingProtocolMessage = "Protocolo não configurado. Vincule um modelo/protocolo ao equipamento.";
       if (!selectedTraccarDeviceId) {
         if (mounted) {
           setSelectedProtocol("");
@@ -662,15 +661,13 @@ export default function Commands() {
       });
       if (!coreDeviceId) {
         if (mounted) {
-          setSelectionError(new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`));
+          setSelectionError(new Error(`${missingProtocolMessage}${debugHint}`));
           setSelectionLoading(false);
         }
         return;
       }
       if (mounted) {
-        setSelectionError(
-          new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`),
-        );
+        setSelectionError(new Error(`${missingProtocolMessage}${debugHint}`));
         setSelectionLoading(false);
       }
     }
@@ -684,7 +681,7 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedTraccarDeviceId || !protocolKey) {
+      if (!hasSelectedVehicle || !selectedTraccarDeviceId || !protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
@@ -730,7 +727,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [commandsRefreshKey, protocolId, protocolKey, selectedTraccarDeviceId]);
+  }, [commandsRefreshKey, hasSelectedVehicle, protocolId, protocolKey, selectedTraccarDeviceId]);
 
   useEffect(() => {
     let mounted = true;
