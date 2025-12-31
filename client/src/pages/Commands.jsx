@@ -104,7 +104,7 @@ export default function Commands() {
   const commandsCacheRef = useRef(new Map());
 
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
-  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [protocols, setProtocols] = useState([]);
   const [protocolsLoading, setProtocolsLoading] = useState(false);
@@ -164,11 +164,16 @@ export default function Commands() {
 
   const vehicleOptions = useMemo(
     () =>
-      vehicles.map((vehicle) => ({
-        id: vehicle.id,
-        label: vehicle.plate || "Placa não informada",
-        deviceId: vehicle.primaryDeviceId,
-      })),
+      vehicles.map((vehicle) => {
+        const hasDevice = Boolean(vehicle.primaryDeviceId);
+        return {
+          id: vehicle.id,
+          label: vehicle.plate || "Placa não informada",
+          deviceId: vehicle.primaryDeviceId,
+          disabled: !hasDevice,
+          note: hasDevice ? "" : "Veículo sem equipamento vinculado",
+        };
+      }),
     [vehicles],
   );
 
@@ -220,13 +225,12 @@ export default function Commands() {
     });
   }, [vehicleSearch, vehicles]);
 
-  const selectedVehicle = useMemo(
-    () => vehicles.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)) || null,
-    [selectedVehicleId, vehicles],
-  );
-  const selectedDeviceId = selectedVehicle?.primaryDeviceId || "";
-  const hasSelectedVehicle = Boolean(selectedVehicleId);
-  const hasLinkedDevice = Boolean(selectedVehicle?.primaryDeviceId);
+  const selectedVehicle = useMemo(() => {
+    const key = toDeviceKey(selectedEquipmentId);
+    if (!key) return null;
+    return vehicles.find((vehicle) => toDeviceKey(vehicle.primaryDeviceId) === key) || null;
+  }, [selectedEquipmentId, vehicles]);
+  const hasSelectedEquipment = Boolean(selectedEquipmentId);
   const list = Array.isArray(history) ? history : [];
   const deviceByKey = useMemo(() => {
     const map = new Map();
@@ -239,18 +243,29 @@ export default function Commands() {
     return map;
   }, [devices]);
 
-  const selectedDevice = useMemo(() => {
-    if (!selectedVehicle?.primaryDeviceId) return null;
-    const targetKey = toDeviceKey(selectedVehicle.primaryDeviceId);
+  const selectedEquipment = useMemo(() => {
+    const targetKey = toDeviceKey(selectedEquipmentId);
     if (!targetKey) return null;
     return deviceByKey.get(targetKey) || null;
-  }, [deviceByKey, selectedVehicle]);
-  const protocolKey = useMemo(
-    () => getVehicleProtocolKey(selectedVehicle, selectedDevice),
-    [selectedDevice, selectedVehicle],
-  );
+  }, [deviceByKey, selectedEquipmentId]);
+  const protocolKey = useMemo(() => {
+    const rawProtocol =
+      selectedEquipment?.protocol ||
+      selectedEquipment?.attributes?.protocol ||
+      selectedEquipment?.modelProtocol ||
+      "";
+    return normalizeProtocol(rawProtocol);
+  }, [selectedEquipment]);
   const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || protocolKey, [protocolIdByKey, protocolKey]);
   const protocolLabel = formatProtocolLabel(protocolKey);
+  const selectedCommandDeviceId = useMemo(() => {
+    if (!selectedEquipment) return "";
+    const numericId = selectedEquipment.deviceId ?? selectedEquipment.traccarDeviceId;
+    if (numericId !== undefined && numericId !== null && numericId !== "") {
+      return numericId;
+    }
+    return selectedEquipment.id ?? "";
+  }, [selectedEquipment]);
 
   const selectedCommand = useMemo(
     () => protocolCommands.find((command) => command.id === selectedCommandId) || null,
@@ -293,8 +308,9 @@ export default function Commands() {
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
-      if (!vehicle.primaryDeviceId) return;
-      map.set(String(vehicle.primaryDeviceId), vehicle);
+      const key = toDeviceKey(vehicle.primaryDeviceId);
+      if (!key) return;
+      map.set(key, vehicle);
     });
     return map;
   }, [vehicles]);
@@ -456,7 +472,7 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedVehicleId || !protocolKey) {
+      if (!selectedEquipment || !protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
@@ -500,12 +516,12 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [commandsRefreshKey, protocolId, protocolKey, selectedVehicleId]);
+  }, [commandsRefreshKey, protocolId, protocolKey, selectedEquipment]);
 
   useEffect(() => {
     let mounted = true;
     async function loadHistory() {
-      if (!selectedDeviceId) {
+      if (!selectedCommandDeviceId) {
         setHistory([]);
         setHistoryError(null);
         return;
@@ -514,7 +530,7 @@ export default function Commands() {
       setHistoryError(null);
       try {
         const response = await api.get(API_ROUTES.commands, {
-          params: { deviceId: selectedDeviceId, from: historyFrom, to: historyTo },
+          params: { deviceId: selectedCommandDeviceId, from: historyFrom, to: historyTo },
         });
         const entries = Array.isArray(response?.data?.commands)
           ? response.data.commands
@@ -539,7 +555,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [historyFrom, historyRefreshKey, historyTo, selectedDeviceId]);
+  }, [historyFrom, historyRefreshKey, historyTo, selectedCommandDeviceId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -549,7 +565,7 @@ export default function Commands() {
   useEffect(() => {
     if (activeTab !== "SMS") return;
     setSmsStatus(null);
-  }, [activeTab, selectedVehicleId]);
+  }, [activeTab, selectedEquipmentId]);
 
   function handleSelectCommand(command) {
     setSelectedCommandId(command.id);
@@ -580,7 +596,7 @@ export default function Commands() {
     setFormErrorContext(context || null);
     setFormSuccess(null);
     setFormSuccessContext(null);
-    if (!selectedDeviceId) {
+    if (!selectedCommandDeviceId) {
       setFormError(new Error("Selecione um veículo com equipamento vinculado."));
       return;
     }
@@ -596,7 +612,7 @@ export default function Commands() {
     setSending(true);
     try {
       const response = await api.post(API_ROUTES.commands, {
-        deviceId: selectedDeviceId,
+        deviceId: selectedCommandDeviceId,
         type: commandType,
         attributes: payload?.params && Object.keys(payload.params).length ? payload.params : undefined,
       });
@@ -634,7 +650,7 @@ export default function Commands() {
   };
 
   const handleClearFilters = () => {
-    setSelectedVehicleId("");
+    setSelectedEquipmentId("");
     setVehicleSearch("");
     setCommandSearch("");
   };
@@ -803,9 +819,6 @@ export default function Commands() {
           {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
           {vehiclesLoading && <p className="text-xs text-white/50">Carregando veículos…</p>}
           {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
-          {selectedVehicle && !selectedVehicle?.primaryDeviceId && (
-            <p className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
-          )}
         </header>
 
         <div className="space-y-4 px-6 pb-6">
@@ -822,14 +835,15 @@ export default function Commands() {
             <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Veículo
               <Select
-                value={selectedVehicleId}
-                onChange={(event) => setSelectedVehicleId(event.target.value)}
+                value={selectedEquipmentId}
+                onChange={(event) => setSelectedEquipmentId(event.target.value)}
                 className="mt-2 w-full bg-layer text-sm"
               >
                 <option value="">Selecione uma placa</option>
                 {filteredVehicleOptions.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
+                  <option key={vehicle.id} value={vehicle.deviceId || ""} disabled={vehicle.disabled}>
                     {vehicle.label}
+                    {vehicle.note ? ` — ${vehicle.note}` : ""}
                   </option>
                 ))}
               </Select>
@@ -868,6 +882,9 @@ export default function Commands() {
                     <div className="space-y-1">
                       <div className="text-sm font-semibold text-white">{vehicle.plate || "Placa não informada"}</div>
                       {vehicle.name && <div className="text-xs text-white/60">{vehicle.name}</div>}
+                      {!vehicle.primaryDeviceId && (
+                        <div className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</div>
+                      )}
                       <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide text-white/60">
                         {formatProtocolLabel(vehicleProtocolKey)}
                       </span>
@@ -877,11 +894,13 @@ export default function Commands() {
                         type="button"
                         size="xs"
                         onClick={() => {
-                          setSelectedVehicleId(vehicle.id);
+                          if (!vehicle.primaryDeviceId) return;
+                          setSelectedEquipmentId(vehicle.primaryDeviceId);
                           setVehicleSearch("");
                         }}
+                        disabled={!vehicle.primaryDeviceId}
                       >
-                        Selecionar
+                        {vehicle.primaryDeviceId ? "Selecionar" : "Sem equipamento"}
                       </Button>
                     </div>
                   </div>
@@ -892,22 +911,17 @@ export default function Commands() {
 
           {activeTab === "Comandos" && (
             <div className="space-y-4">
-              {!hasSelectedVehicle && (
+              {!hasSelectedEquipment && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                   Selecione um veículo para visualizar comandos disponíveis.
                 </div>
               )}
-              {hasSelectedVehicle && !hasLinkedDevice && (
-                <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  Veículo sem equipamento vinculado.
-                </div>
-              )}
-              {hasSelectedVehicle && hasLinkedDevice && !protocolKey && (
+              {hasSelectedEquipment && !protocolKey && (
                 <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
                   Veículo sem protocolo configurado.
                 </div>
               )}
-              {hasSelectedVehicle && protocolKey && (
+              {hasSelectedEquipment && protocolKey && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
                     <span>Comandos homologados</span>
@@ -1514,7 +1528,9 @@ export default function Commands() {
               {list.map((command) => {
                 const status = resolveCommandStatus(command);
                 const response = resolveCommandResponse(command);
-                const vehicle = vehicleByDeviceId.get(String(command.deviceId ?? command.device?.id ?? ""));
+                const vehicle = vehicleByDeviceId.get(
+                  toDeviceKey(command.deviceId ?? command.device?.id ?? ""),
+                );
                 const plateLabel = vehicle?.plate || vehicle?.name || command.device?.name || "—";
                 return (
                   <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`} className="hover:bg-white/5">
