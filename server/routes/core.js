@@ -1850,11 +1850,6 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       });
     };
 
-    const resolveTraccarStatus = (payload) => {
-      const status = Number(payload?.status || payload?.statusCode || payload?.response?.status);
-      return Number.isFinite(status) && status >= 400 ? status : null;
-    };
-
     let traccarDeviceId = principalDevice.traccarId ? String(principalDevice.traccarId) : null;
 
     if (!traccarDeviceId) {
@@ -1863,8 +1858,13 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       }
 
       const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
+      console.info("[traccar] GET /devices", {
+        url: "/devices",
+        status: Number(lookup?.status || lookup?.statusCode || 200),
+        body: lookup,
+      });
       if (lookup?.ok === false || lookup?.error) {
-        return sendTraccarError(lookup, resolveTraccarStatus(lookup) || 502);
+        return sendTraccarError(lookup, 502);
       }
 
       const list = normaliseList(lookup, ["devices"]);
@@ -1881,13 +1881,27 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       deps.updateDevice(principalDevice.id, { traccarId: traccarDeviceId });
     }
 
+    const traccarDeviceIdNumber = Number(traccarDeviceId);
+    if (!traccarDeviceId || !Number.isFinite(traccarDeviceIdNumber)) {
+      return res.status(500).json({
+        ok: false,
+        message: "ID do device Traccar inválido",
+        details: { traccarDeviceId },
+      });
+    }
+
     const traccarDevice = await deps.traccarProxy("get", `/devices/${traccarDeviceId}`, {
       asAdmin: true,
       context: req,
     });
+    console.info("[traccar] GET /devices/:id", {
+      url: `/devices/${traccarDeviceId}`,
+      status: Number(traccarDevice?.status || traccarDevice?.statusCode || 200),
+      body: traccarDevice,
+    });
 
     if (traccarDevice?.ok === false || traccarDevice?.error) {
-      return sendTraccarError(traccarDevice, resolveTraccarStatus(traccarDevice) || 502);
+      return sendTraccarError(traccarDevice, 502);
     }
 
     if (!traccarDevice?.protocol) {
@@ -1910,8 +1924,7 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
     });
   } catch (error) {
     if (error?.isTraccarError) {
-      const status = Number(error?.status || error?.statusCode || error?.details?.status) || 502;
-      return res.status(status).json({
+      return res.status(502).json({
         ok: false,
         message: "Erro ao buscar device no Traccar",
         details: error?.details || error,
