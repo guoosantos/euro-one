@@ -1014,6 +1014,18 @@ router.get("/commands", async (req, res, next) => {
   }
 });
 
+router.get("/commands/history", async (req, res, next) => {
+  try {
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/commands", { params, asAdmin: true });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/commands", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const allowed = resolveAllowedDeviceIds(req);

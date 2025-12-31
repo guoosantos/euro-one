@@ -23,6 +23,7 @@ export const API_ROUTES = {
     route: "traccar/reports/route",
   },
   commands: "commands",
+  commandsHistory: "commands/history",
   commandsSend: "commands/send",
   commandsTypes: "commands/types",
   notifications: "notifications",
