@@ -134,7 +134,7 @@ export default function Commands() {
       error.payload = payload;
       throw error;
     }
-    return payload?.traccarDevice || null;
+    return payload?.device || null;
   }, []);
 
   const fetchDevice = useCallback(async () => {
@@ -249,7 +249,7 @@ export default function Commands() {
     try {
       await api.post(API_ROUTES.commandsSend, {
         vehicleId: selectedVehicleId,
-        traccarDeviceId: device.traccarDeviceId || device.id,
+        traccarDeviceId: device.traccarId || device.traccarDeviceId || device.id,
         protocol: device.protocol,
         commandKey,
         params: commandParams[commandKey] || {},
