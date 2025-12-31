@@ -150,7 +150,6 @@ export default function Commands() {
   const commandsCacheRef = useRef(new Map());
 
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
-  const [selectedDeviceValue, setSelectedDeviceValue] = useState("");
   const [selectedTraccarDeviceId, setSelectedTraccarDeviceId] = useState(null);
   const [selectedVehicleId, setSelectedVehicleId] = useState(null);
   const [selectedDeviceUniqueId, setSelectedDeviceUniqueId] = useState(null);
@@ -275,7 +274,6 @@ export default function Commands() {
           label: vehicle.plate || "Placa não informada",
           protocol,
           traccarDeviceId: traccarId,
-          deviceId: traccarId !== null ? String(traccarId) : `missing-${vehicle.id}`,
           uniqueId,
           note: hasDevice
             ? hasTraccarId
@@ -289,14 +287,10 @@ export default function Commands() {
     [resolveVehicleDevice, vehicles],
   );
 
-  const vehicleOptionByDeviceId = useMemo(() => {
-    const map = new Map();
-    vehicleOptions.forEach((option) => {
-      if (option.traccarDeviceId === null) return;
-      map.set(String(option.traccarDeviceId), option);
-    });
-    return map;
-  }, [vehicleOptions]);
+  const selectedVehicleValue = useMemo(
+    () => (selectedVehicleId !== null ? String(selectedVehicleId) : ""),
+    [selectedVehicleId],
+  );
 
   const protocolLabelById = useMemo(() => {
     return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.label]));
@@ -627,6 +621,22 @@ export default function Commands() {
     return protocol || null;
   }, []);
 
+  const resolveProtocolFromVehicle = useCallback(
+    async (vehicleId, { resolvedDevice, fallbackTraccarId, fallbackUniqueId } = {}) => {
+      const params = tenantId ? { clientId: tenantId } : undefined;
+      const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId), { params });
+      const payload = response?.data?.traccarDevice || response?.data?.device || response?.data || {};
+      const traccarId = parseNumericId(payload.traccarDeviceId ?? payload.deviceId ?? payload.id) ?? fallbackTraccarId;
+      const uniqueId = payload.uniqueId || fallbackUniqueId || null;
+      let protocol = safeTrim(payload.protocol) || resolveProtocolFallback(resolvedDevice, traccarId);
+      if (!protocol && traccarId !== null) {
+        protocol = (await fetchTraccarProtocol(traccarId)) || "";
+      }
+      return { traccarDeviceId: traccarId, uniqueId, protocol };
+    },
+    [fetchTraccarProtocol, resolveProtocolFallback, tenantId],
+  );
+
   useEffect(() => {
     if (!selectedVehicleId) return;
     let mounted = true;
@@ -642,31 +652,22 @@ export default function Commands() {
       setSelectedTraccarDeviceId((prev) => (prev === nextTraccarId ? prev : nextTraccarId));
       setSelectedDeviceUniqueId((prev) => (prev === nextUniqueId ? prev : nextUniqueId));
       setSelectedProtocol((prev) => (prev === nextProtocol ? prev : nextProtocol));
-      setSelectedDeviceValue(nextTraccarId !== null ? String(nextTraccarId) : `missing-${selectedVehicleId}`);
     };
 
     async function resolveSelection() {
       setSelectionLoading(true);
       setSelectionError(null);
       try {
-        const params = tenantId ? { clientId: tenantId } : undefined;
-        const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(selectedVehicleId), { params });
-        const payload = response?.data?.traccarDevice || response?.data?.device || response?.data || {};
-        console.info("[commands] vínculo veículo→equipamento", {
-          vehicleId: selectedVehicleId,
-          payload,
+        const { traccarDeviceId, uniqueId, protocol } = await resolveProtocolFromVehicle(selectedVehicleId, {
+          resolvedDevice,
+          fallbackTraccarId,
+          fallbackUniqueId,
         });
-        const traccarId = parseNumericId(payload.traccarDeviceId ?? payload.deviceId ?? payload.id) ?? fallbackTraccarId;
-        const uniqueId = payload.uniqueId || fallbackUniqueId || null;
-        const protocol = payload.protocol || resolveProtocolFallback(resolvedDevice, traccarId);
-        applySelection({ traccarDeviceId: traccarId, uniqueId, protocol });
-        console.info("[commands] protocolo resolvido", {
-          vehicleId: selectedVehicleId,
-          traccarDeviceId: traccarId,
-          protocol,
-        });
-        if (!traccarId) {
+        applySelection({ traccarDeviceId, uniqueId, protocol });
+        if (!traccarDeviceId) {
           setSelectionError(new Error("Veículo sem equipamento vinculado."));
+        } else if (!protocol) {
+          setSelectionError(new Error("Equipamento sem protocolo configurado."));
         }
       } catch (requestError) {
         const traccarId = fallbackTraccarId;
@@ -690,7 +691,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [resolveProtocolFallback, resolveVehicleDevice, selectedVehicleId, tenantId, vehicleById]);
+  }, [resolveProtocolFallback, resolveProtocolFromVehicle, resolveVehicleDevice, selectedVehicleId, vehicleById]);
 
   useEffect(() => {
     let mounted = true;
@@ -1039,7 +1040,6 @@ export default function Commands() {
   };
 
   const handleClearFilters = () => {
-    setSelectedDeviceValue("");
     setSelectedTraccarDeviceId(null);
     setSelectedVehicleId(null);
     setSelectedDeviceUniqueId(null);
@@ -1246,11 +1246,10 @@ export default function Commands() {
             <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Veículo
               <Select
-                value={selectedDeviceValue}
+                value={selectedVehicleValue}
                 onChange={(event) => {
                   const nextValue = event.target.value;
                   if (!nextValue) {
-                    setSelectedDeviceValue("");
                     setSelectedTraccarDeviceId(null);
                     setSelectedVehicleId(null);
                     setSelectedDeviceUniqueId(null);
@@ -1259,21 +1258,19 @@ export default function Commands() {
                     setSelectionLoading(false);
                     return;
                   }
-                  const option = vehicleOptionByDeviceId.get(nextValue);
-                  if (!option) {
-                    setSelectedDeviceValue(nextValue);
-                    setSelectedTraccarDeviceId(parseNumericId(nextValue));
+                  const vehicleId = parseNumericId(nextValue);
+                  if (!vehicleId || !vehicleById.has(String(vehicleId))) {
+                    setSelectedTraccarDeviceId(null);
                     setSelectedVehicleId(null);
                     setSelectedDeviceUniqueId(null);
                     setSelectedProtocol("");
                     setSelectionError(new Error("Veículo não encontrado."));
                     return;
                   }
-                  setSelectedDeviceValue(nextValue);
-                  setSelectedVehicleId(option.id);
-                  setSelectedTraccarDeviceId(option.traccarDeviceId ?? null);
-                  setSelectedDeviceUniqueId(option.uniqueId || null);
-                  setSelectedProtocol(option.protocol || "");
+                  setSelectedVehicleId(vehicleId);
+                  setSelectedTraccarDeviceId(null);
+                  setSelectedDeviceUniqueId(null);
+                  setSelectedProtocol("");
                   setSelectionError(null);
                   setSelectionLoading(true);
                 }}
@@ -1283,7 +1280,7 @@ export default function Commands() {
                 {filteredVehicleOptions.map((vehicle) => (
                   <option
                     key={vehicle.id}
-                    value={vehicle.deviceId}
+                    value={vehicle.id}
                   >
                     {vehicle.label}
                     {vehicle.note ? ` — ${vehicle.note}` : ""}
@@ -1363,14 +1360,10 @@ export default function Commands() {
                         type="button"
                         size="xs"
                         onClick={() => {
-                          const traccarId = resolveTraccarDeviceId(resolvedDevice);
-                          setSelectedDeviceValue(
-                            traccarId !== null ? String(traccarId) : `missing-${vehicle.id}`,
-                          );
-                          setSelectedTraccarDeviceId(traccarId ?? null);
+                          setSelectedTraccarDeviceId(null);
                           setSelectedVehicleId(vehicle.id);
-                          setSelectedDeviceUniqueId(resolveDeviceUniqueId(resolvedDevice, vehicle));
-                          setSelectedProtocol(deriveProtocolFromDevice(resolvedDevice));
+                          setSelectedDeviceUniqueId(null);
+                          setSelectedProtocol("");
                           setSelectionError(null);
                           setSelectionLoading(true);
                           setVehicleSearch("");
