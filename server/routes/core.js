@@ -1812,6 +1812,69 @@ router.get("/vehicles", async (req, res, next) => {
   }
 });
 
+router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const vehicle = deps.getVehicleById(id);
+    if (!vehicle) {
+      throw createError(404, "Veículo não encontrado");
+    }
+    if (clientId != null) {
+      ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+    }
+
+    const devices = deps.listDevices({ clientId: resolveLinkClientId(clientId, vehicle) });
+    const linkedDevices = devices.filter(
+      (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
+    );
+    const principalDevice = selectPrincipalDevice(linkedDevices);
+
+    if (!principalDevice) {
+      throw createError(404, "Veículo sem equipamento vinculado");
+    }
+
+    const uniqueId =
+      principalDevice.uniqueId ||
+      principalDevice?.attributes?.uniqueId ||
+      null;
+
+    if (principalDevice.traccarId) {
+      return res.json({
+        traccarDevice: {
+          traccarDeviceId: Number(principalDevice.traccarId),
+          uniqueId,
+          protocol: principalDevice?.attributes?.protocol || null,
+          deviceId: principalDevice.id,
+        },
+      });
+    }
+
+    if (!uniqueId) {
+      throw createError(404, "Equipamento sem identificação (uniqueId) cadastrada");
+    }
+
+    const traccarDevice = await findTraccarDeviceByUniqueId(uniqueId);
+    if (!traccarDevice) {
+      throw createError(404, `Equipamento não cadastrado no Traccar (uniqueId=${uniqueId})`);
+    }
+
+    const updatedDevice = deps.updateDevice(principalDevice.id, { traccarId: String(traccarDevice.id) });
+    const protocol = traccarDevice?.protocol || traccarDevice?.attributes?.protocol || updatedDevice?.attributes?.protocol || null;
+
+    return res.json({
+      traccarDevice: {
+        traccarDeviceId: Number(traccarDevice.id),
+        uniqueId: traccarDevice.uniqueId || uniqueId,
+        protocol,
+        deviceId: updatedDevice.id,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
