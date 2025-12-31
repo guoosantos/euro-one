@@ -107,6 +107,25 @@ function buildMappedAttributes(rawAttributes = {}, mappings = []) {
   return result;
 }
 
+export function resolveTraccarDeviceError(traccarError) {
+  const rawStatus = Number(traccarError?.status || traccarError?.error?.code);
+  const status = Number.isFinite(rawStatus) ? rawStatus : null;
+
+  if (status === 404) {
+    return { status: 404, message: "Device não encontrado no Traccar", code: status };
+  }
+
+  if (status === 401 || status === 403) {
+    return { status: 502, message: "Falha de autorização ao consultar o Traccar", code: status };
+  }
+
+  if (status && status >= 500) {
+    return { status: 503, message: "Serviço do Traccar indisponível no momento", code: status };
+  }
+
+  return { status: 502, message: "Erro ao buscar device no Traccar", code: status || "UNKNOWN" };
+}
+
 export function filterValidPositionIds(positionIds) {
   if (!positionIds || (Array.isArray(positionIds) && positionIds.length === 0)) return [];
   const result = [];
@@ -1826,108 +1845,75 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
     if (!vehicle) {
       throw createError(404, "Veículo não encontrado");
     }
-    if (clientId != null) {
-      ensureSameClient(vehicle, clientId, "Veículo não encontrado");
+    const resolvedClientId = resolveLinkClientId(clientId, vehicle);
+    if (resolvedClientId != null) {
+      ensureSameClient(vehicle, resolvedClientId, "Veículo não encontrado");
     }
 
-    const devices = deps.listDevices({ clientId: resolveLinkClientId(clientId, vehicle) });
-    const linkedDevices = devices.filter(
-      (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
-    );
-    const principalDevice = selectPrincipalDevice(linkedDevices);
-
-    if (!principalDevice) {
+    if (!vehicle.deviceId) {
       throw createError(404, "Veículo sem equipamento vinculado");
     }
 
-    const uniqueId = principalDevice.uniqueId || principalDevice?.attributes?.uniqueId || null;
+    const device = deps.getDeviceById(vehicle.deviceId);
+    if (!device) {
+      throw createError(404, "Equipamento vinculado não encontrado");
+    }
+    if (resolvedClientId != null) {
+      ensureSameClient(device, resolvedClientId, "Equipamento não encontrado");
+    }
 
-    const sendTraccarError = (details, status = 502) => {
-      res.status(status).json({
-        ok: false,
-        message: "Erro ao buscar device no Traccar",
-        details,
-      });
-    };
-
-    let traccarDeviceId = principalDevice.traccarId ? String(principalDevice.traccarId) : null;
-
+    const traccarDeviceId = device.traccarId ? String(device.traccarId).trim() : null;
     if (!traccarDeviceId) {
-      if (!uniqueId) {
-        throw createError(404, "Equipamento sem identificação (uniqueId) cadastrada");
-      }
-
-      const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
-      console.info("[traccar] GET /devices", {
-        url: "/devices",
-        status: Number(lookup?.status || lookup?.statusCode || 200),
-        body: lookup,
-      });
-      if (lookup?.ok === false || lookup?.error) {
-        return sendTraccarError(lookup, 502);
-      }
-
-      const list = normaliseList(lookup, ["devices"]);
-      const match =
-        list.find(
-          (item) => String(item.uniqueId || "").trim().toLowerCase() === String(uniqueId).trim().toLowerCase(),
-        ) || null;
-
-      if (!match) {
-        throw createError(404, `Equipamento não cadastrado no Traccar (uniqueId=${uniqueId})`);
-      }
-
-      traccarDeviceId = String(match.id);
-      deps.updateDevice(principalDevice.id, { traccarId: traccarDeviceId });
+      throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
-    const traccarDeviceIdNumber = Number(traccarDeviceId);
-    if (!traccarDeviceId || !Number.isFinite(traccarDeviceIdNumber)) {
-      return res.status(500).json({
-        ok: false,
-        message: "ID do device Traccar inválido",
-        details: { traccarDeviceId },
-      });
-    }
+    console.info("[vehicles] buscando device no Traccar", {
+      vehicleId: vehicle.id,
+      euroOneDeviceId: device.id,
+      traccarId: traccarDeviceId,
+    });
 
     const traccarDevice = await deps.traccarProxy("get", `/devices/${traccarDeviceId}`, {
       asAdmin: true,
       context: req,
     });
+    const traccarStatus = Number(traccarDevice?.status || traccarDevice?.statusCode || traccarDevice?.error?.code);
     console.info("[traccar] GET /devices/:id", {
-      url: `/devices/${traccarDeviceId}`,
-      status: Number(traccarDevice?.status || traccarDevice?.statusCode || 200),
-      body: traccarDevice,
+      vehicleId: vehicle.id,
+      euroOneDeviceId: device.id,
+      traccarId: traccarDeviceId,
+      status: Number.isFinite(traccarStatus) ? traccarStatus : 200,
     });
 
     if (traccarDevice?.ok === false || traccarDevice?.error) {
-      return sendTraccarError(traccarDevice, 502);
-    }
-
-    if (!traccarDevice?.protocol) {
-      return res.status(500).json({
+      const mapped = resolveTraccarDeviceError(traccarDevice);
+      return res.status(mapped.status).json({
         ok: false,
-        message: "Device do Traccar sem protocol (dados inconsistentes)",
-        details: { traccarDeviceId },
+        message: mapped.message,
+        details: {
+          traccarStatus: mapped.code,
+          traccarId: traccarDeviceId,
+        },
       });
     }
 
     return res.json({
-      traccarDevice: {
+      device: {
         ...traccarDevice,
         id: traccarDevice.id,
-        uniqueId: traccarDevice.uniqueId || uniqueId,
-        protocol: traccarDevice.protocol,
-        traccarDeviceId: traccarDevice.id,
-        deviceId: principalDevice.id,
+        uniqueId: traccarDevice.uniqueId || null,
+        protocol: traccarDevice?.protocol ?? null,
       },
     });
   } catch (error) {
     if (error?.isTraccarError) {
-      return res.status(502).json({
+      return res.status(error.status || 503).json({
         ok: false,
-        message: "Erro ao buscar device no Traccar",
-        details: error?.details || error,
+        message: error.message || "Erro ao buscar device no Traccar",
+        details: {
+          ...(error?.details || {}),
+          vehicleId: req.params?.id,
+        },
       });
     }
     next(error);
