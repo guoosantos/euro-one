@@ -5,7 +5,7 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import useDevices from "../lib/hooks/useDevices";
-import useVehicles from "../lib/hooks/useVehicles";
+import useVehicles, { normalizeVehicleDevices, pickPrimaryDevice } from "../lib/hooks/useVehicles";
 import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
@@ -119,12 +119,13 @@ function buildProtocolDebugHint({ coreDeviceId, traccarDeviceId, uniqueId }) {
 }
 
 function normalizeManualType(input) {
-  if (typeof input === "string") return input.trim();
   if (input && typeof input === "object") {
     const candidate = input.value ?? input.type ?? input.label ?? "";
-    return String(candidate || "").trim();
+    const manualTypeStr = typeof candidate === "string" ? candidate : String(candidate ?? "");
+    return manualTypeStr.trim();
   }
-  return "";
+  const manualTypeStr = typeof input === "string" ? input : String(input ?? "");
+  return manualTypeStr.trim();
 }
 
 function loadTemplates() {
@@ -158,6 +159,7 @@ export default function Commands() {
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
   const [selectedDeviceValue, setSelectedDeviceValue] = useState("");
   const [selectedTraccarDeviceId, setSelectedTraccarDeviceId] = useState(null);
+  const [selectedVehicleId, setSelectedVehicleId] = useState(null);
   const [selectedDeviceUniqueId, setSelectedDeviceUniqueId] = useState(null);
   const [selectedProtocol, setSelectedProtocol] = useState("");
   const [selectionError, setSelectionError] = useState(null);
@@ -239,19 +241,19 @@ export default function Commands() {
 
   const resolveVehicleDevice = (vehicle) => {
     if (!vehicle) return null;
-    const preferredKey = toDeviceKey(vehicle.primaryDeviceId);
-    if (preferredKey && deviceByKey.has(preferredKey)) {
-      return deviceByKey.get(preferredKey);
+    const primaryDevice = pickPrimaryDevice(vehicle) || vehicle.primaryDevice || vehicle.device || null;
+    const primaryKey = getDeviceKey(primaryDevice) || toDeviceKey(vehicle.primaryDeviceId);
+    if (primaryKey && deviceByKey.has(primaryKey)) {
+      return deviceByKey.get(primaryKey);
     }
-    const primaryDevice = vehicle.primaryDevice || null;
-    if (primaryDevice) {
-      const primaryKey = getDeviceKey(primaryDevice);
-      if (primaryKey && deviceByKey.has(primaryKey)) {
-        return deviceByKey.get(primaryKey);
+    const deviceCandidates = normalizeVehicleDevices(vehicle);
+    for (const candidate of deviceCandidates) {
+      const candidateKey = getDeviceKey(candidate);
+      if (candidateKey && deviceByKey.has(candidateKey)) {
+        return deviceByKey.get(candidateKey);
       }
-      return primaryDevice;
     }
-    return null;
+    return primaryDevice || deviceCandidates[0] || null;
   };
 
   const deviceByTraccarId = useMemo(() => {
@@ -281,14 +283,13 @@ export default function Commands() {
           traccarDeviceId: traccarId,
           deviceId: traccarId !== null ? String(traccarId) : `missing-${vehicle.id}`,
           uniqueId,
-          disabled: !hasDevice || !hasTraccarId,
           note: hasDevice
             ? hasTraccarId
               ? ""
               : uniqueId
                 ? "Equipamento sem deviceId do Traccar configurado"
                 : "Equipamento sem identificação (uniqueId) cadastrada"
-            : "Veículo sem equipamento vinculado",
+            : "Veículo sem equipamento vinculado (não é possível enviar comandos).",
         };
       }),
     [resolveVehicleDevice, vehicles],
@@ -336,10 +337,34 @@ export default function Commands() {
     });
   }, [vehicleSearch, vehicles]);
 
+  const vehicleById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      if (vehicle?.id === undefined || vehicle?.id === null) return;
+      map.set(String(vehicle.id), vehicle);
+    });
+    return map;
+  }, [vehicles]);
+
+  const vehicleByDeviceId = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      const resolvedDevice = resolveVehicleDevice(vehicle);
+      const traccarId = resolveTraccarDeviceId(resolvedDevice);
+      if (traccarId === null) return;
+      map.set(String(traccarId), vehicle);
+    });
+    return map;
+  }, [resolveVehicleDevice, vehicles]);
+
   const selectedVehicle = useMemo(() => {
+    if (selectedVehicleId !== null) {
+      return vehicleById.get(String(selectedVehicleId)) || null;
+    }
     if (selectedTraccarDeviceId === null) return null;
     return vehicleByDeviceId.get(String(selectedTraccarDeviceId)) || null;
-  }, [selectedTraccarDeviceId, vehicleByDeviceId]);
+  }, [selectedTraccarDeviceId, selectedVehicleId, vehicleByDeviceId, vehicleById]);
+  const hasSelectedVehicle = selectedVehicleId !== null;
   const hasSelectedDevice = selectedTraccarDeviceId !== null;
   const list = Array.isArray(history) ? history : [];
   const selectedDevice = useMemo(() => {
@@ -404,17 +429,6 @@ export default function Commands() {
     }
     return { valid: true, error: null };
   }, [smsDraft.content, smsDraft.name, smsPhone]);
-
-  const vehicleByDeviceId = useMemo(() => {
-    const map = new Map();
-    vehicles.forEach((vehicle) => {
-      const resolvedDevice = resolveVehicleDevice(vehicle);
-      const traccarId = resolveTraccarDeviceId(resolvedDevice);
-      if (traccarId === null) return;
-      map.set(String(traccarId), vehicle);
-    });
-    return map;
-  }, [resolveVehicleDevice, vehicles]);
 
   const visibleCommandColumns = useMemo(
     () => COMMAND_COLUMNS.filter((column) => columnsVisibility[column.id]),
@@ -576,6 +590,48 @@ export default function Commands() {
 
   useEffect(() => {
     let mounted = true;
+    async function resolveVehicleDeviceLink() {
+      if (!selectedVehicleId || selectedTraccarDeviceId) return;
+      setSelectionLoading(true);
+      setSelectionError(null);
+      try {
+        const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(selectedVehicleId));
+        const payload = response?.data?.device || response?.data || {};
+        const traccarId = resolveTraccarDeviceId(payload);
+        const protocol = resolveDeviceProtocol(payload);
+        if (mounted && traccarId) {
+          setSelectedDeviceValue(String(traccarId));
+          setSelectedTraccarDeviceId(traccarId);
+          setSelectedDeviceUniqueId(resolveDeviceUniqueId(payload, selectedVehicle));
+          setSelectedProtocol(protocol || "");
+          setSelectionError(null);
+        } else if (mounted) {
+          setSelectionError(new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."));
+        }
+      } catch (requestError) {
+        if (mounted) {
+          const message =
+            requestError?.response?.data?.message ||
+            requestError?.response?.data?.error?.message ||
+            requestError?.message ||
+            "Veículo sem equipamento vinculado (não é possível enviar comandos).";
+          setSelectionError(new Error(message));
+        }
+      } finally {
+        if (mounted) {
+          setSelectionLoading(false);
+        }
+      }
+    }
+
+    resolveVehicleDeviceLink();
+    return () => {
+      mounted = false;
+    };
+  }, [selectedTraccarDeviceId, selectedVehicle, selectedVehicleId]);
+
+  useEffect(() => {
+    let mounted = true;
     async function resolveProtocolFallback() {
       if (!selectedTraccarDeviceId) {
         if (mounted) {
@@ -602,7 +658,7 @@ export default function Commands() {
       });
       if (!coreDeviceId) {
         if (mounted) {
-          setSelectionError(new Error(`Protocolo não identificado para este equipamento${debugHint}.`));
+          setSelectionError(new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`));
           setSelectionLoading(false);
         }
         return;
@@ -621,7 +677,7 @@ export default function Commands() {
             setSelectionError(null);
           } else {
             setSelectionError(
-              new Error(`Protocolo não identificado para este equipamento${debugHint}.`),
+              new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`),
             );
           }
         }
@@ -630,7 +686,7 @@ export default function Commands() {
           requestError?.response?.data?.message ||
           requestError?.response?.data?.error?.message ||
           requestError?.message ||
-          `Protocolo não identificado para este equipamento${debugHint}.`;
+          `Protocolo não identificado para este equipamento/veículo${debugHint}.`;
         if (mounted) {
           setSelectionError(new Error(message));
         }
@@ -650,12 +706,12 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedTraccarDeviceId) {
+      if (!selectedTraccarDeviceId || !protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
       }
-      const cacheKey = `send:${selectedTraccarDeviceId}`;
+      const cacheKey = `protocol:${protocolKey}`;
       if (commandsCacheRef.current.has(cacheKey) && commandsRefreshKey === 0) {
         setProtocolCommands(commandsCacheRef.current.get(cacheKey));
         setCommandsError(null);
@@ -664,9 +720,7 @@ export default function Commands() {
       setCommandsLoading(true);
       setCommandsError(null);
       try {
-        const response = await api.get(API_ROUTES.commandsSend, {
-          params: { deviceId: selectedTraccarDeviceId },
-        });
+        const response = await api.get(API_ROUTES.protocolCommands(protocolId));
         const responseList = Array.isArray(response?.data?.commands)
           ? response.data.commands
           : Array.isArray(response?.data)
@@ -681,9 +735,11 @@ export default function Commands() {
         }
       } catch (requestError) {
         if (mounted) {
-          const message = buildCommandTypesErrorMessage(requestError);
-          const deviceHint = selectedTraccarDeviceId ? ` (deviceId=${selectedTraccarDeviceId})` : "";
-          setCommandsError(new Error(`${message}${deviceHint}`));
+          const message =
+            requestError?.response?.data?.message ||
+            requestError?.message ||
+            "Erro ao carregar comandos do protocolo.";
+          setCommandsError(new Error(message));
           setProtocolCommands([]);
         }
       } finally {
@@ -696,7 +752,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [commandsRefreshKey, selectedTraccarDeviceId]);
+  }, [commandsRefreshKey, protocolId, protocolKey, selectedTraccarDeviceId]);
 
   useEffect(() => {
     let mounted = true;
@@ -791,7 +847,7 @@ export default function Commands() {
       setHistoryLoading(true);
       setHistoryError(null);
       try {
-        const response = await api.get(API_ROUTES.commands, {
+        const response = await api.get(API_ROUTES.commandsHistory, {
           params: { deviceId: selectedCommandDeviceId, from: historyFrom, to: historyTo },
         });
         const entries = Array.isArray(response?.data?.commands)
@@ -954,6 +1010,7 @@ export default function Commands() {
   const handleClearFilters = () => {
     setSelectedDeviceValue("");
     setSelectedTraccarDeviceId(null);
+    setSelectedVehicleId(null);
     setSelectedDeviceUniqueId(null);
     setSelectedProtocol("");
     setSelectionError(null);
@@ -962,8 +1019,8 @@ export default function Commands() {
   };
 
   const handleRefreshHistory = () => {
-    if (selectedTraccarDeviceId) {
-      commandsCacheRef.current.delete(`send:${selectedTraccarDeviceId}`);
+    if (protocolKey) {
+      commandsCacheRef.current.delete(`protocol:${protocolKey}`);
     }
     setCommandsRefreshKey((value) => value + 1);
     setHistoryRefreshKey((value) => value + 1);
@@ -1163,6 +1220,7 @@ export default function Commands() {
                   if (!nextValue) {
                     setSelectedDeviceValue("");
                     setSelectedTraccarDeviceId(null);
+                    setSelectedVehicleId(null);
                     setSelectedDeviceUniqueId(null);
                     setSelectedProtocol("");
                     setSelectionError(null);
@@ -1172,12 +1230,23 @@ export default function Commands() {
                   if (!option) {
                     setSelectedDeviceValue(nextValue);
                     setSelectedTraccarDeviceId(parseNumericId(nextValue));
+                    setSelectedVehicleId(null);
                     setSelectedDeviceUniqueId(null);
                     setSelectedProtocol("");
                     setSelectionError(new Error("Veículo não encontrado."));
                     return;
                   }
                   setSelectedDeviceValue(nextValue);
+                  setSelectedVehicleId(option.id);
+                  if (!option.traccarDeviceId) {
+                    setSelectedTraccarDeviceId(null);
+                    setSelectedDeviceUniqueId(option.uniqueId || null);
+                    setSelectedProtocol("");
+                    setSelectionError(
+                      new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."),
+                    );
+                    return;
+                  }
                   setSelectedTraccarDeviceId(option.traccarDeviceId ?? null);
                   setSelectedDeviceUniqueId(option.uniqueId || null);
                   setSelectedProtocol(option.protocol || "");
@@ -1190,7 +1259,6 @@ export default function Commands() {
                   <option
                     key={vehicle.id}
                     value={vehicle.deviceId}
-                    disabled={vehicle.disabled}
                   >
                     {vehicle.label}
                     {vehicle.note ? ` — ${vehicle.note}` : ""}
@@ -1208,10 +1276,16 @@ export default function Commands() {
                 disabled={!hasSelectedDevice}
               />
             </label>
+            <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+              Protocolo
+              <Input
+                value={protocolLabel}
+                readOnly
+                disabled
+                className="mt-2"
+              />
+            </label>
             <div className="flex flex-nowrap items-center gap-2">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
-                Protocolo: {protocolLabel}
-              </span>
               {selectedTraccarDeviceId !== null && (
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
                   DeviceId: {selectedTraccarDeviceId}
@@ -1265,9 +1339,21 @@ export default function Commands() {
                         size="xs"
                         onClick={() => {
                           const traccarId = resolveTraccarDeviceId(resolvedDevice);
-                          if (!traccarId) return;
+                          if (!traccarId) {
+                            setSelectedDeviceValue(`missing-${vehicle.id}`);
+                            setSelectedTraccarDeviceId(null);
+                            setSelectedVehicleId(vehicle.id);
+                            setSelectedDeviceUniqueId(resolveDeviceUniqueId(resolvedDevice, vehicle));
+                            setSelectedProtocol("");
+                            setSelectionError(
+                              new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."),
+                            );
+                            setVehicleSearch("");
+                            return;
+                          }
                           setSelectedDeviceValue(String(traccarId));
                           setSelectedTraccarDeviceId(traccarId);
+                          setSelectedVehicleId(vehicle.id);
                           setSelectedDeviceUniqueId(resolveDeviceUniqueId(resolvedDevice, vehicle));
                           setSelectedProtocol(resolveDeviceProtocol(resolvedDevice));
                           setSelectionError(null);
@@ -1286,7 +1372,7 @@ export default function Commands() {
 
           {activeTab === "Comandos" && (
             <div className="space-y-4">
-              {!hasSelectedDevice && !selectionError && !selectionLoading && (
+              {!hasSelectedVehicle && !selectionError && !selectionLoading && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                   Selecione um veículo para visualizar comandos disponíveis.
                 </div>
@@ -1352,7 +1438,9 @@ export default function Commands() {
                         {!commandsLoading && filteredCommands.length === 0 && (
                           <tr>
                             <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                              Nenhum comando homologado disponível para o dispositivo selecionado.
+                              {protocolKey
+                                ? `Nenhum comando cadastrado para o protocolo ${formatProtocolLabel(protocolKey)}. Verifique o cadastro de comandos.`
+                                : "Selecione um protocolo para listar comandos."}
                             </td>
                           </tr>
                         )}
