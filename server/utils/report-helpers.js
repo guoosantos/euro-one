@@ -40,6 +40,7 @@ export function extractDeviceIds(source = {}) {
   pushValue(source.deviceId);
   pushValue(source.deviceID);
   pushValue(source.device_id);
+  pushValue(source.traccarDeviceId);
   pushValue(source.deviceIds);
   pushValue(source.device_ids);
   pushValue(source.devices);

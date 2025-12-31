@@ -1,1168 +1,343 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Columns3 } from "lucide-react";
 
-import Button from "../ui/Button";
-import Input from "../ui/Input";
-import Select from "../ui/Select";
-import useDevices from "../lib/hooks/useDevices";
-import useVehicles, { normalizeVehicleDevices, pickPrimaryDevice } from "../lib/hooks/useVehicles";
-import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import Button from "../ui/Button.jsx";
+import Input from "../ui/Input.jsx";
+import Select from "../ui/Select.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
-import { useTenant } from "../lib/tenant-context.jsx";
+import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
-const STORAGE_KEY = "protocol-templates-v1";
-const COLUMNS_STORAGE_KEY = "commands:columns:v1";
-const COLUMN_WIDTHS_STORAGE_KEY = "commands:columns:widths:v1";
-const MIN_COLUMN_WIDTH = 60;
-const MAX_COLUMN_WIDTH = 800;
-const DEFAULT_MIN_WIDTH = 60;
-const DEFAULT_COLUMN_WIDTH = 140;
-const COMMAND_COLUMNS = [
-  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 180, minWidth: 160 },
-  { id: "command", label: "Comando", defaultVisible: true, width: 200, minWidth: 180 },
-  { id: "description", label: "Descrição", defaultVisible: true, width: 260, minWidth: 200 },
-  { id: "action", label: "Ação", defaultVisible: true, width: 140, minWidth: 120 },
-  { id: "protocol", label: "Protocolo", defaultVisible: false, width: 140, minWidth: 120 },
-  { id: "json", label: "JSON", defaultVisible: false, width: 240, minWidth: 200 },
-];
-
 const HISTORY_COLUMNS = [
-  { id: "device", label: "Dispositivo (Placa)", width: 220 },
-  { id: "command", label: "Comando", width: 200 },
-  { id: "sentAt", label: "Enviado em", width: 140 },
-  { id: "status", label: "Status", width: 90 },
-  { id: "response", label: "Resposta", width: 260 },
-  { id: "protocol", label: "Protocolo", width: 120 },
-  { id: "payload", label: "JSON completo", width: 260 },
+  { id: "device", label: "Dispositivo (Placa)", width: 220, minWidth: 180 },
+  { id: "command", label: "Comando", width: 200, minWidth: 160 },
+  { id: "sentAt", label: "Enviado em", width: 160, minWidth: 140 },
+  { id: "status", label: "Status", width: 120, minWidth: 100 },
+  { id: "response", label: "Resposta", width: 280, minWidth: 200 },
+  { id: "protocol", label: "Protocolo", width: 140, minWidth: 120 },
+  { id: "json", label: "JSON", width: 120, minWidth: 100 },
 ];
+const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v1";
+const MIN_COLUMN_WIDTH = 80;
+const MAX_COLUMN_WIDTH = 800;
 
-function safeTrim(value) {
-  return String(value ?? "").trim();
-}
+const normalizeValue = (value) => String(value ?? "");
 
-function normalizeProtocol(value) {
-  const normalized = safeTrim(value).toLowerCase();
-  if (!normalized) return "";
-  if (normalized.includes("gt06")) return "gt06";
-  if (normalized.includes("iotm")) return "iotm";
-  if (normalized.includes("suntech")) return "suntech";
-  return normalized;
-}
+const getCommandKey = (command) => command?.code || command?.id || "";
 
-function parseNumericId(value) {
-  if (value === null || value === undefined || value === "") return null;
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  const raw = safeTrim(value);
-  if (!raw) return null;
-  if (!/^\d+$/.test(raw)) return null;
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function resolveTraccarDeviceId(device) {
-  if (!device) return null;
-  return (
-    parseNumericId(device.traccarDeviceId) ??
-    parseNumericId(device.traccarId) ??
-    parseNumericId(device.deviceId) ??
-    parseNumericId(device.id)
-  );
-}
-
-function deriveProtocolFromDevice(device) {
-  return (
-    safeTrim(device?.protocol) ||
-    safeTrim(device?.attributes?.protocol) ||
-    safeTrim(device?.model?.protocol) ||
-    safeTrim(device?.modelProtocol) ||
-    safeTrim(device?.model_protocol) ||
-    ""
-  );
-}
-
-function resolveDeviceUniqueId(device, vehicle) {
-  return (
-    device?.uniqueId ||
-    vehicle?.equipmentUniqueId ||
-    vehicle?.equipment?.uniqueId ||
-    vehicle?.primaryDevice?.uniqueId ||
-    null
-  );
-}
-
-function createLocalId(prefix) {
-  if (typeof crypto !== "undefined" && crypto.randomUUID) {
-    return crypto.randomUUID();
-  }
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function buildCommandTypesErrorMessage(error) {
-  const rawMessage =
-    error?.response?.data?.message ||
-    error?.response?.data?.error?.message ||
-    error?.message ||
-    "";
-  const normalized = String(rawMessage).toLowerCase();
-  if (normalized.includes("position") || normalized.includes("positions")) {
-    return "O Traccar só retorna tipos quando o device já reportou posições.";
-  }
-  return rawMessage || "Erro ao carregar tipos de comando.";
-}
-
-function normalizeManualType(input) {
-  const candidate =
-    input && typeof input === "object"
-      ? input.value ?? input.type ?? input.label ?? ""
-      : input ?? "";
-  return safeTrim(candidate);
-}
-
-function loadTemplates() {
-  if (typeof window === "undefined") return { sms: {}, json: {} };
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { sms: {}, json: {} };
-    const parsed = JSON.parse(raw);
-    return {
-      sms: parsed?.sms && typeof parsed.sms === "object" ? parsed.sms : {},
-      json: parsed?.json && typeof parsed.json === "object" ? parsed.json : {},
-    };
-  } catch (_error) {
-    return { sms: {}, json: {} };
-  }
-}
-
-function buildInitialCommandColumns() {
-  return COMMAND_COLUMNS.reduce((acc, column) => {
-    acc[column.id] = column.defaultVisible;
-    return acc;
-  }, {});
-}
+const formatDateTime = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 export default function Commands() {
-  const { tenantId } = useTenant();
-  const { vehicles, loading: vehiclesLoading, error: vehiclesError } = useVehicles();
-  const { devices: deviceList } = useDevices();
-  const devices = useMemo(() => (Array.isArray(deviceList) ? deviceList : []), [deviceList]);
-  const commandsCacheRef = useRef(new Map());
-
+  const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
-  const [selectedTraccarDeviceId, setSelectedTraccarDeviceId] = useState(null);
-  const [selectedVehicleId, setSelectedVehicleId] = useState(null);
-  const [selectedDeviceUniqueId, setSelectedDeviceUniqueId] = useState(null);
-  const [selectedProtocol, setSelectedProtocol] = useState("");
-  const [selectionError, setSelectionError] = useState(null);
-  const [selectionLoading, setSelectionLoading] = useState(false);
   const [vehicleSearch, setVehicleSearch] = useState("");
-  const [protocols, setProtocols] = useState([]);
-  const [protocolsLoading, setProtocolsLoading] = useState(false);
-  const [protocolError, setProtocolError] = useState(null);
+  const [commandSearch, setCommandSearch] = useState("");
+  const [selectedVehicleId, setSelectedVehicleId] = useState("");
+  const [device, setDevice] = useState(null);
+  const [deviceLoading, setDeviceLoading] = useState(false);
+  const [deviceError, setDeviceError] = useState(null);
   const [protocolCommands, setProtocolCommands] = useState([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [commandsError, setCommandsError] = useState(null);
-  const [commandTypes, setCommandTypes] = useState([]);
-  const [commandTypesLoading, setCommandTypesLoading] = useState(false);
-  const [commandTypesError, setCommandTypesError] = useState(null);
-  const [smsCommandTypes, setSmsCommandTypes] = useState([]);
-  const [smsCommandTypesLoading, setSmsCommandTypesLoading] = useState(false);
-  const [smsCommandTypesError, setSmsCommandTypesError] = useState(null);
-  const [commandSearch, setCommandSearch] = useState("");
-  const [selectedCommandId, setSelectedCommandId] = useState("");
+  const [expandedCommandId, setExpandedCommandId] = useState(null);
   const [commandParams, setCommandParams] = useState({});
-  const [commandsRefreshKey, setCommandsRefreshKey] = useState(0);
+  const [sendingCommandId, setSendingCommandId] = useState(null);
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
-  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
-  const [historyFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-  const [historyTo] = useState(() => new Date().toISOString());
-  const [sending, setSending] = useState(false);
-  const [formError, setFormError] = useState(null);
-  const [formErrorContext, setFormErrorContext] = useState(null);
-  const [formSuccess, setFormSuccess] = useState(null);
-  const [formSuccessContext, setFormSuccessContext] = useState(null);
-  const [manualType, setManualType] = useState("custom");
-  const [manualPayload, setManualPayload] = useState("");
-  const [manualChannel, setManualChannel] = useState("");
-  const [templatesByProtocol, setTemplatesByProtocol] = useState(loadTemplates);
-  const [smsDraft, setSmsDraft] = useState({ id: null, name: "", content: "", variables: "" });
-  const [smsPhone, setSmsPhone] = useState("");
-  const [smsCommandType, setSmsCommandType] = useState("sendSms");
-  const [smsStatus, setSmsStatus] = useState(null);
-  const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
-  const [copiedId, setCopiedId] = useState(null);
-  const [showColumns, setShowColumns] = useState(false);
-  const [columnsVisibility, setColumnsVisibility] = useState(() => {
-    try {
-      const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
-      if (!raw) return buildInitialCommandColumns();
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object") return buildInitialCommandColumns();
-      const defaults = buildInitialCommandColumns();
-      return { ...defaults, ...parsed };
-    } catch (_error) {
-      return buildInitialCommandColumns();
-    }
-  });
-  const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
+  const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
+
   const [columnWidths, setColumnWidths] = useState(() => {
+    if (typeof window === "undefined") return {};
     try {
-      const raw = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
-      if (!raw) return {};
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
+      const raw = window.localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : {};
     } catch (_error) {
       return {};
     }
   });
-  const liveWidthsRef = useRef(columnWidths);
-  const protocolCacheRef = useRef(new Map());
+  const latestWidthsRef = useRef(columnWidths);
 
-  const deviceByKey = useMemo(() => {
-    const map = new Map();
-    devices.forEach((device) => {
-      const key = getDeviceKey(device);
-      if (key && !map.has(key)) {
-        map.set(key, device);
-      }
-    });
-    return map;
-  }, [devices]);
+  useEffect(() => {
+    latestWidthsRef.current = columnWidths;
+  }, [columnWidths]);
 
-  const resolveVehicleDevice = useCallback((vehicle) => {
-    if (!vehicle) return null;
-    const primaryDevice = pickPrimaryDevice(vehicle) || vehicle.primaryDevice || vehicle.device || null;
-    const primaryKey = getDeviceKey(primaryDevice) || toDeviceKey(vehicle.primaryDeviceId);
-    if (primaryKey && deviceByKey.has(primaryKey)) {
-      return deviceByKey.get(primaryKey);
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
     }
-    const deviceCandidates = normalizeVehicleDevices(vehicle);
-    for (const candidate of deviceCandidates) {
-      const candidateKey = getDeviceKey(candidate);
-      if (candidateKey && deviceByKey.has(candidateKey)) {
-        return deviceByKey.get(candidateKey);
-      }
+  }, []);
+
+  const showToast = useCallback((message, type = "success") => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
     }
-    return primaryDevice || deviceCandidates[0] || null;
-  }, [deviceByKey]);
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
 
-  const deviceByTraccarId = useMemo(() => {
-    const map = new Map();
-    devices.forEach((device) => {
-      const traccarId = resolveTraccarDeviceId(device);
-      if (traccarId !== null && !map.has(traccarId)) {
-        map.set(traccarId, device);
-      }
-    });
-    return map;
-  }, [devices]);
-
-  const vehicleOptions = useMemo(
-    () =>
-      vehicles.map((vehicle) => {
-        const resolvedDevice = resolveVehicleDevice(vehicle);
-        const hasDevice = Boolean(resolvedDevice);
-        const traccarId = resolveTraccarDeviceId(resolvedDevice);
-        const hasTraccarId = traccarId !== null;
-        const uniqueId = resolveDeviceUniqueId(resolvedDevice, vehicle);
-        const protocol = deriveProtocolFromDevice(resolvedDevice);
-        return {
-          id: vehicle.id,
-          label: vehicle.plate || "Placa não informada",
-          protocol,
-          traccarDeviceId: traccarId,
-          uniqueId,
-          note: hasDevice
-            ? hasTraccarId
-              ? ""
-              : uniqueId
-                ? "Equipamento sem deviceId do Traccar configurado"
-                : "Equipamento sem identificação (uniqueId) cadastrada"
-            : "Veículo sem equipamento vinculado (não é possível enviar comandos).",
-        };
-      }),
-    [resolveVehicleDevice, vehicles],
-  );
-
-  const selectedVehicleValue = useMemo(
-    () => (selectedVehicleId !== null ? String(selectedVehicleId) : ""),
-    [selectedVehicleId],
-  );
-
-  const protocolLabelById = useMemo(() => {
-    return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.label]));
-  }, [protocols]);
-
-  const protocolIdByKey = useMemo(() => {
-    return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.id]));
-  }, [protocols]);
-
-  const formatProtocolLabel = (protocolKeyValue) => {
-    if (!protocolKeyValue) return "—";
-    return protocolLabelById.get(protocolKeyValue) || protocolKeyValue.toUpperCase();
-  };
-
-  const filteredVehicleOptions = useMemo(() => {
-    const term = safeTrim(vehicleSearch).toLowerCase();
-    if (!term) return vehicleOptions;
-    return vehicleOptions.filter(
-      (vehicle) =>
-        vehicle.label?.toLowerCase().includes(term) ||
-        String(vehicle.id).toLowerCase().includes(term),
-    );
-  }, [vehicleOptions, vehicleSearch]);
-
-  const vehicleSearchResults = useMemo(() => {
-    if (!safeTrim(vehicleSearch)) return [];
-    const term = safeTrim(vehicleSearch).toLowerCase();
-    return vehicles.filter((vehicle) => {
-      const plate = vehicle?.plate || "";
-      const name = vehicle?.name || "";
-      return plate.toLowerCase().includes(term) || name.toLowerCase().includes(term);
-    });
+  const vehicleOptions = useMemo(() => {
+    const search = normalizeValue(vehicleSearch).toLowerCase();
+    return vehicles
+      .map((vehicle) => ({
+        id: String(vehicle.id),
+        label: formatVehicleLabel(vehicle),
+        plate: normalizeValue(vehicle.plate).toLowerCase(),
+        name: normalizeValue(vehicle.name).toLowerCase(),
+      }))
+      .filter((vehicle) => {
+        if (!search) return true;
+        return (
+          vehicle.label.toLowerCase().includes(search) ||
+          vehicle.plate.includes(search) ||
+          vehicle.name.includes(search)
+        );
+      });
   }, [vehicleSearch, vehicles]);
 
-  const vehicleByDeviceId = useMemo(() => {
-    const map = new Map();
-    vehicles.forEach((vehicle) => {
-      const resolvedDevice = resolveVehicleDevice(vehicle);
-      const traccarId = resolveTraccarDeviceId(resolvedDevice);
-      if (traccarId === null) return;
-      map.set(String(traccarId), vehicle);
+  const filteredCommands = useMemo(() => {
+    const search = normalizeValue(commandSearch).toLowerCase();
+    if (!search) return protocolCommands;
+    return protocolCommands.filter((command) => {
+      const name = normalizeValue(command?.name).toLowerCase();
+      const description = normalizeValue(command?.description).toLowerCase();
+      return name.includes(search) || description.includes(search);
     });
-    return map;
-  }, [resolveVehicleDevice, vehicles]);
+  }, [commandSearch, protocolCommands]);
 
-  const vehicleById = useMemo(() => {
+  const vehiclesById = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
-      if (vehicle?.id === undefined || vehicle?.id === null) return;
       map.set(String(vehicle.id), vehicle);
     });
     return map;
   }, [vehicles]);
 
-  const selectedVehicle = useMemo(() => {
-    if (selectedVehicleId !== null) {
-      return vehicleById.get(String(selectedVehicleId)) || null;
-    }
-    if (selectedTraccarDeviceId === null) return null;
-    return vehicleByDeviceId.get(String(selectedTraccarDeviceId)) || null;
-  }, [selectedTraccarDeviceId, selectedVehicleId, vehicleByDeviceId, vehicleById]);
-  const hasSelectedVehicle = selectedVehicleId !== null && Boolean(selectedVehicle);
-  const hasSelectedDevice = selectedTraccarDeviceId !== null;
-  const list = Array.isArray(history) ? history : [];
-  const selectedDevice = useMemo(() => {
-    if (selectedTraccarDeviceId === null) return null;
-    return deviceByTraccarId.get(selectedTraccarDeviceId) || resolveVehicleDevice(selectedVehicle);
-  }, [deviceByTraccarId, resolveVehicleDevice, selectedTraccarDeviceId, selectedVehicle]);
-  const normalizedCommandTypes = useMemo(
-    () => commandTypes.map((type) => normalizeManualType(type)).filter(Boolean),
-    [commandTypes],
-  );
-  const manualTypeValue = useMemo(
-    () => normalizeManualType(manualType),
-    [manualType],
-  );
-  const protocolKey = useMemo(() => safeTrim(selectedProtocol), [selectedProtocol]);
-  const protocolKeyNormalized = useMemo(() => normalizeProtocol(protocolKey), [protocolKey]);
-  const protocolId = useMemo(
-    () => protocolIdByKey.get(protocolKeyNormalized) || protocolKey,
-    [protocolIdByKey, protocolKey, protocolKeyNormalized],
-  );
-  const protocolLabel = formatProtocolLabel(protocolKeyNormalized);
-  const selectedCommandDeviceId = useMemo(
-    () => (selectedTraccarDeviceId !== null ? selectedTraccarDeviceId : ""),
-    [selectedTraccarDeviceId],
-  );
-
-  const selectedCommand = useMemo(
-    () =>
-      protocolCommands.find((command) => String(command.id ?? "") === String(selectedCommandId)) || null,
-    [protocolCommands, selectedCommandId],
-  );
-  const selectedCommandFields = useMemo(() => {
-    if (!selectedCommand) return [];
-    const attributes = selectedCommand.attributes && typeof selectedCommand.attributes === "object"
-      ? selectedCommand.attributes
-      : {};
-    return Object.keys(attributes).map((key) => ({
-      key,
-      label: key,
-      type: typeof attributes[key] === "number" ? "number" : "text",
-    }));
-  }, [selectedCommand]);
-  const matchesCommandSearch = useMemo(() => {
-    const term = safeTrim(commandSearch).toLowerCase();
-    if (!term) return () => true;
-    return (command) =>
-      command.name?.toLowerCase().includes(term) ||
-      command.description?.toLowerCase().includes(term) ||
-      String(command.type || command.command || "").toLowerCase().includes(term) ||
-      command.tags?.some((tag) => String(tag).toLowerCase().includes(term));
-  }, [commandSearch]);
-  const filteredCommands = useMemo(() => {
-    return protocolCommands.filter(matchesCommandSearch);
-  }, [matchesCommandSearch, protocolCommands]);
-
-  const jsonDraftValidation = useMemo(() => {
-    if (!safeTrim(jsonDraft.payload)) {
-      return { valid: true, error: null };
-    }
-    try {
-      JSON.parse(jsonDraft.payload);
-      return { valid: true, error: null };
-    } catch (_error) {
-      return { valid: false, error: "JSON inválido" };
-    }
-  }, [jsonDraft.payload]);
-
-  const smsDraftValidation = useMemo(() => {
-    if (!safeTrim(smsDraft.name) || !safeTrim(smsDraft.content)) {
-      return { valid: false, error: "Informe nome amigável e conteúdo do SMS." };
-    }
-    if (!safeTrim(smsPhone)) {
-      return { valid: false, error: "Informe o telefone para envio do SMS." };
-    }
-    return { valid: true, error: null };
-  }, [smsDraft.content, smsDraft.name, smsPhone]);
-
-  const visibleCommandColumns = useMemo(
-    () => COMMAND_COLUMNS.filter((column) => columnsVisibility[column.id]),
-    [columnsVisibility],
-  );
-  const commandColumnLookup = useMemo(
-    () =>
-      COMMAND_COLUMNS.reduce((acc, column) => {
-        acc[column.id] = column;
-        return acc;
-      }, {}),
-    [],
-  );
-
-  const getColumnMinWidth = (columnId) => {
-    const columnConfig = commandColumnLookup[columnId];
-    const declaredMin = Number.isFinite(columnConfig?.minWidth) ? columnConfig.minWidth : DEFAULT_MIN_WIDTH;
-    return Math.max(MIN_COLUMN_WIDTH, declaredMin);
-  };
-
-  const getDefaultWidth = (columnId) => {
-    const columnConfig = commandColumnLookup[columnId];
-    const declaredWidth = Number.isFinite(columnConfig?.width) && columnConfig.width > 0
-      ? columnConfig.width
-      : DEFAULT_COLUMN_WIDTH;
-    return declaredWidth;
-  };
-
-  const getAppliedWidth = (columnId) => {
-    const minWidth = getColumnMinWidth(columnId);
-    const storedWidth = columnWidths[columnId];
-    const declaredWidth = getDefaultWidth(columnId);
-    const chosenWidth = Number.isFinite(storedWidth) && storedWidth > 0 ? storedWidth : declaredWidth;
-    return Math.max(minWidth, Math.min(chosenWidth, MAX_COLUMN_WIDTH));
-  };
-
-  const getWidthStyle = (columnId) => {
-    const minWidth = getColumnMinWidth(columnId);
-    const width = getAppliedWidth(columnId);
-    return { width, minWidth, maxWidth: MAX_COLUMN_WIDTH };
-  };
-
-  const handleColumnResizeEnd = (columnId, nextWidth) => {
-    const minWidth = getColumnMinWidth(columnId);
-    const clampedWidth = Math.max(minWidth, Math.min(nextWidth, MAX_COLUMN_WIDTH));
-    setColumnWidths((prev) => {
-      const updated = { ...prev, [columnId]: clampedWidth };
-      try {
-        localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(updated));
-      } catch (_error) {
-        // ignore storage failures
-      }
-      return updated;
-    });
-  };
-
-  const startResize = (columnId, event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const startX = event.clientX;
-    const startWidthRaw = event.currentTarget.parentElement?.getBoundingClientRect().width;
-    const minWidth = getColumnMinWidth(columnId);
-    const startWidth = Number.isFinite(startWidthRaw) && startWidthRaw > 0
-      ? startWidthRaw
-      : getAppliedWidth(columnId);
-    const safeStartWidth = Math.max(minWidth, Math.min(startWidth, MAX_COLUMN_WIDTH));
-
-    const handleMove = (moveEvent) => {
-      const delta = moveEvent.clientX - startX;
-      const unclamped = Math.round(safeStartWidth + delta);
-      const safeWidth = Number.isFinite(unclamped) ? unclamped : minWidth;
-      const clampedWidth = Math.max(minWidth, Math.min(safeWidth, MAX_COLUMN_WIDTH));
-
-      setColumnWidths((prev) => {
-        if (prev[columnId] === clampedWidth) return prev;
-        const updated = { ...prev, [columnId]: clampedWidth };
-        liveWidthsRef.current = updated;
-        return updated;
-      });
-    };
-
-    const handleUp = () => {
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", handleUp);
-      const storedWidth = liveWidthsRef.current?.[columnId];
-      const safeStored = Number.isFinite(storedWidth) ? storedWidth : minWidth;
-      handleColumnResizeEnd(columnId, safeStored);
-    };
-
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", handleUp);
-  };
-
-  const commandParamsValidation = useMemo(() => {
-    if (!selectedCommandFields.length) {
-      return { valid: true, missing: [] };
-    }
-    const missing = selectedCommandFields
-      .filter((field) => {
-        const value = commandParams[field.key];
-        return value === "" || value === undefined || value === null;
-      })
-      .map((field) => field.label || field.key);
-    return { valid: missing.length === 0, missing };
-  }, [commandParams, selectedCommandFields]);
-
-  const manualCommandValidation = useMemo(() => {
-    const type = manualTypeValue;
-    if (!type) {
-      return { valid: false, error: "Informe o tipo do comando." };
-    }
-    return { valid: true, error: null };
-  }, [manualTypeValue]);
-
-  useEffect(() => {
-    setColumnsDraft(columnsVisibility);
-  }, [columnsVisibility]);
-
-  useEffect(() => {
-    liveWidthsRef.current = columnWidths;
-  }, [columnWidths]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadProtocols() {
-      setProtocolsLoading(true);
-      setProtocolError(null);
-      try {
-        const response = await api.get(API_ROUTES.protocols);
-        const list = Array.isArray(response?.data?.protocols) ? response.data.protocols : [];
-        if (mounted) {
-          setProtocols(list);
-        }
-      } catch (requestError) {
-        if (mounted) {
-          setProtocolError(requestError instanceof Error ? requestError : new Error("Erro ao carregar protocolos"));
-        }
-      } finally {
-        if (mounted) {
-          setProtocolsLoading(false);
-        }
-      }
-    }
-    loadProtocols();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    setSelectedCommandId("");
-    setCommandParams({});
-  }, [protocolId]);
-
-  useEffect(() => {
-    setSelectedCommandId("");
-    setCommandParams({});
-  }, [selectedTraccarDeviceId]);
-
-  const resolveProtocolFallback = useCallback(
-    (device, traccarDeviceId) => {
-      const direct = deriveProtocolFromDevice(device);
-      if (direct) return direct;
-      if (traccarDeviceId !== null) {
-        const linkedDevice = deviceByTraccarId.get(traccarDeviceId);
-        const linkedProtocol = deriveProtocolFromDevice(linkedDevice);
-        if (linkedProtocol) return linkedProtocol;
-      }
-      return "";
-    },
-    [deviceByTraccarId],
-  );
-
-  const fetchTraccarProtocol = useCallback(async (traccarDeviceId) => {
-    if (traccarDeviceId === null || traccarDeviceId === undefined) return null;
-    const cacheKey = String(traccarDeviceId);
-    if (protocolCacheRef.current.has(cacheKey)) {
-      return protocolCacheRef.current.get(cacheKey);
-    }
-    const response = await api.get(`${API_ROUTES.devices}/${traccarDeviceId}`);
-    const payload = response?.data?.device || response?.data || {};
-    const protocol =
-      safeTrim(payload?.protocol) ||
-      safeTrim(payload?.attributes?.protocol) ||
-      "";
-    protocolCacheRef.current.set(cacheKey, protocol || null);
-    if (!protocol) {
-      console.warn("[commands] Traccar device sem protocolo", payload);
-    }
-    return protocol || null;
-  }, []);
-
-  const resolveProtocolFromVehicle = useCallback(
-    async (vehicleId, { resolvedDevice, fallbackTraccarId, fallbackUniqueId } = {}) => {
-      const params = tenantId ? { clientId: tenantId } : undefined;
-      const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId), { params });
-      const payload = response?.data?.traccarDevice || response?.data?.device || response?.data || {};
-      const traccarId = parseNumericId(payload.traccarDeviceId ?? payload.deviceId ?? payload.id) ?? fallbackTraccarId;
-      const uniqueId = payload.uniqueId || fallbackUniqueId || null;
-      let protocol = safeTrim(payload.protocol) || resolveProtocolFallback(resolvedDevice, traccarId);
-      if (!protocol && traccarId !== null) {
-        protocol = (await fetchTraccarProtocol(traccarId)) || "";
-      }
-      return { traccarDeviceId: traccarId, uniqueId, protocol };
-    },
-    [fetchTraccarProtocol, resolveProtocolFallback, tenantId],
-  );
-
-  useEffect(() => {
-    if (!selectedVehicleId) return;
-    let mounted = true;
-    const vehicle = vehicleById.get(String(selectedVehicleId)) || null;
-    const resolvedDevice = resolveVehicleDevice(vehicle);
-    const fallbackTraccarId = resolveTraccarDeviceId(resolvedDevice);
-    const fallbackUniqueId = resolveDeviceUniqueId(resolvedDevice, vehicle);
-    const applySelection = ({ traccarDeviceId, uniqueId, protocol } = {}) => {
-      if (!mounted) return;
-      const nextTraccarId = traccarDeviceId ?? null;
-      const nextUniqueId = uniqueId || null;
-      const nextProtocol = protocol || "";
-      setSelectedTraccarDeviceId((prev) => (prev === nextTraccarId ? prev : nextTraccarId));
-      setSelectedDeviceUniqueId((prev) => (prev === nextUniqueId ? prev : nextUniqueId));
-      setSelectedProtocol((prev) => (prev === nextProtocol ? prev : nextProtocol));
-    };
-
-    async function resolveSelection() {
-      setSelectionLoading(true);
-      setSelectionError(null);
-      try {
-        const { traccarDeviceId, uniqueId, protocol } = await resolveProtocolFromVehicle(selectedVehicleId, {
-          resolvedDevice,
-          fallbackTraccarId,
-          fallbackUniqueId,
-        });
-        applySelection({ traccarDeviceId, uniqueId, protocol });
-        if (!traccarDeviceId) {
-          setSelectionError(new Error("Veículo sem equipamento vinculado."));
-        } else if (!protocol) {
-          setSelectionError(new Error("Equipamento sem protocolo configurado."));
-        }
-      } catch (requestError) {
-        const traccarId = fallbackTraccarId;
-        const protocol = resolveProtocolFallback(resolvedDevice, traccarId);
-        applySelection({ traccarDeviceId: traccarId, uniqueId: fallbackUniqueId, protocol });
-        const message =
-          requestError?.response?.data?.message ||
-          requestError?.message ||
-          "Não foi possível resolver o equipamento do veículo.";
-        if (!protocol || !traccarId) {
-          setSelectionError(new Error(message));
-        }
-      } finally {
-        if (mounted) {
-          setSelectionLoading(false);
-        }
-      }
-    }
-
-    resolveSelection();
-    return () => {
-      mounted = false;
-    };
-  }, [resolveProtocolFallback, resolveProtocolFromVehicle, resolveVehicleDevice, selectedVehicleId, vehicleById]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadCommands() {
-      if (!hasSelectedVehicle || !selectedTraccarDeviceId || !protocolKey) {
-        setProtocolCommands([]);
-        setCommandsError(null);
-        return;
-      }
-      const cacheKey = `protocol:${protocolKey}`;
-      if (commandsCacheRef.current.has(cacheKey) && commandsRefreshKey === 0) {
-        setProtocolCommands(commandsCacheRef.current.get(cacheKey));
-        setCommandsError(null);
-        return;
-      }
-      setCommandsLoading(true);
+  const fetchDevice = useCallback(async () => {
+    if (!selectedVehicleId) {
+      setDevice(null);
+      setDeviceError(null);
+      setProtocolCommands([]);
       setCommandsError(null);
-      try {
-        const response = await api.get(API_ROUTES.protocolCommands(protocolId));
-        const responseList = Array.isArray(response?.data?.commands)
-          ? response.data.commands
-          : Array.isArray(response?.data)
-            ? response.data
-            : [];
-        const normalizedList = responseList.map((item) =>
-          typeof item === "string" ? { id: item, type: item, name: item } : item,
-        );
-        const filteredList = protocolKey
-          ? normalizedList.filter((command) => !command.protocol || command.protocol === protocolKey)
-          : normalizedList;
-        commandsCacheRef.current.set(cacheKey, filteredList);
-        if (mounted) {
-          setProtocolCommands(filteredList);
-        }
-      } catch (requestError) {
-        if (mounted) {
-          const message =
-            requestError?.response?.data?.message ||
-            requestError?.message ||
-            "Erro ao carregar comandos do protocolo.";
-          setCommandsError(new Error(message));
-          setProtocolCommands([]);
-        }
-      } finally {
-        if (mounted) {
-          setCommandsLoading(false);
-        }
-      }
-    }
-    loadCommands();
-    return () => {
-      mounted = false;
-    };
-  }, [commandsRefreshKey, hasSelectedVehicle, protocolId, protocolKey, selectedTraccarDeviceId]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadCommandTypes() {
-      if (!selectedTraccarDeviceId) {
-        setCommandTypes([]);
-        setCommandTypesError(null);
-        setCommandTypesLoading(false);
-        return;
-      }
-      setCommandTypesLoading(true);
-      setCommandTypesError(null);
-      try {
-        const response = await api.get(API_ROUTES.commandsTypes, {
-          params: { deviceId: selectedTraccarDeviceId },
-        });
-        const list = Array.isArray(response?.data?.types)
-          ? response.data.types
-          : Array.isArray(response?.data)
-            ? response.data
-            : [];
-        if (mounted) {
-          setCommandTypes(list);
-        }
-      } catch (requestError) {
-        if (mounted) {
-          const deviceHint = selectedTraccarDeviceId ? ` (deviceId=${selectedTraccarDeviceId})` : "";
-          setCommandTypesError(new Error(`${buildCommandTypesErrorMessage(requestError)}${deviceHint}`));
-          setCommandTypes([]);
-        }
-      } finally {
-        if (mounted) {
-          setCommandTypesLoading(false);
-        }
-      }
-    }
-    loadCommandTypes();
-    return () => {
-      mounted = false;
-    };
-  }, [selectedTraccarDeviceId]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadSmsCommandTypes() {
-      if (!selectedTraccarDeviceId || activeTab !== "SMS") {
-        setSmsCommandTypes([]);
-        setSmsCommandTypesError(null);
-        setSmsCommandTypesLoading(false);
-        return;
-      }
-      setSmsCommandTypesLoading(true);
-      setSmsCommandTypesError(null);
-      try {
-        const response = await api.get(API_ROUTES.commandsTypes, {
-          params: { deviceId: selectedTraccarDeviceId, textChannel: true },
-        });
-        const list = Array.isArray(response?.data?.types)
-          ? response.data.types
-          : Array.isArray(response?.data)
-            ? response.data
-            : [];
-        if (mounted) {
-          setSmsCommandTypes(list);
-        }
-      } catch (requestError) {
-        if (mounted) {
-          const deviceHint = selectedTraccarDeviceId ? ` (deviceId=${selectedTraccarDeviceId})` : "";
-          setSmsCommandTypesError(new Error(`${buildCommandTypesErrorMessage(requestError)}${deviceHint}`));
-          setSmsCommandTypes([]);
-        }
-      } finally {
-        if (mounted) {
-          setSmsCommandTypesLoading(false);
-        }
-      }
-    }
-    loadSmsCommandTypes();
-    return () => {
-      mounted = false;
-    };
-  }, [activeTab, selectedTraccarDeviceId]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function loadHistory() {
-      if (!selectedCommandDeviceId) {
-        setHistory([]);
-        setHistoryError(null);
-        return;
-      }
-      setHistoryLoading(true);
-      setHistoryError(null);
-      try {
-        const response = await api.get(API_ROUTES.commandsHistory, {
-          params: { deviceId: selectedCommandDeviceId, from: historyFrom, to: historyTo },
-        });
-        const entries = Array.isArray(response?.data?.commands)
-          ? response.data.commands
-          : Array.isArray(response?.data)
-            ? response.data
-            : [];
-        if (mounted) {
-          setHistory(entries);
-        }
-      } catch (requestError) {
-        if (mounted) {
-          setHistoryError(requestError instanceof Error ? requestError : new Error("Erro ao carregar histórico"));
-          setHistory([]);
-        }
-      } finally {
-        if (mounted) {
-          setHistoryLoading(false);
-        }
-      }
-    }
-    loadHistory();
-    return () => {
-      mounted = false;
-    };
-  }, [historyFrom, historyRefreshKey, historyTo, selectedCommandDeviceId]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(templatesByProtocol));
-  }, [templatesByProtocol]);
-
-  useEffect(() => {
-    if (activeTab !== "SMS") return;
-    setSmsStatus(null);
-  }, [activeTab, selectedTraccarDeviceId]);
-
-  useEffect(() => {
-    if (normalizedCommandTypes.length === 0) return;
-    if (!normalizedCommandTypes.includes(manualTypeValue)) {
-      setManualType(normalizedCommandTypes[0]);
-    }
-  }, [manualTypeValue, normalizedCommandTypes]);
-
-  useEffect(() => {
-    if (smsCommandTypes.length === 0) return;
-    if (!smsCommandTypes.includes(smsCommandType)) {
-      setSmsCommandType(smsCommandTypes[0]);
-    }
-  }, [smsCommandType, smsCommandTypes]);
-
-  useEffect(() => {
-    if (selectedTraccarDeviceId === null) {
-      setSelectedProtocol("");
+      setExpandedCommandId(null);
+      setCommandParams({});
       return;
     }
-    const resolvedProtocol = deriveProtocolFromDevice(selectedDevice);
-    if (resolvedProtocol && resolvedProtocol !== selectedProtocol) {
-      setSelectedProtocol(resolvedProtocol);
-    }
-  }, [selectedDevice, selectedProtocol, selectedTraccarDeviceId]);
-
-  useEffect(() => {
-    if (!selectedTraccarDeviceId || selectedProtocol || selectionError) return;
-    let mounted = true;
-    async function resolveProtocolFromTraccar() {
-      try {
-        const protocol = await fetchTraccarProtocol(selectedTraccarDeviceId);
-        if (!mounted) return;
-        if (protocol) {
-          setSelectedProtocol((prev) => (prev === protocol ? prev : protocol));
-          setSelectionError(null);
-          return;
-        }
-        setSelectionError(new Error("Equipamento sem protocolo definido no Traccar"));
-      } catch (requestError) {
-        if (!mounted) return;
-        const message =
-          requestError?.response?.data?.message ||
-          requestError?.message ||
-          "Erro ao buscar protocolo no Traccar.";
-        setSelectionError(new Error(message));
-      }
-    }
-    resolveProtocolFromTraccar();
-    return () => {
-      mounted = false;
-    };
-  }, [fetchTraccarProtocol, selectedProtocol, selectedTraccarDeviceId, selectionError]);
-
-  function handleSelectCommand(command) {
-    setSelectedCommandId(command.id);
-    const defaults =
-      command?.attributes && typeof command.attributes === "object"
-        ? Object.entries(command.attributes).reduce((acc, [key, value]) => {
-            if (value && typeof value === "object") {
-              try {
-                acc[key] = JSON.stringify(value);
-              } catch (_error) {
-                acc[key] = String(value);
-              }
-              return acc;
-            }
-            acc[key] = value ?? "";
-            return acc;
-          }, {})
-        : {};
-    setCommandParams(defaults);
-  }
-
-  function updateTemplate(kind, updater) {
-    setTemplatesByProtocol((current) => {
-      const protocolTemplates = current?.[kind] || {};
-      const currentList = Array.isArray(protocolTemplates[protocolKey]) ? protocolTemplates[protocolKey] : [];
-      const nextList = updater(currentList);
-      return {
-        ...current,
-        [kind]: {
-          ...protocolTemplates,
-          [protocolKey]: nextList,
-        },
-      };
-    });
-  }
-
-  async function handleSendCommand(payload, { context } = {}) {
-    setFormError(null);
-    setFormErrorContext(context || null);
-    setFormSuccess(null);
-    setFormSuccessContext(null);
-    if (!selectedCommandDeviceId) {
-      setFormError(new Error("Selecione um veículo com equipamento vinculado."));
-      return;
-    }
-    if (!protocolKey) {
-      setFormError(new Error("Protocolo do equipamento não definido. Selecione um veículo válido."));
-      return;
-    }
-    const commandType = normalizeManualType(payload?.command);
-    if (!commandType) {
-      setFormError(new Error("Informe o tipo do comando."));
-      return;
-    }
-    const isSmsContext = context === "sms";
-    if (isSmsContext) {
-      setSmsStatus({ state: "pending", message: "Enviando SMS..." });
-    }
-    setSending(true);
+    setDeviceLoading(true);
+    setDeviceError(null);
+    setProtocolCommands([]);
+    setCommandsError(null);
+    setExpandedCommandId(null);
+    setCommandParams({});
     try {
-      console.info("[commands] envio de comando", {
-        deviceId: selectedCommandDeviceId,
-        protocol: protocolKey,
-        payload,
-        context,
-      });
-      const response = await api.post(API_ROUTES.commandsSend, {
-        id: 0,
-        deviceId: selectedCommandDeviceId,
-        type: commandType,
-        attributes: payload?.params && Object.keys(payload.params).length ? payload.params : undefined,
-        textChannel: isSmsContext || payload?.textChannel || false,
-        description: payload?.description,
-      });
-      console.info("[commands] resposta envio comando", response?.data || response);
-      setHistoryRefreshKey((value) => value + 1);
-      console.info("[commands] histórico atualizado", { deviceId: selectedCommandDeviceId });
-      const successMessage =
-        response?.data?.message || "Comando enviado com sucesso.";
-      setFormSuccess({ message: successMessage });
-      setFormSuccessContext(context || null);
-      if (isSmsContext) {
-        setSmsStatus({ state: "success", message: successMessage });
+      const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(selectedVehicleId));
+      const traccarDevice = response?.data?.traccarDevice || null;
+      if (!traccarDevice) {
+        setDevice(null);
+        setDeviceError("Veículo sem equipamento vinculado no Traccar");
+        return;
       }
-    } catch (requestError) {
+      if (!traccarDevice.protocol) {
+        setDevice(null);
+        setDeviceError("Device sem protocol no Traccar (dados inconsistentes)");
+        return;
+      }
+      setDevice(traccarDevice);
+    } catch (error) {
       const message =
-        requestError?.response?.data?.message ||
-        requestError?.message ||
-        "Não foi possível enviar o comando. Verifique os dados e tente novamente.";
-      const errorMessage = `Erro ao enviar comando: ${message}`;
-      setFormError(new Error(errorMessage));
-      if (isSmsContext) {
-        setSmsStatus({ state: "error", message: errorMessage });
-      }
+        error?.response?.status === 404
+          ? "Veículo sem equipamento vinculado no Traccar"
+          : error?.message || "Erro ao carregar device";
+      setDevice(null);
+      setDeviceError(message);
     } finally {
-      setSending(false);
+      setDeviceLoading(false);
     }
-  }
+  }, [selectedVehicleId]);
 
-  const handleSaveColumns = () => {
-    setColumnsVisibility(columnsDraft);
-    try {
-      localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(columnsDraft));
-    } catch (_error) {
-      // ignore storage failures
+  const fetchCommands = useCallback(async () => {
+    if (!device?.protocol) {
+      setProtocolCommands([]);
+      return;
     }
-    setShowColumns(false);
+    setCommandsLoading(true);
+    setCommandsError(null);
+    try {
+      const response = await api.get(API_ROUTES.protocolCommands(device.protocol));
+      const commands = Array.isArray(response?.data?.commands) ? response.data.commands : [];
+      setProtocolCommands(commands);
+    } catch (error) {
+      setCommandsError(error instanceof Error ? error : new Error("Erro ao carregar comandos"));
+    } finally {
+      setCommandsLoading(false);
+    }
+  }, [device?.protocol]);
+
+  const fetchHistory = useCallback(async () => {
+    if (!selectedVehicleId) {
+      setHistory([]);
+      setHistoryError(null);
+      return;
+    }
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const response = await api.get(API_ROUTES.commandsHistory, { params: { vehicleId: selectedVehicleId } });
+      const items = Array.isArray(response?.data?.history)
+        ? response.data.history
+        : Array.isArray(response?.data)
+        ? response.data
+        : [];
+      setHistory(items);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error : new Error("Erro ao carregar histórico"));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [selectedVehicleId]);
+
+  useEffect(() => {
+    fetchDevice().catch(() => {});
+  }, [fetchDevice]);
+
+  useEffect(() => {
+    fetchCommands().catch(() => {});
+  }, [fetchCommands]);
+
+  useEffect(() => {
+    fetchHistory().catch(() => {});
+  }, [fetchHistory]);
+
+  const handleSendCommand = async (command) => {
+    const commandKey = getCommandKey(command);
+    if (!selectedVehicleId || !device?.protocol || !commandKey) {
+      showToast("Selecione um veículo com protocolo válido", "error");
+      return;
+    }
+
+    setSendingCommandId(commandKey);
+    try {
+      await api.post(API_ROUTES.commandsSend, {
+        vehicleId: selectedVehicleId,
+        traccarDeviceId: device.traccarDeviceId || device.id,
+        protocol: device.protocol,
+        commandKey,
+        params: commandParams[commandKey] || {},
+      });
+      showToast("Comando enviado com sucesso.");
+      setExpandedCommandId(null);
+      const response = await api.get(API_ROUTES.commandsHistory, { params: { vehicleId: selectedVehicleId } });
+      const items = Array.isArray(response?.data?.history)
+        ? response.data.history
+        : Array.isArray(response?.data)
+        ? response.data
+        : [];
+      setHistory(items);
+    } catch (error) {
+      showToast(error?.response?.data?.message || error?.message || "Erro ao enviar comando", "error");
+    } finally {
+      setSendingCommandId(null);
+    }
+  };
+
+  const handleUpdateParam = (commandId, key, value) => {
+    setCommandParams((current) => ({
+      ...current,
+      [commandId]: {
+        ...current?.[commandId],
+        [key]: value,
+      },
+    }));
   };
 
   const handleClearFilters = () => {
-    setSelectedTraccarDeviceId(null);
-    setSelectedVehicleId(null);
-    setSelectedDeviceUniqueId(null);
-    setSelectedProtocol("");
-    setSelectionError(null);
-    setSelectionLoading(false);
     setVehicleSearch("");
     setCommandSearch("");
+    setSelectedVehicleId("");
   };
 
-  const handleRefreshHistory = () => {
-    if (protocolKey) {
-      commandsCacheRef.current.delete(`protocol:${protocolKey}`);
-    }
-    setCommandsRefreshKey((value) => value + 1);
-    setHistoryRefreshKey((value) => value + 1);
+  const handleShow = () => {
+    fetchDevice().catch(() => {});
+    fetchHistory().catch(() => {});
+    fetchCommands().catch(() => {});
   };
 
-  async function handleSendSelectedCommand() {
-    if (!selectedCommand) {
-      setFormError(new Error("Selecione um comando para enviar."));
-      setFormErrorContext("selected");
-      return;
-    }
-    if (!commandParamsValidation.valid) {
-      setFormError(new Error("Preencha todos os parâmetros obrigatórios antes de enviar."));
-      setFormErrorContext("selected");
-      return;
-    }
-    const params = selectedCommandFields.reduce((acc, field) => {
-      const value = commandParams[field.key];
-      if (value === "" || value === undefined || value === null) return acc;
-      if (field.type === "number") {
-        const numericValue = Number(value);
-        acc[field.key] = Number.isNaN(numericValue) ? value : numericValue;
-        return acc;
-      }
-      if (typeof value === "string") {
-        const trimmed = safeTrim(value);
-        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-          try {
-            acc[field.key] = JSON.parse(trimmed);
-            return acc;
-          } catch (_error) {
-            // ignore parse errors
-          }
+  const resizeStateRef = useRef(null);
+
+  const startResize = useCallback(
+    (columnId, event) => {
+      event.preventDefault();
+      const column = HISTORY_COLUMNS.find((item) => item.id === columnId);
+      if (!column) return;
+      const startX = event.clientX;
+      const startWidth = columnWidths[columnId] || column.width;
+      resizeStateRef.current = { columnId, startX, startWidth };
+
+      const handleMove = (moveEvent) => {
+        if (!resizeStateRef.current) return;
+        const delta = moveEvent.clientX - resizeStateRef.current.startX;
+        const nextWidth = Math.min(
+          MAX_COLUMN_WIDTH,
+          Math.max(MIN_COLUMN_WIDTH, resizeStateRef.current.startWidth + delta),
+        );
+        setColumnWidths((current) => ({ ...current, [columnId]: nextWidth }));
+      };
+
+      const handleUp = () => {
+        resizeStateRef.current = null;
+        window.removeEventListener("mousemove", handleMove);
+        window.removeEventListener("mouseup", handleUp);
+        try {
+          window.localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(latestWidthsRef.current));
+        } catch (_error) {
+          // ignore
         }
-      }
-      acc[field.key] = value;
-      return acc;
-    }, {});
-    await handleSendCommand(
-      { command: selectedCommand.type || selectedCommand.command || selectedCommand.id, params },
-      { context: "selected" },
-    );
-  }
+      };
 
-  function handleSaveSmsTemplate(event) {
-    event.preventDefault();
-    if (!protocolKey) return;
-    const payload = {
-      id: smsDraft.id || createLocalId("sms"),
-      name: safeTrim(smsDraft.name),
-      content: safeTrim(smsDraft.content),
-      variables: safeTrim(smsDraft.variables),
-    };
-    if (!payload.name || !payload.content) {
-      setFormError(new Error("Informe o nome e o conteúdo do SMS."));
-      return;
-    }
-    updateTemplate("sms", (list) => {
-      const filtered = list.filter((item) => item.id !== payload.id);
-      return [...filtered, payload];
-    });
-    setSmsDraft({ id: null, name: "", content: "", variables: "" });
-  }
+      window.addEventListener("mousemove", handleMove);
+      window.addEventListener("mouseup", handleUp);
+    },
+    [columnWidths],
+  );
 
-  function handleSaveJsonTemplate(event) {
-    event.preventDefault();
-    if (!protocolKey) return;
-    if (!jsonDraftValidation.valid) {
-      setFormError(new Error("Corrija o JSON antes de salvar."));
-      return;
-    }
-    const payload = {
-      id: jsonDraft.id || createLocalId("json"),
-      name: safeTrim(jsonDraft.name),
-      payload: safeTrim(jsonDraft.payload),
-      description: safeTrim(jsonDraft.description),
-    };
-    if (!payload.name || !payload.payload) {
-      setFormError(new Error("Informe o nome e o JSON do template."));
-      return;
-    }
-    updateTemplate("json", (list) => {
-      const filtered = list.filter((item) => item.id !== payload.id);
-      return [...filtered, payload];
-    });
-    setJsonDraft({ id: null, name: "", payload: "", description: "" });
-  }
+  const getWidthStyle = (columnId) => {
+    const column = HISTORY_COLUMNS.find((item) => item.id === columnId);
+    if (!column) return undefined;
+    const width = columnWidths[columnId] || column.width;
+    return { width: `${width}px`, minWidth: `${column.minWidth || width}px` };
+  };
 
-  async function handleCopy(content, templateId) {
-    if (!content) return;
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopiedId(templateId);
-      setTimeout(() => setCopiedId(null), 1500);
-    } catch (_error) {
-      setCopiedId(null);
-    }
-  }
+  const toastClassName =
+    toast?.type === "error"
+      ? "bg-red-500/20 text-red-200 border-red-500/30"
+      : toast?.type === "warning"
+      ? "bg-amber-500/20 text-amber-100 border-amber-400/30"
+      : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30";
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
-      <section className="card flex min-h-[calc(100vh-140px)] flex-1 flex-col gap-4 p-0">
+      <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
         <header className="space-y-2 px-6 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-white/60">
-              Central de comandos
-            </h2>
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
+            </div>
           </div>
-          <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto border-b border-white/10 pb-4">
-            <div className="flex flex-nowrap gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <div className="flex flex-wrap gap-2">
               {COMMAND_TABS.map((tab) => (
                 <button
                   key={tab}
@@ -1178,62 +353,26 @@ export default function Commands() {
                 </button>
               ))}
             </div>
-            <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-              <Button type="button" onClick={handleRefreshHistory}>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button type="button" onClick={handleShow}>
                 Mostrar
               </Button>
               <Button type="button" variant="outline" onClick={handleClearFilters}>
                 Limpar filtros
               </Button>
-              <div className="relative flex items-center">
-                <button
-                  type="button"
-                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
-                    showColumns ? "bg-white/10" : "bg-transparent"
-                  }`}
-                  onClick={() => setShowColumns((open) => !open)}
-                  aria-label="Colunas"
-                >
-                  <Columns3 size={18} />
-                </button>
-                {showColumns && (
-                  <div className="absolute right-0 top-12 z-20 w-52 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
-                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
-                    <div className="space-y-2">
-                      {COMMAND_COLUMNS.map((column) => (
-                        <label key={column.id} className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={columnsDraft[column.id]}
-                            onChange={(event) =>
-                              setColumnsDraft((current) => ({
-                                ...current,
-                                [column.id]: event.target.checked,
-                              }))
-                            }
-                            className="rounded border-white/20 bg-transparent"
-                          />
-                          <span>{column.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex justify-end">
-                      <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
-                        Salvar
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                className="rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white"
+                aria-label="Colunas"
+              >
+                <Columns3 size={18} />
+              </button>
             </div>
           </div>
-          {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
-          {vehiclesLoading && <p className="text-xs text-white/50">Carregando veículos…</p>}
-          {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
         </header>
 
-        <div className="space-y-4 px-6 pb-6">
-          <div className="flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="mx-6 flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
             <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Buscar veículo
               <Input
@@ -1243,941 +382,246 @@ export default function Commands() {
                 className="mt-2"
               />
             </label>
-            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+            <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Veículo
               <Select
-                value={selectedVehicleValue}
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  if (!nextValue) {
-                    setSelectedTraccarDeviceId(null);
-                    setSelectedVehicleId(null);
-                    setSelectedDeviceUniqueId(null);
-                    setSelectedProtocol("");
-                    setSelectionError(null);
-                    setSelectionLoading(false);
-                    return;
-                  }
-                  const vehicleId = parseNumericId(nextValue);
-                  if (!vehicleId || !vehicleById.has(String(vehicleId))) {
-                    setSelectedTraccarDeviceId(null);
-                    setSelectedVehicleId(null);
-                    setSelectedDeviceUniqueId(null);
-                    setSelectedProtocol("");
-                    setSelectionError(new Error("Veículo não encontrado."));
-                    return;
-                  }
-                  setSelectedVehicleId(vehicleId);
-                  setSelectedTraccarDeviceId(null);
-                  setSelectedDeviceUniqueId(null);
-                  setSelectedProtocol("");
-                  setSelectionError(null);
-                  setSelectionLoading(true);
-                }}
+                value={selectedVehicleId}
+                onChange={(event) => setSelectedVehicleId(event.target.value)}
                 className="mt-2 w-full bg-layer text-sm"
               >
-                <option value="">Selecione uma placa</option>
-                {filteredVehicleOptions.map((vehicle) => (
-                  <option
-                    key={vehicle.id}
-                    value={vehicle.id}
-                  >
+                <option value="">Selecione</option>
+                {vehicleOptions.map((vehicle) => (
+                  <option key={vehicle.id} value={vehicle.id}>
                     {vehicle.label}
-                    {vehicle.note ? ` — ${vehicle.note}` : ""}
                   </option>
                 ))}
               </Select>
             </label>
-            <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+            <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Buscar comando
               <Input
                 value={commandSearch}
                 onChange={(event) => setCommandSearch(event.target.value)}
-                placeholder="Buscar comando"
+                placeholder="Digite o nome do comando"
                 className="mt-2"
-                disabled={!hasSelectedDevice}
               />
             </label>
             <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
               Protocolo
-              <Input
-                value={protocolLabel}
-                readOnly
-                disabled
-                className="mt-2"
-              />
+              <Input value={device?.protocol || ""} readOnly className="mt-2" />
             </label>
-            <div className="flex flex-nowrap items-center gap-2">
-              {selectedTraccarDeviceId !== null && (
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
-                  DeviceId: {selectedTraccarDeviceId}
-                </span>
-              )}
-              {selectedDeviceUniqueId && (
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60">
-                  UniqueId: {selectedDeviceUniqueId}
-                </span>
-              )}
-              {protocolsLoading && <span className="text-xs text-white/50">Carregando protocolos…</span>}
-              {selectionLoading && <span className="text-xs text-white/50">Resolvendo equipamento…</span>}
-            </div>
+            {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
           </div>
 
-          {safeTrim(vehicleSearch) && (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {vehicleSearchResults.length === 0 && (
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  Nenhum veículo encontrado.
-                </div>
-              )}
-              {vehicleSearchResults.map((vehicle) => {
-                const resolvedDevice = resolveVehicleDevice(vehicle);
-                const vehicleProtocolKey = deriveProtocolFromDevice(resolvedDevice);
-                const hasDevice = Boolean(resolvedDevice);
-                const hasTraccarId = resolveTraccarDeviceId(resolvedDevice) !== null;
-                return (
-                  <div
-                    key={vehicle.id}
-                    className="flex flex-col justify-between gap-3 rounded-2xl border border-white/10 bg-[#0b0f17] p-4"
-                  >
-                    <div className="space-y-1">
-                      <div className="text-sm font-semibold text-white">{vehicle.plate || "Placa não informada"}</div>
-                      {vehicle.name && <div className="text-xs text-white/60">{vehicle.name}</div>}
-                      {!hasDevice && (
-                        <div className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</div>
-                      )}
-                      {hasDevice && !hasTraccarId && (
-                        <div className="text-xs text-amber-200/80">
-                          Equipamento sem deviceId do Traccar configurado.
-                        </div>
-                      )}
-                      <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] uppercase tracking-wide text-white/60">
-                        {formatProtocolLabel(vehicleProtocolKey)}
-                      </span>
-                    </div>
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        size="xs"
-                        onClick={() => {
-                          setSelectedTraccarDeviceId(null);
-                          setSelectedVehicleId(vehicle.id);
-                          setSelectedDeviceUniqueId(null);
-                          setSelectedProtocol("");
-                          setSelectionError(null);
-                          setSelectionLoading(true);
-                          setVehicleSearch("");
-                        }}
-                        disabled={!hasDevice}
-                      >
-                        {hasDevice ? "Selecionar" : "Sem equipamento"}
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
+          {!selectedVehicleId && (
+            <div className="mx-6 flex min-h-[160px] items-center justify-center rounded-2xl border border-white/10 bg-[#0b0f17] text-sm text-white/60">
+              Selecione um veículo
             </div>
           )}
 
-          {activeTab === "Comandos" && (
-            <div className="space-y-4">
-              {!hasSelectedVehicle && !selectionError && !selectionLoading && (
-                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  Selecione um veículo para visualizar os comandos.
-                </div>
+          {selectedVehicleId && (
+            <div className="mx-6 flex min-h-[200px] flex-col gap-3 rounded-2xl border border-white/10 bg-[#0b0f17] p-4">
+              {deviceLoading && <p className="text-sm text-white/60">Carregando dispositivo do Traccar…</p>}
+              {deviceError && <p className="text-sm text-red-300">{deviceError}</p>}
+              {!deviceLoading && !deviceError && commandsLoading && (
+                <p className="text-sm text-white/60">Carregando comandos…</p>
               )}
-              {selectionError && (
-                <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                  {selectionError.message}
-                </div>
+              {!deviceLoading && !deviceError && commandsError && (
+                <p className="text-sm text-red-300">{commandsError.message}</p>
               )}
-              {hasSelectedDevice && !selectionError && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                    <span>Comandos homologados</span>
-                    <span>{filteredCommands.length} itens</span>
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full w-full table-fixed text-sm">
-                      <colgroup>
-                        {visibleCommandColumns.map((column) => (
-                          <col key={column.id} style={{ width: getAppliedWidth(column.id) }} />
-                        ))}
-                      </colgroup>
-                      <thead className="text-left text-xs uppercase tracking-wide text-white/50">
-                        <tr>
-                          {visibleCommandColumns.map((column) => (
-                            <th
-                              key={column.id}
-                              style={getWidthStyle(column.id)}
-                              className="relative py-2 pr-6"
-                            >
-                              <div className="flex items-center justify-between gap-2 pr-2">
-                                <span className="truncate" title={column.label}>
-                                  {column.label}
-                                </span>
-                                <span
-                                  role="separator"
-                                  tabIndex={0}
-                                  onMouseDown={(event) => startResize(column.id, event)}
-                                  onClick={(event) => event.stopPropagation()}
-                                  className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
-                                  title="Redimensionar coluna"
-                                />
-                              </div>
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border/40">
-                        {commandsLoading && (
-                          <tr>
-                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                              Carregando comandos…
-                            </td>
-                          </tr>
-                        )}
-                        {commandsError && (
-                          <tr>
-                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-red-300">
-                              {commandsError.message}
-                            </td>
-                          </tr>
-                        )}
-                        {!commandsLoading && filteredCommands.length === 0 && (
-                          <tr>
-                            <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                              {protocolKey
-                                ? `Nenhum comando cadastrado para o protocolo ${formatProtocolLabel(protocolKey)}. Verifique o cadastro de comandos.`
-                                : "Selecione um protocolo para listar comandos."}
-                            </td>
-                          </tr>
-                        )}
-                        {filteredCommands.map((command) => (
-                          <tr key={command.id} className="hover:bg-white/5">
-                            {visibleCommandColumns.map((column) => {
-                              switch (column.id) {
-                                case "device":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/70">
-                                      {selectedVehicle?.plate || selectedVehicle?.name || "—"}
-                                    </td>
-                                  );
-                                case "command":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/80">
-                                      <div className="text-sm font-semibold text-white">
-                                        {command.name || command.description || command.type || command.command || command.id}
-                                      </div>
-                                      {command.tags?.length ? (
-                                        <div className="mt-1 flex flex-wrap gap-2">
-                                          {command.tags.map((tag) => (
-                                            <span
-                                              key={tag}
-                                              className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
-                                            >
-                                              {tag}
-                                            </span>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                    </td>
-                                  );
-                                case "description":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/60">
-                                      {command.description || command.type || command.command || "—"}
-                                    </td>
-                                  );
-                                case "action":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6">
-                                      {command.attributes && Object.keys(command.attributes).length ? (
-                                        <Button
-                                          size="xs"
-                                          variant="secondary"
-                                          onClick={() => handleSelectCommand(command)}
-                                        >
-                                          Configurar
-                                        </Button>
-                                      ) : (
-                                        <Button
-                                          size="xs"
-                                          onClick={() =>
-                                            handleSendCommand(
-                                              { command: command.type || command.id },
-                                              { context: "quick" },
-                                            )
-                                          }
-                                          disabled={sending}
-                                        >
-                                          {sending ? "Enviando…" : "Enviar"}
-                                        </Button>
-                                      )}
-                                    </td>
-                                  );
-                                case "protocol":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/60">
-                                      {resolveCommandProtocol(command) === "—" ? protocolLabel : resolveCommandProtocol(command)}
-                                    </td>
-                                  );
-                                case "json":
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/60">
-                                      {formatCommandTemplatePayload(command)}
-                                    </td>
-                                  );
-                                default:
-                                  return (
-                                    <td key={column.id} className="py-2 pr-6 text-white/60">
-                                      —
-                                    </td>
-                                  );
-                              }
-                            })}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
-                    <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                      <span>Parâmetros do comando</span>
-                      <span>{selectedCommand ? selectedCommand.type : "Selecione um comando"}</span>
-                    </div>
-                    {!selectedCommand && (
-                      <p className="mt-3 text-xs text-white/60">Selecione um comando para configurar.</p>
-                    )}
-                    {selectedCommand && (
-                      <div className="mt-3 space-y-3">
+              {!deviceLoading && !deviceError && !commandsLoading && !commandsError && filteredCommands.length === 0 && (
+                <p className="text-sm text-white/60">Nenhum comando encontrado para este protocolo.</p>
+              )}
+              {!deviceLoading &&
+                !deviceError &&
+                !commandsLoading &&
+                !commandsError &&
+                filteredCommands.map((command) => {
+                  const commandKey = getCommandKey(command);
+                  const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
+                  const isExpanded = expandedCommandId === commandKey;
+                  const paramValues = commandParams[commandKey] || {};
+                  return (
+                    <div key={commandKey || command.name} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
-                          <div className="text-sm font-semibold text-white">{selectedCommand.name}</div>
-                          <p className="text-xs text-white/60">{selectedCommand.description}</p>
+                          <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
+                          {command.description && (
+                            <p className="mt-1 text-xs text-white/60">{command.description}</p>
+                          )}
                         </div>
-                        {selectedCommandFields.length ? (
-                          <div className="grid gap-3 md:grid-cols-2">
-                            {selectedCommandFields.map((field) => (
-                              <label key={field.key} className="text-xs uppercase tracking-wide text-white/60">
-                                {field.label}
-                                <input
-                                  type={field.type === "number" ? "number" : "text"}
-                                  value={commandParams[field.key] ?? ""}
-                                  onChange={(event) =>
-                                    setCommandParams((prev) => ({ ...prev, [field.key]: event.target.value }))
-                                  }
-                                  className="mt-1 w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
+                        <div className="flex items-center gap-2">
+                          {hasParams ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() =>
+                                setExpandedCommandId((current) => (current === commandKey ? null : commandKey))
+                              }
+                            >
+                              {isExpanded ? "Fechar" : "Configurar"}
+                            </Button>
+                          ) : null}
+                          <Button
+                            type="button"
+                            onClick={() => handleSendCommand(command)}
+                            disabled={sendingCommandId === commandKey}
+                          >
+                            {sendingCommandId === commandKey ? "Enviando…" : "Enviar"}
+                          </Button>
+                        </div>
+                      </div>
+                      {hasParams && isExpanded && (
+                        <div className="mt-4 grid gap-3 md:grid-cols-2">
+                          {command.parameters.map((param) => {
+                            const inputId = `${commandKey}-${param.key}`;
+                            const value =
+                              paramValues[param.key] ??
+                              (param.defaultValue !== undefined && param.defaultValue !== null ? param.defaultValue : "");
+                            const type = param.type === "number" ? "number" : "text";
+                            return (
+                              <label
+                                key={param.key}
+                                htmlFor={inputId}
+                                className="flex flex-col text-xs uppercase tracking-wide text-white/60"
+                              >
+                                {param.label || param.key}
+                                <Input
+                                  id={inputId}
+                                  type={type}
+                                  value={value}
+                                  min={param.min}
+                                  max={param.max}
+                                  onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                                  className="mt-2"
                                 />
                               </label>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-white/50">Nenhum parâmetro adicional necessário.</p>
-                        )}
-                        <Button
-                          type="button"
-                          onClick={handleSendSelectedCommand}
-                          disabled={sending || !commandParamsValidation.valid}
-                        >
-                          {sending ? "Enviando…" : "Enviar comando"}
-                        </Button>
-                        {formSuccess && formSuccessContext === "selected" && (
-                          <p className="text-xs text-emerald-200">{formSuccess.message}</p>
-                        )}
-                        {formError && formErrorContext === "selected" && (
-                          <p className="text-xs text-red-300">{formError.message}</p>
-                        )}
-                        {!commandParamsValidation.valid && (
-                          <p className="text-xs text-amber-200/80">
-                            Preencha: {commandParamsValidation.missing.join(", ")}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
             </div>
           )}
-
-          {activeTab === "Avançado" && (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-xs text-amber-100">
-              Use com cuidado: comandos avançados podem causar comportamento inesperado no dispositivo.
-            </div>
-            <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <label className="space-y-2 text-sm">
-                <span className="text-xs uppercase tracking-wide text-white/60">Tipo do comando</span>
-                {normalizedCommandTypes.length ? (
-                  <Select
-                    value={manualTypeValue}
-                    onChange={(event) => setManualType(normalizeManualType(event.target.value))}
-                    className="bg-layer text-sm"
-                  >
-                    {normalizedCommandTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </Select>
-                ) : (
-                  <Input
-                    value={manualTypeValue}
-                    onChange={(event) => setManualType(normalizeManualType(event.target.value))}
-                    placeholder="custom"
-                  />
-                )}
-                {commandTypesLoading && <p className="text-xs text-white/50">Carregando tipos…</p>}
-                {commandTypesError && <p className="text-xs text-amber-200/80">{commandTypesError.message}</p>}
-              </label>
-              <label className="space-y-2 text-sm">
-                <span className="text-xs uppercase tracking-wide text-white/60">Canal (opcional)</span>
-                <Input value={manualChannel} onChange={(event) => setManualChannel(event.target.value)} placeholder="sms" />
-              </label>
-            </div>
-            <label className="space-y-2 text-sm">
-              <span className="text-xs uppercase tracking-wide text-white/60">Payload (raw)</span>
-              <textarea
-                value={manualPayload}
-                onChange={(event) => setManualPayload(event.target.value)}
-                rows={4}
-                className="w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                placeholder="Ex: 123456,000000,15"
-              />
-            </label>
-            <Button
-              type="button"
-              onClick={() =>
-                handleSendCommand(
-                  {
-                    command: manualTypeValue,
-                    params: {
-                      payload: safeTrim(manualPayload),
-                      channel: safeTrim(manualChannel) || undefined,
-                    },
-                  },
-                  { context: "advanced" },
-                )
-              }
-              disabled={sending || !manualCommandValidation.valid}
-            >
-              {sending ? "Enviando…" : "Enviar comando avançado"}
-            </Button>
-            {formSuccess && formSuccessContext === "advanced" && (
-              <p className="text-xs text-emerald-200">{formSuccess.message}</p>
-            )}
-            {formError && formErrorContext === "advanced" && (
-              <p className="text-xs text-red-300">{formError.message}</p>
-            )}
-            {!manualCommandValidation.valid && (
-              <p className="text-xs text-amber-200/80">{manualCommandValidation.error}</p>
-            )}
-          </div>
-        )}
-
-          {activeTab === "SMS" && (
-          <div className="space-y-4">
-            {!protocolKey && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Selecione um protocolo para gerenciar templates de SMS.
-              </div>
-            )}
-            {protocolKey && (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                    <span>Templates SMS</span>
-                    <span>{(templatesByProtocol.sms?.[protocolKey] || []).length} itens</span>
-                  </div>
-                  <div className="space-y-2">
-                    {(templatesByProtocol.sms?.[protocolKey] || []).map((template) => (
-                      <div key={template.id} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-white">{template.name}</p>
-                            <p className="text-xs text-white/60">{template.content}</p>
-                            {template.variables && (
-                              <p className="mt-1 text-[11px] text-white/40">Variáveis: {template.variables}</p>
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button
-                              size="xs"
-                              variant="secondary"
-                              onClick={() => setSmsDraft(template)}
-                            >
-                              Editar
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              onClick={() =>
-                                updateTemplate("sms", (list) => list.filter((item) => item.id !== template.id))
-                              }
-                            >
-                              Excluir
-                            </Button>
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={() => handleCopy(template.content, template.id)}
-                          >
-                            {copiedId === template.id ? "Copiado" : "Copiar SMS"}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {(templatesByProtocol.sms?.[protocolKey] || []).length === 0 && (
-                      <p className="text-xs text-white/60">Nenhum template cadastrado.</p>
-                    )}
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveSmsTemplate} className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-white/50">
-                    {smsDraft.id ? "Editar template" : "Novo template"}
-                  </p>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Nome amigável</span>
-                    <Input
-                      value={smsDraft.name}
-                      onChange={(event) => setSmsDraft((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="Bloquear motor SMS"
-                      className="map-compact-input"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Conteúdo do SMS</span>
-                    <textarea
-                      value={smsDraft.content}
-                      onChange={(event) => setSmsDraft((prev) => ({ ...prev, content: event.target.value }))}
-                      rows={4}
-                      className="w-full rounded-xl border border-border bg-layer px-3 py-2 text-sm"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Telefone para envio</span>
-                    <Input
-                      value={smsPhone}
-                      onChange={(event) => setSmsPhone(event.target.value)}
-                      placeholder="+55 11 99999-0000"
-                      className="map-compact-input"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Tipo do comando SMS</span>
-                    {smsCommandTypes.length ? (
-                      <Select
-                        value={smsCommandType}
-                        onChange={(event) => setSmsCommandType(event.target.value)}
-                        className="bg-layer text-sm"
-                      >
-                        {smsCommandTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </Select>
-                    ) : (
-                      <Input
-                        value={smsCommandType}
-                        onChange={(event) => setSmsCommandType(event.target.value)}
-                        placeholder="sendSms"
-                        className="map-compact-input"
-                      />
-                    )}
-                    {smsCommandTypesLoading && <p className="text-xs text-white/50">Carregando tipos SMS…</p>}
-                    {smsCommandTypesError && <p className="text-xs text-amber-200/80">{smsCommandTypesError.message}</p>}
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Variáveis (opcional)</span>
-                    <Input
-                      value={smsDraft.variables}
-                      onChange={(event) => setSmsDraft((prev) => ({ ...prev, variables: event.target.value }))}
-                      placeholder="{password}, {interval}"
-                      className="map-compact-input"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="submit">Salvar template</Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      disabled={!smsDraftValidation.valid || sending}
-                      onClick={() =>
-                        handleSendCommand(
-                          {
-                            command: smsCommandType,
-                            params: {
-                              phone: safeTrim(smsPhone),
-                              message: safeTrim(smsDraft.content),
-                            },
-                          },
-                          { context: "sms" },
-                        )
-                      }
-                    >
-                      {sending ? "Enviando…" : "Enviar SMS"}
-                    </Button>
-                    {smsDraft.id && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setSmsDraft({ id: null, name: "", content: "", variables: "" })}
-                      >
-                        Cancelar
-                      </Button>
-                    )}
-                  </div>
-                  {!smsDraftValidation.valid && (
-                    <p className="text-xs text-amber-200/80">{smsDraftValidation.error}</p>
-                  )}
-                  {smsStatus?.state === "pending" && (
-                    <p className="text-xs text-white/70">Pendente: {smsStatus.message}</p>
-                  )}
-                  {smsStatus?.state === "success" && (
-                    <p className="text-xs text-emerald-200">Enviado: {smsStatus.message}</p>
-                  )}
-                  {smsStatus?.state === "error" && (
-                    <p className="text-xs text-red-300">Erro: {smsStatus.message}</p>
-                  )}
-                  {formSuccess && formSuccessContext === "sms" && (
-                    <p className="text-xs text-emerald-200">{formSuccess.message}</p>
-                  )}
-                  {formError && formErrorContext === "sms" && (
-                    <p className="text-xs text-red-300">{formError.message}</p>
-                  )}
-                </form>
-              </div>
-            )}
-          </div>
-        )}
-
-          {activeTab === "JSON" && (
-          <div className="space-y-4">
-            {!protocolKey && (
-              <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Selecione um protocolo para gerenciar templates JSON.
-              </div>
-            )}
-            {protocolKey && (
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                    <span>Templates JSON</span>
-                    <span>{(templatesByProtocol.json?.[protocolKey] || []).length} itens</span>
-                  </div>
-                  <div className="space-y-2">
-                    {(templatesByProtocol.json?.[protocolKey] || []).map((template) => (
-                      <div key={template.id} className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-white">{template.name}</p>
-                            <p className="text-xs text-white/60">{template.description || "Sem descrição"}</p>
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button size="xs" variant="secondary" onClick={() => setJsonDraft(template)}>
-                              Editar
-                            </Button>
-                            <Button
-                              size="xs"
-                              variant="ghost"
-                              onClick={() =>
-                                updateTemplate("json", (list) => list.filter((item) => item.id !== template.id))
-                              }
-                            >
-                              Excluir
-                            </Button>
-                          </div>
-                        </div>
-                        <pre className="mt-3 max-h-40 overflow-auto rounded-xl bg-black/40 p-3 text-xs text-white/70">
-                          {template.payload}
-                        </pre>
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <Button size="xs" variant="outline" onClick={() => handleCopy(template.payload, template.id)}>
-                            {copiedId === template.id ? "Copiado" : "Copiar JSON"}
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                    {(templatesByProtocol.json?.[protocolKey] || []).length === 0 && (
-                      <p className="text-xs text-white/60">Nenhum template cadastrado.</p>
-                    )}
-                  </div>
-                </div>
-
-                <form onSubmit={handleSaveJsonTemplate} className="space-y-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wide text-white/50">
-                    {jsonDraft.id ? "Editar template" : "Novo template"}
-                  </p>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Nome</span>
-                    <Input
-                      value={jsonDraft.name}
-                      onChange={(event) => setJsonDraft((prev) => ({ ...prev, name: event.target.value }))}
-                      placeholder="Configurar intervalo JSON"
-                      className="map-compact-input"
-                    />
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">JSON</span>
-                    <textarea
-                      value={jsonDraft.payload}
-                      onChange={(event) => setJsonDraft((prev) => ({ ...prev, payload: event.target.value }))}
-                      rows={5}
-                      className={`w-full rounded-xl border bg-layer px-3 py-2 text-sm ${
-                        jsonDraftValidation.valid ? "border-border" : "border-red-500/60"
-                      }`}
-                    />
-                    {!jsonDraftValidation.valid && <span className="text-xs text-red-300">{jsonDraftValidation.error}</span>}
-                  </label>
-                  <label className="space-y-2 text-sm">
-                    <span className="text-xs uppercase tracking-wide text-white/60">Descrição (opcional)</span>
-                    <Input
-                      value={jsonDraft.description}
-                      onChange={(event) => setJsonDraft((prev) => ({ ...prev, description: event.target.value }))}
-                      placeholder="Uso para equipamentos Suntech"
-                      className="map-compact-input"
-                    />
-                  </label>
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="submit">Salvar template</Button>
-                    {jsonDraft.id && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={() => setJsonDraft({ id: null, name: "", payload: "", description: "" })}
-                      >
-                        Cancelar
-                      </Button>
-                    )}
-                  </div>
-                </form>
-              </div>
-            )}
-          </div>
-        )}
-
-        {(formError || historyError || formSuccess) && (
-          <div
-            className={`rounded-lg border p-3 text-sm ${
-              formSuccess
-                ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                : "border-red-500/30 bg-red-500/10 text-red-200"
-            }`}
-          >
-            {formSuccess?.message || formError?.message || historyError?.message}
-          </div>
-        )}
         </div>
       </section>
 
-      <section className="card space-y-4">
-        <header className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Histórico de comandos</h3>
-          <div className="flex items-center gap-2">
-            <span className="text-xs opacity-60">{list.length} registros</span>
-            <Button type="button" size="xs" variant="outline" onClick={handleRefreshHistory}>
-              Atualizar histórico
-            </Button>
+      <section className="card flex min-h-0 flex-col gap-4 p-0">
+        <header className="space-y-2 px-6 pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Histórico de comandos</p>
+            </div>
           </div>
         </header>
 
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-full table-fixed text-sm">
+        <div className="mx-6 mb-6 min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
+          <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               {HISTORY_COLUMNS.map((column) => (
-                <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+                <col key={column.id} style={getWidthStyle(column.id)} />
               ))}
             </colgroup>
-            <thead className="text-left text-xs uppercase tracking-wide opacity-60">
+            <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
               <tr>
                 {HISTORY_COLUMNS.map((column) => (
-                  <th key={column.id} className="py-2 pr-6">
-                    {column.label}
+                  <th
+                    key={column.id}
+                    style={getWidthStyle(column.id)}
+                    className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
+                  >
+                    <div className="flex items-center justify-between gap-2 pr-2">
+                      <span className="truncate whitespace-nowrap" title={column.label}>
+                        {column.label}
+                      </span>
+                      <span
+                        role="separator"
+                        tabIndex={0}
+                        onMouseDown={(event) => startResize(column.id, event)}
+                        onClick={(event) => event.stopPropagation()}
+                        className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                        title="Redimensionar coluna"
+                      />
+                    </div>
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-border/40">
+            <tbody className="divide-y divide-border/40 text-xs">
               {historyLoading && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm opacity-60">
-                    Carregando comandos…
+                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
+                    Carregando histórico…
                   </td>
                 </tr>
               )}
               {!historyLoading && historyError && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm text-red-300">
-                    {historyError.message}
+                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-red-300">
+                    Não foi possível carregar o histórico. {historyError.message}
                   </td>
                 </tr>
               )}
-              {!historyLoading && !list.length && (
+              {!historyLoading && !historyError && history.length === 0 && (
                 <tr>
-                  <td colSpan={HISTORY_COLUMNS.length} className="py-4 text-center text-sm opacity-60">
-                    Nenhum comando encontrado para o período selecionado.
+                  <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
+                    Nenhum comando encontrado.
                   </td>
                 </tr>
               )}
-              {list.map((command) => {
-                const status = resolveCommandStatus(command);
-                const response = resolveCommandResponse(command);
-                const vehicle = vehicleByDeviceId.get(
-                  toDeviceKey(command.deviceId ?? command.device?.id ?? ""),
-                );
-                const plateLabel = vehicle?.plate || vehicle?.name || command.device?.name || "—";
-                return (
-                  <tr key={command.id ?? `${command.deviceId}-${command.type}-${command.sentAt}`} className="hover:bg-white/5">
-                    {HISTORY_COLUMNS.map((column) => {
-                      switch (column.id) {
-                        case "device":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/80">
-                              {plateLabel}
-                            </td>
-                          );
-                        case "command":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/70">
-                              {command.command || command.type || command.name || "—"}
-                            </td>
-                          );
-                        case "sentAt":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/60">
-                              {formatDate(command.sentAt || command.sentTime)}
-                            </td>
-                          );
-                        case "status":
-                          return (
-                            <td key={column.id} className="py-2 pr-6">
-                              <span
-                                className={`rounded-full border px-2 py-0.5 text-[11px] uppercase tracking-wide ${status.className}`}
-                              >
-                                {status.label}
-                              </span>
-                            </td>
-                          );
-                        case "response":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/60">
-                              {response}
-                            </td>
-                          );
-                        case "protocol":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/60">
-                              {resolveCommandProtocol(command)}
-                            </td>
-                          );
-                        case "payload":
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/60">
-                              {formatCommandPayload(command)}
-                            </td>
-                          );
-                        default:
-                          return (
-                            <td key={column.id} className="py-2 pr-6 text-white/60">
-                              —
-                            </td>
-                          );
-                      }
-                    })}
-                  </tr>
-                );
-              })}
+              {!historyLoading &&
+                !historyError &&
+                history.map((item) => {
+                  const vehicle = vehiclesById.get(String(item?.vehicleId || item?.vehicle?.id || ""));
+                  const deviceLabel = item?.vehiclePlate || vehicle?.plate || item?.deviceName || item?.deviceId || "—";
+                  const commandLabel = item?.commandName || item?.command || item?.type || "—";
+                  return (
+                    <tr key={item.id || `${item?.deviceId}-${item?.sentAt}` || Math.random()} className="hover:bg-white/5">
+                      <td style={getWidthStyle("device")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {deviceLabel}
+                      </td>
+                      <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {commandLabel}
+                      </td>
+                      <td style={getWidthStyle("sentAt")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {formatDateTime(item?.sentAt || item?.createdAt || item?.time)}
+                      </td>
+                      <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {item?.status || item?.state || "—"}
+                      </td>
+                      <td style={getWidthStyle("response")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {item?.response || item?.result || item?.message || "—"}
+                      </td>
+                      <td style={getWidthStyle("protocol")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {item?.protocol || device?.protocol || "—"}
+                      </td>
+                      <td style={getWidthStyle("json")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {item?.payload || item?.attributes ? (
+                          <details className="cursor-pointer">
+                            <summary className="text-primary/80">Ver</summary>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-white/70">
+                              {JSON.stringify(item?.payload || item?.attributes, null, 2)}
+                            </pre>
+                          </details>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
             </tbody>
           </table>
         </div>
       </section>
+
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-sm shadow-lg ${toastClassName}`}>
+          {toast.message}
+        </div>
+      )}
     </div>
   );
-}
-
-function formatDate(value) {
-  if (!value) return "—";
-  try {
-    return new Date(value).toLocaleString();
-  } catch (_error) {
-    return String(value);
-  }
-}
-
-function formatCommandTemplatePayload(command) {
-  if (!command) return "—";
-  const attributes =
-    command?.attributes && typeof command.attributes === "object" ? { ...command.attributes } : {};
-  const payload = {
-    type: command.type || command.command || command.id,
-    ...(Object.keys(attributes).length ? { attributes } : {}),
-  };
-  try {
-    return JSON.stringify(payload);
-  } catch (_error) {
-    return String(payload.type || "—");
-  }
-}
-
-function resolveCommandStatus(command) {
-  const error = command?.error || command?.attributes?.error || command?.result?.error;
-  const statusRaw = String(command?.status || command?.attributes?.status || "").toLowerCase();
-  const result = command?.result || command?.attributes?.result;
-  const delivered = command?.deliveredAt || command?.resultTime || command?.attributes?.deliveredAt;
-  if (error || statusRaw.includes("fail") || statusRaw.includes("error")) {
-    return { label: "erro", className: "border-slate-500/40 bg-slate-500/10 text-slate-200" };
-  }
-  if (statusRaw.includes("reject") || statusRaw.includes("denied")) {
-    return { label: "rejeitado", className: "border-red-500/40 bg-red-500/10 text-red-200" };
-  }
-  if (statusRaw.includes("accept") || statusRaw.includes("success")) {
-    return { label: "aceito", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
-  }
-  if (result || delivered) {
-    return { label: "aceito", className: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" };
-  }
-  if (command?.sentAt || command?.sentTime) {
-    return { label: "pendente", className: "border-amber-500/40 bg-amber-500/10 text-amber-200" };
-  }
-  return { label: "pendente", className: "border-amber-500/40 bg-amber-500/10 text-amber-200" };
-}
-
-function resolveCommandResponse(command) {
-  const response =
-    command?.response ||
-    command?.result ||
-    command?.attributes?.response ||
-    command?.attributes?.result ||
-    command?.attributes?.message ||
-    command?.message ||
-    command?.error;
-  if (response) return String(response);
-  const payload = command?.attributes?.payload || command?.attributes?.text || command?.attributes?.data;
-  return payload ? String(payload) : "Sem resposta";
-}
-
-function resolveCommandProtocol(command) {
-  const protocol =
-    command?.protocol ||
-    command?.device?.protocol ||
-    command?.device?.attributes?.protocol ||
-    command?.attributes?.protocol;
-  if (!protocol) return "—";
-  return String(protocol).toUpperCase();
-}
-
-function formatCommandPayload(command) {
-  const payload = command?.attributes?.payload ?? command?.attributes?.data ?? command?.attributes?.text ?? command?.payload;
-  if (payload == null) return "—";
-  if (typeof payload === "string") return payload;
-  try {
-    return JSON.stringify(payload);
-  } catch (_error) {
-    return String(payload);
-  }
 }
