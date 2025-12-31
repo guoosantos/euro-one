@@ -953,6 +953,55 @@ router.delete("/drivers/:id", requireRole("manager", "admin"), async (req, res, 
  * === Commands ===
  */
 
+router.get("/commands/types", async (req, res, next) => {
+  try {
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/commands/types", { params, asAdmin: true });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/commands/send", async (req, res, next) => {
+  try {
+    const params = { ...(req.query || {}) };
+    enforceDeviceFilterInQuery(req, params);
+    enforceClientGroupInQuery(req, params);
+    const data = await traccarProxy("get", "/commands/send", { params, asAdmin: true });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const allowed = resolveAllowedDeviceIds(req);
+    const traccarDeviceId = resolveTraccarDeviceId(req, allowed);
+    if (!traccarDeviceId) {
+      throw createError(400, "deviceId é obrigatório");
+    }
+
+    const payload = {
+      type: req.body?.type,
+      attributes: req.body?.attributes || {},
+      deviceId: Number(traccarDeviceId),
+    };
+
+    if (!payload.type) {
+      throw createError(400, "type é obrigatório");
+    }
+
+    const data = await traccarProxy("post", "/commands/send", { data: payload, asAdmin: true });
+    res.status(201).json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/commands", async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };

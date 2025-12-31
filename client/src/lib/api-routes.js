@@ -23,6 +23,8 @@ export const API_ROUTES = {
     route: "traccar/reports/route",
   },
   commands: "commands",
+  commandsSend: "commands/send",
+  commandsTypes: "commands/types",
   notifications: "notifications",
   groups: "groups",
   userPreferences: "user/preferences",
@@ -48,6 +50,7 @@ export const API_ROUTES = {
     vehicles: "core/vehicles",
     telemetry: "core/telemetry",
     stock: "core/stock",
+    vehicleTraccarDevice: (vehicleId) => `core/vehicles/${vehicleId}/traccar-device`,
   },
   crm: {
     base: "crm",
