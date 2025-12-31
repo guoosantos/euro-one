@@ -10,15 +10,12 @@ import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
 const HISTORY_COLUMNS = [
-  { id: "device", label: "Dispositivo (Placa)", width: 220, minWidth: 180 },
-  { id: "command", label: "Comando", width: 200, minWidth: 160 },
-  { id: "sentAt", label: "Enviado em", width: 160, minWidth: 140 },
-  { id: "status", label: "Status", width: 120, minWidth: 100 },
-  { id: "response", label: "Resposta", width: 280, minWidth: 200 },
-  { id: "protocol", label: "Protocolo", width: 140, minWidth: 120 },
-  { id: "json", label: "JSON", width: 120, minWidth: 100 },
+  { id: "eventTime", label: "Data/Hora", width: 170, minWidth: 150 },
+  { id: "command", label: "Comando", width: 220, minWidth: 180 },
+  { id: "status", label: "Status", width: 140, minWidth: 120 },
+  { id: "result", label: "Resultado", width: 320, minWidth: 220 },
 ];
-const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v1";
+const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v2";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 
@@ -118,13 +115,32 @@ export default function Commands() {
     });
   }, [commandSearch, protocolCommands]);
 
-  const vehiclesById = useMemo(() => {
-    const map = new Map();
-    vehicles.forEach((vehicle) => {
-      map.set(String(vehicle.id), vehicle);
-    });
-    return map;
-  }, [vehicles]);
+  const resolveCommandLabel = useCallback((item) => {
+    const attributes = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
+    return (
+      attributes.command ||
+      attributes.commandType ||
+      attributes.type ||
+      attributes.commandId ||
+      item?.command ||
+      item?.type ||
+      "—"
+    );
+  }, []);
+
+  const resolveResultText = useCallback((item) => {
+    const attributes = item?.attributes && typeof item.attributes === "object" ? item.attributes : {};
+    if (typeof item?.result === "string" && item.result.trim()) {
+      return item.result;
+    }
+    if (typeof attributes.result === "string" && attributes.result.trim()) {
+      return attributes.result;
+    }
+    if (typeof attributes.commandResult === "string" && attributes.commandResult.trim()) {
+      return attributes.commandResult;
+    }
+    return "—";
+  }, []);
 
   const resolveDeviceFromVehicle = useCallback(async (vehicleId) => {
     const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId));
@@ -213,11 +229,7 @@ export default function Commands() {
     setHistoryError(null);
     try {
       const response = await api.get(API_ROUTES.commandsHistory, { params: { vehicleId: selectedVehicleId } });
-      const items = Array.isArray(response?.data?.history)
-        ? response.data.history
-        : Array.isArray(response?.data)
-        ? response.data
-        : [];
+      const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
       setHistory(items);
     } catch (error) {
       setHistoryError(error instanceof Error ? error : new Error("Erro ao carregar histórico"));
@@ -256,13 +268,7 @@ export default function Commands() {
       });
       showToast("Comando enviado com sucesso.");
       setExpandedCommandId(null);
-      const response = await api.get(API_ROUTES.commandsHistory, { params: { vehicleId: selectedVehicleId } });
-      const items = Array.isArray(response?.data?.history)
-        ? response.data.history
-        : Array.isArray(response?.data)
-        ? response.data
-        : [];
-      setHistory(items);
+      await fetchHistory();
     } catch (error) {
       showToast(error?.response?.data?.message || error?.message || "Erro ao enviar comando", "error");
     } finally {
@@ -591,40 +597,22 @@ export default function Commands() {
               {!historyLoading &&
                 !historyError &&
                 history.map((item) => {
-                  const vehicle = vehiclesById.get(String(item?.vehicleId || item?.vehicle?.id || ""));
-                  const deviceLabel = item?.vehiclePlate || vehicle?.plate || item?.deviceName || item?.deviceId || "—";
-                  const commandLabel = item?.commandName || item?.command || item?.type || "—";
+                  const commandLabel = resolveCommandLabel(item);
+                  const statusLabel = item?.type === "commandResult" ? "Respondido" : "Enviado";
+                  const resultText = resolveResultText(item);
                   return (
-                    <tr key={item.id || `${item?.deviceId}-${item?.sentAt}` || Math.random()} className="hover:bg-white/5">
-                      <td style={getWidthStyle("device")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {deviceLabel}
+                    <tr key={item.id || `${item?.eventTime}-${commandLabel}`} className="hover:bg-white/5">
+                      <td style={getWidthStyle("eventTime")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {formatDateTime(item?.eventTime)}
                       </td>
                       <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
                         {commandLabel}
                       </td>
-                      <td style={getWidthStyle("sentAt")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {formatDateTime(item?.sentAt || item?.createdAt || item?.time)}
-                      </td>
                       <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {item?.status || item?.state || "—"}
+                        {statusLabel}
                       </td>
-                      <td style={getWidthStyle("response")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {item?.response || item?.result || item?.message || "—"}
-                      </td>
-                      <td style={getWidthStyle("protocol")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {item?.protocol || device?.protocol || "—"}
-                      </td>
-                      <td style={getWidthStyle("json")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
-                        {item?.payload || item?.attributes ? (
-                          <details className="cursor-pointer">
-                            <summary className="text-primary/80">Ver</summary>
-                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap text-[10px] text-white/70">
-                              {JSON.stringify(item?.payload || item?.attributes, null, 2)}
-                            </pre>
-                          </details>
-                        ) : (
-                          "—"
-                        )}
+                      <td style={getWidthStyle("result")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {resultText}
                       </td>
                     </tr>
                   );

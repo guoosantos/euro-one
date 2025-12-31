@@ -1065,11 +1065,88 @@ router.get("/commands", async (req, res, next) => {
 
 router.get("/commands/history", async (req, res, next) => {
   try {
-    const params = { ...(req.query || {}) };
-    enforceDeviceFilterInQuery(req, params);
-    enforceClientGroupInQuery(req, params);
-    const data = await traccarProxy("get", "/commands", { params, asAdmin: true });
-    res.json(data);
+    const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
+    if (!vehicleId) {
+      throw createError(400, "vehicleId é obrigatório");
+    }
+
+    const now = new Date();
+    const from = parseDateOrThrow(
+      req.query?.from ?? new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+      "from",
+    );
+    const to = parseDateOrThrow(req.query?.to ?? now.toISOString(), "to");
+    const limit = req.query?.limit ? Number(req.query.limit) : 50;
+    if (!Number.isFinite(limit) || limit <= 0) {
+      throw createError(400, "limit inválido");
+    }
+
+    const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
+    const host = req.get("x-forwarded-host") || req.get("host");
+    if (!host) {
+      throw createError(500, "Host indisponível para resolver veículo");
+    }
+
+    const url = new URL(`/api/core/vehicles/${vehicleId}/traccar-device`, `${protocol}://${host}`);
+    if (req.query?.clientId) {
+      url.searchParams.set("clientId", String(req.query.clientId));
+    }
+
+    const headers = { Accept: "application/json" };
+    if (req.headers.authorization) {
+      headers.Authorization = req.headers.authorization;
+    }
+    if (req.headers.cookie) {
+      headers.Cookie = req.headers.cookie;
+    }
+
+    const coreResponse = await fetch(url, { method: "GET", headers });
+    let payload = null;
+    try {
+      payload = await coreResponse.json();
+    } catch (_error) {
+      payload = null;
+    }
+
+    if (!coreResponse.ok || payload?.ok === false || payload?.error) {
+      const message = payload?.message || "Erro ao resolver veículo";
+      throw createError(coreResponse.status || 500, message);
+    }
+
+    const traccarDevice = payload?.device || null;
+    const traccarId = Number(traccarDevice?.traccarId);
+    if (!Number.isFinite(traccarId)) {
+      throw createError(409, "Equipamento vinculado sem traccarId");
+    }
+
+    const events = await fetchEventsWithFallback([String(traccarId)], from, to, limit);
+    const items = events
+      .filter((event) => event?.type === "commandResult")
+      .map((event) => {
+        const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
+        const result =
+          typeof attributes.result === "string"
+            ? attributes.result
+            : typeof attributes.commandResult === "string"
+            ? attributes.commandResult
+            : null;
+        return {
+          id: event.id ?? null,
+          eventTime: event.eventTime ?? null,
+          type: event.type ?? null,
+          result,
+          attributes,
+        };
+      });
+
+    res.json({
+      data: {
+        vehicleId,
+        traccarId,
+        items,
+      },
+      error: null,
+    });
   } catch (error) {
     next(error);
   }
