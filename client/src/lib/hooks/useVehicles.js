@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CoreApi } from "../coreApi.js";
 import { useTenant } from "../tenant-context.jsx";
-import { toDeviceKey } from "./useDevices.helpers.js";
+import { getDeviceKey, toDeviceKey } from "./useDevices.helpers.js";
 
 const vehiclesCache = new Map();
 const cacheListeners = new Set();
@@ -26,8 +26,7 @@ export function resetVehiclesCache() {
   cacheListeners.forEach((listener) => listener());
 }
 
-const pickDeviceKey = (device) =>
-  toDeviceKey(device?.id ?? device?.deviceId ?? device?.device_id ?? device?.uniqueId ?? device?.unique_id ?? device?.traccarId);
+const pickDeviceKey = (deviceOrValue) => getDeviceKey(deviceOrValue) ?? toDeviceKey(deviceOrValue);
 
 export function normalizeVehicleDevices(vehicle) {
   const list = [];

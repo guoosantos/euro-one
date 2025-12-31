@@ -6,7 +6,7 @@ import Input from "../ui/Input";
 import Select from "../ui/Select";
 import useDevices from "../lib/hooks/useDevices";
 import useVehicles from "../lib/hooks/useVehicles";
-import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 
@@ -18,6 +18,23 @@ const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_MIN_WIDTH = 60;
 const DEFAULT_COLUMN_WIDTH = 140;
+const FALLBACK_PROTOCOL_COMMANDS = {
+  gt06: [
+    { id: "engineStop", name: "Bloquear motor", description: "Bloqueia o motor do veículo.", type: "engineStop" },
+    { id: "engineResume", name: "Desbloquear motor", description: "Libera o motor do veículo.", type: "engineResume" },
+    { id: "positionSingle", name: "Solicitar posição", description: "Solicita a posição atual do veículo.", type: "positionSingle" },
+  ],
+  iotm: [
+    { id: "engineStop", name: "Bloquear motor", description: "Bloqueia o motor do veículo.", type: "engineStop" },
+    { id: "engineResume", name: "Desbloquear motor", description: "Libera o motor do veículo.", type: "engineResume" },
+    { id: "positionSingle", name: "Solicitar posição", description: "Solicita a posição atual do veículo.", type: "positionSingle" },
+  ],
+  suntech: [
+    { id: "engineStop", name: "Bloquear motor", description: "Bloqueia o motor do veículo.", type: "engineStop" },
+    { id: "engineResume", name: "Desbloquear motor", description: "Libera o motor do veículo.", type: "engineResume" },
+    { id: "positionSingle", name: "Solicitar posição", description: "Solicita a posição atual do veículo.", type: "positionSingle" },
+  ],
+};
 
 const COMMAND_COLUMNS = [
   { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 180, minWidth: 160 },
@@ -40,6 +57,10 @@ const HISTORY_COLUMNS = [
 
 function normalizeProtocol(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function getFallbackCommands(protocolKey) {
+  return FALLBACK_PROTOCOL_COMMANDS[normalizeProtocol(protocolKey)] || [];
 }
 
 function createLocalId(prefix) {
@@ -197,26 +218,24 @@ export default function Commands() {
   );
   const selectedDeviceId = selectedVehicle?.primaryDeviceId || "";
   const list = Array.isArray(history) ? history : [];
+  const deviceByKey = useMemo(() => {
+    const map = new Map();
+    devices.forEach((device) => {
+      const key = getDeviceKey(device);
+      if (!key) return;
+      map.set(key, device);
+    });
+    return map;
+  }, [devices]);
+
   const selectedDevice = useMemo(() => {
     if (!selectedVehicle?.primaryDeviceId) return null;
     const targetKey = toDeviceKey(selectedVehicle.primaryDeviceId);
     if (!targetKey) return null;
-    return (
-      devices.find((device) => {
-        const key = toDeviceKey(
-          device?.id ??
-            device?.deviceId ??
-            device?.device_id ??
-            device?.uniqueId ??
-            device?.unique_id ??
-            device?.traccarId,
-        );
-        return key === targetKey;
-      }) || null
-    );
-  }, [devices, selectedVehicle]);
+    return deviceByKey.get(targetKey) || null;
+  }, [deviceByKey, selectedVehicle]);
   const rawProtocol = useMemo(() => {
-    return selectedVehicle?.primaryDevice?.protocol || selectedDevice?.protocol || "";
+    return selectedVehicle?.primaryDevice?.protocol ?? selectedDevice?.protocol ?? "";
   }, [selectedDevice, selectedVehicle]);
   const protocolKey = useMemo(() => normalizeProtocol(rawProtocol), [rawProtocol]);
   const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || rawProtocol, [protocolIdByKey, protocolKey, rawProtocol]);
@@ -442,14 +461,22 @@ export default function Commands() {
       try {
         const response = await api.get(API_ROUTES.protocolCommands(protocolId));
         const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
-        commandsCacheRef.current.set(cacheKey, responseList);
+        const fallbackCommands = responseList.length === 0 ? getFallbackCommands(protocolKey) : [];
+        const effectiveCommands = responseList.length > 0 ? responseList : fallbackCommands;
+        commandsCacheRef.current.set(cacheKey, effectiveCommands);
         if (mounted) {
-          setProtocolCommands(responseList);
+          setProtocolCommands(effectiveCommands);
         }
       } catch (requestError) {
+        const fallbackCommands = getFallbackCommands(protocolKey);
         if (mounted) {
-          setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
-          setProtocolCommands([]);
+          if (fallbackCommands.length > 0) {
+            setCommandsError(null);
+            setProtocolCommands(fallbackCommands);
+          } else {
+            setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
+            setProtocolCommands([]);
+          }
         }
       } finally {
         if (mounted) {
@@ -461,7 +488,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [commandsRefreshKey, protocolId, selectedVehicleId]);
+  }, [commandsRefreshKey, protocolId, protocolKey, selectedVehicleId]);
 
   useEffect(() => {
     let mounted = true;
@@ -862,7 +889,7 @@ export default function Commands() {
                 <div className="space-y-4">
                   {!protocolKey && (
                     <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                      Protocolo não identificado para este veículo.
+                      Veículo sem protocolo/equipamento.
                     </div>
                   )}
                   <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
