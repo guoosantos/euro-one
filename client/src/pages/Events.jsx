@@ -659,7 +659,6 @@ export default function Events() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de eventos</p>
-              <p className="text-xs text-white/60">Relatórios no estilo Traccar com criticidade por protocolo.</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
