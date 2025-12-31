@@ -37,8 +37,12 @@ const HISTORY_COLUMNS = [
   { id: "payload", label: "JSON completo", width: 260 },
 ];
 
+function safeTrim(value) {
+  return String(value ?? "").trim();
+}
+
 function normalizeProtocol(value) {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = safeTrim(value).toLowerCase();
   if (!normalized) return "";
   if (normalized.includes("gt06")) return "gt06";
   if (normalized.includes("iotm")) return "iotm";
@@ -49,7 +53,7 @@ function normalizeProtocol(value) {
 function parseNumericId(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "number" && Number.isFinite(value)) return value;
-  const raw = String(value).trim();
+  const raw = safeTrim(value);
   if (!raw) return null;
   if (!/^\d+$/.test(raw)) return null;
   const numeric = Number(raw);
@@ -67,17 +71,7 @@ function resolveTraccarDeviceId(device) {
 }
 
 function resolveDeviceProtocol(device) {
-  const rawProtocol = device?.protocol || device?.attributes?.protocol || device?.modelProtocol || "";
-  return normalizeProtocol(rawProtocol);
-}
-
-function resolveCoreDeviceId(device) {
-  return (
-    parseNumericId(device?.id) ??
-    parseNumericId(device?.deviceId) ??
-    parseNumericId(device?.device_id) ??
-    null
-  );
+  return safeTrim(device?.protocol);
 }
 
 function resolveDeviceUniqueId(device, vehicle) {
@@ -110,20 +104,12 @@ function buildCommandTypesErrorMessage(error) {
   return rawMessage || "Erro ao carregar tipos de comando.";
 }
 
-function buildProtocolDebugHint({ coreDeviceId, traccarDeviceId, uniqueId }) {
-  const parts = [];
-  if (coreDeviceId) parts.push(`coreId=${coreDeviceId}`);
-  if (traccarDeviceId) parts.push(`traccarId=${traccarDeviceId}`);
-  if (uniqueId) parts.push(`uniqueId=${uniqueId}`);
-  return parts.length ? ` (${parts.join(", ")})` : "";
-}
-
 function normalizeManualType(input) {
   const candidate =
     input && typeof input === "object"
       ? input.value ?? input.type ?? input.label ?? ""
       : input ?? "";
-  return String(candidate ?? "").trim();
+  return safeTrim(candidate);
 }
 
 function loadTemplates() {
@@ -316,7 +302,7 @@ export default function Commands() {
   };
 
   const filteredVehicleOptions = useMemo(() => {
-    const term = vehicleSearch.trim().toLowerCase();
+    const term = safeTrim(vehicleSearch).toLowerCase();
     if (!term) return vehicleOptions;
     return vehicleOptions.filter(
       (vehicle) =>
@@ -326,8 +312,8 @@ export default function Commands() {
   }, [vehicleOptions, vehicleSearch]);
 
   const vehicleSearchResults = useMemo(() => {
-    if (!vehicleSearch.trim()) return [];
-    const term = vehicleSearch.trim().toLowerCase();
+    if (!safeTrim(vehicleSearch)) return [];
+    const term = safeTrim(vehicleSearch).toLowerCase();
     return vehicles.filter((vehicle) => {
       const plate = vehicle?.plate || "";
       const name = vehicle?.name || "";
@@ -362,7 +348,7 @@ export default function Commands() {
     if (selectedTraccarDeviceId === null) return null;
     return vehicleByDeviceId.get(String(selectedTraccarDeviceId)) || null;
   }, [selectedTraccarDeviceId, selectedVehicleId, vehicleByDeviceId, vehicleById]);
-  const hasSelectedVehicle = Boolean(selectedVehicle);
+  const hasSelectedVehicle = selectedVehicleId !== null && Boolean(selectedVehicle);
   const hasSelectedDevice = selectedTraccarDeviceId !== null;
   const list = Array.isArray(history) ? history : [];
   const selectedDevice = useMemo(() => {
@@ -373,9 +359,13 @@ export default function Commands() {
     () => commandTypes.map((type) => normalizeManualType(type)).filter(Boolean),
     [commandTypes],
   );
-  const protocolKey = useMemo(() => normalizeProtocol(selectedProtocol), [selectedProtocol]);
-  const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || protocolKey, [protocolIdByKey, protocolKey]);
-  const protocolLabel = formatProtocolLabel(protocolKey);
+  const protocolKey = useMemo(() => safeTrim(selectedProtocol), [selectedProtocol]);
+  const protocolKeyNormalized = useMemo(() => normalizeProtocol(protocolKey), [protocolKey]);
+  const protocolId = useMemo(
+    () => protocolIdByKey.get(protocolKeyNormalized) || protocolKey,
+    [protocolIdByKey, protocolKey, protocolKeyNormalized],
+  );
+  const protocolLabel = formatProtocolLabel(protocolKeyNormalized);
   const selectedCommandDeviceId = useMemo(
     () => (selectedTraccarDeviceId !== null ? selectedTraccarDeviceId : ""),
     [selectedTraccarDeviceId],
@@ -398,7 +388,7 @@ export default function Commands() {
     }));
   }, [selectedCommand]);
   const matchesCommandSearch = useMemo(() => {
-    const term = commandSearch.trim().toLowerCase();
+    const term = safeTrim(commandSearch).toLowerCase();
     if (!term) return () => true;
     return (command) =>
       command.name?.toLowerCase().includes(term) ||
@@ -411,7 +401,7 @@ export default function Commands() {
   }, [matchesCommandSearch, protocolCommands]);
 
   const jsonDraftValidation = useMemo(() => {
-    if (!jsonDraft.payload.trim()) {
+    if (!safeTrim(jsonDraft.payload)) {
       return { valid: true, error: null };
     }
     try {
@@ -423,10 +413,10 @@ export default function Commands() {
   }, [jsonDraft.payload]);
 
   const smsDraftValidation = useMemo(() => {
-    if (!smsDraft.name.trim() || !smsDraft.content.trim()) {
+    if (!safeTrim(smsDraft.name) || !safeTrim(smsDraft.content)) {
       return { valid: false, error: "Informe nome amigável e conteúdo do SMS." };
     }
-    if (!smsPhone.trim()) {
+    if (!safeTrim(smsPhone)) {
       return { valid: false, error: "Informe o telefone para envio do SMS." };
     }
     return { valid: true, error: null };
@@ -591,92 +581,22 @@ export default function Commands() {
   }, [selectedTraccarDeviceId]);
 
   useEffect(() => {
-    let mounted = true;
-    async function resolveVehicleDeviceLink() {
-      if (!selectedVehicleId || selectedTraccarDeviceId) return;
-      setSelectionLoading(true);
+    if (!selectedVehicleId) return;
+    const vehicle = vehicleById.get(String(selectedVehicleId)) || null;
+    const resolvedDevice = resolveVehicleDevice(vehicle);
+    const traccarId = resolveTraccarDeviceId(resolvedDevice);
+    const protocol = resolveDeviceProtocol(resolvedDevice);
+    setSelectedDeviceUniqueId(resolveDeviceUniqueId(resolvedDevice, vehicle));
+    setSelectedTraccarDeviceId(traccarId);
+    setSelectedDeviceValue(traccarId !== null ? String(traccarId) : "");
+    setSelectedProtocol(protocol);
+    setSelectionLoading(false);
+    if (!resolvedDevice || !protocol) {
+      setSelectionError(new Error("Equipamento sem protocolo definido no Traccar"));
+    } else {
       setSelectionError(null);
-      try {
-        const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(selectedVehicleId));
-        const payload = response?.data?.device || response?.data || {};
-        const traccarId = resolveTraccarDeviceId(payload);
-        const protocol = resolveDeviceProtocol(payload);
-        if (mounted && traccarId) {
-          setSelectedDeviceValue(String(traccarId));
-          setSelectedTraccarDeviceId(traccarId);
-          setSelectedDeviceUniqueId(resolveDeviceUniqueId(payload, selectedVehicle));
-          setSelectedProtocol(protocol || "");
-          setSelectionError(null);
-        } else if (mounted) {
-          setSelectionError(new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."));
-        }
-      } catch (requestError) {
-        if (mounted) {
-          const message =
-            requestError?.response?.data?.message ||
-            requestError?.response?.data?.error?.message ||
-            requestError?.message ||
-            "Veículo sem equipamento vinculado (não é possível enviar comandos).";
-          setSelectionError(new Error(message));
-        }
-      } finally {
-        if (mounted) {
-          setSelectionLoading(false);
-        }
-      }
     }
-
-    resolveVehicleDeviceLink();
-    return () => {
-      mounted = false;
-    };
-  }, [selectedTraccarDeviceId, selectedVehicle, selectedVehicleId]);
-
-  useEffect(() => {
-    let mounted = true;
-    async function resolveProtocolFallback() {
-      const missingProtocolMessage = "Protocolo não configurado. Vincule um modelo/protocolo ao equipamento.";
-      if (!selectedTraccarDeviceId) {
-        if (mounted) {
-          setSelectedProtocol("");
-          setSelectionError(null);
-          setSelectionLoading(false);
-        }
-        return;
-      }
-      const resolvedProtocol = resolveDeviceProtocol(selectedDevice);
-      if (resolvedProtocol) {
-        if (mounted) {
-          setSelectedProtocol(resolvedProtocol);
-          setSelectionError(null);
-          setSelectionLoading(false);
-        }
-        return;
-      }
-      const coreDeviceId = resolveCoreDeviceId(selectedDevice);
-      const debugHint = buildProtocolDebugHint({
-        coreDeviceId,
-        traccarDeviceId: selectedTraccarDeviceId,
-        uniqueId: selectedDeviceUniqueId,
-      });
-      if (!coreDeviceId) {
-        if (mounted) {
-          setSelectionError(new Error(`${missingProtocolMessage}${debugHint}`));
-          setSelectionLoading(false);
-        }
-        return;
-      }
-      if (mounted) {
-        setSelectionError(new Error(`${missingProtocolMessage}${debugHint}`));
-        setSelectionLoading(false);
-      }
-    }
-
-    resolveProtocolFallback();
-    return () => {
-      mounted = false;
-    };
-  }, [selectedDevice, selectedDeviceUniqueId, selectedTraccarDeviceId]);
+  }, [resolveVehicleDevice, selectedVehicleId, vehicleById]);
 
   useEffect(() => {
     let mounted = true;
@@ -704,9 +624,12 @@ export default function Commands() {
         const normalizedList = responseList.map((item) =>
           typeof item === "string" ? { id: item, type: item, name: item } : item,
         );
-        commandsCacheRef.current.set(cacheKey, normalizedList);
+        const filteredList = protocolKey
+          ? normalizedList.filter((command) => !command.protocol || command.protocol === protocolKey)
+          : normalizedList;
+        commandsCacheRef.current.set(cacheKey, filteredList);
         if (mounted) {
-          setProtocolCommands(normalizedList);
+          setProtocolCommands(filteredList);
         }
       } catch (requestError) {
         if (mounted) {
@@ -881,10 +804,17 @@ export default function Commands() {
       return;
     }
     const resolvedProtocol = resolveDeviceProtocol(selectedDevice);
-    if (resolvedProtocol && resolvedProtocol !== selectedProtocol) {
+    if (resolvedProtocol !== selectedProtocol) {
       setSelectedProtocol(resolvedProtocol);
     }
-  }, [selectedDevice, selectedProtocol, selectedTraccarDeviceId]);
+    if (selectedVehicleId) {
+      if (!selectedDevice || !resolvedProtocol) {
+        setSelectionError(new Error("Equipamento sem protocolo definido no Traccar"));
+      } else {
+        setSelectionError(null);
+      }
+    }
+  }, [selectedDevice, selectedProtocol, selectedTraccarDeviceId, selectedVehicleId]);
 
   function handleSelectCommand(command) {
     setSelectedCommandId(command.id);
@@ -1021,7 +951,7 @@ export default function Commands() {
         return acc;
       }
       if (typeof value === "string") {
-        const trimmed = value.trim();
+        const trimmed = safeTrim(value);
         if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
           try {
             acc[field.key] = JSON.parse(trimmed);
@@ -1045,9 +975,9 @@ export default function Commands() {
     if (!protocolKey) return;
     const payload = {
       id: smsDraft.id || createLocalId("sms"),
-      name: smsDraft.name.trim(),
-      content: smsDraft.content.trim(),
-      variables: smsDraft.variables.trim(),
+      name: safeTrim(smsDraft.name),
+      content: safeTrim(smsDraft.content),
+      variables: safeTrim(smsDraft.variables),
     };
     if (!payload.name || !payload.content) {
       setFormError(new Error("Informe o nome e o conteúdo do SMS."));
@@ -1069,9 +999,9 @@ export default function Commands() {
     }
     const payload = {
       id: jsonDraft.id || createLocalId("json"),
-      name: jsonDraft.name.trim(),
-      payload: jsonDraft.payload.trim(),
-      description: jsonDraft.description.trim(),
+      name: safeTrim(jsonDraft.name),
+      payload: safeTrim(jsonDraft.payload),
+      description: safeTrim(jsonDraft.description),
     };
     if (!payload.name || !payload.payload) {
       setFormError(new Error("Informe o nome e o JSON do template."));
@@ -1218,7 +1148,7 @@ export default function Commands() {
                     setSelectedDeviceUniqueId(option.uniqueId || null);
                     setSelectedProtocol("");
                     setSelectionError(
-                      new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."),
+                      new Error("Equipamento sem protocolo definido no Traccar"),
                     );
                     return;
                   }
@@ -1276,7 +1206,7 @@ export default function Commands() {
             </div>
           </div>
 
-          {vehicleSearch.trim() && (
+          {safeTrim(vehicleSearch) && (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {vehicleSearchResults.length === 0 && (
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
@@ -1321,7 +1251,7 @@ export default function Commands() {
                             setSelectedDeviceUniqueId(resolveDeviceUniqueId(resolvedDevice, vehicle));
                             setSelectedProtocol("");
                             setSelectionError(
-                              new Error("Veículo sem equipamento vinculado (não é possível enviar comandos)."),
+                              new Error("Equipamento sem protocolo definido no Traccar"),
                             );
                             setVehicleSearch("");
                             return;
@@ -1349,7 +1279,7 @@ export default function Commands() {
             <div className="space-y-4">
               {!hasSelectedVehicle && !selectionError && !selectionLoading && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  Selecione um veículo para visualizar comandos disponíveis.
+                  Selecione um veículo para visualizar os comandos.
                 </div>
               )}
               {selectionError && (
@@ -1618,8 +1548,8 @@ export default function Commands() {
                   {
                     command: normalizeManualType(manualType),
                     params: {
-                      payload: manualPayload.trim(),
-                      channel: manualChannel.trim() || undefined,
+                      payload: safeTrim(manualPayload),
+                      channel: safeTrim(manualChannel) || undefined,
                     },
                   },
                   { context: "advanced" },
@@ -1778,8 +1708,8 @@ export default function Commands() {
                           {
                             command: smsCommandType,
                             params: {
-                              phone: smsPhone.trim(),
-                              message: smsDraft.content.trim(),
+                              phone: safeTrim(smsPhone),
+                              message: safeTrim(smsDraft.content),
                             },
                           },
                           { context: "sms" },
