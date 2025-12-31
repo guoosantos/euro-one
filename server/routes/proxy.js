@@ -748,6 +748,15 @@ router.get("/devices", async (req, res, next) => {
   }
 });
 
+router.get("/devices/:id", async (req, res, next) => {
+  try {
+    const data = await traccarProxy("get", `/devices/${req.params.id}`, { asAdmin: true, context: req });
+    res.json(data);
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/devices", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const data = await traccarProxy("post", "/devices", { data: req.body, asAdmin: true });
