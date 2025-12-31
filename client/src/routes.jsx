@@ -72,7 +72,7 @@ export const routeConfig = [
   { path: "/devices/products", element: Products, title: "Modelos & Portas", requireTenant: true },
   { path: "/devices/stock", element: Stock, title: "Estoque", requireTenant: true },
   { path: "/devices/import", element: DeviceImport, title: "Importar dispositivos", requireTenant: true },
-  { path: "/commands", element: Commands, title: "Comandos", requireTenant: true },
+  { path: "/commands", element: Commands, title: "Comandos", hideTitle: true, requireTenant: true },
   { path: "/vehicles", element: Vehicles, title: "Frota", requireTenant: true },
   { path: "/vehicles/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true },
   { path: "/veiculos", element: Vehicles, title: "Frota", requireTenant: true },
