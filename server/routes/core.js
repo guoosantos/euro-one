@@ -1835,59 +1835,88 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
     );
     const principalDevice = selectPrincipalDevice(linkedDevices);
-    const model = principalDevice?.modelId ? deps.getModelById(principalDevice.modelId) : null;
-    const deviceProtocol =
-      principalDevice?.protocol ||
-      model?.protocol ||
-      principalDevice?.attributes?.protocol ||
-      null;
 
     if (!principalDevice) {
       throw createError(404, "Veículo sem equipamento vinculado");
     }
 
-    const uniqueId =
-      principalDevice.uniqueId ||
-      principalDevice?.attributes?.uniqueId ||
-      null;
+    const uniqueId = principalDevice.uniqueId || principalDevice?.attributes?.uniqueId || null;
 
-    if (principalDevice.traccarId) {
-      return res.json({
-        traccarDevice: {
-          traccarDeviceId: Number(principalDevice.traccarId),
-          uniqueId,
-          protocol: deviceProtocol,
-          deviceId: principalDevice.id,
-        },
+    const sendTraccarError = (details, status = 502) => {
+      res.status(status).json({
+        ok: false,
+        message: "Erro ao buscar device no Traccar",
+        details,
+      });
+    };
+
+    const resolveTraccarStatus = (payload) => {
+      const status = Number(payload?.status || payload?.statusCode || payload?.response?.status);
+      return Number.isFinite(status) && status >= 400 ? status : null;
+    };
+
+    let traccarDeviceId = principalDevice.traccarId ? String(principalDevice.traccarId) : null;
+
+    if (!traccarDeviceId) {
+      if (!uniqueId) {
+        throw createError(404, "Equipamento sem identificação (uniqueId) cadastrada");
+      }
+
+      const lookup = await deps.traccarProxy("get", "/devices", { params: { uniqueId }, asAdmin: true });
+      if (lookup?.ok === false || lookup?.error) {
+        return sendTraccarError(lookup, resolveTraccarStatus(lookup) || 502);
+      }
+
+      const list = normaliseList(lookup, ["devices"]);
+      const match =
+        list.find(
+          (item) => String(item.uniqueId || "").trim().toLowerCase() === String(uniqueId).trim().toLowerCase(),
+        ) || null;
+
+      if (!match) {
+        throw createError(404, `Equipamento não cadastrado no Traccar (uniqueId=${uniqueId})`);
+      }
+
+      traccarDeviceId = String(match.id);
+      deps.updateDevice(principalDevice.id, { traccarId: traccarDeviceId });
+    }
+
+    const traccarDevice = await deps.traccarProxy("get", `/devices/${traccarDeviceId}`, {
+      asAdmin: true,
+      context: req,
+    });
+
+    if (traccarDevice?.ok === false || traccarDevice?.error) {
+      return sendTraccarError(traccarDevice, resolveTraccarStatus(traccarDevice) || 502);
+    }
+
+    if (!traccarDevice?.protocol) {
+      return res.status(500).json({
+        ok: false,
+        message: "Device do Traccar sem protocol (dados inconsistentes)",
+        details: { traccarDeviceId },
       });
     }
 
-    if (!uniqueId) {
-      throw createError(404, "Equipamento sem identificação (uniqueId) cadastrada");
-    }
-
-    const traccarDevice = await findTraccarDeviceByUniqueId(uniqueId);
-    if (!traccarDevice) {
-      throw createError(404, `Equipamento não cadastrado no Traccar (uniqueId=${uniqueId})`);
-    }
-
-    const updatedDevice = deps.updateDevice(principalDevice.id, { traccarId: String(traccarDevice.id) });
-    const protocol =
-      deviceProtocol ||
-      traccarDevice?.protocol ||
-      traccarDevice?.attributes?.protocol ||
-      updatedDevice?.attributes?.protocol ||
-      null;
-
     return res.json({
       traccarDevice: {
-        traccarDeviceId: Number(traccarDevice.id),
+        ...traccarDevice,
+        id: traccarDevice.id,
         uniqueId: traccarDevice.uniqueId || uniqueId,
-        protocol,
-        deviceId: updatedDevice.id,
+        protocol: traccarDevice.protocol,
+        traccarDeviceId: traccarDevice.id,
+        deviceId: principalDevice.id,
       },
     });
   } catch (error) {
+    if (error?.isTraccarError) {
+      const status = Number(error?.status || error?.statusCode || error?.details?.status) || 502;
+      return res.status(status).json({
+        ok: false,
+        message: "Erro ao buscar device no Traccar",
+        details: error?.details || error,
+      });
+    }
     next(error);
   }
 });

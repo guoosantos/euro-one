@@ -126,6 +126,17 @@ export default function Commands() {
     return map;
   }, [vehicles]);
 
+  const resolveDeviceFromVehicle = useCallback(async (vehicleId) => {
+    const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId));
+    const payload = response?.data;
+    if (!payload || payload.ok === false || payload.error) {
+      const error = new Error("Erro ao buscar device no Traccar");
+      error.payload = payload;
+      throw error;
+    }
+    return payload?.traccarDevice || null;
+  }, []);
+
   const fetchDevice = useCallback(async () => {
     if (!selectedVehicleId) {
       setDevice(null);
@@ -143,14 +154,7 @@ export default function Commands() {
     setExpandedCommandId(null);
     setCommandParams({});
     try {
-      const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(selectedVehicleId));
-      const payload = response?.data;
-      if (payload?.ok === false || payload?.error) {
-        setDevice(null);
-        setDeviceError("Traccar indisponível/erro ao buscar device");
-        return;
-      }
-      const traccarDevice = payload?.traccarDevice || null;
+      const traccarDevice = await resolveDeviceFromVehicle(selectedVehicleId);
       if (!traccarDevice) {
         setDevice(null);
         setDeviceError("Veículo sem equipamento vinculado no Traccar");
@@ -165,11 +169,14 @@ export default function Commands() {
     } catch (error) {
       const isMissingDevice = error?.response?.status === 404;
       const isTraccarError =
-        !isMissingDevice && (error?.response?.data?.ok === false || error?.response?.data?.error);
+        !isMissingDevice &&
+        (error?.response?.data?.ok === false ||
+          error?.response?.data?.error ||
+          error?.message === "Erro ao buscar device no Traccar");
       const message = isMissingDevice
         ? "Veículo sem equipamento vinculado no Traccar"
         : isTraccarError
-        ? "Traccar indisponível/erro ao buscar device"
+        ? "Erro ao buscar device no Traccar"
         : error?.message || "Erro ao carregar device";
       setDevice(null);
       setDeviceError(message);
