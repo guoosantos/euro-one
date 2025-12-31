@@ -6,6 +6,7 @@ import Input from "../ui/Input";
 import Select from "../ui/Select";
 import useDevices from "../lib/hooks/useDevices";
 import useVehicles from "../lib/hooks/useVehicles";
+import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 
@@ -197,27 +198,26 @@ export default function Commands() {
   const selectedDeviceId = selectedVehicle?.primaryDeviceId || "";
   const list = Array.isArray(history) ? history : [];
   const selectedDevice = useMemo(() => {
-    if (!selectedDeviceId) return null;
+    if (!selectedVehicle?.primaryDeviceId) return null;
+    const targetKey = toDeviceKey(selectedVehicle.primaryDeviceId);
+    if (!targetKey) return null;
     return (
-      devices.find(
-        (device) => String(device.deviceId ?? device.traccarId ?? device.id) === String(selectedDeviceId),
-      ) || null
+      devices.find((device) => {
+        const key = toDeviceKey(
+          device?.id ??
+            device?.deviceId ??
+            device?.device_id ??
+            device?.uniqueId ??
+            device?.unique_id ??
+            device?.traccarId,
+        );
+        return key === targetKey;
+      }) || null
     );
-  }, [devices, selectedDeviceId]);
+  }, [devices, selectedVehicle]);
   const rawProtocol = useMemo(() => {
-    return (
-      selectedDevice?.protocol ||
-      selectedDevice?.attributes?.protocol ||
-      selectedDevice?.modelProtocol ||
-      selectedVehicle?.primaryDevice?.protocol ||
-      selectedVehicle?.primaryDevice?.attributes?.protocol ||
-      selectedVehicle?.primaryDevice?.modelProtocol ||
-      selectedVehicle?.protocol ||
-      selectedVehicle?.attributes?.protocol ||
-      selectedVehicle?.primaryDevice?.protocol ||
-      ""
-    );
-  }, [selectedDevice, selectedVehicle, selectedVehicleId]);
+    return selectedVehicle?.primaryDevice?.protocol || selectedDevice?.protocol || "";
+  }, [selectedDevice, selectedVehicle]);
   const protocolKey = useMemo(() => normalizeProtocol(rawProtocol), [rawProtocol]);
   const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || rawProtocol, [protocolIdByKey, protocolKey, rawProtocol]);
   const protocolLabel = formatProtocolLabel(protocolKey);
@@ -916,7 +916,7 @@ export default function Commands() {
                             </td>
                           </tr>
                         )}
-                        {!commandsLoading && filteredCommands.length === 0 && (
+                        {!commandsLoading && protocolKey && filteredCommands.length === 0 && (
                           <tr>
                             <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
                               Nenhum comando cadastrado para o protocolo {protocolLabel}. Verifique o cadastro de comandos.
