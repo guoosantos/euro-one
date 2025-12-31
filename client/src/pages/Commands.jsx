@@ -32,233 +32,6 @@ const HISTORY_COLUMNS = [
   { id: "payload", label: "JSON completo", width: 260 },
 ];
 
-const DEFAULT_COMMAND_CATALOG = [
-  {
-    id: "engineStop",
-    name: "Bloquear motor",
-    description: "Interrompe o motor para bloqueio remoto.",
-    type: "engineStop",
-    tags: ["segurança", "motor"],
-  },
-  {
-    id: "engineResume",
-    name: "Desbloquear motor",
-    description: "Libera o motor após bloqueio remoto.",
-    type: "engineResume",
-    tags: ["segurança", "motor"],
-  },
-  {
-    id: "positionSingle",
-    name: "Atualizar posição",
-    description: "Solicita uma posição única do equipamento.",
-    type: "positionSingle",
-    tags: ["posição"],
-  },
-  {
-    id: "positionPeriodic",
-    name: "Posição periódica",
-    description: "Configura intervalo de envio de posição.",
-    type: "positionPeriodic",
-    tags: ["posição"],
-    parameters: [
-      { key: "frequency", label: "Intervalo (segundos)", type: "number", defaultValue: 60, required: true },
-    ],
-  },
-  {
-    id: "setOutput",
-    name: "Ativar saída",
-    description: "Ativa uma saída digital configurada.",
-    type: "setOutput",
-    tags: ["io"],
-    parameters: [
-      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true, min: 1, max: 4 },
-      { key: "data", label: "Valor", type: "text", defaultValue: "1", required: true },
-    ],
-  },
-  {
-    id: "clearOutput",
-    name: "Desativar saída",
-    description: "Desativa uma saída digital configurada.",
-    type: "clearOutput",
-    tags: ["io"],
-    parameters: [
-      { key: "index", label: "Saída", type: "number", defaultValue: 1, required: true, min: 1, max: 4 },
-    ],
-  },
-  {
-    id: "setSpeedLimit",
-    name: "Definir limite de velocidade",
-    description: "Define o limite de velocidade no equipamento.",
-    type: "setSpeedLimit",
-    tags: ["segurança", "velocidade"],
-    parameters: [
-      { key: "speed", label: "Velocidade (km/h)", type: "number", defaultValue: 80, required: true },
-    ],
-  },
-  {
-    id: "setOdometer",
-    name: "Ajustar hodômetro",
-    description: "Atualiza o valor do hodômetro do dispositivo.",
-    type: "setOdometer",
-    tags: ["telemetria"],
-    parameters: [
-      { key: "odometer", label: "Hodômetro (km)", type: "number", defaultValue: 0, required: true },
-    ],
-  },
-  {
-    id: "setTimezone",
-    name: "Ajustar fuso horário",
-    description: "Define o timezone do dispositivo.",
-    type: "setTimezone",
-    tags: ["config"],
-    parameters: [
-      { key: "timezone", label: "Timezone", type: "text", defaultValue: "America/Sao_Paulo", required: true },
-    ],
-  },
-  {
-    id: "setLock",
-    name: "Travar portas",
-    description: "Envia comando de travamento de portas.",
-    type: "setLock",
-    tags: ["segurança"],
-  },
-  {
-    id: "setUnlock",
-    name: "Destravar portas",
-    description: "Envia comando de destravamento de portas.",
-    type: "setUnlock",
-    tags: ["segurança"],
-  },
-  {
-    id: "alarmArm",
-    name: "Armar alarme",
-    description: "Ativa o modo alarme do equipamento.",
-    type: "alarmArm",
-    tags: ["segurança"],
-  },
-  {
-    id: "alarmDisarm",
-    name: "Desarmar alarme",
-    description: "Desativa o modo alarme do equipamento.",
-    type: "alarmDisarm",
-    tags: ["segurança"],
-  },
-  {
-    id: "rebootDevice",
-    name: "Reiniciar equipamento",
-    description: "Reinicia o equipamento remotamente.",
-    type: "rebootDevice",
-    tags: ["manutenção"],
-  },
-  {
-    id: "factoryReset",
-    name: "Resetar para fábrica",
-    description: "Restaura as configurações padrão do dispositivo.",
-    type: "factoryReset",
-    tags: ["manutenção"],
-  },
-  {
-    id: "clearAlarm",
-    name: "Limpar alarme",
-    description: "Limpa alarmes ativos.",
-    type: "clearAlarm",
-    tags: ["segurança"],
-  },
-  {
-    id: "setDriver",
-    name: "Definir motorista",
-    description: "Associa um motorista ao equipamento.",
-    type: "setDriver",
-    tags: ["telemetria"],
-    parameters: [
-      { key: "driverId", label: "ID do motorista", type: "text", required: true },
-    ],
-  },
-  {
-    id: "setFuel",
-    name: "Atualizar combustível",
-    description: "Ajusta nível de combustível registrado.",
-    type: "setFuel",
-    tags: ["telemetria"],
-    parameters: [
-      { key: "fuel", label: "Combustível (%)", type: "number", defaultValue: 0, required: true },
-    ],
-  },
-  {
-    id: "sendSms",
-    name: "Enviar SMS",
-    description: "Envia SMS direto para o equipamento.",
-    type: "sendSms",
-    tags: ["sms"],
-    parameters: [
-      { key: "phone", label: "Telefone", type: "text", required: true },
-      { key: "message", label: "Mensagem", type: "text", required: true },
-    ],
-  },
-  {
-    id: "voiceMessage",
-    name: "Mensagem de voz",
-    description: "Envia comando de mensagem de voz.",
-    type: "voiceMessage",
-    tags: ["voz"],
-    parameters: [
-      { key: "text", label: "Mensagem", type: "text", required: true },
-    ],
-  },
-  {
-    id: "setAgps",
-    name: "Atualizar AGPS",
-    description: "Dispara atualização de dados A-GPS.",
-    type: "setAgps",
-    tags: ["gps"],
-  },
-  {
-    id: "setRoaming",
-    name: "Configurar roaming",
-    description: "Habilita ou desabilita roaming.",
-    type: "setRoaming",
-    tags: ["config"],
-    parameters: [
-      { key: "enabled", label: "Ativo", type: "text", defaultValue: "true", required: true },
-    ],
-  },
-  {
-    id: "setIndicator",
-    name: "Ativar buzzer/LED",
-    description: "Aciona indicador do equipamento.",
-    type: "setIndicator",
-    tags: ["io"],
-    parameters: [
-      { key: "duration", label: "Duração (seg)", type: "number", defaultValue: 10, required: true },
-    ],
-  },
-  {
-    id: "setParameter",
-    name: "Definir parâmetro",
-    description: "Configura um parâmetro genérico do equipamento.",
-    type: "setParameter",
-    tags: ["config"],
-    parameters: [
-      { key: "key", label: "Chave", type: "text", required: true },
-      { key: "value", label: "Valor", type: "text", required: true },
-    ],
-  },
-  {
-    id: "custom",
-    name: "Comando customizado",
-    description: "Envia comando personalizado pelo protocolo.",
-    type: "custom",
-    tags: ["avançado"],
-    parameters: [
-      { key: "data", label: "Payload", type: "text", required: true },
-    ],
-  },
-];
-
-const PROTOCOL_COMMANDS = {
-  default: DEFAULT_COMMAND_CATALOG,
-};
-
 function normalizeProtocol(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -327,6 +100,7 @@ export default function Commands() {
   const [templatesByProtocol, setTemplatesByProtocol] = useState(loadTemplates);
   const [smsDraft, setSmsDraft] = useState({ id: null, name: "", content: "", variables: "" });
   const [smsPhone, setSmsPhone] = useState("");
+  const [smsStatus, setSmsStatus] = useState(null);
   const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
   const [copiedId, setCopiedId] = useState(null);
   const [showColumns, setShowColumns] = useState(false);
@@ -373,18 +147,20 @@ export default function Commands() {
       selectedDevice?.protocol ||
       selectedDevice?.attributes?.protocol ||
       selectedDevice?.modelProtocol ||
+      selectedVehicle?.primaryDevice?.protocol ||
+      selectedVehicle?.primaryDevice?.attributes?.protocol ||
+      selectedVehicle?.primaryDevice?.modelProtocol ||
       selectedVehicle?.protocol ||
       selectedVehicle?.attributes?.protocol ||
       selectedVehicle?.primaryDevice?.protocol ||
       "";
     const normalized = normalizeProtocol(rawProtocol);
-    if (normalized) return normalized;
-    return selectedVehicleId ? "default" : "";
+    return normalized;
   }, [selectedDevice, selectedVehicle, selectedVehicleId]);
   const protocolLabel = useMemo(() => {
-    if (protocolKey === "default") return "Padrão";
+    if (!protocolKey) return "—";
     const protocol = protocols.find((item) => normalizeProtocol(item.id) === protocolKey);
-    return protocol?.label || protocolKey.toUpperCase() || "—";
+    return protocol?.label || protocolKey.toUpperCase();
   }, [protocolKey, protocols]);
 
   const selectedCommand = useMemo(
@@ -499,38 +275,31 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedDeviceId) {
+      if (!selectedDeviceId || !protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
       }
-      if (commandsCacheRef.current.has(selectedDeviceId) && commandsRefreshKey === 0) {
-        setProtocolCommands(commandsCacheRef.current.get(selectedDeviceId));
+      const cacheKey = protocolKey;
+      if (commandsCacheRef.current.has(cacheKey) && commandsRefreshKey === 0) {
+        setProtocolCommands(commandsCacheRef.current.get(cacheKey));
         setCommandsError(null);
         return;
       }
       setCommandsLoading(true);
       setCommandsError(null);
       try {
-        const response = await api.get(API_ROUTES.commands, { params: { deviceId: selectedDeviceId } });
-        const responseList = Array.isArray(response?.data?.commands)
-          ? response.data.commands
-          : Array.isArray(response?.data)
-            ? response.data
-            : Array.isArray(response?.data?.data)
-              ? response.data.data
-              : [];
-        const fallback = PROTOCOL_COMMANDS[protocolKey] || PROTOCOL_COMMANDS.default;
-        const finalList = responseList.length ? responseList : fallback;
-        commandsCacheRef.current.set(selectedDeviceId, finalList);
+        const response = await api.get(API_ROUTES.protocolCommands(protocolKey));
+        const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
+        const finalList = responseList.length ? responseList : [];
+        commandsCacheRef.current.set(cacheKey, finalList);
         if (mounted) {
           setProtocolCommands(finalList);
         }
       } catch (requestError) {
-        const fallback = PROTOCOL_COMMANDS[protocolKey] || PROTOCOL_COMMANDS.default;
         if (mounted) {
           setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
-          setProtocolCommands(fallback);
+          setProtocolCommands([]);
         }
       } finally {
         if (mounted) {
@@ -588,6 +357,11 @@ export default function Commands() {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(templatesByProtocol));
   }, [templatesByProtocol]);
 
+  useEffect(() => {
+    if (activeTab !== "SMS") return;
+    setSmsStatus(null);
+  }, [activeTab, selectedVehicleId]);
+
   function handleSelectCommand(command) {
     setSelectedCommandId(command.id);
     const defaults = (command.parameters || []).reduce((acc, param) => {
@@ -617,7 +391,7 @@ export default function Commands() {
     setFormErrorContext(context || null);
     setFormSuccess(null);
     setFormSuccessContext(null);
-    if (!selectedVehicleId) {
+    if (!selectedDeviceId) {
       setFormError(new Error("Selecione um veículo com equipamento vinculado."));
       return;
     }
@@ -626,22 +400,35 @@ export default function Commands() {
       setFormError(new Error("Informe o tipo do comando."));
       return;
     }
+    const isSmsContext = context === "sms";
+    if (isSmsContext) {
+      setSmsStatus({ state: "pending", message: "Enviando SMS..." });
+    }
     setSending(true);
     try {
-      await api.post(API_ROUTES.commands, {
-        deviceId: selectedVehicleId,
+      const response = await api.post(API_ROUTES.commands, {
+        deviceId: selectedDeviceId,
         type: commandType,
         attributes: payload?.params && Object.keys(payload.params).length ? payload.params : undefined,
       });
       setHistoryRefreshKey((value) => value + 1);
-      setFormSuccess(new Error("Comando enviado com sucesso."));
+      const successMessage =
+        response?.data?.message || "Comando enviado com sucesso.";
+      setFormSuccess({ message: successMessage });
       setFormSuccessContext(context || null);
+      if (isSmsContext) {
+        setSmsStatus({ state: "success", message: successMessage });
+      }
     } catch (requestError) {
       const message =
         requestError?.response?.data?.message ||
         requestError?.message ||
         "Não foi possível enviar o comando. Verifique os dados e tente novamente.";
-      setFormError(new Error(`Erro ao enviar comando: ${message}`));
+      const errorMessage = `Erro ao enviar comando: ${message}`;
+      setFormError(new Error(errorMessage));
+      if (isSmsContext) {
+        setSmsStatus({ state: "error", message: errorMessage });
+      }
     } finally {
       setSending(false);
     }
@@ -663,8 +450,8 @@ export default function Commands() {
   };
 
   const handleRefreshHistory = () => {
-    if (selectedDeviceId) {
-      commandsCacheRef.current.delete(selectedDeviceId);
+    if (protocolKey) {
+      commandsCacheRef.current.delete(protocolKey);
     }
     setCommandsRefreshKey((value) => value + 1);
     setHistoryRefreshKey((value) => value + 1);
@@ -751,23 +538,18 @@ export default function Commands() {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="card space-y-4">
-        <header className="space-y-2">
+    <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
+      <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
+        <header className="space-y-2 px-6 pt-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
-              <h2 className="text-lg font-semibold">Enviar comandos</h2>
               <p className="text-xs text-white/60">Os comandos são encaminhados diretamente ao dispositivo via Traccar.</p>
             </div>
           </div>
-          {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
-        </header>
-
-        <div className="flex items-center gap-3 overflow-x-auto border-b border-white/10 pb-3">
-          <div className="flex flex-nowrap items-end gap-3">
+          <div className="flex flex-nowrap items-center gap-3 overflow-x-auto border-b border-white/10 pb-4">
             <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-              Placa do veículo
+              Veículo
               <Select
                 value={selectedVehicleId}
                 onChange={(event) => setSelectedVehicleId(event.target.value)}
@@ -812,61 +594,64 @@ export default function Commands() {
                 </button>
               ))}
             </div>
-            {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
-            {vehiclesError && <span className="text-xs text-red-300">{vehiclesError.message}</span>}
-            {selectedVehicle && !selectedDeviceId && (
-              <span className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</span>
-            )}
-          </div>
-          <div className="ml-auto flex items-center justify-end gap-2 whitespace-nowrap">
-            <Button type="button" onClick={handleRefreshHistory}>
-              Mostrar
-            </Button>
-            <Button type="button" variant="outline" onClick={handleClearFilters}>
-              Limpar filtros
-            </Button>
-            <div className="relative flex items-center">
-              <button
-                type="button"
-                className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
-                  showColumns ? "bg-white/10" : "bg-transparent"
-                }`}
-                onClick={() => setShowColumns((open) => !open)}
-                aria-label="Colunas"
-              >
-                <Columns3 size={18} />
-              </button>
-              {showColumns && (
-                <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
-                  <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
-                  <div className="space-y-2">
-                    {COMMAND_COLUMNS.map((column) => (
-                      <label key={column.id} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
-                          checked={columnsDraft[column.id]}
-                          onChange={(event) =>
-                            setColumnsDraft((current) => ({
-                              ...current,
-                              [column.id]: event.target.checked,
-                            }))
-                          }
-                          className="rounded border-white/20 bg-transparent"
-                        />
-                        <span>{column.label}</span>
-                      </label>
-                    ))}
+            <div className="ml-auto flex items-center justify-end gap-2 whitespace-nowrap">
+              <Button type="button" onClick={handleRefreshHistory}>
+                Mostrar
+              </Button>
+              <Button type="button" variant="outline" onClick={handleClearFilters}>
+                Limpar filtros
+              </Button>
+              <div className="relative flex items-center">
+                <button
+                  type="button"
+                  className={`rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white ${
+                    showColumns ? "bg-white/10" : "bg-transparent"
+                  }`}
+                  onClick={() => setShowColumns((open) => !open)}
+                  aria-label="Colunas"
+                >
+                  <Columns3 size={18} />
+                </button>
+                {showColumns && (
+                  <div className="absolute right-0 top-12 z-20 w-56 rounded-xl border border-white/10 bg-[#0f141c] p-3 text-xs text-white/70 shadow-xl">
+                    <p className="mb-2 text-[11px] uppercase tracking-wide text-white/50">Colunas</p>
+                    <div className="space-y-2">
+                      {COMMAND_COLUMNS.map((column) => (
+                        <label key={column.id} className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={columnsDraft[column.id]}
+                            onChange={(event) =>
+                              setColumnsDraft((current) => ({
+                                ...current,
+                                [column.id]: event.target.checked,
+                              }))
+                            }
+                            className="rounded border-white/20 bg-transparent"
+                          />
+                          <span>{column.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
+                        Salvar
+                      </Button>
+                    </div>
                   </div>
-                  <div className="mt-3 flex justify-end">
-                    <Button type="button" size="xs" variant="secondary" onClick={handleSaveColumns}>
-                      Salvar
-                    </Button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
-        </div>
+          {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
+          {vehiclesLoading && <p className="text-xs text-white/50">Carregando veículos…</p>}
+          {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
+          {selectedVehicle && !selectedDeviceId && (
+            <p className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
+          )}
+        </header>
+
+        <div className="space-y-4 px-6 pb-6">
 
         {activeTab === "Comandos" && (
           <div className="space-y-4">
@@ -1274,6 +1059,15 @@ export default function Commands() {
                   {!smsDraftValidation.valid && (
                     <p className="text-xs text-amber-200/80">{smsDraftValidation.error}</p>
                   )}
+                  {smsStatus?.state === "pending" && (
+                    <p className="text-xs text-white/70">Pendente: {smsStatus.message}</p>
+                  )}
+                  {smsStatus?.state === "success" && (
+                    <p className="text-xs text-emerald-200">Enviado: {smsStatus.message}</p>
+                  )}
+                  {smsStatus?.state === "error" && (
+                    <p className="text-xs text-red-300">Erro: {smsStatus.message}</p>
+                  )}
                   {formSuccess && formSuccessContext === "sms" && (
                     <p className="text-xs text-emerald-200">{formSuccess.message}</p>
                   )}
@@ -1402,6 +1196,7 @@ export default function Commands() {
             {formSuccess?.message || formError?.message || historyError?.message}
           </div>
         )}
+        </div>
       </section>
 
       <section className="card space-y-4">
