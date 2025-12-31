@@ -63,12 +63,12 @@ const SEVERITY_LEVELS = [
 ];
 
 const DEFAULT_COLUMNS = [
-  { id: "time", label: "Hora GPS", defaultVisible: true, width: 140 },
-  { id: "device", label: "Veículo", defaultVisible: true, width: 180 },
-  { id: "type", label: "Tipo", defaultVisible: true, width: 190 },
-  { id: "description", label: "Descrição", defaultVisible: true, width: 220 },
-  { id: "severity", label: "Criticidade", defaultVisible: true, width: 130 },
-  { id: "address", label: "Endereço", defaultVisible: true, width: 360 },
+  { id: "time", label: "Hora GPS", defaultVisible: true, width: 140, minWidth: 120 },
+  { id: "device", label: "Veículo", defaultVisible: true, width: 180, minWidth: 160 },
+  { id: "type", label: "Tipo", defaultVisible: true, width: 190, minWidth: 160 },
+  { id: "description", label: "Descrição", defaultVisible: true, width: 220, minWidth: 180 },
+  { id: "severity", label: "Criticidade", defaultVisible: true, width: 130, minWidth: 120 },
+  { id: "address", label: "Endereço", defaultVisible: true, width: 360, minWidth: 240 },
   { id: "speed", label: "Velocidade", defaultVisible: false, width: 120 },
   { id: "ignition", label: "Ignição", defaultVisible: false, width: 110 },
   { id: "battery", label: "Bateria", defaultVisible: false, width: 110 },
@@ -76,6 +76,10 @@ const DEFAULT_COLUMNS = [
   { id: "longitude", label: "Lng", defaultVisible: false, width: 120 },
 ];
 const COLUMNS_STORAGE_KEY = "events:columns:v1";
+const COLUMN_WIDTHS_STORAGE_KEY = "events:columns:widths:v1";
+const MIN_COLUMN_WIDTH = 80;
+const MAX_COLUMN_WIDTH = 800;
+const DEFAULT_COLUMN_WIDTH = 140;
 
 const SEVERITY_LABELS = {
   informativa: "Informativa",
@@ -116,6 +120,18 @@ function cleanAddress(address) {
   if (!address) return null;
   const text = String(address).trim();
   return UNAVAILABLE_ADDRESSES.has(text) ? null : text;
+}
+
+function resolveVehicleLabel(candidateList = []) {
+  for (const raw of candidateList) {
+    if (!raw) continue;
+    const text = String(raw).trim();
+    if (!text) continue;
+    const hasLetters = /[a-zA-Z]/.test(text);
+    if (!hasLetters) continue;
+    return text;
+  }
+  return "—";
 }
 
 function resolveEventCoordinates({ event, deviceId, positionsById, positionsByDeviceId }) {
@@ -231,6 +247,16 @@ export default function Events() {
     }
   });
   const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  });
   const [reportEvents, setReportEvents] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
@@ -283,6 +309,14 @@ export default function Events() {
       setColumnsDraft(columnsVisibility);
     }
   }, [columnsVisibility, showColumns]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(columnWidths));
+    } catch (_error) {
+      // ignore storage failures
+    }
+  }, [columnWidths]);
 
   const vehicleOptions = useMemo(
     () =>
@@ -439,6 +473,12 @@ export default function Events() {
       const deviceId = toDeviceKey(event?.deviceId ?? event?.device?.id ?? event?.device);
       const vehicle = deviceId ? vehicleByDeviceId.get(String(deviceId)) : null;
       const plate = vehicle?.plate ? String(vehicle.plate).trim() : "";
+      const vehicleLabel = resolveVehicleLabel([
+        plate,
+        vehicle?.name,
+        vehicle?.identifier,
+        event?.device?.name,
+      ]);
       const positionFromEvent = event?.position || event?.attributes?.position || null;
       const positionFromId = event?.positionId ? positionsById.get(String(event.positionId)) : null;
       const fallbackPosition = deviceId ? positionsByDeviceId?.[deviceId] : null;
@@ -459,7 +499,7 @@ export default function Events() {
       return {
         id: event?.id ?? `${event?.deviceId}-${event?.serverTime || event?.eventTime || event?.time}`,
         time: event?.serverTime || event?.deviceTime || event?.eventTime || event?.time,
-        device: plate || "—",
+        device: vehicleLabel,
         type: event?.type || event?.attributes?.type || event?.event,
         description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
         severity,
@@ -484,6 +524,71 @@ export default function Events() {
   const visibleColumns = useMemo(
     () => DEFAULT_COLUMNS.filter((column) => columnsVisibility[column.id]),
     [columnsVisibility],
+  );
+
+  const columnLookup = useMemo(() => {
+    return DEFAULT_COLUMNS.reduce((acc, column) => {
+      acc[column.id] = column;
+      return acc;
+    }, {});
+  }, []);
+
+  const getColumnMinWidth = useCallback((columnId) => {
+    const column = columnLookup[columnId];
+    const declared = Number.isFinite(column?.minWidth) ? column.minWidth : MIN_COLUMN_WIDTH;
+    return Math.max(MIN_COLUMN_WIDTH, declared);
+  }, [columnLookup]);
+
+  const getColumnWidth = useCallback(
+    (columnId) => {
+      const column = columnLookup[columnId];
+      const storedWidth = columnWidths[columnId];
+      const baseWidth = Number.isFinite(column?.width) ? column.width : DEFAULT_COLUMN_WIDTH;
+      const chosen = Number.isFinite(storedWidth) ? storedWidth : baseWidth;
+      const minWidth = getColumnMinWidth(columnId);
+      return Math.max(minWidth, Math.min(chosen, MAX_COLUMN_WIDTH));
+    },
+    [columnLookup, columnWidths, getColumnMinWidth],
+  );
+
+  const getWidthStyle = useCallback(
+    (columnId) => {
+      const minWidth = getColumnMinWidth(columnId);
+      const width = getColumnWidth(columnId);
+      return { width, minWidth, maxWidth: MAX_COLUMN_WIDTH };
+    },
+    [getColumnMinWidth, getColumnWidth],
+  );
+
+  const startResize = useCallback(
+    (columnId, event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startWidthRaw = event.currentTarget.parentElement?.getBoundingClientRect().width;
+      const minWidth = getColumnMinWidth(columnId);
+      const startWidth = Number.isFinite(startWidthRaw) ? startWidthRaw : getColumnWidth(columnId);
+      const safeStartWidth = Math.max(minWidth, Math.min(startWidth, MAX_COLUMN_WIDTH));
+
+      const handleMove = (moveEvent) => {
+        const delta = moveEvent.clientX - startX;
+        const nextWidth = Math.round(safeStartWidth + delta);
+        const clamped = Math.max(minWidth, Math.min(nextWidth, MAX_COLUMN_WIDTH));
+        setColumnWidths((prev) => {
+          if (prev[columnId] === clamped) return prev;
+          return { ...prev, [columnId]: clamped };
+        });
+      };
+
+      const handleUp = () => {
+        window.removeEventListener("mousemove", handleMove);
+        window.removeEventListener("mouseup", handleUp);
+      };
+
+      window.addEventListener("mousemove", handleMove);
+      window.addEventListener("mouseup", handleUp);
+    },
+    [getColumnMinWidth, getColumnWidth],
   );
 
   const filteredProtocolEvents = useMemo(() => {
@@ -699,43 +804,57 @@ export default function Events() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
-              <table className="w-full min-w-full table-fixed text-sm">
+            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
+              <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
                 <colgroup>
                   {visibleColumns.map((column) => (
-                    <col
-                      key={column.id}
-                      style={{ width: column.width ? `${column.width}px` : "auto" }}
-                    />
+                    <col key={column.id} style={getWidthStyle(column.id)} />
                   ))}
                 </colgroup>
-                <thead className="text-left text-xs uppercase tracking-wider text-white/50">
+                <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
                   <tr>
                     {visibleColumns.map((column) => (
-                      <th key={column.id} className="py-2 pr-6">
-                        {column.label}
+                      <th
+                        key={column.id}
+                        style={getWidthStyle(column.id)}
+                        className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
+                        title={column.label}
+                      >
+                        <div className="flex items-center justify-between gap-2 pr-2">
+                          <span className="truncate whitespace-nowrap" title={column.label}>
+                            {column.label}
+                          </span>
+                          <span
+                            role="separator"
+                            tabIndex={0}
+                            onMouseDown={(event) => startResize(column.id, event)}
+                            onClick={(event) => event.stopPropagation()}
+                            className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                            title="Redimensionar coluna"
+                          />
+                        </div>
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-border/40">
+                <tbody className="divide-y divide-border/40 text-xs">
                   {reportLoading && (
                     <tr>
-                      <td colSpan={visibleColumns.length} className="py-4 text-center text-sm text-white/60">
+                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
                         Carregando eventos…
                       </td>
                     </tr>
                   )}
                   {!reportLoading && reportError && (
                     <tr>
-                      <td colSpan={visibleColumns.length} className="py-4 text-center text-sm text-red-300">
+                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-red-300">
                         Não foi possível carregar os eventos. {reportError.message}
                       </td>
                     </tr>
                   )}
                   {!reportLoading && !reportError && reportRows.length === 0 && (
                     <tr>
-                      <td colSpan={visibleColumns.length} className="py-4 text-center text-sm text-white/60">
+                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
                         Nenhum evento encontrado para o período selecionado.
                       </td>
                     </tr>
@@ -743,7 +862,11 @@ export default function Events() {
                   {reportRows.map((row) => (
                     <tr key={row.id} className="hover:bg-white/5">
                       {visibleColumns.map((column) => (
-                        <td key={column.id} className="py-2 pr-6 text-white/70">
+                        <td
+                          key={column.id}
+                          style={getWidthStyle(column.id)}
+                          className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 last:border-r-0"
+                        >
                           {renderColumnValue(column.id, row, locale)}
                         </td>
                       ))}
