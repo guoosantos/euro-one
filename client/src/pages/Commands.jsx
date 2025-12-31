@@ -12,14 +12,19 @@ import { API_ROUTES } from "../lib/api-routes.js";
 const COMMAND_TABS = ["Comandos", "Avançado", "SMS", "JSON"];
 const STORAGE_KEY = "protocol-templates-v1";
 const COLUMNS_STORAGE_KEY = "commands:columns:v1";
+const COLUMN_WIDTHS_STORAGE_KEY = "commands:columns:widths:v1";
+const MIN_COLUMN_WIDTH = 60;
+const MAX_COLUMN_WIDTH = 800;
+const DEFAULT_MIN_WIDTH = 60;
+const DEFAULT_COLUMN_WIDTH = 140;
 
 const COMMAND_COLUMNS = [
-  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 180 },
-  { id: "command", label: "Comando", defaultVisible: true, width: 200 },
-  { id: "description", label: "Descrição", defaultVisible: true, width: 260 },
-  { id: "action", label: "Ação", defaultVisible: true, width: 140 },
-  { id: "protocol", label: "Protocolo", defaultVisible: false, width: 120 },
-  { id: "json", label: "JSON", defaultVisible: false, width: 240 },
+  { id: "device", label: "Dispositivo (Placa)", defaultVisible: true, width: 180, minWidth: 160 },
+  { id: "command", label: "Comando", defaultVisible: true, width: 200, minWidth: 180 },
+  { id: "description", label: "Descrição", defaultVisible: true, width: 260, minWidth: 200 },
+  { id: "action", label: "Ação", defaultVisible: true, width: 140, minWidth: 120 },
+  { id: "protocol", label: "Protocolo", defaultVisible: false, width: 140, minWidth: 120 },
+  { id: "json", label: "JSON", defaultVisible: false, width: 240, minWidth: 200 },
 ];
 
 const HISTORY_COLUMNS = [
@@ -105,9 +110,6 @@ export default function Commands() {
   const [jsonDraft, setJsonDraft] = useState({ id: null, name: "", payload: "", description: "" });
   const [copiedId, setCopiedId] = useState(null);
   const [showColumns, setShowColumns] = useState(false);
-  const [commandsByProtocol, setCommandsByProtocol] = useState({});
-  const [commandsByProtocolLoading, setCommandsByProtocolLoading] = useState(false);
-  const [commandsByProtocolError, setCommandsByProtocolError] = useState(null);
   const [columnsVisibility, setColumnsVisibility] = useState(() => {
     try {
       const raw = localStorage.getItem(COLUMNS_STORAGE_KEY);
@@ -121,6 +123,17 @@ export default function Commands() {
     }
   });
   const [columnsDraft, setColumnsDraft] = useState(columnsVisibility);
+  const [columnWidths, setColumnWidths] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COLUMN_WIDTHS_STORAGE_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  });
+  const liveWidthsRef = useRef(columnWidths);
 
   const vehicleOptions = useMemo(
     () =>
@@ -134,6 +147,10 @@ export default function Commands() {
 
   const protocolLabelById = useMemo(() => {
     return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.label]));
+  }, [protocols]);
+
+  const protocolIdByKey = useMemo(() => {
+    return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.id]));
   }, [protocols]);
 
   const getVehicleProtocolKey = (vehicle) => {
@@ -187,8 +204,8 @@ export default function Commands() {
       ) || null
     );
   }, [devices, selectedDeviceId]);
-  const protocolKey = useMemo(() => {
-    const rawProtocol =
+  const rawProtocol = useMemo(() => {
+    return (
       selectedDevice?.protocol ||
       selectedDevice?.attributes?.protocol ||
       selectedDevice?.modelProtocol ||
@@ -198,10 +215,11 @@ export default function Commands() {
       selectedVehicle?.protocol ||
       selectedVehicle?.attributes?.protocol ||
       selectedVehicle?.primaryDevice?.protocol ||
-      "";
-    const normalized = normalizeProtocol(rawProtocol);
-    return normalized;
+      ""
+    );
   }, [selectedDevice, selectedVehicle, selectedVehicleId]);
+  const protocolKey = useMemo(() => normalizeProtocol(rawProtocol), [rawProtocol]);
+  const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || rawProtocol, [protocolIdByKey, protocolKey, rawProtocol]);
   const protocolLabel = formatProtocolLabel(protocolKey);
 
   const selectedCommand = useMemo(
@@ -219,13 +237,6 @@ export default function Commands() {
   const filteredCommands = useMemo(() => {
     return protocolCommands.filter(matchesCommandSearch);
   }, [matchesCommandSearch, protocolCommands]);
-
-  const filteredCommandsByProtocol = useMemo(() => {
-    return Object.entries(commandsByProtocol).reduce((acc, [protocolId, list]) => {
-      acc[protocolId] = Array.isArray(list) ? list.filter(matchesCommandSearch) : [];
-      return acc;
-    }, {});
-  }, [commandsByProtocol, matchesCommandSearch]);
 
   const jsonDraftValidation = useMemo(() => {
     if (!jsonDraft.payload.trim()) {
@@ -262,6 +273,93 @@ export default function Commands() {
     () => COMMAND_COLUMNS.filter((column) => columnsVisibility[column.id]),
     [columnsVisibility],
   );
+  const commandColumnLookup = useMemo(
+    () =>
+      COMMAND_COLUMNS.reduce((acc, column) => {
+        acc[column.id] = column;
+        return acc;
+      }, {}),
+    [],
+  );
+
+  const getColumnMinWidth = (columnId) => {
+    const columnConfig = commandColumnLookup[columnId];
+    const declaredMin = Number.isFinite(columnConfig?.minWidth) ? columnConfig.minWidth : DEFAULT_MIN_WIDTH;
+    return Math.max(MIN_COLUMN_WIDTH, declaredMin);
+  };
+
+  const getDefaultWidth = (columnId) => {
+    const columnConfig = commandColumnLookup[columnId];
+    const declaredWidth = Number.isFinite(columnConfig?.width) && columnConfig.width > 0
+      ? columnConfig.width
+      : DEFAULT_COLUMN_WIDTH;
+    return declaredWidth;
+  };
+
+  const getAppliedWidth = (columnId) => {
+    const minWidth = getColumnMinWidth(columnId);
+    const storedWidth = columnWidths[columnId];
+    const declaredWidth = getDefaultWidth(columnId);
+    const chosenWidth = Number.isFinite(storedWidth) && storedWidth > 0 ? storedWidth : declaredWidth;
+    return Math.max(minWidth, Math.min(chosenWidth, MAX_COLUMN_WIDTH));
+  };
+
+  const getWidthStyle = (columnId) => {
+    const minWidth = getColumnMinWidth(columnId);
+    const width = getAppliedWidth(columnId);
+    return { width, minWidth, maxWidth: MAX_COLUMN_WIDTH };
+  };
+
+  const handleColumnResizeEnd = (columnId, nextWidth) => {
+    const minWidth = getColumnMinWidth(columnId);
+    const clampedWidth = Math.max(minWidth, Math.min(nextWidth, MAX_COLUMN_WIDTH));
+    setColumnWidths((prev) => {
+      const updated = { ...prev, [columnId]: clampedWidth };
+      try {
+        localStorage.setItem(COLUMN_WIDTHS_STORAGE_KEY, JSON.stringify(updated));
+      } catch (_error) {
+        // ignore storage failures
+      }
+      return updated;
+    });
+  };
+
+  const startResize = (columnId, event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const startX = event.clientX;
+    const startWidthRaw = event.currentTarget.parentElement?.getBoundingClientRect().width;
+    const minWidth = getColumnMinWidth(columnId);
+    const startWidth = Number.isFinite(startWidthRaw) && startWidthRaw > 0
+      ? startWidthRaw
+      : getAppliedWidth(columnId);
+    const safeStartWidth = Math.max(minWidth, Math.min(startWidth, MAX_COLUMN_WIDTH));
+
+    const handleMove = (moveEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const unclamped = Math.round(safeStartWidth + delta);
+      const safeWidth = Number.isFinite(unclamped) ? unclamped : minWidth;
+      const clampedWidth = Math.max(minWidth, Math.min(safeWidth, MAX_COLUMN_WIDTH));
+
+      setColumnWidths((prev) => {
+        if (prev[columnId] === clampedWidth) return prev;
+        const updated = { ...prev, [columnId]: clampedWidth };
+        liveWidthsRef.current = updated;
+        return updated;
+      });
+    };
+
+    const handleUp = () => {
+      window.removeEventListener("mousemove", handleMove);
+      window.removeEventListener("mouseup", handleUp);
+      const storedWidth = liveWidthsRef.current?.[columnId];
+      const safeStored = Number.isFinite(storedWidth) ? storedWidth : minWidth;
+      handleColumnResizeEnd(columnId, safeStored);
+    };
+
+    window.addEventListener("mousemove", handleMove);
+    window.addEventListener("mouseup", handleUp);
+  };
 
   const commandParamsValidation = useMemo(() => {
     if (!selectedCommand?.parameters?.length) {
@@ -288,6 +386,10 @@ export default function Commands() {
   useEffect(() => {
     setColumnsDraft(columnsVisibility);
   }, [columnsVisibility]);
+
+  useEffect(() => {
+    liveWidthsRef.current = columnWidths;
+  }, [columnWidths]);
 
   useEffect(() => {
     let mounted = true;
@@ -317,62 +419,19 @@ export default function Commands() {
   }, []);
 
   useEffect(() => {
-    let mounted = true;
-    async function loadCommandsByProtocol() {
-      if (!protocols.length) {
-        if (mounted) {
-          setCommandsByProtocol({});
-          setCommandsByProtocolError(null);
-          setCommandsByProtocolLoading(false);
-        }
-        return;
-      }
-      setCommandsByProtocolLoading(true);
-      setCommandsByProtocolError(null);
-      try {
-        const entries = await Promise.all(
-          protocols.map(async (protocol) => {
-            const response = await api.get(API_ROUTES.protocolCommands(protocol.id));
-            const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
-            return [protocol.id, responseList];
-          }),
-        );
-        if (mounted) {
-          setCommandsByProtocol(Object.fromEntries(entries));
-        }
-      } catch (requestError) {
-        if (mounted) {
-          setCommandsByProtocolError(
-            requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"),
-          );
-          setCommandsByProtocol({});
-        }
-      } finally {
-        if (mounted) {
-          setCommandsByProtocolLoading(false);
-        }
-      }
-    }
-    loadCommandsByProtocol();
-    return () => {
-      mounted = false;
-    };
-  }, [protocols]);
-
-  useEffect(() => {
     setSelectedCommandId("");
     setCommandParams({});
-  }, [protocolKey]);
+  }, [protocolId]);
 
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!protocolKey) {
+      if (!selectedVehicleId || !protocolId) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
       }
-      const cacheKey = protocolKey;
+      const cacheKey = protocolId;
       if (commandsCacheRef.current.has(cacheKey) && commandsRefreshKey === 0) {
         setProtocolCommands(commandsCacheRef.current.get(cacheKey));
         setCommandsError(null);
@@ -381,23 +440,16 @@ export default function Commands() {
       setCommandsLoading(true);
       setCommandsError(null);
       try {
-        const response = await api.get(API_ROUTES.protocolCommands(protocolKey));
+        const response = await api.get(API_ROUTES.protocolCommands(protocolId));
         const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
-        const fallbackList = Array.isArray(commandsByProtocol[protocolKey])
-          ? commandsByProtocol[protocolKey]
-          : [];
-        const finalList = responseList.length ? responseList : fallbackList;
-        commandsCacheRef.current.set(cacheKey, finalList);
+        commandsCacheRef.current.set(cacheKey, responseList);
         if (mounted) {
-          setProtocolCommands(finalList);
+          setProtocolCommands(responseList);
         }
       } catch (requestError) {
         if (mounted) {
-          const fallbackList = Array.isArray(commandsByProtocol[protocolKey])
-            ? commandsByProtocol[protocolKey]
-            : [];
           setCommandsError(requestError instanceof Error ? requestError : new Error("Erro ao carregar comandos"));
-          setProtocolCommands(fallbackList);
+          setProtocolCommands([]);
         }
       } finally {
         if (mounted) {
@@ -409,7 +461,7 @@ export default function Commands() {
     return () => {
       mounted = false;
     };
-  }, [commandsByProtocol, protocolKey, commandsRefreshKey]);
+  }, [commandsRefreshKey, protocolId, selectedVehicleId]);
 
   useEffect(() => {
     let mounted = true;
@@ -640,6 +692,9 @@ export default function Commands() {
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
       <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
         <header className="space-y-2 px-6 pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
+          </div>
           <div className="flex flex-nowrap items-center justify-between gap-3 overflow-x-auto border-b border-white/10 pb-4">
             <div className="flex flex-nowrap gap-2">
               {COMMAND_TABS.map((tab) => (
@@ -798,17 +853,11 @@ export default function Commands() {
 
           {activeTab === "Comandos" && (
             <div className="space-y-4">
-              {!selectedVehicleId && commandsByProtocolLoading && (
+              {!selectedVehicleId && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                  Carregando comandos…
+                  Selecione um veículo para visualizar comandos disponíveis.
                 </div>
               )}
-              {!selectedVehicleId && commandsByProtocolError && (
-                <div className="rounded-xl border border-red-300/40 bg-red-500/10 p-4 text-sm text-red-200">
-                  {commandsByProtocolError.message}
-                </div>
-              )}
-
               {selectedVehicleId && (
                 <div className="space-y-4">
                   {!protocolKey && (
@@ -821,17 +870,33 @@ export default function Commands() {
                     <span>{filteredCommands.length} itens</span>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
+                    <table className="min-w-full w-full table-fixed text-sm">
                       <colgroup>
                         {visibleCommandColumns.map((column) => (
-                          <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
+                          <col key={column.id} style={{ width: getAppliedWidth(column.id) }} />
                         ))}
                       </colgroup>
                       <thead className="text-left text-xs uppercase tracking-wide text-white/50">
                         <tr>
                           {visibleCommandColumns.map((column) => (
-                            <th key={column.id} className="py-2 pr-6">
-                              {column.label}
+                            <th
+                              key={column.id}
+                              style={getWidthStyle(column.id)}
+                              className="relative py-2 pr-6"
+                            >
+                              <div className="flex items-center justify-between gap-2 pr-2">
+                                <span className="truncate" title={column.label}>
+                                  {column.label}
+                                </span>
+                                <span
+                                  role="separator"
+                                  tabIndex={0}
+                                  onMouseDown={(event) => startResize(column.id, event)}
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
+                                  title="Redimensionar coluna"
+                                />
+                              </div>
                             </th>
                           ))}
                         </tr>
@@ -854,7 +919,7 @@ export default function Commands() {
                         {!commandsLoading && filteredCommands.length === 0 && (
                           <tr>
                             <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                              Nenhum comando disponível para este protocolo.
+                              Nenhum comando cadastrado para o protocolo {protocolLabel}. Verifique o cadastro de comandos.
                             </td>
                           </tr>
                         )}
@@ -940,11 +1005,10 @@ export default function Commands() {
                               }
                             })}
                           </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                   <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/70">
                     <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
                       <span>Parâmetros do comando</span>
@@ -1021,135 +1085,10 @@ export default function Commands() {
                   </div>
                 </div>
               )}
-              {!selectedVehicleId && !commandsByProtocolLoading && !commandsByProtocolError && (
-                <div className="space-y-5">
-                  {protocols.map((protocol) => {
-                    const commands = filteredCommandsByProtocol[protocol.id] || [];
-                    return (
-                      <div key={protocol.id} className="space-y-3">
-                        <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
-                          <span>{protocol.label}</span>
-                          <span>{commands.length} itens</span>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-full text-sm">
-                            <colgroup>
-                              {visibleCommandColumns.map((column) => (
-                                <col key={column.id} style={{ width: column.width ? `${column.width}px` : "auto" }} />
-                              ))}
-                            </colgroup>
-                            <thead className="text-left text-xs uppercase tracking-wide text-white/50">
-                              <tr>
-                                {visibleCommandColumns.map((column) => (
-                                  <th key={column.id} className="py-2 pr-6">
-                                    {column.label}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/40">
-                              {commands.length === 0 && (
-                                <tr>
-                                  <td colSpan={visibleCommandColumns.length} className="py-4 text-center text-sm text-white/60">
-                                    Nenhum comando disponível para este protocolo.
-                                  </td>
-                                </tr>
-                              )}
-                              {commands.map((command) => (
-                                <tr key={`${protocol.id}-${command.id}`} className="hover:bg-white/5">
-                                  {visibleCommandColumns.map((column) => {
-                                    switch (column.id) {
-                                      case "device":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/70">
-                                            —
-                                          </td>
-                                        );
-                                      case "command":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/80">
-                                            <div className="text-sm font-semibold text-white">{command.name}</div>
-                                            {command.tags?.length ? (
-                                              <div className="mt-1 flex flex-wrap gap-2">
-                                                {command.tags.map((tag) => (
-                                                  <span
-                                                    key={tag}
-                                                    className="rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-wide text-white/60"
-                                                  >
-                                                    {tag}
-                                                  </span>
-                                                ))}
-                                              </div>
-                                            ) : null}
-                                          </td>
-                                        );
-                                      case "description":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/60">
-                                            {command.description}
-                                          </td>
-                                        );
-                                      case "action":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6">
-                                            {command.parameters?.length ? (
-                                              <Button
-                                                size="xs"
-                                                variant="secondary"
-                                                onClick={() => handleSelectCommand(command)}
-                                              >
-                                                Configurar
-                                              </Button>
-                                            ) : (
-                                              <Button
-                                                size="xs"
-                                                onClick={() =>
-                                                  handleSendCommand(
-                                                    { command: command.type || command.id },
-                                                    { context: "quick" },
-                                                  )
-                                                }
-                                                disabled={sending}
-                                              >
-                                                {sending ? "Enviando…" : "Enviar"}
-                                              </Button>
-                                            )}
-                                          </td>
-                                        );
-                                      case "protocol":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/60">
-                                            {protocol.label}
-                                          </td>
-                                        );
-                                      case "json":
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/60">
-                                            {formatCommandTemplatePayload(command)}
-                                          </td>
-                                        );
-                                      default:
-                                        return (
-                                          <td key={column.id} className="py-2 pr-6 text-white/60">
-                                            —
-                                          </td>
-                                        );
-                                    }
-                                  })}
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
 
-        {activeTab === "Avançado" && (
+          {activeTab === "Avançado" && (
           <div className="space-y-4">
             <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 p-4 text-xs text-amber-100">
               Use com cuidado: comandos avançados podem causar comportamento inesperado no dispositivo.
@@ -1204,7 +1143,7 @@ export default function Commands() {
           </div>
         )}
 
-        {activeTab === "SMS" && (
+          {activeTab === "SMS" && (
           <div className="space-y-4">
             {!protocolKey && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
@@ -1360,7 +1299,7 @@ export default function Commands() {
           </div>
         )}
 
-        {activeTab === "JSON" && (
+          {activeTab === "JSON" && (
           <div className="space-y-4">
             {!protocolKey && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
