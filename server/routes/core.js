@@ -447,7 +447,8 @@ function buildDeviceResponse(device, context) {
   const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
   const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
   const iconType = attributes.iconType || null;
-  const protocol = traccarDevice?.protocol || attributes.protocol || model?.protocol || null;
+  const metadataProtocol = traccarDevice?.protocol || traccarDevice?.attributes?.protocol || null;
+  const protocol = metadataProtocol || attributes.protocol || model?.protocol || null;
   const groupId = traccarDevice?.groupId ?? attributes.groupId ?? null;
 
   return {

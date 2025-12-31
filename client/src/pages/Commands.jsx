@@ -337,15 +337,6 @@ export default function Commands() {
     });
   }, [vehicleSearch, vehicles]);
 
-  const vehicleById = useMemo(() => {
-    const map = new Map();
-    vehicles.forEach((vehicle) => {
-      if (vehicle?.id === undefined || vehicle?.id === null) return;
-      map.set(String(vehicle.id), vehicle);
-    });
-    return map;
-  }, [vehicles]);
-
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
@@ -356,6 +347,15 @@ export default function Commands() {
     });
     return map;
   }, [resolveVehicleDevice, vehicles]);
+
+  const vehicleById = useMemo(() => {
+    const map = new Map();
+    vehicles.forEach((vehicle) => {
+      if (vehicle?.id === undefined || vehicle?.id === null) return;
+      map.set(String(vehicle.id), vehicle);
+    });
+    return map;
+  }, [vehicles]);
 
   const selectedVehicle = useMemo(() => {
     if (selectedVehicleId !== null) {
@@ -371,6 +371,10 @@ export default function Commands() {
     if (selectedTraccarDeviceId === null) return null;
     return deviceByTraccarId.get(selectedTraccarDeviceId) || resolveVehicleDevice(selectedVehicle);
   }, [deviceByTraccarId, resolveVehicleDevice, selectedTraccarDeviceId, selectedVehicle]);
+  const normalizedCommandTypes = useMemo(
+    () => commandTypes.map((type) => normalizeManualType(type)).filter(Boolean),
+    [commandTypes],
+  );
   const protocolKey = useMemo(() => normalizeProtocol(selectedProtocol), [selectedProtocol]);
   const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || protocolKey, [protocolIdByKey, protocolKey]);
   const protocolLabel = formatProtocolLabel(protocolKey);
@@ -664,36 +668,10 @@ export default function Commands() {
         return;
       }
       if (mounted) {
-        setSelectionLoading(true);
-        setSelectionError(null);
-      }
-      try {
-        const response = await api.get(`${API_ROUTES.core.devices}/${coreDeviceId}`);
-        const payload = response?.data?.device || response?.data || {};
-        const protocol = normalizeProtocol(payload.protocol || payload?.attributes?.protocol || payload?.modelProtocol);
-        if (mounted) {
-          if (protocol) {
-            setSelectedProtocol(protocol);
-            setSelectionError(null);
-          } else {
-            setSelectionError(
-              new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`),
-            );
-          }
-        }
-      } catch (requestError) {
-        const message =
-          requestError?.response?.data?.message ||
-          requestError?.response?.data?.error?.message ||
-          requestError?.message ||
-          `Protocolo não identificado para este equipamento/veículo${debugHint}.`;
-        if (mounted) {
-          setSelectionError(new Error(message));
-        }
-      } finally {
-        if (mounted) {
-          setSelectionLoading(false);
-        }
+        setSelectionError(
+          new Error(`Protocolo não identificado para este equipamento/veículo${debugHint}.`),
+        );
+        setSelectionLoading(false);
       }
     }
 
@@ -886,12 +864,12 @@ export default function Commands() {
   }, [activeTab, selectedTraccarDeviceId]);
 
   useEffect(() => {
-    if (commandTypes.length === 0) return;
+    if (normalizedCommandTypes.length === 0) return;
     const currentType = normalizeManualType(manualType);
-    if (!commandTypes.includes(currentType)) {
-      setManualType(commandTypes[0]);
+    if (!normalizedCommandTypes.includes(currentType)) {
+      setManualType(normalizedCommandTypes[0]);
     }
-  }, [commandTypes, manualType]);
+  }, [manualType, normalizedCommandTypes]);
 
   useEffect(() => {
     if (smsCommandTypes.length === 0) return;
@@ -1599,13 +1577,13 @@ export default function Commands() {
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <label className="space-y-2 text-sm">
                 <span className="text-xs uppercase tracking-wide text-white/60">Tipo do comando</span>
-                {commandTypes.length ? (
+                {normalizedCommandTypes.length ? (
                   <Select
-                    value={manualType}
-                    onChange={(event) => setManualType(event.target.value)}
+                    value={normalizeManualType(manualType)}
+                    onChange={(event) => setManualType(normalizeManualType(event.target.value))}
                     className="bg-layer text-sm"
                   >
-                    {commandTypes.map((type) => (
+                    {normalizedCommandTypes.map((type) => (
                       <option key={type} value={type}>
                         {type}
                       </option>
@@ -1613,8 +1591,8 @@ export default function Commands() {
                   </Select>
                 ) : (
                   <Input
-                    value={manualType}
-                    onChange={(event) => setManualType(event.target.value)}
+                    value={normalizeManualType(manualType)}
+                    onChange={(event) => setManualType(normalizeManualType(event.target.value))}
                     placeholder="custom"
                   />
                 )}
