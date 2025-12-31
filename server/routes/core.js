@@ -1897,7 +1897,29 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       });
     }
 
-    const resolvedProtocol = traccarDevice?.protocol ?? device?.protocol ?? null;
+    let resolvedProtocol = traccarDevice?.protocol ?? device?.protocol ?? null;
+
+    if (!resolvedProtocol) {
+      let latestPositions = [];
+      try {
+        latestPositions = await deps.fetchLatestPositionsWithFallback([traccarDeviceId], null);
+      } catch (positionsError) {
+        return next(positionsError);
+      }
+
+      const latestPosition = Array.isArray(latestPositions)
+        ? latestPositions.find((position) => String(position?.deviceId || "") === traccarDeviceId) || latestPositions[0]
+        : null;
+      const normalisedPosition = normaliseTelemetryPosition(latestPosition);
+      resolvedProtocol = normalisedPosition?.protocol ?? null;
+
+      if (!resolvedProtocol) {
+        return res.status(409).json({
+          ok: false,
+          message: "Device ainda não possui última posição no Traccar; protocolo indisponível",
+        });
+      }
+    }
     return res.json({
       device: {
         ...traccarDevice,
