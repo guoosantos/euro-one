@@ -779,9 +779,20 @@ router.get("/devices", async (req, res, next) => {
 router.get("/devices/:id", async (req, res, next) => {
   try {
     const data = await traccarProxy("get", `/devices/${req.params.id}`, { asAdmin: true, context: req });
-    res.json(data);
+    if (data?.ok === false || data?.error) {
+      const statusCandidate = Number(data?.status ?? data?.error?.code);
+      const status = Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 502;
+      const message = data?.error?.message || "Não foi possível consultar o Traccar.";
+      const details = data?.error || data?.details || null;
+      return res.status(status).json({ ok: false, message, details });
+    }
+    res.status(200).json(data);
   } catch (error) {
-    next(error);
+    const statusCandidate = Number(error?.status || error?.statusCode || error?.response?.status);
+    const status = Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 503;
+    const message = error?.message || "Não foi possível consultar o Traccar.";
+    const details = error?.details || error?.response?.data || error?.cause || null;
+    res.status(status).json({ ok: false, message, details });
   }
 });
 
