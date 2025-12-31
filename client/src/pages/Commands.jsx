@@ -175,12 +175,16 @@ export default function Commands() {
     return new Map(protocols.map((protocol) => [normalizeProtocol(protocol.id), protocol.id]));
   }, [protocols]);
 
-  const getVehicleProtocolKey = (vehicle) => {
-    if (!vehicle) return "";
+  const getVehicleProtocolKey = (vehicle, device) => {
+    if (!vehicle && !device) return "";
+    // Fallback chain to infer protocol from vehicle/device data.
     const rawProtocol =
       vehicle?.primaryDevice?.protocol ||
       vehicle?.primaryDevice?.attributes?.protocol ||
       vehicle?.primaryDevice?.modelProtocol ||
+      device?.protocol ||
+      device?.attributes?.protocol ||
+      device?.modelProtocol ||
       vehicle?.protocol ||
       vehicle?.attributes?.protocol ||
       "";
@@ -234,11 +238,11 @@ export default function Commands() {
     if (!targetKey) return null;
     return deviceByKey.get(targetKey) || null;
   }, [deviceByKey, selectedVehicle]);
-  const rawProtocol = useMemo(() => {
-    return selectedVehicle?.primaryDevice?.protocol ?? selectedDevice?.protocol ?? "";
-  }, [selectedDevice, selectedVehicle]);
-  const protocolKey = useMemo(() => normalizeProtocol(rawProtocol), [rawProtocol]);
-  const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || rawProtocol, [protocolIdByKey, protocolKey, rawProtocol]);
+  const protocolKey = useMemo(
+    () => getVehicleProtocolKey(selectedVehicle, selectedDevice),
+    [selectedDevice, selectedVehicle],
+  );
+  const protocolId = useMemo(() => protocolIdByKey.get(protocolKey) || protocolKey, [protocolIdByKey, protocolKey]);
   const protocolLabel = formatProtocolLabel(protocolKey);
 
   const selectedCommand = useMemo(
@@ -461,6 +465,7 @@ export default function Commands() {
       try {
         const response = await api.get(API_ROUTES.protocolCommands(protocolId));
         const responseList = Array.isArray(response?.data?.commands) ? response.data.commands : [];
+        // When backend has no commands, use local protocol defaults.
         const fallbackCommands = responseList.length === 0 ? getFallbackCommands(protocolKey) : [];
         const effectiveCommands = responseList.length > 0 ? responseList : fallbackCommands;
         commandsCacheRef.current.set(cacheKey, effectiveCommands);
@@ -791,7 +796,7 @@ export default function Commands() {
           {protocolError && <p className="text-xs text-red-300">{protocolError.message}</p>}
           {vehiclesLoading && <p className="text-xs text-white/50">Carregando veículos…</p>}
           {vehiclesError && <p className="text-xs text-red-300">{vehiclesError.message}</p>}
-          {selectedVehicle && !selectedDeviceId && (
+          {selectedVehicle && !selectedVehicle?.primaryDeviceId && (
             <p className="text-xs text-amber-200/80">Veículo sem equipamento vinculado.</p>
           )}
         </header>
