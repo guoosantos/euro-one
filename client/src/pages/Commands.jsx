@@ -6,7 +6,7 @@ import Input from "../ui/Input";
 import Select from "../ui/Select";
 import useDevices from "../lib/hooks/useDevices";
 import useVehicles from "../lib/hooks/useVehicles";
-import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { getDeviceKey, toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 
@@ -56,7 +56,12 @@ const HISTORY_COLUMNS = [
 ];
 
 function normalizeProtocol(value) {
-  return String(value || "").trim().toLowerCase();
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("gt06")) return "gt06";
+  if (normalized.includes("iotm")) return "iotm";
+  if (normalized.includes("suntech")) return "suntech";
+  return normalized;
 }
 
 function getFallbackCommands(protocolKey) {
@@ -220,25 +225,16 @@ export default function Commands() {
     [selectedVehicleId, vehicles],
   );
   const selectedDeviceId = selectedVehicle?.primaryDeviceId || "";
+  const hasSelectedVehicle = Boolean(selectedVehicleId);
+  const hasLinkedDevice = Boolean(selectedVehicle?.primaryDeviceId);
   const list = Array.isArray(history) ? history : [];
   const deviceByKey = useMemo(() => {
     const map = new Map();
     devices.forEach((device) => {
-      const keys = [
-        device?.id,
-        device?.deviceId,
-        device?.device_id,
-        device?.uniqueId,
-        device?.unique_id,
-        device?.traccarId,
-      ]
-        .map((value) => toDeviceKey(value))
-        .filter(Boolean);
-      keys.forEach((key) => {
-        if (!map.has(key)) {
-          map.set(key, device);
-        }
-      });
+      const key = getDeviceKey(device);
+      if (key && !map.has(key)) {
+        map.set(key, device);
+      }
     });
     return map;
   }, [devices]);
@@ -460,7 +456,7 @@ export default function Commands() {
   useEffect(() => {
     let mounted = true;
     async function loadCommands() {
-      if (!selectedVehicleId || !protocolId) {
+      if (!selectedVehicleId || !protocolKey) {
         setProtocolCommands([]);
         setCommandsError(null);
         return;
@@ -644,8 +640,8 @@ export default function Commands() {
   };
 
   const handleRefreshHistory = () => {
-    if (protocolKey) {
-      commandsCacheRef.current.delete(protocolKey);
+    if (protocolId) {
+      commandsCacheRef.current.delete(protocolId);
     }
     setCommandsRefreshKey((value) => value + 1);
     setHistoryRefreshKey((value) => value + 1);
@@ -896,20 +892,23 @@ export default function Commands() {
 
           {activeTab === "Comandos" && (
             <div className="space-y-4">
-              {!selectedVehicleId && (
+              {!hasSelectedVehicle && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
                   Selecione um veículo para visualizar comandos disponíveis.
                 </div>
               )}
-              {selectedVehicleId && (
+              {hasSelectedVehicle && !hasLinkedDevice && (
+                <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  Veículo sem equipamento vinculado.
+                </div>
+              )}
+              {hasSelectedVehicle && hasLinkedDevice && !protocolKey && (
+                <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+                  Veículo sem protocolo configurado.
+                </div>
+              )}
+              {hasSelectedVehicle && protocolKey && (
                 <div className="space-y-4">
-                  {!protocolKey && (
-                    <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-                      {selectedVehicle?.primaryDeviceId
-                        ? "Veículo sem protocolo configurado."
-                        : "Veículo sem equipamento vinculado."}
-                    </div>
-                  )}
                   <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/50">
                     <span>Comandos homologados</span>
                     <span>{filteredCommands.length} itens</span>
