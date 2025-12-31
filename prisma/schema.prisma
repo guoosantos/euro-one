@@ -419,3 +419,41 @@ model EventMapping {
 
   @@unique([clientId, deviceId, protocol, eventKey])
 }
+
+model CommandDispatch {
+  id             String   @id @default(uuid())
+  clientId       String?
+  vehicleId      String
+  traccarId      Int
+  commandKey     String?
+  commandName    String?
+  payloadSummary Json?
+  sentAt         DateTime
+  status         String
+  createdBy      String?
+  createdAt      DateTime @default(now())
+
+  client Client? @relation(fields: [clientId], references: [id])
+
+  @@index([vehicleId, sentAt])
+  @@index([clientId, vehicleId, sentAt])
+  @@map("command_dispatches")
+}
+
+model CustomCommand {
+  id          String   @id @default(uuid())
+  clientId    String
+  name        String
+  description String?
+  kind        String
+  payload     Json
+  visible     Boolean  @default(true)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  client Client @relation(fields: [clientId], references: [id])
+
+  @@index([clientId, visible])
+  @@map("custom_commands")
+}
