@@ -448,7 +448,12 @@ function buildDeviceResponse(device, context) {
   const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
   const iconType = attributes.iconType || null;
   const metadataProtocol = traccarDevice?.protocol || traccarDevice?.attributes?.protocol || null;
-  const protocol = metadataProtocol || attributes.protocol || model?.protocol || null;
+  const protocol =
+    device?.protocol ||
+    model?.protocol ||
+    attributes.protocol ||
+    metadataProtocol ||
+    null;
   const groupId = traccarDevice?.groupId ?? attributes.groupId ?? null;
 
   return {
@@ -1830,6 +1835,12 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
       (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
     );
     const principalDevice = selectPrincipalDevice(linkedDevices);
+    const model = principalDevice?.modelId ? deps.getModelById(principalDevice.modelId) : null;
+    const deviceProtocol =
+      principalDevice?.protocol ||
+      model?.protocol ||
+      principalDevice?.attributes?.protocol ||
+      null;
 
     if (!principalDevice) {
       throw createError(404, "Veículo sem equipamento vinculado");
@@ -1845,7 +1856,7 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
         traccarDevice: {
           traccarDeviceId: Number(principalDevice.traccarId),
           uniqueId,
-          protocol: principalDevice?.attributes?.protocol || null,
+          protocol: deviceProtocol,
           deviceId: principalDevice.id,
         },
       });
@@ -1861,7 +1872,12 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
     }
 
     const updatedDevice = deps.updateDevice(principalDevice.id, { traccarId: String(traccarDevice.id) });
-    const protocol = traccarDevice?.protocol || traccarDevice?.attributes?.protocol || updatedDevice?.attributes?.protocol || null;
+    const protocol =
+      deviceProtocol ||
+      traccarDevice?.protocol ||
+      traccarDevice?.attributes?.protocol ||
+      updatedDevice?.attributes?.protocol ||
+      null;
 
     return res.json({
       traccarDevice: {
