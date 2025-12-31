@@ -7,6 +7,17 @@ export function toDeviceKey(value) {
   }
 }
 
+export function getDeviceKey(device) {
+  return toDeviceKey(
+    device?.id ??
+      device?.deviceId ??
+      device?.device_id ??
+      device?.uniqueId ??
+      device?.unique_id ??
+      device?.traccarId,
+  );
+}
+
 export function normaliseDeviceList(payload) {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.devices)) return payload.devices;
