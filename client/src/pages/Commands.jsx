@@ -55,6 +55,26 @@ const formatDateTime = (value) => {
   });
 };
 
+const normalizeCommandLabel = (value) => {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!normalized || normalized === "commandresult") return null;
+  return trimmed;
+};
+
+const resolveHistoryCommandLabel = (item) => {
+  const candidates = [
+    item?.command,
+    item?.commandName,
+    item?.payload?.description,
+    item?.payload?.type,
+  ];
+  const match = candidates.find((value) => normalizeCommandLabel(value));
+  return match ? String(match).trim() : "—";
+};
+
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
@@ -1980,7 +2000,7 @@ export default function Commands() {
               )}
               {history.length > 0 &&
                 history.map((item) => {
-                  const commandLabel = item?.command || item?.commandName || "—";
+                  const commandLabel = resolveHistoryCommandLabel(item);
                   const statusLabel =
                     item?.status === "RESPONDED"
                       ? "Respondido"

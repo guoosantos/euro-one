@@ -425,17 +425,28 @@ function normalizeCustomCommandInput(body = {}) {
   };
 }
 
+function normalizeCommandMatchValue(value) {
+  if (value === undefined || value === null) return null;
+  const trimmed = String(value).trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!normalized || normalized === "commandresult") return null;
+  return normalized;
+}
+
 function resolveCommandNameFromEvent(event) {
   const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
-  return (
-    attributes.commandName ||
-    attributes.command ||
-    attributes.commandType ||
-    attributes.type ||
-    attributes.commandId ||
-    attributes.description ||
-    null
-  );
+  const candidates = [
+    attributes.commandName,
+    attributes.command,
+    attributes.commandType,
+    attributes.commandId,
+    attributes.description,
+    attributes.type,
+  ];
+  const match = candidates.find((value) => normalizeCommandMatchValue(value));
+  if (!match) return null;
+  return String(match).trim();
 }
 
 function resolveCommandResultText(event) {
@@ -451,6 +462,67 @@ function mapDispatchStatusToApi(status, hasResponse) {
   if (status === "failed") return "ERROR";
   if (status === "sent") return "SENT";
   return "PENDING";
+}
+
+function buildDispatchMatchSignature(dispatch) {
+  const payloadSummary = dispatch?.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
+  return {
+    commandName: normalizeCommandMatchValue(dispatch?.commandName || dispatch?.commandKey || payloadSummary?.type),
+    commandType: normalizeCommandMatchValue(payloadSummary?.type || dispatch?.commandKey),
+    commandKey: normalizeCommandMatchValue(dispatch?.commandKey),
+  };
+}
+
+function buildEventMatchSignature(event) {
+  const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
+  return {
+    commandName: normalizeCommandMatchValue(resolveCommandNameFromEvent(event)),
+    commandType: normalizeCommandMatchValue(attributes.commandType || attributes.command || attributes.type),
+    commandKey: normalizeCommandMatchValue(attributes.commandId),
+  };
+}
+
+function findMatchingCommandEvent({ dispatch, parsedEvents, usedEventIds, matchWindowMs, allowSkewMs }) {
+  const sentTime = new Date(dispatch.sentAt);
+  const sentMs = sentTime.getTime();
+  if (!Number.isFinite(sentMs)) return null;
+  const dispatchSignature = buildDispatchMatchSignature(dispatch);
+
+  return (
+    parsedEvents.find((event) => {
+      if (!event?.parsedTime) return false;
+      if (usedEventIds.has(event.id)) return false;
+      const eventMs = event.parsedTime.getTime();
+      if (eventMs < sentMs - allowSkewMs) return false;
+      if (eventMs - sentMs > matchWindowMs) return false;
+
+      const eventSignature = buildEventMatchSignature(event);
+      let comparisons = 0;
+      let matches = 0;
+      if (dispatchSignature.commandKey && eventSignature.commandKey) {
+        comparisons += 1;
+        if (dispatchSignature.commandKey === eventSignature.commandKey) {
+          matches += 1;
+        }
+      }
+      if (dispatchSignature.commandName && eventSignature.commandName) {
+        comparisons += 1;
+        if (dispatchSignature.commandName === eventSignature.commandName) {
+          matches += 1;
+        }
+      }
+      if (dispatchSignature.commandType && eventSignature.commandType) {
+        comparisons += 1;
+        if (dispatchSignature.commandType === eventSignature.commandType) {
+          matches += 1;
+        }
+      }
+      if (comparisons > 0 && matches === 0) {
+        return false;
+      }
+      return true;
+    }) || null
+  );
 }
 
 function buildCommandHistoryItem({
@@ -1773,19 +1845,17 @@ router.get("/commands/history", async (req, res, next) => {
     const matchWindowMs = Number.isFinite(toMs - fromMs)
       ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
       : 2 * 60 * 60 * 1000;
+    const allowSkewMs = 2 * 60 * 1000;
     const dispatchItems = dispatches.map((dispatch) => {
-      const sentTime = new Date(dispatch.sentAt);
-      const sentMs = sentTime.getTime();
       let matched = null;
 
       if (dispatch.status !== "failed") {
-        matched = parsedEvents.find((event) => {
-          if (!event?.parsedTime) return false;
-          if (usedEventIds.has(event.id)) return false;
-          const eventMs = event.parsedTime.getTime();
-          if (eventMs < sentMs) return false;
-          if (eventMs - sentMs > matchWindowMs) return false;
-          return true;
+        matched = findMatchingCommandEvent({
+          dispatch,
+          parsedEvents,
+          usedEventIds,
+          matchWindowMs,
+          allowSkewMs,
         });
       }
 
@@ -1951,6 +2021,7 @@ router.get("/commands/history/status", async (req, res, next) => {
     const matchWindowMs = Number.isFinite(toMs - fromMs)
       ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
       : 2 * 60 * 60 * 1000;
+    const allowSkewMs = 2 * 60 * 1000;
 
     let userLookup = new Map();
     if (dispatches.length && prisma?.user?.findMany) {
@@ -1970,18 +2041,15 @@ router.get("/commands/history/status", async (req, res, next) => {
     }
 
     const items = dispatches.map((dispatch) => {
-      const sentTime = new Date(dispatch.sentAt);
-      const sentMs = sentTime.getTime();
       let matched = null;
 
       if (dispatch.status !== "failed") {
-        matched = parsedEvents.find((event) => {
-          if (!event?.parsedTime) return false;
-          if (usedEventIds.has(event.id)) return false;
-          const eventMs = event.parsedTime.getTime();
-          if (eventMs < sentMs) return false;
-          if (eventMs - sentMs > matchWindowMs) return false;
-          return true;
+        matched = findMatchingCommandEvent({
+          dispatch,
+          parsedEvents,
+          usedEventIds,
+          matchWindowMs,
+          allowSkewMs,
         });
       }
 
