@@ -428,11 +428,12 @@ function normalizeCustomCommandInput(body = {}) {
 function resolveCommandNameFromEvent(event) {
   const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
   return (
+    attributes.commandName ||
     attributes.command ||
     attributes.commandType ||
     attributes.type ||
     attributes.commandId ||
-    event?.type ||
+    attributes.description ||
     null
   );
 }
@@ -1704,25 +1705,6 @@ router.get("/commands/history", async (req, res, next) => {
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
-    let traccarWarning = null;
-    let eventItems = [];
-    try {
-      const events = await fetchCommandResultEvents(traccarId, from, to, pageSize * page);
-      eventItems = events
-        .filter((event) => event?.type === "commandResult")
-        .map((event) => {
-          return {
-            id: event.id ?? null,
-            eventTime: event.eventTime ?? null,
-            result: resolveCommandResultText(event),
-            commandName: resolveCommandNameFromEvent(event),
-            attributes: event?.attributes || {},
-          };
-        });
-    } catch (error) {
-      traccarWarning = error?.message || "Falha ao consultar eventos do Traccar";
-    }
-
     let dispatches = [];
     let userLookup = new Map();
     if (isPrismaAvailable()) {
@@ -1756,6 +1738,25 @@ router.get("/commands/history", async (req, res, next) => {
       } catch (error) {
         console.warn("[commands] Falha ao buscar histórico no banco, retornando apenas Traccar", error?.message || error);
       }
+    }
+
+    let traccarWarning = null;
+    let eventItems = [];
+    try {
+      const events = await fetchCommandResultEvents(traccarId, from, to);
+      eventItems = events
+        .filter((event) => event?.type === "commandResult")
+        .map((event) => {
+          return {
+            id: event.id ?? null,
+            eventTime: event.eventTime ?? null,
+            result: resolveCommandResultText(event),
+            commandName: resolveCommandNameFromEvent(event),
+            attributes: event?.attributes || {},
+          };
+        });
+    } catch (error) {
+      traccarWarning = error?.message || "Falha ao consultar eventos do Traccar";
     }
 
     const parsedEvents = eventItems
@@ -1951,6 +1952,23 @@ router.get("/commands/history/status", async (req, res, next) => {
       ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
       : 2 * 60 * 60 * 1000;
 
+    let userLookup = new Map();
+    if (dispatches.length && prisma?.user?.findMany) {
+      const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
+      if (userIds.length) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, username: true },
+        });
+        userLookup = new Map(
+          users.map((user) => [
+            user.id,
+            user.name || user.username || user.email || user.id,
+          ]),
+        );
+      }
+    }
+
     const items = dispatches.map((dispatch) => {
       const sentTime = new Date(dispatch.sentAt);
       const sentMs = sentTime.getTime();
@@ -1971,12 +1989,18 @@ router.get("/commands/history/status", async (req, res, next) => {
         usedEventIds.add(matched.id);
       }
 
+      const userName = dispatch.createdBy ? userLookup.get(dispatch.createdBy) || null : null;
+      const payloadSummary = dispatch.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
+      const resolvedCommandName = dispatch.commandName || dispatch.commandKey || payloadSummary?.type || null;
       const status = mapDispatchStatusToApi(dispatch.status, Boolean(matched?.eventTime));
       return {
         id: dispatch.id,
         status,
         receivedAt: matched?.eventTime || null,
         result: matched?.result || null,
+        command: resolvedCommandName,
+        sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
+        user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
       };
     });
 
