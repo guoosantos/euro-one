@@ -126,6 +126,7 @@ function sanitizeDetails(details) {
 export function errorHandler(err, req, res, _next) {
   const status = resolveStatus(err);
   const code = err?.code || err?.response?.data?.code || err?.response?.data?.error;
+  const errorCode = code || (status >= 500 ? "INTERNAL_SERVER_ERROR" : "REQUEST_ERROR");
   const message = buildMessage(err, status);
   const details = extractDetails(err);
 
@@ -137,7 +138,7 @@ export function errorHandler(err, req, res, _next) {
     response: err?.response?.data,
   });
 
-  const payload = { message };
+  const payload = { message, errorCode };
   payload.error = code || err?.code || message;
   if (code) payload.code = code;
 

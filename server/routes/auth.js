@@ -31,6 +31,12 @@ const DATABASE_UNAVAILABLE_CODES = new Set([
   "EAI_AGAIN",
 ]);
 
+const AUTH_ERROR_CODES = {
+  missingCredentials: "MISSING_CREDENTIALS",
+  invalidCredentials: "INVALID_CREDENTIALS",
+  authUnavailable: "AUTH_UNAVAILABLE",
+};
+
 function buildDatabaseUnavailableError(error) {
   const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
   unavailable.code = error?.code || "DATABASE_UNAVAILABLE";
@@ -41,20 +47,75 @@ function buildDatabaseUnavailableError(error) {
   return unavailable;
 }
 
+function buildAuthError(status, message, code) {
+  const err = createError(status, message);
+  if (code) {
+    err.code = code;
+  }
+  return err;
+}
+
+function isDatabaseUnavailableError(error) {
+  const status = Number(error?.status || error?.statusCode);
+  const code = String(error?.code || error?.original?.code || "").toUpperCase();
+  if (DATABASE_UNAVAILABLE_CODES.has(code)) return true;
+  if (code === "DATABASE_UNAVAILABLE") return true;
+  if (status === 503) {
+    const message = String(error?.message || "").toLowerCase();
+    if (message.includes("banco") || message.includes("database") || message.includes("prisma")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+const baseAuthDeps = {
+  verifyUserCredentials,
+  sanitizeUser,
+  buildSessionPayload,
+  signSession,
+  isPrismaAvailable,
+  shouldUseDemoFallback,
+  getFallbackUser,
+  getFallbackClient,
+  authenticateWithTraccar,
+};
+
+const authDeps = { ...baseAuthDeps };
+
+export function __setAuthRouteDeps(overrides = {}) {
+  Object.assign(authDeps, overrides);
+}
+
+export function __resetAuthRouteDeps() {
+  Object.assign(authDeps, baseAuthDeps);
+}
+
 const handleLogin = async (req, res, next) => {
   try {
+    const {
+      verifyUserCredentials: verifyUserCredentialsFn,
+      sanitizeUser: sanitizeUserFn,
+      buildSessionPayload: buildSessionPayloadFn,
+      signSession: signSessionFn,
+      isPrismaAvailable: isPrismaAvailableFn,
+      shouldUseDemoFallback: shouldUseDemoFallbackFn,
+      getFallbackUser: getFallbackUserFn,
+      getFallbackClient: getFallbackClientFn,
+      authenticateWithTraccar: authenticateWithTraccarFn,
+    } = authDeps;
     const { email, username, login, password } = req.body || {};
     const userLogin = String(email || username || login || "").trim();
     const userPassword = typeof password === "string" ? password : null;
 
     if (!userLogin || !userPassword) {
-      throw createError(400, "Login e senha são obrigatórios");
+      throw buildAuthError(400, "Login e senha são obrigatórios", AUTH_ERROR_CODES.missingCredentials);
     }
 
     let traccarAuth = null;
     let traccarAuthError = null;
     try {
-      traccarAuth = await authenticateWithTraccar(userLogin, userPassword);
+      traccarAuth = await authenticateWithTraccarFn(userLogin, userPassword);
     } catch (error) {
       const status = Number(error?.status || error?.statusCode);
       if (status === 401 || status === 403) {
@@ -69,11 +130,11 @@ const handleLogin = async (req, res, next) => {
     let sessionPayload = null;
     let localAuthError = null;
     try {
-      user = await verifyUserCredentials(userLogin, userPassword, { allowFallback: true });
+      user = await verifyUserCredentialsFn(userLogin, userPassword, { allowFallback: true });
     } catch (error) {
       const status = Number(error?.status || error?.statusCode);
       if (status === 401) {
-        throw createError(401, "Credenciais inválidas");
+        throw buildAuthError(401, "Credenciais inválidas", AUTH_ERROR_CODES.invalidCredentials);
       }
       console.warn("[auth] Falha ao validar credenciais locais; seguindo com Traccar", error?.message || error);
       localAuthError = error;
@@ -81,9 +142,9 @@ const handleLogin = async (req, res, next) => {
     }
 
     if (user) {
-      const sanitizedUser = sanitizeUser(user);
+      const sanitizedUser = sanitizeUserFn(user);
       try {
-        sessionPayload = await buildSessionPayload(user.id, sanitizedUser.role);
+        sessionPayload = await buildSessionPayloadFn(user.id, sanitizedUser.role);
       } catch (error) {
         console.warn("[auth] Falha ao construir sessão local, seguindo com sessão Traccar", error?.message || error);
         sessionPayload = null;
@@ -92,21 +153,27 @@ const handleLogin = async (req, res, next) => {
 
     if (!user && traccarAuthError) {
       if (localAuthError) {
-        const normalized = DATABASE_UNAVAILABLE_CODES.has(String(localAuthError?.code || "").toUpperCase())
+        const normalized = isDatabaseUnavailableError(localAuthError)
           ? buildDatabaseUnavailableError(localAuthError)
-          : createError(503, "Falha ao validar credenciais");
+          : buildAuthError(503, "Falha ao validar credenciais", AUTH_ERROR_CODES.authUnavailable);
         throw normalized;
       }
-      throw createError(401, "Credenciais inválidas");
+      throw buildAuthError(401, "Credenciais inválidas", AUTH_ERROR_CODES.invalidCredentials);
     }
 
     if (!user) {
       if (traccarUser) {
         user = buildTraccarSessionUser(traccarUser, userLogin);
-      } else if (shouldUseDemoFallback({ prismaAvailable: isPrismaAvailable() })) {
-        const fallbackUser = getFallbackUser();
-        const fallbackClient = getFallbackClient();
-        user = sanitizeUser({
+      } else if (
+        localAuthError &&
+        isDatabaseUnavailableError(localAuthError) &&
+        !shouldUseDemoFallbackFn({ prismaAvailable: isPrismaAvailableFn() })
+      ) {
+        throw buildDatabaseUnavailableError(localAuthError);
+      } else if (shouldUseDemoFallbackFn({ prismaAvailable: isPrismaAvailableFn() })) {
+        const fallbackUser = getFallbackUserFn();
+        const fallbackClient = getFallbackClientFn();
+        user = sanitizeUserFn({
           ...fallbackUser,
           email: fallbackUser.email || userLogin,
           username: fallbackUser.username || userLogin,
@@ -114,11 +181,11 @@ const handleLogin = async (req, res, next) => {
           clientId: fallbackUser.clientId || fallbackClient.id,
         });
       } else {
-        throw createError(503, "Falha ao validar sessão e credenciais");
+        throw buildAuthError(503, "Falha ao validar sessão e credenciais", AUTH_ERROR_CODES.authUnavailable);
       }
     }
 
-    const sanitizedUser = sanitizeUser(user);
+    const sanitizedUser = sanitizeUserFn(user);
     if (!sessionPayload) {
       sessionPayload = {
         user: sanitizedUser,
@@ -136,7 +203,7 @@ const handleLogin = async (req, res, next) => {
       email: sessionUser.email,
       username: sessionUser.username ?? null,
     };
-    const token = signSession(tokenPayload);
+    const token = signSessionFn(tokenPayload);
     return res.json({
       token,
       user: { ...sessionUser, clientId: tokenPayload.clientId },
@@ -145,10 +212,15 @@ const handleLogin = async (req, res, next) => {
       clients: sessionPayload.clients,
     });
   } catch (error) {
-    console.error("[auth] falha no login", error?.message || error);
+    const shouldLogStack =
+      process.env.NODE_ENV !== "production" || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
+    console.error("[auth] falha no login", {
+      message: error?.message || error,
+      stack: shouldLogStack ? error?.stack : undefined,
+    });
     const status = Number(error?.status || error?.statusCode);
     if (!status) {
-      const normalized = DATABASE_UNAVAILABLE_CODES.has(String(error?.code || "").toUpperCase())
+      const normalized = isDatabaseUnavailableError(error)
         ? buildDatabaseUnavailableError(error)
         : null;
       if (normalized) return next(normalized);
@@ -321,5 +393,5 @@ const handleLogout = (req, res) => {
 router.post("/logout", authenticate, (req, res) => handleLogout(req, res));
 router.post("/auth/logout", authenticate, (req, res) => handleLogout(req, res));
 
-export { buildSessionPayload, handleLogin };
+export { buildSessionPayload, handleLogin, __resetAuthRouteDeps, __setAuthRouteDeps };
 export default router;
