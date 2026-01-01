@@ -82,6 +82,8 @@ function resolveCommandPayload(req) {
     return {
       type: req.body?.type,
       attributes: req.body?.attributes || {},
+      textChannel: req.body?.textChannel,
+      description: req.body?.description,
     };
   }
 
@@ -107,6 +109,8 @@ function resolveCommandPayload(req) {
       return {
         type: "custom",
         attributes: { data },
+        textChannel: req.body?.textChannel,
+        description: req.body?.description,
       };
     }
   }
@@ -114,6 +118,8 @@ function resolveCommandPayload(req) {
   return {
     type: match.type || match.code || match.id,
     attributes: req.body?.params || {},
+    textChannel: req.body?.textChannel,
+    description: req.body?.description,
   };
 }
 
@@ -1474,6 +1480,11 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       type: commandPayload?.type,
       attributes: commandPayload?.attributes || {},
       deviceId: traccarId,
+      textChannel:
+        commandPayload?.textChannel === undefined || commandPayload?.textChannel === null
+          ? undefined
+          : Boolean(commandPayload.textChannel),
+      description: commandPayload?.description,
     };
 
     if (payload.type === "sendSms" && !payload.attributes?.phone) {

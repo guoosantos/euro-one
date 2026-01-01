@@ -119,6 +119,24 @@ export default function Commands() {
     [],
   );
   const [customForm, setCustomForm] = useState(buildCustomForm);
+  const manualCustomCommand = useMemo(
+    () => ({
+      id: "custom-manual",
+      code: "custom-manual",
+      name: "Comando personalizado (payload)",
+      description: "Envie texto ou HEX diretamente para o dispositivo usando o tipo custom do Traccar.",
+      kind: "protocol",
+      manualCustom: true,
+      type: "custom",
+      tags: ["avancado"],
+      parameters: [
+        { key: "description", label: "Descrição (opcional)", type: "text" },
+        { key: "data", label: "Payload (texto ou HEX)", type: "textarea", required: true },
+        { key: "textChannel", label: "Enviar como texto (textChannel)", type: "boolean", defaultValue: false },
+      ],
+    }),
+    [],
+  );
 
   const [columnWidths, setColumnWidths] = useState(() => {
     if (typeof window === "undefined") return {};
@@ -138,6 +156,13 @@ export default function Commands() {
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
+
+  const protocolCommandsWithManual = useMemo(() => {
+    if (!selectedVehicleId) return protocolCommands;
+    const alreadyAdded = (protocolCommands || []).some((command) => command.manualCustom);
+    if (alreadyAdded) return protocolCommands;
+    return [...(protocolCommands || []), manualCustomCommand];
+  }, [manualCustomCommand, protocolCommands, selectedVehicleId]);
 
   useEffect(() => () => {
     if (toastTimeoutRef.current) {
@@ -202,13 +227,17 @@ export default function Commands() {
   );
 
   const mergedCommands = useMemo(
-    () => mergeCommands(protocolCommands, customCommands, { deviceProtocol: device?.protocol }),
-    [customCommands, device?.protocol, protocolCommands],
+    () => mergeCommands(protocolCommandsWithManual, customCommands, { deviceProtocol: device?.protocol }),
+    [customCommands, device?.protocol, protocolCommandsWithManual],
   );
 
   const advancedCommands = useMemo(
-    () => mergeCommands(protocolCommands, customCommands, { includeHiddenCustom: true, deviceProtocol: device?.protocol }),
-    [customCommands, device?.protocol, protocolCommands],
+    () =>
+      mergeCommands(protocolCommandsWithManual, customCommands, {
+        includeHiddenCustom: true,
+        deviceProtocol: device?.protocol,
+      }),
+    [customCommands, device?.protocol, protocolCommandsWithManual],
   );
 
   const smsPresetOptions = useMemo(
@@ -594,6 +623,7 @@ export default function Commands() {
       showToast("Selecione um veículo válido", "error");
       return;
     }
+    const isManualCustom = command.manualCustom === true;
     if (command.kind !== "custom" && !device?.protocol) {
       showToast("Veículo sem protocolo válido", "error");
       return;
@@ -602,16 +632,36 @@ export default function Commands() {
       showToast("Configure este comando personalizado na aba Avançado antes de enviar.", "error");
       return;
     }
+    const manualParams = commandParams[commandKey] || {};
+    const manualPayload = manualParams.data ?? manualParams.payload ?? "";
+    if (isManualCustom && !String(manualPayload || "").trim()) {
+      const message = "Informe o payload para o comando personalizado.";
+      setCommandErrors((current) => ({ ...current, [commandKey]: message }));
+      showToast(message, "error");
+      return;
+    }
 
     setSendingCommandId(commandKey);
     setCommandErrors((current) => ({ ...current, [commandKey]: null }));
     const pendingId = `pending-${commandKey}-${Date.now()}`;
     try {
-      const pendingItem = buildPendingHistoryItem(command.name || commandKey, pendingId);
+      const pendingLabel = isManualCustom
+        ? manualParams.description?.trim() || command.name || commandKey
+        : command.name || commandKey;
+      const pendingItem = buildPendingHistoryItem(pendingLabel, pendingId);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
       setHistoryTotal((current) => current + 1);
       let response = null;
-      if (command.kind === "custom") {
+      if (isManualCustom) {
+        response = await api.post(API_ROUTES.commandsSend, {
+          vehicleId: selectedVehicleId,
+          type: "custom",
+          attributes: { data: manualPayload },
+          textChannel: Boolean(manualParams.textChannel),
+          description: manualParams.description?.trim() || undefined,
+          commandName: manualParams.description?.trim() || command.name || "Comando personalizado",
+        });
+      } else if (command.kind === "custom") {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
           customCommandId: command.id,
@@ -635,6 +685,12 @@ export default function Commands() {
         setHistory((current) =>
           current.map((item) => (item.id === pendingId ? { ...item, status: "SENT" } : item)),
         );
+      }
+      if (isManualCustom) {
+        setCommandParams((current) => ({
+          ...current,
+          [commandKey]: { description: "", data: "", textChannel: false },
+        }));
       }
       if (response?.data?.ok === false && response?.data?.warning) {
         showToast(response.data.warning, "warning");
@@ -1178,7 +1234,11 @@ export default function Commands() {
               const inputId = `${uiKey}-${param.key}`;
               const value =
                 paramValues[param.key] ??
-                (param.defaultValue !== undefined && param.defaultValue !== null ? param.defaultValue : "");
+                (param.defaultValue !== undefined && param.defaultValue !== null
+                  ? param.defaultValue
+                  : param.type === "boolean"
+                  ? false
+                  : "");
               const type = param.type === "number" ? "number" : "text";
               const options = Array.isArray(param.options) ? param.options : null;
               return (
@@ -1197,6 +1257,25 @@ export default function Commands() {
                         </option>
                       ))}
                     </Select>
+                  ) : param.type === "textarea" ? (
+                    <textarea
+                      id={inputId}
+                      value={value}
+                      onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                      rows={4}
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/80"
+                    />
+                  ) : param.type === "boolean" ? (
+                    <div className="mt-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/60">
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        checked={Boolean(value)}
+                        onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.checked)}
+                        className="h-4 w-4 rounded border-white/20 bg-transparent"
+                      />
+                      <span>{param.helpText || "Ativar"}</span>
+                    </div>
                   ) : (
                     <Input
                       id={inputId}
