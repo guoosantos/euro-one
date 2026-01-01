@@ -655,8 +655,7 @@ export default function Commands() {
       if (isManualCustom) {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
-          type: "custom",
-          attributes: { data: manualPayload },
+          payload: manualPayload,
           textChannel: Boolean(manualParams.textChannel),
           description: manualParams.description?.trim() || undefined,
           commandName: manualParams.description?.trim() || command.name || "Comando personalizado",
