@@ -7,7 +7,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
-import { getProtocolCommands, normalizeProtocolKey } from "../services/protocol-catalog.js";
+import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import {
   fetchDevicesMetadata,
@@ -96,21 +96,120 @@ function resolveCommandPayload(req) {
     throw createError(404, "Comando não encontrado para o protocolo");
   }
 
+  if (protocolKey === "iotm" && match?.id === "outputControl") {
+    return buildIotmOutputPayload(req.body?.params || {});
+  }
+
   return {
     type: match.type || match.code || match.id,
     attributes: req.body?.params || {},
   };
 }
 
-function ensureCommandPrismaModel(modelName) {
-  if (!isPrismaAvailable()) {
-    throw createError(503, "Persistência de comandos indisponível no momento.");
+function buildIotmOutputPayload(params = {}) {
+  const rawOutput = params.output ?? params.outputId ?? params.outputIndex ?? 1;
+  const outputNumber = Number(rawOutput);
+  if (!Number.isFinite(outputNumber) || outputNumber < 1 || outputNumber > 4) {
+    throw createError(400, "Saída inválida para comando IOTM");
   }
+
+  const actionRaw = String(params.action ?? params.state ?? params.mode ?? "on").toLowerCase();
+  const action = actionRaw === "on" || actionRaw === "ligar" ? "on" : actionRaw === "off" || actionRaw === "desligar" ? "off" : null;
+  if (!action) {
+    throw createError(400, "Ação inválida para comando IOTM");
+  }
+
+  const rawDuration = params.durationMs ?? params.duration ?? params.timeMs ?? 0;
+  const durationMs = Number(rawDuration);
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    throw createError(400, "Tempo inválido para comando IOTM");
+  }
+
+  const ticks = Math.round(durationMs / 10);
+  if (!Number.isFinite(ticks) || ticks < 0 || ticks > 0xffff) {
+    throw createError(400, "Tempo inválido para comando IOTM");
+  }
+
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt8(outputNumber - 1, 0);
+  buffer.writeUInt8(action === "on" ? 0x00 : 0x01, 1);
+  buffer.writeUInt16BE(ticks, 2);
+
+  return {
+    type: "custom",
+    attributes: {
+      data: buffer.toString("hex").toUpperCase(),
+    },
+  };
+}
+
+const commandFallbackModels = new Map();
+const commandFallbackWarnings = new Set();
+function getCommandFallbackModel(modelName) {
+  if (commandFallbackModels.has(modelName)) {
+    return commandFallbackModels.get(modelName);
+  }
+  const fallback = {
+    findMany: async () => [],
+    findFirst: async () => null,
+    findUnique: async () => null,
+    create: async () => null,
+    update: async () => null,
+    delete: async () => null,
+  };
+  commandFallbackModels.set(modelName, fallback);
+  return fallback;
+}
+
+function ensureCommandPrismaModel(modelName) {
   const model = prisma?.[modelName];
   if (!model || typeof model.findMany !== "function") {
-    throw createError(503, `Prisma Client sem o modelo ${modelName}. Rode prisma generate e redeploy.`);
+    if (!commandFallbackWarnings.has(modelName)) {
+      commandFallbackWarnings.add(modelName);
+      console.warn(`[commands] Prisma indisponível para ${modelName}, usando fallback seguro.`);
+    }
+    return getCommandFallbackModel(modelName);
   }
   return model;
+}
+
+async function fetchCommandResultEvents(traccarId, from, to, limit) {
+  const params = {
+    deviceId: [String(traccarId)],
+    from,
+    to,
+    type: "commandResult",
+  };
+
+  const response = await requestReportWithFallback("/reports/events", params, "application/json", false);
+  if (!response?.ok) {
+    const statusCandidate = Number(response?.error?.code || response?.status);
+    const status =
+      Number.isFinite(statusCandidate) && statusCandidate >= 400 ? statusCandidate : 502;
+    const message = response?.error?.message || "Falha ao consultar eventos do Traccar";
+    throw createError(status, message);
+  }
+
+  const payload = response.data;
+  const events = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.events)
+    ? payload.events
+    : Array.isArray(payload?.data)
+    ? payload.data
+    : Array.isArray(payload?.items)
+    ? payload.items
+    : normaliseJsonList(payload, ["events", "data", "items"]);
+
+  if (!Array.isArray(events)) {
+    return [];
+  }
+
+  if (Number.isFinite(limit) && limit > 0 && events.length > limit) {
+    return events.slice(0, limit);
+  }
+
+  return events;
 }
 
 async function resolveTraccarDeviceFromVehicle(req, vehicleId) {
@@ -185,6 +284,13 @@ function normalizeCustomCommandInput(body = {}) {
   const kind = String(body?.kind || "").toUpperCase();
   const visible = body?.visible !== undefined ? Boolean(body.visible) : true;
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : {};
+  const protocol = body?.protocol ? normalizeProtocolKey(body.protocol) : null;
+  if (protocol) {
+    const knownProtocols = getProtocolList().map((item) => normalizeProtocolKey(item?.id));
+    if (!knownProtocols.includes(protocol)) {
+      throw createError(400, "Protocolo inválido para comando personalizado");
+    }
+  }
 
   if (!name) {
     throw createError(400, "Nome do comando é obrigatório");
@@ -221,6 +327,7 @@ function normalizeCustomCommandInput(body = {}) {
     kind,
     visible,
     payload,
+    protocol,
   };
 }
 
@@ -1201,6 +1308,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       if (!customCommand) {
         throw createError(404, "Comando personalizado não encontrado");
       }
+      const deviceProtocol = traccarDevice?.protocol ? normalizeProtocolKey(traccarDevice.protocol) : null;
+      if (customCommand.protocol && deviceProtocol && normalizeProtocolKey(customCommand.protocol) !== deviceProtocol) {
+        throw createError(400, "Comando personalizado não compatível com o protocolo do dispositivo");
+      }
       commandPayload = resolveCustomCommandPayload(customCommand);
       commandName = customCommand.name;
       commandKey = customCommand.id;
@@ -1324,7 +1435,7 @@ router.get("/commands/history", async (req, res, next) => {
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
-    const events = await fetchEventsWithFallback([String(traccarId)], from, to, limit);
+    const events = await fetchCommandResultEvents(traccarId, from, to, limit);
     const eventItems = events
       .filter((event) => event?.type === "commandResult")
       .map((event) => {
@@ -1388,7 +1499,7 @@ router.get("/commands/history", async (req, res, next) => {
       }
 
       const status =
-        dispatch.status === "failed" ? "Falhou" : matched ? "Respondido" : "Enviado";
+        dispatch.status === "failed" ? "Erro" : matched ? "Respondido" : "Enviado";
 
       return {
         requestId: dispatch.id,
@@ -1437,6 +1548,7 @@ router.get("/commands/custom", async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.query?.clientId, { required: true });
     const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
+    const protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
     const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
     const customCommandModel = ensureCommandPrismaModel("customCommand");
 
@@ -1444,6 +1556,7 @@ router.get("/commands/custom", async (req, res, next) => {
       where: {
         clientId,
         ...(canSeeHidden ? {} : { visible: true }),
+        ...(protocol ? { protocol } : {}),
       },
       orderBy: { createdAt: "desc" },
     });
@@ -1468,6 +1581,7 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
         kind: input.kind,
         payload: input.payload,
         visible: input.visible,
+        protocol: input.protocol,
         createdBy: req.user?.id || undefined,
       },
     });
@@ -1500,6 +1614,7 @@ router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, 
         kind: input.kind,
         payload: input.payload,
         visible: input.visible,
+        protocol: input.protocol,
       },
     });
 

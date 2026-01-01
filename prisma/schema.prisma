@@ -445,6 +445,7 @@ model CustomCommand {
   clientId    String
   name        String
   description String?
+  protocol    String?
   kind        String
   payload     Json
   visible     Boolean  @default(true)
@@ -455,5 +456,6 @@ model CustomCommand {
   client Client @relation(fields: [clientId], references: [id])
 
   @@index([clientId, visible])
+  @@index([clientId, protocol])
   @@map("custom_commands")
 }

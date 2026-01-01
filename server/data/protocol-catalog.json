@@ -220,192 +220,38 @@
     ],
     "iotm": [
       {
-        "id": "alarmSos",
-        "code": "alarmSos",
-        "name": "Alerta SOS",
-        "description": "Aciona o modo de emergência do equipamento.",
-        "type": "alarmSos",
-        "tags": ["emergencia"],
-        "parameters": []
-      },
-      {
-        "id": "engineStop",
-        "code": "engineStop",
-        "name": "Bloquear motor",
-        "description": "Corta a ignição do veículo imediatamente.",
-        "type": "engineStop",
-        "tags": ["motor"],
-        "parameters": []
-      },
-      {
-        "id": "engineResume",
-        "code": "engineResume",
-        "name": "Desbloquear motor",
-        "description": "Libera a ignição para uso normal.",
-        "type": "engineResume",
-        "tags": ["motor"],
-        "parameters": []
-      },
-      {
-        "id": "positionSingle",
-        "code": "positionSingle",
-        "name": "Solicitar posição",
-        "description": "Solicita uma posição instantânea ao rastreador.",
-        "type": "positionSingle",
-        "tags": ["posicao"],
-        "parameters": []
-      },
-      {
-        "id": "positionPeriodic",
-        "code": "positionPeriodic",
-        "name": "Atualização periódica",
-        "description": "Define o intervalo de envio de posições.",
-        "type": "positionPeriodic",
-        "tags": ["posicao", "config"],
+        "id": "outputControl",
+        "code": "outputControl",
+        "name": "Acionar saída",
+        "description": "Controla saídas do IOTM via MQTT binário.",
+        "type": "custom",
+        "tags": ["saida", "iotm"],
         "parameters": [
           {
-            "key": "frequency",
-            "label": "Intervalo (segundos)",
+            "key": "output",
+            "label": "Saída (1-4)",
             "type": "number",
-            "min": 10,
-            "defaultValue": 60
-          }
-        ]
-      },
-      {
-        "id": "setSpeedLimit",
-        "code": "setSpeedLimit",
-        "name": "Limite de velocidade",
-        "description": "Configura o limite máximo de velocidade do dispositivo.",
-        "type": "setSpeedLimit",
-        "tags": ["config"],
-        "parameters": [
+            "min": 1,
+            "max": 4,
+            "defaultValue": 1
+          },
           {
-            "key": "speed",
-            "label": "Velocidade máxima (km/h)",
-            "type": "number",
-            "min": 5,
-            "defaultValue": 80
-          }
-        ]
-      },
-      {
-        "id": "setOdometer",
-        "code": "setOdometer",
-        "name": "Ajustar odômetro",
-        "description": "Atualiza o valor do odômetro no dispositivo.",
-        "type": "setOdometer",
-        "tags": ["config"],
-        "parameters": [
+            "key": "action",
+            "label": "Ação",
+            "type": "select",
+            "defaultValue": "on",
+            "options": [
+              { "label": "Ligar", "value": "on" },
+              { "label": "Desligar", "value": "off" }
+            ]
+          },
           {
-            "key": "distance",
-            "label": "Odômetro (km)",
+            "key": "durationMs",
+            "label": "Tempo (ms)",
             "type": "number",
             "min": 0,
-            "defaultValue": 10000
-          }
-        ]
-      },
-      {
-        "id": "setTimezone",
-        "code": "setTimezone",
-        "name": "Configurar fuso horário",
-        "description": "Atualiza o fuso horário do dispositivo.",
-        "type": "setTimezone",
-        "tags": ["config"],
-        "parameters": [
-          {
-            "key": "timezone",
-            "label": "Fuso horário (ex: America/Sao_Paulo)",
-            "type": "text",
-            "defaultValue": "America/Sao_Paulo"
-          }
-        ]
-      },
-      {
-        "id": "rebootDevice",
-        "code": "rebootDevice",
-        "name": "Reiniciar equipamento",
-        "description": "Reinicia remotamente o rastreador.",
-        "type": "rebootDevice",
-        "tags": ["config"],
-        "parameters": []
-      },
-      {
-        "id": "sendSms",
-        "code": "sendSms",
-        "name": "Enviar SMS",
-        "description": "Envia um SMS direto ao equipamento.",
-        "type": "sendSms",
-        "tags": ["sms"],
-        "parameters": [
-          {
-            "key": "phone",
-            "label": "Telefone",
-            "type": "text",
-            "required": true
-          },
-          {
-            "key": "message",
-            "label": "Mensagem",
-            "type": "text",
-            "required": true
-          }
-        ]
-      },
-      {
-        "id": "setOutput",
-        "code": "setOutput",
-        "name": "Ativar saída",
-        "description": "Ativa uma saída digital do dispositivo.",
-        "type": "setOutput",
-        "tags": ["config"],
-        "parameters": [
-          {
-            "key": "index",
-            "label": "Saída",
-            "type": "number",
-            "min": 1,
-            "defaultValue": 1
-          },
-          {
-            "key": "data",
-            "label": "Valor",
-            "type": "text",
-            "defaultValue": "1"
-          }
-        ]
-      },
-      {
-        "id": "clearOutput",
-        "code": "clearOutput",
-        "name": "Desativar saída",
-        "description": "Desativa uma saída digital do dispositivo.",
-        "type": "clearOutput",
-        "tags": ["config"],
-        "parameters": [
-          {
-            "key": "index",
-            "label": "Saída",
-            "type": "number",
-            "min": 1,
-            "defaultValue": 1
-          }
-        ]
-      },
-      {
-        "id": "custom",
-        "code": "custom",
-        "name": "Comando customizado",
-        "description": "Envio de comando bruto conforme manual do protocolo.",
-        "type": "custom",
-        "tags": ["avancado"],
-        "parameters": [
-          {
-            "key": "payload",
-            "label": "Payload",
-            "type": "text",
-            "required": true
+            "step": 10,
+            "defaultValue": 0
           }
         ]
       }
