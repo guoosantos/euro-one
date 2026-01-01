@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Columns3 } from "lucide-react";
+import { Settings2, X } from "lucide-react";
 
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
@@ -16,6 +16,7 @@ const HISTORY_COLUMNS = [
   { id: "result", label: "Resultado", width: 320, minWidth: 220 },
 ];
 const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v2";
+const COMMAND_PREFERENCES_STORAGE_KEY = "commands:list:preferences:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 const PROTOCOL_OPTIONS = [
@@ -24,10 +25,24 @@ const PROTOCOL_OPTIONS = [
   { label: "IOTM", value: "iotm" },
   { label: "Suntech", value: "suntech" },
 ];
+const PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 50];
+const DEFAULT_PAGE_SIZE = 10;
 
 const normalizeValue = (value) => String(value ?? "");
 
 const getCommandKey = (command) => command?.code || command?.id || "";
+const resolveUiCommandKey = (command) => getCommandKey(command) || command?.name || String(command?.id || "");
+
+const getProtocolKey = (protocol) => (protocol ? String(protocol).toLowerCase() : "default");
+
+const friendlyApiError = (error, fallbackMessage) => {
+  if (error?.response?.status === 503 || error?.status === 503) {
+    return "Serviço temporariamente indisponível. Tente novamente em instantes.";
+  }
+  if (error?.response?.data?.message) return error.response.data.message;
+  if (error instanceof Error && error.message) return error.message;
+  return fallbackMessage;
+};
 
 const formatDateTime = (value) => {
   if (!value) return "—";
@@ -68,6 +83,18 @@ export default function Commands() {
   const [historyError, setHistoryError] = useState(null);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
+  const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
+  const [commandPreferences, setCommandPreferences] = useState(() => {
+    if (typeof window === "undefined") return { order: {}, hidden: {} };
+    try {
+      const raw = window.localStorage.getItem(COMMAND_PREFERENCES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : { order: {}, hidden: {} };
+    } catch (_error) {
+      return { order: {}, hidden: {} };
+    }
+  });
+  const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
+  const [currentPage, setCurrentPage] = useState(1);
   const buildCustomForm = useCallback(
     (protocol = "") => ({
       name: "",
@@ -103,6 +130,15 @@ export default function Commands() {
       clearTimeout(toastTimeoutRef.current);
     }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(COMMAND_PREFERENCES_STORAGE_KEY, JSON.stringify(commandPreferences));
+    } catch (_error) {
+      // ignore
+    }
+  }, [commandPreferences]);
 
   const showToast = useCallback((message, type = "success") => {
     if (toastTimeoutRef.current) {
@@ -153,6 +189,8 @@ export default function Commands() {
     return [...protocol, ...customVisible];
   }, [customCommands, protocolCommands, device?.protocol]);
 
+  const availableCommandKeys = useMemo(() => new Set(mergedCommands.map((command) => resolveUiCommandKey(command))), [mergedCommands]);
+
   const filteredCommands = useMemo(() => {
     const search = normalizeValue(commandSearch).toLowerCase();
     if (!search) return mergedCommands;
@@ -162,6 +200,54 @@ export default function Commands() {
       return name.includes(search) || description.includes(search);
     });
   }, [commandSearch, mergedCommands]);
+
+  const scopedPreferences = useMemo(() => {
+    const scopeKey = getProtocolKey(device?.protocol);
+    return {
+      order: (commandPreferences.order?.[scopeKey] || []).filter((key) => availableCommandKeys.has(key)),
+      hidden: Object.fromEntries(
+        Object.entries(commandPreferences.hidden?.[scopeKey] || {}).filter(
+          ([key, value]) => availableCommandKeys.has(key) && value === true,
+        ),
+      ),
+    };
+  }, [availableCommandKeys, commandPreferences, device?.protocol]);
+
+  const orderedCommands = useMemo(() => {
+    const base = filteredCommands.filter((command) => scopedPreferences.hidden[resolveUiCommandKey(command)] !== true);
+    const orderIndex = scopedPreferences.order.reduce((acc, key, index) => ({ ...acc, [key]: index }), {});
+    return base.sort((first, second) => {
+      const keyA = resolveUiCommandKey(first);
+      const keyB = resolveUiCommandKey(second);
+      const hasOrderA = orderIndex[keyA] !== undefined;
+      const hasOrderB = orderIndex[keyB] !== undefined;
+      if (hasOrderA && hasOrderB) return orderIndex[keyA] - orderIndex[keyB];
+      if (hasOrderA) return -1;
+      if (hasOrderB) return 1;
+      const labelA = normalizeValue(first?.name || keyA);
+      const labelB = normalizeValue(second?.name || keyB);
+      return labelA.localeCompare(labelB, "pt-BR", { sensitivity: "base" });
+    });
+  }, [filteredCommands, scopedPreferences.hidden, scopedPreferences.order]);
+
+  const totalPages = useMemo(() => {
+    if (orderedCommands.length === 0) return 1;
+    return Math.max(1, Math.ceil(orderedCommands.length / commandsPerPage));
+  }, [commandsPerPage, orderedCommands.length]);
+
+  const paginatedCommands = useMemo(() => {
+    const start = (currentPage - 1) * commandsPerPage;
+    const end = start + commandsPerPage;
+    return orderedCommands.slice(start, end);
+  }, [commandsPerPage, currentPage, orderedCommands]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [commandSearch, commandsPerPage, device?.protocol, selectedVehicleId]);
+
+  useEffect(() => {
+    setCurrentPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   const resolveHistoryTimestamp = useCallback((item) => {
     if (!item) return null;
@@ -240,7 +326,7 @@ export default function Commands() {
       const commands = Array.isArray(response?.data?.commands) ? response.data.commands : [];
       setProtocolCommands(commands);
     } catch (error) {
-      setCommandsError(error instanceof Error ? error : new Error("Erro ao carregar comandos"));
+      setCommandsError(new Error(friendlyApiError(error, "Erro ao carregar comandos")));
     } finally {
       setCommandsLoading(false);
     }
@@ -263,12 +349,10 @@ export default function Commands() {
             const items = Array.isArray(response?.data?.data) ? response.data.data : [];
             setCustomCommands(items);
           } catch (fallbackError) {
-            setCustomCommandsError(
-              fallbackError instanceof Error ? fallbackError : new Error("Erro ao carregar comandos personalizados"),
-            );
+            setCustomCommandsError(new Error(friendlyApiError(fallbackError, "Erro ao carregar comandos personalizados")));
           }
         } else {
-          setCustomCommandsError(error instanceof Error ? error : new Error("Erro ao carregar comandos personalizados"));
+          setCustomCommandsError(new Error(friendlyApiError(error, "Erro ao carregar comandos personalizados")));
         }
       } finally {
         setCustomCommandsLoading(false);
@@ -290,7 +374,7 @@ export default function Commands() {
       const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
       setHistory(items);
     } catch (error) {
-      setHistoryError(error instanceof Error ? error : new Error("Erro ao carregar histórico"));
+      setHistoryError(new Error(friendlyApiError(error, "Erro ao carregar histórico")));
     } finally {
       setHistoryLoading(false);
     }
@@ -352,7 +436,7 @@ export default function Commands() {
       setExpandedCommandId(null);
       await fetchHistory();
     } catch (error) {
-      showToast(error?.response?.data?.message || error?.message || "Erro ao enviar comando", "error");
+      showToast(friendlyApiError(error, "Erro ao enviar comando"), "error");
     } finally {
       setSendingCommandId(null);
     }
@@ -493,6 +577,76 @@ export default function Commands() {
     }));
   };
 
+  const updatePreferences = useCallback(
+    (updater) => {
+      const scopeKey = getProtocolKey(device?.protocol);
+      setCommandPreferences((current) => {
+        const currentOrder = current.order?.[scopeKey] || [];
+        const currentHidden = current.hidden?.[scopeKey] || {};
+        const sanitizedOrder = currentOrder.filter((key) => availableCommandKeys.has(key));
+        const sanitizedHidden = Object.fromEntries(
+          Object.entries(currentHidden).filter(([key, value]) => availableCommandKeys.has(key) && value === true),
+        );
+        const { order = sanitizedOrder, hidden = sanitizedHidden } = updater({
+          order: sanitizedOrder,
+          hidden: sanitizedHidden,
+        });
+        const nextOrder = Array.from(new Set(order.filter((key) => availableCommandKeys.has(key))));
+        const nextHidden = Object.fromEntries(
+          Object.entries(hidden).filter(([key, value]) => availableCommandKeys.has(key) && value === true),
+        );
+        return {
+          order: { ...current.order, [scopeKey]: nextOrder },
+          hidden: { ...current.hidden, [scopeKey]: nextHidden },
+        };
+      });
+    },
+    [availableCommandKeys, device?.protocol],
+  );
+
+  const handleToggleCommandVisibility = useCallback(
+    (commandKey) => {
+      updatePreferences(({ order, hidden }) => {
+        const nextHidden = { ...hidden, [commandKey]: !hidden[commandKey] };
+        if (nextHidden[commandKey] === false) {
+          delete nextHidden[commandKey];
+        }
+        return { order, hidden: nextHidden };
+      });
+    },
+    [updatePreferences],
+  );
+
+  const handleMoveCommand = useCallback(
+    (commandKey, direction) => {
+      updatePreferences(({ order, hidden }) => {
+        const ensuredOrder = order.includes(commandKey) ? [...order] : [...order, commandKey];
+        const index = ensuredOrder.indexOf(commandKey);
+        if (direction === "top" && index > 0) {
+          ensuredOrder.splice(index, 1);
+          ensuredOrder.unshift(commandKey);
+        } else if (direction === "bottom" && index !== -1 && index < ensuredOrder.length - 1) {
+          ensuredOrder.splice(index, 1);
+          ensuredOrder.push(commandKey);
+        } else if (direction === "up" && index > 0) {
+          [ensuredOrder[index - 1], ensuredOrder[index]] = [ensuredOrder[index], ensuredOrder[index - 1]];
+        } else if (direction === "down" && index !== -1 && index < ensuredOrder.length - 1) {
+          [ensuredOrder[index + 1], ensuredOrder[index]] = [ensuredOrder[index], ensuredOrder[index + 1]];
+        }
+        return { order: ensuredOrder, hidden };
+      });
+    },
+    [updatePreferences],
+  );
+
+  const handleResetPreferences = useCallback(() => {
+    const scopeKey = getProtocolKey(device?.protocol);
+    setCommandPreferences((current) => ({
+      order: { ...current.order, [scopeKey]: [] },
+      hidden: { ...current.hidden, [scopeKey]: {} },
+    }));
+  }, [device?.protocol]);
+
   const handleClearFilters = () => {
     setVehicleSearch("");
     setCommandSearch("");
@@ -594,9 +748,10 @@ export default function Commands() {
               <button
                 type="button"
                 className="rounded-xl border border-white/10 p-2 text-white/70 transition hover:text-white"
-                aria-label="Colunas"
+                aria-label="Preferências de comandos"
+                onClick={() => setIsPreferencesOpen(true)}
               >
-                <Columns3 size={18} />
+                <Settings2 size={18} />
               </button>
             </div>
           </div>
@@ -666,20 +821,21 @@ export default function Commands() {
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    filteredCommands.length === 0 && (
+                    orderedCommands.length === 0 && (
                       <p className="text-sm text-white/60">Nenhum comando encontrado.</p>
                     )}
                   {!deviceLoading &&
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    filteredCommands.map((command) => {
+                    paginatedCommands.map((command) => {
                       const commandKey = getCommandKey(command);
+                      const uiKey = resolveUiCommandKey(command);
                       const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
                       const isExpanded = expandedCommandId === commandKey;
                       const paramValues = commandParams[commandKey] || {};
                       return (
-                        <div key={commandKey || command.name} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                        <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
@@ -716,7 +872,7 @@ export default function Commands() {
                           {hasParams && isExpanded && (
                             <div className="mt-4 grid gap-3 md:grid-cols-2">
                               {command.parameters.map((param) => {
-                                const inputId = `${commandKey}-${param.key}`;
+                                const inputId = `${uiKey}-${param.key}`;
                                 const value =
                                   paramValues[param.key] ??
                                   (param.defaultValue !== undefined && param.defaultValue !== null
@@ -764,6 +920,58 @@ export default function Commands() {
                         </div>
                       );
                     })}
+                  {!deviceLoading &&
+                    !deviceError &&
+                    !commandsLoading &&
+                    !commandsError &&
+                    orderedCommands.length > 0 &&
+                    paginatedCommands.length === 0 && (
+                      <p className="text-sm text-white/60">Todos os comandos estão ocultos pela configuração atual.</p>
+                    )}
+                  {!deviceLoading &&
+                    !deviceError &&
+                    !commandsLoading &&
+                    !commandsError &&
+                    orderedCommands.length > 0 &&
+                    paginatedCommands.length > 0 && (
+                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+                        <div className="flex items-center gap-2">
+                          <span>Itens por página</span>
+                          <Select
+                            value={commandsPerPage}
+                            onChange={(event) => setCommandsPerPage(Number(event.target.value))}
+                            className="w-[90px] bg-layer text-sm"
+                          >
+                            {PAGE_SIZE_OPTIONS.map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </Select>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                            onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+                            disabled={currentPage === 1}
+                          >
+                            Anterior
+                          </button>
+                          <span>
+                            Página {currentPage} de {totalPages}
+                          </span>
+                          <button
+                            type="button"
+                            className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                            onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+                            disabled={currentPage >= totalPages}
+                          >
+                            Próxima
+                          </button>
+                        </div>
+                      </div>
+                    )}
                 </div>
               )}
             </>
@@ -1044,6 +1252,124 @@ export default function Commands() {
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl border px-4 py-3 text-sm shadow-lg ${toastClassName}`}>
           {toast.message}
+        </div>
+      )}
+
+      {isPreferencesOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-10">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+              <div>
+                <p className="text-sm font-semibold text-white">Visibilidade e ordem dos comandos</p>
+                <p className="text-xs text-white/60">Mostre ou oculte comandos e defina a prioridade manualmente.</p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full border border-white/10 p-1 text-white/70 transition hover:text-white"
+                onClick={() => setIsPreferencesOpen(false)}
+                aria-label="Fechar"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-auto px-5 py-4 space-y-4">
+              {mergedCommands.length === 0 && <p className="text-sm text-white/60">Nenhum comando disponível para ajustar.</p>}
+              {mergedCommands.length > 0 && (
+                <div className="space-y-2">
+                  {mergedCommands
+                    .slice()
+                    .sort((a, b) =>
+                      normalizeValue(a?.name || resolveUiCommandKey(a)).localeCompare(
+                        normalizeValue(b?.name || resolveUiCommandKey(b)),
+                        "pt-BR",
+                        { sensitivity: "base" },
+                      ),
+                    )
+                    .map((command) => {
+                      const uiKey = resolveUiCommandKey(command);
+                      const position = scopedPreferences.order.indexOf(uiKey);
+                      const isHidden = scopedPreferences.hidden[uiKey] === true;
+                      return (
+                        <div
+                          key={uiKey}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3"
+                        >
+                          <div className="min-w-[220px] flex-1">
+                            <div className="flex items-center gap-2">
+                              <input
+                                id={`toggle-${uiKey}`}
+                                type="checkbox"
+                                checked={!isHidden}
+                                onChange={() => handleToggleCommandVisibility(uiKey)}
+                                className="h-4 w-4 rounded border-white/20 bg-transparent"
+                              />
+                              <label htmlFor={`toggle-${uiKey}`} className="text-sm font-semibold text-white/90">
+                                {command.name || uiKey}
+                              </label>
+                            </div>
+                            <p className="mt-1 text-[11px] uppercase tracking-wide text-primary/70">
+                              {command.kind === "custom" ? "Personalizado" : "Protocolo"}
+                              {command.protocol ? ` · ${String(command.protocol).toUpperCase()}` : ""}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <span className="rounded-lg border border-white/10 px-2 py-1 text-white/70">
+                              {position >= 0 ? `Prioridade ${position + 1}` : "Sem prioridade"}
+                            </span>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                className="rounded-lg border border-white/10 px-2 py-1 text-white/80 transition hover:border-primary/50"
+                                onClick={() => handleMoveCommand(uiKey, "top")}
+                                disabled={position === 0}
+                                title="Mover para o topo"
+                              >
+                                ⬆⬆
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-white/10 px-2 py-1 text-white/80 transition hover:border-primary/50"
+                                onClick={() => handleMoveCommand(uiKey, "up")}
+                                disabled={position <= 0}
+                                title="Subir prioridade"
+                              >
+                                ⬆
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-white/10 px-2 py-1 text-white/80 transition hover:border-primary/50"
+                                onClick={() => handleMoveCommand(uiKey, "down")}
+                                disabled={position === -1 || position >= scopedPreferences.order.length - 1}
+                                title="Descer prioridade"
+                              >
+                                ⬇
+                              </button>
+                              <button
+                                type="button"
+                                className="rounded-lg border border-white/10 px-2 py-1 text-white/80 transition hover:border-primary/50"
+                                onClick={() => handleMoveCommand(uiKey, "bottom")}
+                                disabled={position === -1 || position >= scopedPreferences.order.length - 1}
+                                title="Mover para o final"
+                              >
+                                ⬇⬇
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 px-5 py-4">
+              <Button type="button" variant="outline" onClick={handleResetPreferences}>
+                Restaurar padrão
+              </Button>
+              <Button type="button" onClick={() => setIsPreferencesOpen(false)}>
+                Fechar
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
