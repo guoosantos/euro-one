@@ -788,9 +788,10 @@ export default function Commands() {
       if (isManualCustom) {
         const defaultName =
           manualParams.description?.trim() || String(manualPayload || "").trim() || "Comando personalizado";
+        const shouldForceRaw = !manualParams.textChannel && !isValidHexPayload(manualPayload);
         setLastManualCommand({
           payload: manualPayload,
-          textChannel: Boolean(manualParams.textChannel),
+          textChannel: Boolean(manualParams.textChannel) || shouldForceRaw,
           description: manualParams.description?.trim() || "",
           protocol: device?.protocol ? String(device.protocol).trim() : null,
         });
@@ -832,22 +833,31 @@ export default function Commands() {
       showToast("Informe o nome do comando.", "error");
       return;
     }
-    if (!lastManualCommand.textChannel && !isValidHexPayload(lastManualCommand.payload)) {
-      showToast("Conteúdo HEX inválido para salvar comando.", "error");
+    const rawPayload = String(lastManualCommand.payload ?? "");
+    const trimmedPayload = rawPayload.trim();
+    if (!trimmedPayload) {
+      showToast("Payload vazio", "error");
       return;
     }
+    const wantsText = Boolean(lastManualCommand.textChannel);
+    const isHex = !wantsText && isValidHexPayload(trimmedPayload);
+    const kind = wantsText || !isHex ? "RAW" : "HEX";
     setSavingLastManualCommand(true);
     try {
       await api.post(API_ROUTES.commandsCustom, {
         name,
         description: lastManualCommand.description?.trim() || null,
         protocol: lastManualCommand.protocol || null,
-        kind: lastManualCommand.textChannel ? "RAW" : "HEX",
+        kind,
         visible: true,
-        payload: { data: lastManualCommand.payload },
+        payload: { data: rawPayload },
       });
       await fetchCustomCommands({ includeHidden: true });
-      showToast("Comando salvo com sucesso.");
+      if (!wantsText && !isHex) {
+        showToast("Payload não é HEX válido — salvo como texto (RAW).", "warning");
+      } else {
+        showToast("Comando salvo com sucesso.");
+      }
     } catch (error) {
       showToast(error?.response?.data?.message || error?.message || "Erro ao salvar comando", "error");
     } finally {
