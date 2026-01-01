@@ -303,10 +303,14 @@ function resolveCustomCommandPayload(customCommand) {
   const payload = customCommand?.payload && typeof customCommand.payload === "object" ? customCommand.payload : {};
 
   if (kind === "SMS") {
-    if (!payload.phone || !payload.message) {
-      throw createError(400, "Comando SMS sem telefone ou mensagem");
+    if (!payload.message) {
+      throw createError(400, "Comando SMS sem mensagem");
     }
-    return { type: "sendSms", attributes: { phone: payload.phone, message: payload.message } };
+    const attributes = { message: payload.message };
+    if (payload.phone) {
+      attributes.phone = payload.phone;
+    }
+    return { type: "sendSms", attributes };
   }
 
   if (kind === "JSON") {
@@ -359,8 +363,8 @@ function normalizeCustomCommandInput(body = {}) {
   }
 
   if (kind === "SMS") {
-    if (!payload.phone || !payload.message) {
-      throw createError(400, "Comando SMS requer telefone e mensagem");
+    if (!payload.message) {
+      throw createError(400, "Comando SMS requer mensagem");
     }
   }
 
@@ -1384,6 +1388,37 @@ router.get("/commands/send", async (req, res, next) => {
   }
 });
 
+router.post("/commands/send-sms", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const phone = String(req.body?.phone || "").trim();
+    const message = String(req.body?.message || "").trim();
+    if (!phone || !message) {
+      throw createError(400, "phone e message são obrigatórios");
+    }
+
+    const payload = {
+      type: "sendSms",
+      attributes: { phone, message },
+    };
+
+    if (req.body?.vehicleId) {
+      const vehicleId = String(req.body.vehicleId).trim();
+      if (vehicleId) {
+        const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+        const traccarId = Number(traccarDevice?.traccarId);
+        if (Number.isFinite(traccarId)) {
+          payload.deviceId = traccarId;
+        }
+      }
+    }
+
+    const data = await traccarProxy("post", "/commands/send", { data: payload, asAdmin: true });
+    res.json({ ok: true, data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
@@ -1441,8 +1476,24 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       deviceId: traccarId,
     };
 
+    if (payload.type === "sendSms" && !payload.attributes?.phone) {
+      const devicePhone =
+        traccarDevice?.phone ||
+        traccarDevice?.phoneNumber ||
+        traccarDevice?.attributes?.phone ||
+        traccarDevice?.attributes?.phoneNumber ||
+        null;
+      if (devicePhone) {
+        payload.attributes.phone = devicePhone;
+      }
+    }
+
     if (!payload.type) {
       throw createError(400, "type é obrigatório");
+    }
+
+    if (payload.type === "sendSms" && !payload.attributes?.phone) {
+      throw createError(400, "Telefone do dispositivo não informado para comando SMS");
     }
 
     const requestId = randomUUID();
@@ -1745,6 +1796,128 @@ router.get("/commands/history", async (req, res, next) => {
         items,
         pagination: { page, pageSize, total },
       },
+      warning: traccarWarning,
+      error: null,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/commands/history/status", async (req, res, next) => {
+  try {
+    const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
+    if (!vehicleId) {
+      throw createError(400, "vehicleId é obrigatório");
+    }
+    const idsParam = req.query?.ids;
+    const ids = Array.isArray(idsParam)
+      ? idsParam.map((id) => String(id).trim()).filter(Boolean)
+      : String(idsParam || "")
+          .split(",")
+          .map((id) => id.trim())
+          .filter(Boolean);
+    if (ids.length === 0) {
+      return res.json({ data: { items: [] }, warning: null, error: null });
+    }
+
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    if (!isPrismaAvailable()) {
+      return res.json({
+        data: { items: [] },
+        warning: "Banco indisponível para atualizar status do histórico.",
+        error: null,
+      });
+    }
+
+    const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+    const traccarId = Number(traccarDevice?.traccarId);
+    if (!Number.isFinite(traccarId)) {
+      throw createError(409, "Equipamento vinculado sem traccarId");
+    }
+
+    const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+    const dispatches = await dispatchModel.findMany({
+      where: {
+        id: { in: ids },
+        vehicleId,
+        ...(clientId ? { clientId } : {}),
+      },
+      orderBy: { sentAt: "asc" },
+    });
+
+    if (!dispatches.length) {
+      return res.json({ data: { items: [] }, warning: null, error: null });
+    }
+
+    const sentTimes = dispatches.map((dispatch) => new Date(dispatch.sentAt)).filter((date) => !Number.isNaN(date.getTime()));
+    const from = sentTimes.length
+      ? new Date(Math.min(...sentTimes.map((date) => date.getTime()))).toISOString()
+      : new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const to = new Date().toISOString();
+
+    let traccarWarning = null;
+    let eventItems = [];
+    try {
+      const events = await fetchCommandResultEvents(traccarId, from, to, Math.max(dispatches.length * 2, 20));
+      eventItems = events
+        .filter((event) => event?.type === "commandResult")
+        .map((event) => ({
+          id: event.id ?? null,
+          eventTime: event.eventTime ?? null,
+          result: resolveCommandResultText(event),
+          attributes: event?.attributes || {},
+        }));
+    } catch (error) {
+      traccarWarning = error?.message || "Falha ao consultar eventos do Traccar";
+    }
+
+    const parsedEvents = eventItems
+      .map((event) => ({
+        ...event,
+        parsedTime: event.eventTime ? new Date(event.eventTime) : null,
+      }))
+      .filter((event) => event.parsedTime && Number.isFinite(event.parsedTime.getTime()))
+      .sort((a, b) => a.parsedTime - b.parsedTime);
+
+    const usedEventIds = new Set();
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(to).getTime();
+    const matchWindowMs = Number.isFinite(toMs - fromMs)
+      ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
+      : 2 * 60 * 60 * 1000;
+
+    const items = dispatches.map((dispatch) => {
+      const sentTime = new Date(dispatch.sentAt);
+      const sentMs = sentTime.getTime();
+      let matched = null;
+
+      if (dispatch.status !== "failed") {
+        matched = parsedEvents.find((event) => {
+          if (!event?.parsedTime) return false;
+          if (usedEventIds.has(event.id)) return false;
+          const eventMs = event.parsedTime.getTime();
+          if (eventMs < sentMs) return false;
+          if (eventMs - sentMs > matchWindowMs) return false;
+          return true;
+        });
+      }
+
+      if (matched?.id) {
+        usedEventIds.add(matched.id);
+      }
+
+      const status = mapDispatchStatusToApi(dispatch.status, Boolean(matched?.eventTime));
+      return {
+        id: dispatch.id,
+        status,
+        receivedAt: matched?.eventTime || null,
+        result: matched?.result || null,
+      };
+    });
+
+    return res.json({
+      data: { items },
       warning: traccarWarning,
       error: null,
     });
