@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Settings2, X } from "lucide-react";
+import { RefreshCw, Settings2, X } from "lucide-react";
 
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
@@ -78,6 +78,7 @@ export default function Commands() {
   const [commandErrors, setCommandErrors] = useState({});
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const [historyError, setHistoryError] = useState(null);
   const [historyWarning, setHistoryWarning] = useState(null);
   const [historyPerPage, setHistoryPerPage] = useState(DEFAULT_HISTORY_PAGE_SIZE);
@@ -203,14 +204,8 @@ export default function Commands() {
   );
 
   const mergedCommands = useMemo(() => {
-    const protocolKey = device?.protocol ? String(device.protocol).toLowerCase() : null;
     const customVisible = customCommands
       .filter((command) => command?.visible)
-      .filter((command) => {
-        if (!command?.protocol) return true;
-        if (!protocolKey) return false;
-        return String(command.protocol).toLowerCase() === protocolKey;
-      })
       .map((command) => ({
         ...command,
         kind: "custom",
@@ -222,28 +217,21 @@ export default function Commands() {
       kind: "protocol",
     }));
     return [...protocol, ...customVisible];
-  }, [customCommands, protocolCommands, device?.protocol]);
+  }, [customCommands, protocolCommands]);
 
   const advancedCommands = useMemo(() => {
-    const protocolKey = device?.protocol ? String(device.protocol).toLowerCase() : null;
-    const customAll = customCommands
-      .filter((command) => {
-        if (!command?.protocol) return true;
-        if (!protocolKey) return false;
-        return String(command.protocol).toLowerCase() === protocolKey;
-      })
-      .map((command) => ({
-        ...command,
-        kind: "custom",
-        customKind: command.kind,
-        parameters: [],
-      }));
+    const customAll = customCommands.map((command) => ({
+      ...command,
+      kind: "custom",
+      customKind: command.kind,
+      parameters: [],
+    }));
     const protocol = protocolCommands.map((command) => ({
       ...command,
       kind: "protocol",
     }));
     return [...protocol, ...customAll];
-  }, [customCommands, protocolCommands, device?.protocol]);
+  }, [customCommands, protocolCommands]);
 
   const smsPresetOptions = useMemo(
     () =>
@@ -407,11 +395,7 @@ export default function Commands() {
       setCustomCommandsLoading(true);
       setCustomCommandsError(null);
       try {
-        const params = {
-          ...(includeHidden ? { includeHidden: true } : {}),
-          ...(device?.protocol ? { protocol: device.protocol } : {}),
-        };
-        const response = await api.get(API_ROUTES.commandsCustom, { params });
+        const response = await api.get(API_ROUTES.commandsCustom, { params: includeHidden ? { includeHidden: true } : {} });
         const items = Array.isArray(response?.data?.data) ? response.data.data : [];
         setCustomCommands(items);
         if (response?.data?.error?.message) {
@@ -420,8 +404,7 @@ export default function Commands() {
       } catch (error) {
         if (includeHidden && error?.response?.status === 403) {
           try {
-            const params = device?.protocol ? { protocol: device.protocol } : {};
-            const response = await api.get(API_ROUTES.commandsCustom, { params });
+            const response = await api.get(API_ROUTES.commandsCustom, { params: includeHidden ? { includeHidden: true } : {} });
             const items = Array.isArray(response?.data?.data) ? response.data.data : [];
             setCustomCommands(items);
             if (response?.data?.error?.message) {
@@ -440,34 +423,59 @@ export default function Commands() {
     [device?.protocol],
   );
 
-  const fetchHistory = useCallback(async () => {
-    if (!selectedVehicleId) {
-      setHistory([]);
+  const fetchHistory = useCallback(
+    async ({ useLoading } = {}) => {
+      if (!selectedVehicleId) {
+        setHistory([]);
+        setHistoryError(null);
+        setHistoryWarning(null);
+        setHistoryTotal(0);
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
+        return;
+      }
+
+      const shouldShowLoading = useLoading ?? historyRef.current.length === 0;
+      setHistoryLoading(shouldShowLoading);
       setHistoryError(null);
       setHistoryWarning(null);
-      setHistoryTotal(0);
-      return;
-    }
-    setHistoryLoading(true);
-    setHistoryError(null);
-    setHistoryWarning(null);
-    try {
-      const response = await api.get(API_ROUTES.commandsHistory, {
-        params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage },
-      });
-      const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
-      const total = Number(response?.data?.data?.pagination?.total ?? items.length);
-      setHistory(items);
-      setHistoryTotal(Number.isFinite(total) ? total : items.length);
-      if (response?.data?.warning) {
-        setHistoryWarning(response.data.warning);
+      setHistoryRefreshing(!shouldShowLoading);
+      try {
+        const response = await api.get(API_ROUTES.commandsHistory, {
+          params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage },
+        });
+        const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
+        const total = Number(response?.data?.data?.pagination?.total ?? items.length);
+        const pendingLocal = (historyRef.current || []).filter((item) => {
+          const id = String(item?.id ?? "");
+          const isPending = ["PENDING", "SENT"].includes(item?.status);
+          const existsInResponse = items.some((apiItem) => String(apiItem?.id ?? "") === id);
+          return isPending && !existsInResponse;
+        });
+        const merged = [...pendingLocal, ...items];
+        const sorted = merged.sort((a, b) => {
+          const dateA = new Date(a?.sentAt || a?.createdAt || 0).getTime();
+          const dateB = new Date(b?.sentAt || b?.createdAt || 0).getTime();
+          return dateB - dateA;
+        });
+        setHistory(sorted.slice(0, historyPerPage));
+        setHistoryTotal((current) => {
+          const baseTotal = Number.isFinite(total) ? total : items.length;
+          const pendingCount = pendingLocal.length;
+          return Math.max(baseTotal + pendingCount, current);
+        });
+        if (response?.data?.warning) {
+          setHistoryWarning(response.data.warning);
+        }
+      } catch (error) {
+        setHistoryError(new Error(friendlyApiError(error, "Erro ao carregar histórico")));
+      } finally {
+        setHistoryLoading(false);
+        setHistoryRefreshing(false);
       }
-    } catch (error) {
-      setHistoryError(new Error(friendlyApiError(error, "Erro ao carregar histórico")));
-    } finally {
-      setHistoryLoading(false);
-    }
-  }, [selectedVehicleId, historyPage, historyPerPage]);
+    },
+    [selectedVehicleId, historyPage, historyPerPage],
+  );
 
   const getPendingHistoryIds = useCallback(() => {
     const pendingStatuses = new Set(["PENDING", "SENT"]);
@@ -707,11 +715,6 @@ export default function Commands() {
       showToast("Informe o nome do comando.", "error");
       return;
     }
-    if (!device?.protocol) {
-      showToast("Selecione um veículo para definir o protocolo do preset.", "error");
-      return;
-    }
-
     const payload = {};
     if (customForm.kind === "SMS") {
       payload.message = customForm.sms.message.trim();
@@ -755,7 +758,7 @@ export default function Commands() {
       const body = {
         name: customForm.name.trim(),
         description: customForm.description.trim() || null,
-        protocol: String(device.protocol).trim(),
+        protocol: device?.protocol ? String(device.protocol).trim() : null,
         kind: customForm.kind,
         visible: customForm.visible,
         payload,
@@ -1548,7 +1551,7 @@ export default function Commands() {
                 </p>
                 {!device?.protocol && (
                   <p className="text-xs text-amber-200">
-                    Selecione um veículo para filtrar e salvar presets por protocolo.
+                    Opcional: selecione um veículo para associar o protocolo. Sem veículo, o comando fica geral e visível.
                   </p>
                 )}
               </div>
@@ -1781,10 +1784,25 @@ export default function Commands() {
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Histórico de comandos</p>
             </div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="inline-flex items-center gap-2"
+              onClick={() => fetchHistory({ useLoading: false })}
+              disabled={historyRefreshing || historyLoading}
+            >
+              <RefreshCw className={`h-4 w-4 ${historyRefreshing || historyLoading ? "animate-spin" : ""}`} />
+              <span>{historyRefreshing || historyLoading ? "Atualizando…" : "Atualizar"}</span>
+            </Button>
           </div>
           {historyWarning && (
             <p className="text-xs text-amber-200">
               Histórico parcial: {historyWarning}
+            </p>
+          )}
+          {historyError && history.length > 0 && (
+            <p className="text-xs text-red-300">
+              Não foi possível atualizar o histórico. {historyError.message}
             </p>
           )}
         </header>
@@ -1822,29 +1840,28 @@ export default function Commands() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/40 text-xs">
-              {historyLoading && (
+              {historyLoading && history.length === 0 && (
                 <tr>
                   <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
                     Carregando histórico…
                   </td>
                 </tr>
               )}
-              {!historyLoading && historyError && (
+              {!historyLoading && historyError && history.length === 0 && (
                 <tr>
                   <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-red-300">
                     Não foi possível carregar o histórico. {historyError.message}
                   </td>
                 </tr>
               )}
-              {!historyLoading && !historyError && historyTotal === 0 && (
+              {!historyLoading && !historyError && historyTotal === 0 && history.length === 0 && (
                 <tr>
                   <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
                     Nenhum comando encontrado.
                   </td>
                 </tr>
               )}
-              {!historyLoading &&
-                !historyError &&
+              {history.length > 0 &&
                 history.map((item) => {
                   const commandLabel = item?.command || item?.commandName || "—";
                   const statusLabel =
