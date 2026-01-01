@@ -331,14 +331,14 @@ function resolveCustomCommandPayload(customCommand) {
     if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
       throw createError(400, "Comando RAW sem conteúdo");
     }
-    return { type: "custom", attributes: { data: payload.data } };
+    return { type: "custom", attributes: { data: payload.data }, textChannel: true };
   }
 
   if (kind === "HEX") {
     if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
       throw createError(400, "Comando HEX sem conteúdo");
     }
-    return { type: "custom", attributes: { data: payload.data } };
+    return { type: "custom", attributes: { data: payload.data }, textChannel: false };
   }
 
   throw createError(400, "Tipo de comando personalizado inválido");
