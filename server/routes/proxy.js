@@ -459,43 +459,6 @@ function buildCommandHistoryItem({
   };
 }
 
-function mapDispatchStatusToApi(status, hasResponse) {
-  if (hasResponse) return "RESPONDED";
-  if (status === "failed") return "ERROR";
-  if (status === "sent") return "SENT";
-  return "PENDING";
-}
-
-function buildCommandHistoryItem({
-  id,
-  vehicleId,
-  traccarId,
-  user,
-  command,
-  payload,
-  status,
-  sentAt,
-  receivedAt,
-  result,
-  source,
-  traccarCommandId,
-}) {
-  return {
-    id,
-    vehicleId,
-    traccarId,
-    user: user || null,
-    command,
-    payload,
-    status,
-    sentAt,
-    receivedAt,
-    result,
-    source,
-    traccarCommandId: traccarCommandId ?? null,
-  };
-}
-
 const TRIP_CSV_COLUMNS = [
   { key: "device", label: "Dispositivo" },
   { key: "startTime", label: "Início" },
