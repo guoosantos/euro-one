@@ -87,7 +87,7 @@ export default function Commands() {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
-  const historyPollRef = useRef({ intervalId: null, timeoutId: null, vehicleId: null });
+  const historyPollRef = useRef({ intervalId: null, vehicleId: null });
   const historyRef = useRef([]);
   const [advancedMode, setAdvancedMode] = useState("vehicle");
   const [advancedCommandKey, setAdvancedCommandKey] = useState("");
@@ -149,10 +149,7 @@ export default function Commands() {
     if (historyPollRef.current.intervalId) {
       clearInterval(historyPollRef.current.intervalId);
     }
-    if (historyPollRef.current.timeoutId) {
-      clearTimeout(historyPollRef.current.timeoutId);
-    }
-    historyPollRef.current = { intervalId: null, timeoutId: null, vehicleId: null };
+    historyPollRef.current = { intervalId: null, vehicleId: null };
   }, []);
 
   useEffect(() => () => {
@@ -262,32 +259,25 @@ export default function Commands() {
       if (hasOrderA && hasOrderB) return orderIndex[keyA] - orderIndex[keyB];
       if (hasOrderA) return -1;
       if (hasOrderB) return 1;
+      if (first.kind !== second.kind) {
+        return first.kind === "custom" ? 1 : -1;
+      }
       const labelA = normalizeValue(first?.name || keyA);
       const labelB = normalizeValue(second?.name || keyB);
       return labelA.localeCompare(labelB, "pt-BR", { sensitivity: "base" });
     });
   }, [filteredCommands, scopedPreferences.hidden, scopedPreferences.order]);
 
-  const orderedProtocolCommands = useMemo(
-    () => orderedCommands.filter((command) => command.kind !== "custom"),
-    [orderedCommands],
-  );
-
-  const orderedCustomCommands = useMemo(
-    () => orderedCommands.filter((command) => command.kind === "custom"),
-    [orderedCommands],
-  );
-
   const totalPages = useMemo(() => {
-    if (orderedProtocolCommands.length === 0) return 1;
-    return Math.max(1, Math.ceil(orderedProtocolCommands.length / commandsPerPage));
-  }, [commandsPerPage, orderedProtocolCommands.length]);
+    if (orderedCommands.length === 0) return 1;
+    return Math.max(1, Math.ceil(orderedCommands.length / commandsPerPage));
+  }, [commandsPerPage, orderedCommands.length]);
 
-  const paginatedProtocolCommands = useMemo(() => {
+  const paginatedCommands = useMemo(() => {
     const start = (currentPage - 1) * commandsPerPage;
     const end = start + commandsPerPage;
-    return orderedProtocolCommands.slice(start, end);
-  }, [commandsPerPage, currentPage, orderedProtocolCommands]);
+    return orderedCommands.slice(start, end);
+  }, [commandsPerPage, currentPage, orderedCommands]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -380,8 +370,13 @@ export default function Commands() {
     async ({ includeHidden = false } = {}) => {
       setCustomCommandsLoading(true);
       setCustomCommandsError(null);
+      const params = {
+        ...(includeHidden ? { includeHidden: true } : {}),
+        ...(!includeHidden && device?.traccarId ? { deviceId: device.traccarId } : {}),
+        ...(!includeHidden && device?.protocol ? { protocol: device.protocol } : {}),
+      };
       try {
-        const response = await api.get(API_ROUTES.commandsCustom, { params: includeHidden ? { includeHidden: true } : {} });
+        const response = await api.get(API_ROUTES.commandsCustom, { params });
         const items = Array.isArray(response?.data?.data) ? response.data.data : [];
         setCustomCommands(items);
         if (response?.data?.error?.message) {
@@ -390,7 +385,7 @@ export default function Commands() {
       } catch (error) {
         if (includeHidden && error?.response?.status === 403) {
           try {
-            const response = await api.get(API_ROUTES.commandsCustom, { params: includeHidden ? { includeHidden: true } : {} });
+            const response = await api.get(API_ROUTES.commandsCustom, { params });
             const items = Array.isArray(response?.data?.data) ? response.data.data : [];
             setCustomCommands(items);
             if (response?.data?.error?.message) {
@@ -406,11 +401,11 @@ export default function Commands() {
         setCustomCommandsLoading(false);
       }
     },
-    [device?.protocol],
+    [device?.protocol, device?.traccarId],
   );
 
   const fetchHistory = useCallback(
-    async ({ useLoading } = {}) => {
+    async ({ useLoading, bustCache } = {}) => {
       if (!selectedVehicleId) {
         setHistory([]);
         setHistoryError(null);
@@ -427,8 +422,9 @@ export default function Commands() {
       setHistoryWarning(null);
       setHistoryRefreshing(!shouldShowLoading);
       try {
+        const cacheParams = bustCache ? { ts: Date.now() } : {};
         const response = await api.get(API_ROUTES.commandsHistory, {
-          params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage },
+          params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage, ...cacheParams },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const total = Number(response?.data?.data?.pagination?.total ?? items.length);
@@ -472,11 +468,12 @@ export default function Commands() {
   }, []);
 
   const fetchHistoryStatus = useCallback(
-    async (ids) => {
+    async (ids, { bustCache } = {}) => {
       if (!selectedVehicleId || !ids.length) return;
       try {
+        const cacheParams = bustCache ? { ts: Date.now() } : {};
         const response = await api.get(API_ROUTES.commandsHistoryStatus, {
-          params: { vehicleId: selectedVehicleId, ids: ids.join(",") },
+          params: { vehicleId: selectedVehicleId, ids: ids.join(","), ...cacheParams },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         if (items.length) {
@@ -506,10 +503,10 @@ export default function Commands() {
   );
 
   const handleRefreshHistory = useCallback(async () => {
-    await fetchHistory({ useLoading: false });
+    await fetchHistory({ useLoading: false, bustCache: true });
     const pendingIds = getPendingHistoryIds();
     if (pendingIds.length) {
-      await fetchHistoryStatus(pendingIds);
+      await fetchHistoryStatus(pendingIds, { bustCache: true });
     }
   }, [fetchHistory, fetchHistoryStatus, getPendingHistoryIds]);
 
@@ -524,13 +521,10 @@ export default function Commands() {
         stopHistoryPolling();
         return;
       }
-      fetchHistoryStatus(pendingIds).catch(() => {});
+      fetchHistoryStatus(pendingIds, { bustCache: true }).catch(() => {});
     };
     poll();
     historyPollRef.current.intervalId = setInterval(poll, 4000);
-    historyPollRef.current.timeoutId = setTimeout(() => {
-      stopHistoryPolling();
-    }, 60000);
   }, [fetchHistoryStatus, getPendingHistoryIds, selectedVehicleId, stopHistoryPolling]);
 
   useEffect(() => {
@@ -1339,14 +1333,14 @@ export default function Commands() {
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    paginatedProtocolCommands.map(renderCommandCard)}
+                    paginatedCommands.map(renderCommandCard)}
 
                   {!deviceLoading &&
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    orderedProtocolCommands.length > 0 &&
-                    paginatedProtocolCommands.length === 0 && (
+                    filteredCommands.length > 0 &&
+                    orderedCommands.length === 0 && (
                       <p className="text-sm text-white/60">Todos os comandos estão ocultos pela configuração atual.</p>
                     )}
 
@@ -1354,8 +1348,8 @@ export default function Commands() {
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    orderedProtocolCommands.length > 0 &&
-                    paginatedProtocolCommands.length > 0 && (
+                    orderedCommands.length > 0 &&
+                    paginatedCommands.length > 0 && (
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
                         <div className="flex items-center gap-2">
                           <span>Itens por página</span>
@@ -1394,27 +1388,14 @@ export default function Commands() {
                         </div>
                       </div>
                     )}
-
-                  <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-wide text-white/60">COMANDOS PERSONALIZADOS</p>
-                      {orderedCustomCommands.length > 0 && (
-                        <span className="text-[11px] text-white/50">
-                          {orderedCustomCommands.length} comando{orderedCustomCommands.length > 1 ? "s" : ""} disponível{orderedCustomCommands.length > 1 ? "s" : ""}
-                        </span>
-                      )}
-                    </div>
-                    {customCommandsLoading && <p className="text-sm text-white/60">Carregando comandos personalizados…</p>}
-                    {customCommandsError && (
-                      <p className="text-sm text-red-300">
-                        {customCommandsError.message || "Erro ao carregar comandos personalizados."}
-                      </p>
-                    )}
-                    {!customCommandsLoading && !customCommandsError && orderedCustomCommands.length === 0 && (
-                      <p className="text-sm text-white/60">Nenhum comando personalizado encontrado para o filtro atual.</p>
-                    )}
-                    {orderedCustomCommands.map(renderCommandCard)}
-                  </div>
+                  {customCommandsLoading && (
+                    <p className="text-sm text-white/60">Carregando comandos personalizados…</p>
+                  )}
+                  {customCommandsError && (
+                    <p className="text-sm text-red-300">
+                      {customCommandsError.message || "Erro ao carregar comandos personalizados."}
+                    </p>
+                  )}
                 </div>
               )}
             </>
