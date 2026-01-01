@@ -134,6 +134,16 @@ export default function Commands() {
     }
   }, []);
 
+  const stopHistoryPolling = useCallback(() => {
+    if (historyPollRef.current.intervalId) {
+      clearInterval(historyPollRef.current.intervalId);
+    }
+    if (historyPollRef.current.timeoutId) {
+      clearTimeout(historyPollRef.current.timeoutId);
+    }
+    historyPollRef.current = { intervalId: null, timeoutId: null, vehicleId: null };
+  }, []);
+
   useEffect(() => () => {
     stopHistoryPolling();
   }, [stopHistoryPolling]);
@@ -154,17 +164,6 @@ export default function Commands() {
     setToast({ message, type });
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
-
-  const stopHistoryPolling = useCallback(() => {
-    if (historyPollRef.current.intervalId) {
-      clearInterval(historyPollRef.current.intervalId);
-    }
-    if (historyPollRef.current.timeoutId) {
-      clearTimeout(historyPollRef.current.timeoutId);
-    }
-    historyPollRef.current = { intervalId: null, timeoutId: null, vehicleId: null };
-  }, []);
-
 
   const vehicleOptions = useMemo(() => {
     const search = normalizeValue(vehicleSearch).toLowerCase();
