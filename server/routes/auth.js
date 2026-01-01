@@ -51,11 +51,23 @@ const handleLogin = async (req, res, next) => {
       throw createError(400, "Login e senha são obrigatórios");
     }
 
-    const traccarAuth = await authenticateWithTraccar(userLogin, userPassword);
+    let traccarAuth = null;
+    let traccarAuthError = null;
+    try {
+      traccarAuth = await authenticateWithTraccar(userLogin, userPassword);
+    } catch (error) {
+      const status = Number(error?.status || error?.statusCode);
+      if (status === 401 || status === 403) {
+        traccarAuthError = error;
+      } else {
+        throw error;
+      }
+    }
     const traccarUser = traccarAuth?.user || null;
 
     let user = null;
     let sessionPayload = null;
+    let localAuthError = null;
     try {
       user = await verifyUserCredentials(userLogin, userPassword, { allowFallback: true });
     } catch (error) {
@@ -64,6 +76,7 @@ const handleLogin = async (req, res, next) => {
         throw createError(401, "Credenciais inválidas");
       }
       console.warn("[auth] Falha ao validar credenciais locais; seguindo com Traccar", error?.message || error);
+      localAuthError = error;
       user = null;
     }
 
@@ -75,6 +88,16 @@ const handleLogin = async (req, res, next) => {
         console.warn("[auth] Falha ao construir sessão local, seguindo com sessão Traccar", error?.message || error);
         sessionPayload = null;
       }
+    }
+
+    if (!user && traccarAuthError) {
+      if (localAuthError) {
+        const normalized = DATABASE_UNAVAILABLE_CODES.has(String(localAuthError?.code || "").toUpperCase())
+          ? buildDatabaseUnavailableError(localAuthError)
+          : createError(503, "Falha ao validar credenciais");
+        throw normalized;
+      }
+      throw createError(401, "Credenciais inválidas");
     }
 
     if (!user) {
