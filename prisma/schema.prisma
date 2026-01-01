@@ -449,6 +449,7 @@ model CustomCommand {
   kind        String
   payload     Json
   visible     Boolean  @default(true)
+  sortOrder   Int      @default(0)
   createdBy   String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -457,5 +458,6 @@ model CustomCommand {
 
   @@index([clientId, visible])
   @@index([clientId, protocol])
+  @@index([clientId, sortOrder])
   @@map("custom_commands")
 }

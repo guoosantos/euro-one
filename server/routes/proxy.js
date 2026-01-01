@@ -173,6 +173,19 @@ function ensureCommandPrismaModel(modelName) {
   return model;
 }
 
+async function resolveNextCustomCommandOrder(model, clientId, protocol) {
+  if (!model?.findFirst) return 0;
+  const latest = await model.findFirst({
+    where: {
+      clientId,
+      ...(protocol ? { protocol } : { protocol: null }),
+    },
+    orderBy: { sortOrder: "desc" },
+  });
+  const current = Number(latest?.sortOrder);
+  return Number.isFinite(current) ? current + 1 : 0;
+}
+
 async function fetchCommandResultEvents(traccarId, from, to, limit) {
   const params = {
     deviceId: [String(traccarId)],
@@ -284,6 +297,8 @@ function normalizeCustomCommandInput(body = {}) {
   const kind = String(body?.kind || "").toUpperCase();
   const visible = body?.visible !== undefined ? Boolean(body.visible) : true;
   const payload = body?.payload && typeof body.payload === "object" ? body.payload : {};
+  const sortOrderRaw = body?.sortOrder;
+  const sortOrder = Number.isFinite(Number(sortOrderRaw)) ? Number(sortOrderRaw) : null;
   const protocol = body?.protocol ? normalizeProtocolKey(body.protocol) : null;
   if (protocol) {
     const knownProtocols = getProtocolList().map((item) => normalizeProtocolKey(item?.id));
@@ -328,6 +343,7 @@ function normalizeCustomCommandInput(body = {}) {
     visible,
     payload,
     protocol,
+    sortOrder,
   };
 }
 
@@ -349,6 +365,80 @@ function resolveCommandResultText(event) {
   if (typeof attributes.commandResult === "string" && attributes.commandResult.trim()) return attributes.commandResult;
   if (typeof event?.result === "string" && event.result.trim()) return event.result;
   return null;
+}
+
+function mapDispatchStatusToApi(status, hasResponse) {
+  if (hasResponse) return "RESPONDED";
+  if (status === "failed") return "ERROR";
+  if (status === "sent") return "SENT";
+  return "PENDING";
+}
+
+function buildCommandHistoryItem({
+  id,
+  vehicleId,
+  traccarId,
+  user,
+  command,
+  payload,
+  status,
+  sentAt,
+  receivedAt,
+  result,
+  source,
+  traccarCommandId,
+}) {
+  return {
+    id,
+    vehicleId,
+    traccarId,
+    user: user || null,
+    command,
+    payload,
+    status,
+    sentAt,
+    receivedAt,
+    result,
+    source,
+    traccarCommandId: traccarCommandId ?? null,
+  };
+}
+
+function mapDispatchStatusToApi(status, hasResponse) {
+  if (hasResponse) return "RESPONDED";
+  if (status === "failed") return "ERROR";
+  if (status === "sent") return "SENT";
+  return "PENDING";
+}
+
+function buildCommandHistoryItem({
+  id,
+  vehicleId,
+  traccarId,
+  user,
+  command,
+  payload,
+  status,
+  sentAt,
+  receivedAt,
+  result,
+  source,
+  traccarCommandId,
+}) {
+  return {
+    id,
+    vehicleId,
+    traccarId,
+    user: user || null,
+    command,
+    payload,
+    status,
+    sentAt,
+    receivedAt,
+    result,
+    source,
+    traccarCommandId: traccarCommandId ?? null,
+  };
 }
 
 const TRIP_CSV_COLUMNS = [
@@ -1316,6 +1406,9 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       commandName = customCommand.name;
       commandKey = customCommand.id;
     } else {
+      if (!req.body?.protocol && traccarDevice?.protocol) {
+        req.body.protocol = traccarDevice.protocol;
+      }
       commandPayload = resolveCommandPayload(req);
       commandName = req.body?.commandName || req.body?.commandKey || commandPayload?.type || null;
       commandKey = req.body?.commandKey || commandPayload?.type || null;
@@ -1333,9 +1426,24 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
 
     const requestId = randomUUID();
     const sentAt = new Date();
-    let dispatchStatus = "sent";
+    let dispatchStatus = "pending";
     let traccarStatus = null;
     let traccarErrorMessage = null;
+
+    await commandDispatchModel.create({
+      data: {
+        id: requestId,
+        clientId: clientId || undefined,
+        vehicleId,
+        traccarId,
+        commandKey,
+        commandName,
+        payloadSummary: { type: payload.type, attributes: payload.attributes },
+        sentAt,
+        status: dispatchStatus,
+        createdBy: req.user?.id || undefined,
+      },
+    });
 
     let traccarResponse = null;
     try {
@@ -1354,22 +1462,18 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       dispatchStatus = "failed";
       traccarStatus = Number(traccarResponse?.error?.code) || null;
     } else if (traccarResponse?.ok) {
+      dispatchStatus = "sent";
       traccarStatus = traccarResponse?.status ?? 201;
     }
 
-    await commandDispatchModel.create({
-      data: {
-        id: requestId,
-        clientId: clientId || undefined,
-        vehicleId,
-        traccarId,
-        commandKey,
-        commandName,
-        payloadSummary: { type: payload.type, attributes: payload.attributes },
-        sentAt,
-        status: dispatchStatus,
-        createdBy: req.user?.id || undefined,
-      },
+    let traccarCommandId = null;
+    if (traccarResponse?.ok && traccarResponse?.data?.id) {
+      traccarCommandId = traccarResponse.data.id;
+    }
+
+    await commandDispatchModel.update({
+      where: { id: requestId },
+      data: { status: dispatchStatus },
     });
 
     console.info("[commands] dispatch", {
@@ -1381,17 +1485,34 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       traccarStatus,
     });
 
-    if (!traccarResponse?.ok) {
-      const status = Number.isFinite(traccarStatus) ? traccarStatus : 502;
-      throw createError(status, traccarResponse?.error?.message || traccarErrorMessage || "Falha ao enviar comando ao Traccar");
-    }
-
-    res.status(201).json({
-      ok: true,
+    const userLabel = req.user?.name || req.user?.username || req.user?.email || null;
+    const historyItem = buildCommandHistoryItem({
+      id: requestId,
       vehicleId,
       traccarId,
+      user: req.user?.id ? { id: req.user.id, name: userLabel } : null,
+      command: commandName || commandKey || payload.type,
+      payload: payload,
+      status: mapDispatchStatusToApi(dispatchStatus, false),
       sentAt: sentAt.toISOString(),
-      requestId,
+      receivedAt: null,
+      result: null,
+      source: "EURO_ONE",
+      traccarCommandId,
+    });
+
+    if (!traccarResponse?.ok) {
+      const message = traccarResponse?.error?.message || traccarErrorMessage || "Falha ao enviar comando ao Traccar";
+      return res.status(201).json({
+        ok: false,
+        warning: message,
+        data: historyItem,
+      });
+    }
+
+    return res.status(201).json({
+      ok: true,
+      data: historyItem,
     });
   } catch (error) {
     next(error);
@@ -1424,9 +1545,13 @@ router.get("/commands/history", async (req, res, next) => {
       "from",
     );
     const to = parseDateOrThrow(req.query?.to ?? now.toISOString(), "to");
-    const limit = req.query?.limit ? Number(req.query.limit) : 50;
-    if (!Number.isFinite(limit) || limit <= 0) {
-      throw createError(400, "limit inválido");
+    const page = req.query?.page ? Number(req.query.page) : 1;
+    const pageSize = req.query?.pageSize ? Number(req.query.pageSize) : 10;
+    if (!Number.isFinite(page) || page <= 0) {
+      throw createError(400, "page inválida");
+    }
+    if (!Number.isFinite(pageSize) || pageSize <= 0) {
+      throw createError(400, "pageSize inválido");
     }
 
     const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
@@ -1435,20 +1560,27 @@ router.get("/commands/history", async (req, res, next) => {
       throw createError(409, "Equipamento vinculado sem traccarId");
     }
 
-    const events = await fetchCommandResultEvents(traccarId, from, to, limit);
-    const eventItems = events
-      .filter((event) => event?.type === "commandResult")
-      .map((event) => {
-        return {
-          id: event.id ?? null,
-          eventTime: event.eventTime ?? null,
-          result: resolveCommandResultText(event),
-          commandName: resolveCommandNameFromEvent(event),
-          attributes: event?.attributes || {},
-        };
-      });
+    let traccarWarning = null;
+    let eventItems = [];
+    try {
+      const events = await fetchCommandResultEvents(traccarId, from, to, pageSize * page);
+      eventItems = events
+        .filter((event) => event?.type === "commandResult")
+        .map((event) => {
+          return {
+            id: event.id ?? null,
+            eventTime: event.eventTime ?? null,
+            result: resolveCommandResultText(event),
+            commandName: resolveCommandNameFromEvent(event),
+            attributes: event?.attributes || {},
+          };
+        });
+    } catch (error) {
+      traccarWarning = error?.message || "Falha ao consultar eventos do Traccar";
+    }
 
     let dispatches = [];
+    let userLookup = new Map();
     if (isPrismaAvailable()) {
       const dispatchModel = ensureCommandPrismaModel("commandDispatch");
       dispatches = await dispatchModel.findMany({
@@ -1462,6 +1594,20 @@ router.get("/commands/history", async (req, res, next) => {
         },
         orderBy: { sentAt: "asc" },
       });
+
+      const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
+      if (userIds.length && prisma?.user?.findMany) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, username: true },
+        });
+        userLookup = new Map(
+          users.map((user) => [
+            user.id,
+            user.name || user.username || user.email || user.id,
+          ]),
+        );
+      }
     }
 
     const parsedEvents = eventItems
@@ -1483,7 +1629,7 @@ router.get("/commands/history", async (req, res, next) => {
       const sentMs = sentTime.getTime();
       let matched = null;
 
-      if (dispatch.status === "sent") {
+      if (dispatch.status !== "failed") {
         matched = parsedEvents.find((event) => {
           if (!event?.parsedTime) return false;
           if (usedEventIds.has(event.id)) return false;
@@ -1498,45 +1644,75 @@ router.get("/commands/history", async (req, res, next) => {
         usedEventIds.add(matched.id);
       }
 
-      const status =
-        dispatch.status === "failed" ? "Erro" : matched ? "Respondido" : "Enviado";
+      const userName = dispatch.createdBy ? userLookup.get(dispatch.createdBy) || null : null;
+      const payloadSummary = dispatch.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
+      const resolvedCommandName = dispatch.commandName || dispatch.commandKey || payloadSummary?.type || null;
+      const receivedAt = matched?.eventTime || null;
+      const status = mapDispatchStatusToApi(dispatch.status, Boolean(receivedAt));
 
-      return {
-        requestId: dispatch.id,
-        sentAt: dispatch.sentAt,
-        responseAt: matched?.eventTime || null,
-        commandName: dispatch.commandName || dispatch.commandKey || null,
+      return buildCommandHistoryItem({
+        id: dispatch.id,
+        vehicleId,
+        traccarId,
+        user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
+        command: resolvedCommandName,
+        payload: payloadSummary,
         status,
+        sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
+        receivedAt,
         result: matched?.result || null,
-      };
+        source: "EURO_ONE",
+        traccarCommandId: null,
+      });
     });
 
     const unmatchedEvents = parsedEvents
       .filter((event) => !usedEventIds.has(event.id))
       .map((event) => ({
-        requestId: event.id ? `event-${event.id}` : `event-${event.eventTime}`,
-        sentAt: null,
-        responseAt: event.eventTime,
+        id: event.id ? `event-${event.id}` : `event-${event.eventTime}`,
+        eventTime: event.eventTime,
         commandName: event.commandName,
-        status: "Respondido",
         result: event.result,
+        attributes: event.attributes || {},
       }));
 
-    const merged = [...dispatchItems, ...unmatchedEvents]
-      .filter((item) => item.sentAt || item.responseAt)
+    const traccarItems = unmatchedEvents.map((event) =>
+      buildCommandHistoryItem({
+        id: event.id,
+        vehicleId,
+        traccarId,
+        user: null,
+        command: event.commandName || null,
+        payload: event.attributes || null,
+        status: "RESPONDED",
+        sentAt: null,
+        receivedAt: event.eventTime,
+        result: event.result,
+        source: "TRACCAR",
+        traccarCommandId: event.id || null,
+      }),
+    );
+
+    const merged = [...dispatchItems, ...traccarItems]
+      .filter((item) => item.sentAt || item.receivedAt)
       .sort((a, b) => {
-        const timeA = new Date(a.responseAt || a.sentAt).getTime();
-        const timeB = new Date(b.responseAt || b.sentAt).getTime();
+        const timeA = new Date(a.receivedAt || a.sentAt).getTime();
+        const timeB = new Date(b.receivedAt || b.sentAt).getTime();
         return timeB - timeA;
-      })
-      .slice(0, limit);
+      });
+
+    const total = merged.length;
+    const start = (page - 1) * pageSize;
+    const items = merged.slice(start, start + pageSize);
 
     res.json({
       data: {
         vehicleId,
         traccarId,
-        items: merged,
+        items,
+        pagination: { page, pageSize, total },
       },
+      warning: traccarWarning,
       error: null,
     });
   } catch (error) {
@@ -1558,7 +1734,7 @@ router.get("/commands/custom", async (req, res, next) => {
         ...(canSeeHidden ? {} : { visible: true }),
         ...(protocol ? { protocol } : {}),
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
     });
 
     res.json({ data: commands, error: null });
@@ -1572,6 +1748,17 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const input = normalizeCustomCommandInput(req.body);
+    if (!isPrismaAvailable()) {
+      return res.status(200).json({
+        data: null,
+        error: { message: "Banco indisponível para salvar o comando personalizado." },
+      });
+    }
+
+    const sortOrder =
+      input.sortOrder !== null
+        ? input.sortOrder
+        : await resolveNextCustomCommandOrder(customCommandModel, clientId, input.protocol);
 
     const command = await customCommandModel.create({
       data: {
@@ -1582,6 +1769,7 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
         payload: input.payload,
         visible: input.visible,
         protocol: input.protocol,
+        sortOrder,
         createdBy: req.user?.id || undefined,
       },
     });
@@ -1597,6 +1785,12 @@ router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, 
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const input = normalizeCustomCommandInput(req.body);
+    if (!isPrismaAvailable()) {
+      return res.status(200).json({
+        data: null,
+        error: { message: "Banco indisponível para atualizar o comando personalizado." },
+      });
+    }
 
     const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
     if (!existing) {
@@ -1615,6 +1809,44 @@ router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, 
         payload: input.payload,
         visible: input.visible,
         protocol: input.protocol,
+        ...(input.sortOrder !== null ? { sortOrder: input.sortOrder } : {}),
+      },
+    });
+
+    res.json({ data: command, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.patch("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
+    const customCommandModel = ensureCommandPrismaModel("customCommand");
+    if (!isPrismaAvailable()) {
+      return res.status(200).json({
+        data: null,
+        error: { message: "Banco indisponível para ajustar o comando personalizado." },
+      });
+    }
+
+    const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
+    if (!existing) {
+      throw createError(404, "Comando personalizado não encontrado");
+    }
+    if (String(existing.clientId) !== String(clientId) && req.user?.role !== "admin") {
+      throw createError(403, "Operação não permitida para este cliente");
+    }
+
+    const nextVisible = req.body?.visible !== undefined ? Boolean(req.body.visible) : undefined;
+    const nextSortOrderRaw = req.body?.sortOrder;
+    const nextSortOrder = Number.isFinite(Number(nextSortOrderRaw)) ? Number(nextSortOrderRaw) : undefined;
+
+    const command = await customCommandModel.update({
+      where: { id: req.params.id },
+      data: {
+        ...(nextVisible !== undefined ? { visible: nextVisible } : {}),
+        ...(nextSortOrder !== undefined ? { sortOrder: nextSortOrder } : {}),
       },
     });
 
@@ -1628,6 +1860,12 @@ router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (re
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
+    if (!isPrismaAvailable()) {
+      return res.status(200).json({
+        data: null,
+        error: { message: "Banco indisponível para remover o comando personalizado." },
+      });
+    }
 
     const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
     if (!existing) {

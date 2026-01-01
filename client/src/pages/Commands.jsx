@@ -10,8 +10,10 @@ import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado"];
 const HISTORY_COLUMNS = [
-  { id: "dateTime", label: "Data/Hora", width: 170, minWidth: 150 },
+  { id: "sentAt", label: "Enviado em", width: 170, minWidth: 150 },
+  { id: "responseAt", label: "Respondido em", width: 170, minWidth: 150 },
   { id: "command", label: "Comando", width: 220, minWidth: 180 },
+  { id: "requestedBy", label: "Quem enviou", width: 180, minWidth: 160 },
   { id: "status", label: "Status", width: 140, minWidth: 120 },
   { id: "result", label: "Resultado", width: 320, minWidth: 220 },
 ];
@@ -19,14 +21,9 @@ const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v2";
 const COMMAND_PREFERENCES_STORAGE_KEY = "commands:list:preferences:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
-const PROTOCOL_OPTIONS = [
-  { label: "Todos", value: "" },
-  { label: "GT06", value: "gt06" },
-  { label: "IOTM", value: "iotm" },
-  { label: "Suntech", value: "suntech" },
-];
 const PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 50];
 const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_HISTORY_PAGE_SIZE = 10;
 
 const normalizeValue = (value) => String(value ?? "");
 
@@ -78,9 +75,14 @@ export default function Commands() {
   const [expandedCommandId, setExpandedCommandId] = useState(null);
   const [commandParams, setCommandParams] = useState({});
   const [sendingCommandId, setSendingCommandId] = useState(null);
+  const [commandErrors, setCommandErrors] = useState({});
   const [history, setHistory] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(null);
+  const [historyWarning, setHistoryWarning] = useState(null);
+  const [historyPerPage, setHistoryPerPage] = useState(DEFAULT_HISTORY_PAGE_SIZE);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyTotal, setHistoryTotal] = useState(0);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
@@ -96,10 +98,9 @@ export default function Commands() {
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const buildCustomForm = useCallback(
-    (protocol = "") => ({
+    () => ({
       name: "",
       description: "",
-      protocol,
       kind: "SMS",
       visible: true,
       sms: { phone: "", message: "" },
@@ -249,12 +250,6 @@ export default function Commands() {
     setCurrentPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
 
-  const resolveHistoryTimestamp = useCallback((item) => {
-    if (!item) return null;
-    if (item.status === "Respondido") return item.responseAt || item.sentAt;
-    return item.sentAt || item.responseAt;
-  }, []);
-
   const resolveDeviceFromVehicle = useCallback(async (vehicleId) => {
     const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId));
     const payload = response?.data;
@@ -274,6 +269,7 @@ export default function Commands() {
       setCommandsError(null);
       setExpandedCommandId(null);
       setCommandParams({});
+      setCommandErrors({});
       return;
     }
     setDeviceLoading(true);
@@ -282,6 +278,7 @@ export default function Commands() {
     setCommandsError(null);
     setExpandedCommandId(null);
     setCommandParams({});
+    setCommandErrors({});
     try {
       const traccarDevice = await resolveDeviceFromVehicle(selectedVehicleId);
       if (!traccarDevice) {
@@ -337,15 +334,18 @@ export default function Commands() {
       setCustomCommandsLoading(true);
       setCustomCommandsError(null);
       try {
-        const response = await api.get(API_ROUTES.commandsCustom, {
-          params: includeHidden ? { includeHidden: true } : {},
-        });
+        const params = {
+          ...(includeHidden ? { includeHidden: true } : {}),
+          ...(device?.protocol ? { protocol: device.protocol } : {}),
+        };
+        const response = await api.get(API_ROUTES.commandsCustom, { params });
         const items = Array.isArray(response?.data?.data) ? response.data.data : [];
         setCustomCommands(items);
       } catch (error) {
         if (includeHidden && error?.response?.status === 403) {
           try {
-            const response = await api.get(API_ROUTES.commandsCustom);
+            const params = device?.protocol ? { protocol: device.protocol } : {};
+            const response = await api.get(API_ROUTES.commandsCustom, { params });
             const items = Array.isArray(response?.data?.data) ? response.data.data : [];
             setCustomCommands(items);
           } catch (fallbackError) {
@@ -358,27 +358,37 @@ export default function Commands() {
         setCustomCommandsLoading(false);
       }
     },
-    [],
+    [device?.protocol],
   );
 
   const fetchHistory = useCallback(async () => {
     if (!selectedVehicleId) {
       setHistory([]);
       setHistoryError(null);
+      setHistoryWarning(null);
+      setHistoryTotal(0);
       return;
     }
     setHistoryLoading(true);
     setHistoryError(null);
+    setHistoryWarning(null);
     try {
-      const response = await api.get(API_ROUTES.commandsHistory, { params: { vehicleId: selectedVehicleId } });
+      const response = await api.get(API_ROUTES.commandsHistory, {
+        params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage },
+      });
       const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
+      const total = Number(response?.data?.data?.pagination?.total ?? items.length);
       setHistory(items);
+      setHistoryTotal(Number.isFinite(total) ? total : items.length);
+      if (response?.data?.warning) {
+        setHistoryWarning(response.data.warning);
+      }
     } catch (error) {
       setHistoryError(new Error(friendlyApiError(error, "Erro ao carregar histórico")));
     } finally {
       setHistoryLoading(false);
     }
-  }, [selectedVehicleId]);
+  }, [selectedVehicleId, historyPage, historyPerPage]);
 
   useEffect(() => {
     fetchDevice().catch(() => {});
@@ -397,13 +407,25 @@ export default function Commands() {
   }, [fetchHistory]);
 
   useEffect(() => {
-    if (editingCustomCommandId) return;
-    if (!device?.protocol) return;
-    setCustomForm((current) => {
-      if (current.protocol) return current;
-      return { ...current, protocol: device.protocol };
-    });
-  }, [device?.protocol, editingCustomCommandId]);
+    if (!selectedVehicleId) return undefined;
+    const interval = setInterval(() => {
+      fetchHistory().catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [fetchHistory, selectedVehicleId]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [selectedVehicleId, historyPerPage]);
+
+  const totalHistoryPages = useMemo(() => {
+    if (!historyTotal) return 1;
+    return Math.max(1, Math.ceil(historyTotal / historyPerPage));
+  }, [historyTotal, historyPerPage]);
+
+  useEffect(() => {
+    setHistoryPage((current) => Math.min(current, totalHistoryPages));
+  }, [totalHistoryPages]);
 
   const handleSendCommand = async (command) => {
     const commandKey = getCommandKey(command);
@@ -413,9 +435,11 @@ export default function Commands() {
     }
 
     setSendingCommandId(commandKey);
+    setCommandErrors((current) => ({ ...current, [commandKey]: null }));
     try {
+      let response = null;
       if (command.kind === "custom") {
-        await api.post(API_ROUTES.commandsSend, {
+        response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
           customCommandId: command.id,
         });
@@ -424,7 +448,7 @@ export default function Commands() {
           showToast("Veículo sem protocolo válido", "error");
           return;
         }
-        await api.post(API_ROUTES.commandsSend, {
+        response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
           protocol: device.protocol,
           commandKey,
@@ -432,20 +456,35 @@ export default function Commands() {
           params: commandParams[commandKey] || {},
         });
       }
-      showToast("Comando enviado com sucesso.");
+      const createdItem = response?.data?.data;
+      if (createdItem) {
+        setHistoryPage(1);
+        setHistory((current) => {
+          const next = [createdItem, ...current];
+          return next.slice(0, historyPerPage);
+        });
+        setHistoryTotal((current) => current + 1);
+      }
+      if (response?.data?.ok === false && response?.data?.warning) {
+        showToast(response.data.warning, "warning");
+      } else {
+        showToast("Comando enviado com sucesso.");
+      }
       setExpandedCommandId(null);
       await fetchHistory();
     } catch (error) {
-      showToast(friendlyApiError(error, "Erro ao enviar comando"), "error");
+      const message = friendlyApiError(error, "Erro ao enviar comando");
+      setCommandErrors((current) => ({ ...current, [commandKey]: message }));
+      showToast(message, "error");
     } finally {
       setSendingCommandId(null);
     }
   };
 
   const resetCustomForm = useCallback(() => {
-    setCustomForm(buildCustomForm(device?.protocol || ""));
+    setCustomForm(buildCustomForm());
     setEditingCustomCommandId(null);
-  }, [buildCustomForm, device?.protocol]);
+  }, [buildCustomForm]);
 
   const handleCustomFormChange = (field, value) => {
     setCustomForm((current) => ({ ...current, [field]: value }));
@@ -466,7 +505,6 @@ export default function Commands() {
     setCustomForm({
       name: command.name || "",
       description: command.description || "",
-      protocol: command.protocol || "",
       kind: command.kind || "SMS",
       visible: Boolean(command.visible),
       sms: {
@@ -486,6 +524,10 @@ export default function Commands() {
   const handleSaveCustomCommand = async () => {
     if (!customForm.name.trim()) {
       showToast("Informe o nome do comando.", "error");
+      return;
+    }
+    if (!device?.protocol) {
+      showToast("Selecione um veículo para definir o protocolo do preset.", "error");
       return;
     }
 
@@ -527,7 +569,7 @@ export default function Commands() {
       const body = {
         name: customForm.name.trim(),
         description: customForm.description.trim() || null,
-        protocol: customForm.protocol ? customForm.protocol.trim() : null,
+        protocol: String(device.protocol).trim(),
         kind: customForm.kind,
         visible: customForm.visible,
         payload,
@@ -566,6 +608,104 @@ export default function Commands() {
       setDeletingCustomCommandId(null);
     }
   };
+
+  const buildFormFromPreset = useCallback((command) => {
+    return {
+      name: command.name || "",
+      description: command.description || "",
+      kind: command.kind || "SMS",
+      visible: Boolean(command.visible),
+      sms: {
+        phone: command.payload?.phone || "",
+        message: command.payload?.message || "",
+      },
+      json: {
+        type: command.payload?.type || "",
+        attributes: JSON.stringify(command.payload?.attributes || {}, null, 2),
+      },
+      raw: {
+        data: command.payload?.data || "",
+      },
+    };
+  }, []);
+
+  const handleUsePreset = useCallback(
+    (command) => {
+      setEditingCustomCommandId(null);
+      setCustomForm(buildFormFromPreset(command));
+    },
+    [buildFormFromPreset],
+  );
+
+  const handleSendPreset = useCallback(
+    async (command) => {
+      if (!selectedVehicleId) {
+        showToast("Selecione um veículo para enviar o comando.", "error");
+        return;
+      }
+      setSendingCommandId(command.id);
+      try {
+        const response = await api.post(API_ROUTES.commandsSend, {
+          vehicleId: selectedVehicleId,
+          customCommandId: command.id,
+        });
+        const createdItem = response?.data?.data;
+        if (createdItem) {
+          setHistoryPage(1);
+          setHistory((current) => [createdItem, ...current].slice(0, historyPerPage));
+          setHistoryTotal((current) => current + 1);
+        }
+        if (response?.data?.ok === false && response?.data?.warning) {
+          showToast(response.data.warning, "warning");
+        } else {
+          showToast("Comando enviado com sucesso.");
+        }
+        await fetchHistory();
+      } catch (error) {
+        showToast(friendlyApiError(error, "Erro ao enviar comando"), "error");
+      } finally {
+        setSendingCommandId(null);
+      }
+    },
+    [fetchHistory, historyPerPage, selectedVehicleId, showToast],
+  );
+
+  const handleTogglePresetVisible = useCallback(
+    async (command) => {
+      try {
+        await api.patch(`${API_ROUTES.commandsCustom}/${command.id}`, {
+          visible: !command.visible,
+        });
+        await fetchCustomCommands({ includeHidden: true });
+      } catch (error) {
+        showToast(friendlyApiError(error, "Erro ao atualizar visibilidade"), "error");
+      }
+    },
+    [fetchCustomCommands, showToast],
+  );
+
+  const handleMovePreset = useCallback(
+    async (command, direction) => {
+      const sorted = [...customCommands].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+      const index = sorted.findIndex((item) => item.id === command.id);
+      if (index === -1) return;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= sorted.length) return;
+      const target = sorted[targetIndex];
+      try {
+        await api.patch(`${API_ROUTES.commandsCustom}/${command.id}`, {
+          sortOrder: target.sortOrder ?? 0,
+        });
+        await api.patch(`${API_ROUTES.commandsCustom}/${target.id}`, {
+          sortOrder: command.sortOrder ?? 0,
+        });
+        await fetchCustomCommands({ includeHidden: true });
+      } catch (error) {
+        showToast(friendlyApiError(error, "Erro ao reordenar presets"), "error");
+      }
+    },
+    [customCommands, fetchCustomCommands, showToast],
+  );
 
   const handleUpdateParam = (commandId, key, value) => {
     setCommandParams((current) => ({
@@ -794,10 +934,6 @@ export default function Commands() {
                     className="mt-2"
                   />
                 </label>
-                <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                  Protocolo
-                  <Input value={device?.protocol || ""} readOnly className="mt-2" />
-                </label>
                 {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
               </div>
 
@@ -834,6 +970,7 @@ export default function Commands() {
                       const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
                       const isExpanded = expandedCommandId === commandKey;
                       const paramValues = commandParams[commandKey] || {};
+                      const commandError = commandErrors[commandKey];
                       return (
                         <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -869,6 +1006,9 @@ export default function Commands() {
                               </Button>
                             </div>
                           </div>
+                          {commandError && (
+                            <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>
+                          )}
                           {hasParams && isExpanded && (
                             <div className="mt-4 grid gap-3 md:grid-cols-2">
                               {command.parameters.map((param) => {
@@ -982,8 +1122,13 @@ export default function Commands() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-white/90">Comandos personalizados</p>
                 <p className="text-xs text-white/60">
-                  Crie comandos SMS, JSON ou RAW, defina o protocolo e controle onde eles aparecem na aba Comandos.
+                  Crie comandos SMS, JSON ou RAW e controle onde eles aparecem na aba Comandos.
                 </p>
+                {!device?.protocol && (
+                  <p className="text-xs text-amber-200">
+                    Selecione um veículo para filtrar e salvar presets por protocolo.
+                  </p>
+                )}
               </div>
 
               <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.6fr)]">
@@ -996,20 +1141,6 @@ export default function Commands() {
                         onChange={(event) => handleCustomFormChange("name", event.target.value)}
                         className="mt-2"
                       />
-                    </label>
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Protocolo
-                      <Select
-                        value={customForm.protocol}
-                        onChange={(event) => handleCustomFormChange("protocol", event.target.value)}
-                        className="mt-2 w-full bg-layer text-sm"
-                      >
-                        {PROTOCOL_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
                     </label>
                     <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                       Tipo
@@ -1122,7 +1253,6 @@ export default function Commands() {
                             <p className="text-sm font-semibold text-white/90">{command.name}</p>
                             <p className="text-[11px] uppercase tracking-wide text-primary/70">
                               {command.kind}
-                              {command.protocol ? ` · ${String(command.protocol).toUpperCase()}` : ""}
                               {" · "}
                               {command.visible ? "Visível" : "Oculto"}
                             </p>
@@ -1131,6 +1261,17 @@ export default function Commands() {
                             )}
                           </div>
                           <div className="flex flex-col gap-2">
+                            <Button type="button" variant="outline" onClick={() => handleUsePreset(command)}>
+                              Usar
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => handleSendPreset(command)}
+                              disabled={sendingCommandId === command.id}
+                            >
+                              {sendingCommandId === command.id ? "Enviando…" : "Enviar"}
+                            </Button>
                             <Button type="button" variant="outline" onClick={() => handleEditCustomCommand(command)}>
                               Editar
                             </Button>
@@ -1144,6 +1285,17 @@ export default function Commands() {
                             </Button>
                           </div>
                         </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/70">
+                          <Button type="button" variant="outline" onClick={() => handleTogglePresetVisible(command)}>
+                            {command.visible ? "Ocultar" : "Mostrar"}
+                          </Button>
+                          <Button type="button" variant="outline" onClick={() => handleMovePreset(command, "up")}>
+                            ↑
+                          </Button>
+                          <Button type="button" variant="outline" onClick={() => handleMovePreset(command, "down")}>
+                            ↓
+                          </Button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1152,6 +1304,45 @@ export default function Commands() {
             </div>
           )}
         </div>
+        {!historyLoading && !historyError && historyTotal > 0 && (
+          <div className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+            <div className="flex items-center gap-2">
+              <span>Itens por página</span>
+              <Select
+                value={historyPerPage}
+                onChange={(event) => setHistoryPerPage(Number(event.target.value))}
+                className="w-[90px] bg-layer text-sm"
+              >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
+                disabled={historyPage === 1}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {historyPage} de {totalHistoryPages}
+              </span>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                onClick={() => setHistoryPage((current) => Math.min(totalHistoryPages, current + 1))}
+                disabled={historyPage >= totalHistoryPages}
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       <section className="card flex min-h-0 flex-col gap-4 p-0">
@@ -1161,6 +1352,11 @@ export default function Commands() {
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Histórico de comandos</p>
             </div>
           </div>
+          {historyWarning && (
+            <p className="text-xs text-amber-200">
+              Histórico parcial: {historyWarning}
+            </p>
+          )}
         </header>
 
         <div className="mx-6 mb-6 min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
@@ -1210,7 +1406,7 @@ export default function Commands() {
                   </td>
                 </tr>
               )}
-              {!historyLoading && !historyError && history.length === 0 && (
+              {!historyLoading && !historyError && historyTotal === 0 && (
                 <tr>
                   <td colSpan={HISTORY_COLUMNS.length} className="px-3 py-4 text-center text-sm text-white/60">
                     Nenhum comando encontrado.
@@ -1220,20 +1416,38 @@ export default function Commands() {
               {!historyLoading &&
                 !historyError &&
                 history.map((item) => {
-                  const commandLabel = item?.commandName || "—";
-                  const statusLabel = item?.status || "Enviado";
+                  const commandLabel = item?.command || item?.commandName || "—";
+                  const statusLabel =
+                    item?.status === "RESPONDED"
+                      ? "Respondido"
+                      : item?.status === "ERROR"
+                      ? "Erro"
+                      : item?.status === "SENT"
+                      ? "Enviado"
+                      : "Pendente";
                   const resultText = item?.result || "—";
-                  const dateValue = resolveHistoryTimestamp(item);
+                  const sentAt = item?.sentAt || null;
+                  const responseAt = item?.receivedAt || item?.responseAt || null;
+                  const requestedBy = item?.user?.name || item?.createdByName || "—";
                   return (
-                    <tr key={item.requestId || `${dateValue}-${commandLabel}`} className="hover:bg-white/5">
+                    <tr key={item.id || item.requestId || `${sentAt || responseAt}-${commandLabel}`} className="hover:bg-white/5">
                       <td
-                        style={getWidthStyle("dateTime")}
+                        style={getWidthStyle("sentAt")}
                         className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80"
                       >
-                        {formatDateTime(dateValue)}
+                        {formatDateTime(sentAt)}
+                      </td>
+                      <td
+                        style={getWidthStyle("responseAt")}
+                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80"
+                      >
+                        {formatDateTime(responseAt)}
                       </td>
                       <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
                         {commandLabel}
+                      </td>
+                      <td style={getWidthStyle("requestedBy")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                        {requestedBy}
                       </td>
                       <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
                         {statusLabel}
@@ -1309,7 +1523,6 @@ export default function Commands() {
                             </div>
                             <p className="mt-1 text-[11px] uppercase tracking-wide text-primary/70">
                               {command.kind === "custom" ? "Personalizado" : "Protocolo"}
-                              {command.protocol ? ` · ${String(command.protocol).toUpperCase()}` : ""}
                             </p>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 text-xs">
