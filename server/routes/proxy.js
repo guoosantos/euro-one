@@ -123,6 +123,19 @@ function resolveCommandPayload(req) {
   };
 }
 
+function resolveDirectCustomPayload(body) {
+  if (!body || typeof body !== "object") return null;
+  const payload = body.payload ?? body.data;
+  if (payload === undefined || payload === null) return null;
+  if (typeof payload === "string" && !payload.trim()) return null;
+  return {
+    type: body?.type || "custom",
+    attributes: { data: payload },
+    textChannel: body?.textChannel,
+    description: body?.description,
+  };
+}
+
 function buildIotmOutputPayload(params = {}) {
   const rawOutput = params.output ?? params.outputId ?? params.outputIndex ?? 1;
   const outputNumber = Number(rawOutput);
@@ -1427,15 +1440,50 @@ router.post("/commands/send-sms", requireRole("manager", "admin"), async (req, r
 
 router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
-    if (!vehicleId) {
-      throw createError(400, "vehicleId é obrigatório");
+    let vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const requestedDeviceId = req.body?.deviceId ? String(req.body.deviceId).trim() : "";
+    if (!vehicleId && !requestedDeviceId) {
+      throw createError(400, "vehicleId ou deviceId é obrigatório");
     }
 
     const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
 
-    const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+    let traccarDevice = null;
+    if (vehicleId) {
+      traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+    } else {
+      const deviceRecord = getDeviceById(requestedDeviceId);
+      if (!deviceRecord) {
+        throw createError(404, "Equipamento não encontrado");
+      }
+      if (!deviceRecord.vehicleId) {
+        throw createError(409, "Equipamento sem veículo vinculado");
+      }
+      vehicleId = String(deviceRecord.vehicleId);
+      const resolvedTraccarId = Number(deviceRecord.traccarId ?? requestedDeviceId);
+      if (!Number.isFinite(resolvedTraccarId)) {
+        throw createError(409, "Equipamento vinculado sem traccarId");
+      }
+      traccarDevice = { ...deviceRecord, traccarId: resolvedTraccarId };
+
+      if (!traccarDevice.protocol || !traccarDevice.phone) {
+        try {
+          const remoteDevice = await traccarProxy("get", `/devices/${resolvedTraccarId}`, { asAdmin: true });
+          if (remoteDevice && !remoteDevice?.ok) {
+            throw createError(502, remoteDevice?.error?.message || "Falha ao buscar device no Traccar");
+          }
+          traccarDevice = {
+            ...traccarDevice,
+            ...remoteDevice,
+            traccarId: remoteDevice?.id ?? traccarDevice.traccarId,
+          };
+        } catch (error) {
+          console.warn("[commands] Falha ao buscar device no Traccar via deviceId", error?.message || error);
+        }
+      }
+    }
+
     const traccarId = Number(traccarDevice?.traccarId);
     if (!Number.isFinite(traccarId)) {
       throw createError(409, "Equipamento vinculado sem traccarId");
@@ -1445,7 +1493,12 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
     let commandName = null;
     let commandKey = null;
 
-    if (req.body?.customCommandId) {
+    const directPayload = resolveDirectCustomPayload(req.body);
+    if (directPayload && !req.body?.customCommandId && !req.body?.commandKey) {
+      commandPayload = directPayload;
+      commandName = req.body?.commandName || req.body?.description || "Comando personalizado";
+      commandKey = req.body?.commandKey || directPayload.type;
+    } else if (req.body?.customCommandId) {
       const customCommandModel = ensureCommandPrismaModel("customCommand");
       const customCommandId = String(req.body.customCommandId);
       let customCommand = await customCommandModel.findFirst({
