@@ -1949,10 +1949,23 @@ router.get("/commands/custom", async (req, res, next) => {
     }
 
     const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
-    const protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
+    let protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
+    const deviceId = req.query?.deviceId ? String(req.query.deviceId).trim() : "";
     const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const prismaAvailable = isPrismaAvailable();
+
+    if (!protocol && deviceId) {
+      try {
+        const traccarDevice = await traccarProxy("get", `/devices/${deviceId}`, { asAdmin: true, context: req });
+        protocol = traccarDevice?.protocol ? normalizeProtocolKey(traccarDevice.protocol) : null;
+      } catch (error) {
+        console.warn("[commands] Falha ao resolver protocolo do device", {
+          deviceId,
+          message: error?.message || error,
+        });
+      }
+    }
 
     const commands = prismaAvailable
       ? await customCommandModel.findMany({
