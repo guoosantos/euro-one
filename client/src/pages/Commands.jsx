@@ -86,6 +86,11 @@ export default function Commands() {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const historyPollRef = useRef({ intervalId: null, timeoutId: null, vehicleId: null });
+  const historyRef = useRef([]);
+  const [advancedMode, setAdvancedMode] = useState("vehicle");
+  const [advancedCommandKey, setAdvancedCommandKey] = useState("");
+  const [phoneForm, setPhoneForm] = useState({ commandId: "", phone: "", message: "" });
+  const [sendingPhone, setSendingPhone] = useState(false);
   const [isPreferencesOpen, setIsPreferencesOpen] = useState(false);
   const [commandPreferences, setCommandPreferences] = useState(() => {
     if (typeof window === "undefined") return { order: {}, hidden: {} };
@@ -104,7 +109,7 @@ export default function Commands() {
       description: "",
       kind: "SMS",
       visible: true,
-      sms: { phone: "", message: "" },
+      sms: { message: "" },
       json: { type: "", attributes: "{\n  \n}" },
       raw: { data: "" },
       hex: { data: "" },
@@ -127,6 +132,10 @@ export default function Commands() {
   useEffect(() => {
     latestWidthsRef.current = columnWidths;
   }, [columnWidths]);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
 
   useEffect(() => () => {
     if (toastTimeoutRef.current) {
@@ -184,6 +193,15 @@ export default function Commands() {
       });
   }, [vehicleSearch, vehicles]);
 
+  const vehicleOptionsAll = useMemo(
+    () =>
+      vehicles.map((vehicle) => ({
+        id: String(vehicle.id),
+        label: formatVehicleLabel(vehicle),
+      })),
+    [vehicles],
+  );
+
   const mergedCommands = useMemo(() => {
     const protocolKey = device?.protocol ? String(device.protocol).toLowerCase() : null;
     const customVisible = customCommands
@@ -205,6 +223,45 @@ export default function Commands() {
     }));
     return [...protocol, ...customVisible];
   }, [customCommands, protocolCommands, device?.protocol]);
+
+  const advancedCommands = useMemo(() => {
+    const protocolKey = device?.protocol ? String(device.protocol).toLowerCase() : null;
+    const customAll = customCommands
+      .filter((command) => {
+        if (!command?.protocol) return true;
+        if (!protocolKey) return false;
+        return String(command.protocol).toLowerCase() === protocolKey;
+      })
+      .map((command) => ({
+        ...command,
+        kind: "custom",
+        customKind: command.kind,
+        parameters: [],
+      }));
+    const protocol = protocolCommands.map((command) => ({
+      ...command,
+      kind: "protocol",
+    }));
+    return [...protocol, ...customAll];
+  }, [customCommands, protocolCommands, device?.protocol]);
+
+  const smsPresetOptions = useMemo(
+    () =>
+      customCommands
+        .filter((command) => String(command?.kind || "").toUpperCase() === "SMS")
+        .map((command) => ({
+          id: command.id,
+          name: command.name,
+          message: command.payload?.message || "",
+        })),
+    [customCommands],
+  );
+
+  useEffect(() => {
+    if (advancedCommandKey && !advancedCommands.some((command) => resolveUiCommandKey(command) === advancedCommandKey)) {
+      setAdvancedCommandKey("");
+    }
+  }, [advancedCommandKey, advancedCommands]);
 
   const availableCommandKeys = useMemo(() => new Set(mergedCommands.map((command) => resolveUiCommandKey(command))), [mergedCommands]);
 
@@ -412,17 +469,67 @@ export default function Commands() {
     }
   }, [selectedVehicleId, historyPage, historyPerPage]);
 
+  const getPendingHistoryIds = useCallback(() => {
+    const pendingStatuses = new Set(["PENDING", "SENT"]);
+    return (historyRef.current || [])
+      .filter((item) => pendingStatuses.has(item?.status))
+      .map((item) => item.id)
+      .filter(Boolean);
+  }, []);
+
+  const fetchHistoryStatus = useCallback(
+    async (ids) => {
+      if (!selectedVehicleId || !ids.length) return;
+      try {
+        const response = await api.get(API_ROUTES.commandsHistoryStatus, {
+          params: { vehicleId: selectedVehicleId, ids: ids.join(",") },
+        });
+        const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
+        if (items.length) {
+          const itemMap = new Map(items.map((item) => [String(item.id), item]));
+          setHistory((current) =>
+            current.map((item) => {
+              const update = itemMap.get(String(item.id));
+              if (!update) return item;
+              return {
+                ...item,
+                status: update.status ?? item.status,
+                receivedAt: update.receivedAt ?? item.receivedAt,
+                result: update.result ?? item.result,
+              };
+            }),
+          );
+        }
+        if (response?.data?.warning) {
+          setHistoryWarning(response.data.warning);
+        }
+      } catch (error) {
+        const message = friendlyApiError(error, "Erro ao atualizar status do histórico");
+        setHistoryWarning(message);
+      }
+    },
+    [selectedVehicleId],
+  );
+
   const startHistoryPolling = useCallback(() => {
     if (!selectedVehicleId) return;
+    if (historyPollRef.current.intervalId && historyPollRef.current.vehicleId === selectedVehicleId) return;
     stopHistoryPolling();
     historyPollRef.current.vehicleId = selectedVehicleId;
-    historyPollRef.current.intervalId = setInterval(() => {
-      fetchHistory().catch(() => {});
-    }, 4000);
+    const poll = () => {
+      const pendingIds = getPendingHistoryIds();
+      if (!pendingIds.length) {
+        stopHistoryPolling();
+        return;
+      }
+      fetchHistoryStatus(pendingIds).catch(() => {});
+    };
+    poll();
+    historyPollRef.current.intervalId = setInterval(poll, 4000);
     historyPollRef.current.timeoutId = setTimeout(() => {
       stopHistoryPolling();
     }, 60000);
-  }, [fetchHistory, selectedVehicleId, stopHistoryPolling]);
+  }, [fetchHistoryStatus, getPendingHistoryIds, selectedVehicleId, stopHistoryPolling]);
 
   useEffect(() => {
     fetchDevice().catch(() => {});
@@ -447,6 +554,19 @@ export default function Commands() {
   useEffect(() => {
     setHistoryPage(1);
   }, [selectedVehicleId, historyPerPage]);
+
+  useEffect(() => {
+    if (!selectedVehicleId) {
+      stopHistoryPolling();
+      return;
+    }
+    const pending = history.filter((item) => ["PENDING", "SENT"].includes(item?.status));
+    if (pending.length) {
+      startHistoryPolling();
+    } else {
+      stopHistoryPolling();
+    }
+  }, [history, selectedVehicleId, startHistoryPolling, stopHistoryPolling]);
 
   const totalHistoryPages = useMemo(() => {
     if (!historyTotal) return 1;
@@ -485,10 +605,9 @@ export default function Commands() {
 
     setSendingCommandId(commandKey);
     setCommandErrors((current) => ({ ...current, [commandKey]: null }));
+    const pendingId = `pending-${commandKey}-${Date.now()}`;
     try {
-      const pendingId = `pending-${commandKey}-${Date.now()}`;
       const pendingItem = buildPendingHistoryItem(command.name || commandKey, pendingId);
-      setHistoryPage(1);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
       setHistoryTotal((current) => current + 1);
       let response = null;
@@ -523,7 +642,6 @@ export default function Commands() {
         showToast("Comando enviado com sucesso.");
       }
       setExpandedCommandId(null);
-      await fetchHistory();
       if (response?.data?.ok !== false) {
         startHistoryPolling();
       }
@@ -569,7 +687,6 @@ export default function Commands() {
       kind: command.kind || "SMS",
       visible: Boolean(command.visible),
       sms: {
-        phone: command.payload?.phone || "",
         message: command.payload?.message || "",
       },
       json: {
@@ -597,10 +714,9 @@ export default function Commands() {
 
     const payload = {};
     if (customForm.kind === "SMS") {
-      payload.phone = customForm.sms.phone.trim();
       payload.message = customForm.sms.message.trim();
-      if (!payload.phone || !payload.message) {
-        showToast("Informe telefone e mensagem para o SMS.", "error");
+      if (!payload.message) {
+        showToast("Informe a mensagem para o SMS.", "error");
         return;
       }
     } else if (customForm.kind === "JSON") {
@@ -686,7 +802,6 @@ export default function Commands() {
       kind: command.kind || "SMS",
       visible: Boolean(command.visible),
       sms: {
-        phone: command.payload?.phone || "",
         message: command.payload?.message || "",
       },
       json: {
@@ -718,7 +833,6 @@ export default function Commands() {
       }
       const pendingId = `pending-${command.id}-${Date.now()}`;
       const pendingItem = buildPendingHistoryItem(command.name || command.id, pendingId);
-      setHistoryPage(1);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
       setHistoryTotal((current) => current + 1);
       setSendingCommandId(command.id);
@@ -743,7 +857,6 @@ export default function Commands() {
         } else {
           showToast("Comando enviado com sucesso.");
         }
-        await fetchHistory();
         if (response?.data?.ok !== false) {
           startHistoryPolling();
         }
@@ -757,7 +870,7 @@ export default function Commands() {
         setSendingCommandId(null);
       }
     },
-    [fetchHistory, historyPerPage, selectedVehicleId, showToast, startHistoryPolling, buildPendingHistoryItem],
+    [historyPerPage, selectedVehicleId, showToast, startHistoryPolling, buildPendingHistoryItem],
   );
 
   const handleTogglePresetVisible = useCallback(
@@ -805,6 +918,47 @@ export default function Commands() {
         [key]: value,
       },
     }));
+  };
+
+  const selectedAdvancedCommand = useMemo(
+    () => advancedCommands.find((command) => resolveUiCommandKey(command) === advancedCommandKey),
+    [advancedCommandKey, advancedCommands],
+  );
+
+  const handleAdvancedCommandSelect = (value) => {
+    setAdvancedCommandKey(value);
+  };
+
+  const handlePhoneFormChange = (field, value) => {
+    setPhoneForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const handlePhonePresetSelect = (presetId) => {
+    const preset = smsPresetOptions.find((item) => String(item.id) === String(presetId));
+    setPhoneForm((current) => ({
+      ...current,
+      commandId: presetId,
+      message: preset?.message || current.message,
+    }));
+  };
+
+  const handleSendSmsByPhone = async () => {
+    const phone = phoneForm.phone.trim();
+    const message = phoneForm.message.trim();
+    if (!phone || !message) {
+      showToast("Informe telefone e mensagem para enviar o SMS.", "error");
+      return;
+    }
+    setSendingPhone(true);
+    try {
+      await api.post(API_ROUTES.commandsSendSms, { phone, message });
+      showToast("SMS enviado com sucesso.");
+      setPhoneForm((current) => ({ ...current, phone: "" }));
+    } catch (error) {
+      showToast(friendlyApiError(error, "Erro ao enviar SMS"), "error");
+    } finally {
+      setSendingPhone(false);
+    }
   };
 
   const updatePreferences = useCallback(
@@ -1070,9 +1224,12 @@ export default function Commands() {
                                 <p className="mt-1 text-xs text-white/60">{command.description}</p>
                               )}
                               {command.kind === "custom" && (
-                                <p className="mt-1 text-[11px] uppercase tracking-wide text-primary/80">
-                                  Personalizado · {command.customKind || "Custom"}
-                                </p>
+                                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide">
+                                  <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary/80">
+                                    Personalizado
+                                  </span>
+                                  <span className="text-white/50">{command.customKind || "Custom"}</span>
+                                </div>
                               )}
                             </div>
                             <div className="flex items-center gap-2">
@@ -1209,6 +1366,181 @@ export default function Commands() {
 
           {activeTab === "Avançado" && (
             <div className="mx-6 flex flex-col gap-6 rounded-2xl border border-white/10 bg-[#0b0f17] p-6">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white/90">Envio avançado</p>
+                    <p className="text-xs text-white/60">
+                      Escolha como enviar comandos: via dispositivo ou direto por telefone (chip).
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: "vehicle", label: "Veículo/Dispositivo" },
+                      { id: "phone", label: "Telefone (chip)" },
+                    ].map((mode) => (
+                      <button
+                        key={mode.id}
+                        type="button"
+                        onClick={() => setAdvancedMode(mode.id)}
+                        className={`rounded-xl px-3 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
+                          advancedMode === mode.id
+                            ? "bg-primary/20 text-white border border-primary/40"
+                            : "border border-white/10 text-white/60 hover:text-white"
+                        }`}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {advancedMode === "vehicle" && (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Veículo
+                      <Select
+                        value={selectedVehicleId}
+                        onChange={(event) => setSelectedVehicleId(event.target.value)}
+                        className="mt-2 w-full bg-layer text-sm"
+                      >
+                        <option value="">Selecione</option>
+                        {vehicleOptionsAll.map((vehicle) => (
+                          <option key={vehicle.id} value={vehicle.id}>
+                            {vehicle.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Comando
+                      <Select
+                        value={advancedCommandKey}
+                        onChange={(event) => handleAdvancedCommandSelect(event.target.value)}
+                        className="mt-2 w-full bg-layer text-sm"
+                      >
+                        <option value="">Selecione</option>
+                        {advancedCommands.map((command) => {
+                          const uiKey = resolveUiCommandKey(command);
+                          return (
+                            <option key={uiKey} value={uiKey}>
+                              {command.name || uiKey}
+                              {command.kind === "custom" ? " · Personalizado" : ""}
+                            </option>
+                          );
+                        })}
+                      </Select>
+                    </label>
+                    {selectedAdvancedCommand?.parameters?.length > 0 && (
+                      <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
+                        {selectedAdvancedCommand.parameters.map((param) => {
+                          const inputId = `advanced-${resolveUiCommandKey(selectedAdvancedCommand)}-${param.key}`;
+                          const value =
+                            commandParams[getCommandKey(selectedAdvancedCommand)]?.[param.key] ??
+                            (param.defaultValue !== undefined && param.defaultValue !== null ? param.defaultValue : "");
+                          const type = param.type === "number" ? "number" : "text";
+                          const options = Array.isArray(param.options) ? param.options : null;
+                          return (
+                            <label
+                              key={param.key}
+                              htmlFor={inputId}
+                              className="flex flex-col text-xs uppercase tracking-wide text-white/60"
+                            >
+                              {param.label || param.key}
+                              {options ? (
+                                <Select
+                                  id={inputId}
+                                  value={value}
+                                  onChange={(event) =>
+                                    handleUpdateParam(getCommandKey(selectedAdvancedCommand), param.key, event.target.value)
+                                  }
+                                  className="mt-2 w-full bg-layer text-sm"
+                                >
+                                  {options.map((option) => (
+                                    <option key={option.value ?? option} value={option.value ?? option}>
+                                      {option.label ?? option.value ?? option}
+                                    </option>
+                                  ))}
+                                </Select>
+                              ) : (
+                                <Input
+                                  id={inputId}
+                                  type={type}
+                                  value={value}
+                                  min={param.min}
+                                  max={param.max}
+                                  step={param.step}
+                                  onChange={(event) =>
+                                    handleUpdateParam(getCommandKey(selectedAdvancedCommand), param.key, event.target.value)
+                                  }
+                                  className="mt-2"
+                                />
+                              )}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    )}
+                    <div className="md:col-span-2">
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (!selectedAdvancedCommand) {
+                            showToast("Selecione um comando para enviar.", "error");
+                            return;
+                          }
+                          handleSendCommand(selectedAdvancedCommand);
+                        }}
+                        disabled={!selectedAdvancedCommand || !selectedVehicleId}
+                      >
+                        Enviar comando
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {advancedMode === "phone" && (
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Preset SMS (opcional)
+                      <Select
+                        value={phoneForm.commandId}
+                        onChange={(event) => handlePhonePresetSelect(event.target.value)}
+                        className="mt-2 w-full bg-layer text-sm"
+                      >
+                        <option value="">Selecione</option>
+                        {smsPresetOptions.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.name}
+                          </option>
+                        ))}
+                      </Select>
+                    </label>
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Telefone
+                      <Input
+                        value={phoneForm.phone}
+                        onChange={(event) => handlePhoneFormChange("phone", event.target.value)}
+                        className="mt-2"
+                      />
+                    </label>
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60 md:col-span-2">
+                      Mensagem
+                      <Input
+                        value={phoneForm.message}
+                        onChange={(event) => handlePhoneFormChange("message", event.target.value)}
+                        className="mt-2"
+                      />
+                    </label>
+                    <div className="md:col-span-2">
+                      <Button type="button" onClick={handleSendSmsByPhone} disabled={sendingPhone}>
+                        {sendingPhone ? "Enviando…" : "Enviar SMS"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-white/90">Comandos personalizados</p>
                 <p className="text-xs text-white/60">
@@ -1265,24 +1597,14 @@ export default function Commands() {
                   </div>
 
                   {customForm.kind === "SMS" && (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                        Telefone
-                        <Input
-                          value={customForm.sms.phone}
-                          onChange={(event) => handleCustomPayloadChange("sms", "phone", event.target.value)}
-                          className="mt-2"
-                        />
-                      </label>
-                      <label className="flex flex-col text-xs uppercase tracking-wide text-white/60 md:col-span-2">
-                        Mensagem
-                        <Input
-                          value={customForm.sms.message}
-                          onChange={(event) => handleCustomPayloadChange("sms", "message", event.target.value)}
-                          className="mt-2"
-                        />
-                      </label>
-                    </div>
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Mensagem
+                      <Input
+                        value={customForm.sms.message}
+                        onChange={(event) => handleCustomPayloadChange("sms", "message", event.target.value)}
+                        className="mt-2"
+                      />
+                    </label>
                   )}
 
                   {customForm.kind === "JSON" && (
