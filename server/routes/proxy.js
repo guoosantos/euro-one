@@ -467,6 +467,7 @@ function mapDispatchStatusToApi(status, hasResponse) {
 function buildDispatchMatchSignature(dispatch) {
   const payloadSummary = dispatch?.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
   return {
+    commandId: normalizeCommandMatchValue(dispatch?.traccarCommandId),
     commandName: normalizeCommandMatchValue(dispatch?.commandName || dispatch?.commandKey || payloadSummary?.type),
     commandType: normalizeCommandMatchValue(payloadSummary?.type || dispatch?.commandKey),
     commandKey: normalizeCommandMatchValue(dispatch?.commandKey),
@@ -476,6 +477,7 @@ function buildDispatchMatchSignature(dispatch) {
 function buildEventMatchSignature(event) {
   const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
   return {
+    commandId: normalizeCommandMatchValue(attributes.commandId || attributes.commandID || event?.commandId),
     commandName: normalizeCommandMatchValue(resolveCommandNameFromEvent(event)),
     commandType: normalizeCommandMatchValue(attributes.commandType || attributes.command || attributes.type),
     commandKey: normalizeCommandMatchValue(attributes.commandId),
@@ -488,41 +490,57 @@ function findMatchingCommandEvent({ dispatch, parsedEvents, usedEventIds, matchW
   if (!Number.isFinite(sentMs)) return null;
   const dispatchSignature = buildDispatchMatchSignature(dispatch);
 
-  return (
-    parsedEvents.find((event) => {
-      if (!event?.parsedTime) return false;
-      if (usedEventIds.has(event.id)) return false;
-      const eventMs = event.parsedTime.getTime();
-      if (eventMs < sentMs - allowSkewMs) return false;
-      if (eventMs - sentMs > matchWindowMs) return false;
+  let bestCandidate = null;
+  let bestMatches = -1;
+  let bestDelta = Number.POSITIVE_INFINITY;
 
-      const eventSignature = buildEventMatchSignature(event);
-      let comparisons = 0;
-      let matches = 0;
-      if (dispatchSignature.commandKey && eventSignature.commandKey) {
-        comparisons += 1;
-        if (dispatchSignature.commandKey === eventSignature.commandKey) {
-          matches += 1;
-        }
+  parsedEvents.forEach((event) => {
+    if (!event?.parsedTime) return;
+    if (usedEventIds.has(event.id)) return;
+    const eventMs = event.parsedTime.getTime();
+    if (eventMs < sentMs - allowSkewMs) return;
+    if (eventMs - sentMs > matchWindowMs) return;
+
+    const eventSignature = buildEventMatchSignature(event);
+    let comparisons = 0;
+    let matches = 0;
+    if (dispatchSignature.commandKey && eventSignature.commandKey) {
+      comparisons += 1;
+      if (dispatchSignature.commandKey === eventSignature.commandKey) {
+        matches += 1;
       }
-      if (dispatchSignature.commandName && eventSignature.commandName) {
-        comparisons += 1;
-        if (dispatchSignature.commandName === eventSignature.commandName) {
-          matches += 1;
-        }
+    }
+    if (dispatchSignature.commandId && eventSignature.commandId) {
+      comparisons += 1;
+      if (dispatchSignature.commandId === eventSignature.commandId) {
+        matches += 1;
       }
-      if (dispatchSignature.commandType && eventSignature.commandType) {
-        comparisons += 1;
-        if (dispatchSignature.commandType === eventSignature.commandType) {
-          matches += 1;
-        }
+    }
+    if (dispatchSignature.commandName && eventSignature.commandName) {
+      comparisons += 1;
+      if (dispatchSignature.commandName === eventSignature.commandName) {
+        matches += 1;
       }
-      if (comparisons > 0 && matches === 0) {
-        return false;
+    }
+    if (dispatchSignature.commandType && eventSignature.commandType) {
+      comparisons += 1;
+      if (dispatchSignature.commandType === eventSignature.commandType) {
+        matches += 1;
       }
-      return true;
-    }) || null
-  );
+    }
+    if (comparisons > 0 && matches === 0) {
+      return;
+    }
+
+    const delta = Math.abs(eventMs - sentMs);
+    if (matches > bestMatches || (matches === bestMatches && delta < bestDelta)) {
+      bestCandidate = event;
+      bestMatches = matches;
+      bestDelta = delta;
+    }
+  });
+
+  return bestCandidate || null;
 }
 
 function buildCommandHistoryItem({
@@ -531,24 +549,30 @@ function buildCommandHistoryItem({
   traccarId,
   user,
   command,
+  commandName,
   payload,
   status,
   sentAt,
   receivedAt,
+  respondedAt,
   result,
   source,
   traccarCommandId,
 }) {
+  const resolvedCommandName = commandName || command || null;
+  const resolvedRespondedAt = respondedAt || receivedAt || null;
   return {
     id,
     vehicleId,
     traccarId,
     user: user || null,
-    command,
+    command: command || resolvedCommandName,
+    commandName: resolvedCommandName,
     payload,
     status,
     sentAt,
-    receivedAt,
+    receivedAt: receivedAt || resolvedRespondedAt,
+    respondedAt: resolvedRespondedAt,
     result,
     source,
     traccarCommandId: traccarCommandId ?? null,
@@ -1687,7 +1711,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
     try {
       await commandDispatchModel.update({
         where: { id: requestId },
-        data: { status: dispatchStatus },
+        data: {
+          status: dispatchStatus,
+          ...(traccarCommandId ? { traccarCommandId } : {}),
+        },
       });
     } catch (error) {
       console.warn("[commands] Falha ao atualizar status do dispatch no banco", error?.message || error);
@@ -1709,10 +1736,12 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       traccarId,
       user: req.user?.id ? { id: req.user.id, name: userLabel } : null,
       command: commandName || commandKey || payload.type,
+      commandName,
       payload: payload,
       status: mapDispatchStatusToApi(dispatchStatus, false),
       sentAt: sentAt.toISOString(),
       receivedAt: null,
+      respondedAt: null,
       result: null,
       source: "EURO_ONE",
       traccarCommandId,
@@ -1845,7 +1874,7 @@ router.get("/commands/history", async (req, res, next) => {
     const matchWindowMs = Number.isFinite(toMs - fromMs)
       ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
       : 2 * 60 * 60 * 1000;
-    const allowSkewMs = 2 * 60 * 1000;
+    const allowSkewMs = 15 * 60 * 1000;
     const dispatchItems = dispatches.map((dispatch) => {
       let matched = null;
 
@@ -1875,13 +1904,15 @@ router.get("/commands/history", async (req, res, next) => {
         traccarId,
         user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
         command: resolvedCommandName,
+        commandName: resolvedCommandName,
         payload: payloadSummary,
         status,
         sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
         receivedAt,
+        respondedAt: receivedAt,
         result: matched?.result || null,
         source: "EURO_ONE",
-        traccarCommandId: null,
+        traccarCommandId: dispatch.traccarCommandId || null,
       });
     });
 
@@ -1902,10 +1933,12 @@ router.get("/commands/history", async (req, res, next) => {
         traccarId,
         user: null,
         command: event.commandName || null,
+        commandName: event.commandName || null,
         payload: event.attributes || null,
         status: "RESPONDED",
         sentAt: null,
         receivedAt: event.eventTime,
+        respondedAt: event.eventTime,
         result: event.result,
         source: "TRACCAR",
         traccarCommandId: event.id || null,
@@ -2021,7 +2054,7 @@ router.get("/commands/history/status", async (req, res, next) => {
     const matchWindowMs = Number.isFinite(toMs - fromMs)
       ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
       : 2 * 60 * 60 * 1000;
-    const allowSkewMs = 2 * 60 * 1000;
+    const allowSkewMs = 15 * 60 * 1000;
 
     let userLookup = new Map();
     if (dispatches.length && prisma?.user?.findMany) {
@@ -2065,10 +2098,13 @@ router.get("/commands/history/status", async (req, res, next) => {
         id: dispatch.id,
         status,
         receivedAt: matched?.eventTime || null,
+        respondedAt: matched?.eventTime || null,
         result: matched?.result || null,
         command: resolvedCommandName,
+        commandName: resolvedCommandName,
         sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
         user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
+        traccarCommandId: dispatch.traccarCommandId || null,
       };
     });
 
