@@ -133,6 +133,8 @@ export default function Commands() {
         { key: "description", label: "Descrição (opcional)", type: "text" },
         { key: "data", label: "Payload (texto ou HEX)", type: "textarea", required: true },
         { key: "textChannel", label: "Enviar como texto (textChannel)", type: "boolean", defaultValue: false },
+        { key: "savePreset", label: "Salvar como preset", type: "boolean", defaultValue: false },
+        { key: "presetName", label: "Nome do preset", type: "text" },
       ],
     }),
     [],
@@ -457,19 +459,24 @@ export default function Commands() {
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const total = Number(response?.data?.data?.pagination?.total ?? items.length);
-        const pendingLocal = (historyRef.current || []).filter((item) => {
-          const id = String(item?.id ?? "");
-          const isPending = ["PENDING", "SENT"].includes(item?.status);
-          const existsInResponse = items.some((apiItem) => String(apiItem?.id ?? "") === id);
-          return isPending && !existsInResponse;
-        });
-        const merged = [...pendingLocal, ...items];
-        const sorted = merged.sort((a, b) => {
-          const dateA = new Date(a?.sentAt || a?.createdAt || 0).getTime();
-          const dateB = new Date(b?.sentAt || b?.createdAt || 0).getTime();
-          return dateB - dateA;
-        });
-        setHistory(sorted.slice(0, historyPerPage));
+        const shouldIncludePending = historyPage === 1;
+        const pendingLocal = shouldIncludePending
+          ? (historyRef.current || []).filter((item) => {
+              const id = String(item?.id ?? "");
+              const isPending = ["PENDING", "SENT"].includes(item?.status);
+              const existsInResponse = items.some((apiItem) => String(apiItem?.id ?? "") === id);
+              return isPending && !existsInResponse;
+            })
+          : [];
+        const merged = shouldIncludePending ? [...pendingLocal, ...items] : items;
+        const sorted = shouldIncludePending
+          ? merged.sort((a, b) => {
+              const dateA = new Date(a?.sentAt || a?.createdAt || 0).getTime();
+              const dateB = new Date(b?.sentAt || b?.createdAt || 0).getTime();
+              return dateB - dateA;
+            })
+          : merged;
+        setHistory(shouldIncludePending ? sorted.slice(0, historyPerPage) : sorted);
         setHistoryTotal((current) => {
           const baseTotal = Number.isFinite(total) ? total : items.length;
           const pendingCount = pendingLocal.length;
@@ -516,6 +523,9 @@ export default function Commands() {
                 status: update.status ?? item.status,
                 receivedAt: update.receivedAt ?? item.receivedAt,
                 result: update.result ?? item.result,
+                command: update.command ?? item.command,
+                sentAt: update.sentAt ?? item.sentAt,
+                user: update.user ?? item.user,
               };
             }),
           );
@@ -641,12 +651,43 @@ export default function Commands() {
       return;
     }
 
-    setSendingCommandId(commandKey);
-    setCommandErrors((current) => ({ ...current, [commandKey]: null }));
-    const pendingId = `pending-${commandKey}-${Date.now()}`;
+    let pendingId = null;
     try {
+      setSendingCommandId(commandKey);
+      setCommandErrors((current) => ({ ...current, [commandKey]: null }));
+      const savePreset = Boolean(manualParams.savePreset);
+      const presetName = manualParams.presetName?.trim();
+      if (isManualCustom && savePreset) {
+        if (!presetName) {
+          const message = "Informe o nome do preset para salvar.";
+          setCommandErrors((current) => ({ ...current, [commandKey]: message }));
+          showToast(message, "error");
+          return;
+        }
+        if (!manualParams.textChannel) {
+          const compact = String(manualPayload).replace(/\s+/g, "");
+          if (!/^[0-9a-fA-F]+$/.test(compact) || compact.length % 2 !== 0) {
+            const message = "Conteúdo HEX inválido para salvar preset.";
+            setCommandErrors((current) => ({ ...current, [commandKey]: message }));
+            showToast(message, "error");
+            return;
+          }
+        }
+        await api.post(API_ROUTES.commandsCustom, {
+          name: presetName,
+          description: manualParams.description?.trim() || null,
+          protocol: device?.protocol ? String(device.protocol).trim() : null,
+          kind: manualParams.textChannel ? "RAW" : "HEX",
+          visible: true,
+          payload: { data: manualPayload },
+        });
+        await fetchCustomCommands({ includeHidden: true });
+        showToast("Preset salvo com sucesso.");
+      }
+
+      pendingId = `pending-${commandKey}-${Date.now()}`;
       const pendingLabel = isManualCustom
-        ? manualParams.description?.trim() || command.name || commandKey
+        ? presetName || manualParams.description?.trim() || command.name || commandKey
         : command.name || commandKey;
       const pendingItem = buildPendingHistoryItem(pendingLabel, pendingId);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
@@ -658,7 +699,7 @@ export default function Commands() {
           payload: manualPayload,
           textChannel: Boolean(manualParams.textChannel),
           description: manualParams.description?.trim() || undefined,
-          commandName: manualParams.description?.trim() || command.name || "Comando personalizado",
+          commandName: presetName || manualParams.description?.trim() || command.name || "Comando personalizado",
         });
       } else if (command.kind === "custom") {
         response = await api.post(API_ROUTES.commandsSend, {
@@ -688,7 +729,7 @@ export default function Commands() {
       if (isManualCustom) {
         setCommandParams((current) => ({
           ...current,
-          [commandKey]: { description: "", data: "", textChannel: false },
+          [commandKey]: { description: "", data: "", textChannel: false, savePreset: false, presetName: "" },
         }));
       }
       if (response?.data?.ok === false && response?.data?.warning) {
@@ -1238,6 +1279,9 @@ export default function Commands() {
                   : param.type === "boolean"
                   ? false
                   : "");
+              if (param.key === "presetName" && !paramValues.savePreset) {
+                return null;
+              }
               const type = param.type === "number" ? "number" : "text";
               const options = Array.isArray(param.options) ? param.options : null;
               return (
