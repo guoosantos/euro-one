@@ -65,12 +65,7 @@ const normalizeCommandLabel = (value) => {
 };
 
 const resolveHistoryCommandLabel = (item) => {
-  const candidates = [
-    item?.command,
-    item?.commandName,
-    item?.payload?.description,
-    item?.payload?.type,
-  ];
+  const candidates = [item?.commandName, item?.command, item?.payload?.description, item?.payload?.type];
   const match = candidates.find((value) => normalizeCommandLabel(value));
   return match ? String(match).trim() : "—";
 };
@@ -108,6 +103,7 @@ export default function Commands() {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const historyPollRef = useRef({ intervalId: null, vehicleId: null });
+  const historyAutoRefreshRef = useRef({ intervalId: null, vehicleId: null });
   const historyRef = useRef([]);
   const [advancedMode, setAdvancedMode] = useState("vehicle");
   const [advancedCommandKey, setAdvancedCommandKey] = useState("");
@@ -199,9 +195,17 @@ export default function Commands() {
     historyPollRef.current = { intervalId: null, vehicleId: null };
   }, []);
 
+  const stopHistoryAutoRefresh = useCallback(() => {
+    if (historyAutoRefreshRef.current.intervalId) {
+      clearInterval(historyAutoRefreshRef.current.intervalId);
+    }
+    historyAutoRefreshRef.current = { intervalId: null, vehicleId: null };
+  }, []);
+
   useEffect(() => () => {
     stopHistoryPolling();
-  }, [stopHistoryPolling]);
+    stopHistoryAutoRefresh();
+  }, [stopHistoryAutoRefresh, stopHistoryPolling]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -542,8 +546,10 @@ export default function Commands() {
                 ...item,
                 status: update.status ?? item.status,
                 receivedAt: update.receivedAt ?? item.receivedAt,
+                respondedAt: update.respondedAt ?? item.respondedAt,
                 result: update.result ?? item.result,
                 command: update.command ?? item.command,
+                commandName: update.commandName ?? item.commandName,
                 sentAt: update.sentAt ?? item.sentAt,
                 user: update.user ?? item.user,
               };
@@ -586,6 +592,20 @@ export default function Commands() {
     historyPollRef.current.intervalId = setInterval(poll, 4000);
   }, [fetchHistoryStatus, getPendingHistoryIds, selectedVehicleId, stopHistoryPolling]);
 
+  const startHistoryAutoRefresh = useCallback(() => {
+    if (!selectedVehicleId || historyPage !== 1) return;
+    if (historyAutoRefreshRef.current.intervalId && historyAutoRefreshRef.current.vehicleId === selectedVehicleId) {
+      return;
+    }
+    stopHistoryAutoRefresh();
+    historyAutoRefreshRef.current.vehicleId = selectedVehicleId;
+    const refresh = () => {
+      fetchHistory({ useLoading: false, bustCache: true }).catch(() => {});
+    };
+    refresh();
+    historyAutoRefreshRef.current.intervalId = setInterval(refresh, 10000);
+  }, [fetchHistory, historyPage, selectedVehicleId, stopHistoryAutoRefresh]);
+
   useEffect(() => {
     fetchDevice().catch(() => {});
   }, [fetchDevice]);
@@ -604,15 +624,25 @@ export default function Commands() {
 
   useEffect(() => {
     stopHistoryPolling();
-  }, [selectedVehicleId, stopHistoryPolling]);
+    stopHistoryAutoRefresh();
+  }, [selectedVehicleId, stopHistoryAutoRefresh, stopHistoryPolling]);
 
   useEffect(() => {
     setHistoryPage(1);
   }, [selectedVehicleId, historyPerPage]);
 
   useEffect(() => {
+    if (historyPage === 1) {
+      startHistoryAutoRefresh();
+    } else {
+      stopHistoryAutoRefresh();
+    }
+  }, [historyPage, startHistoryAutoRefresh, stopHistoryAutoRefresh]);
+
+  useEffect(() => {
     if (!selectedVehicleId) {
       stopHistoryPolling();
+      stopHistoryAutoRefresh();
       return;
     }
     const pending = history.filter((item) => ["PENDING", "SENT"].includes(item?.status));
@@ -621,7 +651,8 @@ export default function Commands() {
     } else {
       stopHistoryPolling();
     }
-  }, [history, selectedVehicleId, startHistoryPolling, stopHistoryPolling]);
+    startHistoryAutoRefresh();
+  }, [history, selectedVehicleId, startHistoryAutoRefresh, startHistoryPolling, stopHistoryAutoRefresh, stopHistoryPolling]);
 
   const totalHistoryPages = useMemo(() => {
     if (!historyTotal) return 1;
@@ -2011,7 +2042,7 @@ export default function Commands() {
                       : "Pendente";
                   const resultText = item?.result || "—";
                   const sentAt = item?.sentAt || null;
-                  const responseAt = item?.receivedAt || item?.responseAt || null;
+                  const responseAt = item?.respondedAt || item?.receivedAt || item?.responseAt || null;
                   const requestedBy = item?.user?.name || item?.createdByName || "—";
                   return (
                     <tr key={item.id || item.requestId || `${sentAt || responseAt}-${commandLabel}`} className="hover:bg-white/5">
