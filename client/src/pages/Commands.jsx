@@ -18,6 +18,12 @@ const HISTORY_COLUMNS = [
 const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v2";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
+const PROTOCOL_OPTIONS = [
+  { label: "Todos", value: "" },
+  { label: "GT06", value: "gt06" },
+  { label: "IOTM", value: "iotm" },
+  { label: "Suntech", value: "suntech" },
+];
 
 const normalizeValue = (value) => String(value ?? "");
 
@@ -63,9 +69,10 @@ export default function Commands() {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const buildCustomForm = useCallback(
-    () => ({
+    (protocol = "") => ({
       name: "",
       description: "",
+      protocol,
       kind: "SMS",
       visible: true,
       sms: { phone: "", message: "" },
@@ -125,8 +132,14 @@ export default function Commands() {
   }, [vehicleSearch, vehicles]);
 
   const mergedCommands = useMemo(() => {
+    const protocolKey = device?.protocol ? String(device.protocol).toLowerCase() : null;
     const customVisible = customCommands
       .filter((command) => command?.visible)
+      .filter((command) => {
+        if (!command?.protocol) return true;
+        if (!protocolKey) return false;
+        return String(command.protocol).toLowerCase() === protocolKey;
+      })
       .map((command) => ({
         ...command,
         kind: "custom",
@@ -138,7 +151,7 @@ export default function Commands() {
       kind: "protocol",
     }));
     return [...protocol, ...customVisible];
-  }, [customCommands, protocolCommands]);
+  }, [customCommands, protocolCommands, device?.protocol]);
 
   const filteredCommands = useMemo(() => {
     const search = normalizeValue(commandSearch).toLowerCase();
@@ -299,6 +312,15 @@ export default function Commands() {
     fetchHistory().catch(() => {});
   }, [fetchHistory]);
 
+  useEffect(() => {
+    if (editingCustomCommandId) return;
+    if (!device?.protocol) return;
+    setCustomForm((current) => {
+      if (current.protocol) return current;
+      return { ...current, protocol: device.protocol };
+    });
+  }, [device?.protocol, editingCustomCommandId]);
+
   const handleSendCommand = async (command) => {
     const commandKey = getCommandKey(command);
     if (!selectedVehicleId || !commandKey) {
@@ -337,9 +359,9 @@ export default function Commands() {
   };
 
   const resetCustomForm = useCallback(() => {
-    setCustomForm(buildCustomForm());
+    setCustomForm(buildCustomForm(device?.protocol || ""));
     setEditingCustomCommandId(null);
-  }, [buildCustomForm]);
+  }, [buildCustomForm, device?.protocol]);
 
   const handleCustomFormChange = (field, value) => {
     setCustomForm((current) => ({ ...current, [field]: value }));
@@ -360,6 +382,7 @@ export default function Commands() {
     setCustomForm({
       name: command.name || "",
       description: command.description || "",
+      protocol: command.protocol || "",
       kind: command.kind || "SMS",
       visible: Boolean(command.visible),
       sms: {
@@ -420,6 +443,7 @@ export default function Commands() {
       const body = {
         name: customForm.name.trim(),
         description: customForm.description.trim() || null,
+        protocol: customForm.protocol ? customForm.protocol.trim() : null,
         kind: customForm.kind,
         visible: customForm.visible,
         payload,
@@ -699,6 +723,7 @@ export default function Commands() {
                                     ? param.defaultValue
                                     : "");
                                 const type = param.type === "number" ? "number" : "text";
+                                const options = Array.isArray(param.options) ? param.options : null;
                                 return (
                                   <label
                                     key={param.key}
@@ -706,15 +731,31 @@ export default function Commands() {
                                     className="flex flex-col text-xs uppercase tracking-wide text-white/60"
                                   >
                                     {param.label || param.key}
-                                    <Input
-                                      id={inputId}
-                                      type={type}
-                                      value={value}
-                                      min={param.min}
-                                      max={param.max}
-                                      onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
-                                      className="mt-2"
-                                    />
+                                    {options ? (
+                                      <Select
+                                        id={inputId}
+                                        value={value}
+                                        onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                                        className="mt-2 w-full bg-layer text-sm"
+                                      >
+                                        {options.map((option) => (
+                                          <option key={option.value ?? option} value={option.value ?? option}>
+                                            {option.label ?? option.value ?? option}
+                                          </option>
+                                        ))}
+                                      </Select>
+                                    ) : (
+                                      <Input
+                                        id={inputId}
+                                        type={type}
+                                        value={value}
+                                        min={param.min}
+                                        max={param.max}
+                                        step={param.step}
+                                        onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                                        className="mt-2"
+                                      />
+                                    )}
                                   </label>
                                 );
                               })}
@@ -733,7 +774,7 @@ export default function Commands() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-white/90">Comandos personalizados</p>
                 <p className="text-xs text-white/60">
-                  Crie comandos SMS, JSON ou RAW e controle onde eles aparecem na aba Comandos.
+                  Crie comandos SMS, JSON ou RAW, defina o protocolo e controle onde eles aparecem na aba Comandos.
                 </p>
               </div>
 
@@ -747,6 +788,20 @@ export default function Commands() {
                         onChange={(event) => handleCustomFormChange("name", event.target.value)}
                         className="mt-2"
                       />
+                    </label>
+                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                      Protocolo
+                      <Select
+                        value={customForm.protocol}
+                        onChange={(event) => handleCustomFormChange("protocol", event.target.value)}
+                        className="mt-2 w-full bg-layer text-sm"
+                      >
+                        {PROTOCOL_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
                     </label>
                     <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                       Tipo
@@ -858,7 +913,10 @@ export default function Commands() {
                           <div>
                             <p className="text-sm font-semibold text-white/90">{command.name}</p>
                             <p className="text-[11px] uppercase tracking-wide text-primary/70">
-                              {command.kind} · {command.visible ? "Visível" : "Oculto"}
+                              {command.kind}
+                              {command.protocol ? ` · ${String(command.protocol).toUpperCase()}` : ""}
+                              {" · "}
+                              {command.visible ? "Visível" : "Oculto"}
                             </p>
                             {command.description && (
                               <p className="mt-1 text-xs text-white/60">{command.description}</p>
