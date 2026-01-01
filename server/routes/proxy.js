@@ -467,6 +467,7 @@ function mapDispatchStatusToApi(status, hasResponse) {
 function buildDispatchMatchSignature(dispatch) {
   const payloadSummary = dispatch?.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
   return {
+    commandId: normalizeCommandMatchValue(dispatch?.traccarCommandId),
     commandName: normalizeCommandMatchValue(dispatch?.commandName || dispatch?.commandKey || payloadSummary?.type),
     commandType: normalizeCommandMatchValue(payloadSummary?.type || dispatch?.commandKey),
     commandKey: normalizeCommandMatchValue(dispatch?.commandKey),
@@ -476,6 +477,7 @@ function buildDispatchMatchSignature(dispatch) {
 function buildEventMatchSignature(event) {
   const attributes = event?.attributes && typeof event.attributes === "object" ? event.attributes : {};
   return {
+    commandId: normalizeCommandMatchValue(attributes.commandId || attributes.commandID || event?.commandId),
     commandName: normalizeCommandMatchValue(resolveCommandNameFromEvent(event)),
     commandType: normalizeCommandMatchValue(attributes.commandType || attributes.command || attributes.type),
     commandKey: normalizeCommandMatchValue(attributes.commandId),
@@ -505,6 +507,12 @@ function findMatchingCommandEvent({ dispatch, parsedEvents, usedEventIds, matchW
     if (dispatchSignature.commandKey && eventSignature.commandKey) {
       comparisons += 1;
       if (dispatchSignature.commandKey === eventSignature.commandKey) {
+        matches += 1;
+      }
+    }
+    if (dispatchSignature.commandId && eventSignature.commandId) {
+      comparisons += 1;
+      if (dispatchSignature.commandId === eventSignature.commandId) {
         matches += 1;
       }
     }
@@ -1703,7 +1711,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
     try {
       await commandDispatchModel.update({
         where: { id: requestId },
-        data: { status: dispatchStatus },
+        data: {
+          status: dispatchStatus,
+          ...(traccarCommandId ? { traccarCommandId } : {}),
+        },
       });
     } catch (error) {
       console.warn("[commands] Falha ao atualizar status do dispatch no banco", error?.message || error);
@@ -1901,7 +1912,7 @@ router.get("/commands/history", async (req, res, next) => {
         respondedAt: receivedAt,
         result: matched?.result || null,
         source: "EURO_ONE",
-        traccarCommandId: null,
+        traccarCommandId: dispatch.traccarCommandId || null,
       });
     });
 
@@ -2093,6 +2104,7 @@ router.get("/commands/history/status", async (req, res, next) => {
         commandName: resolvedCommandName,
         sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
         user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
+        traccarCommandId: dispatch.traccarCommandId || null,
       };
     });
 

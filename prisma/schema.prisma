@@ -427,6 +427,7 @@ model CommandDispatch {
   traccarId      Int
   commandKey     String?
   commandName    String?
+  traccarCommandId Int?
   payloadSummary Json?
   sentAt         DateTime
   status         String
