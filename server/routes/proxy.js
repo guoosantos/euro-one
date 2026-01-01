@@ -1928,7 +1928,26 @@ router.get("/commands/history/status", async (req, res, next) => {
 
 router.get("/commands/custom", async (req, res, next) => {
   try {
-    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    let clientId = null;
+    try {
+      clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    } catch (error) {
+      if (error?.status === 403) {
+        throw error;
+      }
+      return res.status(200).json({
+        data: [],
+        error: { message: error?.message || "Não foi possível identificar o cliente para listar comandos personalizados." },
+      });
+    }
+
+    if (!clientId) {
+      return res.status(200).json({
+        data: [],
+        error: { message: "Cliente não identificado para listar comandos personalizados." },
+      });
+    }
+
     const includeHidden = String(req.query?.includeHidden || "").toLowerCase() === "true";
     const protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
     const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);

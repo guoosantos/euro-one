@@ -1395,9 +1395,9 @@ export default function Commands() {
                       </div>
                     )}
 
-                  <div className="mt-4 space-y-2">
+                  <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
                     <div className="flex items-center justify-between">
-                      <p className="text-xs uppercase tracking-wide text-white/60">Comandos personalizados</p>
+                      <p className="text-xs uppercase tracking-wide text-white/60">COMANDOS PERSONALIZADOS</p>
                       {orderedCustomCommands.length > 0 && (
                         <span className="text-[11px] text-white/50">
                           {orderedCustomCommands.length} comando{orderedCustomCommands.length > 1 ? "s" : ""} disponível{orderedCustomCommands.length > 1 ? "s" : ""}
@@ -1405,7 +1405,11 @@ export default function Commands() {
                       )}
                     </div>
                     {customCommandsLoading && <p className="text-sm text-white/60">Carregando comandos personalizados…</p>}
-                    {customCommandsError && <p className="text-sm text-red-300">{customCommandsError.message}</p>}
+                    {customCommandsError && (
+                      <p className="text-sm text-red-300">
+                        {customCommandsError.message || "Erro ao carregar comandos personalizados."}
+                      </p>
+                    )}
                     {!customCommandsLoading && !customCommandsError && orderedCustomCommands.length === 0 && (
                       <p className="text-sm text-white/60">Nenhum comando personalizado encontrado para o filtro atual.</p>
                     )}
