@@ -7,6 +7,7 @@ import Select from "../ui/Select.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
+import { filterCommandsBySearch, isCustomCommandConfigured, mergeCommands, normalizeProtocolKey } from "./commands-helpers.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado"];
 const HISTORY_COLUMNS = [
@@ -30,7 +31,7 @@ const normalizeValue = (value) => String(value ?? "");
 const getCommandKey = (command) => command?.code || command?.id || "";
 const resolveUiCommandKey = (command) => getCommandKey(command) || command?.name || String(command?.id || "");
 
-const getProtocolKey = (protocol) => (protocol ? String(protocol).toLowerCase() : "default");
+const getProtocolKey = (protocol) => normalizeProtocolKey(protocol) || "default";
 
 const friendlyApiError = (error, fallbackMessage) => {
   if (error?.response?.status === 503 || error?.status === 503) {
@@ -203,35 +204,15 @@ export default function Commands() {
     [vehicles],
   );
 
-  const mergedCommands = useMemo(() => {
-    const customVisible = customCommands
-      .filter((command) => command?.visible)
-      .map((command) => ({
-        ...command,
-        kind: "custom",
-        customKind: command.kind,
-        parameters: [],
-      }));
-    const protocol = protocolCommands.map((command) => ({
-      ...command,
-      kind: "protocol",
-    }));
-    return [...protocol, ...customVisible];
-  }, [customCommands, protocolCommands]);
+  const mergedCommands = useMemo(
+    () => mergeCommands(protocolCommands, customCommands),
+    [customCommands, protocolCommands],
+  );
 
-  const advancedCommands = useMemo(() => {
-    const customAll = customCommands.map((command) => ({
-      ...command,
-      kind: "custom",
-      customKind: command.kind,
-      parameters: [],
-    }));
-    const protocol = protocolCommands.map((command) => ({
-      ...command,
-      kind: "protocol",
-    }));
-    return [...protocol, ...customAll];
-  }, [customCommands, protocolCommands]);
+  const advancedCommands = useMemo(
+    () => mergeCommands(protocolCommands, customCommands, { includeHiddenCustom: true }),
+    [customCommands, protocolCommands],
+  );
 
   const smsPresetOptions = useMemo(
     () =>
@@ -253,15 +234,10 @@ export default function Commands() {
 
   const availableCommandKeys = useMemo(() => new Set(mergedCommands.map((command) => resolveUiCommandKey(command))), [mergedCommands]);
 
-  const filteredCommands = useMemo(() => {
-    const search = normalizeValue(commandSearch).toLowerCase();
-    if (!search) return mergedCommands;
-    return mergedCommands.filter((command) => {
-      const name = normalizeValue(command?.name).toLowerCase();
-      const description = normalizeValue(command?.description).toLowerCase();
-      return name.includes(search) || description.includes(search);
-    });
-  }, [commandSearch, mergedCommands]);
+  const filteredCommands = useMemo(
+    () => filterCommandsBySearch(mergedCommands, commandSearch),
+    [commandSearch, mergedCommands],
+  );
 
   const scopedPreferences = useMemo(() => {
     const scopeKey = getProtocolKey(device?.protocol);
@@ -292,16 +268,26 @@ export default function Commands() {
     });
   }, [filteredCommands, scopedPreferences.hidden, scopedPreferences.order]);
 
-  const totalPages = useMemo(() => {
-    if (orderedCommands.length === 0) return 1;
-    return Math.max(1, Math.ceil(orderedCommands.length / commandsPerPage));
-  }, [commandsPerPage, orderedCommands.length]);
+  const orderedProtocolCommands = useMemo(
+    () => orderedCommands.filter((command) => command.kind !== "custom"),
+    [orderedCommands],
+  );
 
-  const paginatedCommands = useMemo(() => {
+  const orderedCustomCommands = useMemo(
+    () => orderedCommands.filter((command) => command.kind === "custom"),
+    [orderedCommands],
+  );
+
+  const totalPages = useMemo(() => {
+    if (orderedProtocolCommands.length === 0) return 1;
+    return Math.max(1, Math.ceil(orderedProtocolCommands.length / commandsPerPage));
+  }, [commandsPerPage, orderedProtocolCommands.length]);
+
+  const paginatedProtocolCommands = useMemo(() => {
     const start = (currentPage - 1) * commandsPerPage;
     const end = start + commandsPerPage;
-    return orderedCommands.slice(start, end);
-  }, [commandsPerPage, currentPage, orderedCommands]);
+    return orderedProtocolCommands.slice(start, end);
+  }, [commandsPerPage, currentPage, orderedProtocolCommands]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -610,6 +596,10 @@ export default function Commands() {
       showToast("Veículo sem protocolo válido", "error");
       return;
     }
+    if (command.kind === "custom" && !isCustomCommandConfigured(command, device?.protocol)) {
+      showToast("Configure este comando personalizado na aba Avançado antes de enviar.", "error");
+      return;
+    }
 
     setSendingCommandId(commandKey);
     setCommandErrors((current) => ({ ...current, [commandKey]: null }));
@@ -802,7 +792,7 @@ export default function Commands() {
     return {
       name: command.name || "",
       description: command.description || "",
-      kind: command.kind || "SMS",
+      kind: command.customKind || command.kind || "SMS",
       visible: Boolean(command.visible),
       sms: {
         message: command.payload?.message || "",
@@ -819,6 +809,18 @@ export default function Commands() {
       },
     };
   }, []);
+
+  const handleConfigureCustomCommand = useCallback(
+    (command) => {
+      if (!command) return;
+      setActiveTab("Avançado");
+      setAdvancedMode("vehicle");
+      setAdvancedCommandKey(resolveUiCommandKey(command));
+      setCustomForm(buildFormFromPreset(command));
+      setEditingCustomCommandId(command.readonly ? null : command.id);
+    },
+    [buildFormFromPreset],
+  );
 
   const handleUsePreset = useCallback(
     (command) => {
@@ -1099,6 +1101,121 @@ export default function Commands() {
       ? "bg-amber-500/20 text-amber-100 border-amber-400/30"
       : "bg-emerald-500/20 text-emerald-200 border-emerald-500/30";
 
+  const renderCommandCard = (command) => {
+    const commandKey = getCommandKey(command);
+    const uiKey = resolveUiCommandKey(command);
+    const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
+    const isExpanded = expandedCommandId === commandKey;
+    const paramValues = commandParams[commandKey] || {};
+    const commandError = commandErrors[commandKey];
+    const isCustom = command.kind === "custom";
+    const isConfigured = isCustom ? isCustomCommandConfigured(command, device?.protocol) : true;
+    const shouldShowConfigure = isCustom || hasParams;
+    const sendDisabled = sendingCommandId === commandKey || (isCustom && !isConfigured);
+    const protocolMismatch =
+      isCustom &&
+      command.protocol &&
+      device?.protocol &&
+      normalizeProtocolKey(command.protocol) !== normalizeProtocolKey(device.protocol);
+
+    return (
+      <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
+            {command.description && <p className="mt-1 text-xs text-white/60">{command.description}</p>}
+            {command.kind === "custom" && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide">
+                <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary/80">
+                  Personalizado
+                </span>
+                <span className="text-white/50">{command.customKind || "Custom"}</span>
+                {command.protocol && (
+                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-white/60">
+                    Protocolo: {command.protocol}
+                  </span>
+                )}
+              </div>
+            )}
+            {protocolMismatch && (
+              <p className="mt-2 text-[11px] uppercase tracking-wide text-amber-200">
+                Protocolo do comando diferente do veículo selecionado.
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {shouldShowConfigure ? (
+              isCustom ? (
+                <Button type="button" variant="outline" onClick={() => handleConfigureCustomCommand(command)}>
+                  Configurar
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setExpandedCommandId((current) => (current === commandKey ? null : commandKey))}
+                >
+                  {isExpanded ? "Fechar" : "Configurar"}
+                </Button>
+              )
+            ) : null}
+            <Button type="button" onClick={() => handleSendCommand(command)} disabled={sendDisabled}>
+              {sendingCommandId === commandKey ? "Enviando…" : "Enviar"}
+            </Button>
+          </div>
+        </div>
+        {commandError && <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>}
+        {isCustom && !isConfigured && (
+          <p className="mt-2 text-xs text-amber-200">
+            Configure este comando na aba Avançado antes de enviar.
+          </p>
+        )}
+        {hasParams && isExpanded && (
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {command.parameters.map((param) => {
+              const inputId = `${uiKey}-${param.key}`;
+              const value =
+                paramValues[param.key] ??
+                (param.defaultValue !== undefined && param.defaultValue !== null ? param.defaultValue : "");
+              const type = param.type === "number" ? "number" : "text";
+              const options = Array.isArray(param.options) ? param.options : null;
+              return (
+                <label key={param.key} htmlFor={inputId} className="flex flex-col text-xs uppercase tracking-wide text-white/60">
+                  {param.label || param.key}
+                  {options ? (
+                    <Select
+                      id={inputId}
+                      value={value}
+                      onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                      className="mt-2 w-full bg-layer text-sm"
+                    >
+                      {options.map((option) => (
+                        <option key={option.value ?? option} value={option.value ?? option}>
+                          {option.label ?? option.value ?? option}
+                        </option>
+                      ))}
+                    </Select>
+                  ) : (
+                    <Input
+                      id={inputId}
+                      type={type}
+                      value={value}
+                      min={param.min}
+                      max={param.max}
+                      step={param.step}
+                      onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
+                      className="mt-2"
+                    />
+                  )}
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
       <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
@@ -1204,126 +1321,33 @@ export default function Commands() {
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
+                    !customCommandsLoading &&
+                    !customCommandsError &&
                     orderedCommands.length === 0 && (
                       <p className="text-sm text-white/60">Nenhum comando encontrado.</p>
                     )}
+
                   {!deviceLoading &&
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    paginatedCommands.map((command) => {
-                      const commandKey = getCommandKey(command);
-                      const uiKey = resolveUiCommandKey(command);
-                      const hasParams = Array.isArray(command.parameters) && command.parameters.length > 0;
-                      const isExpanded = expandedCommandId === commandKey;
-                      const paramValues = commandParams[commandKey] || {};
-                      const commandError = commandErrors[commandKey];
-                      return (
-                        <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-white/90">{command.name || commandKey}</p>
-                              {command.description && (
-                                <p className="mt-1 text-xs text-white/60">{command.description}</p>
-                              )}
-                              {command.kind === "custom" && (
-                                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] uppercase tracking-wide">
-                                  <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary/80">
-                                    Personalizado
-                                  </span>
-                                  <span className="text-white/50">{command.customKind || "Custom"}</span>
-                                </div>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {hasParams ? (
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  onClick={() =>
-                                    setExpandedCommandId((current) => (current === commandKey ? null : commandKey))
-                                  }
-                                >
-                                  {isExpanded ? "Fechar" : "Configurar"}
-                                </Button>
-                              ) : null}
-                              <Button
-                                type="button"
-                                onClick={() => handleSendCommand(command)}
-                                disabled={sendingCommandId === commandKey}
-                              >
-                                {sendingCommandId === commandKey ? "Enviando…" : "Enviar"}
-                              </Button>
-                            </div>
-                          </div>
-                          {commandError && (
-                            <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>
-                          )}
-                          {hasParams && isExpanded && (
-                            <div className="mt-4 grid gap-3 md:grid-cols-2">
-                              {command.parameters.map((param) => {
-                                const inputId = `${uiKey}-${param.key}`;
-                                const value =
-                                  paramValues[param.key] ??
-                                  (param.defaultValue !== undefined && param.defaultValue !== null
-                                    ? param.defaultValue
-                                    : "");
-                                const type = param.type === "number" ? "number" : "text";
-                                const options = Array.isArray(param.options) ? param.options : null;
-                                return (
-                                  <label
-                                    key={param.key}
-                                    htmlFor={inputId}
-                                    className="flex flex-col text-xs uppercase tracking-wide text-white/60"
-                                  >
-                                    {param.label || param.key}
-                                    {options ? (
-                                      <Select
-                                        id={inputId}
-                                        value={value}
-                                        onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
-                                        className="mt-2 w-full bg-layer text-sm"
-                                      >
-                                        {options.map((option) => (
-                                          <option key={option.value ?? option} value={option.value ?? option}>
-                                            {option.label ?? option.value ?? option}
-                                          </option>
-                                        ))}
-                                      </Select>
-                                    ) : (
-                                      <Input
-                                        id={inputId}
-                                        type={type}
-                                        value={value}
-                                        min={param.min}
-                                        max={param.max}
-                                        step={param.step}
-                                        onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
-                                        className="mt-2"
-                                      />
-                                    )}
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                    paginatedProtocolCommands.map(renderCommandCard)}
+
                   {!deviceLoading &&
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    orderedCommands.length > 0 &&
-                    paginatedCommands.length === 0 && (
+                    orderedProtocolCommands.length > 0 &&
+                    paginatedProtocolCommands.length === 0 && (
                       <p className="text-sm text-white/60">Todos os comandos estão ocultos pela configuração atual.</p>
                     )}
+
                   {!deviceLoading &&
                     !deviceError &&
                     !commandsLoading &&
                     !commandsError &&
-                    orderedCommands.length > 0 &&
-                    paginatedCommands.length > 0 && (
+                    orderedProtocolCommands.length > 0 &&
+                    paginatedProtocolCommands.length > 0 && (
                       <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
                         <div className="flex items-center gap-2">
                           <span>Itens por página</span>
@@ -1362,6 +1386,23 @@ export default function Commands() {
                         </div>
                       </div>
                     )}
+
+                  <div className="mt-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs uppercase tracking-wide text-white/60">Comandos personalizados</p>
+                      {orderedCustomCommands.length > 0 && (
+                        <span className="text-[11px] text-white/50">
+                          {orderedCustomCommands.length} comando{orderedCustomCommands.length > 1 ? "s" : ""} disponível{orderedCustomCommands.length > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    {customCommandsLoading && <p className="text-sm text-white/60">Carregando comandos personalizados…</p>}
+                    {customCommandsError && <p className="text-sm text-red-300">{customCommandsError.message}</p>}
+                    {!customCommandsLoading && !customCommandsError && orderedCustomCommands.length === 0 && (
+                      <p className="text-sm text-white/60">Nenhum comando personalizado encontrado para o filtro atual.</p>
+                    )}
+                    {orderedCustomCommands.map(renderCommandCard)}
+                  </div>
                 </div>
               )}
             </>
