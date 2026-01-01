@@ -26,9 +26,23 @@ export function isCustomCommandConfigured(command, deviceProtocol = null) {
   return false;
 }
 
-export function mergeCommands(protocolCommands = [], customCommands = [], { includeHiddenCustom = false } = {}) {
+export function mergeCommands(
+  protocolCommands = [],
+  customCommands = [],
+  { includeHiddenCustom = false, deviceProtocol = null } = {},
+) {
+  const normalizedDeviceProtocol =
+    deviceProtocol === undefined ? undefined : normalizeProtocolKey(deviceProtocol);
+
   const customVisible = (customCommands || [])
     .filter((command) => includeHiddenCustom || command?.visible)
+    .filter((command) => {
+      const commandProtocol = normalizeProtocolKey(command?.protocol);
+      if (!commandProtocol) return true;
+      if (normalizedDeviceProtocol === undefined) return true;
+      if (!normalizedDeviceProtocol) return false;
+      return commandProtocol === normalizedDeviceProtocol;
+    })
     .map((command) => ({
       ...command,
       kind: "custom",

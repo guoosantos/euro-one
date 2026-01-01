@@ -205,13 +205,13 @@ export default function Commands() {
   );
 
   const mergedCommands = useMemo(
-    () => mergeCommands(protocolCommands, customCommands),
-    [customCommands, protocolCommands],
+    () => mergeCommands(protocolCommands, customCommands, { deviceProtocol: device?.protocol }),
+    [customCommands, device?.protocol, protocolCommands],
   );
 
   const advancedCommands = useMemo(
-    () => mergeCommands(protocolCommands, customCommands, { includeHiddenCustom: true }),
-    [customCommands, protocolCommands],
+    () => mergeCommands(protocolCommands, customCommands, { includeHiddenCustom: true, deviceProtocol: device?.protocol }),
+    [customCommands, device?.protocol, protocolCommands],
   );
 
   const smsPresetOptions = useMemo(
@@ -504,6 +504,14 @@ export default function Commands() {
     },
     [selectedVehicleId],
   );
+
+  const handleRefreshHistory = useCallback(async () => {
+    await fetchHistory({ useLoading: false });
+    const pendingIds = getPendingHistoryIds();
+    if (pendingIds.length) {
+      await fetchHistoryStatus(pendingIds);
+    }
+  }, [fetchHistory, fetchHistoryStatus, getPendingHistoryIds]);
 
   const startHistoryPolling = useCallback(() => {
     if (!selectedVehicleId) return;
@@ -1778,45 +1786,6 @@ export default function Commands() {
             </div>
           )}
         </div>
-        {!historyLoading && !historyError && historyTotal > 0 && (
-          <div className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-            <div className="flex items-center gap-2">
-              <span>Itens por página</span>
-              <Select
-                value={historyPerPage}
-                onChange={(event) => setHistoryPerPage(Number(event.target.value))}
-                className="w-[90px] bg-layer text-sm"
-              >
-                {PAGE_SIZE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
-                disabled={historyPage === 1}
-              >
-                Anterior
-              </button>
-              <span>
-                Página {historyPage} de {totalHistoryPages}
-              </span>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                onClick={() => setHistoryPage((current) => Math.min(totalHistoryPages, current + 1))}
-                disabled={historyPage >= totalHistoryPages}
-              >
-                Próxima
-              </button>
-            </div>
-          </div>
-        )}
       </section>
 
       <section className="card flex min-h-0 flex-col gap-4 p-0">
@@ -1829,7 +1798,7 @@ export default function Commands() {
               type="button"
               variant="ghost"
               className="inline-flex items-center gap-2"
-              onClick={() => fetchHistory({ useLoading: false })}
+              onClick={handleRefreshHistory}
               disabled={historyRefreshing || historyLoading}
             >
               <RefreshCw className={`h-4 w-4 ${historyRefreshing || historyLoading ? "animate-spin" : ""}`} />
@@ -1949,6 +1918,46 @@ export default function Commands() {
             </tbody>
           </table>
         </div>
+
+        {!historyLoading && !historyError && historyTotal > 0 && (
+          <div className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+            <div className="flex items-center gap-2">
+              <span>Itens por página</span>
+              <Select
+                value={historyPerPage}
+                onChange={(event) => setHistoryPerPage(Number(event.target.value))}
+                className="w-[90px] bg-layer text-sm"
+              >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
+                disabled={historyPage === 1}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {historyPage} de {totalHistoryPages}
+              </span>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                onClick={() => setHistoryPage((current) => Math.min(totalHistoryPages, current + 1))}
+                disabled={historyPage >= totalHistoryPages}
+              >
+                Próxima
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {toast && (
