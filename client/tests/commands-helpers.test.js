@@ -20,6 +20,23 @@ describe("mergeCommands", () => {
     const mergedAll = mergeCommands([], custom, { includeHiddenCustom: true });
     assert.equal(mergedAll.length, 2);
   });
+
+  it("treats custom commands without protocol as global and filters by selected protocol", () => {
+    const custom = [
+      { id: "global", name: "Sem protocolo", kind: "SMS", payload: { message: "ok" }, visible: true, protocol: null },
+      { id: "match", name: "Teltonika somente", kind: "SMS", payload: { message: "ok" }, visible: true, protocol: "teltonika" },
+      { id: "other", name: "Outro protocolo", kind: "SMS", payload: { message: "ok" }, visible: true, protocol: "queclink" },
+    ];
+
+    const forTeltonika = mergeCommands([], custom, { deviceProtocol: "teltonika" });
+    assert.equal(forTeltonika.map((item) => item.id).join(","), "global,match");
+
+    const forQueclink = mergeCommands([], custom, { deviceProtocol: "queclink" });
+    assert.equal(forQueclink.map((item) => item.id).join(","), "global,other");
+
+    const withoutDeviceProtocol = mergeCommands([], custom, { deviceProtocol: null });
+    assert.equal(withoutDeviceProtocol.map((item) => item.id).join(","), "global");
+  });
 });
 
 describe("filterCommandsBySearch", () => {
