@@ -1,0 +1,18 @@
+{
+  "gt06": [
+    "engineStop",
+    "engineResume",
+    "positionSingle",
+    "positionPeriodic"
+  ],
+  "suntech": [
+    "engineStop",
+    "engineResume",
+    "positionSingle",
+    "positionPeriodic"
+  ],
+  "iotm": [
+    "outputControl",
+    "custom"
+  ]
+}

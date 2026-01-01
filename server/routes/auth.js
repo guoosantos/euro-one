@@ -12,7 +12,6 @@ import {
   getFallbackUser,
   isDemoModeEnabled,
   shouldUseDemoFallback,
-  resolveFallbackCredentials,
 } from "../services/fallback-data.js";
 
 const router = express.Router();
@@ -52,35 +51,36 @@ const handleLogin = async (req, res, next) => {
       throw createError(400, "Login e senha são obrigatórios");
     }
 
-    await authenticateWithTraccar(userLogin, userPassword);
-
-    const prismaAvailable = isPrismaAvailable();
-    const fallbackAllowed = shouldUseDemoFallback({ prismaAvailable });
-    const fallbackCredentials = fallbackAllowed ? resolveFallbackCredentials(userLogin, userPassword) : null;
+    const traccarAuth = await authenticateWithTraccar(userLogin, userPassword);
+    const traccarUser = traccarAuth?.user || null;
 
     let user = null;
-    if (prismaAvailable && !fallbackCredentials) {
+    let sessionPayload = null;
+    try {
+      user = await verifyUserCredentials(userLogin, userPassword, { allowFallback: true });
+    } catch (error) {
+      const status = Number(error?.status || error?.statusCode);
+      if (status === 401) {
+        throw createError(401, "Credenciais inválidas");
+      }
+      console.warn("[auth] Falha ao validar credenciais locais; seguindo com Traccar", error?.message || error);
+      user = null;
+    }
+
+    if (user) {
+      const sanitizedUser = sanitizeUser(user);
       try {
-        user = await verifyUserCredentials(userLogin, userPassword, { allowFallback: fallbackAllowed });
+        sessionPayload = await buildSessionPayload(user.id, sanitizedUser.role);
       } catch (error) {
-        const status = Number(error?.status || error?.statusCode);
-        if (status === 401) {
-          throw createError(401, "Credenciais inválidas");
-        }
-        console.error("[auth] Falha ao validar credenciais locais; bloqueando fallback", error?.message || error);
-        throw createError(503, "Falha interna ao validar credenciais");
+        console.warn("[auth] Falha ao construir sessão local, seguindo com sessão Traccar", error?.message || error);
+        sessionPayload = null;
       }
     }
 
-    if (!user && fallbackCredentials) {
-      user = sanitizeUser(fallbackCredentials);
-    }
-
     if (!user) {
-      if (!prismaAvailable) {
-        if (!fallbackAllowed) {
-          throw createError(503, "Banco de dados indisponível e modo demo desabilitado");
-        }
+      if (traccarUser) {
+        user = buildTraccarSessionUser(traccarUser, userLogin);
+      } else if (shouldUseDemoFallback({ prismaAvailable: isPrismaAvailable() })) {
         const fallbackUser = getFallbackUser();
         const fallbackClient = getFallbackClient();
         user = sanitizeUser({
@@ -91,12 +91,19 @@ const handleLogin = async (req, res, next) => {
           clientId: fallbackUser.clientId || fallbackClient.id,
         });
       } else {
-        throw createError(401, "Credenciais inválidas");
+        throw createError(503, "Falha ao validar sessão e credenciais");
       }
     }
 
     const sanitizedUser = sanitizeUser(user);
-    const sessionPayload = await buildSessionPayload(user.id, sanitizedUser.role);
+    if (!sessionPayload) {
+      sessionPayload = {
+        user: sanitizedUser,
+        client: null,
+        clientId: sanitizedUser.clientId ?? null,
+        clients: [],
+      };
+    }
     const sessionUser = sessionPayload.user || sanitizedUser;
     const tokenPayload = {
       id: sessionUser.id,
@@ -138,6 +145,32 @@ const handleSession = async (req, res, next) => {
     return next(error);
   }
 };
+
+function buildTraccarSessionUser(traccarUser, fallbackLogin) {
+  const traccarId = traccarUser?.id ? String(traccarUser.id) : null;
+  const baseId = traccarId || String(fallbackLogin || "traccar");
+  const email =
+    traccarUser?.email
+    || (String(fallbackLogin || "").includes("@") ? String(fallbackLogin).trim() : null);
+  const username =
+    traccarUser?.name
+    || traccarUser?.username
+    || (!email ? String(fallbackLogin || "").trim() : null);
+  const name = traccarUser?.name || traccarUser?.username || String(fallbackLogin || "Usuário Traccar");
+  const role = traccarUser?.administrator ? "admin" : "manager";
+
+  return sanitizeUser({
+    id: `traccar:${baseId}`,
+    name,
+    email,
+    username,
+    role,
+    clientId: null,
+    attributes: {
+      traccarUserId: traccarId,
+    },
+  });
+}
 
 async function authenticateWithTraccar(login, password) {
   if (!isTraccarConfigured()) {

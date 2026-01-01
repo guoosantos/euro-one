@@ -100,6 +100,17 @@ function resolveCommandPayload(req) {
     return buildIotmOutputPayload(req.body?.params || {});
   }
 
+  if (match?.type === "custom" || match?.code === "custom" || match?.id === "custom") {
+    const params = req.body?.params || {};
+    const data = params.data ?? params.payload ?? params.command ?? params.text;
+    if (data !== undefined) {
+      return {
+        type: "custom",
+        attributes: { data },
+      };
+    }
+  }
+
   return {
     type: match.type || match.code || match.id,
     attributes: req.body?.params || {},
@@ -141,6 +152,31 @@ function buildIotmOutputPayload(params = {}) {
       data: buffer.toString("hex").toUpperCase(),
     },
   };
+}
+
+const BUILTIN_CUSTOM_COMMANDS = [
+  {
+    id: "builtin:iotm-output1-500ms",
+    name: "Acionar saída 1 (500ms)",
+    description: "Template IOTM baseado no payload 00 80 00 (Output control OUT1 por 500ms).",
+    protocol: "iotm",
+    kind: "HEX",
+    payload: { data: "00 80 00" },
+    visible: false,
+    sortOrder: -100,
+    readonly: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+function getBuiltinCustomCommands(protocol = null) {
+  if (!protocol) return [...BUILTIN_CUSTOM_COMMANDS];
+  const protocolKey = normalizeProtocolKey(protocol);
+  return BUILTIN_CUSTOM_COMMANDS.filter((command) => normalizeProtocolKey(command.protocol) === protocolKey);
+}
+
+function findBuiltinCustomCommand(commandId) {
+  return BUILTIN_CUSTOM_COMMANDS.find((command) => command.id === commandId) || null;
 }
 
 const commandFallbackModels = new Map();
@@ -288,6 +324,13 @@ function resolveCustomCommandPayload(customCommand) {
     return { type: "custom", attributes: { data: payload.data } };
   }
 
+  if (kind === "HEX") {
+    if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
+      throw createError(400, "Comando HEX sem conteúdo");
+    }
+    return { type: "custom", attributes: { data: payload.data } };
+  }
+
   throw createError(400, "Tipo de comando personalizado inválido");
 }
 
@@ -311,7 +354,7 @@ function normalizeCustomCommandInput(body = {}) {
     throw createError(400, "Nome do comando é obrigatório");
   }
 
-  if (!["SMS", "JSON", "RAW"].includes(kind)) {
+  if (!["SMS", "JSON", "RAW", "HEX"].includes(kind)) {
     throw createError(400, "Tipo de comando personalizado inválido");
   }
 
@@ -334,6 +377,18 @@ function normalizeCustomCommandInput(body = {}) {
     if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
       throw createError(400, "Comando RAW requer conteúdo");
     }
+  }
+
+  if (kind === "HEX") {
+    const raw = String(payload.data ?? "").trim();
+    if (!raw) {
+      throw createError(400, "Comando HEX requer conteúdo");
+    }
+    const normalised = raw.replace(/\s+/g, "");
+    if (!/^[0-9a-fA-F]+$/.test(normalised) || normalised.length % 2 !== 0) {
+      throw createError(400, "Conteúdo HEX inválido");
+    }
+    payload.data = raw;
   }
 
   return {
@@ -1389,12 +1444,15 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
     if (req.body?.customCommandId) {
       const customCommandModel = ensureCommandPrismaModel("customCommand");
       const customCommandId = String(req.body.customCommandId);
-      const customCommand = await customCommandModel.findFirst({
+      let customCommand = await customCommandModel.findFirst({
         where: {
           id: customCommandId,
           ...(clientId ? { clientId } : {}),
         },
       });
+      if (!customCommand) {
+        customCommand = findBuiltinCustomCommand(customCommandId);
+      }
       if (!customCommand) {
         throw createError(404, "Comando personalizado não encontrado");
       }
@@ -1430,20 +1488,24 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
     let traccarStatus = null;
     let traccarErrorMessage = null;
 
-    await commandDispatchModel.create({
-      data: {
-        id: requestId,
-        clientId: clientId || undefined,
-        vehicleId,
-        traccarId,
-        commandKey,
-        commandName,
-        payloadSummary: { type: payload.type, attributes: payload.attributes },
-        sentAt,
-        status: dispatchStatus,
-        createdBy: req.user?.id || undefined,
-      },
-    });
+    try {
+      await commandDispatchModel.create({
+        data: {
+          id: requestId,
+          clientId: clientId || undefined,
+          vehicleId,
+          traccarId,
+          commandKey,
+          commandName,
+          payloadSummary: { type: payload.type, attributes: payload.attributes },
+          sentAt,
+          status: dispatchStatus,
+          createdBy: req.user?.id || undefined,
+        },
+      });
+    } catch (error) {
+      console.warn("[commands] Falha ao registrar dispatch no banco", error?.message || error);
+    }
 
     let traccarResponse = null;
     try {
@@ -1471,10 +1533,14 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       traccarCommandId = traccarResponse.data.id;
     }
 
-    await commandDispatchModel.update({
-      where: { id: requestId },
-      data: { status: dispatchStatus },
-    });
+    try {
+      await commandDispatchModel.update({
+        where: { id: requestId },
+        data: { status: dispatchStatus },
+      });
+    } catch (error) {
+      console.warn("[commands] Falha ao atualizar status do dispatch no banco", error?.message || error);
+    }
 
     console.info("[commands] dispatch", {
       vehicleId,
@@ -1582,31 +1648,35 @@ router.get("/commands/history", async (req, res, next) => {
     let dispatches = [];
     let userLookup = new Map();
     if (isPrismaAvailable()) {
-      const dispatchModel = ensureCommandPrismaModel("commandDispatch");
-      dispatches = await dispatchModel.findMany({
-        where: {
-          vehicleId,
-          ...(clientId ? { clientId } : {}),
-          sentAt: {
-            gte: from,
-            lte: to,
+      try {
+        const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+        dispatches = await dispatchModel.findMany({
+          where: {
+            vehicleId,
+            ...(clientId ? { clientId } : {}),
+            sentAt: {
+              gte: from,
+              lte: to,
+            },
           },
-        },
-        orderBy: { sentAt: "asc" },
-      });
-
-      const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
-      if (userIds.length && prisma?.user?.findMany) {
-        const users = await prisma.user.findMany({
-          where: { id: { in: userIds } },
-          select: { id: true, name: true, email: true, username: true },
+          orderBy: { sentAt: "asc" },
         });
-        userLookup = new Map(
-          users.map((user) => [
-            user.id,
-            user.name || user.username || user.email || user.id,
-          ]),
-        );
+
+        const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
+        if (userIds.length && prisma?.user?.findMany) {
+          const users = await prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, name: true, email: true, username: true },
+          });
+          userLookup = new Map(
+            users.map((user) => [
+              user.id,
+              user.name || user.username || user.email || user.id,
+            ]),
+          );
+        }
+      } catch (error) {
+        console.warn("[commands] Falha ao buscar histórico no banco, retornando apenas Traccar", error?.message || error);
       }
     }
 
@@ -1727,17 +1797,30 @@ router.get("/commands/custom", async (req, res, next) => {
     const protocol = req.query?.protocol ? normalizeProtocolKey(req.query.protocol) : null;
     const canSeeHidden = includeHidden && ["manager", "admin"].includes(req.user?.role);
     const customCommandModel = ensureCommandPrismaModel("customCommand");
+    const prismaAvailable = isPrismaAvailable();
 
-    const commands = await customCommandModel.findMany({
-      where: {
-        clientId,
-        ...(canSeeHidden ? {} : { visible: true }),
-        ...(protocol ? { protocol } : {}),
-      },
-      orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+    const commands = prismaAvailable
+      ? await customCommandModel.findMany({
+          where: {
+            clientId,
+            ...(canSeeHidden ? {} : { visible: true }),
+            ...(protocol ? { protocol } : {}),
+          },
+          orderBy: [{ sortOrder: "asc" }, { createdAt: "desc" }],
+        })
+      : [];
+
+    const builtinCommands = getBuiltinCustomCommands(protocol)
+      .filter((command) => canSeeHidden || command.visible)
+      .map((command) => ({
+        ...command,
+        visible: Boolean(command.visible),
+      }));
+
+    res.json({
+      data: [...builtinCommands, ...commands],
+      error: prismaAvailable ? null : { message: "Banco indisponível para listar comandos personalizados." },
     });
-
-    res.json({ data: commands, error: null });
   } catch (error) {
     next(error);
   }
@@ -1782,6 +1865,9 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
 
 router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    if (findBuiltinCustomCommand(req.params.id)) {
+      throw createError(403, "Comando personalizado de template não pode ser alterado");
+    }
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     const input = normalizeCustomCommandInput(req.body);
@@ -1821,6 +1907,9 @@ router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, 
 
 router.patch("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    if (findBuiltinCustomCommand(req.params.id)) {
+      throw createError(403, "Comando personalizado de template não pode ser alterado");
+    }
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     if (!isPrismaAvailable()) {
@@ -1858,6 +1947,9 @@ router.patch("/commands/custom/:id", requireRole("manager", "admin"), async (req
 
 router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    if (findBuiltinCustomCommand(req.params.id)) {
+      throw createError(403, "Comando personalizado de template não pode ser removido");
+    }
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
     if (!isPrismaAvailable()) {
