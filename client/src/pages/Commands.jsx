@@ -33,6 +33,12 @@ const resolveUiCommandKey = (command) => getCommandKey(command) || command?.name
 
 const getProtocolKey = (protocol) => normalizeProtocolKey(protocol) || "default";
 
+const isValidHexPayload = (payload) => {
+  const compact = String(payload ?? "").replace(/\s+/g, "");
+  if (!compact) return false;
+  return /^[0-9a-fA-F]+$/.test(compact) && compact.length % 2 === 0;
+};
+
 const friendlyApiError = (error, fallbackMessage) => {
   if (error?.response?.status === 503 || error?.status === 503) {
     return "Serviço temporariamente indisponível. Tente novamente em instantes.";
@@ -121,6 +127,9 @@ export default function Commands() {
   });
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
+  const [lastManualCommand, setLastManualCommand] = useState(null);
+  const [lastManualCommandName, setLastManualCommandName] = useState("");
+  const [savingLastManualCommand, setSavingLastManualCommand] = useState(false);
   const buildCustomForm = useCallback(
     () => ({
       name: "",
@@ -716,8 +725,7 @@ export default function Commands() {
           return;
         }
         if (!manualParams.textChannel) {
-          const compact = String(manualPayload).replace(/\s+/g, "");
-          if (!/^[0-9a-fA-F]+$/.test(compact) || compact.length % 2 !== 0) {
+          if (!isValidHexPayload(manualPayload)) {
             const message = "Conteúdo HEX inválido para salvar preset.";
             setCommandErrors((current) => ({ ...current, [commandKey]: message }));
             showToast(message, "error");
@@ -778,6 +786,17 @@ export default function Commands() {
         );
       }
       if (isManualCustom) {
+        const defaultName =
+          manualParams.description?.trim() || String(manualPayload || "").trim() || "Comando personalizado";
+        setLastManualCommand({
+          payload: manualPayload,
+          textChannel: Boolean(manualParams.textChannel),
+          description: manualParams.description?.trim() || "",
+          protocol: device?.protocol ? String(device.protocol).trim() : null,
+        });
+        setLastManualCommandName(defaultName);
+      }
+      if (isManualCustom) {
         setCommandParams((current) => ({
           ...current,
           [commandKey]: { description: "", data: "", textChannel: false, savePreset: false, presetName: "" },
@@ -803,6 +822,36 @@ export default function Commands() {
       showToast(message, "error");
     } finally {
       setSendingCommandId(null);
+    }
+  };
+
+  const handleSaveLastManualCommand = async () => {
+    if (!lastManualCommand) return;
+    const name = lastManualCommandName.trim();
+    if (!name) {
+      showToast("Informe o nome do comando.", "error");
+      return;
+    }
+    if (!lastManualCommand.textChannel && !isValidHexPayload(lastManualCommand.payload)) {
+      showToast("Conteúdo HEX inválido para salvar comando.", "error");
+      return;
+    }
+    setSavingLastManualCommand(true);
+    try {
+      await api.post(API_ROUTES.commandsCustom, {
+        name,
+        description: lastManualCommand.description?.trim() || null,
+        protocol: lastManualCommand.protocol || null,
+        kind: lastManualCommand.textChannel ? "RAW" : "HEX",
+        visible: true,
+        payload: { data: lastManualCommand.payload },
+      });
+      await fetchCustomCommands({ includeHidden: true });
+      showToast("Comando salvo com sucesso.");
+    } catch (error) {
+      showToast(error?.response?.data?.message || error?.message || "Erro ao salvar comando", "error");
+    } finally {
+      setSavingLastManualCommand(false);
     }
   };
 
@@ -1257,6 +1306,7 @@ export default function Commands() {
     const isExpanded = expandedCommandId === commandKey;
     const paramValues = commandParams[commandKey] || {};
     const commandError = commandErrors[commandKey];
+    const isManualCustom = command.manualCustom === true;
     const isCustom = command.kind === "custom";
     const isConfigured = isCustom ? isCustomCommandConfigured(command, device?.protocol) : true;
     const shouldShowConfigure = isCustom || hasParams;
@@ -1385,6 +1435,24 @@ export default function Commands() {
                 </label>
               );
             })}
+          </div>
+        )}
+        {isManualCustom && lastManualCommand && (
+          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
+            <p className="text-xs uppercase tracking-wide text-white/60">Salvar comando enviado</p>
+            <div className="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
+              <Input
+                value={lastManualCommandName}
+                onChange={(event) => setLastManualCommandName(event.target.value)}
+                placeholder="Nome do comando"
+              />
+              <Button type="button" onClick={handleSaveLastManualCommand} disabled={savingLastManualCommand}>
+                {savingLastManualCommand ? "Salvando…" : "Salvar comando enviado"}
+              </Button>
+            </div>
+            <p className="mt-2 text-[11px] text-white/60">
+              Último payload enviado: <span className="text-white/80">{lastManualCommand.payload || "—"}</span>
+            </p>
           </div>
         )}
       </div>
