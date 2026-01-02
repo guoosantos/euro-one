@@ -393,5 +393,5 @@ const handleLogout = (req, res) => {
 router.post("/logout", authenticate, (req, res) => handleLogout(req, res));
 router.post("/auth/logout", authenticate, (req, res) => handleLogout(req, res));
 
-export { buildSessionPayload, handleLogin, __resetAuthRouteDeps };
+export { buildSessionPayload, handleLogin };
 export default router;
