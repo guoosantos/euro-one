@@ -29,6 +29,9 @@ model Client {
   routes         Route[]
   geofences      Geofence[]
   geofenceGroups GeofenceGroup[]
+
+  commandDispatches CommandDispatch[]
+  customCommands    CustomCommand[]
 }
 
 model User {
