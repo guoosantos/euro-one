@@ -76,6 +76,107 @@ const resolveHistoryCommandLabel = (item) => {
   return match ? String(match).trim() : "—";
 };
 
+const normalizeCommandIdentity = (value) => String(value ?? "").trim().toLowerCase();
+
+const resolveHistoryCorrelator = (item) => {
+  const candidate =
+    item?.traccarCommandId ??
+    item?.traccarCommandID ??
+    item?.commandId ??
+    item?.requestId ??
+    item?.correlationId ??
+    item?.correlator ??
+    item?.payload?.commandId ??
+    item?.payload?.id ??
+    item?.id;
+  return candidate ? String(candidate) : "";
+};
+
+const pickNonEmpty = (value, fallback) => {
+  if (value === null || value === undefined) return fallback;
+  if (typeof value === "string" && value.trim() === "") return fallback;
+  return value;
+};
+
+const mergeHistoryUser = (primary, fallback) => {
+  if (primary && (primary.name || primary.id)) return primary;
+  return fallback;
+};
+
+const hasRequestInfo = (item) =>
+  Boolean(item?.command || item?.commandName || item?.sentAt || item?.createdAt || item?.user);
+
+const mergeHistoryRecords = (current, next) => {
+  const currentHasRequest = hasRequestInfo(current);
+  const nextHasRequest = hasRequestInfo(next);
+  const base = currentHasRequest || !nextHasRequest ? current : next;
+  const update = base === current ? next : current;
+  return {
+    ...base,
+    ...update,
+    id: base.id ?? update.id,
+    command: pickNonEmpty(update.command, base.command),
+    commandName: pickNonEmpty(update.commandName, base.commandName),
+    user: mergeHistoryUser(update.user, base.user),
+    sentAt: pickNonEmpty(update.sentAt, base.sentAt),
+    createdAt: pickNonEmpty(update.createdAt, base.createdAt),
+    respondedAt: pickNonEmpty(update.respondedAt, base.respondedAt),
+    receivedAt: pickNonEmpty(update.receivedAt, base.receivedAt),
+    responseAt: pickNonEmpty(update.responseAt, base.responseAt),
+    result: pickNonEmpty(update.result, base.result),
+    status: pickNonEmpty(update.status, base.status),
+  };
+};
+
+const mergeHistoryItems = (items = []) => {
+  const merged = [];
+  const indexByKey = new Map();
+  items.forEach((item) => {
+    const correlator = resolveHistoryCorrelator(item);
+    if (!correlator) {
+      merged.push(item);
+      return;
+    }
+    const existingIndex = indexByKey.get(correlator);
+    if (existingIndex !== undefined) {
+      merged[existingIndex] = mergeHistoryRecords(merged[existingIndex], item);
+    } else {
+      indexByKey.set(correlator, merged.length);
+      merged.push(item);
+    }
+  });
+  return merged;
+};
+
+const findSavedCustomCommand = (commands, { name, protocol, payload }) => {
+  if (!Array.isArray(commands)) return null;
+  const normalizedName = normalizeCommandIdentity(name);
+  const normalizedProtocol = normalizeProtocolKey(protocol);
+  const normalizedPayload = normalizeCommandIdentity(payload);
+  return (
+    commands.find((command) => {
+      const commandName = normalizeCommandIdentity(command?.name);
+      const commandProtocol = normalizeProtocolKey(command?.protocol);
+      const commandPayload = normalizeCommandIdentity(command?.payload?.data);
+      if (normalizedName && commandName !== normalizedName) return false;
+      if (normalizedProtocol && commandProtocol !== normalizedProtocol) return false;
+      if (normalizedPayload && commandPayload !== normalizedPayload) return false;
+      return true;
+    }) || null
+  );
+};
+
+const findUnlockCommandKey = (commands = []) => {
+  const unlockName = "desbloquear motor";
+  const unlockCode = "engineresume";
+  const match = commands.find((command) => {
+    const normalizedName = normalizeCommandIdentity(command?.name);
+    const normalizedCode = normalizeCommandIdentity(command?.code);
+    return normalizedName === unlockName || normalizedCode === unlockCode;
+  });
+  return match ? resolveUiCommandKey(match) : null;
+};
+
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
@@ -446,6 +547,7 @@ export default function Commands() {
         if (response?.data?.error?.message) {
           setCustomCommandsError(new Error(response.data.error.message));
         }
+        return items;
       } catch (error) {
         if (includeHidden && error?.response?.status === 403) {
           try {
@@ -455,6 +557,7 @@ export default function Commands() {
             if (response?.data?.error?.message) {
               setCustomCommandsError(new Error(response.data.error.message));
             }
+            return items;
           } catch (fallbackError) {
             setCustomCommandsError(new Error(friendlyApiError(fallbackError, "Erro ao carregar comandos personalizados")));
           }
@@ -464,6 +567,7 @@ export default function Commands() {
       } finally {
         setCustomCommandsLoading(false);
       }
+      return [];
     },
     [device?.protocol, device?.traccarId],
   );
@@ -491,17 +595,20 @@ export default function Commands() {
           params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage, ...cacheParams },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
-        const total = Number(response?.data?.data?.pagination?.total ?? items.length);
+        const mergedItems = mergeHistoryItems(items);
+        const total = Number(response?.data?.data?.pagination?.total ?? mergedItems.length);
+        const removedDuplicates = Math.max(0, items.length - mergedItems.length);
+        const adjustedTotal = Number.isFinite(total) ? Math.max(mergedItems.length, total - removedDuplicates) : mergedItems.length;
         const shouldIncludePending = historyPage === 1;
         const pendingLocal = shouldIncludePending
           ? (historyRef.current || []).filter((item) => {
               const id = String(item?.id ?? "");
               const isPending = ["PENDING", "SENT"].includes(item?.status);
-              const existsInResponse = items.some((apiItem) => String(apiItem?.id ?? "") === id);
+              const existsInResponse = mergedItems.some((apiItem) => String(apiItem?.id ?? "") === id);
               return isPending && !existsInResponse;
             })
           : [];
-        const merged = shouldIncludePending ? [...pendingLocal, ...items] : items;
+        const merged = shouldIncludePending ? [...pendingLocal, ...mergedItems] : mergedItems;
         const sorted = shouldIncludePending
           ? merged.sort((a, b) => {
               const dateA = new Date(a?.sentAt || a?.createdAt || 0).getTime();
@@ -511,7 +618,7 @@ export default function Commands() {
           : merged;
         setHistory(shouldIncludePending ? sorted.slice(0, historyPerPage) : sorted);
         setHistoryTotal((current) => {
-          const baseTotal = Number.isFinite(total) ? total : items.length;
+          const baseTotal = Number.isFinite(adjustedTotal) ? adjustedTotal : mergedItems.length;
           const pendingCount = pendingLocal.length;
           return Math.max(baseTotal + pendingCount, current);
         });
@@ -844,7 +951,7 @@ export default function Commands() {
     const kind = wantsText || !isHex ? "RAW" : "HEX";
     setSavingLastManualCommand(true);
     try {
-      await api.post(API_ROUTES.commandsCustom, {
+      const response = await api.post(API_ROUTES.commandsCustom, {
         name,
         description: lastManualCommand.description?.trim() || null,
         protocol: lastManualCommand.protocol || null,
@@ -852,7 +959,50 @@ export default function Commands() {
         visible: true,
         payload: { data: rawPayload },
       });
-      await fetchCustomCommands({ includeHidden: true });
+      const createdCommand = response?.data?.data || response?.data?.command || response?.data || null;
+      const updatedCustomCommands = await fetchCustomCommands({ includeHidden: true });
+      const savedCommand =
+        (createdCommand && (createdCommand.id || createdCommand.code) ? createdCommand : null) ||
+        findSavedCustomCommand(updatedCustomCommands, {
+          name,
+          protocol: lastManualCommand.protocol,
+          payload: rawPayload,
+        });
+      if (savedCommand) {
+        const scopeKey = getProtocolKey(device?.protocol || lastManualCommand.protocol);
+        const mergedForPreferences = mergeCommands(protocolCommandsWithManual, updatedCustomCommands, {
+          deviceProtocol: device?.protocol,
+        });
+        const availableKeys = new Set(mergedForPreferences.map((command) => resolveUiCommandKey(command)));
+        const savedKey = resolveUiCommandKey(savedCommand);
+        const unlockKey = findUnlockCommandKey(mergedForPreferences);
+        setCommandPreferences((current) => {
+          const currentOrder = current.order?.[scopeKey] || [];
+          const currentHidden = current.hidden?.[scopeKey] || {};
+          const sanitizedOrder = currentOrder.filter((key) => availableKeys.has(key));
+          const sanitizedHidden = Object.fromEntries(
+            Object.entries(currentHidden).filter(([key, value]) => availableKeys.has(key) && value === true),
+          );
+          const nextHidden = { ...sanitizedHidden };
+          delete nextHidden[savedKey];
+          let nextOrder = sanitizedOrder.filter((key) => key !== savedKey);
+          if (unlockKey) {
+            if (!nextOrder.includes(unlockKey)) {
+              nextOrder = [unlockKey, ...nextOrder];
+            }
+            const unlockIndex = nextOrder.indexOf(unlockKey);
+            nextOrder.splice(unlockIndex + 1, 0, savedKey);
+          } else {
+            nextOrder = [savedKey, ...nextOrder];
+          }
+          const uniqueOrder = Array.from(new Set(nextOrder.filter((key) => availableKeys.has(key))));
+          return {
+            order: { ...current.order, [scopeKey]: uniqueOrder },
+            hidden: { ...current.hidden, [scopeKey]: nextHidden },
+          };
+        });
+      }
+      setCurrentPage(1);
       if (!wantsText && !isHex) {
         showToast("Payload não é HEX válido — salvo como texto (RAW).", "warning");
       } else {
