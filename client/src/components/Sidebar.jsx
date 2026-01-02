@@ -162,7 +162,6 @@ export default function Sidebar() {
     { to: "/devices/products", label: "Modelos & Portas", icon: Boxes },
     { to: "/devices/stock", label: "Estoque", icon: Map },
     { to: "/commands", label: "Comandos", icon: Terminal },
-    { to: "/commands/create", label: "Criar Comandos", icon: Terminal },
   ];
 
   const businessLinks = [

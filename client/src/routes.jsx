@@ -15,7 +15,6 @@ import Chips from "./pages/Chips";
 import Products from "./pages/Products";
 import Stock from "./pages/Stock";
 import Commands from "./pages/Commands";
-import CreateCommands from "./pages/CreateCommands";
 import Vehicles from "./pages/Vehicles";
 import Docs from "./pages/Docs";
 import Services from "./pages/Services";
@@ -74,7 +73,6 @@ export const routeConfig = [
   { path: "/devices/stock", element: Stock, title: "Estoque", requireTenant: true },
   { path: "/devices/import", element: DeviceImport, title: "Importar dispositivos", requireTenant: true },
   { path: "/commands", element: Commands, title: "Comandos", hideTitle: true, requireTenant: true },
-  { path: "/commands/create", element: CreateCommands, title: "Criar comandos", hideTitle: true, requireTenant: true },
   { path: "/vehicles", element: Vehicles, title: "Frota", requireTenant: true },
   { path: "/vehicles/:id", element: VehicleDetailsPage, title: "Veículo", requireTenant: true },
   { path: "/veiculos", element: Vehicles, title: "Frota", requireTenant: true },
