@@ -148,6 +148,7 @@ const mergeHistoryItems = (items = []) => {
   return merged;
 };
 
+<<<<<<< HEAD
 const findSavedCustomCommand = (commands, { name, protocol, payload }) => {
   if (!Array.isArray(commands)) return null;
   const normalizedName = normalizeCommandIdentity(name);
@@ -176,6 +177,8 @@ const findUnlockCommandKey = (commands = []) => {
   });
   return match ? resolveUiCommandKey(match) : null;
 };
+=======
+>>>>>>> parent of a6cde58e (Merge pull request #379 from guoosantos/codex/add-create-commands-screen-and-simplify-ux)
 
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading } = useVehicles();
@@ -596,7 +599,12 @@ export default function Commands() {
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const mergedItems = mergeHistoryItems(items);
+<<<<<<< HEAD
         const total = Number(response?.data?.data?.pagination?.total ?? mergedItems.length);
+=======
+        const filteredItems = mergedItems.filter((item) => item?.sentAt || item?.createdAt);
+        const total = Number(response?.data?.data?.pagination?.total ?? filteredItems.length);
+>>>>>>> parent of a6cde58e (Merge pull request #379 from guoosantos/codex/add-create-commands-screen-and-simplify-ux)
         const removedDuplicates = Math.max(0, items.length - mergedItems.length);
         const adjustedTotal = Number.isFinite(total) ? Math.max(mergedItems.length, total - removedDuplicates) : mergedItems.length;
         const shouldIncludePending = historyPage === 1;
@@ -932,6 +940,19 @@ export default function Commands() {
       setSendingCommandId(null);
     }
   };
+<<<<<<< HEAD
+=======
+  const handleSendOneShot = async () => {
+    const payload = oneShotForm.payload.trim();
+    if (!selectedVehicleId) {
+      showToast("Selecione um veículo para enviar.", "error");
+      return;
+    }
+    if (!payload) {
+      showToast("Informe o payload do comando.", "error");
+      return;
+    }
+>>>>>>> parent of a6cde58e (Merge pull request #379 from guoosantos/codex/add-create-commands-screen-and-simplify-ux)
 
   const handleSaveLastManualCommand = async () => {
     if (!lastManualCommand) return;
@@ -951,6 +972,7 @@ export default function Commands() {
     const kind = wantsText || !isHex ? "RAW" : "HEX";
     setSavingLastManualCommand(true);
     try {
+<<<<<<< HEAD
       const response = await api.post(API_ROUTES.commandsCustom, {
         name,
         description: lastManualCommand.description?.trim() || null,
@@ -958,6 +980,14 @@ export default function Commands() {
         kind,
         visible: true,
         payload: { data: rawPayload },
+=======
+      const response = await api.post(API_ROUTES.commandsSend, {
+        vehicleId: selectedVehicleId,
+        payload,
+        textChannel: true,
+        description: oneShotForm.description.trim() || undefined,
+        commandName: commandLabel,
+>>>>>>> parent of a6cde58e (Merge pull request #379 from guoosantos/codex/add-create-commands-screen-and-simplify-ux)
       });
       const createdCommand = response?.data?.data || response?.data?.command || response?.data || null;
       const updatedCustomCommands = await fetchCustomCommands({ includeHidden: true });
