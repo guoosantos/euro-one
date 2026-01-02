@@ -70,26 +70,6 @@ const normalizeCommandLabel = (value) => {
   return trimmed;
 };
 
-const isLikelyJsonPayload = (value) => {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return false;
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
-  try {
-    const parsed = JSON.parse(trimmed);
-    return typeof parsed === "object" && parsed !== null;
-  } catch (_error) {
-    return false;
-  }
-};
-
-const isLikelyHexPayload = (value) => {
-  const trimmed = String(value || "").trim();
-  if (!trimmed) return false;
-  const normalized = trimmed.replace(/\s+/g, "");
-  if (normalized.length < 4) return false;
-  return /^[0-9a-fA-F]+$/.test(normalized);
-};
-
 const resolveHistoryCommandLabel = (item) => {
   const candidates = [item?.commandName, item?.command, item?.payload?.description, item?.payload?.type];
   const match = candidates.find((value) => normalizeCommandLabel(value));
@@ -168,12 +148,6 @@ const mergeHistoryItems = (items = []) => {
   return merged;
 };
 
-<<<<<<< HEAD
-const isRenderableHistoryItem = (item) => {
-  if (!(item?.sentAt || item?.createdAt)) return false;
-  const label = resolveHistoryCommandLabel(item);
-  return Boolean(label && label !== "—");
-=======
 const findSavedCustomCommand = (commands, { name, protocol, payload }) => {
   if (!Array.isArray(commands)) return null;
   const normalizedName = normalizeCommandIdentity(name);
@@ -201,7 +175,6 @@ const findUnlockCommandKey = (commands = []) => {
     return normalizedName === unlockName || normalizedCode === unlockCode;
   });
   return match ? resolveUiCommandKey(match) : null;
->>>>>>> parent of 7ad3c4a2 (Merge pull request #378 from guoosantos/codex/add-create-commands-screen-and-features)
 };
 
 export default function Commands() {
@@ -623,12 +596,7 @@ export default function Commands() {
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const mergedItems = mergeHistoryItems(items);
-<<<<<<< HEAD
-        const filteredItems = mergedItems.filter(isRenderableHistoryItem);
-        const total = Number(response?.data?.data?.pagination?.total ?? filteredItems.length);
-=======
         const total = Number(response?.data?.data?.pagination?.total ?? mergedItems.length);
->>>>>>> parent of 7ad3c4a2 (Merge pull request #378 from guoosantos/codex/add-create-commands-screen-and-features)
         const removedDuplicates = Math.max(0, items.length - mergedItems.length);
         const adjustedTotal = Number.isFinite(total) ? Math.max(mergedItems.length, total - removedDuplicates) : mergedItems.length;
         const shouldIncludePending = historyPage === 1;
@@ -964,23 +932,6 @@ export default function Commands() {
       setSendingCommandId(null);
     }
   };
-<<<<<<< HEAD
-  const handleSendOneShot = async () => {
-    const payload = oneShotForm.payload.trim();
-    if (!selectedVehicleId) {
-      showToast("Selecione um veículo para enviar.", "error");
-      return;
-    }
-    if (!payload) {
-      showToast("Informe o payload do comando.", "error");
-      return;
-    }
-    if (isLikelyJsonPayload(payload) || isLikelyHexPayload(payload)) {
-      showToast("Payload deve ser texto simples. Não utilize JSON ou HEX.", "error");
-      return;
-    }
-=======
->>>>>>> parent of 7ad3c4a2 (Merge pull request #378 from guoosantos/codex/add-create-commands-screen-and-features)
 
   const handleSaveLastManualCommand = async () => {
     if (!lastManualCommand) return;
@@ -1000,13 +951,6 @@ export default function Commands() {
     const kind = wantsText || !isHex ? "RAW" : "HEX";
     setSavingLastManualCommand(true);
     try {
-<<<<<<< HEAD
-      const response = await api.post(API_ROUTES.commandsSend, {
-        vehicleId: selectedVehicleId,
-        payload,
-        description: oneShotForm.description.trim() || undefined,
-        commandName: commandLabel,
-=======
       const response = await api.post(API_ROUTES.commandsCustom, {
         name,
         description: lastManualCommand.description?.trim() || null,
@@ -1014,7 +958,6 @@ export default function Commands() {
         kind,
         visible: true,
         payload: { data: rawPayload },
->>>>>>> parent of 7ad3c4a2 (Merge pull request #378 from guoosantos/codex/add-create-commands-screen-and-features)
       });
       const createdCommand = response?.data?.data || response?.data?.command || response?.data || null;
       const updatedCustomCommands = await fetchCustomCommands({ includeHidden: true });
