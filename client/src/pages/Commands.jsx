@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, Settings2, X } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
-import api from "../lib/api.js";
+import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
-import { filterCommandsBySearch, isCustomCommandConfigured, mergeCommands, normalizeProtocolKey } from "./commands-helpers.js";
+import { filterCommandsBySearch, mergeCommands, normalizeProtocolKey } from "./commands-helpers.js";
 
 const COMMAND_TABS = ["Comandos", "Avançado"];
 const HISTORY_COLUMNS = [
@@ -32,12 +33,6 @@ const getCommandKey = (command) => command?.code || command?.id || "";
 const resolveUiCommandKey = (command) => getCommandKey(command) || command?.name || String(command?.id || "");
 
 const getProtocolKey = (protocol) => normalizeProtocolKey(protocol) || "default";
-
-const isValidHexPayload = (payload) => {
-  const compact = String(payload ?? "").replace(/\s+/g, "");
-  if (!compact) return false;
-  return /^[0-9a-fA-F]+$/.test(compact) && compact.length % 2 === 0;
-};
 
 const friendlyApiError = (error, fallbackMessage) => {
   if (error?.response?.status === 503 || error?.status === 503) {
@@ -73,10 +68,8 @@ const normalizeCommandLabel = (value) => {
 const resolveHistoryCommandLabel = (item) => {
   const candidates = [item?.commandName, item?.command, item?.payload?.description, item?.payload?.type];
   const match = candidates.find((value) => normalizeCommandLabel(value));
-  return match ? String(match).trim() : "—";
+  return match ? String(match).trim() : null;
 };
-
-const normalizeCommandIdentity = (value) => String(value ?? "").trim().toLowerCase();
 
 const resolveHistoryCorrelator = (item) => {
   const candidate =
@@ -84,9 +77,16 @@ const resolveHistoryCorrelator = (item) => {
     item?.traccarCommandID ??
     item?.commandId ??
     item?.requestId ??
+    item?.dispatchId ??
+    item?.commandExecutionId ??
+    item?.executionId ??
     item?.correlationId ??
     item?.correlator ??
     item?.payload?.commandId ??
+    item?.payload?.dispatchId ??
+    item?.payload?.commandExecutionId ??
+    item?.payload?.executionId ??
+    item?.payload?.requestId ??
     item?.payload?.id ??
     item?.id;
   return candidate ? String(candidate) : "";
@@ -103,8 +103,7 @@ const mergeHistoryUser = (primary, fallback) => {
   return fallback;
 };
 
-const hasRequestInfo = (item) =>
-  Boolean(item?.command || item?.commandName || item?.sentAt || item?.createdAt || item?.user);
+const hasRequestInfo = (item) => Boolean(item?.sentAt || item?.createdAt);
 
 const mergeHistoryRecords = (current, next) => {
   const currentHasRequest = hasRequestInfo(current);
@@ -128,13 +127,25 @@ const mergeHistoryRecords = (current, next) => {
   };
 };
 
+const resolveHistoryRequestedBy = (item) =>
+  item?.user?.name || item?.createdByName || item?.user?.email || item?.user?.username || item?.user?.id || null;
+
+const isRenderableHistoryItem = (item) => {
+  const hasSentAt = Boolean(item?.sentAt || item?.createdAt);
+  const hasCommand = Boolean(resolveHistoryCommandLabel(item));
+  const hasRequester = Boolean(resolveHistoryRequestedBy(item));
+  return hasSentAt && hasCommand && hasRequester;
+};
+
 const mergeHistoryItems = (items = []) => {
   const merged = [];
   const indexByKey = new Map();
   items.forEach((item) => {
     const correlator = resolveHistoryCorrelator(item);
     if (!correlator) {
-      merged.push(item);
+      if (hasRequestInfo(item)) {
+        merged.push(item);
+      }
       return;
     }
     const existingIndex = indexByKey.get(correlator);
@@ -145,36 +156,7 @@ const mergeHistoryItems = (items = []) => {
       merged.push(item);
     }
   });
-  return merged;
-};
-
-const findSavedCustomCommand = (commands, { name, protocol, payload }) => {
-  if (!Array.isArray(commands)) return null;
-  const normalizedName = normalizeCommandIdentity(name);
-  const normalizedProtocol = normalizeProtocolKey(protocol);
-  const normalizedPayload = normalizeCommandIdentity(payload);
-  return (
-    commands.find((command) => {
-      const commandName = normalizeCommandIdentity(command?.name);
-      const commandProtocol = normalizeProtocolKey(command?.protocol);
-      const commandPayload = normalizeCommandIdentity(command?.payload?.data);
-      if (normalizedName && commandName !== normalizedName) return false;
-      if (normalizedProtocol && commandProtocol !== normalizedProtocol) return false;
-      if (normalizedPayload && commandPayload !== normalizedPayload) return false;
-      return true;
-    }) || null
-  );
-};
-
-const findUnlockCommandKey = (commands = []) => {
-  const unlockName = "desbloquear motor";
-  const unlockCode = "engineresume";
-  const match = commands.find((command) => {
-    const normalizedName = normalizeCommandIdentity(command?.name);
-    const normalizedCode = normalizeCommandIdentity(command?.code);
-    return normalizedName === unlockName || normalizedCode === unlockCode;
-  });
-  return match ? resolveUiCommandKey(match) : null;
+  return merged.filter((item) => hasRequestInfo(item));
 };
 
 export default function Commands() {
@@ -192,9 +174,6 @@ export default function Commands() {
   const [customCommands, setCustomCommands] = useState([]);
   const [customCommandsLoading, setCustomCommandsLoading] = useState(false);
   const [customCommandsError, setCustomCommandsError] = useState(null);
-  const [editingCustomCommandId, setEditingCustomCommandId] = useState(null);
-  const [savingCustomCommand, setSavingCustomCommand] = useState(false);
-  const [deletingCustomCommandId, setDeletingCustomCommandId] = useState(null);
   const [expandedCommandId, setExpandedCommandId] = useState(null);
   const [commandParams, setCommandParams] = useState({});
   const [sendingCommandId, setSendingCommandId] = useState(null);
@@ -228,39 +207,21 @@ export default function Commands() {
   });
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
-  const [lastManualCommand, setLastManualCommand] = useState(null);
-  const [lastManualCommandName, setLastManualCommandName] = useState("");
-  const [savingLastManualCommand, setSavingLastManualCommand] = useState(false);
-  const buildCustomForm = useCallback(
-    () => ({
-      name: "",
-      description: "",
-      kind: "SMS",
-      visible: true,
-      sms: { message: "" },
-      json: { type: "", attributes: "{\n  \n}" },
-      raw: { data: "" },
-      hex: { data: "" },
-    }),
-    [],
-  );
-  const [customForm, setCustomForm] = useState(buildCustomForm);
+  const navigate = useNavigate();
   const manualCustomCommand = useMemo(
     () => ({
       id: "custom-manual",
       code: "custom-manual",
       name: "Comando personalizado (payload)",
-      description: "Envie texto ou HEX diretamente para o dispositivo usando o tipo custom do Traccar.",
+      description: "Envie um texto diretamente para o dispositivo usando o tipo custom do Traccar.",
       kind: "protocol",
       manualCustom: true,
       type: "custom",
       tags: ["avancado"],
       parameters: [
+        { key: "name", label: "Nome (opcional)", type: "text" },
         { key: "description", label: "Descrição (opcional)", type: "text" },
-        { key: "data", label: "Payload (texto ou HEX)", type: "textarea", required: true },
-        { key: "textChannel", label: "Enviar como texto (textChannel)", type: "boolean", defaultValue: false },
-        { key: "savePreset", label: "Salvar como preset", type: "boolean", defaultValue: false },
-        { key: "presetName", label: "Nome do preset", type: "text" },
+        { key: "data", label: "Payload (texto)", type: "textarea", required: true },
       ],
     }),
     [],
@@ -379,6 +340,7 @@ export default function Commands() {
   const smsPresetOptions = useMemo(
     () =>
       customCommands
+        .filter((command) => command?.visible !== false)
         .filter((command) => String(command?.kind || "").toUpperCase() === "SMS")
         .map((command) => ({
           id: command.id,
@@ -531,46 +493,28 @@ export default function Commands() {
     }
   }, [device?.protocol]);
 
-  const fetchCustomCommands = useCallback(
-    async ({ includeHidden = false } = {}) => {
-      setCustomCommandsLoading(true);
-      setCustomCommandsError(null);
-      const params = {
-        ...(includeHidden ? { includeHidden: true } : {}),
-        ...(!includeHidden && device?.traccarId ? { deviceId: device.traccarId } : {}),
-        ...(!includeHidden && device?.protocol ? { protocol: device.protocol } : {}),
-      };
-      try {
-        const response = await api.get(API_ROUTES.commandsCustom, { params });
-        const items = Array.isArray(response?.data?.data) ? response.data.data : [];
-        setCustomCommands(items);
-        if (response?.data?.error?.message) {
-          setCustomCommandsError(new Error(response.data.error.message));
-        }
-        return items;
-      } catch (error) {
-        if (includeHidden && error?.response?.status === 403) {
-          try {
-            const response = await api.get(API_ROUTES.commandsCustom, { params });
-            const items = Array.isArray(response?.data?.data) ? response.data.data : [];
-            setCustomCommands(items);
-            if (response?.data?.error?.message) {
-              setCustomCommandsError(new Error(response.data.error.message));
-            }
-            return items;
-          } catch (fallbackError) {
-            setCustomCommandsError(new Error(friendlyApiError(fallbackError, "Erro ao carregar comandos personalizados")));
-          }
-        } else {
-          setCustomCommandsError(new Error(friendlyApiError(error, "Erro ao carregar comandos personalizados")));
-        }
-      } finally {
-        setCustomCommandsLoading(false);
+  const fetchCustomCommands = useCallback(async () => {
+    setCustomCommandsLoading(true);
+    setCustomCommandsError(null);
+    const params = {
+      ...(device?.traccarId ? { deviceId: device.traccarId } : {}),
+      ...(device?.protocol ? { protocol: device.protocol } : {}),
+    };
+    try {
+      const response = await api.get(API_ROUTES.commandsCustom, { params });
+      const items = Array.isArray(response?.data?.data) ? response.data.data : [];
+      setCustomCommands(items);
+      if (response?.data?.error?.message) {
+        setCustomCommandsError(new Error(response.data.error.message));
       }
-      return [];
-    },
-    [device?.protocol, device?.traccarId],
-  );
+      return items;
+    } catch (error) {
+      setCustomCommandsError(new Error(friendlyApiError(error, "Erro ao carregar comandos personalizados")));
+    } finally {
+      setCustomCommandsLoading(false);
+    }
+    return [];
+  }, [device?.protocol, device?.traccarId]);
 
   const fetchHistory = useCallback(
     async ({ useLoading, bustCache } = {}) => {
@@ -596,19 +540,22 @@ export default function Commands() {
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const mergedItems = mergeHistoryItems(items);
-        const total = Number(response?.data?.data?.pagination?.total ?? mergedItems.length);
-        const removedDuplicates = Math.max(0, items.length - mergedItems.length);
-        const adjustedTotal = Number.isFinite(total) ? Math.max(mergedItems.length, total - removedDuplicates) : mergedItems.length;
+        const renderableItems = mergedItems.filter((item) => isRenderableHistoryItem(item));
+        const total = Number(response?.data?.data?.pagination?.total ?? renderableItems.length);
+        const removedDuplicates = Math.max(0, items.length - renderableItems.length);
+        const adjustedTotal = Number.isFinite(total)
+          ? Math.max(renderableItems.length, total - removedDuplicates)
+          : renderableItems.length;
         const shouldIncludePending = historyPage === 1;
         const pendingLocal = shouldIncludePending
           ? (historyRef.current || []).filter((item) => {
               const id = String(item?.id ?? "");
               const isPending = ["PENDING", "SENT"].includes(item?.status);
-              const existsInResponse = mergedItems.some((apiItem) => String(apiItem?.id ?? "") === id);
+              const existsInResponse = renderableItems.some((apiItem) => String(apiItem?.id ?? "") === id);
               return isPending && !existsInResponse;
             })
           : [];
-        const merged = shouldIncludePending ? [...pendingLocal, ...mergedItems] : mergedItems;
+        const merged = shouldIncludePending ? [...pendingLocal, ...renderableItems] : renderableItems;
         const sorted = shouldIncludePending
           ? merged.sort((a, b) => {
               const dateA = new Date(a?.sentAt || a?.createdAt || 0).getTime();
@@ -616,9 +563,12 @@ export default function Commands() {
               return dateB - dateA;
             })
           : merged;
-        setHistory(shouldIncludePending ? sorted.slice(0, historyPerPage) : sorted);
+        const sanitized = (shouldIncludePending ? sorted.slice(0, historyPerPage) : sorted).filter((item) =>
+          isRenderableHistoryItem(item),
+        );
+        setHistory(sanitized);
         setHistoryTotal((current) => {
-          const baseTotal = Number.isFinite(adjustedTotal) ? adjustedTotal : mergedItems.length;
+          const baseTotal = Number.isFinite(adjustedTotal) ? adjustedTotal : renderableItems.length;
           const pendingCount = pendingLocal.length;
           return Math.max(baseTotal + pendingCount, current);
         });
@@ -731,8 +681,8 @@ export default function Commands() {
   }, [fetchCommands]);
 
   useEffect(() => {
-    fetchCustomCommands({ includeHidden: activeTab === "Avançado" }).catch(() => {});
-  }, [activeTab, fetchCustomCommands]);
+    fetchCustomCommands().catch(() => {});
+  }, [fetchCustomCommands]);
 
   useEffect(() => {
     fetchHistory().catch(() => {});
@@ -746,6 +696,11 @@ export default function Commands() {
   useEffect(() => {
     setHistoryPage(1);
   }, [selectedVehicleId, historyPerPage]);
+
+  useEffect(() => {
+    setHistory([]);
+    historyRef.current = [];
+  }, [historyPage]);
 
   useEffect(() => {
     if (historyPage === 1) {
@@ -783,7 +738,7 @@ export default function Commands() {
     id: requestId,
     vehicleId: selectedVehicleId,
     traccarId: device?.traccarId || null,
-    user: null,
+    user: getStoredSession()?.user || null,
     command: commandLabel,
     payload: null,
     status: "PENDING",
@@ -805,12 +760,8 @@ export default function Commands() {
       showToast("Veículo sem protocolo válido", "error");
       return;
     }
-    if (command.kind === "custom" && !isCustomCommandConfigured(command, device?.protocol)) {
-      showToast("Configure este comando personalizado na aba Avançado antes de enviar.", "error");
-      return;
-    }
     const manualParams = commandParams[commandKey] || {};
-    const manualPayload = manualParams.data ?? manualParams.payload ?? "";
+    const manualPayload = String(manualParams.data ?? manualParams.payload ?? "");
     if (isManualCustom && !String(manualPayload || "").trim()) {
       const message = "Informe o payload para o comando personalizado.";
       setCommandErrors((current) => ({ ...current, [commandKey]: message }));
@@ -822,39 +773,10 @@ export default function Commands() {
     try {
       setSendingCommandId(commandKey);
       setCommandErrors((current) => ({ ...current, [commandKey]: null }));
-      const savePreset = Boolean(manualParams.savePreset);
-      const presetName = manualParams.presetName?.trim();
-      if (isManualCustom && savePreset) {
-        if (!presetName) {
-          const message = "Informe o nome do preset para salvar.";
-          setCommandErrors((current) => ({ ...current, [commandKey]: message }));
-          showToast(message, "error");
-          return;
-        }
-        if (!manualParams.textChannel) {
-          if (!isValidHexPayload(manualPayload)) {
-            const message = "Conteúdo HEX inválido para salvar preset.";
-            setCommandErrors((current) => ({ ...current, [commandKey]: message }));
-            showToast(message, "error");
-            return;
-          }
-        }
-        await api.post(API_ROUTES.commandsCustom, {
-          name: presetName,
-          description: manualParams.description?.trim() || null,
-          protocol: device?.protocol ? String(device.protocol).trim() : null,
-          kind: manualParams.textChannel ? "RAW" : "HEX",
-          visible: true,
-          payload: { data: manualPayload },
-        });
-        await fetchCustomCommands({ includeHidden: true });
-        showToast("Preset salvo com sucesso.");
-      }
+      const commandLabelCandidate = manualParams.name?.trim() || manualParams.description?.trim();
 
       pendingId = `pending-${commandKey}-${Date.now()}`;
-      const pendingLabel = isManualCustom
-        ? presetName || manualParams.description?.trim() || command.name || commandKey
-        : command.name || commandKey;
+      const pendingLabel = isManualCustom ? commandLabelCandidate || command.name || commandKey : command.name || commandKey;
       const pendingItem = buildPendingHistoryItem(pendingLabel, pendingId);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
       setHistoryTotal((current) => current + 1);
@@ -863,9 +785,9 @@ export default function Commands() {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
           payload: manualPayload,
-          textChannel: Boolean(manualParams.textChannel),
+          textChannel: true,
           description: manualParams.description?.trim() || undefined,
-          commandName: presetName || manualParams.description?.trim() || command.name || "Comando personalizado",
+          commandName: commandLabelCandidate || command.name || "Comando personalizado",
         });
       } else if (command.kind === "custom") {
         response = await api.post(API_ROUTES.commandsSend, {
@@ -893,21 +815,9 @@ export default function Commands() {
         );
       }
       if (isManualCustom) {
-        const defaultName =
-          manualParams.description?.trim() || String(manualPayload || "").trim() || "Comando personalizado";
-        const shouldForceRaw = !manualParams.textChannel && !isValidHexPayload(manualPayload);
-        setLastManualCommand({
-          payload: manualPayload,
-          textChannel: Boolean(manualParams.textChannel) || shouldForceRaw,
-          description: manualParams.description?.trim() || "",
-          protocol: device?.protocol ? String(device.protocol).trim() : null,
-        });
-        setLastManualCommandName(defaultName);
-      }
-      if (isManualCustom) {
         setCommandParams((current) => ({
           ...current,
-          [commandKey]: { description: "", data: "", textChannel: false, savePreset: false, presetName: "" },
+          [commandKey]: { name: "", description: "", data: "" },
         }));
       }
       if (response?.data?.ok === false && response?.data?.warning) {
@@ -932,346 +842,6 @@ export default function Commands() {
       setSendingCommandId(null);
     }
   };
-
-  const handleSaveLastManualCommand = async () => {
-    if (!lastManualCommand) return;
-    const name = lastManualCommandName.trim();
-    if (!name) {
-      showToast("Informe o nome do comando.", "error");
-      return;
-    }
-    const rawPayload = String(lastManualCommand.payload ?? "");
-    const trimmedPayload = rawPayload.trim();
-    if (!trimmedPayload) {
-      showToast("Payload vazio", "error");
-      return;
-    }
-    const wantsText = Boolean(lastManualCommand.textChannel);
-    const isHex = !wantsText && isValidHexPayload(trimmedPayload);
-    const kind = wantsText || !isHex ? "RAW" : "HEX";
-    setSavingLastManualCommand(true);
-    try {
-      const response = await api.post(API_ROUTES.commandsCustom, {
-        name,
-        description: lastManualCommand.description?.trim() || null,
-        protocol: lastManualCommand.protocol || null,
-        kind,
-        visible: true,
-        payload: { data: rawPayload },
-      });
-      const createdCommand = response?.data?.data || response?.data?.command || response?.data || null;
-      const updatedCustomCommands = await fetchCustomCommands({ includeHidden: true });
-      const savedCommand =
-        (createdCommand && (createdCommand.id || createdCommand.code) ? createdCommand : null) ||
-        findSavedCustomCommand(updatedCustomCommands, {
-          name,
-          protocol: lastManualCommand.protocol,
-          payload: rawPayload,
-        });
-      if (savedCommand) {
-        const scopeKey = getProtocolKey(device?.protocol || lastManualCommand.protocol);
-        const mergedForPreferences = mergeCommands(protocolCommandsWithManual, updatedCustomCommands, {
-          deviceProtocol: device?.protocol,
-        });
-        const availableKeys = new Set(mergedForPreferences.map((command) => resolveUiCommandKey(command)));
-        const savedKey = resolveUiCommandKey(savedCommand);
-        const unlockKey = findUnlockCommandKey(mergedForPreferences);
-        setCommandPreferences((current) => {
-          const currentOrder = current.order?.[scopeKey] || [];
-          const currentHidden = current.hidden?.[scopeKey] || {};
-          const sanitizedOrder = currentOrder.filter((key) => availableKeys.has(key));
-          const sanitizedHidden = Object.fromEntries(
-            Object.entries(currentHidden).filter(([key, value]) => availableKeys.has(key) && value === true),
-          );
-          const nextHidden = { ...sanitizedHidden };
-          delete nextHidden[savedKey];
-          let nextOrder = sanitizedOrder.filter((key) => key !== savedKey);
-          if (unlockKey) {
-            if (!nextOrder.includes(unlockKey)) {
-              nextOrder = [unlockKey, ...nextOrder];
-            }
-            const unlockIndex = nextOrder.indexOf(unlockKey);
-            nextOrder.splice(unlockIndex + 1, 0, savedKey);
-          } else {
-            nextOrder = [savedKey, ...nextOrder];
-          }
-          const uniqueOrder = Array.from(new Set(nextOrder.filter((key) => availableKeys.has(key))));
-          return {
-            order: { ...current.order, [scopeKey]: uniqueOrder },
-            hidden: { ...current.hidden, [scopeKey]: nextHidden },
-          };
-        });
-      }
-      setCurrentPage(1);
-      if (!wantsText && !isHex) {
-        showToast("Payload não é HEX válido — salvo como texto (RAW).", "warning");
-      } else {
-        showToast("Comando salvo com sucesso.");
-      }
-    } catch (error) {
-      showToast(error?.response?.data?.message || error?.message || "Erro ao salvar comando", "error");
-    } finally {
-      setSavingLastManualCommand(false);
-    }
-  };
-
-  const resetCustomForm = useCallback(() => {
-    setCustomForm(buildCustomForm());
-    setEditingCustomCommandId(null);
-  }, [buildCustomForm]);
-
-  const handleCustomFormChange = (field, value) => {
-    setCustomForm((current) => ({ ...current, [field]: value }));
-  };
-
-  const handleCustomPayloadChange = (section, field, value) => {
-    setCustomForm((current) => ({
-      ...current,
-      [section]: {
-        ...(current?.[section] || {}),
-        [field]: value,
-      },
-    }));
-  };
-
-  const handleEditCustomCommand = (command) => {
-    if (command.readonly) return;
-    setEditingCustomCommandId(command.id);
-    setCustomForm({
-      name: command.name || "",
-      description: command.description || "",
-      kind: command.kind || "SMS",
-      visible: Boolean(command.visible),
-      sms: {
-        message: command.payload?.message || "",
-      },
-      json: {
-        type: command.payload?.type || "",
-        attributes: JSON.stringify(command.payload?.attributes || {}, null, 2),
-      },
-      raw: {
-        data: command.payload?.data || "",
-      },
-      hex: {
-        data: command.payload?.data || "",
-      },
-    });
-  };
-
-  const handleSaveCustomCommand = async () => {
-    if (!customForm.name.trim()) {
-      showToast("Informe o nome do comando.", "error");
-      return;
-    }
-    const payload = {};
-    if (customForm.kind === "SMS") {
-      payload.message = customForm.sms.message.trim();
-      if (!payload.message) {
-        showToast("Informe a mensagem para o SMS.", "error");
-        return;
-      }
-    } else if (customForm.kind === "JSON") {
-      const type = customForm.json.type.trim();
-      if (!type) {
-        showToast("Informe o type do comando JSON.", "error");
-        return;
-      }
-      let attributes = {};
-      if (customForm.json.attributes.trim()) {
-        try {
-          attributes = JSON.parse(customForm.json.attributes);
-        } catch (error) {
-          showToast("JSON inválido em attributes.", "error");
-          return;
-        }
-      }
-      payload.type = type;
-      payload.attributes = attributes;
-    } else if (customForm.kind === "RAW") {
-      payload.data = customForm.raw.data;
-      if (!String(payload.data || "").trim()) {
-        showToast("Informe o conteúdo RAW.", "error");
-        return;
-      }
-    } else if (customForm.kind === "HEX") {
-      payload.data = customForm.hex.data;
-      if (!String(payload.data || "").trim()) {
-        showToast("Informe o conteúdo HEX.", "error");
-        return;
-      }
-    }
-
-    setSavingCustomCommand(true);
-    try {
-      const body = {
-        name: customForm.name.trim(),
-        description: customForm.description.trim() || null,
-        protocol: device?.protocol ? String(device.protocol).trim() : null,
-        kind: customForm.kind,
-        visible: customForm.visible,
-        payload,
-      };
-
-      if (editingCustomCommandId) {
-        await api.put(`${API_ROUTES.commandsCustom}/${editingCustomCommandId}`, body);
-        showToast("Comando personalizado atualizado.");
-      } else {
-        await api.post(API_ROUTES.commandsCustom, body);
-        showToast("Comando personalizado criado.");
-      }
-      await fetchCustomCommands({ includeHidden: true });
-      resetCustomForm();
-    } catch (error) {
-      showToast(error?.response?.data?.message || error?.message || "Erro ao salvar comando", "error");
-    } finally {
-      setSavingCustomCommand(false);
-    }
-  };
-
-  const handleDeleteCustomCommand = async (commandId) => {
-    const confirmed = window.confirm("Deseja remover este comando personalizado?");
-    if (!confirmed) return;
-    setDeletingCustomCommandId(commandId);
-    try {
-      await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
-      showToast("Comando personalizado removido.");
-      await fetchCustomCommands({ includeHidden: true });
-      if (editingCustomCommandId === commandId) {
-        resetCustomForm();
-      }
-    } catch (error) {
-      showToast(error?.response?.data?.message || error?.message || "Erro ao remover comando", "error");
-    } finally {
-      setDeletingCustomCommandId(null);
-    }
-  };
-
-  const buildFormFromPreset = useCallback((command) => {
-    return {
-      name: command.name || "",
-      description: command.description || "",
-      kind: command.customKind || command.kind || "SMS",
-      visible: Boolean(command.visible),
-      sms: {
-        message: command.payload?.message || "",
-      },
-      json: {
-        type: command.payload?.type || "",
-        attributes: JSON.stringify(command.payload?.attributes || {}, null, 2),
-      },
-      raw: {
-        data: command.payload?.data || "",
-      },
-      hex: {
-        data: command.payload?.data || "",
-      },
-    };
-  }, []);
-
-  const handleConfigureCustomCommand = useCallback(
-    (command) => {
-      if (!command) return;
-      setActiveTab("Avançado");
-      setAdvancedMode("vehicle");
-      setAdvancedCommandKey(resolveUiCommandKey(command));
-      setCustomForm(buildFormFromPreset(command));
-      setEditingCustomCommandId(command.readonly ? null : command.id);
-    },
-    [buildFormFromPreset],
-  );
-
-  const handleUsePreset = useCallback(
-    (command) => {
-      setEditingCustomCommandId(null);
-      setCustomForm(buildFormFromPreset(command));
-    },
-    [buildFormFromPreset],
-  );
-
-  const handleSendPreset = useCallback(
-    async (command) => {
-      if (!selectedVehicleId) {
-        showToast("Selecione um veículo para enviar o comando.", "error");
-        return;
-      }
-      const pendingId = `pending-${command.id}-${Date.now()}`;
-      const pendingItem = buildPendingHistoryItem(command.name || command.id, pendingId);
-      setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
-      setHistoryTotal((current) => current + 1);
-      setSendingCommandId(command.id);
-      try {
-        const response = await api.post(API_ROUTES.commandsSend, {
-          vehicleId: selectedVehicleId,
-          customCommandId: command.id,
-        });
-        const createdItem = response?.data?.data;
-        if (createdItem) {
-          setHistory((current) => {
-            const filtered = current.filter((item) => item.id !== pendingId);
-            return [createdItem, ...filtered].slice(0, historyPerPage);
-          });
-        } else {
-          setHistory((current) =>
-            current.map((item) => (item.id === pendingId ? { ...item, status: "SENT" } : item)),
-          );
-        }
-        if (response?.data?.ok === false && response?.data?.warning) {
-          showToast(response.data.warning, "warning");
-        } else {
-          showToast("Comando enviado com sucesso.");
-        }
-        if (response?.data?.ok !== false) {
-          startHistoryPolling();
-        }
-      } catch (error) {
-        const message = friendlyApiError(error, "Erro ao enviar comando");
-        setHistory((current) =>
-          current.map((item) => (item.id === pendingId ? { ...item, status: "ERROR", result: message } : item)),
-        );
-        showToast(message, "error");
-      } finally {
-        setSendingCommandId(null);
-      }
-    },
-    [historyPerPage, selectedVehicleId, showToast, startHistoryPolling, buildPendingHistoryItem],
-  );
-
-  const handleTogglePresetVisible = useCallback(
-    async (command) => {
-      try {
-        await api.patch(`${API_ROUTES.commandsCustom}/${command.id}`, {
-          visible: !command.visible,
-        });
-        await fetchCustomCommands({ includeHidden: true });
-      } catch (error) {
-        showToast(friendlyApiError(error, "Erro ao atualizar visibilidade"), "error");
-      }
-    },
-    [fetchCustomCommands, showToast],
-  );
-
-  const handleMovePreset = useCallback(
-    async (command, direction) => {
-      const sorted = [...customCommands].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
-      const index = sorted.findIndex((item) => item.id === command.id);
-      if (index === -1) return;
-      const targetIndex = direction === "up" ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= sorted.length) return;
-      const target = sorted[targetIndex];
-      try {
-        await api.patch(`${API_ROUTES.commandsCustom}/${command.id}`, {
-          sortOrder: target.sortOrder ?? 0,
-        });
-        await api.patch(`${API_ROUTES.commandsCustom}/${target.id}`, {
-          sortOrder: command.sortOrder ?? 0,
-        });
-        await fetchCustomCommands({ includeHidden: true });
-      } catch (error) {
-        showToast(friendlyApiError(error, "Erro ao reordenar presets"), "error");
-      }
-    },
-    [customCommands, fetchCustomCommands, showToast],
-  );
 
   const handleUpdateParam = (commandId, key, value) => {
     setCommandParams((current) => ({
@@ -1404,7 +974,7 @@ export default function Commands() {
     fetchDevice().catch(() => {});
     fetchHistory().catch(() => {});
     fetchCommands().catch(() => {});
-    fetchCustomCommands({ includeHidden: activeTab === "Avançado" }).catch(() => {});
+    fetchCustomCommands().catch(() => {});
   };
 
   const resizeStateRef = useRef(null);
@@ -1466,16 +1036,8 @@ export default function Commands() {
     const isExpanded = expandedCommandId === commandKey;
     const paramValues = commandParams[commandKey] || {};
     const commandError = commandErrors[commandKey];
-    const isManualCustom = command.manualCustom === true;
-    const isCustom = command.kind === "custom";
-    const isConfigured = isCustom ? isCustomCommandConfigured(command, device?.protocol) : true;
-    const shouldShowConfigure = isCustom || hasParams;
-    const sendDisabled = sendingCommandId === commandKey || (isCustom && !isConfigured);
-    const protocolMismatch =
-      isCustom &&
-      command.protocol &&
-      device?.protocol &&
-      normalizeProtocolKey(command.protocol) !== normalizeProtocolKey(device.protocol);
+    const shouldShowConfigure = hasParams;
+    const sendDisabled = sendingCommandId === commandKey;
 
     return (
       <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -1496,27 +1058,16 @@ export default function Commands() {
                 )}
               </div>
             )}
-            {protocolMismatch && (
-              <p className="mt-2 text-[11px] uppercase tracking-wide text-amber-200">
-                Protocolo do comando diferente do veículo selecionado.
-              </p>
-            )}
           </div>
           <div className="flex items-center gap-2">
             {shouldShowConfigure ? (
-              isCustom ? (
-                <Button type="button" variant="outline" onClick={() => handleConfigureCustomCommand(command)}>
-                  Configurar
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setExpandedCommandId((current) => (current === commandKey ? null : commandKey))}
-                >
-                  {isExpanded ? "Fechar" : "Configurar"}
-                </Button>
-              )
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setExpandedCommandId((current) => (current === commandKey ? null : commandKey))}
+              >
+                {isExpanded ? "Fechar" : "Configurar"}
+              </Button>
             ) : null}
             <Button type="button" onClick={() => handleSendCommand(command)} disabled={sendDisabled}>
               {sendingCommandId === commandKey ? "Enviando…" : "Enviar"}
@@ -1524,11 +1075,6 @@ export default function Commands() {
           </div>
         </div>
         {commandError && <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>}
-        {isCustom && !isConfigured && (
-          <p className="mt-2 text-xs text-amber-200">
-            Configure este comando na aba Avançado antes de enviar.
-          </p>
-        )}
         {hasParams && isExpanded && (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {command.parameters.map((param) => {
@@ -1595,24 +1141,6 @@ export default function Commands() {
                 </label>
               );
             })}
-          </div>
-        )}
-        {isManualCustom && lastManualCommand && (
-          <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-3">
-            <p className="text-xs uppercase tracking-wide text-white/60">Salvar comando enviado</p>
-            <div className="mt-2 grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
-              <Input
-                value={lastManualCommandName}
-                onChange={(event) => setLastManualCommandName(event.target.value)}
-                placeholder="Nome do comando"
-              />
-              <Button type="button" onClick={handleSaveLastManualCommand} disabled={savingLastManualCommand}>
-                {savingLastManualCommand ? "Salvando…" : "Salvar comando enviado"}
-              </Button>
-            </div>
-            <p className="mt-2 text-[11px] text-white/60">
-              Último payload enviado: <span className="text-white/80">{lastManualCommand.payload || "—"}</span>
-            </p>
           </div>
         )}
       </div>
@@ -1979,194 +1507,17 @@ export default function Commands() {
                 )}
               </div>
 
-              <div className="space-y-3">
-                <p className="text-sm font-semibold text-white/90">Comandos personalizados</p>
-                <p className="text-xs text-white/60">
-                  Crie comandos SMS, JSON, RAW ou HEX e controle onde eles aparecem na aba Comandos.
-                </p>
-                {!device?.protocol && (
-                  <p className="text-xs text-amber-200">
-                    Opcional: selecione um veículo para associar o protocolo. Sem veículo, o comando fica geral e visível.
-                  </p>
-                )}
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.6fr)]">
-                <div className="space-y-4">
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Nome
-                      <Input
-                        value={customForm.name}
-                        onChange={(event) => handleCustomFormChange("name", event.target.value)}
-                        className="mt-2"
-                      />
-                    </label>
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Tipo
-                      <Select
-                        value={customForm.kind}
-                        onChange={(event) => handleCustomFormChange("kind", event.target.value)}
-                        className="mt-2 w-full bg-layer text-sm"
-                      >
-                        <option value="SMS">SMS</option>
-                        <option value="JSON">JSON</option>
-                        <option value="RAW">RAW</option>
-                        <option value="HEX">HEX</option>
-                      </Select>
-                    </label>
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60 md:col-span-2">
-                      Descrição (opcional)
-                      <Input
-                        value={customForm.description}
-                        onChange={(event) => handleCustomFormChange("description", event.target.value)}
-                        className="mt-2"
-                      />
-                    </label>
-                    <label className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/60">
-                      <input
-                        type="checkbox"
-                        checked={customForm.visible}
-                        onChange={(event) => handleCustomFormChange("visible", event.target.checked)}
-                        className="h-4 w-4 rounded border-white/20 bg-transparent"
-                      />
-                      Visível em Comandos
-                    </label>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white/90">Comandos personalizados</p>
+                    <p className="text-xs text-white/60">
+                      A criação e o gerenciamento de comandos personalizados agora ficam na tela dedicada.
+                    </p>
                   </div>
-
-                  {customForm.kind === "SMS" && (
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Mensagem
-                      <Input
-                        value={customForm.sms.message}
-                        onChange={(event) => handleCustomPayloadChange("sms", "message", event.target.value)}
-                        className="mt-2"
-                      />
-                    </label>
-                  )}
-
-                  {customForm.kind === "JSON" && (
-                    <div className="grid gap-3">
-                      <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                        Type
-                        <Input
-                          value={customForm.json.type}
-                          onChange={(event) => handleCustomPayloadChange("json", "type", event.target.value)}
-                          className="mt-2"
-                        />
-                      </label>
-                      <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                        Attributes (JSON)
-                        <textarea
-                          value={customForm.json.attributes}
-                          onChange={(event) => handleCustomPayloadChange("json", "attributes", event.target.value)}
-                          rows={6}
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/80"
-                        />
-                      </label>
-                    </div>
-                  )}
-
-                  {customForm.kind === "RAW" && (
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Conteúdo RAW
-                      <textarea
-                        value={customForm.raw.data}
-                        onChange={(event) => handleCustomPayloadChange("raw", "data", event.target.value)}
-                        rows={4}
-                        className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/80"
-                      />
-                    </label>
-                  )}
-
-                  {customForm.kind === "HEX" && (
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Conteúdo HEX
-                      <textarea
-                        value={customForm.hex.data}
-                        onChange={(event) => handleCustomPayloadChange("hex", "data", event.target.value)}
-                        rows={4}
-                        className="mt-2 w-full rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/80"
-                      />
-                    </label>
-                  )}
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" onClick={handleSaveCustomCommand} disabled={savingCustomCommand}>
-                      {savingCustomCommand ? "Salvando…" : editingCustomCommandId ? "Atualizar" : "Criar"}
-                    </Button>
-                    <Button type="button" variant="outline" onClick={resetCustomForm}>
-                      Limpar
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-3">
-                  <p className="text-xs uppercase tracking-wide text-white/60">Comandos cadastrados</p>
-                  {customCommandsLoading && <p className="text-sm text-white/60">Carregando comandos…</p>}
-                  {customCommandsError && <p className="text-sm text-red-300">{customCommandsError.message}</p>}
-                  {!customCommandsLoading && !customCommandsError && customCommands.length === 0 && (
-                    <p className="text-sm text-white/60">Nenhum comando personalizado cadastrado.</p>
-                  )}
-                  <div className="space-y-2">
-                    {customCommands.map((command) => (
-                      <div key={command.id} className="rounded-xl border border-white/10 bg-white/5 p-3">
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <p className="text-sm font-semibold text-white/90">{command.name}</p>
-                            <p className="text-[11px] uppercase tracking-wide text-primary/70">
-                              {command.kind}
-                              {" · "}
-                              {command.visible ? "Visível" : "Oculto"}
-                              {command.readonly ? " · Template" : ""}
-                            </p>
-                            {command.description && (
-                              <p className="mt-1 text-xs text-white/60">{command.description}</p>
-                            )}
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <Button type="button" variant="outline" onClick={() => handleUsePreset(command)}>
-                              Usar
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => handleSendPreset(command)}
-                              disabled={sendingCommandId === command.id}
-                            >
-                              {sendingCommandId === command.id ? "Enviando…" : "Enviar"}
-                            </Button>
-                            {!command.readonly && (
-                              <>
-                                <Button type="button" variant="outline" onClick={() => handleEditCustomCommand(command)}>
-                                  Editar
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="danger"
-                                  onClick={() => handleDeleteCustomCommand(command.id)}
-                                  disabled={deletingCustomCommandId === command.id}
-                                >
-                                  {deletingCustomCommandId === command.id ? "Removendo…" : "Excluir"}
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/70">
-                          <Button type="button" variant="outline" onClick={() => handleTogglePresetVisible(command)}>
-                            {command.visible ? "Ocultar" : "Mostrar"}
-                          </Button>
-                          <Button type="button" variant="outline" onClick={() => handleMovePreset(command, "up")}>
-                            ↑
-                          </Button>
-                          <Button type="button" variant="outline" onClick={() => handleMovePreset(command, "down")}>
-                            ↓
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <Button type="button" variant="outline" onClick={() => navigate("/commands/create")}>
+                    Criar comandos
+                  </Button>
                 </div>
               </div>
             </div>
@@ -2259,7 +1610,7 @@ export default function Commands() {
               )}
               {history.length > 0 &&
                 history.map((item) => {
-                  const commandLabel = resolveHistoryCommandLabel(item);
+                  const commandLabel = resolveHistoryCommandLabel(item) || "—";
                   const statusLabel =
                     item?.status === "RESPONDED"
                       ? "Respondido"
@@ -2271,7 +1622,7 @@ export default function Commands() {
                   const resultText = item?.result || "—";
                   const sentAt = item?.sentAt || null;
                   const responseAt = item?.respondedAt || item?.receivedAt || item?.responseAt || null;
-                  const requestedBy = item?.user?.name || item?.createdByName || "—";
+                  const requestedBy = resolveHistoryRequestedBy(item) || "—";
                   return (
                     <tr key={item.id || item.requestId || `${sentAt || responseAt}-${commandLabel}`} className="hover:bg-white/5">
                       <td
