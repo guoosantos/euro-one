@@ -35,6 +35,7 @@ export function mergeCommands(
     deviceProtocol === undefined ? undefined : normalizeProtocolKey(deviceProtocol);
 
   const customVisible = (customCommands || [])
+    .filter((command) => String(command?.kind || "").toUpperCase() === "RAW")
     .filter((command) => includeHiddenCustom || command?.visible)
     .filter((command) => {
       const commandProtocol = normalizeProtocolKey(command?.protocol);

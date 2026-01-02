@@ -62,6 +62,26 @@ const normalizeCommandLabel = (value) => {
   return trimmed;
 };
 
+const isLikelyJsonPayload = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === "object" && parsed !== null;
+  } catch (_error) {
+    return false;
+  }
+};
+
+const isLikelyHexPayload = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  const normalized = trimmed.replace(/\s+/g, "");
+  if (normalized.length < 4) return false;
+  return /^[0-9a-fA-F]+$/.test(normalized);
+};
+
 const resolveHistoryCommandLabel = (item) => {
   const candidates = [item?.commandName, item?.command, item?.payload?.description, item?.payload?.type];
   const match = candidates.find((value) => normalizeCommandLabel(value));
@@ -140,6 +160,11 @@ const mergeHistoryItems = (items = []) => {
   return merged;
 };
 
+const isRenderableHistoryItem = (item) => {
+  if (!(item?.sentAt || item?.createdAt)) return false;
+  const label = resolveHistoryCommandLabel(item);
+  return Boolean(label && label !== "—");
+};
 
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading } = useVehicles();
@@ -455,7 +480,7 @@ export default function Commands() {
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const mergedItems = mergeHistoryItems(items);
-        const filteredItems = mergedItems.filter((item) => item?.sentAt || item?.createdAt);
+        const filteredItems = mergedItems.filter(isRenderableHistoryItem);
         const total = Number(response?.data?.data?.pagination?.total ?? filteredItems.length);
         const removedDuplicates = Math.max(0, items.length - mergedItems.length);
         const removedEmpty = Math.max(0, mergedItems.length - filteredItems.length);
@@ -739,6 +764,10 @@ export default function Commands() {
       showToast("Informe o payload do comando.", "error");
       return;
     }
+    if (isLikelyJsonPayload(payload) || isLikelyHexPayload(payload)) {
+      showToast("Payload deve ser texto simples. Não utilize JSON ou HEX.", "error");
+      return;
+    }
 
     const commandLabel =
       oneShotForm.name.trim() || oneShotForm.description.trim() || "Personalizado";
@@ -751,7 +780,6 @@ export default function Commands() {
       const response = await api.post(API_ROUTES.commandsSend, {
         vehicleId: selectedVehicleId,
         payload,
-        textChannel: true,
         description: oneShotForm.description.trim() || undefined,
         commandName: commandLabel,
       });

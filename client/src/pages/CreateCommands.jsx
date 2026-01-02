@@ -24,6 +24,26 @@ const buildEmptyForm = (protocol = "") => ({
   visible: true,
 });
 
+const isLikelyJsonPayload = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return false;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return typeof parsed === "object" && parsed !== null;
+  } catch (_error) {
+    return false;
+  }
+};
+
+const isLikelyHexPayload = (value) => {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return false;
+  const normalized = trimmed.replace(/\s+/g, "");
+  if (normalized.length < 4) return false;
+  return /^[0-9a-fA-F]+$/.test(normalized);
+};
+
 export default function CreateCommands() {
   const navigate = useNavigate();
   const [protocols, setProtocols] = useState([]);
@@ -154,6 +174,10 @@ export default function CreateCommands() {
     }
     if (!payload) {
       showToast("Informe o payload do comando.", "error");
+      return;
+    }
+    if (isLikelyJsonPayload(payload) || isLikelyHexPayload(payload)) {
+      showToast("Payload deve ser texto simples. Não utilize JSON ou HEX.", "error");
       return;
     }
 
