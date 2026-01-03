@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { RefreshCw, Settings2, X } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { RefreshCw, Settings2, Trash2, X } from "lucide-react";
 
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
@@ -9,8 +8,9 @@ import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
 import { filterCommandsBySearch, mergeCommands, normalizeProtocolKey } from "./commands-helpers.js";
+import CreateCommands from "./CreateCommands.jsx";
 
-const COMMAND_TABS = ["Comandos", "Avançado"];
+const COMMAND_TABS = ["Comandos", "Avançado", "Criar comandos"];
 const HISTORY_COLUMNS = [
   { id: "sentAt", label: "Enviado em", width: 170, minWidth: 150 },
   { id: "responseAt", label: "Respondido em", width: 170, minWidth: 150 },
@@ -159,6 +159,8 @@ const mergeHistoryItems = (items = []) => {
   return merged.filter((item) => hasRequestInfo(item));
 };
 
+const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 export default function Commands() {
   const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
@@ -207,7 +209,7 @@ export default function Commands() {
   });
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
-  const navigate = useNavigate();
+  const [deletingCommandId, setDeletingCommandId] = useState(null);
   const manualCustomCommand = useMemo(
     () => ({
       id: "custom-manual",
@@ -593,13 +595,19 @@ export default function Commands() {
       .filter(Boolean);
   }, []);
 
+  const getPendingHistoryUuidIds = useCallback(() => {
+    return getPendingHistoryIds().filter((id) => isUuid(id));
+  }, [getPendingHistoryIds]);
+
   const fetchHistoryStatus = useCallback(
     async (ids, { bustCache } = {}) => {
-      if (!selectedVehicleId || !ids.length) return;
+      if (!selectedVehicleId) return;
+      const uuidIds = (ids || []).filter((id) => isUuid(id));
+      if (!uuidIds.length) return;
       try {
         const cacheParams = bustCache ? { ts: Date.now() } : {};
         const response = await api.get(API_ROUTES.commandsHistoryStatus, {
-          params: { vehicleId: selectedVehicleId, ids: ids.join(","), ...cacheParams },
+          params: { vehicleId: selectedVehicleId, ids: uuidIds.join(","), ...cacheParams },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         if (items.length) {
@@ -635,11 +643,11 @@ export default function Commands() {
 
   const handleRefreshHistory = useCallback(async () => {
     await fetchHistory({ useLoading: false, bustCache: true });
-    const pendingIds = getPendingHistoryIds();
+    const pendingIds = getPendingHistoryUuidIds();
     if (pendingIds.length) {
       await fetchHistoryStatus(pendingIds, { bustCache: true });
     }
-  }, [fetchHistory, fetchHistoryStatus, getPendingHistoryIds]);
+  }, [fetchHistory, fetchHistoryStatus, getPendingHistoryUuidIds]);
 
   const startHistoryPolling = useCallback(() => {
     if (!selectedVehicleId) return;
@@ -647,7 +655,7 @@ export default function Commands() {
     stopHistoryPolling();
     historyPollRef.current.vehicleId = selectedVehicleId;
     const poll = () => {
-      const pendingIds = getPendingHistoryIds();
+      const pendingIds = getPendingHistoryUuidIds();
       if (!pendingIds.length) {
         stopHistoryPolling();
         return;
@@ -656,7 +664,7 @@ export default function Commands() {
     };
     poll();
     historyPollRef.current.intervalId = setInterval(poll, 4000);
-  }, [fetchHistoryStatus, getPendingHistoryIds, selectedVehicleId, stopHistoryPolling]);
+  }, [fetchHistoryStatus, getPendingHistoryUuidIds, selectedVehicleId, stopHistoryPolling]);
 
   const startHistoryAutoRefresh = useCallback(() => {
     if (!selectedVehicleId || historyPage !== 1) return;
@@ -716,7 +724,9 @@ export default function Commands() {
       stopHistoryAutoRefresh();
       return;
     }
-    const pending = history.filter((item) => ["PENDING", "SENT"].includes(item?.status));
+    const pending = history.filter(
+      (item) => ["PENDING", "SENT"].includes(item?.status) && isUuid(String(item?.id || "")),
+    );
     if (pending.length) {
       startHistoryPolling();
     } else {
@@ -842,6 +852,30 @@ export default function Commands() {
       setSendingCommandId(null);
     }
   };
+
+  const handleDeleteCustomCommand = useCallback(
+    async (command) => {
+      const commandId = command?.id;
+      if (!commandId) return;
+      const uiKey = getCommandKey(command);
+      const confirmed = window.confirm("Deseja remover este comando personalizado?");
+      if (!confirmed) return;
+      setDeletingCommandId(commandId);
+      try {
+        await api.delete(`${API_ROUTES.commandsCustom}/${commandId}`);
+        setCustomCommands((current) => current.filter((item) => item.id !== commandId));
+        if (expandedCommandId === uiKey) {
+          setExpandedCommandId(null);
+        }
+        showToast("Comando removido.");
+      } catch (error) {
+        showToast(friendlyApiError(error, "Erro ao remover comando"), "error");
+      } finally {
+        setDeletingCommandId(null);
+      }
+    },
+    [expandedCommandId, setCustomCommands, showToast],
+  );
 
   const handleUpdateParam = (commandId, key, value) => {
     setCommandParams((current) => ({
@@ -1038,6 +1072,8 @@ export default function Commands() {
     const commandError = commandErrors[commandKey];
     const shouldShowConfigure = hasParams;
     const sendDisabled = sendingCommandId === commandKey;
+    const isCustomCommand = command.kind === "custom";
+    const canDeleteCustom = isCustomCommand && command.readonly !== true;
 
     return (
       <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -1060,6 +1096,17 @@ export default function Commands() {
             )}
           </div>
           <div className="flex items-center gap-2">
+            {canDeleteCustom && (
+              <button
+                type="button"
+                onClick={() => handleDeleteCustomCommand(command)}
+                className="rounded-xl border border-white/10 p-2 text-white/70 transition hover:border-red-400/50 hover:text-red-200 disabled:opacity-50"
+                aria-label="Excluir comando personalizado"
+                disabled={deletingCommandId === command.id}
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
             {shouldShowConfigure ? (
               <Button
                 type="button"
@@ -1515,11 +1562,17 @@ export default function Commands() {
                       A criação e o gerenciamento de comandos personalizados agora ficam na tela dedicada.
                     </p>
                   </div>
-                  <Button type="button" variant="outline" onClick={() => navigate("/commands/create")}>
+                  <Button type="button" variant="outline" onClick={() => setActiveTab("Criar comandos")}>
                     Criar comandos
                   </Button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {activeTab === "Criar comandos" && (
+            <div className="mx-6 mb-6">
+              <CreateCommands />
             </div>
           )}
         </div>
