@@ -55,7 +55,7 @@ describe("POST /api/login", () => {
     };
 
     __setAuthRouteDeps({
-      authenticateWithTraccar: async () => ({ ok: false, skipped: true }),
+      authenticateWithTraccar: async () => ({ ok: true, user: { id: 123 } }),
       verifyUserCredentials: async () => user,
       sanitizeUser: (value) => value,
       buildSessionPayload: async () => payload,
@@ -76,12 +76,12 @@ describe("POST /api/login", () => {
     const response = await postLogin({ email: "user@euro.one" });
 
     assert.equal(response.status, 400);
-    assert.equal(response.body.errorCode, "MISSING_CREDENTIALS");
+    assert.equal(response.body.error, "Campos obrigatórios: usuário e senha");
   });
 
   it("returns 401 when credentials are invalid", async () => {
     __setAuthRouteDeps({
-      authenticateWithTraccar: async () => ({ ok: false, skipped: true }),
+      authenticateWithTraccar: async () => ({ ok: true, user: { id: 123 } }),
       verifyUserCredentials: async () => {
         throw createError(401, "Credenciais inválidas");
       },
@@ -90,12 +90,12 @@ describe("POST /api/login", () => {
     const response = await postLogin({ email: "user@euro.one", password: "wrong" });
 
     assert.equal(response.status, 401);
-    assert.equal(response.body.errorCode, "INVALID_CREDENTIALS");
+    assert.equal(response.body.error, "Usuário ou senha inválidos");
   });
 
   it("returns 503 when database is unavailable and fallback is disabled", async () => {
     __setAuthRouteDeps({
-      authenticateWithTraccar: async () => ({ ok: false, skipped: true }),
+      authenticateWithTraccar: async () => ({ ok: true, user: null }),
       verifyUserCredentials: async () => {
         const error = createError(503, "Banco de dados indisponível");
         error.code = "DATABASE_UNAVAILABLE";
@@ -108,6 +108,19 @@ describe("POST /api/login", () => {
     const response = await postLogin({ email: "user@euro.one", password: "secret" });
 
     assert.equal(response.status, 503);
-    assert.equal(response.body.errorCode, "DATABASE_UNAVAILABLE");
+    assert.equal(response.body.error, "Banco de dados indisponível ou mal configurado");
+  });
+
+  it("returns 502 when Traccar is unavailable", async () => {
+    __setAuthRouteDeps({
+      authenticateWithTraccar: async () => {
+        throw createError(502, "Servidor Traccar indisponível");
+      },
+    });
+
+    const response = await postLogin({ email: "user@euro.one", password: "secret" });
+
+    assert.equal(response.status, 502);
+    assert.equal(response.body.error, "Servidor Traccar indisponível");
   });
 });
