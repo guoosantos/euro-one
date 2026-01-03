@@ -769,7 +769,9 @@ export default function Commands() {
   const buildPendingHistoryItem = (commandLabel, requestId, traccarId) => ({
     id: requestId,
     vehicleId: selectedVehicleId,
-    traccarId: (traccarId ?? device?.traccarId) || null,
+
+    traccarId: traccarId ?? device?.traccarId || null,
+
     user: getStoredSession()?.user || null,
     command: commandLabel,
     payload: null,
