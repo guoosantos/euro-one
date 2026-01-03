@@ -770,7 +770,7 @@ export default function Commands() {
     id: requestId,
     vehicleId: selectedVehicleId,
 
-    traccarId: traccarId ?? device?.traccarId || null,
+    traccarId: traccarId ?? device?.traccarId ?? null,
 
     user: getStoredSession()?.user || null,
     command: commandLabel,
