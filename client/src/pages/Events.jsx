@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Columns3 } from "lucide-react";
 
 import Button from "../ui/Button.jsx";
@@ -224,6 +225,7 @@ function buildInitialColumns() {
 
 export default function Events() {
   const { locale } = useTranslation();
+  const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();
 
@@ -309,6 +311,12 @@ export default function Events() {
       setColumnsDraft(columnsVisibility);
     }
   }, [columnsVisibility, showColumns]);
+
+  useEffect(() => {
+    const incomingVehicleId = searchParams.get("vehicleId");
+    if (!incomingVehicleId) return;
+    setSelectedVehicleId((current) => (String(current) === String(incomingVehicleId) ? current : incomingVehicleId));
+  }, [searchParams]);
 
   useEffect(() => {
     try {

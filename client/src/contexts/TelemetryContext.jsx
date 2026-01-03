@@ -24,7 +24,7 @@ const TelemetryContext = createContext({
 
 const ENABLE_WEBSOCKET = false;
 
-export function TelemetryProvider({ children, interval = 5_000 }) {
+export function TelemetryProvider({ children, interval = 60_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
 
   const params = useMemo(() => (tenantId ? { clientId: tenantId } : undefined), [tenantId]);

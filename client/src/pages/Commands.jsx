@@ -35,6 +35,14 @@ const DEFAULT_HISTORY_PAGE_SIZE = 10;
 
 const normalizeValue = (value) => String(value ?? "");
 
+const resolveParamLabel = (param, index) => {
+  const label = typeof param?.label === "string" ? param.label.trim() : "";
+  if (label) return label;
+  const help = typeof param?.helpText === "string" ? param.helpText.trim() : "";
+  if (help && param?.type !== "boolean") return help;
+  return `Parâmetro ${Number.isFinite(index) ? index + 1 : 1}`;
+};
+
 const getCommandKey = (command) => command?.code || command?.id || "";
 const resolveUiCommandKey = (command) => getCommandKey(command) || command?.name || String(command?.id || "");
 
@@ -1152,7 +1160,7 @@ export default function Commands() {
         {commandError && <p className="mt-2 text-xs text-red-300">Erro: {commandError}</p>}
         {hasParams && isExpanded && (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {command.parameters.map((param) => {
+            {command.parameters.map((param, index) => {
               const inputId = `${uiKey}-${param.key}`;
               const value =
                 paramValues[param.key] ??
@@ -1168,7 +1176,7 @@ export default function Commands() {
               const options = Array.isArray(param.options) ? param.options : null;
               return (
                 <label key={param.key} htmlFor={inputId} className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                  {param.label || param.key}
+                  {resolveParamLabel(param, index)}
                   {options ? (
                     <Select
                       id={inputId}
@@ -1199,7 +1207,7 @@ export default function Commands() {
                         onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.checked)}
                         className="h-4 w-4 rounded border-white/20 bg-transparent"
                       />
-                      <span>{param.helpText || "Ativar"}</span>
+                        <span>{param.helpText || "Ativar"}</span>
                     </div>
                   ) : (
                     <Input
@@ -1210,9 +1218,9 @@ export default function Commands() {
                       max={param.max}
                       step={param.step}
                       onChange={(event) => handleUpdateParam(commandKey, param.key, event.target.value)}
-                      className="mt-2"
-                    />
-                  )}
+                        className="mt-2"
+                      />
+                    )}
                 </label>
               );
             })}
@@ -1474,7 +1482,7 @@ export default function Commands() {
                     </label>
                     {selectedAdvancedCommand?.parameters?.length > 0 && (
                       <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
-                        {selectedAdvancedCommand.parameters.map((param) => {
+                        {selectedAdvancedCommand.parameters.map((param, index) => {
                           const inputId = `advanced-${resolveUiCommandKey(selectedAdvancedCommand)}-${param.key}`;
                           const value =
                             commandParams[getCommandKey(selectedAdvancedCommand)]?.[param.key] ??
@@ -1487,7 +1495,7 @@ export default function Commands() {
                               htmlFor={inputId}
                               className="flex flex-col text-xs uppercase tracking-wide text-white/60"
                             >
-                              {param.label || param.key}
+                              {resolveParamLabel(param, index)}
                               {options ? (
                                 <Select
                                   id={inputId}

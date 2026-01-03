@@ -14,7 +14,7 @@ function normalise(payload) {
 
 const LivePositionsContext = createContext({ data: [], positions: [], loading: false, error: null, refresh: () => {} });
 
-export function LivePositionsProvider({ children, interval = 5_000 }) {
+export function LivePositionsProvider({ children, interval = 60_000 }) {
   const { tenantId, isAuthenticated } = useTenant();
   const { t } = useTranslation();
 

@@ -42,6 +42,7 @@ export const API_ROUTES = {
   models: "models",
   geofences: "geofences",
   drivers: "drivers",
+  homeCriticalVehicles: "home/critical-vehicles",
   media: {
     faceAlerts: "media/face/alerts",
   },
