@@ -68,6 +68,9 @@ function formatIgnition(value) {
 }
 
 function normalizeAddressDisplay(value) {
+  if ((value === null || value === undefined || value === "") && typeof value !== "object") {
+    return "Carregando endereço…";
+  }
   if (!value) return "—";
   if (typeof value === "string") {
     const trimmed = value.trim();
@@ -154,6 +157,10 @@ export default function ReportsPositions() {
       commandResponse: position.commandResponse || "—",
       deviceStatusEvent: position.deviceStatusEvent || "—",
       deviceStatus: position.deviceStatus || "Indisponível",
+      digitalInput1: position.digitalInput1 ?? "—",
+      digitalInput2: position.digitalInput2 ?? "—",
+      digitalOutput1: position.digitalOutput1 ?? "—",
+      digitalOutput2: position.digitalOutput2 ?? "—",
     }));
   }, [data]);
 
@@ -263,6 +270,13 @@ export default function ReportsPositions() {
             }
           : null,
       });
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "PDF não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
@@ -271,11 +285,18 @@ export default function ReportsPositions() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
+      setPdfModalOpen(false);
     } catch (requestError) {
-      setFeedback({ type: "error", message: requestError?.message ?? "Falha ao exportar PDF." });
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar PDF.",
+      });
     } finally {
       setExportingPdf(false);
-      setPdfModalOpen(false);
     }
   };
 

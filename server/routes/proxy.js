@@ -31,7 +31,7 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import { enrichPositionsWithAddresses, formatAddress, resolveShortAddress } from "../utils/address.js";
+import { enrichPositionsWithAddresses, formatAddress, prefetchPositionAddresses, resolveShortAddress } from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -842,6 +842,106 @@ function extractSatellites(attributes = {}) {
     return Number.isFinite(numeric) ? numeric : attributes[key];
   }
   return null;
+}
+
+function normalizeIoState(value) {
+  if (typeof value === "boolean") return value;
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return null;
+    if (["1", "true", "on", "high", "ativo", "ligado"].includes(normalized)) return true;
+    if (["0", "false", "off", "low", "inativo", "desligado"].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function extractDigitalIo(attributes = {}, { kind = "input" } = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const prefix = kind === "output" ? "(out|output)" : "(in|input)";
+  const matches = [];
+
+  Object.entries(attributes).forEach(([key, value]) => {
+    const match = key.match(new RegExp(`^${prefix}(\\d+)$`, "i"));
+    if (!match) return;
+    const index = Number(match[2]);
+    if (!Number.isFinite(index)) return;
+    const state = normalizeIoState(value);
+    matches.push({ index, state, raw: value });
+  });
+
+  const collection =
+    kind === "output"
+      ? attributes.outputs || attributes.output || attributes.digitalOutputs
+      : attributes.inputs || attributes.input || attributes.digitalInputs;
+  if (Array.isArray(collection) && matches.length === 0) {
+    collection.forEach((value, idx) => {
+      const state = normalizeIoState(value);
+      matches.push({ index: idx + 1, state, raw: value });
+    });
+  }
+
+  return matches;
+}
+
+function extractDigitalInputs(attributes = {}) {
+  return extractDigitalIo(attributes, { kind: "input" });
+}
+
+function extractDigitalOutputs(attributes = {}) {
+  return extractDigitalIo(attributes, { kind: "output" });
+}
+
+function normalizeIoValue(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Ligado" : "Desligado";
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "on", "high", "ativo", "ligado"].includes(normalized)) return "Ligado";
+    if (["0", "false", "off", "low", "inativo", "desligado"].includes(normalized)) return "Desligado";
+    return value.trim() || "—";
+  }
+  return String(value);
+}
+
+function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = {}) {
+  const canonicalKey = `${kind}${index}`;
+  const candidates = [
+    `${kind}${index}`,
+    `${kind === "input" ? "in" : "out"}${index}`,
+    `${kind === "input" ? "entrada" : "saida"}${index}`,
+    `${kind === "input" ? "entrada" : "saida"}_${index}`,
+    `${kind === "input" ? "digitalInput" : "digitalOutput"}${index}`,
+  ];
+
+  for (const key of candidates) {
+    if (attributes[key] !== undefined && attributes[key] !== null) {
+      return normalizeIoValue(attributes[key]);
+    }
+  }
+
+  const bulk = kind === "input" ? extractDigitalInputs(attributes) : extractDigitalOutputs(attributes);
+  if (Array.isArray(bulk)) {
+    const match = bulk.find((item) => Number(item.index) === Number(index));
+    if (match) return normalizeIoValue(match.state ?? match.raw);
+  }
+
+  const collection =
+    kind === "input"
+      ? attributes.inputs || attributes.input || attributes.digitalInputs
+      : attributes.outputs || attributes.output || attributes.digitalOutputs;
+  if (Array.isArray(collection)) {
+    const value = collection[index - 1];
+    if (value !== undefined) return normalizeIoValue(value);
+  }
+
+  if (attributes[canonicalKey] !== undefined) {
+    return normalizeIoValue(attributes[canonicalKey]);
+  }
+
+  return "—";
 }
 
 function parseAddressFilterQuery(query = {}) {
@@ -2893,6 +2993,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
   const traccarId = String(device.traccarId);
   const positions = await fetchPositions([traccarId], from, to, {});
+  prefetchPositionAddresses(positions);
   const enrichedPositions = await enrichPositionsWithAddresses(positions);
 
   let filter = null;
@@ -2937,6 +3038,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const speedRaw = Number(position.speed ?? 0);
       const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
       const ignition = extractIgnition(attributes);
+      const digitalInput1 = extractDigitalChannel(attributes, { index: 1, kind: "input" });
+      const digitalInput2 = extractDigitalChannel(attributes, { index: 2, kind: "input" });
+      const digitalOutput1 = extractDigitalChannel(attributes, { index: 1, kind: "output" });
+      const digitalOutput2 = extractDigitalChannel(attributes, { index: 2, kind: "output" });
       const commandResponse = gpsTime
         ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
         : null;
@@ -2960,6 +3065,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         geofence: attributes.geofence ?? attributes.geofenceId ?? null,
         accuracy: position.accuracy ?? null,
         commandResponse: commandResponse || null,
+        digitalInput1,
+        digitalInput2,
+        digitalOutput1,
+        digitalOutput2,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
         __deviceStatusToken: statusToken,
       };
@@ -3059,6 +3168,16 @@ router.get("/reports/positions", async (req, res) => {
 });
 
 router.post("/reports/positions/pdf", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/pdf] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
   try {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.body?.from, "from");
@@ -3073,17 +3192,30 @@ router.post("/reports/positions/pdf", async (req, res) => {
       meta: report.meta,
     });
 
+    const durationMs = Date.now() - startedAt;
     const fileName = buildPositionsPdfFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/pdf] relatório de posições gerado", {
+      vehicleId,
+      rows: report.positions.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
     res.status(200).send(pdf);
   } catch (error) {
     const status = resolveErrorStatusCode(error) ?? 500;
     const message = error?.message || "Falha ao gerar relatório de posições em PDF.";
+    const durationMs = Date.now() - startedAt;
     console.error("[reports/pdf] erro ao exportar posições", {
       status,
       code: error?.code,
       message,
+      durationMs,
     });
     res.status(status).json({ message, code: error?.code || "POSITIONS_PDF_ERROR" });
   }

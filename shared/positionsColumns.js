@@ -14,6 +14,10 @@ export const positionsColumns = [
   { key: "satellites", labelPt: "Satélites", labelPdf: "Satélites", width: 90, defaultVisible: false, weight: 0.9 },
   { key: "geofence", labelPt: "Cerca Virtual", labelPdf: "Cerca Virtual", width: 140, defaultVisible: false, weight: 1.2 },
   { key: "accuracy", labelPt: "Precisão", labelPdf: "Precisão", width: 90, defaultVisible: false, weight: 0.9 },
+  { key: "digitalInput1", labelPt: "Entrada 1", labelPdf: "Entrada 1", width: 140, defaultVisible: false, weight: 1.2 },
+  { key: "digitalInput2", labelPt: "Entrada 2", labelPdf: "Entrada 2", width: 140, defaultVisible: false, weight: 1.2 },
+  { key: "digitalOutput1", labelPt: "Saída 1", labelPdf: "Saída 1", width: 140, defaultVisible: false, weight: 1.2 },
+  { key: "digitalOutput2", labelPt: "Saída 2", labelPdf: "Saída 2", width: 140, defaultVisible: false, weight: 1.2 },
   { key: "commandResponse", labelPt: "Resposta do Comando", labelPdf: "Resposta do Comando", width: 220, defaultVisible: true, weight: 2.2 },
   {
     key: "deviceStatus",
