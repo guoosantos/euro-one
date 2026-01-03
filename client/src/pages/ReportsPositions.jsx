@@ -311,12 +311,27 @@ export default function ReportsPositions() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <section className="card flex flex-col gap-4 p-0">
         <form onSubmit={handleGenerate} className="flex flex-col gap-4">
-          <header className="space-y-3 px-6 pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+          <header className="space-y-2 px-6 pt-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+                <button
+                  type="submit"
+                  disabled={loading || geocoding || !selectedVehicleId}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {loading ? "Gerando…" : "Gerar relatório"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openPdfModal}
+                  disabled={loading || exportingPdf || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
+                </button>
                 <button
                   type="button"
                   onClick={() => setActivePopup("columns")}
@@ -338,21 +353,6 @@ export default function ReportsPositions() {
                   aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
                 >
                   {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                </button>
-                <button
-                  type="submit"
-                  disabled={loading || geocoding || !selectedVehicleId}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {loading ? "Gerando…" : "Gerar relatório"}
-                </button>
-                <button
-                  type="button"
-                  onClick={openPdfModal}
-                  disabled={loading || exportingPdf || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
                 </button>
               </div>
             </div>
