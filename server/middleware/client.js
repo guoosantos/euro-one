@@ -17,28 +17,37 @@ export function resolveClientId(req, providedClientId, { required = true } = {})
   const user = req?.user;
 
   if (user?.role === "admin") {
-    if (clientId) return clientId;
+    if (clientId) {
+      console.info("[tenant] clientId resolvido (admin)", { userId: user?.id, clientId });
+      return clientId;
+    }
     if (!required) {
-      return user?.clientId ? String(user.clientId) : null;
+      const resolved = user?.clientId ? String(user.clientId) : null;
+      if (resolved) {
+        console.info("[tenant] clientId resolvido (admin)", { userId: user?.id, clientId: resolved });
+      }
+      return resolved;
     }
     if (user?.clientId) {
-      return String(user.clientId);
+      const resolved = String(user.clientId);
+      console.info("[tenant] clientId resolvido (admin)", { userId: user?.id, clientId: resolved });
+      return resolved;
     }
-    throw createError(400, "clientId é obrigatório");
+    console.warn("[tenant] clientId ausente para admin", { userId: user?.id });
+    throw createError(401, "clientId é obrigatório");
   }
 
   const userClientId = user?.clientId;
   if (!userClientId) {
-    if (!required) {
-      return clientId;
-    }
-    throw createError(400, "Usuário não vinculado a um cliente");
+    console.warn("[tenant] usuário sem tenant associado", { userId: user?.id, role: user?.role });
+    throw createError(401, "Usuário sem tenant associado");
   }
 
   if (clientId && String(clientId) !== String(userClientId)) {
     throw createError(403, "Operação não permitida para este cliente");
   }
 
+  console.info("[tenant] clientId resolvido", { userId: user?.id, clientId: String(userClientId) });
   return String(userClientId);
 }
 

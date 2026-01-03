@@ -22,8 +22,18 @@ export default function Login() {
       const redirectTo = location.state?.from?.pathname || "/home";
       navigate(redirectTo, { replace: true });
     } catch (submitError) {
+      const status = Number(submitError?.status || submitError?.response?.status);
+      if (status === 401) {
+        setFormError("Usuário ou senha inválidos");
+        return;
+      }
+      if (status >= 500) {
+        setFormError("Erro interno no servidor");
+        return;
+      }
       setFormError(
         submitError?.response?.data?.message ||
+          submitError?.response?.data?.error ||
           submitError?.message ||
           "Não foi possível autenticar. Verifique suas credenciais e tente novamente.",
       );
