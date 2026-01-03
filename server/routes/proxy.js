@@ -38,6 +38,12 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
+import {
+  positionsColumns,
+  resolveColumnDefinition,
+  resolveColumnGroupOrder,
+  resolveColumnLabel,
+} from "../../shared/positionsColumns.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -844,6 +850,68 @@ function extractSatellites(attributes = {}) {
   return null;
 }
 
+function extractHdop(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["hdop", "Hdop", "horizontalDilution", "dilution"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function extractPowerVoltage(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["power", "externalPower", "powerVoltage", "voltage", "vehicleVoltage"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function extractMotion(attributes = {}, speedKmh = null) {
+  if (attributes && typeof attributes === "object") {
+    const raw = attributes.motion ?? attributes.movement ?? attributes.moving ?? attributes.motionDetected;
+    const normalized = normalizeIoState(raw);
+    if (normalized !== null) return normalized;
+  }
+  if (Number.isFinite(Number(speedKmh))) return Number(speedKmh) > 0;
+  return null;
+}
+
+function normalizeDistanceKm(value) {
+  if (value === null || value === undefined) return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return value;
+  if (numeric >= 1000) return numeric / 1000;
+  return numeric;
+}
+
+function extractDistanceKm(attributes = {}, position = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["distance", "distanceKm", "tripDistance", "distance_km"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    return normalizeDistanceKm(attributes[key]);
+  }
+  if (position?.distance != null) return normalizeDistanceKm(position.distance);
+  return null;
+}
+
+function extractTotalDistanceKm(attributes = {}, position = {}) {
+  if (position?.totalDistance != null) return normalizeDistanceKm(position.totalDistance);
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["totalDistance", "odometer", "distanceTotal", "total_distance"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    return normalizeDistanceKm(attributes[key]);
+  }
+  return null;
+}
+
 function normalizeIoState(value) {
   if (typeof value === "boolean") return value;
   if (value === null || value === undefined) return null;
@@ -894,16 +962,15 @@ function extractDigitalOutputs(attributes = {}) {
 }
 
 function normalizeIoValue(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "boolean") return value ? "Ligado" : "Desligado";
+  if (value === null || value === undefined || value === "") return null;
+  const normalized = normalizeIoState(value);
+  if (normalized !== null) return normalized;
   if (typeof value === "number") return value;
   if (typeof value === "string") {
-    const normalized = value.trim().toLowerCase();
-    if (["1", "true", "on", "high", "ativo", "ligado"].includes(normalized)) return "Ligado";
-    if (["0", "false", "off", "low", "inativo", "desligado"].includes(normalized)) return "Desligado";
-    return value.trim() || "—";
+    const trimmed = value.trim();
+    return trimmed || null;
   }
-  return String(value);
+  return value;
 }
 
 function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = {}) {
@@ -941,7 +1008,133 @@ function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = 
     return normalizeIoValue(attributes[canonicalKey]);
   }
 
-  return "—";
+  return null;
+}
+
+const BASE_COLUMN_KEYS = new Set(positionsColumns.map((column) => column.key.toLowerCase()));
+const ATTRIBUTE_ALIAS_KEYS = new Set([
+  "battery",
+  "batterypercent",
+  "battery_percentage",
+  "bateria",
+  "ignition",
+  "ign",
+  "keyignition",
+  "rssi",
+  "signal",
+  "gsm",
+  "rssivalue",
+  "signalstrength",
+  "satellites",
+  "sat",
+  "satellitescount",
+  "satcount",
+  "sats",
+  "hdop",
+  "horizontaldilution",
+  "dilution",
+  "power",
+  "externalpower",
+  "powervoltage",
+  "voltage",
+  "vehiclevoltage",
+  "motion",
+  "movement",
+  "moving",
+  "motiondetected",
+  "distance",
+  "distancekm",
+  "tripdistance",
+  "distance_km",
+  "totaldistance",
+  "odometer",
+  "distancetotal",
+  "total_distance",
+]);
+
+function shouldIgnoreAttributeKey(key) {
+  const normalized = String(key || "").trim().toLowerCase();
+  if (!normalized) return true;
+  if (BASE_COLUMN_KEYS.has(normalized)) return true;
+  if (ATTRIBUTE_ALIAS_KEYS.has(normalized)) return true;
+  if (normalized.match(/^(?:in|input|entrada|digitalinput)(1|2)$/i)) return true;
+  if (normalized.match(/^(?:out|output|saida|digitaloutput)(1|2)$/i)) return true;
+  return false;
+}
+
+function isDisplayableValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && value.trim() === "") return false;
+  return true;
+}
+
+function normalizeDynamicValue(value, definition) {
+  if (value === null || value === undefined) return null;
+  if (definition?.type === "boolean") {
+    const normalized = normalizeIoState(value);
+    return normalized !== null ? normalized : null;
+  }
+  if (definition?.type === "number" || definition?.type === "percent") {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : value;
+  }
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  return value;
+}
+
+function buildDynamicAttributeKeys(positions = [], protocol = null) {
+  const dynamicKeys = new Set();
+  positions.forEach((position) => {
+    const attributes = position?.attributes;
+    if (!attributes || typeof attributes !== "object") return;
+    Object.entries(attributes).forEach(([key, value]) => {
+      if (shouldIgnoreAttributeKey(key)) return;
+      if (!isDisplayableValue(value)) return;
+      const definition = resolveColumnDefinition(key, { protocol });
+      if (!definition) return;
+      dynamicKeys.add(key);
+    });
+  });
+  return Array.from(dynamicKeys);
+}
+
+function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() } = {}) {
+  const baseColumns = positionsColumns.filter(
+    (column) => column.alwaysVisible || hasValue.get(column.key),
+  );
+  const dynamicDefinitions = keys
+    .map((key) => resolveColumnDefinition(key, { protocol }))
+    .filter(Boolean)
+    .filter((column) => hasValue.get(column.key))
+    .map((column) => ({
+      ...column,
+      label: resolveColumnLabel(column, "pt"),
+      labelPdf: resolveColumnLabel(column, "pdf"),
+      width: column.width || Math.min(240, Math.max(120, resolveColumnLabel(column, "pt").length * 7)),
+      weight: column.weight || 1,
+      defaultVisible: column.defaultVisible ?? true,
+    }));
+
+  const groupedDynamic = dynamicDefinitions.sort((a, b) => {
+    const groupDelta = resolveColumnGroupOrder(a.group) - resolveColumnGroupOrder(b.group);
+    if (groupDelta !== 0) return groupDelta;
+    return resolveColumnLabel(a, "pt").localeCompare(resolveColumnLabel(b, "pt"), "pt-BR");
+  });
+
+  return [
+    ...baseColumns.map((column) => ({
+      ...column,
+      label: resolveColumnLabel(column, "pt"),
+      labelPdf: resolveColumnLabel(column, "pdf"),
+    })),
+    ...groupedDynamic,
+  ];
 }
 
 function parseAddressFilterQuery(query = {}) {
@@ -3002,6 +3195,12 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
   const traccarId = String(device.traccarId);
   const positions = await fetchPositions([traccarId], from, to, {});
+  const protocol =
+    device?.protocol ||
+    device?.attributes?.protocol ||
+    positions?.[0]?.protocol ||
+    positions?.[0]?.attributes?.protocol ||
+    null;
   prefetchPositionAddresses(positions);
   const enrichedPositions = await enrichPositionsWithAddresses(positions);
 
@@ -3040,6 +3239,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const parsedEvents = parseCommandEvents(commandEvents);
   const windowMs = 10 * 60 * 1000;
 
+  const dynamicKeys = buildDynamicAttributeKeys(filteredPositions, protocol);
   const mappedChronological = filteredPositions
     .map((position) => {
       const attributes = position.attributes || {};
@@ -3047,6 +3247,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const speedRaw = Number(position.speed ?? 0);
       const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
       const ignition = extractIgnition(attributes);
+      const motion = extractMotion(attributes, speedKmh);
+      const power = extractPowerVoltage(attributes);
+      const hdop = extractHdop(attributes);
+      const distance = extractDistanceKm(attributes, position);
+      const totalDistance = extractTotalDistanceKm(attributes, position);
       const digitalInput1 = extractDigitalChannel(attributes, { index: 1, kind: "input" });
       const digitalInput2 = extractDigitalChannel(attributes, { index: 2, kind: "input" });
       const digitalOutput1 = extractDigitalChannel(attributes, { index: 1, kind: "output" });
@@ -3055,6 +3260,12 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
         : null;
       const statusToken = resolveDeviceStatusToken(position);
+
+      const dynamicValues = dynamicKeys.reduce((acc, key) => {
+        const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
+        if (value !== undefined) acc[key] = value;
+        return acc;
+      }, {});
 
       return {
         id: position.id ?? null,
@@ -3068,11 +3279,16 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         direction: position.course ?? null,
         ignition,
         vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
+        motion,
+        power,
         batteryLevel: extractBatteryLevel(attributes),
         rssi: extractRssi(attributes),
         satellites: extractSatellites(attributes),
+        hdop,
         geofence: attributes.geofence ?? attributes.geofenceId ?? null,
         accuracy: position.accuracy ?? null,
+        distance,
+        totalDistance,
         commandResponse: commandResponse || null,
         digitalInput1,
         digitalInput2,
@@ -3080,6 +3296,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         digitalOutput2,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
         __deviceStatusToken: statusToken,
+        ...dynamicValues,
       };
     })
     .sort((a, b) => {
@@ -3142,7 +3359,16 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
   };
 
-  return { positions: mapped, meta };
+  const hasValue = new Map();
+  mappedChronological.forEach((position) => {
+    Object.entries(position).forEach(([key, value]) => {
+      if (!isDisplayableValue(value)) return;
+      hasValue.set(key, true);
+    });
+  });
+  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue });
+
+  return { positions: mapped, meta: { ...meta, columns } };
 }
 
 function sanitizeFileToken(value, fallback) {
@@ -3202,12 +3428,12 @@ router.post("/reports/positions/pdf", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
-    const columns = resolvePdfColumns(req.body?.columns);
-
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const columns = resolvePdfColumns(req.body?.columns, report.meta?.columns);
     const pdf = await generatePositionsReportPdf({
       rows: report.positions,
       columns,
+      columnDefinitions: report.meta?.columns,
       meta: report.meta,
     });
 

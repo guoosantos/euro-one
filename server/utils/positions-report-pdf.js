@@ -96,7 +96,7 @@ function normalizeAddress(value) {
   return formatAddress(String(value));
 }
 
-function formatCellValue(key, value) {
+function formatCellValue(key, value, definition) {
   if (value === null || value === undefined || value === "") {
     if (key === "ignition" || key === "vehicleState") return "Indisponível";
     return "—";
@@ -105,10 +105,18 @@ function formatCellValue(key, value) {
   if (key === "speed") return Number.isFinite(Number(value)) ? `${Number(value)} km/h` : String(value);
   if (key === "direction") return Number.isFinite(Number(value)) ? `${Number(value)}°` : String(value);
   if (key === "accuracy") return Number.isFinite(Number(value)) ? `${Number(value)} m` : String(value);
+  if (key === "hdop") return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : String(value);
+  if (key === "distance" || key === "totalDistance") {
+    return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} km` : String(value);
+  }
+  if (key === "power") return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} V` : String(value);
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
   if (key === "vehicleState" && value === "—") return "Indisponível";
   if (key === "address") return normalizeAddress(value);
+  if (definition?.type === "boolean") return value ? "Sim" : "Não";
+  if (definition?.type === "percent") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
+  if (definition?.unit === "V") return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} V` : String(value);
   return typeof value === "object" ? normalizeAddress(value) : String(value);
 }
 
@@ -121,27 +129,32 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function resolveColumnLabelByKey(key, variant = "pdf") {
-  const column = positionsColumnMap.get(key);
+function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf") {
+  const column = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
   return resolveColumnLabel(column, variant);
 }
 
-function buildHtml({ rows, columns, meta, logoDataUrl, fontData }) {
+function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitions }) {
   const tableHeaders = columns
-    .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, "pdf"))}</th>`)
+    .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
     .join("");
   const tableRows = rows
     .map((row) => {
       const cells = columns
-        .map((key) => `<td>${escapeHtml(formatCellValue(key, row[key]))}</td>`)
+        .map((key) => {
+          const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
+          return `<td>${escapeHtml(formatCellValue(key, row[key], definition))}</td>`;
+        })
         .join("");
       return `<tr>${cells}</tr>`;
     })
     .join("");
-  const totalWeight = columns.reduce((sum, key) => sum + (positionsColumnMap.get(key)?.weight || 1), 0) || 1;
+  const totalWeight =
+    columns.reduce((sum, key) => sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1), 0) ||
+    1;
   const colgroup = columns
     .map((key) => {
-      const weight = positionsColumnMap.get(key)?.weight || 1;
+      const weight = columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1;
       const percent = ((weight / totalWeight) * 100).toFixed(2);
       return `<col style="width:${percent}%" />`;
     })
@@ -386,13 +399,18 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData }) {
   `;
 }
 
-export function resolvePdfColumns(columns) {
-  const requested = Array.isArray(columns) ? columns.filter((key) => positionsColumnMap.has(key)) : [];
+export function resolvePdfColumns(columns, availableColumns = positionsColumns) {
+  const availableKeys = new Set(
+    Array.isArray(availableColumns) ? availableColumns.map((column) => column.key) : positionsColumns.map((column) => column.key),
+  );
+  const requested = Array.isArray(columns) ? columns.filter((key) => availableKeys.has(key)) : [];
   if (requested.length) return requested;
-  return positionsColumns.map((column) => column.key);
+  return Array.isArray(availableColumns) && availableColumns.length
+    ? availableColumns.map((column) => column.key)
+    : positionsColumns.map((column) => column.key);
 }
 
-export async function generatePositionsReportPdf({ rows, columns, meta }) {
+export async function generatePositionsReportPdf({ rows, columns, meta, columnDefinitions = null }) {
   const chromium = await loadChromium();
   let browser = null;
 
@@ -422,9 +440,19 @@ export async function generatePositionsReportPdf({ rows, columns, meta }) {
     const page = await browser.newPage();
     const logoDataUrl = await fetchLogoDataUrl();
     const fontData = ensureFontData();
-    const columnsToUse = resolvePdfColumns(columns);
+    const columnsToUse = resolvePdfColumns(columns, columnDefinitions || positionsColumns);
     const safeRows = Array.isArray(rows) ? rows : [];
-    const html = buildHtml({ rows: safeRows, columns: columnsToUse, meta, logoDataUrl, fontData });
+    const columnMap = Array.isArray(columnDefinitions)
+      ? new Map(columnDefinitions.map((column) => [column.key, column]))
+      : null;
+    const html = buildHtml({
+      rows: safeRows,
+      columns: columnsToUse,
+      meta,
+      logoDataUrl,
+      fontData,
+      columnDefinitions: columnMap,
+    });
 
     await page.setContent(html, { waitUntil: "networkidle" });
 

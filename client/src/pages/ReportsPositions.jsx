@@ -8,6 +8,7 @@ import { geocodeAddress } from "../lib/geocode.js";
 import {
   buildColumnDefaults,
   loadColumnPreferences,
+  mergeColumnPreferences,
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
@@ -46,9 +47,20 @@ function formatSpeed(value) {
   return `${value} km/h`;
 }
 
+function formatDistance(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(2)} km`;
+  return String(value);
+}
+
 function formatDirection(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return `${Number(value).toFixed(0)}°`;
+}
+
+function formatHdop(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return Number(value).toFixed(2);
 }
 
 function formatAccuracy(value) {
@@ -62,9 +74,27 @@ function formatBattery(value) {
   return String(value);
 }
 
+function formatVoltage(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(2)} V`;
+  return String(value);
+}
+
+function formatBoolean(value, { truthyLabel = "Sim", falsyLabel = "Não", emptyLabel = "—" } = {}) {
+  if (value === null || value === undefined || value === "") return emptyLabel;
+  if (typeof value === "boolean") return value ? truthyLabel : falsyLabel;
+  if (typeof value === "number") return value ? truthyLabel : falsyLabel;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "on", "sim", "ativo", "ligado"].includes(normalized)) return truthyLabel;
+    if (["0", "false", "off", "não", "nao", "inativo", "desligado"].includes(normalized)) return falsyLabel;
+  }
+  return String(value);
+}
+
 function formatIgnition(value) {
   if (value === null || value === undefined) return "Indisponível";
-  return value ? "Ligado" : "Desligado";
+  return value ? "Ligada" : "Desligada";
 }
 
 function normalizeAddressDisplay(value, lat = null, lng = null) {
@@ -120,10 +150,25 @@ export default function ReportsPositions() {
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
 
-  const defaults = useMemo(() => buildColumnDefaults(COLUMNS), []);
+  const reportColumns = useMemo(() => {
+    const serverColumns = Array.isArray(data?.meta?.columns) ? data.meta.columns : null;
+    if (serverColumns?.length) {
+      return serverColumns.map((column) => ({
+        ...column,
+        label: column.label || resolveColumnLabel(column, "pt"),
+      }));
+    }
+    return COLUMNS;
+  }, [data, COLUMNS]);
+
+  const defaults = useMemo(() => buildColumnDefaults(reportColumns), [reportColumns]);
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
-  const visibleColumns = useMemo(() => resolveVisibleColumns(COLUMNS, columnPrefs), [columnPrefs]);
+  useEffect(() => {
+    setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
+  }, [defaults]);
+
+  const visibleColumns = useMemo(() => resolveVisibleColumns(reportColumns, columnPrefs), [reportColumns, columnPrefs]);
   const visibleColumnsWithWidths = useMemo(
     () =>
       visibleColumns.map((column) => ({
@@ -135,35 +180,116 @@ export default function ReportsPositions() {
 
   const rows = useMemo(() => {
     const list = Array.isArray(data?.positions) ? data.positions : [];
-    return list.map((position) => ({
-      key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
-      deviceId: position.id ?? position.gpsTime ?? Math.random(),
-      gpsTime: formatDateTime(position.gpsTime),
-      deviceTime: formatDateTime(position.deviceTime),
-      serverTime: formatDateTime(position.serverTime),
-      latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
-      longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-      address: normalizeAddressDisplay(position.address, position.latitude, position.longitude),
-      lat: position.latitude,
-      lng: position.longitude,
-      speed: formatSpeed(position.speed),
-      direction: formatDirection(position.direction),
-      ignition: formatIgnition(position.ignition),
-      vehicleState: position.vehicleState || "Indisponível",
-      batteryLevel: formatBattery(position.batteryLevel),
-      rssi: position.rssi ?? "—",
-      satellites: position.satellites ?? "—",
-      geofence: position.geofence || "—",
-      accuracy: formatAccuracy(position.accuracy),
-      commandResponse: position.commandResponse || "—",
-      deviceStatusEvent: position.deviceStatusEvent || "—",
-      deviceStatus: position.deviceStatus || "Indisponível",
-      digitalInput1: position.digitalInput1 ?? "—",
-      digitalInput2: position.digitalInput2 ?? "—",
-      digitalOutput1: position.digitalOutput1 ?? "—",
-      digitalOutput2: position.digitalOutput2 ?? "—",
-    }));
-  }, [data]);
+    return list.map((position) => {
+      const row = {
+        key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+        deviceId: position.id ?? position.gpsTime ?? Math.random(),
+        lat: position.latitude,
+        lng: position.longitude,
+        rawAddress: position.address,
+      };
+
+      reportColumns.forEach((column) => {
+        const key = column.key;
+        const value = position[key];
+        if (key === "gpsTime" || key === "deviceTime" || key === "serverTime") {
+          row[key] = formatDateTime(value);
+          return;
+        }
+        if (key === "latitude") {
+          row[key] = position.latitude != null ? position.latitude.toFixed(6) : "—";
+          return;
+        }
+        if (key === "longitude") {
+          row[key] = position.longitude != null ? position.longitude.toFixed(6) : "—";
+          return;
+        }
+        if (key === "address") {
+          row[key] = normalizeAddressDisplay(position.address, position.latitude, position.longitude);
+          return;
+        }
+        if (key === "speed") {
+          row[key] = formatSpeed(value);
+          return;
+        }
+        if (key === "direction") {
+          row[key] = formatDirection(value);
+          return;
+        }
+        if (key === "ignition") {
+          row[key] = formatIgnition(value);
+          return;
+        }
+        if (key === "motion") {
+          row[key] = formatBoolean(value, { truthyLabel: "Em movimento", falsyLabel: "Parado" });
+          return;
+        }
+        if (key === "vehicleState") {
+          row[key] = value || "Indisponível";
+          return;
+        }
+        if (key === "batteryLevel") {
+          row[key] = formatBattery(value);
+          return;
+        }
+        if (key === "power") {
+          row[key] = formatVoltage(value);
+          return;
+        }
+        if (key === "rssi") {
+          row[key] = value ?? "—";
+          return;
+        }
+        if (key === "satellites") {
+          row[key] = value ?? "—";
+          return;
+        }
+        if (key === "hdop") {
+          row[key] = formatHdop(value);
+          return;
+        }
+        if (key === "accuracy") {
+          row[key] = formatAccuracy(value);
+          return;
+        }
+        if (key === "distance" || key === "totalDistance") {
+          row[key] = formatDistance(value);
+          return;
+        }
+        if (key === "commandResponse") {
+          row[key] = value || "—";
+          return;
+        }
+        if (key === "deviceStatusEvent") {
+          row[key] = value || "—";
+          return;
+        }
+        if (key === "deviceStatus") {
+          row[key] = value || "Indisponível";
+          return;
+        }
+        if (key === "digitalInput1" || key === "digitalInput2" || key === "digitalOutput1" || key === "digitalOutput2") {
+          row[key] = formatBoolean(value);
+          return;
+        }
+        if (column.type === "boolean") {
+          row[key] = formatBoolean(value);
+          return;
+        }
+        if (column.type === "percent") {
+          row[key] = formatBattery(value);
+          return;
+        }
+        if (column.unit === "V") {
+          row[key] = formatVoltage(value);
+          return;
+        }
+        row[key] = value ?? "—";
+      });
+
+      return row;
+    });
+  }, [data, reportColumns]);
 
   const filteredRows = useMemo(() => {
     if (!hideUnavailableIgnition) return rows;
@@ -325,8 +451,8 @@ export default function ReportsPositions() {
   };
 
   const columnsForSelection = useMemo(
-    () => COLUMNS.map((column) => ({ key: column.key, label: column.label })),
-    [],
+    () => reportColumns.map((column) => ({ key: column.key, label: column.label })),
+    [reportColumns],
   );
 
   return (
