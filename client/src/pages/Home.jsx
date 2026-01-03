@@ -10,6 +10,7 @@ import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { usePolling } from "../lib/hooks/usePolling.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import Card from "../ui/Card";
@@ -26,6 +27,9 @@ const COMMUNICATION_BUCKETS = [
   { key: "stale_10d_30d", label: "10–30d", minMinutes: 14400, maxMinutes: 43200 },
   { key: "stale_30d_plus", label: "30+d", minMinutes: 43200, maxMinutes: Infinity },
 ];
+const HOME_REFRESH_MS = 15_000;
+const CRITICAL_WINDOW_HOURS = 3;
+const CRITICAL_MIN_EVENTS = 2;
 
 export default function Home() {
   const { t, locale } = useTranslation();
@@ -41,8 +45,23 @@ export default function Home() {
     limit: 200,
     severity: "critical",
     resolved: false,
-    refreshInterval: 15_000,
+    refreshInterval: HOME_REFRESH_MS,
   });
+  const {
+    data: criticalVehiclesData,
+    loading: loadingCriticalVehicles,
+  } = usePolling(
+    async () => {
+      const params = {
+        windowHours: CRITICAL_WINDOW_HOURS,
+        minEvents: CRITICAL_MIN_EVENTS,
+      };
+      if (tenantId) params.clientId = tenantId;
+      const response = await api.get(API_ROUTES.homeCriticalVehicles, { params });
+      return response?.data?.data ?? response?.data ?? [];
+    },
+    { intervalMs: HOME_REFRESH_MS, dependencies: [tenantId] },
+  );
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
@@ -250,45 +269,17 @@ export default function Home() {
   const recentCriticalEvents = useMemo(() => activeCriticalEvents.slice(0, 8), [activeCriticalEvents]);
 
   const criticalByVehicle = useMemo(() => {
-    const grouped = new Map();
-    const windowMs = 3 * 60 * 60 * 1000;
-
-    for (const event of activeCriticalEvents) {
-      const vehicleKey = String(event.vehicleId ?? "");
-      if (!vehicleKey || !event.__time) continue;
-      const existing = grouped.get(vehicleKey) ?? [];
-      grouped.set(vehicleKey, [...existing, event]);
-    }
-
-    return Array.from(grouped.entries())
-      .map(([vehicleId, entries]) => {
-        const sorted = [...entries].sort((a, b) => new Date(a.__time || 0) - new Date(b.__time || 0));
-        const clusters = [];
-        for (let i = 0; i < sorted.length; i += 1) {
-          const cluster = [sorted[i]];
-          for (let j = i + 1; j < sorted.length; j += 1) {
-            if (new Date(sorted[j].__time || 0) - new Date(sorted[i].__time || 0) <= windowMs) {
-              cluster.push(sorted[j]);
-            } else {
-              break;
-            }
-          }
-          if (cluster.length >= 2) clusters.push(cluster);
-        }
-
-        const largestCluster = clusters.sort((a, b) => b.length - a.length)[0];
-        if (!largestCluster) return null;
-        const vehicle = vehicleById.get(String(vehicleId)) || largestCluster[0]?.vehicle || null;
-        return {
-          vehicleId,
-          vehicleName: vehicle ? formatVehicleLabel(vehicle) : largestCluster[0]?.deviceName,
-          vehicle,
-          count: largestCluster.length,
-          events: largestCluster.sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0)),
-        };
-      })
-      .filter(Boolean);
-  }, [activeCriticalEvents, vehicleById]);
+    const list = Array.isArray(criticalVehiclesData) ? criticalVehiclesData : [];
+    return list.map((entry) => {
+      const vehicle = vehicleById.get(String(entry.vehicleId)) || null;
+      return {
+        ...entry,
+        vehicle,
+        vehicleName: vehicle ? formatVehicleLabel(vehicle) : entry.plate || entry.vehicleId,
+        events: Array.isArray(entry.events) ? entry.events : [],
+      };
+    });
+  }, [criticalVehiclesData, vehicleById]);
 
   const handleResolveEvent = useCallback(
     async (event) => {
@@ -303,7 +294,7 @@ export default function Home() {
         return next;
       });
       try {
-        await api.patch(API_ROUTES.eventResolve(eventId), { resolved: true });
+        await api.patch(API_ROUTES.eventResolve(eventId), { resolved: true, clientId: tenantId });
       } catch (error) {
         setDismissedEventIds((current) => {
           const next = new Set(current);
@@ -511,7 +502,11 @@ export default function Home() {
       ) : null}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      {criticalByVehicle.length === 0 ? (
+      {loadingCriticalVehicles && criticalByVehicle.length === 0 ? (
+        <div className="py-6">
+          <p className="text-sm text-white/60">Atualizando eventos críticos…</p>
+        </div>
+      ) : criticalByVehicle.length === 0 ? (
         <div className="py-6">
           <DataState state="empty" tone="muted" title="Nenhum veículo crítico" />
         </div>
@@ -521,7 +516,7 @@ export default function Home() {
             <div
               key={group.vehicleId}
               className="cursor-pointer rounded-xl border border-white/10 bg-white/5 p-3 hover:border-primary/40"
-              onClick={() => openTripRange(group.events[0])}
+              onClick={() => openEventsForVehicle(group.vehicleId)}
             >
               <div className="flex items-center justify-between text-sm text-white">
                 <div className="font-semibold">{group.vehicleName ?? group.vehicleId}</div>
@@ -529,22 +524,20 @@ export default function Home() {
                   {group.count} eventos
                 </span>
               </div>
-              <div className="mt-2 space-y-1 text-xs text-white/70">
-                {group.events.slice(0, expanded ? 6 : 3).map((event) => (
-                  <div
-                    key={event.id ?? `${event.deviceId}-${event.__time}`}
-                    className="flex items-center justify-between"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openTripRange(event);
-                    }}
-                  >
-                    <span>{formatDate(event.__time, locale)}</span>
-                    <span className="text-white/60">{translateEventType(event.type ?? event.event, locale, t)}</span>
-                    <SeverityBadge severity={event.severity} />
-                  </div>
-                ))}
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-white/70">
+                <span>Último evento:</span>
+                <span className="text-white/90">{formatDate(group.lastEventAt, locale)}</span>
               </div>
+              {group.events.length > 0 && (
+                <div className="mt-2 text-xs text-white/60">
+                  Tipos:{" "}
+                  {group.events
+                    .slice(0, expanded ? 6 : 3)
+                    .map((event) => translateEventType(event.type, locale, t))
+                    .filter(Boolean)
+                    .join(" · ")}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -594,7 +587,7 @@ export default function Home() {
         />
         <StatCard
           title="Eventos críticos"
-          value={criticalByVehicle.length}
+          value={loadingCriticalVehicles ? "…" : criticalByVehicle.length}
           hint="Veículos com múltiplos eventos graves"
           variant="alert"
           onClick={() => setSelectedCard("critical")}
@@ -605,19 +598,11 @@ export default function Home() {
     </div>
   );
 
-  function openTripRange(event) {
-    const time = event.__time ? new Date(event.__time).getTime() : Date.now();
-    const from = new Date(time - 3 * 60 * 60 * 1000).toISOString();
-    const to = new Date(time + 3 * 60 * 60 * 1000).toISOString();
-    const deviceId = event.deviceId ?? event.device?.id ?? event.device?.deviceId;
-    const vehicleId = event.vehicleId ?? event.vehicle?.id ?? null;
-    if (!deviceId && !vehicleId) return;
+  function openEventsForVehicle(vehicleId) {
+    if (!vehicleId) return;
     const search = new URLSearchParams();
-    if (vehicleId) search.set("vehicleId", vehicleId);
-    if (deviceId) search.set("deviceId", deviceId);
-    search.set("from", from);
-    search.set("to", to);
-    navigate(`/trips?${search.toString()}`);
+    search.set("vehicleId", vehicleId);
+    navigate(`/events?${search.toString()}`);
   }
 }
 

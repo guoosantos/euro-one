@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
+import { listVehicles } from "../models/vehicle.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
@@ -34,6 +35,7 @@ import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -910,6 +912,12 @@ function isSeverityMatch(eventSeverity, filter) {
   return normalizedEvent === normalizedFilter;
 }
 
+function parsePositiveNumber(value, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
 function resolveDeviceIdsToQuery(req) {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
   const devices = listDevices({ clientId });
@@ -1626,6 +1634,66 @@ router.get("/positions/last", async (req, res) => {
 /**
  * === Events (usa /reports/events) ===
  */
+
+router.get("/home/critical-vehicles", async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const windowHours = parsePositiveNumber(req.query?.windowHours, 3);
+    const minEvents = Math.max(2, Math.floor(parsePositiveNumber(req.query?.minEvents, 2)));
+    const includeResolved = ["true", "1", "yes"].includes(String(req.query?.includeResolved || "").toLowerCase());
+    const limit = Math.min(2000, Math.floor(parsePositiveNumber(req.query?.limit, 500)));
+
+    const devices = listDevices({ clientId });
+    const deviceByTraccarId = new Map(
+      devices
+        .filter((device) => device?.traccarId != null)
+        .map((device) => [String(device.traccarId), device]),
+    );
+    const deviceIds = Array.from(deviceByTraccarId.keys());
+    if (!deviceIds.length) {
+      return res.json({ data: [], error: null });
+    }
+
+    const now = new Date();
+    const from = new Date(now.getTime() - windowHours * 60 * 60 * 1000).toISOString();
+    const to = now.toISOString();
+
+    const events = await fetchEventsWithFallback(deviceIds, from, to, limit);
+    const vehicles = listVehicles({ clientId });
+    const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
+
+    const enrichedEvents = events.map((event) => {
+      const device = deviceByTraccarId.get(String(event.deviceId));
+      const vehicleId = device?.vehicleId ?? null;
+      const resolution = getEventResolution(event.id, { clientId });
+      return {
+        id: event.id,
+        type: event.type,
+        eventTime: event.eventTime ?? event.serverTime ?? event.deviceTime ?? null,
+        severity: resolveEventSeverity(event),
+        resolved: Boolean(resolution),
+        vehicleId,
+      };
+    });
+
+    const summaries = buildCriticalVehicleSummary(enrichedEvents, {
+      windowMs: windowHours * 60 * 60 * 1000,
+      minEvents,
+      now,
+      includeResolved,
+    }).map((summary) => {
+      const vehicle = vehicleById.get(String(summary.vehicleId)) || null;
+      return {
+        ...summary,
+        plate: vehicle?.plate ?? null,
+      };
+    });
+
+    return res.json({ data: summaries, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.patch("/events/:id/resolve", async (req, res, next) => {
   try {
