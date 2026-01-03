@@ -11,6 +11,7 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
+import formatAddress from "../lib/format-address.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
@@ -66,6 +67,20 @@ function formatIgnition(value) {
   return value ? "Ligado" : "Desligado";
 }
 
+function normalizeAddressDisplay(value) {
+  if (!value) return "—";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed || "—";
+  }
+  try {
+    const formatted = formatAddress(value);
+    return formatted && formatted !== "—" ? formatted : "—";
+  } catch (_error) {
+    return "—";
+  }
+}
+
 function buildPdfFileName(vehicle, from, to) {
   const plate = vehicle?.plate || vehicle?.name || "vehicle";
   const safePlate = String(plate).replace(/\s+/g, "-");
@@ -91,6 +106,7 @@ export default function ReportsPositions() {
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfColumns, setPdfColumns] = useState([]);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
 
   const defaults = useMemo(() => buildColumnDefaults(COLUMNS), []);
@@ -116,7 +132,7 @@ export default function ReportsPositions() {
       serverTime: formatDateTime(position.serverTime),
       latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
       longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-      address: position.address,
+      address: normalizeAddressDisplay(position.address),
       lat: position.latitude,
       lng: position.longitude,
       speed: formatSpeed(position.speed),
@@ -129,8 +145,15 @@ export default function ReportsPositions() {
       geofence: position.geofence || "—",
       accuracy: formatAccuracy(position.accuracy),
       commandResponse: position.commandResponse || "—",
+      deviceStatusEvent: position.deviceStatusEvent || "—",
+      deviceStatus: position.deviceStatus || "Indisponível",
     }));
   }, [data]);
+
+  const filteredRows = useMemo(() => {
+    if (!hideUnavailableIgnition) return rows;
+    return rows.filter((row) => row.ignition !== "Indisponível" && row.vehicleState !== "Indisponível");
+  }, [hideUnavailableIgnition, rows]);
 
   const resolveAddressFilter = useCallback(async () => {
     const text = addressQuery.trim();
@@ -281,105 +304,116 @@ export default function ReportsPositions() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       {topBarVisible && (
         <section className="rounded-2xl border border-white/10 bg-[#0f141c] p-4">
-          <form
-            onSubmit={handleGenerate}
-            className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12"
-          >
-            <div className="xl:col-span-4">
-              <VehicleSelector
-                label="Veículo"
-                placeholder="Busque por placa, nome ou ID"
-                className="text-sm"
-              />
+          <form onSubmit={handleGenerate} className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+              <div>
+                <p className="text-sm font-semibold text-white">Relatório de posições</p>
+              </div>
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => setActivePopup("columns")}
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                  title="Selecionar colunas"
+                  aria-label="Selecionar colunas"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <line x1="9" y1="4" x2="9" y2="20" />
+                    <line x1="15" y1="4" x2="15" y2="20" />
+                  </svg>
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || geocoding || !selectedVehicleId}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {loading ? "Gerando…" : "Gerar relatório"}
+                </button>
+                <button
+                  type="button"
+                  onClick={openPdfModal}
+                  disabled={loading || exportingPdf || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTopBarVisible(false)}
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                  title="Ocultar filtros"
+                  aria-label="Ocultar filtros"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <line x1="3" y1="11" x2="21" y2="11" />
+                  </svg>
+                </button>
+              </div>
             </div>
-            <label className="text-sm xl:col-span-4">
-              <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
-              <input
-                type="text"
-                value={addressQuery}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  setAddressQuery(value);
-                  if (!value.trim()) {
-                    setAddressFilter(null);
-                  }
-                }}
-                onBlur={() => {
-                  if (addressQuery.trim()) {
-                    resolveAddressFilter();
-                  }
-                }}
-                placeholder="Rua, cidade ou lat,lng"
-                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-              />
-              {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
-              {addressFilter && (
-                <p className="mt-1 text-xs text-white/60">
-                  Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
-                </p>
-              )}
-            </label>
-            <label className="text-sm xl:col-span-2">
-              <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
-              <input
-                type="datetime-local"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-              />
-            </label>
-            <label className="text-sm xl:col-span-2">
-              <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
-              <input
-                type="datetime-local"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-              />
-            </label>
-            <div className="flex items-end gap-2 xl:col-span-1">
-              <button
-                type="button"
-                onClick={() => setActivePopup("columns")}
-                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                title="Selecionar colunas"
-                aria-label="Selecionar colunas"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <line x1="9" y1="4" x2="9" y2="20" />
-                  <line x1="15" y1="4" x2="15" y2="20" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTopBarVisible(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                title="Ocultar filtros"
-                aria-label="Ocultar filtros"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <line x1="3" y1="11" x2="21" y2="11" />
-                </svg>
-              </button>
-            </div>
-            <div className="flex items-end gap-2 xl:col-span-1">
-              <button
-                type="submit"
-                disabled={loading || geocoding || !selectedVehicleId}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-              >
-                {loading ? "Gerando…" : "Gerar relatório"}
-              </button>
-              <button
-                type="button"
-                onClick={openPdfModal}
-                disabled={loading || exportingPdf || !selectedVehicleId}
-                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-              >
-                {exportingPdf ? "Exportando…" : "Exportar PDF"}
-              </button>
+            <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
+              <div className="xl:col-span-4">
+                <VehicleSelector
+                  label="Veículo"
+                  placeholder="Busque por placa, nome ou ID"
+                  className="text-sm"
+                />
+              </div>
+              <label className="text-sm xl:col-span-4">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
+                <input
+                  type="text"
+                  value={addressQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAddressQuery(value);
+                    if (!value.trim()) {
+                      setAddressFilter(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (addressQuery.trim()) {
+                      resolveAddressFilter();
+                    }
+                  }}
+                  placeholder="Rua, cidade ou lat,lng"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+                {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
+                {addressFilter && (
+                  <p className="mt-1 text-xs text-white/60">
+                    Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
+                  </p>
+                )}
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+              <label className="flex items-center gap-3 text-sm xl:col-span-2">
+                <input
+                  type="checkbox"
+                  checked={hideUnavailableIgnition}
+                  onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="text-white/80">Ocultar posições com ignição indisponível</span>
+              </label>
             </div>
           </form>
           {formError && (
@@ -425,7 +459,7 @@ export default function ReportsPositions() {
 
       <section className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-[#0b0f17]">
         <MonitoringTable
-          rows={rows}
+          rows={filteredRows}
           columns={visibleColumnsWithWidths}
           loading={loading}
           emptyText="Nenhuma posição encontrada para o período selecionado."

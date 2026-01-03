@@ -381,7 +381,7 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData }) {
   `;
 }
 
-function resolveColumns(columns) {
+export function resolvePdfColumns(columns) {
   const requested = Array.isArray(columns) ? columns.filter((key) => positionsColumnMap.has(key)) : [];
   if (requested.length) return requested;
   return positionsColumns.map((column) => column.key);
@@ -389,15 +389,28 @@ function resolveColumns(columns) {
 
 export async function generatePositionsReportPdf({ rows, columns, meta }) {
   const chromium = await loadChromium();
-  const browser = await chromium.launch({
-    args: ["--font-render-hinting=medium", "--no-sandbox", "--disable-setuid-sandbox"],
-  });
+  let browser = null;
+
   try {
+    try {
+      browser = await chromium.launch({
+        args: ["--font-render-hinting=medium", "--no-sandbox", "--disable-setuid-sandbox"],
+      });
+    } catch (launchError) {
+      const error = new Error("Falha ao inicializar Chromium para gerar PDF.");
+      error.code = launchError?.code || "PDF_CHROMIUM_LAUNCH_FAILED";
+      error.status = launchError?.status ?? 500;
+      error.cause = launchError;
+      console.error("[reports/pdf] erro ao abrir Chromium", launchError?.message || launchError);
+      throw error;
+    }
+
     const page = await browser.newPage();
     const logoDataUrl = await fetchLogoDataUrl();
     const fontData = ensureFontData();
-    const columnsToUse = resolveColumns(columns);
-    const html = buildHtml({ rows, columns: columnsToUse, meta, logoDataUrl, fontData });
+    const columnsToUse = resolvePdfColumns(columns);
+    const safeRows = Array.isArray(rows) ? rows : [];
+    const html = buildHtml({ rows: safeRows, columns: columnsToUse, meta, logoDataUrl, fontData });
 
     await page.setContent(html, { waitUntil: "networkidle" });
 
@@ -414,7 +427,24 @@ export async function generatePositionsReportPdf({ rows, columns, meta }) {
       `,
       headerTemplate: "<div></div>",
     });
+  } catch (error) {
+    const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
+    normalized.code = error?.code || "POSITIONS_PDF_ERROR";
+    normalized.status = error?.status ?? 500;
+    normalized.cause = error;
+    console.error("[reports/pdf] falha ao gerar relatório de posições", {
+      message: normalized.message,
+      code: normalized.code,
+      status: normalized.status,
+    });
+    throw normalized;
   } finally {
-    await browser.close();
+    if (browser) {
+      try {
+        await browser.close();
+      } catch (closeError) {
+        console.warn("[reports/pdf] falha ao fechar navegador", closeError?.message || closeError);
+      }
+    }
   }
 }
