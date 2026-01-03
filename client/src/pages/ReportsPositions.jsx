@@ -1,0 +1,517 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import VehicleSelector from "../components/VehicleSelector.jsx";
+import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
+import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
+import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
+import usePositionsReport from "../lib/hooks/usePositionsReport.js";
+import { geocodeAddress } from "../lib/geocode.js";
+import {
+  buildColumnDefaults,
+  loadColumnPreferences,
+  resolveVisibleColumns,
+  saveColumnPreferences,
+} from "../lib/column-preferences.js";
+
+const COLUMN_STORAGE_KEY = "reports:positions:columns";
+const DEFAULT_RADIUS_METERS = 100;
+
+const COLUMNS = [
+  { key: "gpsTime", label: "GPS Time", width: 140, defaultVisible: true },
+  { key: "deviceTime", label: "Device Time", width: 140, defaultVisible: false },
+  { key: "serverTime", label: "Server Time", width: 140, defaultVisible: false },
+  { key: "latitude", label: "Latitude", width: 110, defaultVisible: false },
+  { key: "longitude", label: "Longitude", width: 110, defaultVisible: false },
+  { key: "address", label: "Address", width: 260, defaultVisible: true },
+  { key: "speed", label: "Speed", width: 90, defaultVisible: true },
+  { key: "direction", label: "Direction", width: 90, defaultVisible: false },
+  { key: "ignition", label: "Ignition", width: 90, defaultVisible: true },
+  { key: "vehicleState", label: "Vehicle State", width: 140, defaultVisible: true },
+  { key: "batteryLevel", label: "Battery Level", width: 110, defaultVisible: false },
+  { key: "rssi", label: "RSSI", width: 80, defaultVisible: false },
+  { key: "satellites", label: "Satellites", width: 90, defaultVisible: false },
+  { key: "geofence", label: "Geofence", width: 140, defaultVisible: false },
+  { key: "accuracy", label: "Accuracy", width: 90, defaultVisible: false },
+  { key: "commandResponse", label: "Command Response", width: 220, defaultVisible: true },
+];
+
+function parseCoordinateQuery(raw) {
+  if (!raw) return null;
+  const cleaned = raw.trim();
+  if (!cleaned) return null;
+  const match = cleaned.match(/(-?\d+(?:\.\d+)?)\s*,?\s*(-?\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng, address: cleaned };
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
+}
+
+function formatSpeed(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return `${value} km/h`;
+}
+
+function formatDirection(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toFixed(0)}°`;
+}
+
+function formatAccuracy(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toFixed(0)} m`;
+}
+
+function formatBattery(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(0)}%`;
+  return String(value);
+}
+
+function formatIgnition(value) {
+  if (value === null || value === undefined) return "—";
+  return value ? "Ligado" : "Desligado";
+}
+
+function buildPdfFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
+}
+
+export default function ReportsPositions() {
+  const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
+  const { data, loading, error, generate, exportPdf } = usePositionsReport();
+
+  const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
+  const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressFilter, setAddressFilter] = useState(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [feedback, setFeedback] = useState(null);
+  const [hasGenerated, setHasGenerated] = useState(false);
+  const [topBarVisible, setTopBarVisible] = useState(true);
+  const [activePopup, setActivePopup] = useState(null);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfColumns, setPdfColumns] = useState([]);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const lastFilterKeyRef = useRef("");
+
+  const defaults = useMemo(() => buildColumnDefaults(COLUMNS), []);
+  const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
+
+  const visibleColumns = useMemo(() => resolveVisibleColumns(COLUMNS, columnPrefs), [columnPrefs]);
+  const visibleColumnsWithWidths = useMemo(
+    () =>
+      visibleColumns.map((column) => ({
+        ...column,
+        width: columnPrefs?.widths?.[column.key] ?? column.width,
+      })),
+    [visibleColumns, columnPrefs],
+  );
+
+  const rows = useMemo(() => {
+    const list = Array.isArray(data?.positions) ? data.positions : [];
+    return list.map((position) => ({
+      key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+      deviceId: position.id ?? position.gpsTime ?? Math.random(),
+      gpsTime: formatDateTime(position.gpsTime),
+      deviceTime: formatDateTime(position.deviceTime),
+      serverTime: formatDateTime(position.serverTime),
+      latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
+      longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
+      address: position.address,
+      lat: position.latitude,
+      lng: position.longitude,
+      speed: formatSpeed(position.speed),
+      direction: formatDirection(position.direction),
+      ignition: formatIgnition(position.ignition),
+      vehicleState: position.vehicleState || "—",
+      batteryLevel: formatBattery(position.batteryLevel),
+      rssi: position.rssi ?? "—",
+      satellites: position.satellites ?? "—",
+      geofence: position.geofence || "—",
+      accuracy: formatAccuracy(position.accuracy),
+      commandResponse: position.commandResponse || "—",
+    }));
+  }, [data]);
+
+  const resolveAddressFilter = useCallback(async () => {
+    const text = addressQuery.trim();
+    if (!text) {
+      setAddressFilter(null);
+      return null;
+    }
+    const coordinates = parseCoordinateQuery(text);
+    if (coordinates) {
+      const filter = { ...coordinates, radius: DEFAULT_RADIUS_METERS };
+      setAddressFilter(filter);
+      return filter;
+    }
+    setGeocoding(true);
+    try {
+      const resolved = await geocodeAddress(text);
+      if (!resolved) {
+        setAddressFilter(null);
+        return null;
+      }
+      const filter = { ...resolved, radius: DEFAULT_RADIUS_METERS };
+      setAddressFilter(filter);
+      return filter;
+    } finally {
+      setGeocoding(false);
+    }
+  }, [addressQuery]);
+
+  const handleGenerate = useCallback(
+    async (event) => {
+      event?.preventDefault?.();
+      setFeedback(null);
+      if (!selectedVehicleId) {
+        setFormError("Selecione exatamente um veículo.");
+        return;
+      }
+      if (!from || !to) {
+        setFormError("Selecione o período completo.");
+        return;
+      }
+
+      setFormError("");
+      const resolvedFilter = await resolveAddressFilter();
+      try {
+        const filterKey = `${resolvedFilter?.lat ?? ""}|${resolvedFilter?.lng ?? ""}|${resolvedFilter?.radius ?? ""}|${addressQuery.trim()}`;
+        lastFilterKeyRef.current = filterKey;
+        await generate({
+          vehicleId: selectedVehicleId,
+          from: new Date(from).toISOString(),
+          to: new Date(to).toISOString(),
+          addressLat: resolvedFilter?.lat,
+          addressLng: resolvedFilter?.lng,
+          addressRadius: resolvedFilter?.radius,
+        });
+        setHasGenerated(true);
+        setFeedback({ type: "success", message: "Relatório de posições atualizado." });
+      } catch (requestError) {
+        setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
+      }
+    },
+    [selectedVehicleId, from, to, generate, resolveAddressFilter, addressQuery],
+  );
+
+  useEffect(() => {
+    if (!hasGenerated || loading || !selectedVehicleId) return;
+    const filter = addressQuery.trim() ? addressFilter : null;
+    const filterKey = `${filter?.lat ?? ""}|${filter?.lng ?? ""}|${filter?.radius ?? ""}|${addressQuery.trim()}`;
+    if (filterKey === lastFilterKeyRef.current) return;
+    lastFilterKeyRef.current = filterKey;
+    generate({
+      vehicleId: selectedVehicleId,
+      from: new Date(from).toISOString(),
+      to: new Date(to).toISOString(),
+      addressLat: filter?.lat,
+      addressLng: filter?.lng,
+      addressRadius: filter?.radius,
+    }).catch(() => {});
+  }, [addressFilter, addressQuery, from, to, generate, hasGenerated, loading, selectedVehicleId]);
+
+  const handleExportPdf = async () => {
+    setFormError("");
+    if (!selectedVehicleId) {
+      setFormError("Selecione exatamente um veículo.");
+      return;
+    }
+    const columnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
+    setExportingPdf(true);
+    try {
+      const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
+      const blob = await exportPdf({
+        vehicleId: selectedVehicleId,
+        from: new Date(from).toISOString(),
+        to: new Date(to).toISOString(),
+        columns: columnsToExport,
+        addressFilter: resolvedFilter
+          ? {
+              lat: resolvedFilter.lat,
+              lng: resolvedFilter.lng,
+              radius: resolvedFilter.radius,
+            }
+          : null,
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = buildPdfFileName(selectedVehicle, from, to);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Falha ao exportar PDF." });
+    } finally {
+      setExportingPdf(false);
+      setPdfModalOpen(false);
+    }
+  };
+
+  const handleApplyColumns = (prefs) => {
+    setColumnPrefs(prefs);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, prefs);
+  };
+
+  const handleRestoreColumns = () => {
+    setColumnPrefs(defaults);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, defaults);
+  };
+
+  const handleColumnWidthChange = (key, width) => {
+    setColumnPrefs((prev) => {
+      const next = { ...prev, widths: { ...(prev?.widths || {}), [key]: width } };
+      saveColumnPreferences(COLUMN_STORAGE_KEY, next);
+      return next;
+    });
+  };
+
+  const openPdfModal = () => {
+    setPdfColumns(visibleColumns.map((column) => column.key));
+    setPdfModalOpen(true);
+  };
+
+  const columnsForSelection = useMemo(
+    () => COLUMNS.map((column) => ({ key: column.key, label: column.label })),
+    [],
+  );
+
+  return (
+    <div className="flex h-full flex-col gap-4">
+      {topBarVisible && (
+        <section className="rounded-2xl border border-white/10 bg-[#0f141c] p-4">
+          <form onSubmit={handleGenerate} className="grid gap-4 xl:grid-cols-[2fr_2fr_1.5fr_auto_auto_auto]">
+            <VehicleSelector label="Veículo" placeholder="Busque por placa, nome ou ID" className="text-sm" />
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
+              <input
+                type="text"
+                value={addressQuery}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setAddressQuery(value);
+                  if (!value.trim()) {
+                    setAddressFilter(null);
+                  }
+                }}
+                onBlur={() => {
+                  if (addressQuery.trim()) {
+                    resolveAddressFilter();
+                  }
+                }}
+                placeholder="Rua, cidade ou lat,lng"
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+              />
+              {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
+              {addressFilter && (
+                <p className="mt-1 text-xs text-white/60">
+                  Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
+                </p>
+              )}
+            </label>
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
+              <input
+                type="datetime-local"
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+              />
+            </label>
+            <label className="text-sm">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
+              <input
+                type="datetime-local"
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+              />
+            </label>
+            <div className="flex items-end gap-2">
+              <button
+                type="button"
+                onClick={() => setActivePopup("columns")}
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                title="Selecionar colunas"
+                aria-label="Selecionar colunas"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="9" y1="4" x2="9" y2="20" />
+                  <line x1="15" y1="4" x2="15" y2="20" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopBarVisible(false)}
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                title="Ocultar filtros"
+                aria-label="Ocultar filtros"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="3" y1="11" x2="21" y2="11" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex items-end gap-2">
+              <button
+                type="submit"
+                disabled={loading || geocoding || !selectedVehicleId}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {loading ? "Gerando…" : "Gerar relatório"}
+              </button>
+              <button
+                type="button"
+                onClick={openPdfModal}
+                disabled={loading || exportingPdf || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingPdf ? "Exportando…" : "Exportar PDF"}
+              </button>
+            </div>
+          </form>
+          {formError && (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              {formError}
+            </div>
+          )}
+          {feedback && (
+            <div
+              className={`mt-3 rounded-lg border p-3 text-sm ${
+                feedback.type === "success"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {feedback.message}
+            </div>
+          )}
+          {error && !feedback?.message && (
+            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              {error.message}
+            </div>
+          )}
+        </section>
+      )}
+
+      {!topBarVisible && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setTopBarVisible(true)}
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+            title="Mostrar filtros"
+            aria-label="Mostrar filtros"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <line x1="3" y1="11" x2="21" y2="11" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      <section className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-[#0b0f17]">
+        <MonitoringTable
+          rows={rows}
+          columns={visibleColumnsWithWidths}
+          loading={loading}
+          emptyText="Nenhuma posição encontrada para o período selecionado."
+          columnWidths={columnPrefs?.widths}
+          onColumnWidthChange={handleColumnWidthChange}
+        />
+      </section>
+
+      {activePopup === "columns" && (
+        <MonitoringColumnSelector
+          columns={COLUMNS}
+          columnPrefs={columnPrefs}
+          defaultPrefs={defaults}
+          onApply={handleApplyColumns}
+          onRestore={handleRestoreColumns}
+          onClose={() => setActivePopup(null)}
+        />
+      )}
+
+      {pdfModalOpen && (
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setPdfModalOpen(false)}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-lg rounded-2xl border border-white/10 bg-[#0f141c] p-6 text-sm text-white/80 shadow-3xl"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold text-white">Colunas do PDF</div>
+                <p className="text-xs text-white/60">Escolha as colunas para exportação.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPdfModalOpen(false)}
+                className="h-9 w-9 rounded-lg border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="mt-4 max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+              {columnsForSelection.map((column) => (
+                <label
+                  key={column.key}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-2 hover:border-white/30"
+                >
+                  <span className="text-white/80">{column.label}</span>
+                  <input
+                    type="checkbox"
+                    className="accent-primary"
+                    checked={pdfColumns.includes(column.key)}
+                    onChange={(event) => {
+                      setPdfColumns((prev) =>
+                        event.target.checked
+                          ? [...new Set([...prev, column.key])]
+                          : prev.filter((key) => key !== column.key),
+                      );
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
+                onClick={() => setPdfModalOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
+                onClick={handleExportPdf}
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
