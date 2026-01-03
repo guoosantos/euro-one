@@ -285,6 +285,15 @@ async function fetchCommandResultEvents(traccarId, from, to, limit) {
 }
 
 async function resolveTraccarDeviceFromVehicle(req, vehicleId) {
+  const resolvedClientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  if (resolvedClientId) {
+    const localDevices = listDevices({ clientId: resolvedClientId });
+    const localMatch = localDevices.find((device) => device?.vehicleId && String(device.vehicleId) === String(vehicleId));
+    if (localMatch?.traccarId) {
+      return { ...localMatch };
+    }
+  }
+
   const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
   const host = req.get("x-forwarded-host") || req.get("host");
   if (!host) {
@@ -292,9 +301,9 @@ async function resolveTraccarDeviceFromVehicle(req, vehicleId) {
   }
 
   const url = new URL(`/api/core/vehicles/${vehicleId}/traccar-device`, `${protocol}://${host}`);
-  const clientId = req.body?.clientId || req.query?.clientId;
-  if (clientId) {
-    url.searchParams.set("clientId", String(clientId));
+  const clientIdForQuery = req.body?.clientId || req.query?.clientId;
+  if (clientIdForQuery) {
+    url.searchParams.set("clientId", String(clientIdForQuery));
   }
 
   const headers = { Accept: "application/json" };
@@ -319,6 +328,86 @@ async function resolveTraccarDeviceFromVehicle(req, vehicleId) {
   }
 
   return payload?.device || null;
+}
+
+async function hydrateTraccarDevice(req, traccarId, baseDevice = null) {
+  let traccarDevice = baseDevice ? { ...baseDevice } : null;
+  if (!traccarDevice && traccarId) {
+    traccarDevice = { traccarId };
+  }
+
+  if (!traccarDevice?.protocol || !traccarDevice?.phone) {
+    try {
+      const remoteDevice = await traccarProxy("get", `/devices/${traccarId}`, { asAdmin: true, context: req });
+      if (remoteDevice && !remoteDevice?.ok) {
+        throw createError(502, remoteDevice?.error?.message || "Falha ao buscar device no Traccar");
+      }
+      traccarDevice = {
+        ...traccarDevice,
+        ...remoteDevice,
+        traccarId: remoteDevice?.id ?? traccarId,
+      };
+    } catch (error) {
+      console.warn("[commands] Falha ao buscar device no Traccar", error?.message || error);
+    }
+  }
+
+  return traccarDevice;
+}
+
+async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
+  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const requestedVehicleId = req.body?.vehicleId || req.query?.vehicleId;
+  const requestedDeviceId = req.body?.deviceId || req.query?.deviceId;
+  let vehicleId = requestedVehicleId ? String(requestedVehicleId).trim() : "";
+  const normalizedDeviceId = requestedDeviceId ? String(requestedDeviceId).trim() : "";
+
+  const buildResolved = async (deviceRecord, fallbackDeviceId) => {
+    const resolvedTraccarId = Number(deviceRecord?.traccarId ?? fallbackDeviceId);
+    if (!Number.isFinite(resolvedTraccarId)) return null;
+    const hydrated = await hydrateTraccarDevice(req, resolvedTraccarId, deviceRecord);
+    return {
+      vehicleId: vehicleId || (deviceRecord?.vehicleId ? String(deviceRecord.vehicleId) : ""),
+      traccarId: resolvedTraccarId,
+      traccarDevice: hydrated,
+    };
+  };
+
+  if (normalizedDeviceId) {
+    const deviceRecord = getDeviceById(normalizedDeviceId);
+    if (clientId && deviceRecord?.clientId && String(deviceRecord.clientId) !== String(clientId) && req.user?.role !== "admin") {
+      throw createError(403, "Dispositivo não autorizado para este cliente");
+    }
+    if (deviceRecord && !deviceRecord.vehicleId) {
+      throw createError(409, "Equipamento sem veículo vinculado");
+    }
+    const resolved = await buildResolved(deviceRecord, normalizedDeviceId);
+    if (!resolved) {
+      throw createError(404, "Equipamento não encontrado");
+    }
+    if (!resolved.vehicleId) {
+      throw createError(409, "Equipamento sem veículo vinculado");
+    }
+    return resolved;
+  }
+
+  if (vehicleId && allowVehicleFallback) {
+    const localDevices = listDevices({ clientId });
+    const localMatch = localDevices.find((device) => device?.vehicleId && String(device.vehicleId) === vehicleId);
+    if (localMatch) {
+      const resolved = await buildResolved(localMatch, localMatch.traccarId);
+      if (resolved) return resolved;
+    }
+
+    const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+    const traccarId = Number(traccarDevice?.traccarId);
+    if (!Number.isFinite(traccarId)) {
+      throw createError(409, "Equipamento vinculado sem traccarId");
+    }
+    return { vehicleId, traccarId, traccarDevice };
+  }
+
+  throw createError(400, "vehicleId ou deviceId é obrigatório");
 }
 
 function resolveCustomCommandPayload(customCommand) {
@@ -1541,49 +1630,11 @@ router.post("/commands/send-sms", requireRole("manager", "admin"), async (req, r
 
 router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
   try {
-    let vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
-    const requestedDeviceId = req.body?.deviceId ? String(req.body.deviceId).trim() : "";
-    if (!vehicleId && !requestedDeviceId) {
-      throw createError(400, "vehicleId ou deviceId é obrigatório");
-    }
-
     const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
-
-    let traccarDevice = null;
-    if (vehicleId) {
-      traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
-    } else {
-      const deviceRecord = getDeviceById(requestedDeviceId);
-      if (!deviceRecord) {
-        throw createError(404, "Equipamento não encontrado");
-      }
-      if (!deviceRecord.vehicleId) {
-        throw createError(409, "Equipamento sem veículo vinculado");
-      }
-      vehicleId = String(deviceRecord.vehicleId);
-      const resolvedTraccarId = Number(deviceRecord.traccarId ?? requestedDeviceId);
-      if (!Number.isFinite(resolvedTraccarId)) {
-        throw createError(409, "Equipamento vinculado sem traccarId");
-      }
-      traccarDevice = { ...deviceRecord, traccarId: resolvedTraccarId };
-
-      if (!traccarDevice.protocol || !traccarDevice.phone) {
-        try {
-          const remoteDevice = await traccarProxy("get", `/devices/${resolvedTraccarId}`, { asAdmin: true });
-          if (remoteDevice && !remoteDevice?.ok) {
-            throw createError(502, remoteDevice?.error?.message || "Falha ao buscar device no Traccar");
-          }
-          traccarDevice = {
-            ...traccarDevice,
-            ...remoteDevice,
-            traccarId: remoteDevice?.id ?? traccarDevice.traccarId,
-          };
-        } catch (error) {
-          console.warn("[commands] Falha ao buscar device no Traccar via deviceId", error?.message || error);
-        }
-      }
-    }
+    const resolvedDevice = await resolveTraccarDevice(req, { allowVehicleFallback: true });
+    let vehicleId = resolvedDevice.vehicleId;
+    const traccarDevice = resolvedDevice.traccarDevice || {};
 
     const traccarId = Number(traccarDevice?.traccarId);
     if (!Number.isFinite(traccarId)) {
@@ -2226,6 +2277,19 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
       input.sortOrder !== null
         ? input.sortOrder
         : await resolveNextCustomCommandOrder(customCommandModel, clientId, input.protocol);
+
+    const duplicate = await customCommandModel.findFirst({
+      where: {
+        clientId,
+        name: input.name,
+        kind: input.kind,
+        protocol: input.protocol ?? null,
+        payload: { equals: input.payload },
+      },
+    });
+    if (duplicate) {
+      throw createError(409, "Já existe um comando personalizado igual para este cliente");
+    }
 
     const command = await customCommandModel.create({
       data: {
