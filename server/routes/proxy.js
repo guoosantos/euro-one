@@ -198,6 +198,10 @@ function findBuiltinCustomCommand(commandId) {
   return BUILTIN_CUSTOM_COMMANDS.find((command) => command.id === commandId) || null;
 }
 
+function isUuid(value) {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
 const commandFallbackModels = new Map();
 const commandFallbackWarnings = new Set();
 function getCommandFallbackModel(modelName) {
@@ -1990,9 +1994,25 @@ router.get("/commands/history/status", async (req, res, next) => {
     }
 
     const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+    const uuidIds = ids.filter((id) => isUuid(id));
+    const nonUuidItems = ids
+      .filter((id) => !isUuid(id))
+      .map((id) => ({
+        id,
+        status: "PENDING",
+        receivedAt: null,
+        respondedAt: null,
+        result: null,
+        command: null,
+        commandName: null,
+        sentAt: null,
+        user: null,
+        traccarCommandId: null,
+      }));
+
     if (!isPrismaAvailable()) {
       return res.json({
-        data: { items: [] },
+        data: { items: nonUuidItems },
         warning: "Banco indisponível para atualizar status do histórico.",
         error: null,
       });
@@ -2005,9 +2025,13 @@ router.get("/commands/history/status", async (req, res, next) => {
     }
 
     const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+    if (uuidIds.length === 0) {
+      return res.json({ data: { items: nonUuidItems }, warning: null, error: null });
+    }
+
     const dispatches = await dispatchModel.findMany({
       where: {
-        id: { in: ids },
+        id: { in: uuidIds },
         vehicleId,
         ...(clientId ? { clientId } : {}),
       },
@@ -2015,7 +2039,7 @@ router.get("/commands/history/status", async (req, res, next) => {
     });
 
     if (!dispatches.length) {
-      return res.json({ data: { items: [] }, warning: null, error: null });
+      return res.json({ data: { items: nonUuidItems }, warning: null, error: null });
     }
 
     const sentTimes = dispatches.map((dispatch) => new Date(dispatch.sentAt)).filter((date) => !Number.isNaN(date.getTime()));
@@ -2109,7 +2133,7 @@ router.get("/commands/history/status", async (req, res, next) => {
     });
 
     return res.json({
-      data: { items },
+      data: { items: [...nonUuidItems, ...items] },
       warning: traccarWarning,
       error: null,
     });
@@ -2319,16 +2343,17 @@ router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (re
       });
     }
 
-    const existing = await customCommandModel.findUnique({ where: { id: req.params.id } });
-    if (!existing) {
-      throw createError(404, "Comando personalizado não encontrado");
-    }
-    if (String(existing.clientId) !== String(clientId) && req.user?.role !== "admin") {
-      throw createError(403, "Operação não permitida para este cliente");
+    const normalizedId = String(req.params.id);
+    const deletion = await customCommandModel.deleteMany({ where: { id: normalizedId, clientId } });
+
+    if (!deletion?.count) {
+      return res.status(404).json({
+        data: null,
+        error: { code: "NOT_FOUND", message: "Comando não encontrado" },
+      });
     }
 
-    await customCommandModel.delete({ where: { id: req.params.id } });
-    res.status(204).send();
+    res.status(200).json({ data: { id: normalizedId }, error: null });
   } catch (error) {
     next(error);
   }
