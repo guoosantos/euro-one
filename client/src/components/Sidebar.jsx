@@ -192,7 +192,7 @@ export default function Sidebar() {
         { to: "/tasks", label: "Agendamentos", icon: CalendarClock },
       ],
     },
-    { to: "/routes", label: "Rota Embarcada", icon: Route },
+    { to: "/routes", label: "Rota Embarcada", icon: Map },
     { to: "/geofences", label: "Cercas", icon: Map },
     { to: "/itineraries", label: "Itinerários", icon: Map },
     { to: "/deliveries", label: "Entregas", icon: Package },
@@ -217,7 +217,7 @@ export default function Sidebar() {
   const analysisLinks = [
     { to: "/analytics/heatmap", label: "Mapa de Calor", icon: BarChart3 },
     { to: "/ranking", label: "Ranking", icon: Medal },
-    { to: "/routes", label: "Rotas Perigosas", icon: Route },
+    { to: "/routes", label: "Rotas Perigosas", icon: Map },
     { to: "/events", label: "Segurança", icon: ShieldCheck },
   ];
 
