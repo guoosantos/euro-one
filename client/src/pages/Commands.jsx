@@ -6,8 +6,14 @@ import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { useTenant } from "../lib/tenant-context.jsx";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
-import { filterCommandsBySearch, mergeCommands, normalizeProtocolKey } from "./commands-helpers.js";
+import {
+  filterCommandsBySearch,
+  mergeCommands,
+  normalizeProtocolKey,
+  resolveCommandSendError,
+} from "./commands-helpers.js";
 import CreateCommands from "./CreateCommands.jsx";
 
 const COMMAND_TABS = ["Comandos", "Avançado", "Criar comandos"];
@@ -38,6 +44,7 @@ const friendlyApiError = (error, fallbackMessage) => {
   if (error?.response?.status === 503 || error?.status === 503) {
     return "Serviço temporariamente indisponível. Tente novamente em instantes.";
   }
+  if (error?.response?.data?.error?.message) return error.response.data.error.message;
   if (error?.response?.data?.message) return error.response.data.message;
   if (error instanceof Error && error.message) return error.message;
   return fallbackMessage;
@@ -162,6 +169,7 @@ const mergeHistoryItems = (items = []) => {
 const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export default function Commands() {
+  const { tenantId } = useTenant();
   const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -417,7 +425,9 @@ export default function Commands() {
   }, [totalPages]);
 
   const resolveDeviceFromVehicle = useCallback(async (vehicleId) => {
-    const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId));
+    const response = await api.get(API_ROUTES.core.vehicleTraccarDevice(vehicleId), {
+      params: tenantId ? { clientId: tenantId } : undefined,
+    });
     const payload = response?.data;
     if (!payload || payload.ok === false || payload.error) {
       const error = new Error("Erro ao buscar device no Traccar");
@@ -425,7 +435,7 @@ export default function Commands() {
       throw error;
     }
     return payload?.device || null;
-  }, []);
+  }, [tenantId]);
 
   const fetchDevice = useCallback(async () => {
     if (!selectedVehicleId) {
@@ -475,7 +485,7 @@ export default function Commands() {
     } finally {
       setDeviceLoading(false);
     }
-  }, [selectedVehicleId]);
+  }, [resolveDeviceFromVehicle, selectedVehicleId]);
 
   const fetchCommands = useCallback(async () => {
     if (!device?.protocol) {
@@ -501,6 +511,7 @@ export default function Commands() {
     const params = {
       ...(device?.traccarId ? { deviceId: device.traccarId } : {}),
       ...(device?.protocol ? { protocol: device.protocol } : {}),
+      ...(tenantId ? { clientId: tenantId } : {}),
     };
     try {
       const response = await api.get(API_ROUTES.commandsCustom, { params });
@@ -516,7 +527,7 @@ export default function Commands() {
       setCustomCommandsLoading(false);
     }
     return [];
-  }, [device?.protocol, device?.traccarId]);
+  }, [device?.protocol, device?.traccarId, tenantId]);
 
   const fetchHistory = useCallback(
     async ({ useLoading, bustCache } = {}) => {
@@ -538,7 +549,13 @@ export default function Commands() {
       try {
         const cacheParams = bustCache ? { ts: Date.now() } : {};
         const response = await api.get(API_ROUTES.commandsHistory, {
-          params: { vehicleId: selectedVehicleId, page: historyPage, pageSize: historyPerPage, ...cacheParams },
+          params: {
+            vehicleId: selectedVehicleId,
+            page: historyPage,
+            pageSize: historyPerPage,
+            ...(tenantId ? { clientId: tenantId } : {}),
+            ...cacheParams,
+          },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         const mergedItems = mergeHistoryItems(items);
@@ -584,7 +601,7 @@ export default function Commands() {
         setHistoryRefreshing(false);
       }
     },
-    [selectedVehicleId, historyPage, historyPerPage],
+    [selectedVehicleId, historyPage, historyPerPage, tenantId],
   );
 
   const getPendingHistoryIds = useCallback(() => {
@@ -607,7 +624,12 @@ export default function Commands() {
       try {
         const cacheParams = bustCache ? { ts: Date.now() } : {};
         const response = await api.get(API_ROUTES.commandsHistoryStatus, {
-          params: { vehicleId: selectedVehicleId, ids: uuidIds.join(","), ...cacheParams },
+          params: {
+            vehicleId: selectedVehicleId,
+            ids: uuidIds.join(","),
+            ...(tenantId ? { clientId: tenantId } : {}),
+            ...cacheParams,
+          },
         });
         const items = Array.isArray(response?.data?.data?.items) ? response.data.data.items : [];
         if (items.length) {
@@ -638,7 +660,7 @@ export default function Commands() {
         setHistoryWarning(message);
       }
     },
-    [selectedVehicleId],
+    [selectedVehicleId, tenantId],
   );
 
   const handleRefreshHistory = useCallback(async () => {
@@ -744,10 +766,10 @@ export default function Commands() {
     setHistoryPage((current) => Math.min(current, totalHistoryPages));
   }, [totalHistoryPages]);
 
-  const buildPendingHistoryItem = (commandLabel, requestId) => ({
+  const buildPendingHistoryItem = (commandLabel, requestId, traccarId) => ({
     id: requestId,
     vehicleId: selectedVehicleId,
-    traccarId: device?.traccarId || null,
+    traccarId: (traccarId ?? device?.traccarId) || null,
     user: getStoredSession()?.user || null,
     command: commandLabel,
     payload: null,
@@ -765,7 +787,8 @@ export default function Commands() {
       showToast("Selecione um veículo válido", "error");
       return;
     }
-    if (!device?.traccarId) {
+    const traccarId = Number(device?.traccarId);
+    if (!Number.isFinite(traccarId)) {
       showToast("Equipamento sem Traccar ID válido", "error");
       return;
     }
@@ -791,14 +814,18 @@ export default function Commands() {
 
       pendingId = `pending-${commandKey}-${Date.now()}`;
       const pendingLabel = isManualCustom ? commandLabelCandidate || command.name || commandKey : command.name || commandKey;
-      const pendingItem = buildPendingHistoryItem(pendingLabel, pendingId);
+      const pendingItem = buildPendingHistoryItem(pendingLabel, pendingId, traccarId);
       setHistory((current) => [pendingItem, ...current].slice(0, historyPerPage));
       setHistoryTotal((current) => current + 1);
       let response = null;
+      const sendPayloadBase = {
+        vehicleId: selectedVehicleId,
+        deviceId: traccarId,
+        ...(tenantId ? { clientId: tenantId } : {}),
+      };
       if (isManualCustom) {
         response = await api.post(API_ROUTES.commandsSend, {
-          vehicleId: selectedVehicleId,
-          deviceId: device.traccarId,
+          ...sendPayloadBase,
           payload: manualPayload,
           textChannel: true,
           description: manualParams.description?.trim() || undefined,
@@ -806,14 +833,12 @@ export default function Commands() {
         });
       } else if (command.kind === "custom") {
         response = await api.post(API_ROUTES.commandsSend, {
-          vehicleId: selectedVehicleId,
-          deviceId: device.traccarId,
+          ...sendPayloadBase,
           customCommandId: command.id,
         });
       } else {
         response = await api.post(API_ROUTES.commandsSend, {
-          vehicleId: selectedVehicleId,
-          deviceId: device.traccarId,
+          ...sendPayloadBase,
           protocol: device.protocol,
           commandKey,
           commandName: command.name || commandKey,
@@ -847,7 +872,7 @@ export default function Commands() {
         startHistoryPolling();
       }
     } catch (error) {
-      const message = friendlyApiError(error, "Erro ao enviar comando");
+      const message = resolveCommandSendError(error, "Erro ao enviar comando");
       setCommandErrors((current) => ({ ...current, [commandKey]: message }));
       setHistory((current) =>
         current.map((item) =>
