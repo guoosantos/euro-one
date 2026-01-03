@@ -398,6 +398,25 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
   };
 
   try {
+    const resolveByVehicle = async () => {
+      if (!vehicleId) return null;
+
+      const localDevices = listDevices({ clientId });
+      const localMatch = localDevices.find((device) => device?.vehicleId && String(device.vehicleId) === vehicleId);
+      if (localMatch) {
+        const resolved = await buildResolved(localMatch, localMatch.traccarId);
+        if (resolved) return resolved;
+      }
+
+      const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+      const traccarId = Number(traccarDevice?.traccarId);
+      if (!Number.isFinite(traccarId)) {
+        throw createError(409, "Equipamento vinculado sem traccarId");
+      }
+      updateVehicleContext(vehicleId);
+      return { vehicleId, traccarId, traccarDevice };
+    };
+
     const buildResolved = async (deviceRecord, fallbackDeviceId) => {
       const resolvedTraccarId = Number(deviceRecord?.traccarId ?? fallbackDeviceId);
       if (!Number.isFinite(resolvedTraccarId)) return null;
@@ -410,6 +429,17 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
         traccarDevice: hydrated,
       };
     };
+
+    if (vehicleId && allowVehicleFallback) {
+      try {
+        const resolved = await resolveByVehicle();
+        if (resolved) return resolved;
+      } catch (vehicleError) {
+        if (!normalizedDeviceId) {
+          throw vehicleError;
+        }
+      }
+    }
 
     if (normalizedDeviceId) {
       const deviceRecord = getDeviceById(normalizedDeviceId);
@@ -430,20 +460,8 @@ async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
     }
 
     if (vehicleId && allowVehicleFallback) {
-      const localDevices = listDevices({ clientId });
-      const localMatch = localDevices.find((device) => device?.vehicleId && String(device.vehicleId) === vehicleId);
-      if (localMatch) {
-        const resolved = await buildResolved(localMatch, localMatch.traccarId);
-        if (resolved) return resolved;
-      }
-
-      const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
-      const traccarId = Number(traccarDevice?.traccarId);
-      if (!Number.isFinite(traccarId)) {
-        throw createError(409, "Equipamento vinculado sem traccarId");
-      }
-      updateVehicleContext(vehicleId);
-      return { vehicleId, traccarId, traccarDevice };
+      const resolved = await resolveByVehicle();
+      if (resolved) return resolved;
     }
 
     throw createError(400, "vehicleId ou deviceId é obrigatório");
