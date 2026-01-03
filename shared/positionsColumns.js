@@ -16,12 +16,20 @@ export const positionsColumns = [
   { key: "accuracy", labelPt: "Precisão", labelPdf: "Precisão", width: 90, defaultVisible: false, weight: 0.9 },
   { key: "commandResponse", labelPt: "Resposta do Comando", labelPdf: "Resposta do Comando", width: 220, defaultVisible: true, weight: 2.2 },
   {
-    key: "deviceStatusEvent",
+    key: "deviceStatus",
     labelPt: "Status do Equipamento",
     labelPdf: "Status do Equipamento",
     width: 180,
     defaultVisible: true,
     weight: 1.6,
+  },
+  {
+    key: "deviceStatusEvent",
+    labelPt: "Transição de Status",
+    labelPdf: "Transição de Status",
+    width: 200,
+    defaultVisible: true,
+    weight: 1.8,
   },
 ];
 

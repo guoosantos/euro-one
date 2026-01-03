@@ -73,6 +73,13 @@ function normalizeAddressDisplay(value) {
     const trimmed = value.trim();
     return trimmed || "—";
   }
+  if (value && typeof value === "object") {
+    const withFormatted = value.formatted || value.formattedAddress || value.formatted_address;
+    if (withFormatted && typeof withFormatted === "string") {
+      const formatted = withFormatted.trim();
+      if (formatted) return formatted;
+    }
+  }
   try {
     const formatted = formatAddress(value);
     return formatted && formatted !== "—" ? formatted : "—";
@@ -302,14 +309,14 @@ export default function ReportsPositions() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      {topBarVisible && (
-        <section className="rounded-2xl border border-white/10 bg-[#0f141c] p-4">
-          <form onSubmit={handleGenerate} className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-3">
+      <section className="card flex flex-col gap-4 p-0">
+        <form onSubmit={handleGenerate} className="flex flex-col gap-4">
+          <header className="space-y-3 px-6 pt-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-white">Relatório de posições</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
               </div>
-              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <div className="flex flex-wrap items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setActivePopup("columns")}
@@ -322,6 +329,15 @@ export default function ReportsPositions() {
                     <line x1="9" y1="4" x2="9" y2="20" />
                     <line x1="15" y1="4" x2="15" y2="20" />
                   </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTopBarVisible((visible) => !visible)}
+                  className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
+                  title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                  aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                >
+                  {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
                 </button>
                 <button
                   type="submit"
@@ -338,124 +354,120 @@ export default function ReportsPositions() {
                 >
                   {exportingPdf ? "Exportando…" : "Exportar PDF"}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setTopBarVisible(false)}
-                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                  title="Ocultar filtros"
-                  aria-label="Ocultar filtros"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <line x1="3" y1="11" x2="21" y2="11" />
-                  </svg>
-                </button>
               </div>
             </div>
-            <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
-              <div className="xl:col-span-4">
-                <VehicleSelector
-                  label="Veículo"
-                  placeholder="Busque por placa, nome ou ID"
-                  className="text-sm"
-                />
-              </div>
-              <label className="text-sm xl:col-span-4">
-                <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
-                <input
-                  type="text"
-                  value={addressQuery}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setAddressQuery(value);
-                    if (!value.trim()) {
-                      setAddressFilter(null);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (addressQuery.trim()) {
-                      resolveAddressFilter();
-                    }
-                  }}
-                  placeholder="Rua, cidade ou lat,lng"
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                />
-                {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
-                {addressFilter && (
-                  <p className="mt-1 text-xs text-white/60">
-                    Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
-                  </p>
-                )}
-              </label>
-              <label className="text-sm xl:col-span-2">
-                <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
-                <input
-                  type="datetime-local"
-                  value={from}
-                  onChange={(event) => setFrom(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                />
-              </label>
-              <label className="text-sm xl:col-span-2">
-                <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
-                <input
-                  type="datetime-local"
-                  value={to}
-                  onChange={(event) => setTo(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                />
-              </label>
-              <label className="flex items-center gap-3 text-sm xl:col-span-2">
-                <input
-                  type="checkbox"
-                  checked={hideUnavailableIgnition}
-                  onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
-                <span className="text-white/80">Ocultar posições com ignição indisponível</span>
-              </label>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
             </div>
-          </form>
+          </header>
+
+          {topBarVisible ? (
+            <div className="space-y-3 px-6 pb-6">
+              <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
+                <div className="xl:col-span-4">
+                  <VehicleSelector
+                    label="Veículo"
+                    placeholder="Busque por placa, nome ou ID"
+                    className="text-sm"
+                  />
+                </div>
+                <label className="text-sm xl:col-span-4">
+                  <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
+                  <input
+                    type="text"
+                    value={addressQuery}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setAddressQuery(value);
+                      if (!value.trim()) {
+                        setAddressFilter(null);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (addressQuery.trim()) {
+                        resolveAddressFilter();
+                      }
+                    }}
+                    placeholder="Rua, cidade ou lat,lng"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                  />
+                  {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
+                  {addressFilter && (
+                    <p className="mt-1 text-xs text-white/60">
+                      Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
+                    </p>
+                  )}
+                </label>
+                <label className="text-sm xl:col-span-2">
+                  <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
+                  <input
+                    type="datetime-local"
+                    value={from}
+                    onChange={(event) => setFrom(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                  />
+                </label>
+                <label className="text-sm xl:col-span-2">
+                  <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
+                  <input
+                    type="datetime-local"
+                    value={to}
+                    onChange={(event) => setTo(event.target.value)}
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                  />
+                </label>
+                <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm xl:col-span-2">
+                  <input
+                    type="checkbox"
+                    checked={hideUnavailableIgnition}
+                    onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <div>
+                    <span className="block text-xs uppercase tracking-wide text-white/60">Disponibilidade</span>
+                    <span className="text-white/80">Ocultar posições com ignição/estado indisponível</span>
+                  </div>
+                </label>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-3 px-6 pb-6">
+              <p className="text-xs text-white/60">Filtros ocultos. Clique para ajustar os critérios.</p>
+              <button
+                type="button"
+                onClick={() => setTopBarVisible(true)}
+                className="rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white"
+              >
+                Mostrar filtros
+              </button>
+            </div>
+          )}
+
           {formError && (
-            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-              {formError}
+            <div className="px-6 pb-6">
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
             </div>
           )}
           {feedback && (
-            <div
-              className={`mt-3 rounded-lg border p-3 text-sm ${
-                feedback.type === "success"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                  : "border-red-500/30 bg-red-500/10 text-red-200"
-              }`}
-            >
-              {feedback.message}
+            <div className="px-6 pb-6">
+              <div
+                className={`rounded-lg border p-3 text-sm ${
+                  feedback.type === "success"
+                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                    : "border-red-500/30 bg-red-500/10 text-red-200"
+                }`}
+              >
+                {feedback.message}
+              </div>
             </div>
           )}
           {error && !feedback?.message && (
-            <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-              {error.message}
+            <div className="px-6 pb-6">
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
             </div>
           )}
-        </section>
-      )}
-
-      {!topBarVisible && (
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => setTopBarVisible(true)}
-            className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-            title="Mostrar filtros"
-            aria-label="Mostrar filtros"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="4" width="18" height="16" rx="2" />
-              <line x1="3" y1="11" x2="21" y2="11" />
-            </svg>
-          </button>
-        </div>
-      )}
+        </form>
+      </section>
 
       <section className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-[#0b0f17]">
         <MonitoringTable
