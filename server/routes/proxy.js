@@ -38,6 +38,13 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
+import { positionsColumns } from "../../shared/positionsColumns.js";
+import {
+  telemetryAliases,
+  telemetryAttributeCatalog,
+  resolveTelemetryDescriptor,
+  ioFriendlyNames,
+} from "../../shared/telemetryDictionary.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -782,6 +789,13 @@ const TRACCAR_DB_ERROR_PAYLOAD = {
 };
 
 const DEFAULT_REPORT_RADIUS_METERS = 100;
+const MAX_IO_COLUMNS = 8;
+const PROTOCOL_OUTPUT_ALIASES = {
+  gt06: [{ key: "blocked", index: 1 }],
+};
+const PROTOCOL_VOLTAGE_KEYS = {
+  gt06: ["power", "batteryVoltage", "vehicleVoltage"],
+};
 
 function respondBadRequest(res, message = "Parâmetros inválidos.") {
   return res.status(400).json({
@@ -893,6 +907,148 @@ function extractDigitalOutputs(attributes = {}) {
   return extractDigitalIo(attributes, { kind: "output" });
 }
 
+function extractHdop(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = ["hdop", "HDOP", "hDop"];
+  for (const key of candidates) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function extractVehicleVoltage(attributes = {}, protocol = null) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const baseKeys = [
+    "power",
+    "vehicleVoltage",
+    "mainVoltage",
+    "carVoltage",
+    "externalVoltage",
+    "vehicleBattery",
+    "carBattery",
+  ];
+  const normalizedProtocol = protocol ? normalizeProtocolKey(protocol) : null;
+  const protocolKeys = normalizedProtocol && PROTOCOL_VOLTAGE_KEYS[normalizedProtocol];
+  const candidates = [...(protocolKeys || []), ...baseKeys];
+  for (const key of candidates) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const parsed = parseFloat(String(attributes[key]).replace(",", "."));
+    if (Number.isFinite(parsed)) return Number(parsed.toFixed(2));
+  }
+  return null;
+}
+
+function normalizeDictionaryValue(descriptor, raw) {
+  if (!descriptor) return raw;
+  if (descriptor.type === "boolean") {
+    const normalized = normalizeIoState(raw);
+    if (normalized === null || normalized === undefined) return null;
+    return normalized ? "Ativo" : "Inativo";
+  }
+  if (descriptor.type === "number") {
+    const parsed = parseFloat(String(raw).replace(",", "."));
+    if (!Number.isFinite(parsed)) return null;
+    const fixed = Number(parsed.toFixed(2));
+    if (descriptor.unit) return `${fixed} ${descriptor.unit}`.trim();
+    return fixed;
+  }
+  if (descriptor.type === "string") {
+    const text = String(raw || "").trim();
+    return text || null;
+  }
+  return raw;
+}
+
+function collectDigitalStates(attributes = {}, protocol = null) {
+  const inputs = new Map();
+  const outputs = new Map();
+  const assign = (target, index, value) => {
+    if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
+    const normalized = normalizeIoValue(value);
+    if (normalized === "—") return;
+    target.set(index, normalized);
+  };
+
+  Object.entries(attributes || {}).forEach(([key, value]) => {
+    const inMatch = key.match(/^(?:in|input|entrada)_?(\d+)$/i);
+    const outMatch = key.match(/^(?:out|output|saida|saída)_?(\d+)$/i);
+    const ioMatch = key.match(/^io(\d+)$/i);
+    if (inMatch) assign(inputs, Number(inMatch[1]), value);
+    if (outMatch) assign(outputs, Number(outMatch[1]), value);
+    if (ioMatch) assign(inputs, Number(ioMatch[1]), value);
+  });
+
+  const bulkInputs = extractDigitalInputs(attributes);
+  if (Array.isArray(bulkInputs)) {
+    bulkInputs.forEach((item) => assign(inputs, Number(item.index), item.state ?? item.raw));
+  }
+
+  const bulkOutputs = extractDigitalOutputs(attributes);
+  if (Array.isArray(bulkOutputs)) {
+    bulkOutputs.forEach((item) => assign(outputs, Number(item.index), item.state ?? item.raw));
+  }
+
+  const normalizedProtocol = protocol ? normalizeProtocolKey(protocol) : null;
+  const aliases = normalizedProtocol ? PROTOCOL_OUTPUT_ALIASES[normalizedProtocol] : null;
+  if (Array.isArray(aliases)) {
+    aliases.forEach((alias) => {
+      if (!alias?.key || !Number.isFinite(Number(alias.index))) return;
+      if (attributes[alias.key] === undefined || attributes[alias.key] === null) return;
+      assign(outputs, Number(alias.index), attributes[alias.key]);
+    });
+  }
+
+  return { inputs, outputs };
+}
+
+function formatGenericIoLabel(key) {
+  if (!key) return null;
+  const numeric = key.match(/^io(\d+)$/i);
+  if (numeric) return `IO ${numeric[1]}`;
+  return null;
+}
+
+function collectAttributeTranslations(attributes = {}) {
+  const extras = new Map();
+  const ioDetails = [];
+
+  Object.entries(attributes || {}).forEach(([rawKey, rawValue]) => {
+    if (rawKey === null || rawKey === undefined) return;
+    const cleanedKey = String(rawKey).trim();
+    const lowerKey = cleanedKey.toLowerCase();
+    if (!cleanedKey) return;
+    if (/^(in|out|input|output|entrada|saida|saída|digitalInput|digitalOutput)\d+$/i.test(cleanedKey)) return;
+    if (/^(io)\d+$/i.test(cleanedKey)) {
+      const friendly = ioFriendlyNames[lowerKey];
+      if (friendly) {
+        const descriptor = resolveTelemetryDescriptor(friendly.key);
+        const formatted = normalizeDictionaryValue(descriptor, rawValue);
+        if (formatted !== null && formatted !== undefined) {
+          extras.set(descriptor.key, formatted);
+        }
+      } else {
+        const label = formatGenericIoLabel(cleanedKey) || cleanedKey;
+        ioDetails.push({ key: lowerKey, label, value: normalizeIoValue(rawValue) });
+      }
+      return;
+    }
+
+    const aliasTarget = telemetryAliases[lowerKey];
+    const targetKey = aliasTarget || cleanedKey;
+    const descriptor = resolveTelemetryDescriptor(targetKey);
+    if (descriptor) {
+      const formatted = normalizeDictionaryValue(descriptor, rawValue);
+      if (formatted !== null && formatted !== undefined) {
+        extras.set(descriptor.key, formatted);
+      }
+    }
+  });
+
+  return { extras, ioDetails };
+}
+
 function normalizeIoValue(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Ligado" : "Desligado";
@@ -992,6 +1148,13 @@ function normalizeAddressValue(address, lat = null, lng = null) {
 
   if (coordinateFallback) return coordinateFallback;
   return "Endereço indisponível";
+}
+
+function extractOdometerMeters(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const raw = attributes.totalDistance ?? attributes.distance ?? attributes.odometer ?? attributes.odometro ?? null;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : null;
 }
 
 function computeDistanceMeters(from, to) {
@@ -3043,18 +3206,22 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const mappedChronological = filteredPositions
     .map((position) => {
       const attributes = position.attributes || {};
+      const protocolKey = position.protocol || attributes.protocol || null;
       const gpsTime = position.fixTime || position.deviceTime || position.serverTime || null;
       const speedRaw = Number(position.speed ?? 0);
       const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
       const ignition = extractIgnition(attributes);
-      const digitalInput1 = extractDigitalChannel(attributes, { index: 1, kind: "input" });
-      const digitalInput2 = extractDigitalChannel(attributes, { index: 2, kind: "input" });
-      const digitalOutput1 = extractDigitalChannel(attributes, { index: 1, kind: "output" });
-      const digitalOutput2 = extractDigitalChannel(attributes, { index: 2, kind: "output" });
+      const { inputs, outputs } = collectDigitalStates(attributes, protocolKey);
       const commandResponse = gpsTime
         ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
         : null;
       const statusToken = resolveDeviceStatusToken(position);
+      const hdop = extractHdop(attributes);
+      const rawAccuracy = position.accuracy ?? attributes.accuracy ?? null;
+      const vehicleVoltage = extractVehicleVoltage(attributes, protocolKey);
+      const accuracy =
+        rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
+      const { extras, ioDetails } = collectAttributeTranslations(attributes);
 
       return {
         id: position.id ?? null,
@@ -3071,15 +3238,24 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         batteryLevel: extractBatteryLevel(attributes),
         rssi: extractRssi(attributes),
         satellites: extractSatellites(attributes),
+        hdop,
         geofence: attributes.geofence ?? attributes.geofenceId ?? null,
-        accuracy: position.accuracy ?? null,
+        accuracy,
+        vehicleVoltage,
         commandResponse: commandResponse || null,
-        digitalInput1,
-        digitalInput2,
-        digitalOutput1,
-        digitalOutput2,
+        digitalInput1: inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }),
+        digitalInput2: inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }),
+        digitalOutput1: outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }),
+        digitalOutput2: outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }),
+        ioDetails,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
+        __digitalInputs: inputs,
+        __digitalOutputs: outputs,
+        __odometer: extractOdometerMeters(attributes),
+        __extras: extras,
         __deviceStatusToken: statusToken,
+        distance: null,
+        totalDistance: null,
       };
     })
     .sort((a, b) => {
@@ -3109,8 +3285,110 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     lastStatusToken = position.__deviceStatusToken;
   }
 
+  let previousPosition = null;
+  let lastOdometerMeters = null;
+  let cumulativeDistanceKm = 0;
+
+  for (const position of mappedChronological) {
+    const odometerMeters = Number.isFinite(position.__odometer) ? position.__odometer : null;
+    let deltaKm = null;
+
+    if (
+      Number.isFinite(odometerMeters) &&
+      Number.isFinite(lastOdometerMeters) &&
+      odometerMeters >= lastOdometerMeters
+    ) {
+      deltaKm = (odometerMeters - lastOdometerMeters) / 1000;
+      cumulativeDistanceKm = odometerMeters / 1000;
+    } else if (Number.isFinite(odometerMeters) && !Number.isFinite(lastOdometerMeters)) {
+      cumulativeDistanceKm = odometerMeters / 1000;
+    }
+
+    const hasCoordinates = Number.isFinite(position.latitude) && Number.isFinite(position.longitude);
+    const hasPreviousCoordinates =
+      Number.isFinite(previousPosition?.latitude) && Number.isFinite(previousPosition?.longitude);
+
+    if (deltaKm === null && hasCoordinates && hasPreviousCoordinates) {
+      const meters = computeDistanceMeters(
+        { lat: previousPosition.latitude, lng: previousPosition.longitude },
+        { lat: position.latitude, lng: position.longitude },
+      );
+      deltaKm = Number.isFinite(meters) ? meters / 1000 : null;
+      if (Number.isFinite(deltaKm)) {
+        cumulativeDistanceKm += deltaKm;
+      }
+    }
+
+    const safeDeltaKm = Number.isFinite(deltaKm) ? deltaKm : 0;
+    const resolvedTotalKm =
+      Number.isFinite(odometerMeters) && odometerMeters >= 0 ? odometerMeters / 1000 : cumulativeDistanceKm;
+
+    position.distance = Number(safeDeltaKm.toFixed(3));
+    position.totalDistance = Number((Number.isFinite(resolvedTotalKm) ? resolvedTotalKm : cumulativeDistanceKm).toFixed(3));
+    cumulativeDistanceKm = Number.isFinite(resolvedTotalKm) ? resolvedTotalKm : cumulativeDistanceKm;
+
+    if (Number.isFinite(odometerMeters)) lastOdometerMeters = odometerMeters;
+    previousPosition = position;
+  }
+
+  const availableColumns = new Set(["gpsTime", "address", "speed", "ignition", "vehicleState", "distance", "totalDistance"]);
+  const inputIndexes = new Set();
+  const outputIndexes = new Set();
+  const hasValue = (value) => !(value === null || value === undefined || value === "" || value === "—");
+
+  for (const position of mappedChronological) {
+    const inputs = position.__digitalInputs instanceof Map ? position.__digitalInputs : new Map();
+    const outputs = position.__digitalOutputs instanceof Map ? position.__digitalOutputs : new Map();
+    const extras = position.__extras instanceof Map ? position.__extras : new Map();
+
+    inputs.forEach((value, index) => {
+      if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
+      position[`digitalInput${index}`] = value;
+      inputIndexes.add(index);
+    });
+
+    outputs.forEach((value, index) => {
+      if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
+      position[`digitalOutput${index}`] = value;
+      outputIndexes.add(index);
+    });
+
+    extras.forEach((value, key) => {
+      position[key] = value;
+      availableColumns.add(key);
+    });
+
+    if (Array.isArray(position.ioDetails) && position.ioDetails.length) {
+      availableColumns.add("ioDetails");
+    }
+
+    const optionalKeys = [
+      "satellites",
+      "hdop",
+      "accuracy",
+      "deviceTime",
+      "serverTime",
+      "direction",
+      "latitude",
+      "longitude",
+      "batteryLevel",
+      "rssi",
+      "geofence",
+      "commandResponse",
+      "vehicleVoltage",
+      "deviceStatus",
+      "deviceStatusEvent",
+    ];
+    optionalKeys.forEach((key) => {
+      if (hasValue(position[key])) availableColumns.add(key);
+    });
+  }
+
+  inputIndexes.forEach((index) => availableColumns.add(`digitalInput${index}`));
+  outputIndexes.forEach((index) => availableColumns.add(`digitalOutput${index}`));
+
   const mapped = mappedChronological
-    .map(({ __deviceStatusToken, ...rest }) => rest)
+    .map(({ __deviceStatusToken, __digitalInputs, __digitalOutputs, __odometer, __extras, ...rest }) => rest)
     .sort((a, b) => {
       const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
       const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
@@ -3118,6 +3396,9 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     });
 
   const latestPosition = mapped[0] || null;
+  const orderedAvailableColumns = positionsColumns
+    .map((column) => column.key)
+    .filter((key) => availableColumns.has(key));
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
   const ignitionLabel =
     latestPosition?.ignition === true
@@ -3140,6 +3421,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       ignition: ignitionLabel,
     },
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
+    availableColumns: orderedAvailableColumns.length ? orderedAvailableColumns : Array.from(availableColumns),
   };
 
   return { positions: mapped, meta };
@@ -3202,13 +3484,14 @@ router.post("/reports/positions/pdf", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
-    const columns = resolvePdfColumns(req.body?.columns);
 
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const columns = resolvePdfColumns(req.body?.columns, report?.meta?.availableColumns);
     const pdf = await generatePositionsReportPdf({
       rows: report.positions,
       columns,
       meta: report.meta,
+      availableColumns: report?.meta?.availableColumns,
     });
 
     const durationMs = Date.now() - startedAt;
