@@ -901,7 +901,7 @@ function resolveVehicleState(ignition, speedKmh) {
   if (ignition === true && speedKmh > 0) return "Em movimento";
   if (ignition === true) return "Ligado";
   if (ignition === false) return "Desligado";
-  return "—";
+  return "Indisponível";
 }
 
 function parseCommandEvents(events = []) {
@@ -2938,7 +2938,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const latestPosition = mapped[0] || null;
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
   const ignitionLabel =
-    latestPosition?.ignition === true ? "Ligada" : latestPosition?.ignition === false ? "Desligada" : "—";
+    latestPosition?.ignition === true
+      ? "Ligada"
+      : latestPosition?.ignition === false
+        ? "Desligada"
+        : "Indisponível";
 
   const meta = {
     generatedAt: new Date().toISOString(),
@@ -2949,7 +2953,6 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       plate: vehicle.plate || null,
       name: vehicle.name || null,
       customer: client?.name || null,
-      deviceId: device.uniqueId || device.id || traccarId,
       status: vehicle.status || null,
       lastCommunication: latestPosition?.gpsTime || null,
       ignition: ignitionLabel,

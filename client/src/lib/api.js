@@ -1,11 +1,23 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
+
 const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
-const FALLBACK_BASE_URL =
-  typeof window !== "undefined" && window.location?.origin
-    ? window.location.origin
-    : "http://localhost:3001";
-const BASE_URL = (RAW_BASE_URL || FALLBACK_BASE_URL).replace(/\/$/, "");
+const FALLBACK_BASE_URL = "http://localhost:3001";
+const windowBaseUrl =
+  typeof window !== "undefined" && window.location?.origin ? window.location.origin : null;
+
+const RESOLVED_BASE =
+  RAW_BASE_URL
+    || (import.meta?.env?.DEV && windowBaseUrl)
+    || FALLBACK_BASE_URL;
+
+if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta?.env?.DEV) {
+  console.error(
+    "[api] VITE_API_BASE_URL ausente. Use a URL do backend (ex.: http://localhost:3001) para evitar chamadas ao front.",
+  );
+}
+
+const BASE_URL = RESOLVED_BASE.replace(/\/$/, "");
 
 export function getApiBaseUrl() {
   return BASE_URL;
@@ -99,7 +111,8 @@ export function resolveAuthorizationHeader() {
 }
 
 function friendlyErrorMessage(status, payload, statusText) {
-  if (payload?.message) return payload.message;
+  const serverMessage = payload?.error || payload?.message || payload?.errorMessage || null;
+  if (serverMessage) return serverMessage;
   if (status === 401) return "Sessão expirada. Faça login novamente.";
   if (status === 403) return "Você não tem permissão para realizar esta ação.";
   if (status >= 500) return "Erro interno. Tente novamente em instantes.";

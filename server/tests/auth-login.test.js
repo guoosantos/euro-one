@@ -77,6 +77,7 @@ describe("POST /api/login", () => {
 
     assert.equal(response.status, 400);
     assert.equal(response.body.error, "Campos obrigatórios: usuário e senha");
+    assert.equal(response.body.errorCode, "MISSING_CREDENTIALS");
   });
 
   it("returns 401 when credentials are invalid", async () => {
@@ -91,6 +92,7 @@ describe("POST /api/login", () => {
 
     assert.equal(response.status, 401);
     assert.equal(response.body.error, "Usuário ou senha inválidos");
+    assert.equal(response.body.errorCode, "INVALID_CREDENTIALS");
   });
 
   it("returns 503 when database is unavailable and fallback is disabled", async () => {
@@ -109,6 +111,7 @@ describe("POST /api/login", () => {
 
     assert.equal(response.status, 503);
     assert.equal(response.body.error, "Banco de dados indisponível ou mal configurado");
+    assert.equal(response.body.errorCode, "DATABASE_UNAVAILABLE");
   });
 
   it("returns 502 when Traccar is unavailable", async () => {
@@ -122,5 +125,33 @@ describe("POST /api/login", () => {
 
     assert.equal(response.status, 502);
     assert.equal(response.body.error, "Servidor Traccar indisponível");
+    assert.equal(response.body.errorCode, "TRACCAR_UNAVAILABLE");
+  });
+
+  it("returns 400 when user has no tenant", async () => {
+    const user = {
+      id: "user-2",
+      name: "Tenantless User",
+      email: "tenantless@euro.one",
+      username: "tenantless",
+      role: "manager",
+      clientId: null,
+    };
+
+    __setAuthRouteDeps({
+      authenticateWithTraccar: async () => ({ ok: true, user: { id: 321 } }),
+      verifyUserCredentials: async () => user,
+      sanitizeUser: (value) => value,
+      buildSessionPayload: async () => ({ user, clientId: null, clients: [] }),
+      signSession: () => "token-tenantless",
+      isPrismaAvailable: () => true,
+      shouldUseDemoFallback: () => false,
+    });
+
+    const response = await postLogin({ email: "tenantless@euro.one", password: "secret" });
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "Usuário sem tenant associado");
+    assert.equal(response.body.errorCode, "MISSING_TENANT");
   });
 });

@@ -1,22 +1,72 @@
-import { chromium } from "playwright";
+import fs from "node:fs";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
+import { formatAddress } from "./address.js";
 
 const BRAND_COLOR = "#001F3F";
 const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
-const FONT_STACK = '"Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
+const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
+const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
 let cachedLogoDataUrl = null;
+let cachedFontRegular = null;
+let cachedFontBold = null;
+let cachedChromium = null;
+
+async function loadChromium() {
+  if (cachedChromium) return cachedChromium;
+  try {
+    const { chromium } = await import("playwright");
+    cachedChromium = chromium;
+    return chromium;
+  } catch (error) {
+    console.error("[reports/pdf] Playwright não encontrado. Instale a dependência para habilitar exportação PDF.", error?.message || error);
+    const missing = new Error("Dependência Playwright ausente para gerar PDF.");
+    missing.code = "PLAYWRIGHT_MISSING";
+    missing.status = 503;
+    throw missing;
+  }
+}
 
 async function fetchLogoDataUrl() {
   if (cachedLogoDataUrl) return cachedLogoDataUrl;
-  const response = await fetch(LOGO_URL);
-  if (!response.ok) {
-    throw new Error(`Falha ao buscar logo (${response.status}).`);
+  try {
+    const response = await fetch(LOGO_URL);
+    if (!response.ok) {
+      throw new Error(`Falha ao buscar logo (${response.status}).`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const contentType = response.headers.get("content-type") || "image/png";
+    cachedLogoDataUrl = `data:${contentType};base64,${buffer.toString("base64")}`;
+    return cachedLogoDataUrl;
+  } catch (error) {
+    console.warn("[reports/pdf] não foi possível carregar logo", error?.message || error);
+    cachedLogoDataUrl = null;
+    return null;
   }
-  const buffer = Buffer.from(await response.arrayBuffer());
-  const contentType = response.headers.get("content-type") || "image/png";
-  cachedLogoDataUrl = `data:${contentType};base64,${buffer.toString("base64")}`;
-  return cachedLogoDataUrl;
+}
+
+function loadFontBase64(fontPath) {
+  try {
+    const buffer = fs.readFileSync(fontPath);
+    return buffer.toString("base64");
+  } catch (error) {
+    console.warn("[reports/pdf] não foi possível ler fonte", fontPath, error?.message || error);
+    return null;
+  }
+}
+
+function ensureFontData() {
+  if (!cachedFontRegular) {
+    cachedFontRegular = loadFontBase64(FONT_PATH_REGULAR);
+  }
+  if (!cachedFontBold) {
+    cachedFontBold = loadFontBase64(FONT_PATH_BOLD);
+  }
+  return {
+    regular: cachedFontRegular,
+    bold: cachedFontBold,
+  };
 }
 
 function formatDate(value) {
@@ -26,15 +76,35 @@ function formatDate(value) {
   return parsed.toLocaleString("pt-BR");
 }
 
+function normalizeAddress(value) {
+  if (!value) return "—";
+  if (typeof value === "string") return formatAddress(value);
+  if (value && typeof value === "object") {
+    if (value.formattedAddress) return formatAddress(value.formattedAddress);
+    if (value.address) return formatAddress(value.address);
+    try {
+      return formatAddress(JSON.stringify(value));
+    } catch (_error) {
+      return "—";
+    }
+  }
+  return formatAddress(String(value));
+}
+
 function formatCellValue(key, value) {
-  if (value === null || value === undefined || value === "") return "—";
+  if (value === null || value === undefined || value === "") {
+    if (key === "ignition" || key === "vehicleState") return "Indisponível";
+    return "—";
+  }
   if (["gpsTime", "deviceTime", "serverTime"].includes(key)) return formatDate(value);
   if (key === "speed") return Number.isFinite(Number(value)) ? `${Number(value)} km/h` : String(value);
   if (key === "direction") return Number.isFinite(Number(value)) ? `${Number(value)}°` : String(value);
   if (key === "accuracy") return Number.isFinite(Number(value)) ? `${Number(value)} m` : String(value);
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
-  return String(value);
+  if (key === "vehicleState" && value === "—") return "Indisponível";
+  if (key === "address") return normalizeAddress(value);
+  return typeof value === "object" ? normalizeAddress(value) : String(value);
 }
 
 function escapeHtml(value) {
@@ -51,7 +121,7 @@ function resolveColumnLabelByKey(key, variant = "pdf") {
   return resolveColumnLabel(column, variant);
 }
 
-function buildHtml({ rows, columns, meta, logoDataUrl }) {
+function buildHtml({ rows, columns, meta, logoDataUrl, fontData }) {
   const tableHeaders = columns
     .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, "pdf"))}</th>`)
     .join("");
@@ -72,12 +142,34 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
     })
     .join("");
 
+  const fontFaces = fontData?.regular
+    ? `
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.regular}') format('truetype');
+      font-weight: 400;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: 'DejaVu Sans';
+      src: url('data:font/ttf;base64,${fontData.bold || fontData.regular}') format('truetype');
+      font-weight: 700;
+      font-style: normal;
+    }
+  `
+    : "";
+
+  const logoMarkup = logoDataUrl
+    ? `<div class="logo"><img src="${logoDataUrl}" alt="Euro One" /></div>`
+    : `<div class="logo fallback">EURO ONE</div>`;
+
   return `
 <!doctype html>
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
     <style>
+      ${fontFaces}
       * { box-sizing: border-box; }
       body {
         margin: 0;
@@ -86,36 +178,57 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
         background: #ffffff;
       }
       .report {
-        padding: 24px 28px 0;
+        padding: 24px 28px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
       }
       .header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 16px 20px;
-        border-radius: 12px;
-        background: ${BRAND_COLOR};
+        padding: 18px 20px;
+        border-radius: 14px;
+        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         color: #ffffff;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 14px 18px;
+        align-items: center;
       }
-      .header img {
-        height: 40px;
+      .logo img {
+        height: 48px;
         object-fit: contain;
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+      }
+      .logo.fallback {
+        height: 48px;
+        display: grid;
+        place-items: center;
+        padding: 10px 14px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.35);
+        font-weight: 700;
+        letter-spacing: 1px;
       }
       .title {
-        font-size: 18px;
+        font-size: 20px;
         font-weight: 700;
-        letter-spacing: 0.5px;
+        letter-spacing: 0.6px;
+        text-transform: uppercase;
+      }
+      .subtitle {
+        font-size: 12px;
+        color: rgba(255,255,255,0.9);
+        margin-top: 4px;
       }
       .meta-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 12px;
-        margin-top: 16px;
-        padding: 12px 16px;
-        border-radius: 12px;
+        padding: 14px 16px;
+        border-radius: 14px;
         background: #f8fafc;
         border: 1px solid #e2e8f0;
         font-size: 11px;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
       }
       .meta-item span {
         display: block;
@@ -127,25 +240,24 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
         font-size: 9px;
       }
       .card {
-        margin-top: 16px;
         border: 1px solid #e2e8f0;
-        border-radius: 14px;
-        padding: 14px 16px;
+        border-radius: 16px;
+        padding: 16px 16px 6px;
         background: #ffffff;
-        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
       }
       .card-title {
-        font-size: 12px;
-        font-weight: 700;
+        font-size: 13px;
+        font-weight: 800;
         color: ${BRAND_COLOR};
-        margin-bottom: 10px;
+        margin-bottom: 12px;
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
       .card-grid {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 12px 20px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px 18px;
         font-size: 11px;
       }
       .card-grid span {
@@ -157,19 +269,34 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
         letter-spacing: 0.04em;
         margin-bottom: 4px;
       }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(0, 31, 63, 0.08);
+        color: ${BRAND_COLOR};
+        border: 1px solid rgba(0, 31, 63, 0.14);
+        border-radius: 999px;
+        padding: 6px 12px;
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
       table {
         width: 100%;
         border-collapse: collapse;
-        margin-top: 18px;
+        margin-top: 4px;
         font-size: 10px;
       }
       thead {
         display: table-header-group;
         background: ${BRAND_COLOR};
         color: #ffffff;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       }
       thead th {
-        padding: 8px 8px;
+        padding: 9px 10px;
         text-align: left;
         font-weight: 600;
         font-size: 9px;
@@ -177,7 +304,7 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
         letter-spacing: 0.05em;
       }
       tbody td {
-        padding: 8px 8px;
+        padding: 9px 10px;
         border-bottom: 1px solid #e2e8f0;
         color: #1f2937;
         word-break: break-word;
@@ -188,6 +315,18 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
       tr {
         page-break-inside: avoid;
       }
+      .table-wrapper {
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+      }
+      .meta-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 4px;
+      }
       @page {
         margin: 16mm 12mm 20mm;
       }
@@ -196,13 +335,23 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
   <body>
     <div class="report">
       <div class="header">
-        <img src="${logoDataUrl}" alt="Euro One" />
-        <div class="title">RELATÓRIO DE POSIÇÕES</div>
+        ${logoMarkup}
+        <div>
+          <div class="title">RELATÓRIO DE POSIÇÕES</div>
+          <div class="subtitle">Dados consolidados do veículo e posições georreferenciadas</div>
+          <div class="meta-chips">
+            <div class="badge">Período: ${escapeHtml(formatDate(meta?.from))} – ${escapeHtml(formatDate(meta?.to))}</div>
+            <div class="badge">Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</div>
+          </div>
+        </div>
       </div>
       <div class="meta-grid">
-        <div class="meta-item"><span>Gerado em</span>${escapeHtml(formatDate(meta?.generatedAt))}</div>
-        <div class="meta-item"><span>Período</span>${escapeHtml(formatDate(meta?.from))} - ${escapeHtml(formatDate(meta?.to))}</div>
+        <div class="meta-item"><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+        <div class="meta-item"><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+        <div class="meta-item"><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
         <div class="meta-item"><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
+        <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+        <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
       </div>
       <div class="card">
         <div class="card-title">Resumo do veículo</div>
@@ -212,18 +361,20 @@ function buildHtml({ rows, columns, meta, logoDataUrl }) {
           <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
           <div><span>Status atual</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
           <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "—")}</div>
+          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Indisponível")}</div>
         </div>
       </div>
-      <table>
-        <colgroup>${colgroup}</colgroup>
-        <thead>
-          <tr>${tableHeaders}</tr>
-        </thead>
-        <tbody>
-          ${tableRows || `<tr><td colspan=\"${columns.length}\">—</td></tr>`}
-        </tbody>
-      </table>
+      <div class="table-wrapper">
+        <table>
+          <colgroup>${colgroup}</colgroup>
+          <thead>
+            <tr>${tableHeaders}</tr>
+          </thead>
+          <tbody>
+            ${tableRows || `<tr><td colspan=\"${columns.length}\">—</td></tr>`}
+          </tbody>
+        </table>
+      </div>
     </div>
   </body>
 </html>
@@ -237,14 +388,16 @@ function resolveColumns(columns) {
 }
 
 export async function generatePositionsReportPdf({ rows, columns, meta }) {
+  const chromium = await loadChromium();
   const browser = await chromium.launch({
     args: ["--font-render-hinting=medium", "--no-sandbox", "--disable-setuid-sandbox"],
   });
   try {
     const page = await browser.newPage();
     const logoDataUrl = await fetchLogoDataUrl();
+    const fontData = ensureFontData();
     const columnsToUse = resolveColumns(columns);
-    const html = buildHtml({ rows, columns: columnsToUse, meta, logoDataUrl });
+    const html = buildHtml({ rows, columns: columnsToUse, meta, logoDataUrl, fontData });
 
     await page.setContent(html, { waitUntil: "networkidle" });
 
