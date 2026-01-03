@@ -765,6 +765,10 @@ export default function Commands() {
       showToast("Selecione um veículo válido", "error");
       return;
     }
+    if (!device?.traccarId) {
+      showToast("Equipamento sem Traccar ID válido", "error");
+      return;
+    }
     const isManualCustom = command.manualCustom === true;
     if (command.kind !== "custom" && !device?.protocol) {
       showToast("Veículo sem protocolo válido", "error");
@@ -794,6 +798,7 @@ export default function Commands() {
       if (isManualCustom) {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
+          deviceId: device.traccarId,
           payload: manualPayload,
           textChannel: true,
           description: manualParams.description?.trim() || undefined,
@@ -802,11 +807,13 @@ export default function Commands() {
       } else if (command.kind === "custom") {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
+          deviceId: device.traccarId,
           customCommandId: command.id,
         });
       } else {
         response = await api.post(API_ROUTES.commandsSend, {
           vehicleId: selectedVehicleId,
+          deviceId: device.traccarId,
           protocol: device.protocol,
           commandKey,
           commandName: command.name || commandKey,
