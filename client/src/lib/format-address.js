@@ -72,7 +72,13 @@ function normalizeInput(rawAddress) {
     return {
       address:
         rawAddress.address || rawAddress.formattedAddress || rawAddress.shortAddress || rawAddress.attributes?.address || null,
-      formattedAddress: rawAddress.formattedAddress || rawAddress.attributes?.formattedAddress || null,
+      formattedAddress:
+        rawAddress.formattedAddress ||
+        rawAddress.formatted ||
+        rawAddress.formatted_address ||
+        rawAddress.attributes?.formattedAddress ||
+        rawAddress.attributes?.formatted ||
+        null,
       shortAddress: rawAddress.shortAddress || rawAddress.attributes?.shortAddress || null,
       parts,
     };

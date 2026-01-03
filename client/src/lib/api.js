@@ -17,11 +17,12 @@ const windowBaseUrl = windowHostname
       : `${windowProtocol}//${windowHostname}${windowPortSegment}/api`)
   : null;
 
-const RESOLVED_BASE = RAW_BASE_URL || windowBaseUrl || FALLBACK_BASE_URL;
+const isDevEnvironment = Boolean(import.meta.env?.DEV);
+const RESOLVED_BASE = RAW_BASE_URL || (isDevEnvironment ? windowBaseUrl || FALLBACK_BASE_URL : FALLBACK_BASE_URL);
 
-if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta.env.DEV) {
-  const fallback = windowBaseUrl || FALLBACK_BASE_URL;
-  console.error(`[api] VITE_API_BASE_URL ausente. Usando ${fallback} como fallback.`);
+if (!RAW_BASE_URL && typeof window !== "undefined" && !isDevEnvironment) {
+  const fallback = FALLBACK_BASE_URL;
+  console.error(`[api] VITE_API_BASE_URL ausente em produção. Usando ${fallback} como fallback controlado.`);
 }
 
 const BASE_URL = RESOLVED_BASE.replace(/\/$/, "");

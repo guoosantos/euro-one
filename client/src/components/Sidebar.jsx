@@ -199,10 +199,7 @@ export default function Sidebar() {
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
 
-  const adminLinks = [
-    ...(canManageUsers ? [clientLink, userLink] : []),
-    ...(role === "admin" ? [{ to: "/tracker-management", label: "Gerenciar rastreador", icon: Cpu }] : []),
-  ];
+  const adminLinks = [...(canManageUsers ? [clientLink, userLink] : [])];
 
   const euroCanLinks = [
     { to: "/fuel", label: "Combustível", icon: Flame },

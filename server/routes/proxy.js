@@ -862,6 +862,8 @@ function normalizeAddressValue(address) {
     return trimmed || "Endereço não disponível";
   }
   if (address && typeof address === "object") {
+    if (address.formatted) return String(address.formatted).trim() || "Endereço não disponível";
+    if (address.formatted_address) return String(address.formatted_address).trim() || "Endereço não disponível";
     if (address.formattedAddress) return String(address.formattedAddress).trim() || "Endereço não disponível";
     if (address.display_name) return String(address.display_name).trim() || "Endereço não disponível";
     const parts = [

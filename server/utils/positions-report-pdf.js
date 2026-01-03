@@ -80,6 +80,8 @@ function normalizeAddress(value) {
   if (!value) return "—";
   if (typeof value === "string") return formatAddress(value);
   if (value && typeof value === "object") {
+    if (value.formatted) return formatAddress(value.formatted);
+    if (value.formatted_address) return formatAddress(value.formatted_address);
     if (value.formattedAddress) return formatAddress(value.formattedAddress);
     if (value.address) return formatAddress(value.address);
     try {
