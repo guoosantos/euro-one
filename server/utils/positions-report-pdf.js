@@ -20,8 +20,11 @@ async function loadChromium() {
     cachedChromium = chromium;
     return chromium;
   } catch (error) {
-    console.error("[reports/pdf] Playwright não encontrado. Instale a dependência para habilitar exportação PDF.", error?.message || error);
-    const missing = new Error("Dependência Playwright ausente para gerar PDF.");
+    console.error(
+      "[reports/pdf] Playwright não encontrado. Instale a dependência para habilitar exportação PDF.",
+      error?.message || error,
+    );
+    const missing = new Error("Dependência Playwright ausente para gerar PDF. Rode npm run provision:playwright no ambiente.");
     missing.code = "PLAYWRIGHT_MISSING";
     missing.status = 503;
     throw missing;
@@ -394,12 +397,21 @@ export async function generatePositionsReportPdf({ rows, columns, meta }) {
   let browser = null;
 
   try {
+    const launchArgs = [
+      "--font-render-hinting=medium",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+    ];
     try {
       browser = await chromium.launch({
-        args: ["--font-render-hinting=medium", "--no-sandbox", "--disable-setuid-sandbox"],
+        headless: true,
+        args: launchArgs,
       });
     } catch (launchError) {
-      const error = new Error("Falha ao inicializar Chromium para gerar PDF.");
+      const error = new Error(
+        "Falha ao inicializar Chromium para gerar PDF. Verifique se o Playwright está instalado e se o host permite --no-sandbox.",
+      );
       error.code = launchError?.code || "PDF_CHROMIUM_LAUNCH_FAILED";
       error.status = launchError?.status ?? 500;
       error.cause = launchError;
