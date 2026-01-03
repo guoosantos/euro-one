@@ -45,7 +45,8 @@ function formatFromParts(rawParts = {}) {
   const street = abbreviateStreet(
     parts.street || coalesce(parts.road, parts.streetName, parts.route, parts.logradouro, parts.endereco),
   );
-  const houseNumber = coalesce(parts.houseNumber, parts.house_number, parts.number, parts.numero, parts.house);
+  const houseNumber =
+    coalesce(parts.houseNumber, parts.house_number, parts.number, parts.numero, parts.house) || (street ? "s/n" : "");
   const neighbourhood = coalesce(parts.neighbourhood, parts.suburb, parts.quarter, parts.bairro, parts.district);
   const city = coalesce(parts.city, parts.town, parts.village, parts.municipality, parts.cidade);
   const state = coalesce(parts.state, parts.region, parts.state_district, parts.stateCode, parts.uf, parts.estado);

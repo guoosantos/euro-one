@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { config } from "../config.js";
-import { formatAddress, getCachedGeocode, resolveShortAddress } from "../utils/address.js";
+import { formatAddress, getCachedGeocode, persistGeocode, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 
@@ -246,8 +246,15 @@ router.get("/geocode/reverse", async (req, res) => {
         formattedAddress,
         shortAddress,
       };
-      if (key) reverseCache.set(key, resolved);
-      return resolved;
+      const entry = await persistGeocode(lat, lng, {
+        address: payload?.display_name || shortAddress || null,
+        formattedAddress,
+        shortAddress,
+        addressParts: payload?.address || payload?.addressdetails || payload?.address_details,
+        updatedAt: new Date().toISOString(),
+      });
+      if (key) reverseCache.set(key, entry || resolved);
+      return entry || resolved;
     } catch (error) {
       console.warn("[geocode:reverse] Falha ao resolver endereço", {
         status: error?.status || error?.statusCode,
