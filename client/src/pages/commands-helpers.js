@@ -5,7 +5,15 @@ export const normalizeProtocolKey = (value) => (value ? normalizeText(value).tri
 export function resolveCommandSendError(error, fallbackMessage = "Erro ao enviar comando") {
   const status = Number(error?.response?.status ?? error?.status);
   const payload = error?.response?.data || {};
+  const cause = payload?.error?.cause || payload?.cause;
+  const causeMessage =
+    typeof cause === "string" && cause.trim()
+      ? cause.trim()
+      : cause?.message && String(cause.message).trim()
+        ? String(cause.message).trim()
+        : null;
   const message =
+    causeMessage ||
     payload?.error?.message ||
     payload?.message ||
     (error instanceof Error && error.message ? error.message : null) ||

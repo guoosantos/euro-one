@@ -829,7 +829,7 @@ export default function Commands() {
         response = await api.post(API_ROUTES.commandsSend, {
           ...sendPayloadBase,
           payload: manualPayload,
-          textChannel: true,
+          textChannel: false,
           description: manualParams.description?.trim() || undefined,
           commandName: commandLabelCandidate || command.name || "Comando personalizado",
         });
