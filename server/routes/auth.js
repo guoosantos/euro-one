@@ -6,7 +6,7 @@ import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
 import { sanitizeUser, verifyUserCredentials } from "../models/user.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
-import { buildTraccarUnavailableError, loginTraccar, isTraccarConfigured } from "../services/traccar.js";
+import { loginTraccar, isTraccarConfigured } from "../services/traccar.js";
 import {
   getFallbackClient,
   getFallbackUser,
@@ -36,6 +36,14 @@ const AUTH_ERROR_CODES = {
   invalidCredentials: "INVALID_CREDENTIALS",
   authUnavailable: "AUTH_UNAVAILABLE",
 };
+
+const TRACCAR_NETWORK_ERROR_CODES = new Set([
+  "ECONNREFUSED",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "ECONNRESET",
+  "ETIMEDOUT",
+]);
 
 function buildDatabaseUnavailableError(error) {
   const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
@@ -104,32 +112,69 @@ const handleLogin = async (req, res, next) => {
       getFallbackClient: getFallbackClientFn,
       authenticateWithTraccar: authenticateWithTraccarFn,
     } = authDeps;
-    const { email, username, login, password, remember } = req.body || {};
+
+    const loginBody = req.body;
+    const { email, username, login, password, remember } = loginBody || {};
     const userLogin = String(email || username || login || "").trim();
     const userPassword = typeof password === "string" ? password : null;
 
+    console.info("[auth] login request", {
+      userLogin,
+      origin: req.headers.origin || null,
+      userAgent: req.headers["user-agent"] || null,
+      forwardedFor: req.headers["x-forwarded-for"] || null,
+      authHeaders: {
+        authorization: Boolean(req.headers.authorization),
+        cookie: Boolean(req.headers.cookie),
+      },
+      env: {
+        hasTraccarUrl: Boolean(process.env.TRACCAR_URL),
+        hasTraccarBaseUrl: Boolean(process.env.TRACCAR_BASE_URL),
+        hasTraccarUser: Boolean(process.env.TRACCAR_USER || process.env.TRACCAR_ADMIN_USER),
+        hasTraccarPassword: Boolean(process.env.TRACCAR_PASSWORD || process.env.TRACCAR_ADMIN_PASSWORD),
+      },
+    });
+
+    if (!loginBody || typeof loginBody !== "object") {
+      console.warn("[auth] body ausente ou inválido no login");
+      return res.status(400).json({ error: "Campos obrigatórios: usuário e senha" });
+    }
+
     if (!userLogin || !userPassword) {
-      throw buildAuthError(400, "Login e senha são obrigatórios", AUTH_ERROR_CODES.missingCredentials);
+      return res.status(400).json({ error: "Campos obrigatórios: usuário e senha" });
     }
 
     console.info("[auth] início do login", { userLogin });
 
     let traccarAuth = null;
-    let traccarAuthError = null;
     try {
       traccarAuth = await authenticateWithTraccarFn(userLogin, userPassword);
+      if (!traccarAuth?.ok) {
+        console.warn("[auth] resposta inesperada do Traccar", {
+          userLogin,
+          status: traccarAuth?.status || traccarAuth?.error?.code,
+          response: traccarAuth?.error || null,
+        });
+        return res.status(502).json({ error: "Erro ao autenticar no Traccar" });
+      }
       if (traccarAuth?.ok) {
         console.info("[auth] autenticação Traccar OK", { userLogin, traccarUserId: traccarAuth?.user?.id });
       }
     } catch (error) {
       const status = Number(error?.status || error?.statusCode);
+      console.warn("[auth] falha ao autenticar no Traccar", {
+        userLogin,
+        status: status || error?.traccar?.status || null,
+        message: error?.message || error,
+        response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
+      });
       if (status === 401 || status === 403) {
-        traccarAuthError = error;
-        console.warn("[auth] falha de credenciais no Traccar", { userLogin, status });
-      } else {
-        console.warn("[auth] falha ao autenticar no Traccar", { userLogin, message: error?.message || error });
-        throw error;
+        return res.status(401).json({ error: "Usuário ou senha inválidos" });
       }
+      if (status === 502) {
+        return res.status(502).json({ error: error?.message || "Servidor Traccar indisponível" });
+      }
+      return res.status(502).json({ error: "Erro ao autenticar no Traccar" });
     }
     const traccarUser = traccarAuth?.user || null;
 
@@ -160,16 +205,6 @@ const handleLogin = async (req, res, next) => {
         console.warn("[auth] Falha ao construir sessão local, seguindo com sessão Traccar", error?.message || error);
         sessionPayload = null;
       }
-    }
-
-    if (!user && traccarAuthError) {
-      if (localAuthError) {
-        const normalized = isDatabaseUnavailableError(localAuthError)
-          ? buildDatabaseUnavailableError(localAuthError)
-          : buildAuthError(503, "Falha ao validar credenciais", AUTH_ERROR_CODES.authUnavailable);
-        throw normalized;
-      }
-      throw buildAuthError(401, "Credenciais inválidas", AUTH_ERROR_CODES.invalidCredentials);
     }
 
     if (!user) {
@@ -227,40 +262,62 @@ const handleLogin = async (req, res, next) => {
       username: sessionUser.username ?? null,
       traccar: traccarContext,
     };
-    const token = signSessionFn(tokenPayload);
-    const cookieOptions = {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
-    };
-    res.cookie("token", token, cookieOptions);
-    console.info("[auth] sessão criada", { userId: sessionUser.id, clientId: resolvedClientId });
-    return res.json({
-      token,
-      user: { ...sessionUser, clientId: tokenPayload.clientId },
-      client: sessionPayload.client,
-      clientId: tokenPayload.clientId,
-      clients: sessionPayload.clients,
-    });
+    try {
+      const token = signSessionFn(tokenPayload);
+      const cookieOptions = {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: process.env.NODE_ENV === "production",
+        ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
+      };
+      res.cookie("token", token, cookieOptions);
+      console.info("[auth] sessão criada", { userId: sessionUser.id, clientId: resolvedClientId });
+      return res.json({
+        token,
+        user: { ...sessionUser, clientId: tokenPayload.clientId },
+        client: sessionPayload.client,
+        clientId: tokenPayload.clientId,
+        clients: sessionPayload.clients,
+      });
+    } catch (error) {
+      const shouldLogStack =
+        process.env.NODE_ENV !== "production" || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
+      console.error("[auth] falha ao criar sessão", {
+        message: error?.message || error,
+        stack: shouldLogStack ? error?.stack : undefined,
+      });
+      return res.status(500).json({ error: "Falha ao criar sessão" });
+    }
   } catch (error) {
     const shouldLogStack =
       process.env.NODE_ENV !== "production" || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
     console.error("[auth] falha no login", {
       message: error?.message || error,
       stack: shouldLogStack ? error?.stack : undefined,
+      traccar: error?.traccar || error?.details?.response || error?.response?.data || null,
     });
     const status = Number(error?.status || error?.statusCode);
+    if (status === 400) {
+      return res.status(400).json({ error: error?.message || "Campos obrigatórios: usuário e senha" });
+    }
     if (status === 401) {
-      return res.status(401).json({ error: error?.message || "Credenciais inválidas" });
+      return res.status(401).json({ error: "Usuário ou senha inválidos" });
+    }
+    if (status === 502) {
+      return res.status(502).json({ error: error?.message || "Servidor Traccar indisponível" });
+    }
+    if (status === 503) {
+      return res.status(503).json({ error: error?.message || "Falha ao validar credenciais" });
     }
     if (!status) {
       const normalized = isDatabaseUnavailableError(error)
         ? buildDatabaseUnavailableError(error)
         : null;
-      if (normalized) return next(normalized);
+      if (normalized) {
+        return res.status(normalized.status || 503).json({ error: normalized.message });
+      }
     }
-    return next(error);
+    return res.status(500).json({ error: "Erro interno no servidor" });
   }
 };
 
@@ -316,28 +373,44 @@ function buildTraccarSessionUser(traccarUser, fallbackLogin) {
 
 async function authenticateWithTraccar(login, password) {
   if (!isTraccarConfigured()) {
-    console.warn("[auth] TRACCAR_BASE_URL ausente, pulando validação no Traccar");
-    return { ok: true, skipped: true };
+    console.warn("[auth] TRACCAR_BASE_URL ausente, não é possível autenticar no Traccar");
+    const error = createError(502, "Servidor Traccar indisponível");
+    error.traccar = { status: null, response: null, reason: "missing-base-url" };
+    throw error;
   }
-  try {
-    const traccarAuth = await loginTraccar(login, password);
-    if (traccarAuth?.ok) {
-      return traccarAuth;
-    }
-
-    const status = Number(traccarAuth?.error?.code || traccarAuth?.status || traccarAuth?.statusCode);
-    if (status === 401 || status === 403) {
-      throw createError(401, "Credenciais inválidas");
-    }
-
-    throw buildTraccarUnavailableError(traccarAuth?.error || traccarAuth, { endpoint: "/session" });
-  } catch (error) {
-    if (Number(error?.status || error?.statusCode) === 401) {
-      throw error;
-    }
-    console.warn("[auth] Falha ao validar sessão no Traccar, permitindo login local", error?.message || error);
-    return { ok: false, skipped: true, reason: "traccar-unavailable" };
+  const traccarAuth = await loginTraccar(login, password);
+  if (traccarAuth?.ok) {
+    return traccarAuth;
   }
+
+  const status = Number(traccarAuth?.error?.code || traccarAuth?.status || traccarAuth?.statusCode);
+  const errorCode = traccarAuth?.error?.code;
+  const errorCodeNormalized = typeof errorCode === "string" ? errorCode.toUpperCase() : null;
+
+  if (status === 401 || status === 403) {
+    throw createError(401, "Usuário ou senha inválidos");
+  }
+
+  if (
+    TRACCAR_NETWORK_ERROR_CODES.has(errorCodeNormalized)
+    || status === 502
+    || status === 503
+    || status === 504
+  ) {
+    const error = createError(502, "Servidor Traccar indisponível");
+    error.traccar = {
+      status: status || errorCodeNormalized,
+      response: traccarAuth?.error || null,
+    };
+    throw error;
+  }
+
+  const error = createError(502, "Erro ao autenticar no Traccar");
+  error.traccar = {
+    status: status || errorCodeNormalized,
+    response: traccarAuth?.error || null,
+  };
+  throw error;
 }
 
 async function buildSessionPayload(
