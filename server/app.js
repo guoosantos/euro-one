@@ -2,6 +2,9 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 import createError from "http-errors";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { config } from "./config.js";
 import authRoutes from "./routes/auth.js";
@@ -32,6 +35,9 @@ import protocolRoutes from "./routes/protocols.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientDistPath = path.resolve(__dirname, "../client/dist");
+const clientIndexPath = path.join(clientDistPath, "index.html");
 
 const viteHosts = ["localhost", "127.0.0.1"];
 const vitePorts = Array.from({ length: 18 }, (_item, index) => 5173 + index);
@@ -103,6 +109,18 @@ app.use("/api", itineraryRoutes);
 app.use("/api", euroRoutes);
 app.use("/api", mapMatchingRoutes);
 app.use("/api", protocolRoutes);
+
+if (fs.existsSync(clientDistPath)) {
+  app.use(express.static(clientDistPath));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api") || req.path.startsWith("/health") || req.path.startsWith("/ws")) {
+      return next();
+    }
+    return res.sendFile(clientIndexPath);
+  });
+} else {
+  console.warn(`[startup] Build do front não encontrado em ${clientDistPath}. O backend servirá apenas a API.`);
+}
 
 
 app.use((req, _res, next) => {

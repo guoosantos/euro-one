@@ -75,6 +75,12 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
    npm run dev:all
    ```
 
+## Produção e deploy rápido
+
+- O backend Express serve automaticamente o bundle do front a partir de `client/dist` com fallback de SPA. Não rode Vite em produção; sempre gere o build com `npm run build --workspace client` antes de reiniciar.
+- O PM2 (via `ecosystem.config.cjs`) inicia apenas o backend (`server/index.js`). Ao rodar `pm2 reload ecosystem.config.cjs --update-env`, certifique-se de que o `client/dist` foi atualizado.
+- A exportação de PDF usa Playwright/Chromium em modo *headless* com flags `--no-sandbox`, `--disable-setuid-sandbox` e `--disable-dev-shm-usage`. Caso o Chromium não esteja disponível, rode `npm run provision:playwright` no servidor (o script também é executado no `postinstall` do workspace `server`).
+
 ## Notas rápidas
 
 - O WebSocket de telemetria é servido em `/ws/live` e o front monta a URL a partir de `VITE_API_BASE_URL`, alternando entre `ws://` e `wss://` conforme o protocolo.

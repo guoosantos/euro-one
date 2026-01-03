@@ -424,42 +424,68 @@ export default function Monitoring() {
   const layoutButtonRef = useRef(null);
 
   const [layoutVisibility, setLayoutVisibility] = useState(() => ({ ...DEFAULT_LAYOUT_VISIBILITY }));
+  const [layoutSaveRequestedAt, setLayoutSaveRequestedAt] = useState(null);
 
-  const toggleLayoutVisibility = useCallback((key) => {
-    setLayoutVisibility((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      if (key === "showMap" || key === "showTable") {
-        if (!next.showMap && !next.showTable) {
-          next[key] = true;
-        }
-      }
-      return next;
-    });
+  const layoutsEqual = useCallback((a, b) => {
+    return (
+      a?.showMap === b?.showMap &&
+      a?.showTable === b?.showTable &&
+      a?.showToolbar === b?.showToolbar &&
+      a?.showTopbar === b?.showTopbar
+    );
   }, []);
+
+  const applyLayoutVisibility = useCallback(
+    (updater, { persist = false } = {}) => {
+      setLayoutVisibility((prev) => {
+        const next = normaliseLayoutVisibility(
+          typeof updater === "function" ? updater(prev) : updater,
+        );
+        const changed = !layoutsEqual(prev, next);
+
+        if (persist && changed) {
+          setLayoutSaveRequestedAt(Date.now());
+        }
+
+        return changed ? next : prev;
+      });
+    },
+    [layoutsEqual],
+  );
+
+  const toggleLayoutVisibility = useCallback(
+    (key) => {
+      applyLayoutVisibility((prev) => {
+        const next = { ...prev, [key]: !prev[key] };
+        if (key === "showMap" || key === "showTable") {
+          if (!next.showMap && !next.showTable) {
+            next[key] = true;
+          }
+        }
+        return next;
+      }, { persist: true });
+    },
+    [applyLayoutVisibility],
+  );
 
   useEffect(() => {
     if (loadingPreferences) return;
     const remote = preferences?.monitoringLayoutVisibility;
 
       if (remote) {
-        setLayoutVisibility((prev) => {
-          const next = normaliseLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote });
-          const unchanged =
-            prev.showMap === next.showMap &&
-            prev.showTable === next.showTable &&
-            prev.showToolbar === next.showToolbar &&
-            prev.showTopbar === next.showTopbar;
-          return unchanged ? prev : next;
-        });
+        applyLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote }, { persist: false });
       } else {
-        setLayoutVisibility((prev) => normaliseLayoutVisibility(prev));
+        applyLayoutVisibility((prev) => normaliseLayoutVisibility(prev), { persist: false });
       }
-  }, [loadingPreferences, preferences?.monitoringLayoutVisibility]);
+  }, [applyLayoutVisibility, loadingPreferences, preferences?.monitoringLayoutVisibility]);
 
   useEffect(() => {
-    if (loadingPreferences) return;
-    savePreferences({ monitoringLayoutVisibility: layoutVisibility }).catch(() => {});
-  }, [layoutVisibility, loadingPreferences, savePreferences]);
+    if (loadingPreferences || !layoutSaveRequestedAt) return undefined;
+    const timeout = setTimeout(() => {
+      savePreferences({ monitoringLayoutVisibility: layoutVisibility }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [layoutSaveRequestedAt, layoutVisibility, loadingPreferences, savePreferences]);
 
   useEffect(() => {
     setMonitoringTopbarVisible(layoutVisibility.showTopbar !== false);
@@ -1293,7 +1319,7 @@ export default function Monitoring() {
 
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
-    setLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }));
+    applyLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }), { persist: true });
     setMapInvalidateKey((prev) => prev + 1);
   }, [buildAddressFocusKey, clampRadius, normaliseBoundingBox, radiusValue]);
 

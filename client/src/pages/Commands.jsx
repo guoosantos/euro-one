@@ -88,6 +88,10 @@ const resolveHistoryCommandLabel = (item) => {
 
 const resolveHistoryCorrelator = (item) => {
   const candidate =
+    item?.historyId ??
+    item?.historyID ??
+    item?.commandHistoryId ??
+    item?.commandHistoryID ??
     item?.traccarCommandId ??
     item?.traccarCommandID ??
     item?.commandId ??
@@ -263,6 +267,11 @@ export default function Commands() {
   useEffect(() => {
     historyRef.current = history;
   }, [history]);
+
+  const hasPendingHistory = useMemo(
+    () => history.some((item) => ["PENDING", "SENT"].includes(item?.status)),
+    [history],
+  );
 
   const protocolCommandsWithManual = useMemo(() => {
     if (!selectedVehicleId) return protocolCommands;
@@ -741,14 +750,6 @@ export default function Commands() {
   }, [historyPage]);
 
   useEffect(() => {
-    if (historyPage === 1) {
-      startHistoryAutoRefresh();
-    } else {
-      stopHistoryAutoRefresh();
-    }
-  }, [historyPage, startHistoryAutoRefresh, stopHistoryAutoRefresh]);
-
-  useEffect(() => {
     if (!selectedVehicleId) {
       stopHistoryPolling();
       stopHistoryAutoRefresh();
@@ -762,8 +763,26 @@ export default function Commands() {
     } else {
       stopHistoryPolling();
     }
+  }, [history, selectedVehicleId, startHistoryPolling, stopHistoryAutoRefresh, stopHistoryPolling]);
+
+  useEffect(() => {
+    const shouldTrack = Boolean(selectedVehicleId) && historyPage === 1 && hasPendingHistory;
+    if (!shouldTrack) {
+      stopHistoryPolling();
+      stopHistoryAutoRefresh();
+      return;
+    }
+    startHistoryPolling();
     startHistoryAutoRefresh();
-  }, [history, selectedVehicleId, startHistoryAutoRefresh, startHistoryPolling, stopHistoryAutoRefresh, stopHistoryPolling]);
+  }, [
+    hasPendingHistory,
+    historyPage,
+    selectedVehicleId,
+    startHistoryAutoRefresh,
+    startHistoryPolling,
+    stopHistoryAutoRefresh,
+    stopHistoryPolling,
+  ]);
 
   const totalHistoryPages = useMemo(() => {
     if (!historyTotal) return 1;
@@ -1712,8 +1731,13 @@ export default function Commands() {
                   const sentAt = item?.sentAt || null;
                   const responseAt = item?.respondedAt || item?.receivedAt || item?.responseAt || null;
                   const requestedBy = resolveHistoryRequestedBy(item) || "—";
+                  const correlationKey =
+                    resolveHistoryCorrelator(item) ||
+                    item.id ||
+                    item.requestId ||
+                    `${sentAt || responseAt}-${commandLabel}`;
                   return (
-                    <tr key={item.id || item.requestId || `${sentAt || responseAt}-${commandLabel}`} className="hover:bg-white/5">
+                    <tr key={correlationKey} className="hover:bg-white/5">
                       <td
                         style={getWidthStyle("sentAt")}
                         className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80"
