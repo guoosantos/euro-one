@@ -37,7 +37,7 @@ import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics
 import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
-import { generatePositionsReportPdf } from "../utils/positions-report-pdf.js";
+import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -901,6 +901,36 @@ function resolveVehicleState(ignition, speedKmh) {
   if (ignition === true && speedKmh > 0) return "Em movimento";
   if (ignition === true) return "Ligado";
   if (ignition === false) return "Desligado";
+  return "Indisponível";
+}
+
+function resolveDeviceStatusToken(position) {
+  const candidates = [
+    position?.status,
+    position?.attributes?.status,
+    position?.attributes?.deviceStatus,
+    position?.attributes?.connectionStatus,
+    position?.attributes?.connected,
+    position?.attributes?.online,
+    position?.attributes?.active,
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate === true) return "active";
+    if (candidate === false) return "inactive";
+    if (candidate == null) continue;
+    const normalized = String(candidate).trim().toLowerCase();
+    if (!normalized) continue;
+    if (["active", "ativo", "online", "connected", "ligado"].includes(normalized)) return "active";
+    if (["inactive", "inativo", "offline", "desconectado", "desligado"].includes(normalized)) return "inactive";
+  }
+
+  return null;
+}
+
+function resolveDeviceStatusLabel(token) {
+  if (token === "active") return "Ativo";
+  if (token === "inactive") return "Inativo";
   return "Indisponível";
 }
 
@@ -2898,42 +2928,64 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const parsedEvents = parseCommandEvents(commandEvents);
   const windowMs = 10 * 60 * 1000;
 
-  const mapped = filteredPositions.map((position) => {
-    const attributes = position.attributes || {};
-    const gpsTime = position.fixTime || position.deviceTime || position.serverTime || null;
-    const speedRaw = Number(position.speed ?? 0);
-    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
-    const ignition = extractIgnition(attributes);
-    const commandResponse = gpsTime
-      ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
-      : null;
+  const mappedChronological = filteredPositions
+    .map((position) => {
+      const attributes = position.attributes || {};
+      const gpsTime = position.fixTime || position.deviceTime || position.serverTime || null;
+      const speedRaw = Number(position.speed ?? 0);
+      const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
+      const ignition = extractIgnition(attributes);
+      const commandResponse = gpsTime
+        ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
+        : null;
+      const statusToken = resolveDeviceStatusToken(position);
 
-    return {
-      id: position.id ?? null,
-      gpsTime,
-      deviceTime: position.deviceTime || null,
-      serverTime: position.serverTime || null,
-      latitude: position.latitude ?? null,
-      longitude: position.longitude ?? null,
-      address: normalizeAddressValue(position.address),
-      speed: speedKmh,
-      direction: position.course ?? null,
-      ignition,
-      vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
-      batteryLevel: extractBatteryLevel(attributes),
-      rssi: extractRssi(attributes),
-      satellites: extractSatellites(attributes),
-      geofence: attributes.geofence ?? attributes.geofenceId ?? null,
-      accuracy: position.accuracy ?? null,
-      commandResponse: commandResponse || null,
-    };
-  });
+      return {
+        id: position.id ?? null,
+        gpsTime,
+        deviceTime: position.deviceTime || null,
+        serverTime: position.serverTime || null,
+        latitude: position.latitude ?? null,
+        longitude: position.longitude ?? null,
+        address: normalizeAddressValue(position.address),
+        speed: speedKmh,
+        direction: position.course ?? null,
+        ignition,
+        vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
+        batteryLevel: extractBatteryLevel(attributes),
+        rssi: extractRssi(attributes),
+        satellites: extractSatellites(attributes),
+        geofence: attributes.geofence ?? attributes.geofenceId ?? null,
+        accuracy: position.accuracy ?? null,
+        commandResponse: commandResponse || null,
+        deviceStatus: resolveDeviceStatusLabel(statusToken),
+        __deviceStatusToken: statusToken,
+      };
+    })
+    .sort((a, b) => {
+      const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
+      const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
+      return timeA - timeB;
+    });
 
-  mapped.sort((a, b) => {
-    const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
-    const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
-    return timeB - timeA;
-  });
+  let lastStatusToken = null;
+  for (const position of mappedChronological) {
+    if (!position.__deviceStatusToken) continue;
+    if (lastStatusToken && position.__deviceStatusToken !== lastStatusToken) {
+      const fromLabel = resolveDeviceStatusLabel(lastStatusToken);
+      const toLabel = resolveDeviceStatusLabel(position.__deviceStatusToken);
+      position.deviceStatusEvent = `${fromLabel} → ${toLabel}`;
+    }
+    lastStatusToken = position.__deviceStatusToken;
+  }
+
+  const mapped = mappedChronological
+    .map(({ __deviceStatusToken, ...rest }) => rest)
+    .sort((a, b) => {
+      const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
+      const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
+      return timeB - timeA;
+    });
 
   const latestPosition = mapped[0] || null;
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
@@ -2963,6 +3015,20 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   return { positions: mapped, meta };
 }
 
+function sanitizeFileToken(value, fallback) {
+  const text = String(value ?? "").trim();
+  if (!text) return fallback;
+  return text.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/-+/g, "-").replace(/^-+|-+$/g, "") || fallback;
+}
+
+function buildPositionsPdfFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "positions";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
+}
+
 /**
  * === Reports (GET no nosso backend, GET→POST no Traccar) ===
  */
@@ -2990,16 +3056,13 @@ router.get("/reports/positions", async (req, res) => {
   }
 });
 
-router.post("/reports/positions/pdf", async (req, res, next) => {
+router.post("/reports/positions/pdf", async (req, res) => {
   try {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
-    const addressFilter = req.body?.addressFilter || null;
-    const columns = Array.isArray(req.body?.columns) ? req.body.columns : [];
-    if (!columns.length) {
-      throw createError(400, "columns é obrigatório");
-    }
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const columns = resolvePdfColumns(req.body?.columns);
 
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
     const pdf = await generatePositionsReportPdf({
@@ -3008,11 +3071,19 @@ router.post("/reports/positions/pdf", async (req, res, next) => {
       meta: report.meta,
     });
 
+    const fileName = buildPositionsPdfFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", "attachment; filename=\"position-report.pdf\"");
-    res.send(pdf);
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    res.status(200).send(pdf);
   } catch (error) {
-    next(error);
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório de posições em PDF.";
+    console.error("[reports/pdf] erro ao exportar posições", {
+      status,
+      code: error?.code,
+      message,
+    });
+    res.status(status).json({ message, code: error?.code || "POSITIONS_PDF_ERROR" });
   }
 });
 

@@ -15,6 +15,14 @@ export const positionsColumns = [
   { key: "geofence", labelPt: "Cerca Virtual", labelPdf: "Cerca Virtual", width: 140, defaultVisible: false, weight: 1.2 },
   { key: "accuracy", labelPt: "Precisão", labelPdf: "Precisão", width: 90, defaultVisible: false, weight: 0.9 },
   { key: "commandResponse", labelPt: "Resposta do Comando", labelPdf: "Resposta do Comando", width: 220, defaultVisible: true, weight: 2.2 },
+  {
+    key: "deviceStatusEvent",
+    labelPt: "Status do Equipamento",
+    labelPdf: "Status do Equipamento",
+    width: 180,
+    defaultVisible: true,
+    weight: 1.6,
+  },
 ];
 
 export const positionsColumnMap = new Map(positionsColumns.map((column) => [column.key, column]));

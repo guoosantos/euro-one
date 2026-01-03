@@ -11,6 +11,23 @@ function normalizePositionsPayload(payload) {
   };
 }
 
+async function resolveBlobErrorMessage(error) {
+  const blob = error?.response?.data;
+  if (!blob || typeof blob?.text !== "function") return null;
+  try {
+    const text = await blob.text();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      return parsed?.message || parsed?.error?.message || null;
+    } catch (_parseError) {
+      return text;
+    }
+  } catch (_error) {
+    return null;
+  }
+}
+
 export default function usePositionsReport() {
   const [data, setData] = useState({ positions: [], meta: null });
   const [loading, setLoading] = useState(false);
@@ -37,7 +54,13 @@ export default function usePositionsReport() {
     const { data, error: requestError } = await safeApi.post(API_ROUTES.reports.positionsPdf, payload, {
       responseType: "blob",
     });
-    if (requestError) throw requestError;
+    if (requestError) {
+      const parsedMessage = await resolveBlobErrorMessage(requestError);
+      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao exportar PDF.");
+      if (requestError?.status) friendlyError.status = requestError.status;
+      friendlyError.response = requestError?.response;
+      throw friendlyError;
+    }
     return data;
   }, []);
 
