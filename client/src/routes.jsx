@@ -26,10 +26,7 @@ import Events from "./pages/Events";
 import Videos from "./pages/Videos";
 import Face from "./pages/Face";
 import Ranking from "./pages/Ranking";
-import Reports from "./pages/Reports";
-import ReportsRoute from "./pages/ReportsRoute";
-import ReportsSummary from "./pages/ReportsSummary";
-import ReportsStops from "./pages/ReportsStops";
+import ReportsPositions from "./pages/ReportsPositions.jsx";
 import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
@@ -103,11 +100,7 @@ export const routeConfig = [
   { path: "/live", element: LivePage, title: "Streams", requireTenant: true },
   { path: "/ranking", element: Ranking, title: "Ranking", requireTenant: true },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true },
-  { path: "/reports", element: Reports, title: "Relatórios", requireTenant: true },
-  { path: "/reports/trips", element: Reports, title: "Relatórios", requireTenant: true },
-  { path: "/reports/route", element: ReportsRoute, title: "Rotas", requireTenant: true },
-  { path: "/reports/summary", element: ReportsSummary, title: "Resumo", requireTenant: true },
-  { path: "/reports/stops", element: ReportsStops, title: "Paradas", requireTenant: true },
+  { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", requireTenant: true },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true },

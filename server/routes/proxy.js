@@ -7,6 +7,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
+import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
@@ -36,6 +37,7 @@ import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics
 import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
+import { generatePositionsReportPdf } from "../utils/positions-report-pdf.js";
 
 const router = express.Router();
 router.use(authenticate);
@@ -779,6 +781,8 @@ const TRACCAR_DB_ERROR_PAYLOAD = {
   },
 };
 
+const DEFAULT_REPORT_RADIUS_METERS = 100;
+
 function respondBadRequest(res, message = "Parâmetros inválidos.") {
   return res.status(400).json({
     data: null,
@@ -814,6 +818,100 @@ function extractIgnition(attributes = {}) {
   if (typeof raw === "string") {
     const normalized = raw.trim().toLowerCase();
     return ["true", "1", "on", "yes"].includes(normalized);
+  }
+  return null;
+}
+
+function extractRssi(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["rssi", "signal", "gsm", "rssiValue", "signalStrength"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function extractSatellites(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const keys = ["satellites", "sat", "satellitesCount", "satCount", "sats"];
+  for (const key of keys) {
+    if (attributes[key] === undefined || attributes[key] === null) continue;
+    const numeric = Number(attributes[key]);
+    return Number.isFinite(numeric) ? numeric : attributes[key];
+  }
+  return null;
+}
+
+function parseAddressFilterQuery(query = {}) {
+  const lat = Number(query.addressLat ?? query.lat ?? query.latitude);
+  const lng = Number(query.addressLng ?? query.lng ?? query.longitude);
+  const radius = Number(query.addressRadius ?? query.radius ?? DEFAULT_REPORT_RADIUS_METERS);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return {
+    lat,
+    lng,
+    radius: Number.isFinite(radius) && radius > 0 ? radius : DEFAULT_REPORT_RADIUS_METERS,
+  };
+}
+
+function computeDistanceMeters(from, to) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const R = 6371000;
+  const dLat = toRad((to.lat ?? 0) - (from.lat ?? 0));
+  const dLon = toRad((to.lng ?? 0) - (from.lng ?? 0));
+  const lat1 = toRad(from.lat ?? 0);
+  const lat2 = toRad(to.lat ?? 0);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function resolveVehicleState(ignition, speedKmh) {
+  if (ignition === true && speedKmh > 0) return "Em movimento";
+  if (ignition === true) return "Ligado";
+  if (ignition === false) return "Desligado";
+  return "—";
+}
+
+function parseCommandEvents(events = []) {
+  return events
+    .map((event) => {
+      const eventTime = event?.eventTime ?? event?.serverTime ?? event?.deviceTime ?? null;
+      const timestamp = eventTime ? new Date(eventTime).getTime() : Number.NaN;
+      if (!Number.isFinite(timestamp)) return null;
+      const response = resolveCommandResultText(event);
+      if (!response) return null;
+      return { timestamp, response };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.timestamp - b.timestamp);
+}
+
+function findLatestCommandResponse(events, targetTime, windowMs) {
+  if (!events.length) return null;
+  const maxTime = targetTime + windowMs;
+  let left = 0;
+  let right = events.length - 1;
+  let candidate = -1;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (events[mid].timestamp <= maxTime) {
+      candidate = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+
+  if (candidate === -1) return null;
+  for (let i = candidate; i >= 0; i -= 1) {
+    if (events[i].timestamp < targetTime - windowMs) break;
+    if (events[i].response) return events[i].response;
   }
   return null;
 }
@@ -2713,9 +2811,180 @@ router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res,
   }
 });
 
+async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter }) {
+  if (!vehicleId) {
+    throw createError(400, "vehicleId é obrigatório");
+  }
+  if (!from || !to) {
+    throw createError(400, "from/to são obrigatórios");
+  }
+
+  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const vehicles = listVehicles({ clientId });
+  const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
+  if (!vehicle) {
+    throw createError(404, "Veículo não encontrado");
+  }
+
+  const devices = listDevices({ clientId });
+  const device = devices.find((item) => String(item.vehicleId) === String(vehicleId));
+  if (!device?.traccarId) {
+    throw createError(409, "Equipamento vinculado sem traccarId");
+  }
+
+  const traccarId = String(device.traccarId);
+  const positions = await fetchPositions([traccarId], from, to, {});
+  const enrichedPositions = await enrichPositionsWithAddresses(positions);
+
+  let filter = null;
+  if (addressFilter?.lat != null && addressFilter?.lng != null) {
+    const lat = Number(addressFilter.lat);
+    const lng = Number(addressFilter.lng);
+    const radius = Number(addressFilter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      filter = {
+        lat,
+        lng,
+        radius: Number.isFinite(radius) && radius > 0 ? radius : DEFAULT_REPORT_RADIUS_METERS,
+      };
+    }
+  }
+  const filteredPositions = filter
+    ? enrichedPositions.filter((position) => {
+        if (position.latitude == null || position.longitude == null) return false;
+        const distance = computeDistanceMeters(
+          { lat: filter.lat, lng: filter.lng },
+          { lat: position.latitude, lng: position.longitude },
+        );
+        return distance <= (filter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
+      })
+    : enrichedPositions;
+
+  const commandFrom = new Date(new Date(from).getTime() - 10 * 60 * 1000).toISOString();
+  const commandTo = new Date(new Date(to).getTime() + 10 * 60 * 1000).toISOString();
+  let commandEvents = [];
+  try {
+    commandEvents = await fetchCommandResultEvents(Number(traccarId), commandFrom, commandTo);
+  } catch (error) {
+    console.warn("[reports/positions] falha ao buscar comandos", error?.message || error);
+  }
+  const parsedEvents = parseCommandEvents(commandEvents);
+  const windowMs = 10 * 60 * 1000;
+
+  const mapped = filteredPositions.map((position) => {
+    const attributes = position.attributes || {};
+    const gpsTime = position.fixTime || position.deviceTime || position.serverTime || null;
+    const speedRaw = Number(position.speed ?? 0);
+    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
+    const ignition = extractIgnition(attributes);
+    const commandResponse = gpsTime
+      ? findLatestCommandResponse(parsedEvents, new Date(gpsTime).getTime(), windowMs)
+      : null;
+
+    return {
+      id: position.id ?? null,
+      gpsTime,
+      deviceTime: position.deviceTime || null,
+      serverTime: position.serverTime || null,
+      latitude: position.latitude ?? null,
+      longitude: position.longitude ?? null,
+      address: position.address || "Endereço não disponível",
+      speed: speedKmh,
+      direction: position.course ?? null,
+      ignition,
+      vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
+      batteryLevel: extractBatteryLevel(attributes),
+      rssi: extractRssi(attributes),
+      satellites: extractSatellites(attributes),
+      geofence: attributes.geofence ?? attributes.geofenceId ?? null,
+      accuracy: position.accuracy ?? null,
+      commandResponse: commandResponse || null,
+    };
+  });
+
+  mapped.sort((a, b) => {
+    const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
+    const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const latestPosition = mapped[0] || null;
+  const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
+  const ignitionLabel =
+    latestPosition?.ignition === true ? "Ligado" : latestPosition?.ignition === false ? "Desligado" : "—";
+
+  const meta = {
+    generatedAt: new Date().toISOString(),
+    from,
+    to,
+    vehicle: {
+      id: vehicle.id,
+      plate: vehicle.plate || null,
+      name: vehicle.name || null,
+      customer: client?.name || null,
+      deviceId: device.uniqueId || device.id || traccarId,
+      status: vehicle.status || null,
+      lastCommunication: latestPosition?.gpsTime || null,
+      ignition: ignitionLabel,
+    },
+    exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
+  };
+
+  return { positions: mapped, meta };
+}
+
 /**
  * === Reports (GET no nosso backend, GET→POST no Traccar) ===
  */
+
+router.get("/reports/positions", async (req, res) => {
+  try {
+    const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.query?.from, "from");
+    const to = parseDateOrThrow(req.query?.to, "to");
+    const addressFilter = parseAddressFilterQuery(req.query);
+
+    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    return res.status(200).json({ data: report.positions, meta: report.meta, error: null });
+  } catch (error) {
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+    if (error?.status === 404) {
+      return res.status(404).json({ data: [], error: { message: error.message, code: "NOT_FOUND" } });
+    }
+    if (error?.status === 409) {
+      return res.status(409).json({ data: [], error: { message: error.message, code: "DEVICE_MISSING" } });
+    }
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+});
+
+router.post("/reports/positions/pdf", async (req, res, next) => {
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter || null;
+    const columns = Array.isArray(req.body?.columns) ? req.body.columns : [];
+    if (!columns.length) {
+      throw createError(400, "columns é obrigatório");
+    }
+
+    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const pdf = await generatePositionsReportPdf({
+      rows: report.positions,
+      columns,
+      meta: report.meta,
+    });
+
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", "attachment; filename=\"position-report.pdf\"");
+    res.send(pdf);
+  } catch (error) {
+    next(error);
+  }
+});
 
 router.get("/reports/route",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
 router.get("/reports/summary", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/summary"));

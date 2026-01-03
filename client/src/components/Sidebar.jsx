@@ -14,22 +14,17 @@ import {
   Flame,
   CalendarClock,
   FileBarChart,
-  FileText,
   HardDrive,
   Home,
-  Layers,
   Map,
   MapPinned,
-  Navigation,
   Medal,
   Menu,
   Package,
   Radio,
-  Route,
   ShieldCheck,
   Settings,
   Terminal,
-  Gauge,
   User,
   Users,
   UserCog,
@@ -215,12 +210,7 @@ export default function Sidebar() {
   ];
 
   const reportLinks = [
-    { to: "/reports", label: "Auditoria", icon: FileText },
-    { to: "/reports/summary", label: "Detalhado", icon: FileBarChart },
-    { to: "/reports/stops", label: "Deslocamento e Parada", icon: Route },
-    { to: "/reports/trips", label: "Trajetos", icon: Navigation },
-    { key: "reports-route-distance", to: "/reports/route", label: "Km Percorrido", icon: Layers },
-    { key: "reports-route-speed", to: "/reports/route", label: "Velocidade", icon: Gauge },
+    { to: "/reports/positions", label: "Relatório de Posições", icon: FileBarChart },
   ];
 
   const analysisLinks = [

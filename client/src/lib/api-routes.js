@@ -22,6 +22,8 @@ export const API_ROUTES = {
     stops: "traccar/reports/stops",
     summary: "traccar/reports/summary",
     route: "traccar/reports/route",
+    positions: "reports/positions",
+    positionsPdf: "reports/positions/pdf",
   },
   commands: "commands",
   commandsHistory: "commands/history",
