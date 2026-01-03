@@ -1,7 +1,7 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
 
-const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
+const RAW_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
 const FALLBACK_BASE_URL = "http://localhost:3001/api";
 
 const windowLocation = typeof window !== "undefined" ? window.location : null;
@@ -19,7 +19,7 @@ const windowBaseUrl = windowHostname
 
 const RESOLVED_BASE = RAW_BASE_URL || windowBaseUrl || FALLBACK_BASE_URL;
 
-if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta?.env?.DEV) {
+if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta.env.DEV) {
   const fallback = windowBaseUrl || FALLBACK_BASE_URL;
   console.error(`[api] VITE_API_BASE_URL ausente. Usando ${fallback} como fallback.`);
 }
