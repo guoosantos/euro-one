@@ -1,13 +1,15 @@
+import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { loadCollection, saveCollection } from "../services/storage.js";
 
 const STORAGE_KEY = "geocodeCache";
 const cache = new Map();
 const pendingLookups = new Map();
+const dbAvailable = isPrismaAvailable() && Boolean(prisma?.geocodeCache);
 
 const NORMALIZED_PRECISION = 4;
 const LEGACY_PRECISION = 5;
 
-function hydrateCache() {
+function hydrateCacheFromStorage() {
   const stored = loadCollection(STORAGE_KEY, []);
   stored.forEach((entry) => {
     if (!entry?.key) return;
@@ -15,11 +17,93 @@ function hydrateCache() {
   });
 }
 
-function persistCache() {
+async function hydrateCacheFromDatabase() {
+  if (!dbAvailable) return;
+  try {
+    const stored = await prisma.geocodeCache.findMany();
+    stored.forEach((entry) => {
+      if (!entry?.key || !entry?.data) return;
+      cache.set(entry.key, { key: entry.key, ...entry.data, createdAt: entry.createdAt, updatedAt: entry.updatedAt });
+    });
+  } catch (error) {
+    console.warn("[geocode] Falha ao hidratar cache do banco", error?.message || error);
+  }
+}
+
+function persistCacheToStorage() {
   saveCollection(STORAGE_KEY, Array.from(cache.values()));
 }
 
-hydrateCache();
+function resolveParts(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  return raw.addressParts || raw.parts || raw.attributes?.addressParts || null;
+}
+
+function buildCacheEntry(lat, lng, payload = {}) {
+  const { primary } = resolveCacheKeys(lat, lng);
+  if (!primary) return null;
+
+  const parts = resolveParts(payload) || null;
+  const houseNumberFallback = parts?.houseNumber || parts?.house_number || parts?.house || (parts?.street ? "s/n" : null);
+  const formattedFromParts = parts ? formatShortAddressFromParts({ ...parts, houseNumber: houseNumberFallback || parts?.houseNumber }) : null;
+
+  const formatted = formatAddress(
+    payload.formattedAddress ||
+      payload.formatted ||
+      payload.shortAddress ||
+      formattedFromParts ||
+      payload.address ||
+      payload.display_name ||
+      null,
+  );
+  const shortAddress = payload.shortAddress || formattedFromParts || formatted;
+  const address = payload.address || formatted || shortAddress || null;
+
+  return {
+    key: primary,
+    lat: Number(lat),
+    lng: Number(lng),
+    address,
+    formattedAddress: formatted || address || shortAddress || null,
+    shortAddress: shortAddress || formatted || address || null,
+    parts: parts || null,
+    createdAt: payload.createdAt || payload.updatedAt || new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function persistCacheEntry(entry) {
+  if (!entry?.key) return entry;
+  cache.set(entry.key, entry);
+  persistCacheToStorage();
+
+  if (!dbAvailable) return entry;
+  try {
+    await prisma.geocodeCache.upsert({
+      where: { key: entry.key },
+      update: { data: entry, updatedAt: new Date() },
+      create: { key: entry.key, data: entry },
+    });
+  } catch (error) {
+    console.warn("[geocode] Falha ao persistir cache no banco", error?.message || error);
+  }
+  return entry;
+}
+
+hydrateCacheFromStorage();
+await hydrateCacheFromDatabase();
+
+export async function persistGeocode(lat, lng, payload) {
+  const entry = buildCacheEntry(lat, lng, payload);
+  if (!entry) return null;
+  await persistCacheEntry(entry);
+  return entry;
+}
+
+function buildCoordinateFallback(lat, lng) {
+  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+  return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
+}
 
 function normalizeCoordinate(value, precision = NORMALIZED_PRECISION) {
   const number = Number(value);
@@ -73,7 +157,7 @@ export function formatAddress(address) {
 
 function formatShortAddressFromParts(parts = {}) {
   const street = parts.street || coalesce(parts.road, parts.streetName, parts.route);
-  const houseNumber = parts.houseNumber || coalesce(parts.house_number, parts.house);
+  const houseNumber = parts.houseNumber || coalesce(parts.house_number, parts.house) || (street ? "s/n" : "");
   const neighbourhood = parts.neighbourhood || coalesce(parts.neighbourhood, parts.suburb, parts.quarter);
   const city = parts.city || coalesce(parts.city, parts.town, parts.village, parts.municipality);
   const state = parts.state || coalesce(parts.state, parts.region, parts.state_district);
@@ -206,9 +290,10 @@ function scheduleLookup(lat, lng) {
       try {
         const address = await fetchGeocode(lat, lng);
         if (address) {
-          const entry = { key, lat, lng, ...address, updatedAt: new Date().toISOString() };
-          cache.set(key, entry);
-          persistCache();
+          const entry = buildCacheEntry(lat, lng, address);
+          await persistCacheEntry(entry);
+          resolve(entry);
+          return;
         }
         resolve(address);
       } catch (_error) {
@@ -251,27 +336,43 @@ export async function ensurePositionAddress(position) {
   const baseFormatted = rawAddress ? formatAddress(rawAddress) : null;
   const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
   const shortAddress = position.shortAddress || normalizedAddress.short || null;
-
-  if (baseFormatted || shortAddress) {
-    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || shortAddress, shortAddress };
-  }
-
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
+  const coordinateFallback = buildCoordinateFallback(lat, lng);
+  const fallbackFormatted =
+    formattedAddress || formatAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
+
+  if (baseFormatted || shortAddress) {
+    return {
+      ...position,
+      address: normalizedAddress,
+      formattedAddress: formattedAddress || shortAddress || fallbackFormatted || "—",
+      shortAddress: shortAddress || formattedAddress || fallbackFormatted || "—",
+    };
+  }
+
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
     return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || null, shortAddress: shortAddress || null };
   }
 
   const resolved = await lookupGeocode(lat, lng);
   if (!resolved) {
-    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || null, shortAddress: shortAddress || null };
+    const finalFormatted = formattedAddress || fallbackFormatted || coordinateFallback || "—";
+    return {
+      ...position,
+      address: normalizedAddress,
+      formattedAddress: finalFormatted,
+      shortAddress: shortAddress || finalFormatted,
+    };
   }
   const resolvedAddress = normalizeAddressPayload(resolved.address || resolved.formattedAddress);
+  const finalFormatted =
+    resolved.formattedAddress || formattedAddress || resolved.shortAddress || fallbackFormatted || coordinateFallback || "—";
   return {
     ...position,
-    address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress,
-    formattedAddress: resolved.formattedAddress || formattedAddress || null,
-    shortAddress: resolved.shortAddress || shortAddress || null,
+    address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress || { formatted: finalFormatted },
+    formattedAddress: finalFormatted,
+    shortAddress: resolved.shortAddress || shortAddress || finalFormatted,
     addressParts: resolved.parts,
   };
 }
@@ -324,4 +425,5 @@ export default {
   resolveShortAddress,
   getCachedGeocode,
   prefetchPositionAddresses,
+  persistGeocode,
 };

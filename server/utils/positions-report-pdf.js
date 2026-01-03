@@ -430,6 +430,7 @@ export async function generatePositionsReportPdf({ rows, columns, meta }) {
 
     return await page.pdf({
       format: "A4",
+      landscape: true,
       printBackground: true,
       displayHeaderFooter: true,
       margin: { top: "16mm", right: "12mm", bottom: "20mm", left: "12mm" },

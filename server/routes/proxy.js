@@ -956,16 +956,30 @@ function parseAddressFilterQuery(query = {}) {
   };
 }
 
-function normalizeAddressValue(address) {
+function normalizeAddressValue(address, lat = null, lng = null) {
+  const coordinateFallback =
+    Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+      ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+      : null;
+
+  const formatted = formatAddress(address);
+  if (formatted && formatted !== "—") return formatted;
+
   if (typeof address === "string") {
     const trimmed = address.trim();
-    return trimmed || "Endereço não disponível";
+    if (trimmed) return trimmed;
   }
   if (address && typeof address === "object") {
-    if (address.formatted) return String(address.formatted).trim() || "Endereço não disponível";
-    if (address.formatted_address) return String(address.formatted_address).trim() || "Endereço não disponível";
-    if (address.formattedAddress) return String(address.formattedAddress).trim() || "Endereço não disponível";
-    if (address.display_name) return String(address.display_name).trim() || "Endereço não disponível";
+    const candidates = [
+      address.formatted,
+      address.formatted_address,
+      address.formattedAddress,
+      address.display_name,
+    ]
+      .map((candidate) => (typeof candidate === "string" ? candidate.trim() : ""))
+      .filter(Boolean);
+    if (candidates.length) return candidates[0];
+
     const parts = [
       address.road || address.street || address.addressLine1,
       address.city || address.town || address.village,
@@ -974,15 +988,10 @@ function normalizeAddressValue(address) {
       .map((part) => (part ? String(part).trim() : ""))
       .filter(Boolean);
     if (parts.length) return parts.join(", ");
-    try {
-      const serialized = JSON.stringify(address);
-      if (!serialized) return "Endereço não disponível";
-      return serialized.length > 160 ? `${serialized.slice(0, 159)}…` : serialized;
-    } catch (error) {
-      return "Endereço não disponível";
-    }
   }
-  return "Endereço não disponível";
+
+  if (coordinateFallback) return coordinateFallback;
+  return "Endereço indisponível";
 }
 
 function computeDistanceMeters(from, to) {
@@ -3054,7 +3063,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         serverTime: position.serverTime || null,
         latitude: position.latitude ?? null,
         longitude: position.longitude ?? null,
-        address: normalizeAddressValue(position.address),
+        address: normalizeAddressValue(position.address, position.latitude, position.longitude),
         speed: speedKmh,
         direction: position.course ?? null,
         ignition,
@@ -3078,6 +3087,16 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const timeB = b.gpsTime ? new Date(b.gpsTime).getTime() : 0;
       return timeA - timeB;
     });
+
+  let lastIgnitionKnown = null;
+  for (const position of mappedChronological) {
+    if (position.ignition === true || position.ignition === false) {
+      lastIgnitionKnown = position.ignition;
+    } else if (lastIgnitionKnown !== null) {
+      position.ignition = lastIgnitionKnown;
+      position.vehicleState = resolveVehicleState(position.ignition, position.speed ?? 0);
+    }
+  }
 
   let lastStatusToken = null;
   for (const position of mappedChronological) {

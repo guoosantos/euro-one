@@ -67,14 +67,15 @@ function formatIgnition(value) {
   return value ? "Ligado" : "Desligado";
 }
 
-function normalizeAddressDisplay(value) {
-  if ((value === null || value === undefined || value === "") && typeof value !== "object") {
-    return "Carregando endereço…";
-  }
-  if (!value) return "—";
+function normalizeAddressDisplay(value, lat = null, lng = null) {
+  const coordinateFallback =
+    Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
+      ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
+      : null;
+  if (!value) return coordinateFallback || "Endereço indisponível";
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed || "—";
+    return trimmed || coordinateFallback || "Endereço indisponível";
   }
   if (value && typeof value === "object") {
     const withFormatted = value.formatted || value.formattedAddress || value.formatted_address;
@@ -85,9 +86,9 @@ function normalizeAddressDisplay(value) {
   }
   try {
     const formatted = formatAddress(value);
-    return formatted && formatted !== "—" ? formatted : "—";
+    return formatted && formatted !== "—" ? formatted : coordinateFallback || "Endereço indisponível";
   } catch (_error) {
-    return "—";
+    return coordinateFallback || "Endereço indisponível";
   }
 }
 
@@ -142,7 +143,7 @@ export default function ReportsPositions() {
       serverTime: formatDateTime(position.serverTime),
       latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
       longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-      address: normalizeAddressDisplay(position.address),
+      address: normalizeAddressDisplay(position.address, position.latitude, position.longitude),
       lat: position.latitude,
       lng: position.longitude,
       speed: formatSpeed(position.speed),
@@ -366,6 +367,18 @@ export default function ReportsPositions() {
                     <line x1="15" y1="4" x2="15" y2="20" />
                   </svg>
                 </button>
+                <label
+                  className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
+                  title="Ocultar posições sem ignição"
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideUnavailableIgnition}
+                    onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="whitespace-nowrap">Disponibilidade</span>
+                </label>
                 <button
                   type="button"
                   onClick={() => setTopBarVisible((visible) => !visible)}
@@ -436,18 +449,6 @@ export default function ReportsPositions() {
                     onChange={(event) => setTo(event.target.value)}
                     className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
                   />
-                </label>
-                <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm xl:col-span-2">
-                  <input
-                    type="checkbox"
-                    checked={hideUnavailableIgnition}
-                    onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  <div>
-                    <span className="block text-xs uppercase tracking-wide text-white/60">Disponibilidade</span>
-                    <span className="text-white/80">Ocultar posições com ignição/estado indisponível</span>
-                  </div>
                 </label>
               </div>
             </div>
