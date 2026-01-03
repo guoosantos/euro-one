@@ -15,7 +15,7 @@ import {
   CalendarClock,
   FileBarChart,
   FileText,
-  Gauge,
+  GaugeCircle,
   HardDrive,
   Home,
   Map,
@@ -207,7 +207,7 @@ export default function Sidebar() {
   const euroCanLinks = [
     { to: "/fuel", label: "Combustível", icon: Flame },
     { to: "/compliance", label: "Compliance", icon: ShieldCheck },
-    { to: "/driver-behavior", label: "Drive Behavior", icon: Gauge },
+    { to: "/driver-behavior", label: "Drive Behavior", icon: GaugeCircle },
     { to: "/maintenance", label: "Manutenção", icon: Wrench },
   ];
 

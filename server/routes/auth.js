@@ -35,6 +35,10 @@ const AUTH_ERROR_CODES = {
   missingCredentials: "MISSING_CREDENTIALS",
   invalidCredentials: "INVALID_CREDENTIALS",
   authUnavailable: "AUTH_UNAVAILABLE",
+  missingTenant: "MISSING_TENANT",
+  sessionCreationFailed: "SESSION_CREATION_FAILED",
+  invalidRequest: "INVALID_REQUEST",
+  traccarUnavailable: "TRACCAR_UNAVAILABLE",
 };
 
 const TRACCAR_NETWORK_ERROR_CODES = new Set([
@@ -48,6 +52,7 @@ const TRACCAR_NETWORK_ERROR_CODES = new Set([
 function buildDatabaseUnavailableError(error) {
   const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
   unavailable.code = error?.code || "DATABASE_UNAVAILABLE";
+  unavailable.errorCode = unavailable.code;
   unavailable.details = {
     message: error?.message,
     stack: error?.stack,
@@ -59,8 +64,99 @@ function buildAuthError(status, message, code) {
   const err = createError(status, message);
   if (code) {
     err.code = code;
+    err.errorCode = code;
   }
   return err;
+}
+
+function shouldExposeDetails() {
+  return process.env.NODE_ENV !== "production"
+    || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
+}
+
+function normaliseAuthError(error, defaultStatus = 500) {
+  if (!error) {
+    return {
+      status: defaultStatus,
+      message: "Erro interno no servidor",
+      errorCode: "UNEXPECTED_ERROR",
+      details: null,
+    };
+  }
+
+  const status = Number(error?.status || error?.statusCode) || defaultStatus;
+  const errorCode = error?.errorCode || error?.code || null;
+  const details = error?.details || {
+    message: error?.message,
+    stack: error?.stack,
+    cause: error?.cause?.message || undefined,
+  };
+
+  if (isDatabaseUnavailableError(error)) {
+    return {
+      status: 503,
+      message: "Banco de dados indisponível ou mal configurado",
+      errorCode: errorCode || "DATABASE_UNAVAILABLE",
+      details,
+    };
+  }
+
+  if (status === 401) {
+    return {
+      status,
+      message: "Usuário ou senha inválidos",
+      errorCode: errorCode || AUTH_ERROR_CODES.invalidCredentials,
+      details,
+    };
+  }
+
+  if (status === 400) {
+    return {
+      status,
+      message: error?.message || "Campos obrigatórios: usuário e senha",
+      errorCode: errorCode || AUTH_ERROR_CODES.invalidRequest,
+      details,
+    };
+  }
+
+  if (status === 502) {
+    return {
+      status,
+      message: error?.message || "Servidor Traccar indisponível",
+      errorCode: errorCode || AUTH_ERROR_CODES.traccarUnavailable,
+      details,
+    };
+  }
+
+  if (status === 503) {
+    return {
+      status,
+      message: error?.message || "Falha ao validar credenciais",
+      errorCode: errorCode || AUTH_ERROR_CODES.authUnavailable,
+      details,
+    };
+  }
+
+  return {
+    status: status || 500,
+    message: error?.message || "Erro interno no servidor",
+    errorCode: errorCode || "UNEXPECTED_ERROR",
+    details,
+  };
+}
+
+function respondAuthError(res, error) {
+  const normalized = normaliseAuthError(error);
+  const payload = {
+    error: normalized.message,
+    errorCode: normalized.errorCode,
+  };
+
+  if (shouldExposeDetails()) {
+    payload.details = normalized.details;
+  }
+
+  return res.status(normalized.status).json(payload);
 }
 
 function isDatabaseUnavailableError(error) {
@@ -137,11 +233,11 @@ const handleLogin = async (req, res, next) => {
 
     if (!loginBody || typeof loginBody !== "object") {
       console.warn("[auth] body ausente ou inválido no login");
-      return res.status(400).json({ error: "Campos obrigatórios: usuário e senha" });
+      throw buildAuthError(400, "Campos obrigatórios: usuário e senha", AUTH_ERROR_CODES.missingCredentials);
     }
 
     if (!userLogin || !userPassword) {
-      return res.status(400).json({ error: "Campos obrigatórios: usuário e senha" });
+      throw buildAuthError(400, "Campos obrigatórios: usuário e senha", AUTH_ERROR_CODES.missingCredentials);
     }
 
     console.info("[auth] início do login", { userLogin });
@@ -155,7 +251,7 @@ const handleLogin = async (req, res, next) => {
           status: traccarAuth?.status || traccarAuth?.error?.code,
           response: traccarAuth?.error || null,
         });
-        return res.status(502).json({ error: "Erro ao autenticar no Traccar" });
+        throw buildAuthError(502, "Erro ao autenticar no Traccar", AUTH_ERROR_CODES.traccarUnavailable);
       }
       if (traccarAuth?.ok) {
         console.info("[auth] autenticação Traccar OK", { userLogin, traccarUserId: traccarAuth?.user?.id });
@@ -169,12 +265,17 @@ const handleLogin = async (req, res, next) => {
         response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
       });
       if (status === 401 || status === 403) {
-        return res.status(401).json({ error: "Usuário ou senha inválidos" });
+        throw buildAuthError(401, "Usuário ou senha inválidos", AUTH_ERROR_CODES.invalidCredentials);
       }
       if (status === 502) {
-        return res.status(502).json({ error: error?.message || "Servidor Traccar indisponível" });
+        throw buildAuthError(502, error?.message || "Servidor Traccar indisponível", AUTH_ERROR_CODES.traccarUnavailable);
       }
-      return res.status(502).json({ error: "Erro ao autenticar no Traccar" });
+      const upstreamError = buildAuthError(502, "Erro ao autenticar no Traccar", AUTH_ERROR_CODES.traccarUnavailable);
+      upstreamError.details = {
+        status: status || error?.traccar?.status || error?.code,
+        response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
+      };
+      throw upstreamError;
     }
     const traccarUser = traccarAuth?.user || null;
 
@@ -244,7 +345,9 @@ const handleLogin = async (req, res, next) => {
     const resolvedClientId = sessionPayload?.client?.id ?? sessionUser.clientId ?? null;
     if (!resolvedClientId) {
       console.warn("[auth] usuário sem tenant associado", { userId: sessionUser.id, login: userLogin });
-      return res.status(400).json({ error: "Usuário sem tenant associado" });
+      const tenantError = buildAuthError(400, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
+      tenantError.details = { userId: sessionUser.id, login: userLogin, clientId: sessionUser.clientId ?? null };
+      throw tenantError;
     }
     const traccarContext = traccarAuth?.ok
       ? traccarAuth?.session
@@ -286,38 +389,22 @@ const handleLogin = async (req, res, next) => {
         message: error?.message || error,
         stack: shouldLogStack ? error?.stack : undefined,
       });
-      return res.status(500).json({ error: "Falha ao criar sessão" });
+      const sessionError = buildAuthError(500, "Falha ao criar sessão", AUTH_ERROR_CODES.sessionCreationFailed);
+      sessionError.details = shouldLogStack ? error?.stack : error?.message;
+      throw sessionError;
     }
   } catch (error) {
-    const shouldLogStack =
-      process.env.NODE_ENV !== "production" || String(process.env.AUTH_DEBUG || "").toLowerCase() === "true";
+    const shouldLogStack = shouldExposeDetails();
+    const normalized = normaliseAuthError(error);
     console.error("[auth] falha no login", {
       message: error?.message || error,
+      status: normalized.status,
+      errorCode: normalized.errorCode,
       stack: shouldLogStack ? error?.stack : undefined,
       traccar: error?.traccar || error?.details?.response || error?.response?.data || null,
     });
-    const status = Number(error?.status || error?.statusCode);
-    if (status === 400) {
-      return res.status(400).json({ error: error?.message || "Campos obrigatórios: usuário e senha" });
-    }
-    if (status === 401) {
-      return res.status(401).json({ error: "Usuário ou senha inválidos" });
-    }
-    if (status === 502) {
-      return res.status(502).json({ error: error?.message || "Servidor Traccar indisponível" });
-    }
-    if (status === 503) {
-      return res.status(503).json({ error: error?.message || "Falha ao validar credenciais" });
-    }
-    if (!status) {
-      const normalized = isDatabaseUnavailableError(error)
-        ? buildDatabaseUnavailableError(error)
-        : null;
-      if (normalized) {
-        return res.status(normalized.status || 503).json({ error: normalized.message });
-      }
-    }
-    return res.status(500).json({ error: "Erro interno no servidor" });
+
+    return respondAuthError(res, error);
   }
 };
 
@@ -339,7 +426,8 @@ const handleSession = async (req, res, next) => {
       (message.includes("Usuário não vinculado") || message.includes("clientId"))
     ) {
       console.warn("[auth] sessão sem tenant associado", { userId: req.user?.id });
-      return res.status(401).json({ error: "Usuário sem tenant associado" });
+      const tenantError = buildAuthError(400, "Usuário sem tenant associado", AUTH_ERROR_CODES.missingTenant);
+      return respondAuthError(res, tenantError);
     }
     return next(error);
   }

@@ -62,7 +62,7 @@ function formatBattery(value) {
 }
 
 function formatIgnition(value) {
-  if (value === null || value === undefined) return "—";
+  if (value === null || value === undefined) return "Indisponível";
   return value ? "Ligado" : "Desligado";
 }
 
@@ -122,7 +122,7 @@ export default function ReportsPositions() {
       speed: formatSpeed(position.speed),
       direction: formatDirection(position.direction),
       ignition: formatIgnition(position.ignition),
-      vehicleState: position.vehicleState || "—",
+      vehicleState: position.vehicleState || "Indisponível",
       batteryLevel: formatBattery(position.batteryLevel),
       rssi: position.rssi ?? "—",
       satellites: position.satellites ?? "—",
@@ -278,12 +278,21 @@ export default function ReportsPositions() {
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       {topBarVisible && (
         <section className="rounded-2xl border border-white/10 bg-[#0f141c] p-4">
-          <form onSubmit={handleGenerate} className="grid gap-4 xl:grid-cols-[2fr_2fr_1.5fr_auto_auto_auto]">
-            <VehicleSelector label="Veículo" placeholder="Busque por placa, nome ou ID" className="text-sm" />
-            <label className="text-sm">
+          <form
+            onSubmit={handleGenerate}
+            className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12"
+          >
+            <div className="xl:col-span-4">
+              <VehicleSelector
+                label="Veículo"
+                placeholder="Busque por placa, nome ou ID"
+                className="text-sm"
+              />
+            </div>
+            <label className="text-sm xl:col-span-4">
               <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
               <input
                 type="text"
@@ -310,7 +319,7 @@ export default function ReportsPositions() {
                 </p>
               )}
             </label>
-            <label className="text-sm">
+            <label className="text-sm xl:col-span-2">
               <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
               <input
                 type="datetime-local"
@@ -319,7 +328,7 @@ export default function ReportsPositions() {
                 className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
               />
             </label>
-            <label className="text-sm">
+            <label className="text-sm xl:col-span-2">
               <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
               <input
                 type="datetime-local"
@@ -328,7 +337,7 @@ export default function ReportsPositions() {
                 className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
               />
             </label>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 xl:col-span-1">
               <button
                 type="button"
                 onClick={() => setActivePopup("columns")}
@@ -355,7 +364,7 @@ export default function ReportsPositions() {
                 </svg>
               </button>
             </div>
-            <div className="flex items-end gap-2">
+            <div className="flex items-end gap-2 xl:col-span-1">
               <button
                 type="submit"
                 disabled={loading || geocoding || !selectedVehicleId}
