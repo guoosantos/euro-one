@@ -25,12 +25,6 @@ export default function useMapDataRefresh(
       });
     }
 
-    if (map.eachLayer) {
-      map.eachLayer((layer) => {
-        if (layer?.redraw) layer.redraw();
-      });
-    }
-
     const selectedMarker = selectedMarkerId && markerRefs?.current?.get(selectedMarkerId);
     if (selectedMarker?.isPopupOpen?.() || selectedMarker?.isTooltipOpen?.()) {
       selectedMarker.update?.();

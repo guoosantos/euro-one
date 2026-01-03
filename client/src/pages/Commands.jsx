@@ -1120,12 +1120,6 @@ export default function Commands() {
                 <span className="rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary/80">
                   Personalizado
                 </span>
-                <span className="text-white/50">{command.customKind || "Custom"}</span>
-                {command.protocol && (
-                  <span className="rounded-full border border-white/10 px-2 py-0.5 text-white/60">
-                    Protocolo: {command.protocol}
-                  </span>
-                )}
               </div>
             )}
           </div>

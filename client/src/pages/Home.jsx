@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
@@ -10,6 +10,8 @@ import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import api from "../lib/api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 import TableStateRow from "../components/TableStateRow.jsx";
@@ -30,10 +32,17 @@ export default function Home() {
   const navigate = useNavigate();
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
+  const [resolvingEventId, setResolvingEventId] = useState(null);
+  const [dismissedEventIds, setDismissedEventIds] = useState(() => new Set());
 
   const { vehicles, loading: loadingVehicles } = useVehicles();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
-  const { events, loading: loadingEvents, error: eventsError } = useEvents({ limit: 50 });
+  const { events, loading: loadingEvents, error: eventsError } = useEvents({
+    limit: 200,
+    severity: "critical",
+    resolved: false,
+    refreshInterval: 15_000,
+  });
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
 
   const vehicleById = useMemo(() => new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle])), [vehicles]);
@@ -198,7 +207,7 @@ export default function Home() {
     return events.map((event) => {
       const severity = normalizeSeverity(event);
       const time = event.time ?? event.eventTime ?? event.serverTime;
-      return { ...event, severity, __time: time ? new Date(time).toISOString() : null };
+      return { ...event, severity, __time: time ? new Date(time).toISOString() : null, resolved: Boolean(event.resolved) };
     });
   }, [events]);
 
@@ -217,29 +226,34 @@ export default function Home() {
     [normalizedEvents, vehicleByDeviceId, vehicleById],
   );
 
-  const highSeverityEvents = useMemo(
-    () =>
-      eventsWithVehicle.filter(
-        (event) => event.vehicleId && (event.severity === "critical" || event.severity === "high"),
-      ),
-    [eventsWithVehicle],
-  );
+  const activeCriticalEvents = useMemo(() => {
+    const dismissed = dismissedEventIds;
+    return eventsWithVehicle
+      .filter(
+        (event) =>
+          event.vehicleId &&
+          !event.resolved &&
+          String(event.severity || "").toLowerCase() === "critical" &&
+          (getEventId(event) ? !dismissed.has(getEventId(event)) : true),
+      )
+      .sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0));
+  }, [dismissedEventIds, eventsWithVehicle]);
 
-  const highSeverityVehicleCount = useMemo(() => {
+  const vehiclesInAlert = useMemo(() => {
     const ids = new Set();
-    highSeverityEvents.forEach((event) => {
+    activeCriticalEvents.forEach((event) => {
       if (event.vehicleId) ids.add(String(event.vehicleId));
     });
     return ids.size;
-  }, [highSeverityEvents]);
+  }, [activeCriticalEvents]);
 
-  const recentHighEvents = useMemo(() => highSeverityEvents.slice(0, 8), [highSeverityEvents]);
+  const recentCriticalEvents = useMemo(() => activeCriticalEvents.slice(0, 8), [activeCriticalEvents]);
 
   const criticalByVehicle = useMemo(() => {
     const grouped = new Map();
     const windowMs = 3 * 60 * 60 * 1000;
 
-    for (const event of highSeverityEvents) {
+    for (const event of activeCriticalEvents) {
       const vehicleKey = String(event.vehicleId ?? "");
       if (!vehicleKey || !event.__time) continue;
       const existing = grouped.get(vehicleKey) ?? [];
@@ -274,7 +288,39 @@ export default function Home() {
         };
       })
       .filter(Boolean);
-  }, [highSeverityEvents, vehicleById]);
+  }, [activeCriticalEvents, vehicleById]);
+
+  const handleResolveEvent = useCallback(
+    async (event) => {
+      const eventId = getEventId(event);
+      if (!eventId) return;
+      const confirmed = window.confirm("Marcar este evento como resolvido?");
+      if (!confirmed) return;
+      setResolvingEventId(eventId);
+      setDismissedEventIds((current) => {
+        const next = new Set(current);
+        next.add(eventId);
+        return next;
+      });
+      try {
+        await api.patch(API_ROUTES.eventResolve(eventId), { resolved: true });
+      } catch (error) {
+        setDismissedEventIds((current) => {
+          const next = new Set(current);
+          next.delete(eventId);
+          return next;
+        });
+        const message =
+          error?.response?.data?.message ||
+          error?.message ||
+          "Não foi possível resolver o evento. Tente novamente.";
+        window.alert(message);
+      } finally {
+        setResolvingEventId(null);
+      }
+    },
+    [setDismissedEventIds, setResolvingEventId],
+  );
 
   const renderCommunicationSummary = (expanded = false) => (
     <Card
@@ -397,33 +443,50 @@ export default function Home() {
               <th className="py-2 pr-4">Veículo</th>
               <th className="py-2 pr-4">Severidade</th>
               <th className="py-2 pr-4">Local</th>
+              <th className="py-2 pr-4 text-right">Ação</th>
             </tr>
           </thead>
           <tbody>
-            {loadingEvents && <TableStateRow colSpan={5} state="loading" tone="muted" title="Carregando eventos" />}
+            {loadingEvents && <TableStateRow colSpan={6} state="loading" tone="muted" title="Carregando eventos" />}
             {!loadingEvents && eventsError && (
-              <TableStateRow colSpan={5} state="error" tone="error" title="Erro ao carregar eventos" />
+              <TableStateRow colSpan={6} state="error" tone="error" title="Erro ao carregar eventos" />
             )}
-            {!loadingEvents && !eventsError && recentHighEvents.length === 0 && (
-              <TableStateRow colSpan={5} state="empty" tone="muted" title="Nenhum evento crítico" />
+            {!loadingEvents && !eventsError && recentCriticalEvents.length === 0 && (
+              <TableStateRow colSpan={6} state="empty" tone="muted" title="Nenhum evento crítico" />
             )}
-            {recentHighEvents.map((event) => (
-              <tr
-                key={event.id ?? `${event.deviceId}-${event.__time}`}
-                className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                onClick={() => openTripRange(event)}
-              >
-                <td className="py-2 pr-4 text-white/70">{formatDate(event.__time, locale)}</td>
-                <td className="py-2 pr-4 text-white/80">{translateEventType(event.type ?? event.event, locale, t)}</td>
-                <td className="py-2 pr-4 text-white/70">
-                  {event.vehicle ? formatVehicleLabel(event.vehicle) : event.deviceName ?? event.deviceId ?? "—"}
-                </td>
-                <td className="py-2 pr-4">
-                  <SeverityBadge severity={event.severity} />
-                </td>
-                <td className="py-2 pr-4 text-white/70">{event.attributes?.address ?? event.address ?? "—"}</td>
-              </tr>
-            ))}
+            {recentCriticalEvents.map((event) => {
+              const eventId = getEventId(event);
+              return (
+                <tr
+                  key={eventId || `${event.deviceId}-${event.__time}`}
+                  className="cursor-pointer border-b border-white/5 hover:bg-white/5"
+                  onClick={() => openTripRange(event)}
+                >
+                  <td className="py-2 pr-4 text-white/70">{formatDate(event.__time, locale)}</td>
+                  <td className="py-2 pr-4 text-white/80">{translateEventType(event.type ?? event.event, locale, t)}</td>
+                  <td className="py-2 pr-4 text-white/70">
+                    {event.vehicle ? formatVehicleLabel(event.vehicle) : event.deviceName ?? event.deviceId ?? "—"}
+                  </td>
+                  <td className="py-2 pr-4">
+                    <SeverityBadge severity={event.severity} />
+                  </td>
+                  <td className="py-2 pr-4 text-white/70">{event.attributes?.address ?? event.address ?? "—"}</td>
+                  <td className="py-2 pr-4 text-right">
+                    <button
+                      type="button"
+                      className="rounded-lg border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-primary/60 disabled:opacity-60"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleResolveEvent(event);
+                      }}
+                      disabled={!eventId || resolvingEventId === eventId}
+                    >
+                      {resolvingEventId === eventId ? "Resolvendo…" : "Resolver"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -524,8 +587,8 @@ export default function Home() {
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={loadingPositions ? "…" : highSeverityVehicleCount}
-          hint={t("home.inAlertHint")}
+          value={loadingEvents ? "…" : activeCriticalEvents.length}
+          hint="Eventos críticos não resolvidos"
           variant="alert"
           onClick={() => setSelectedCard("alert")}
         />
@@ -689,13 +752,25 @@ function buildOfflineBuckets(table = []) {
 }
 
 function normalizeSeverity(event) {
-  const raw = event?.attributes?.alarm ?? event?.severity ?? event?.level ?? "normal";
+  const explicit = event?.severity;
+  const raw = explicit ?? event?.attributes?.alarm ?? event?.level ?? "normal";
   const normalized = String(raw).toLowerCase();
   if (normalized.includes("crit")) return "critical";
   if (normalized.includes("high") || normalized.includes("alta")) return "high";
   if (normalized.includes("low") || normalized.includes("baixa")) return "low";
   if (normalized.includes("info")) return "info";
   return "normal";
+}
+
+function getEventId(event) {
+  const candidates = [
+    event?.id,
+    event?.eventId,
+    event?.attributes?.id,
+    event?.attributes?.eventId,
+  ];
+  const match = candidates.find((value) => value !== null && value !== undefined && String(value).trim() !== "");
+  return match != null ? String(match) : null;
 }
 
 function percentage(value, total) {
