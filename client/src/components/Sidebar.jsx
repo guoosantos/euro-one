@@ -15,6 +15,7 @@ import {
   CalendarClock,
   FileBarChart,
   FileText,
+  Gauge,
   HardDrive,
   Home,
   Map,
