@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
+import { resolveTelemetryDescriptor } from "../../shared/telemetryDictionary.js";
 import { formatAddress } from "./address.js";
 
 const BRAND_COLOR = "#001F3F";
@@ -101,15 +102,39 @@ function formatCellValue(key, value, definition) {
     if (key === "ignition" || key === "vehicleState") return "Indisponível";
     return "—";
   }
+  if (key === "ioDetails" && Array.isArray(value) && value.length) {
+    return value
+      .map((item) => {
+        const label = item?.label || item?.key || "IO";
+        const val = item?.value ?? "—";
+        return `${label}: ${val}`;
+      })
+      .join(" • ");
+  }
+  const descriptor = resolveTelemetryDescriptor(key);
+  if (descriptor) {
+    if (descriptor.type === "boolean") {
+      const normalized = typeof value === "string" ? value : value ? "Ativo" : "Inativo";
+      return normalized;
+    }
+    if (descriptor.type === "number") {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      const formatted = numeric.toFixed(2);
+      return descriptor.unit ? `${formatted} ${descriptor.unit}`.trim() : formatted;
+    }
+  }
   if (["gpsTime", "deviceTime", "serverTime"].includes(key)) return formatDate(value);
   if (key === "speed") return Number.isFinite(Number(value)) ? `${Number(value)} km/h` : String(value);
   if (key === "direction") return Number.isFinite(Number(value)) ? `${Number(value)}°` : String(value);
   if (key === "accuracy") return Number.isFinite(Number(value)) ? `${Number(value)} m` : String(value);
-  if (key === "hdop") return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : String(value);
+
   if (key === "distance" || key === "totalDistance") {
     return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} km` : String(value);
   }
-  if (key === "power") return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} V` : String(value);
+  if (key === "vehicleVoltage") return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} V` : String(value);
+  if (key === "hdop") return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : String(value);
+
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
   if (key === "vehicleState" && value === "—") return "Indisponível";
@@ -399,18 +424,19 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
   `;
 }
 
-export function resolvePdfColumns(columns, availableColumns = positionsColumns) {
-  const availableKeys = new Set(
-    Array.isArray(availableColumns) ? availableColumns.map((column) => column.key) : positionsColumns.map((column) => column.key),
-  );
-  const requested = Array.isArray(columns) ? columns.filter((key) => availableKeys.has(key)) : [];
-  if (requested.length) return requested;
-  return Array.isArray(availableColumns) && availableColumns.length
-    ? availableColumns.map((column) => column.key)
+
+export function resolvePdfColumns(columns, availableColumns = null) {
+  const allowed = Array.isArray(availableColumns) && availableColumns.length
+    ? availableColumns.filter((key) => positionsColumnMap.has(key))
     : positionsColumns.map((column) => column.key);
+  const requested = Array.isArray(columns) ? columns.filter((key) => positionsColumnMap.has(key)) : [];
+  const filteredRequested = requested.filter((key) => allowed.includes(key));
+  if (filteredRequested.length) return filteredRequested;
+  return allowed;
 }
 
-export async function generatePositionsReportPdf({ rows, columns, meta, columnDefinitions = null }) {
+export async function generatePositionsReportPdf({ rows, columns, meta, availableColumns = null }) {
+
   const chromium = await loadChromium();
   let browser = null;
 
@@ -440,7 +466,9 @@ export async function generatePositionsReportPdf({ rows, columns, meta, columnDe
     const page = await browser.newPage();
     const logoDataUrl = await fetchLogoDataUrl();
     const fontData = ensureFontData();
-    const columnsToUse = resolvePdfColumns(columns, columnDefinitions || positionsColumns);
+
+    const columnsToUse = resolvePdfColumns(columns, availableColumns);
+
     const safeRows = Array.isArray(rows) ? rows : [];
     const columnMap = Array.isArray(columnDefinitions)
       ? new Map(columnDefinitions.map((column) => [column.key, column]))
