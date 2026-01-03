@@ -155,6 +155,10 @@ Em produção, qualquer ausência de `clientId` em tokens ou requisições auten
 - Execute `npx prisma migrate deploy` (ou equivalente na pipeline) antes de iniciar o backend em produção para garantir que os modelos Prisma estejam sincronizados com o banco.
 - Registre no checklist as URLs públicas e quaisquer etapas manuais de provisionamento realizadas.
 
+## Deploy em produção
+
+Consulte o passo-a-passo em `docs/deploy.md` para instruções de build do front, reinício do backend com PM2 e provisionamento do Playwright/Chromium.
+
 ## Plano técnico de execução
 
 O detalhamento das quatro fases concluídas (migração Prisma, unificação de menus/RBAC, modernização de UI e CRM 2.0) está documentado em `docs/plano-tecnico-execucao.md`, incluindo a ordem recomendada para preparar ambientes (migrate, seed, migração do storage e subida dos serviços).

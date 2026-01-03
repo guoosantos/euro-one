@@ -19,7 +19,8 @@
     "format": "npm run format --workspace client",
     "dev:server": "npm run dev --workspace server",
     "start:server": "npm run start --workspace server",
-    "dev:all": "node scripts/dev-all.js"
+    "dev:all": "node scripts/dev-all.js",
+    "provision:playwright": "node server/scripts/install-playwright.js"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

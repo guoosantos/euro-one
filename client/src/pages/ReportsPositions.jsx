@@ -312,11 +312,11 @@ export default function ReportsPositions() {
       <section className="card flex flex-col gap-4 p-0">
         <form onSubmit={handleGenerate} className="flex flex-col gap-4">
           <header className="space-y-2 px-6 pt-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
               </div>
-              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <button
                   type="submit"
                   disabled={loading || geocoding || !selectedVehicleId}
