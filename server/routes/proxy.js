@@ -80,6 +80,22 @@ function resolveErrorStatusCode(error) {
   return Number.isFinite(status) ? status : null;
 }
 
+function resolveTraccarErrorMessage(payload, fallback = null) {
+  if (!payload) return fallback;
+  const cause = payload?.error?.cause ?? payload?.cause;
+  if (typeof cause === "string" && cause.trim()) {
+    return cause;
+  }
+  if (cause && typeof cause?.message === "string" && cause.message.trim()) {
+    return cause.message;
+  }
+  const message = payload?.error?.message ?? payload?.message;
+  if (typeof message === "string" && message.trim()) {
+    return message;
+  }
+  return fallback;
+}
+
 function logResolveTraccarDeviceFailure(context, error) {
   const status = resolveErrorStatusCode(error);
   const code =
@@ -154,7 +170,7 @@ function resolveDirectCustomPayload(body) {
   return {
     type: body?.type || "custom",
     attributes: { data: payload },
-    textChannel: body?.textChannel,
+    textChannel: false,
     description: body?.description,
   };
 }
@@ -498,7 +514,7 @@ function resolveCustomCommandPayload(customCommand) {
     if (payload.data === undefined || payload.data === null || String(payload.data).trim() === "") {
       throw createError(400, "Comando RAW sem conteúdo");
     }
-    return { type: "custom", attributes: { data: payload.data }, textChannel: true };
+    return { type: "custom", attributes: { data: payload.data }, textChannel: false };
   }
 
   if (kind === "HEX") {
@@ -1746,12 +1762,21 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       type: commandPayload?.type,
       attributes: commandPayload?.attributes || {},
       deviceId: traccarId,
-      textChannel:
-        commandPayload?.textChannel === undefined || commandPayload?.textChannel === null
-          ? undefined
-          : Boolean(commandPayload.textChannel),
-      description: commandPayload?.description,
     };
+
+    const shouldForceDataChannel = payload.type === "custom";
+    const resolvedTextChannel =
+      shouldForceDataChannel || commandPayload?.textChannel === undefined || commandPayload?.textChannel === null
+        ? shouldForceDataChannel
+          ? false
+          : undefined
+        : Boolean(commandPayload.textChannel);
+
+    if (resolvedTextChannel !== undefined) {
+      payload.textChannel = resolvedTextChannel;
+    }
+
+    payload.description = commandPayload?.description;
 
     if (payload.type === "sendSms" && !payload.attributes?.phone) {
       const devicePhone =
@@ -1807,8 +1832,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       );
     } catch (requestError) {
       dispatchStatus = "failed";
-      traccarStatus = Number(requestError?.status) || null;
-      traccarErrorMessage = requestError?.message || "Falha ao enviar comando ao Traccar";
+      traccarStatus = resolveErrorStatusCode(requestError);
+      traccarErrorMessage =
+        resolveTraccarErrorMessage(requestError?.response?.data, requestError?.message) ||
+        "Falha ao enviar comando ao Traccar";
     }
 
     if (traccarResponse && !traccarResponse.ok) {
@@ -1818,6 +1845,13 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       dispatchStatus = "sent";
       traccarStatus = traccarResponse?.status ?? 201;
     }
+
+    const warningMessage =
+      dispatchStatus === "failed"
+        ? resolveTraccarErrorMessage(traccarResponse, traccarErrorMessage) ||
+          traccarErrorMessage ||
+          "Falha ao enviar comando ao Traccar"
+        : null;
 
     let traccarCommandId = null;
     if (traccarResponse?.ok && traccarResponse?.data?.id) {
@@ -1858,13 +1892,13 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       sentAt: sentAt.toISOString(),
       receivedAt: null,
       respondedAt: null,
-      result: null,
+      result: warningMessage,
       source: "EURO_ONE",
       traccarCommandId,
     });
 
     if (!traccarResponse?.ok) {
-      const message = traccarResponse?.error?.message || traccarErrorMessage || "Falha ao enviar comando ao Traccar";
+      const message = warningMessage || "Falha ao enviar comando ao Traccar";
       return res.status(201).json({
         ok: false,
         warning: message,
