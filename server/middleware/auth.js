@@ -56,6 +56,9 @@ export function authenticate(req, _res, next) {
       ...decoded,
       clientId: decoded?.clientId ?? null,
     };
+    if (decoded?.traccar) {
+      req.traccar = decoded.traccar;
+    }
     if (!req.clientId) {
       req.clientId = req.user.clientId ?? null;
     }

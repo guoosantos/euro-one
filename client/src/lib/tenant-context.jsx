@@ -132,6 +132,17 @@ export function TenantProvider({ children }) {
       } catch (sessionError) {
         if (cancelled) return;
         console.warn("Falha ao restaurar sessão", sessionError);
+        if (Number(sessionError?.status || sessionError?.response?.status) === 401) {
+          setUser(null);
+          setToken(null);
+          setTenants([]);
+          setTenantId(null);
+          clearStoredSession();
+          if (typeof window !== "undefined") {
+            window.location.assign("/login");
+          }
+          return;
+        }
         setError(sessionError);
         setUser(null);
         setToken(null);
@@ -220,6 +231,30 @@ export function TenantProvider({ children }) {
       setStoredSession({ token: responseToken, user: nextUser });
       setTenants(nextTenants);
       setTenantId(resolvedTenantId);
+      try {
+        const sessionResponse = await api.get(API_ROUTES.session);
+        const sessionPayload = sessionResponse?.data || {};
+        const resolvedClientId =
+          sessionPayload.clientId || sessionPayload.client?.id || sessionPayload.user?.clientId || null;
+        const sessionUser = sessionPayload.user
+          ? { ...sessionPayload.user, clientId: sessionPayload.user.clientId ?? resolvedClientId }
+          : nextUser;
+        const sessionTenants = normaliseClients(sessionPayload.clients || sessionPayload.client ? sessionPayload : null, sessionUser);
+        setUser(sessionUser);
+        setTenants(sessionTenants);
+        setTenantId((prev) => prev ?? resolvedClientId ?? sessionTenants[0]?.id ?? resolvedTenantId);
+        setStoredSession({ token: responseToken, user: sessionUser });
+      } catch (sessionError) {
+        if (Number(sessionError?.status || sessionError?.response?.status) === 401) {
+          clearStoredSession();
+          setUser(null);
+          setToken(null);
+          setTenants([]);
+          setTenantId(null);
+          throw sessionError;
+        }
+        console.warn("Falha ao validar sessão após login", sessionError);
+      }
       return responseUser;
     } catch (loginError) {
       setError(loginError);

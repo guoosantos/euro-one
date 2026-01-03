@@ -104,7 +104,7 @@ const handleLogin = async (req, res, next) => {
       getFallbackClient: getFallbackClientFn,
       authenticateWithTraccar: authenticateWithTraccarFn,
     } = authDeps;
-    const { email, username, login, password } = req.body || {};
+    const { email, username, login, password, remember } = req.body || {};
     const userLogin = String(email || username || login || "").trim();
     const userPassword = typeof password === "string" ? password : null;
 
@@ -112,15 +112,22 @@ const handleLogin = async (req, res, next) => {
       throw buildAuthError(400, "Login e senha são obrigatórios", AUTH_ERROR_CODES.missingCredentials);
     }
 
+    console.info("[auth] início do login", { userLogin });
+
     let traccarAuth = null;
     let traccarAuthError = null;
     try {
       traccarAuth = await authenticateWithTraccarFn(userLogin, userPassword);
+      if (traccarAuth?.ok) {
+        console.info("[auth] autenticação Traccar OK", { userLogin, traccarUserId: traccarAuth?.user?.id });
+      }
     } catch (error) {
       const status = Number(error?.status || error?.statusCode);
       if (status === 401 || status === 403) {
         traccarAuthError = error;
+        console.warn("[auth] falha de credenciais no Traccar", { userLogin, status });
       } else {
+        console.warn("[auth] falha ao autenticar no Traccar", { userLogin, message: error?.message || error });
         throw error;
       }
     }
@@ -145,6 +152,10 @@ const handleLogin = async (req, res, next) => {
       const sanitizedUser = sanitizeUserFn(user);
       try {
         sessionPayload = await buildSessionPayloadFn(user.id, sanitizedUser.role);
+        console.info("[auth] sessão local montada", {
+          userId: sanitizedUser.id,
+          clientId: sessionPayload?.clientId ?? sanitizedUser.clientId ?? null,
+        });
       } catch (error) {
         console.warn("[auth] Falha ao construir sessão local, seguindo com sessão Traccar", error?.message || error);
         sessionPayload = null;
@@ -195,15 +206,36 @@ const handleLogin = async (req, res, next) => {
       };
     }
     const sessionUser = sessionPayload.user || sanitizedUser;
+    const resolvedClientId = sessionPayload?.client?.id ?? sessionUser.clientId ?? null;
+    if (!resolvedClientId) {
+      console.warn("[auth] usuário sem tenant associado", { userId: sessionUser.id, login: userLogin });
+      return res.status(400).json({ error: "Usuário sem tenant associado" });
+    }
+    const traccarContext = traccarAuth?.ok
+      ? traccarAuth?.session
+        ? { type: "session", session: traccarAuth.session }
+        : traccarAuth?.token
+        ? { type: "token", token: traccarAuth.token }
+        : null
+      : null;
     const tokenPayload = {
       id: sessionUser.id,
       role: sessionUser.role,
-      clientId: sessionPayload?.client?.id ?? sessionUser.clientId ?? null,
+      clientId: resolvedClientId,
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
+      traccar: traccarContext,
     };
     const token = signSessionFn(tokenPayload);
+    const cookieOptions = {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      ...(remember === false ? {} : { maxAge: 7 * 24 * 60 * 60 * 1000 }),
+    };
+    res.cookie("token", token, cookieOptions);
+    console.info("[auth] sessão criada", { userId: sessionUser.id, clientId: resolvedClientId });
     return res.json({
       token,
       user: { ...sessionUser, clientId: tokenPayload.clientId },
@@ -219,6 +251,9 @@ const handleLogin = async (req, res, next) => {
       stack: shouldLogStack ? error?.stack : undefined,
     });
     const status = Number(error?.status || error?.statusCode);
+    if (status === 401) {
+      return res.status(401).json({ error: error?.message || "Credenciais inválidas" });
+    }
     if (!status) {
       const normalized = isDatabaseUnavailableError(error)
         ? buildDatabaseUnavailableError(error)
@@ -235,8 +270,20 @@ router.post("/auth/login", handleLogin);
 const handleSession = async (req, res, next) => {
   try {
     const payload = await buildSessionPayload(req.user.id, req.user.role);
+    console.info("[auth] sessão restaurada", {
+      userId: payload?.user?.id || req.user?.id,
+      clientId: payload?.clientId ?? payload?.client?.id ?? payload?.user?.clientId ?? null,
+    });
     return res.json(payload);
   } catch (error) {
+    const message = String(error?.message || "");
+    if (
+      Number(error?.status || error?.statusCode) === 400 &&
+      (message.includes("Usuário não vinculado") || message.includes("clientId"))
+    ) {
+      console.warn("[auth] sessão sem tenant associado", { userId: req.user?.id });
+      return res.status(401).json({ error: "Usuário sem tenant associado" });
+    }
     return next(error);
   }
 };
