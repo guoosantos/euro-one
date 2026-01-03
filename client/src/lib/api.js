@@ -8,18 +8,20 @@ const windowLocation = typeof window !== "undefined" ? window.location : null;
 const windowHostname = windowLocation?.hostname || "";
 const windowProtocol = windowLocation?.protocol || "http:";
 
+const windowPort = windowLocation?.port || "";
+const windowPortSegment = windowPort ? `:${windowPort}` : "";
+
 const windowBaseUrl = windowHostname
   ? (["localhost", "127.0.0.1"].includes(windowHostname)
       ? FALLBACK_BASE_URL
-      : `${windowProtocol}//${windowHostname}:3001/api`)
+      : `${windowProtocol}//${windowHostname}${windowPortSegment}/api`)
   : null;
 
 const RESOLVED_BASE = RAW_BASE_URL || windowBaseUrl || FALLBACK_BASE_URL;
 
 if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta?.env?.DEV) {
-  console.error(
-    "[api] VITE_API_BASE_URL ausente. Usando o host atual na porta 3001 como fallback.",
-  );
+  const fallback = windowBaseUrl || FALLBACK_BASE_URL;
+  console.error(`[api] VITE_API_BASE_URL ausente. Usando ${fallback} como fallback.`);
 }
 
 const BASE_URL = RESOLVED_BASE.replace(/\/$/, "");
