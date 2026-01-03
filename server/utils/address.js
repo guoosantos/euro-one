@@ -4,6 +4,9 @@ const STORAGE_KEY = "geocodeCache";
 const cache = new Map();
 const pendingLookups = new Map();
 
+const NORMALIZED_PRECISION = 4;
+const LEGACY_PRECISION = 5;
+
 function hydrateCache() {
   const stored = loadCollection(STORAGE_KEY, []);
   stored.forEach((entry) => {
@@ -18,10 +21,10 @@ function persistCache() {
 
 hydrateCache();
 
-function normalizeCoordinate(value) {
+function normalizeCoordinate(value, precision = NORMALIZED_PRECISION) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
-  return Number(number.toFixed(5));
+  return Number(number.toFixed(precision));
 }
 
 function normalizeAddressPayload(rawAddress) {
@@ -88,11 +91,34 @@ function formatShortAddressFromParts(parts = {}) {
   return fallback || null;
 }
 
-function buildCacheKey(lat, lng) {
-  const normalizedLat = normalizeCoordinate(lat);
-  const normalizedLng = normalizeCoordinate(lng);
+function buildCacheKey(lat, lng, precision = NORMALIZED_PRECISION) {
+  const normalizedLat = normalizeCoordinate(lat, precision);
+  const normalizedLng = normalizeCoordinate(lng, precision);
   if (normalizedLat === null || normalizedLng === null) return null;
   return `${normalizedLat},${normalizedLng}`;
+}
+
+function resolveCacheKeys(lat, lng) {
+  const primary = buildCacheKey(lat, lng, NORMALIZED_PRECISION);
+  const legacy = buildCacheKey(lat, lng, LEGACY_PRECISION);
+  return { primary, legacy, changedPrecision: primary !== legacy };
+}
+
+export function getCachedGeocode(lat, lng) {
+  const { primary, legacy } = resolveCacheKeys(lat, lng);
+  const key = primary || legacy;
+  if (!key) return null;
+  const cached = cache.get(primary) || cache.get(legacy);
+  if (!cached) return null;
+  const formattedAddress = cached.formattedAddress || formatAddress(cached.address || cached.shortAddress || "");
+  return {
+    lat: cached.lat ?? lat,
+    lng: cached.lng ?? lng,
+    address: cached.address || formattedAddress || cached.shortAddress || null,
+    formattedAddress,
+    shortAddress: cached.shortAddress || formattedAddress || cached.address || null,
+    cachedAt: cached.updatedAt || cached.createdAt || null,
+  };
 }
 
 function normalizeGeocodePayload(payload, lat, lng) {
@@ -129,6 +155,10 @@ function normalizeGeocodePayload(payload, lat, lng) {
   };
 }
 
+const MAX_CONCURRENT_LOOKUPS = 3;
+const lookupQueue = [];
+let activeLookups = 0;
+
 async function fetchGeocode(lat, lng) {
   const url = new URL("https://nominatim.openstreetmap.org/reverse");
   url.searchParams.set("format", "json");
@@ -147,35 +177,70 @@ async function fetchGeocode(lat, lng) {
   return normalizeGeocodePayload(payload, lat, lng);
 }
 
-async function lookupGeocode(lat, lng) {
-  const key = buildCacheKey(lat, lng);
-  if (!key) return null;
-
-  const cached = cache.get(key);
-  if (cached?.address || cached?.shortAddress) {
-    return cached;
+async function runNextLookup() {
+  if (activeLookups >= MAX_CONCURRENT_LOOKUPS) return;
+  const task = lookupQueue.shift();
+  if (!task) return;
+  activeLookups += 1;
+  try {
+    await task();
+  } finally {
+    activeLookups -= 1;
+    if (lookupQueue.length) {
+      setTimeout(runNextLookup, 100);
+    }
   }
+}
+
+function scheduleLookup(lat, lng) {
+  const { primary } = resolveCacheKeys(lat, lng);
+  const key = primary;
+  if (!key) return Promise.resolve(null);
 
   if (pendingLookups.has(key)) {
     return pendingLookups.get(key);
   }
 
-  const promise = (async () => {
-    try {
-      const address = await fetchGeocode(lat, lng);
-      if (address) {
-        cache.set(key, { key, lat, lng, ...address, updatedAt: new Date().toISOString() });
-        persistCache();
+  const promise = new Promise((resolve) => {
+    const task = async () => {
+      try {
+        const address = await fetchGeocode(lat, lng);
+        if (address) {
+          const entry = { key, lat, lng, ...address, updatedAt: new Date().toISOString() };
+          cache.set(key, entry);
+          persistCache();
+        }
+        resolve(address);
+      } catch (_error) {
+        resolve(null);
+      } finally {
+        pendingLookups.delete(key);
       }
-      return address;
-    } catch (_error) {
-      return null;
-    } finally {
-      pendingLookups.delete(key);
-    }
-  })();
+    };
+    lookupQueue.push(task);
+    runNextLookup();
+  });
 
   pendingLookups.set(key, promise);
+  return promise;
+}
+
+async function lookupGeocode(lat, lng, { blocking = true } = {}) {
+  const { primary, legacy } = resolveCacheKeys(lat, lng);
+  const key = primary || legacy;
+  if (!key) return null;
+
+  const cached = cache.get(primary) || cache.get(legacy);
+  if (cached?.address || cached?.shortAddress) {
+    return cached;
+  }
+
+  if (pendingLookups.has(primary)) {
+    return pendingLookups.get(primary);
+  }
+
+  const promise = scheduleLookup(lat, lng);
+  if (!blocking) return null;
   return promise;
 }
 
@@ -217,6 +282,19 @@ export async function enrichPositionsWithAddresses(collection) {
   return enriched;
 }
 
+export function prefetchPositionAddresses(collection) {
+  if (!Array.isArray(collection)) return;
+  collection.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const hasAddress = item.address || item.formattedAddress || item.shortAddress;
+    if (hasAddress) return;
+    const lat = item.latitude ?? item.lat;
+    const lng = item.longitude ?? item.lon ?? item.lng;
+    if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return;
+    lookupGeocode(lat, lng, { blocking: false });
+  });
+}
+
 export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
     return fallbackAddress
@@ -244,4 +322,6 @@ export default {
   ensurePositionAddress,
   enrichPositionsWithAddresses,
   resolveShortAddress,
+  getCachedGeocode,
+  prefetchPositionAddresses,
 };

@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { config } from "../config.js";
-import { formatAddress, resolveShortAddress } from "../utils/address.js";
+import { formatAddress, getCachedGeocode, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 
@@ -220,6 +220,13 @@ router.get("/geocode/reverse", async (req, res) => {
   const cached = key ? reverseCache.get(key) : null;
   if (cached) {
     return res.json({ ...cached, cached: true });
+  }
+
+  const persisted = getCachedGeocode(lat, lng);
+  if (persisted) {
+    const payload = { ...persisted, cached: true, source: "geocodeCache" };
+    if (key) reverseCache.set(key, payload);
+    return res.json(payload);
   }
 
   if (key && reversePending.has(key)) {
