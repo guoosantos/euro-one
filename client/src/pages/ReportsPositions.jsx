@@ -8,11 +8,13 @@ import { geocodeAddress } from "../lib/geocode.js";
 import {
   buildColumnDefaults,
   loadColumnPreferences,
+  mergeColumnPreferences,
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
 import formatAddress from "../lib/format-address.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
+import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -60,6 +62,44 @@ function formatBattery(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (Number.isFinite(Number(value))) return `${Number(value).toFixed(0)}%`;
   return String(value);
+}
+
+function formatDistance(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (!Number.isFinite(Number(value))) return String(value);
+  return `${Number(value).toFixed(2)} km`;
+}
+
+function formatHdop(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (!Number.isFinite(Number(value))) return String(value);
+  return Number(value).toFixed(2);
+}
+
+function formatVehicleVoltage(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (!Number.isFinite(Number(value))) return String(value);
+  return `${Number(value).toFixed(2)} V`;
+}
+
+function formatByDescriptor(key, value) {
+  const descriptor = resolveTelemetryDescriptor(key);
+  if (!descriptor) return value ?? "—";
+  if (value === null || value === undefined || value === "") return "—";
+  if (descriptor.type === "boolean") {
+    if (typeof value === "string") return value;
+    return value ? "Ativo" : "Inativo";
+  }
+  if (descriptor.type === "number") {
+    if (!Number.isFinite(Number(value))) return String(value);
+    const formatted = Number(value).toFixed(2);
+    return descriptor.unit ? `${formatted} ${descriptor.unit}`.trim() : formatted;
+  }
+  if (descriptor.type === "string") {
+    const text = String(value || "").trim();
+    return text || "—";
+  }
+  return value ?? "—";
 }
 
 function formatIgnition(value) {
@@ -120,10 +160,32 @@ export default function ReportsPositions() {
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
 
-  const defaults = useMemo(() => buildColumnDefaults(COLUMNS), []);
+  const availableColumnKeys = useMemo(() => {
+    const metaColumns = Array.isArray(data?.meta?.availableColumns) ? data.meta.availableColumns : null;
+    const fallback = COLUMNS.map((column) => column.key);
+    const base = metaColumns?.length ? metaColumns : fallback;
+    const allowedSet = new Set(base);
+    const filtered = COLUMNS.filter((column) => allowedSet.has(column.key));
+    return filtered.length ? filtered.map((column) => column.key) : fallback;
+  }, [data?.meta?.availableColumns]);
+
+  const availableColumns = useMemo(() => {
+    const allowed = new Set(availableColumnKeys);
+    const filtered = COLUMNS.filter((column) => allowed.has(column.key));
+    return filtered.length ? filtered : COLUMNS;
+  }, [availableColumnKeys]);
+
+  const defaults = useMemo(() => buildColumnDefaults(availableColumns), [availableColumns]);
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
-  const visibleColumns = useMemo(() => resolveVisibleColumns(COLUMNS, columnPrefs), [columnPrefs]);
+  useEffect(() => {
+    setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
+  }, [defaults]);
+
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(availableColumns, columnPrefs),
+    [availableColumns, columnPrefs],
+  );
   const visibleColumnsWithWidths = useMemo(
     () =>
       visibleColumns.map((column) => ({
@@ -135,34 +197,72 @@ export default function ReportsPositions() {
 
   const rows = useMemo(() => {
     const list = Array.isArray(data?.positions) ? data.positions : [];
-    return list.map((position) => ({
-      key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
-      deviceId: position.id ?? position.gpsTime ?? Math.random(),
-      gpsTime: formatDateTime(position.gpsTime),
-      deviceTime: formatDateTime(position.deviceTime),
-      serverTime: formatDateTime(position.serverTime),
-      latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
-      longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-      address: normalizeAddressDisplay(position.address, position.latitude, position.longitude),
-      lat: position.latitude,
-      lng: position.longitude,
-      speed: formatSpeed(position.speed),
-      direction: formatDirection(position.direction),
-      ignition: formatIgnition(position.ignition),
-      vehicleState: position.vehicleState || "Indisponível",
-      batteryLevel: formatBattery(position.batteryLevel),
-      rssi: position.rssi ?? "—",
-      satellites: position.satellites ?? "—",
-      geofence: position.geofence || "—",
-      accuracy: formatAccuracy(position.accuracy),
-      commandResponse: position.commandResponse || "—",
-      deviceStatusEvent: position.deviceStatusEvent || "—",
-      deviceStatus: position.deviceStatus || "Indisponível",
-      digitalInput1: position.digitalInput1 ?? "—",
-      digitalInput2: position.digitalInput2 ?? "—",
-      digitalOutput1: position.digitalOutput1 ?? "—",
-      digitalOutput2: position.digitalOutput2 ?? "—",
-    }));
+    return list.map((position) => {
+      const row = {
+        key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+        deviceId: position.id ?? position.gpsTime ?? Math.random(),
+        gpsTime: formatDateTime(position.gpsTime),
+        deviceTime: formatDateTime(position.deviceTime),
+        serverTime: formatDateTime(position.serverTime),
+        latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
+        longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
+        address: normalizeAddressDisplay(position.address, position.latitude, position.longitude),
+        lat: position.latitude,
+        lng: position.longitude,
+        speed: formatSpeed(position.speed),
+        direction: formatDirection(position.direction),
+        ignition: formatIgnition(position.ignition),
+        vehicleState: position.vehicleState || "Indisponível",
+        batteryLevel: formatBattery(position.batteryLevel),
+        rssi: position.rssi ?? "—",
+        satellites: position.satellites ?? "—",
+        geofence: position.geofence || "—",
+        accuracy: formatAccuracy(position.accuracy),
+        hdop: formatHdop(position.hdop),
+        distance: formatDistance(position.distance),
+        totalDistance: formatDistance(position.totalDistance),
+        vehicleVoltage: formatVehicleVoltage(position.vehicleVoltage),
+        deviceTemp: formatByDescriptor("deviceTemp", position.deviceTemp),
+        handBrake: formatByDescriptor("handBrake", position.handBrake),
+        commandResponse: position.commandResponse || "—",
+        deviceStatusEvent: position.deviceStatusEvent || "—",
+        deviceStatus: position.deviceStatus || "Indisponível",
+        digitalInput1: position.digitalInput1 ?? "—",
+        digitalInput2: position.digitalInput2 ?? "—",
+        digitalOutput1: position.digitalOutput1 ?? "—",
+        digitalOutput2: position.digitalOutput2 ?? "—",
+        digitalInput3: position.digitalInput3 ?? "—",
+        digitalInput4: position.digitalInput4 ?? "—",
+        digitalInput5: position.digitalInput5 ?? "—",
+        digitalInput6: position.digitalInput6 ?? "—",
+        digitalInput7: position.digitalInput7 ?? "—",
+        digitalInput8: position.digitalInput8 ?? "—",
+        digitalOutput3: position.digitalOutput3 ?? "—",
+        digitalOutput4: position.digitalOutput4 ?? "—",
+        digitalOutput5: position.digitalOutput5 ?? "—",
+        digitalOutput6: position.digitalOutput6 ?? "—",
+        digitalOutput7: position.digitalOutput7 ?? "—",
+        digitalOutput8: position.digitalOutput8 ?? "—",
+        ioDetails:
+          Array.isArray(position.ioDetails) && position.ioDetails.length
+            ? position.ioDetails
+                .map((item) => {
+                  const label = item?.label || item?.key || "IO";
+                  const value = item?.value ?? "—";
+                  return `${label}: ${value}`;
+                })
+                .join(" • ")
+            : "—",
+      };
+
+      Object.keys(position || {}).forEach((key) => {
+        if (resolveTelemetryDescriptor(key)) {
+          row[key] = formatByDescriptor(key, position[key]);
+        }
+      });
+
+      return row;
+    });
   }, [data]);
 
   const filteredRows = useMemo(() => {
@@ -254,7 +354,9 @@ export default function ReportsPositions() {
       setFormError("Selecione exatamente um veículo.");
       return;
     }
-    const columnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
+    const baseColumnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
+    const allowedExport = new Set(availableColumnKeys.length ? availableColumnKeys : COLUMNS.map((col) => col.key));
+    const columnsToExport = baseColumnsToExport.filter((key) => allowedExport.has(key));
     setExportingPdf(true);
     try {
       const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
@@ -325,8 +427,8 @@ export default function ReportsPositions() {
   };
 
   const columnsForSelection = useMemo(
-    () => COLUMNS.map((column) => ({ key: column.key, label: column.label })),
-    [],
+    () => availableColumns.map((column) => ({ key: column.key, label: column.label })),
+    [availableColumns],
   );
 
   return (
@@ -504,7 +606,7 @@ export default function ReportsPositions() {
 
       {activePopup === "columns" && (
         <MonitoringColumnSelector
-          columns={COLUMNS}
+          columns={availableColumns}
           columnPrefs={columnPrefs}
           defaultPrefs={defaults}
           onApply={handleApplyColumns}
