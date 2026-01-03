@@ -2,6 +2,24 @@ const normalizeText = (value) => String(value ?? "").toLowerCase();
 
 export const normalizeProtocolKey = (value) => (value ? normalizeText(value).trim() : "");
 
+export function resolveCommandSendError(error, fallbackMessage = "Erro ao enviar comando") {
+  const status = Number(error?.response?.status ?? error?.status);
+  const payload = error?.response?.data || {};
+  const message =
+    payload?.error?.message ||
+    payload?.message ||
+    (error instanceof Error && error.message ? error.message : null) ||
+    null;
+
+  if (status === 400) return message || "Requisição inválida para envio do comando.";
+  if (status === 403) return message || "Dispositivo não autorizado para este cliente.";
+  if (status === 404) return message || "Veículo ou dispositivo não encontrado.";
+  if (status === 409) return message || "Equipamento sem Traccar ID válido.";
+  if (status === 502) return message || "Não foi possível conectar ao Traccar.";
+  if (status === 503) return message || "Serviço temporariamente indisponível. Tente novamente em instantes.";
+  return message || fallbackMessage;
+}
+
 export function isCustomCommandConfigured(command, deviceProtocol = null) {
   if (!command || command.kind !== "custom") return true;
   const payload = command?.payload && typeof command.payload === "object" ? command.payload : {};
