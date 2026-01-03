@@ -48,9 +48,20 @@ function formatSpeed(value) {
   return `${value} km/h`;
 }
 
+function formatDistance(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(2)} km`;
+  return String(value);
+}
+
 function formatDirection(value) {
   if (!Number.isFinite(Number(value))) return "—";
   return `${Number(value).toFixed(0)}°`;
+}
+
+function formatHdop(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return Number(value).toFixed(2);
 }
 
 function formatAccuracy(value) {
@@ -63,6 +74,7 @@ function formatBattery(value) {
   if (Number.isFinite(Number(value))) return `${Number(value).toFixed(0)}%`;
   return String(value);
 }
+
 
 function formatDistance(value) {
   if (value === null || value === undefined || value === "") return "—";
@@ -100,11 +112,12 @@ function formatByDescriptor(key, value) {
     return text || "—";
   }
   return value ?? "—";
+
 }
 
 function formatIgnition(value) {
   if (value === null || value === undefined) return "Indisponível";
-  return value ? "Ligado" : "Desligado";
+  return value ? "Ligada" : "Desligada";
 }
 
 function normalizeAddressDisplay(value, lat = null, lng = null) {
@@ -160,6 +173,7 @@ export default function ReportsPositions() {
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
 
+
   const availableColumnKeys = useMemo(() => {
     const metaColumns = Array.isArray(data?.meta?.availableColumns) ? data.meta.availableColumns : null;
     const fallback = COLUMNS.map((column) => column.key);
@@ -176,16 +190,19 @@ export default function ReportsPositions() {
   }, [availableColumnKeys]);
 
   const defaults = useMemo(() => buildColumnDefaults(availableColumns), [availableColumns]);
+
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
   useEffect(() => {
     setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
   }, [defaults]);
 
+
   const visibleColumns = useMemo(
     () => resolveVisibleColumns(availableColumns, columnPrefs),
     [availableColumns, columnPrefs],
   );
+
   const visibleColumnsWithWidths = useMemo(
     () =>
       visibleColumns.map((column) => ({
@@ -201,6 +218,7 @@ export default function ReportsPositions() {
       const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
         deviceId: position.id ?? position.gpsTime ?? Math.random(),
+
         gpsTime: formatDateTime(position.gpsTime),
         deviceTime: formatDateTime(position.deviceTime),
         serverTime: formatDateTime(position.serverTime),
@@ -259,11 +277,14 @@ export default function ReportsPositions() {
         if (resolveTelemetryDescriptor(key)) {
           row[key] = formatByDescriptor(key, position[key]);
         }
+
       });
 
       return row;
     });
+
   }, [data]);
+
 
   const filteredRows = useMemo(() => {
     if (!hideUnavailableIgnition) return rows;
@@ -427,8 +448,10 @@ export default function ReportsPositions() {
   };
 
   const columnsForSelection = useMemo(
+
     () => availableColumns.map((column) => ({ key: column.key, label: column.label })),
     [availableColumns],
+
   );
 
   return (

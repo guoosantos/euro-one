@@ -1,3 +1,4 @@
+
 export const positionsColumns = [
   { key: "gpsTime", labelPt: "Hora GPS", labelPdf: "Hora GPS", width: 140, defaultVisible: true, weight: 1.4 },
   { key: "address", labelPt: "Endereço", labelPdf: "Endereço", width: 260, defaultVisible: true, weight: 2.6 },
@@ -33,6 +34,7 @@ export const positionsColumns = [
   { key: "handBrake", labelPt: "Freio de Mão", labelPdf: "Freio de Mão", width: 130, defaultVisible: false, weight: 1.1 },
   { key: "ioDetails", labelPt: "Detalhes (IO)", labelPdf: "Detalhes (IO)", width: 220, defaultVisible: false, weight: 2.2 },
   { key: "commandResponse", labelPt: "Resposta do Comando", labelPdf: "Resposta do Comando", width: 220, defaultVisible: true, weight: 2.2 },
+
   {
     key: "deviceStatus",
     labelPt: "Status do Equipamento",
@@ -40,6 +42,7 @@ export const positionsColumns = [
     width: 180,
     defaultVisible: true,
     weight: 1.6,
+    group: "base",
   },
   {
     key: "deviceStatusEvent",
@@ -48,18 +51,130 @@ export const positionsColumns = [
     width: 200,
     defaultVisible: true,
     weight: 1.8,
+    group: "base",
   },
+
   { key: "deviceTime", labelPt: "Hora do Dispositivo", labelPdf: "Hora do Dispositivo", width: 140, defaultVisible: false, weight: 1.4 },
   { key: "serverTime", labelPt: "Hora do Servidor", labelPdf: "Hora do Servidor", width: 140, defaultVisible: false, weight: 1.4 },
   { key: "latitude", labelPt: "Latitude", labelPdf: "Latitude", width: 110, defaultVisible: false, weight: 1 },
   { key: "longitude", labelPt: "Longitude", labelPdf: "Longitude", width: 110, defaultVisible: false, weight: 1 },
   { key: "direction", labelPt: "Direção", labelPdf: "Direção", width: 90, defaultVisible: false, weight: 0.9 },
+
 ];
 
-export const positionsColumnMap = new Map(positionsColumns.map((column) => [column.key, column]));
+function normalizeProtocolKey(protocol) {
+  return String(protocol || "").trim().toLowerCase();
+}
+
+function normalizeKey(key) {
+  return String(key || "").trim();
+}
+
+function toTitleCase(value) {
+  return value
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function splitWords(value) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildFriendlyLabel(key) {
+  const normalized = splitWords(String(key || ""));
+  if (!normalized) return "Campo";
+  if (normalized.toLowerCase().startsWith("sensor ")) {
+    return toTitleCase(normalized);
+  }
+  return toTitleCase(normalized);
+}
+
+function withUnit(label, unit) {
+  if (!unit) return label;
+  if (label.includes(`(${unit})`)) return label;
+  return `${label} (${unit})`;
+}
+
+function resolveCatalogEntry(key, protocol) {
+  const normalizedKey = normalizeKey(key).toLowerCase();
+  if (!normalizedKey) return null;
+  const protocolKey = normalizeProtocolKey(protocol);
+  const protocolCatalog = PROTOCOL_COLUMN_CATALOG[protocolKey] || {};
+  if (protocolCatalog[normalizedKey]) return protocolCatalog[normalizedKey];
+  const defaultCatalog = PROTOCOL_COLUMN_CATALOG.default || {};
+  if (defaultCatalog[normalizedKey]) return defaultCatalog[normalizedKey];
+  return null;
+}
+
+function resolveIoPattern(key) {
+  const normalized = normalizeKey(key);
+  if (!normalized) return null;
+  const inputMatch = normalized.match(/^(?:sensor_)?(?:in|input|entrada|digitalinput)_?(\\d+)$/i);
+  if (inputMatch) {
+    return { labelPt: `Entrada ${inputMatch[1]} Ativa`, type: "boolean", group: "input" };
+  }
+  const outputMatch = normalized.match(/^(?:sensor_)?(?:out|output|saida|digitaloutput)_?(\\d+)$/i);
+  if (outputMatch) {
+    return { labelPt: `Saída ${outputMatch[1]} Ativa`, type: "boolean", group: "output" };
+  }
+  const ioMatch = normalized.match(/^(?:io|i\\/o)[-_ ]?(\\d+)$/i);
+  if (ioMatch) {
+    return { labelPt: `IO ${ioMatch[1]}`, group: "io" };
+  }
+  return null;
+}
+
+function resolveVoltagePattern(key) {
+  const normalized = normalizeKey(key).toLowerCase();
+  if (!normalized) return null;
+  if (["power", "externalpower", "powervoltage", "voltage", "vehiclevoltage"].includes(normalized)) {
+    return { labelPt: "Tensão do Veículo", unit: "V", type: "number", group: "voltage" };
+  }
+  if (["batteryvoltage", "battery_voltage"].includes(normalized)) {
+    return { labelPt: "Tensão da Bateria", unit: "V", type: "number", group: "battery" };
+  }
+  return null;
+}
+
+export const positionsColumns = BASE_COLUMNS;
+export const positionsColumnMap = new Map(BASE_COLUMNS.map((column) => [column.key, column]));
 
 export function resolveColumnLabel(column, variant = "pt") {
   if (!column) return "[SEM TRADUÇÃO]";
-  const label = variant === "pdf" ? column.labelPdf : column.labelPt;
-  return label || `[SEM TRADUÇÃO] ${column.key}`;
+  const baseLabel = variant === "pdf" ? column.labelPdf || column.labelPt : column.labelPt;
+  const label = baseLabel || buildFriendlyLabel(column.key);
+  return withUnit(label, column.unit);
+}
+
+export function resolveColumnDefinition(key, { protocol } = {}) {
+  if (!key) return null;
+  const base = positionsColumnMap.get(key);
+  if (base) return base;
+  const voltagePattern = resolveVoltagePattern(key);
+  if (voltagePattern) {
+    return { key, ...voltagePattern };
+  }
+  const pattern = resolveIoPattern(key);
+  if (pattern) {
+    return { key, ...pattern };
+  }
+  const catalog = resolveCatalogEntry(key, protocol);
+  if (catalog) {
+    return { key, ...catalog };
+  }
+  return {
+    key,
+    labelPt: buildFriendlyLabel(key),
+    group: "other",
+  };
+}
+
+export function resolveColumnGroupOrder(group) {
+  return COLUMN_GROUP_ORDER[group] ?? COLUMN_GROUP_ORDER.other;
 }
