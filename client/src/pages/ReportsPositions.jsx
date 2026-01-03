@@ -11,28 +11,15 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
+import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
 
-const COLUMNS = [
-  { key: "gpsTime", label: "GPS Time", width: 140, defaultVisible: true },
-  { key: "deviceTime", label: "Device Time", width: 140, defaultVisible: false },
-  { key: "serverTime", label: "Server Time", width: 140, defaultVisible: false },
-  { key: "latitude", label: "Latitude", width: 110, defaultVisible: false },
-  { key: "longitude", label: "Longitude", width: 110, defaultVisible: false },
-  { key: "address", label: "Address", width: 260, defaultVisible: true },
-  { key: "speed", label: "Speed", width: 90, defaultVisible: true },
-  { key: "direction", label: "Direction", width: 90, defaultVisible: false },
-  { key: "ignition", label: "Ignition", width: 90, defaultVisible: true },
-  { key: "vehicleState", label: "Vehicle State", width: 140, defaultVisible: true },
-  { key: "batteryLevel", label: "Battery Level", width: 110, defaultVisible: false },
-  { key: "rssi", label: "RSSI", width: 80, defaultVisible: false },
-  { key: "satellites", label: "Satellites", width: 90, defaultVisible: false },
-  { key: "geofence", label: "Geofence", width: 140, defaultVisible: false },
-  { key: "accuracy", label: "Accuracy", width: 90, defaultVisible: false },
-  { key: "commandResponse", label: "Command Response", width: 220, defaultVisible: true },
-];
+const COLUMNS = positionsColumns.map((column) => ({
+  ...column,
+  label: resolveColumnLabel(column, "pt"),
+}));
 
 function parseCoordinateQuery(raw) {
   if (!raw) return null;

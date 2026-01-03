@@ -856,6 +856,33 @@ function parseAddressFilterQuery(query = {}) {
   };
 }
 
+function normalizeAddressValue(address) {
+  if (typeof address === "string") {
+    const trimmed = address.trim();
+    return trimmed || "Endereço não disponível";
+  }
+  if (address && typeof address === "object") {
+    if (address.formattedAddress) return String(address.formattedAddress).trim() || "Endereço não disponível";
+    if (address.display_name) return String(address.display_name).trim() || "Endereço não disponível";
+    const parts = [
+      address.road || address.street || address.addressLine1,
+      address.city || address.town || address.village,
+      address.state || address.state_code || address.region,
+    ]
+      .map((part) => (part ? String(part).trim() : ""))
+      .filter(Boolean);
+    if (parts.length) return parts.join(", ");
+    try {
+      const serialized = JSON.stringify(address);
+      if (!serialized) return "Endereço não disponível";
+      return serialized.length > 160 ? `${serialized.slice(0, 159)}…` : serialized;
+    } catch (error) {
+      return "Endereço não disponível";
+    }
+  }
+  return "Endereço não disponível";
+}
+
 function computeDistanceMeters(from, to) {
   const toRad = (value) => (value * Math.PI) / 180;
   const R = 6371000;
@@ -2888,7 +2915,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       serverTime: position.serverTime || null,
       latitude: position.latitude ?? null,
       longitude: position.longitude ?? null,
-      address: position.address || "Endereço não disponível",
+      address: normalizeAddressValue(position.address),
       speed: speedKmh,
       direction: position.course ?? null,
       ignition,
@@ -2911,7 +2938,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const latestPosition = mapped[0] || null;
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
   const ignitionLabel =
-    latestPosition?.ignition === true ? "Ligado" : latestPosition?.ignition === false ? "Desligado" : "—";
+    latestPosition?.ignition === true ? "Ligada" : latestPosition?.ignition === false ? "Desligada" : "—";
 
   const meta = {
     generatedAt: new Date().toISOString(),
