@@ -1,19 +1,24 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
 
-const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim();
-const FALLBACK_BASE_URL = "http://localhost:3001";
-const windowBaseUrl =
-  typeof window !== "undefined" && window.location?.origin ? window.location.origin : null;
+const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
+const FALLBACK_BASE_URL = "http://localhost:3001/api";
 
-const RESOLVED_BASE =
-  RAW_BASE_URL
-    || (import.meta?.env?.DEV && windowBaseUrl)
-    || FALLBACK_BASE_URL;
+const windowLocation = typeof window !== "undefined" ? window.location : null;
+const windowHostname = windowLocation?.hostname || "";
+const windowProtocol = windowLocation?.protocol || "http:";
+
+const windowBaseUrl = windowHostname
+  ? (["localhost", "127.0.0.1"].includes(windowHostname)
+      ? FALLBACK_BASE_URL
+      : `${windowProtocol}//${windowHostname}:3001/api`)
+  : null;
+
+const RESOLVED_BASE = RAW_BASE_URL || windowBaseUrl || FALLBACK_BASE_URL;
 
 if (!RAW_BASE_URL && typeof window !== "undefined" && !import.meta?.env?.DEV) {
   console.error(
-    "[api] VITE_API_BASE_URL ausente. Use a URL do backend (ex.: http://localhost:3001) para evitar chamadas ao front.",
+    "[api] VITE_API_BASE_URL ausente. Usando o host atual na porta 3001 como fallback.",
   );
 }
 
