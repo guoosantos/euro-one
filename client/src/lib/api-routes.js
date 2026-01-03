@@ -16,6 +16,7 @@ export const API_ROUTES = {
   iotSensors: "iot-sensors",
   videoTelematics: "video-telematics",
   positionsExport: "positions/export",
+  eventResolve: (id) => `events/${id}/resolve`,
   reports: {
     trips: "traccar/reports/trips",
     stops: "traccar/reports/stops",

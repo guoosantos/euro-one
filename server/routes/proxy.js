@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
+import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
@@ -861,6 +862,54 @@ function parseDateOrThrow(value, label) {
   return parsed.toISOString();
 }
 
+const CRITICAL_EVENT_TYPES = new Set([
+  "deviceoffline",
+  "deviceinactive",
+  "deviceunknown",
+  "powercut",
+  "powerdisconnected",
+  "externalpowerdisconnected",
+  "jamming",
+]);
+
+function normaliseSeverityLabel(value) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
+  if (!normalized) return null;
+  if (normalized.startsWith("crit")) return "critical";
+  if (normalized.startsWith("alta") || normalized === "high") return "high";
+  if (normalized.startsWith("mod") || normalized === "medium" || normalized === "media" || normalized === "média") {
+    return "medium";
+  }
+  if (normalized.startsWith("baixa") || normalized === "low") return "low";
+  return normalized;
+}
+
+function resolveEventSeverity(event) {
+  const rawSeverity =
+    event?.severity ??
+    event?.level ??
+    event?.attributes?.severity ??
+    event?.attributes?.criticality ??
+    event?.attributes?.alarm ??
+    null;
+  const bySeverityField = normaliseSeverityLabel(rawSeverity);
+  if (bySeverityField) return bySeverityField;
+
+  const typeKey = String(event?.type || event?.event || event?.attributes?.type || "").toLowerCase();
+  if (CRITICAL_EVENT_TYPES.has(typeKey)) return "critical";
+  return "normal";
+}
+
+function isSeverityMatch(eventSeverity, filter) {
+  if (!filter) return true;
+  const normalizedFilter = normaliseSeverityLabel(filter);
+  if (!normalizedFilter) return true;
+  const normalizedEvent = normaliseSeverityLabel(eventSeverity);
+  return normalizedEvent === normalizedFilter;
+}
+
 function resolveDeviceIdsToQuery(req) {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
   const devices = listDevices({ clientId });
@@ -1213,6 +1262,9 @@ async function handleEventsReport(req, res, next) {
     const positions = await fetchPositionsByIds(positionIds);
     const positionMap = new Map(positions.map((position) => [position.id, position]));
 
+    const severityFilter = req.query?.severity;
+    const resolvedFilter = req.query?.resolved;
+
     const eventsWithAddress = events.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
       const formattedAddress = position ? formatAddress(position.address) : null;
@@ -1228,6 +1280,8 @@ async function handleEventsReport(req, res, next) {
         decoratedPosition?.ignition ?? extractIgnition(position?.attributes) ?? extractIgnition(event.attributes);
       const lastCommunication =
         decoratedPosition?.lastCommunication || device?.lastUpdate || position?.serverTime || position?.deviceTime || null;
+      const resolution = getEventResolution(event.id, { clientId });
+      const severity = resolveEventSeverity(event);
       return {
         ...event,
         position: decoratedPosition || position,
@@ -1238,12 +1292,28 @@ async function handleEventsReport(req, res, next) {
         lastCommunication,
         batteryLevel,
         ignition,
+        severity,
+        resolved: Boolean(resolution),
+        resolvedAt: resolution?.resolvedAt || null,
+        resolvedBy: resolution?.resolvedBy || null,
+        resolvedByName: resolution?.resolvedByName || null,
       };
     });
 
-    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events: eventsWithAddress };
+    const filteredEvents = eventsWithAddress.filter((event) => {
+      if (resolvedFilter !== undefined) {
+        const wantResolved = !["false", "0", ""].includes(String(resolvedFilter).toLowerCase());
+        if (event.resolved !== wantResolved) return false;
+      }
+      if (severityFilter && !isSeverityMatch(event.severity, severityFilter)) {
+        return false;
+      }
+      return true;
+    });
 
-    return res.status(200).json({ data, events: eventsWithAddress, error: null });
+    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events: filteredEvents };
+
+    return res.status(200).json({ data, events: filteredEvents, error: null });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -1556,6 +1626,20 @@ router.get("/positions/last", async (req, res) => {
 /**
  * === Events (usa /reports/events) ===
  */
+
+router.patch("/events/:id/resolve", async (req, res, next) => {
+  try {
+    const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+    const resolution = markEventResolved(req.params.id, {
+      clientId,
+      resolvedBy: req.user?.id ?? null,
+      resolvedByName: req.user?.name || req.user?.email || null,
+    });
+    return res.json({ ok: true, data: resolution, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
 
 router.all("/events", (req, res, next) =>
   handleEventsReport(req, res, next),
