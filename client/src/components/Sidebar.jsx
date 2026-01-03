@@ -14,6 +14,7 @@ import {
   Flame,
   CalendarClock,
   FileBarChart,
+  FileText,
   HardDrive,
   Home,
   Map,
