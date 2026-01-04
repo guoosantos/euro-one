@@ -494,11 +494,24 @@ export default function ReportsPositions() {
     setExportingPdf(true);
     try {
       const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
+      const columnDefinitionsPayload = availableColumns.map((column) => ({
+        key: column.key,
+        labelPt: column.label,
+        labelPdf: column.labelPdf || column.label,
+        weight: column.weight,
+        width: column.width,
+        type: column.type,
+        unit: column.unit,
+        group: column.group,
+        defaultVisible: column.defaultVisible,
+      }));
       const blob = await exportPdf({
         vehicleId: selectedVehicleId,
         from: new Date(from).toISOString(),
         to: new Date(to).toISOString(),
         columns: columnsToExport,
+        availableColumns: availableColumnKeys,
+        columnDefinitions: columnDefinitionsPayload,
         addressFilter: resolvedFilter
           ? {
               lat: resolvedFilter.lat,

@@ -36,31 +36,38 @@ function persistCacheToStorage() {
 
 function resolveParts(raw) {
   if (!raw || typeof raw !== "object") return null;
-  return raw.addressParts || raw.parts || raw.attributes?.addressParts || null;
+  if (raw.addressParts) return raw.addressParts;
+  if (raw.parts) return raw.parts;
+  if (raw.attributes?.addressParts) return raw.attributes.addressParts;
+  if (raw.address && typeof raw.address === "object") return raw.address;
+  return null;
+}
+
+function normalizeCep(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length !== 8) return value ? String(value).trim() : "";
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
 function formatFullAddressFromParts(parts = {}) {
   if (!parts || typeof parts !== "object") return null;
+
   const street = parts.street || parts.road || parts.streetName || parts.route;
   const houseNumber =
-    parts.houseNumber || parts.house_number || parts.house || (street ? "s/n" : null);
-  const neighbourhood = parts.neighbourhood || parts.suburb || parts.quarter;
-  const city = parts.city || parts.town || parts.village || parts.municipality;
-  const state = parts.stateCode || parts.state_code || parts.state || parts.region || parts.state_district;
-  const country =
-    parts.country ||
-    parts.countryName ||
-    parts.country_name ||
-    parts.countryCode ||
-    parts.country_code ||
-    parts.countryCodeIso;
-  const postalCode = parts.postalCode || parts.postcode || parts.zipcode;
+    parts.houseNumber || parts.house_number || parts.house || parts.number || parts.numero || (street ? "s/n" : "");
+  const neighbourhood = parts.neighbourhood || parts.suburb || parts.quarter || parts.bairro;
+  const city = parts.city || parts.town || parts.village || parts.municipality || parts.cidade;
+  const stateCode = (parts.stateCode || parts.state_code || parts.uf || "").toString().toUpperCase();
+  const state = stateCode || (parts.state || parts.region || parts.state_district || "").toString().toUpperCase();
+  const postalCode = normalizeCep(parts.postalCode || parts.postcode || parts.zipcode || parts.cep);
 
-  const firstLine = [street, houseNumber].filter(Boolean).join(", ");
-  const locality = [neighbourhood, city].filter(Boolean).join(", ");
-  const region = [state, country, postalCode].filter(Boolean).join(", ");
+  const streetLine = [street, houseNumber].filter(Boolean).join(", ");
+  const neighbourhoodBlock = neighbourhood ? ` - ${neighbourhood}` : "";
+  const cityState = [city, state].filter(Boolean).join("-");
+  const cityStateBlock = cityState ? ` ${cityState}` : "";
+  const postalBlock = postalCode ? `, ${postalCode}` : "";
 
-  const formatted = [firstLine, locality, region].filter(Boolean).join(" - ");
+  const formatted = `${streetLine}${neighbourhoodBlock}${cityStateBlock}${postalBlock}`.trim();
   return formatted || null;
 }
 
@@ -69,7 +76,7 @@ export function formatFullAddress(rawAddress) {
   if (typeof rawAddress === "object" && !Array.isArray(rawAddress)) {
     const parts = resolveParts(rawAddress);
     const formattedFromParts = formatFullAddressFromParts(parts);
-    if (formattedFromParts) return formattedFromParts;
+    if (formattedFromParts) return sanitiseBrazilianFormatting(formattedFromParts);
     const formatted =
       rawAddress.formattedAddress ||
       rawAddress.formatted ||
@@ -77,10 +84,10 @@ export function formatFullAddress(rawAddress) {
       rawAddress.address ||
       rawAddress.display_name ||
       null;
-    if (formatted) return collapseWhitespace(formatted);
+    if (formatted) return sanitiseBrazilianFormatting(formatted);
   }
   if (typeof rawAddress === "string") {
-    const cleaned = collapseWhitespace(rawAddress);
+    const cleaned = sanitiseBrazilianFormatting(rawAddress);
     return cleaned || "—";
   }
   return "—";
@@ -173,6 +180,18 @@ function normalizeAddressPayload(rawAddress) {
 
 function collapseWhitespace(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function sanitiseBrazilianFormatting(value) {
+  if (!value) return "";
+  let cleaned = collapseWhitespace(value);
+  cleaned = cleaned.replace(/,\s*(brasil|brazil)$/i, "");
+  cleaned = cleaned.replace(/\s+-\s+(brasil|brazil)$/i, "");
+  cleaned = cleaned.replace(/\s*,\s*,+/g, ", ");
+  cleaned = cleaned.replace(/\s+-\s+-/g, " - ");
+  cleaned = cleaned.replace(/\s+-\s*,/g, " - ");
+  cleaned = cleaned.replace(/-\s*,/g, "- ");
+  return collapseWhitespace(cleaned);
 }
 
 function coalesce(...values) {
@@ -385,7 +404,8 @@ async function lookupGeocode(lat, lng, { blocking = true } = {}) {
 
 export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
-  const rawAddress = position.address || position.formattedAddress || position.attributes?.address;
+  const rawAddress =
+    position.fullAddress || position.address || position.formattedAddress || position.attributes?.fullAddress || position.attributes?.address;
   const normalizedAddress = normalizeAddressPayload(rawAddress);
   const baseFormatted = rawAddress ? formatFullAddress(rawAddress) : null;
   const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
@@ -401,12 +421,19 @@ export async function ensurePositionAddress(position) {
       ...position,
       address: normalizedAddress,
       formattedAddress: formattedAddress || shortAddress || fallbackFormatted || "—",
+      fullAddress: formattedAddress || shortAddress || fallbackFormatted || position.fullAddress || null,
       shortAddress: shortAddress || formattedAddress || fallbackFormatted || "—",
     };
   }
 
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    return { ...position, address: normalizedAddress, formattedAddress: formattedAddress || null, shortAddress: shortAddress || null };
+    return {
+      ...position,
+      address: normalizedAddress,
+      formattedAddress: formattedAddress || null,
+      fullAddress: formattedAddress || null,
+      shortAddress: shortAddress || null,
+    };
   }
 
   const resolved = await lookupGeocode(lat, lng);
@@ -416,6 +443,7 @@ export async function ensurePositionAddress(position) {
       ...position,
       address: normalizedAddress,
       formattedAddress: finalFormatted,
+      fullAddress: finalFormatted,
       shortAddress: shortAddress || finalFormatted,
     };
   }
@@ -426,6 +454,7 @@ export async function ensurePositionAddress(position) {
     ...position,
     address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress || { formatted: finalFormatted },
     formattedAddress: finalFormatted,
+    fullAddress: finalFormatted,
     shortAddress: resolved.shortAddress || shortAddress || finalFormatted,
     addressParts: resolved.parts,
   };
