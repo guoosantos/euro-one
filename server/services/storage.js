@@ -97,7 +97,15 @@ async function initSnapshot() {
   return snapshot;
 }
 
-await initSnapshot();
+export async function initStorage() {
+  try {
+    await initSnapshot();
+  } catch (error) {
+    console.warn("[storage] Falha ao inicializar snapshot", error?.message || error);
+    snapshot = snapshot ?? {};
+  }
+  return snapshot;
+}
 
 function scheduleFlush() {
   if (!SHOULD_PERSIST) return;
