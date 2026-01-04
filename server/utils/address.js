@@ -4,7 +4,7 @@ import { loadCollection, saveCollection } from "../services/storage.js";
 const STORAGE_KEY = "geocodeCache";
 const cache = new Map();
 const pendingLookups = new Map();
-const dbAvailable = isPrismaAvailable() && Boolean(prisma?.geocodeCache);
+let cacheReady = false;
 
 const NORMALIZED_PRECISION = 5;
 const LEGACY_PRECISION = 4;
@@ -18,8 +18,12 @@ function hydrateCacheFromStorage() {
   });
 }
 
+function isDbAvailable() {
+  return isPrismaAvailable() && Boolean(prisma?.geocodeCache);
+}
+
 async function hydrateCacheFromDatabase() {
-  if (!dbAvailable) return;
+  if (!isDbAvailable()) return;
   try {
     const stored = await prisma.geocodeCache.findMany();
     stored.forEach((entry) => {
@@ -138,7 +142,7 @@ async function persistCacheEntry(entry) {
   cache.set(entry.key, entry);
   persistCacheToStorage();
 
-  if (!dbAvailable) return entry;
+  if (!isDbAvailable()) return entry;
   try {
     await prisma.geocodeCache.upsert({
       where: { key: entry.key },
@@ -151,8 +155,12 @@ async function persistCacheEntry(entry) {
   return entry;
 }
 
-hydrateCacheFromStorage();
-await hydrateCacheFromDatabase();
+export async function initGeocodeCache() {
+  if (cacheReady) return;
+  hydrateCacheFromStorage();
+  await hydrateCacheFromDatabase();
+  cacheReady = true;
+}
 
 export async function persistGeocode(lat, lng, payload) {
   const entry = buildCacheEntry(lat, lng, payload);

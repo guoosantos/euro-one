@@ -28,7 +28,9 @@ pm2 logs euro-one-server --lines 200
 No startup, os logs devem exibir:
 
 - `[startup] env PORT=... HOST=... NODE_ENV=...`
+- `[startup] before listen ...`
 - `[startup] listening on http://0.0.0.0:PORT`
+- `[startup] ready=true (fase 2 concluída)` (após carregar dependências)
 
 ## Validação pós-start
 
@@ -39,6 +41,11 @@ HOST=127.0.0.1 PORT=5189 ./scripts/validate-server-start.sh
 ```
 
 O script executa `curl http://127.0.0.1:PORT/health` e `ss -ltnp | grep PORT`. Em caso de falha, imprime `pm2 logs euro-one-server --lines 200` e retorna erro.
+
+### Health x Ready
+
+- `/health` responde `200` imediatamente (mesmo sem Traccar/DB/Prisma).
+- `/ready` retorna `503` até o bootstrap assíncrono concluir; após isso, retorna `200`.
 
 ## Backfill de full_address (batch)
 

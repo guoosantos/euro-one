@@ -98,13 +98,6 @@ function remove(record) {
   syncStorage();
 }
 
-const persistedVehicles = loadCollection(STORAGE_KEY, []);
-persistedVehicles.forEach((record) => {
-  if (!record?.id) return;
-  persist({ ...record }, { skipSync: true });
-  void syncVehicleToPrisma(record);
-});
-
 async function hydrateVehiclesFromPrisma() {
   if (!isPrismaReady()) return;
   try {
@@ -157,7 +150,19 @@ async function hydrateVehiclesFromPrisma() {
   }
 }
 
-await hydrateVehiclesFromPrisma();
+let vehiclesHydrated = false;
+
+export async function initVehicles() {
+  if (vehiclesHydrated) return;
+  const persistedVehicles = loadCollection(STORAGE_KEY, []);
+  persistedVehicles.forEach((record) => {
+    if (!record?.id) return;
+    persist({ ...record }, { skipSync: true });
+    void syncVehicleToPrisma(record);
+  });
+  await hydrateVehiclesFromPrisma();
+  vehiclesHydrated = true;
+}
 
 export function listVehicles({ clientId } = {}) {
   const list = Array.from(vehicles.values());

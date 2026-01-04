@@ -1,8 +1,11 @@
 import createError from "http-errors";
+import { createRequire } from "module";
 
 import { loadEnv, validateEnv } from "../utils/env.js";
 
-await loadEnv();
+const require = createRequire(import.meta.url);
+let prismaClientLoaded = false;
+let envLoaded = false;
 
 function buildUnavailableError(reason) {
   const error = createError(503, "Banco de dados indisponível ou mal configurado");
@@ -73,31 +76,57 @@ const disabledPrismaClient = new Proxy(
 );
 
 let PrismaClient;
-try {
-  ({ PrismaClient } = await import("@prisma/client"));
-} catch (_error) {
-  console.warn("[prisma] pacote @prisma/client indisponível, verifique a instalação e o prisma generate");
+
+export async function initPrismaEnv() {
+  if (envLoaded) return;
+  envLoaded = true;
+  try {
+    await loadEnv();
+  } catch (error) {
+    console.warn("[prisma] falha ao carregar variáveis de ambiente", error?.message || error);
+  }
 }
 
-const databaseUrl = process.env.DATABASE_URL;
-const hasPrismaConfig = Boolean(PrismaClient) && Boolean(databaseUrl);
-
-if (!hasPrismaConfig) {
-  const validation = validateEnv(["DATABASE_URL"], { optional: true });
-  if (validation.missing.length) {
-    console.warn(
-      "[prisma] DATABASE_URL ausente; recursos dependentes do banco ficarão indisponíveis.",
-    );
+function loadPrismaClient() {
+  if (prismaClientLoaded) return PrismaClient;
+  prismaClientLoaded = true;
+  try {
+    ({ PrismaClient } = require("@prisma/client"));
+  } catch (_error) {
+    console.warn("[prisma] pacote @prisma/client indisponível, verifique a instalação e o prisma generate");
   }
+  return PrismaClient;
 }
 
 const prismaState = {
   client: null,
-  enabled: hasPrismaConfig,
+  enabled: null,
   reason: null,
+  checked: false,
 };
 
+function ensurePrismaConfig() {
+  if (prismaState.checked) return;
+  prismaState.checked = true;
+
+  const PrismaCtor = loadPrismaClient();
+  const databaseUrl = process.env.DATABASE_URL;
+  const hasPrismaConfig = Boolean(PrismaCtor) && Boolean(databaseUrl);
+
+  prismaState.enabled = hasPrismaConfig;
+
+  if (!hasPrismaConfig) {
+    const validation = validateEnv(["DATABASE_URL"], { optional: true });
+    if (validation.missing.length) {
+      console.warn(
+        "[prisma] DATABASE_URL ausente; recursos dependentes do banco ficarão indisponíveis.",
+      );
+    }
+  }
+}
+
 function initPrisma() {
+  ensurePrismaConfig();
   if (!prismaState.enabled) {
     return null;
   }
@@ -105,7 +134,13 @@ function initPrisma() {
   if (prismaState.client) return prismaState.client;
 
   try {
-    prismaState.client = new PrismaClient();
+    const PrismaCtor = loadPrismaClient();
+    if (!PrismaCtor) {
+      prismaState.enabled = false;
+      prismaState.reason = new Error("PrismaClient indisponível");
+      return null;
+    }
+    prismaState.client = new PrismaCtor();
     prismaState.reason = null;
     return prismaState.client;
   } catch (error) {

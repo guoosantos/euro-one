@@ -1,6 +1,12 @@
 import { loadEnv } from "./utils/env.js";
 
-await loadEnv();
+export async function initConfigEnv() {
+  try {
+    await loadEnv();
+  } catch (error) {
+    console.warn("[startup] Falha ao carregar variáveis de ambiente do config.", error?.message || error);
+  }
+}
 
 function toNumber(value, fallback) {
   const parsed = Number(value);

@@ -1,3 +1,4 @@
+import express from "express";
 import http from "http";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
@@ -5,6 +6,66 @@ import { WebSocketServer, WebSocket } from "ws";
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { extractToken } from "./middleware/auth.js";
+
+const logErrorStack = (label, error) => {
+  console.error(label, {
+    message: error?.message || error,
+    stack: error?.stack || error,
+  });
+};
+
+process.on("uncaughtException", (error) => {
+  logErrorStack("[startup] uncaughtException", error);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  logErrorStack("[startup] unhandledRejection", reason);
+  process.exit(1);
+});
+
+process.on("beforeExit", (code) => {
+  console.warn("[startup] beforeExit", { code });
+});
+
+process.on("exit", (code) => {
+  console.warn("[startup] exit", { code });
+});
+
+const importWithLog = (path, { required = false } = {}) => {
+  console.info(`[startup] importing ${path}`);
+  return import(path)
+    .then((module) => {
+      console.info(`[startup] imported ${path} ok`);
+      return module;
+    })
+    .catch((error) => {
+      logErrorStack(`[startup] failed importing ${path}`, error);
+      if (required) {
+        throw error;
+      }
+      return null;
+    });
+};
+
+const runWithTimeout = (operation, timeoutMs, label) => {
+  const controller = new AbortController();
+  let timeoutId;
+
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`));
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  const operationPromise = Promise.resolve().then(() => operation(controller.signal));
+  operationPromise.catch(() => {});
+
+  return Promise.race([operationPromise, timeoutPromise]).finally(() => {
+    clearTimeout(timeoutId);
+  });
+};
 
 async function bootstrapServer() {
   console.info("[startup] API inicializando…");
@@ -44,22 +105,6 @@ async function bootstrapServer() {
     );
   }
 
-  const [
-    { default: app },
-    { describeTraccarMode, initializeTraccarAdminSession },
-    { startTraccarSyncJob },
-    { fetchLatestPositionsWithFallback, isTraccarDbConfigured },
-    { listDevices },
-    { config },
-  ] = await Promise.all([
-    import("./app.js"),
-    import("./services/traccar.js"),
-    import("./services/traccar-sync.js"),
-    import("./services/traccar-db.js"),
-    import("./models/device.js"),
-    import("./config.js"),
-  ]);
-
   const host = process.env.HOST || "0.0.0.0";
   const rawPort = process.env.PORT ?? "3001";
   console.info(
@@ -69,167 +114,15 @@ async function bootstrapServer() {
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`PORT inválida: ${rawPort}`);
   }
+
+  let ready = false;
+  const app = express();
+  app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
+  app.get("/ready", (_req, res) => {
+    res.status(ready ? 200 : 503).json({ ok: ready, ready });
+  });
+
   const server = http.createServer(app);
-  const liveSockets = new Map();
-  const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
-  const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
-  let stopSync = () => {};
-  let telemetryInterval;
-
-  if (!config.osrm?.baseUrl) {
-    console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
-  }
-
-  const traccarMode = describeTraccarMode({ traccarDbConfigured: isTraccarDbConfigured() });
-  console.info("[startup] Traccar mode", {
-    apiBaseUrl: traccarMode.apiBaseUrl,
-    traccarConfigured: traccarMode.traccarConfigured,
-    traccarDbConfigured: traccarMode.traccarDbConfigured,
-    adminAuth: traccarMode.adminAuth,
-  });
-
-  const authenticateWebSocket = (req) => {
-    const token = extractToken(req);
-    if (!token) {
-      return null;
-    }
-
-    try {
-      return jwt.verify(token, config.jwt.secret);
-    } catch (error) {
-      console.warn("[ws-live] Token inválido na conexão WebSocket", {
-        message: error?.message || error,
-        path: req.url,
-      });
-      return null;
-    }
-  };
-
-  const removeSocketFromClient = (clientId, socket) => {
-    const sockets = liveSockets.get(clientId);
-    if (!sockets) return;
-
-    sockets.delete(socket);
-    if (!sockets.size) {
-      liveSockets.delete(clientId);
-    }
-  };
-
-  const normalisePositionMessage = (positions = []) => {
-    return positions.map((item) => ({
-      deviceId: item.deviceId,
-      latitude: item.latitude,
-      longitude: item.longitude,
-      speed: item.speed,
-      course: item.course,
-      timestamp: item.fixTime || item.serverTime || item.deviceTime || null,
-      address: item.address || "",
-    }));
-  };
-
-  const pushTelemetryToClient = async (clientId, sockets) => {
-    if (!sockets || !sockets.size) return;
-    try {
-      const devices = listDevices({ clientId });
-      const deviceIds = devices
-        .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
-        .filter(Boolean);
-      if (!deviceIds.length) return;
-
-      // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
-      const positions = await fetchLatestPositionsWithFallback(deviceIds, null);
-      const payload = JSON.stringify({
-        type: "positions",
-        data: normalisePositionMessage(positions),
-      });
-
-      sockets.forEach((socket) => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(payload);
-        }
-      });
-    } catch (error) {
-      console.error(`[ws-live] Erro ao buscar telemetria para o client ${clientId}:`, error);
-      const errorPayload = JSON.stringify({
-        type: "error",
-        data: { message: "Falha ao atualizar dados de telemetria." },
-      });
-
-      sockets.forEach((socket) => {
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(errorPayload);
-        }
-      });
-    }
-  };
-
-  const dispatchTelemetry = async () => {
-    for (const [clientId, sockets] of liveSockets.entries()) {
-      if (!sockets.size) {
-        liveSockets.delete(clientId);
-        continue;
-      }
-
-      // Não chamamos a API HTTP do Traccar diretamente neste fluxo.
-      await pushTelemetryToClient(clientId, sockets);
-    }
-  };
-
-  wss.on("connection", async (socket, req, user) => {
-    const clientId = user?.clientId;
-    if (!clientId) {
-      socket.close(4401, "Cliente não identificado");
-      return;
-    }
-
-    const sockets = liveSockets.get(clientId) || new Set();
-    sockets.add(socket);
-    liveSockets.set(clientId, sockets);
-
-    socket.on("close", () => removeSocketFromClient(clientId, socket));
-    socket.on("error", () => removeSocketFromClient(clientId, socket));
-
-    await pushTelemetryToClient(clientId, sockets);
-  });
-
-  server.on("upgrade", (req, socket, head) => {
-    const { pathname } = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
-    if (pathname !== "/ws/live") {
-      socket.destroy();
-      return;
-    }
-
-    const user = authenticateWebSocket(req);
-    if (!user) {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
-    }
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req, user);
-    });
-  });
-
-  const runWithTimeout = (operation, timeoutMs, label) => {
-    const controller = new AbortController();
-    let timeoutId;
-
-    const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => {
-        controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`));
-        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
-      }, timeoutMs);
-    });
-
-    const operationPromise = Promise.resolve().then(() => operation(controller.signal));
-    operationPromise.catch(() => {});
-
-    return Promise.race([operationPromise, timeoutPromise]).finally(() => {
-      clearTimeout(timeoutId);
-    });
-  };
-
   server.on("error", (error) => {
     const code = error?.code;
     const reason =
@@ -255,76 +148,276 @@ async function bootstrapServer() {
   console.info(`[startup] listening on http://${host}:${port}`);
   console.log(`API Rodando na porta ${port}`);
 
-  const startExternalBootstrap = async () => {
-    const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
+  const bootstrapPhase2 = async () => {
+    const bootstrapTimeout = Number(process.env.BOOTSTRAP_INIT_TIMEOUT_MS) || 8000;
 
-    try {
-      await runWithTimeout(
-        (signal) => initializeTraccarAdminSession({ signal }),
-        traccarInitTimeout,
-        "initializeTraccarAdminSession",
-      ).then((traccarInit) => {
-        if (traccarInit?.ok) {
-          stopSync = startTraccarSyncJob();
-        } else {
-          console.warn(
-            "[startup] Sincronização automática do Traccar não iniciada no startup.",
-            traccarInit?.reason || "",
-          );
-          stopSync = () => {};
-        }
+    const storageModule = await importWithLog("./services/storage.js", { required: true });
+    if (storageModule?.initStorage) {
+      await runWithTimeout(() => storageModule.initStorage(), bootstrapTimeout, "initStorage");
+    }
+
+    const prismaModule = await importWithLog("./services/prisma.js");
+    if (prismaModule?.initPrismaEnv) {
+      await runWithTimeout(() => prismaModule.initPrismaEnv(), bootstrapTimeout, "initPrismaEnv");
+    }
+
+    const vehiclesModule = await importWithLog("./models/vehicle.js");
+    if (vehiclesModule?.initVehicles) {
+      try {
+        await runWithTimeout(() => vehiclesModule.initVehicles(), bootstrapTimeout, "initVehicles");
+      } catch (error) {
+        console.warn("[startup] Falha ao hidratar veículos", error?.message || error);
+      }
+    }
+
+    const addressModule = await importWithLog("./utils/address.js");
+    if (addressModule?.initGeocodeCache) {
+      try {
+        await runWithTimeout(() => addressModule.initGeocodeCache(), bootstrapTimeout, "initGeocodeCache");
+      } catch (error) {
+        console.warn("[startup] Falha ao hidratar cache de endereços", error?.message || error);
+      }
+    }
+
+    const appModule = await importWithLog("./app.js", { required: true });
+    const realApp = appModule?.default;
+    if (!realApp) {
+      throw new Error("app.js não exportou um app válido");
+    }
+    app.use(realApp);
+
+    const configModule = await importWithLog("./config.js", { required: true });
+    const { config } = configModule || {};
+
+    const traccarModule = await importWithLog("./services/traccar.js");
+    const traccarSyncModule = await importWithLog("./services/traccar-sync.js");
+    const traccarDbModule = await importWithLog("./services/traccar-db.js");
+    const deviceModule = await importWithLog("./models/device.js");
+
+    if (config?.osrm && !config.osrm.baseUrl) {
+      console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
+    }
+
+    if (traccarModule?.describeTraccarMode && traccarDbModule?.isTraccarDbConfigured) {
+      const traccarMode = traccarModule.describeTraccarMode({
+        traccarDbConfigured: traccarDbModule.isTraccarDbConfigured(),
       });
-    } catch (error) {
-      stopSync = () => {};
-      console.warn(
-        "[startup] Falha ao inicializar Traccar:",
-        error?.message || error,
-        process.env.NODE_ENV !== "production" ? error : "",
-      );
-      console.warn("[startup] Erro na inicialização do Traccar, mas ouvindo a porta.");
+      console.info("[startup] Traccar mode", {
+        apiBaseUrl: traccarMode.apiBaseUrl,
+        traccarConfigured: traccarMode.traccarConfigured,
+        traccarDbConfigured: traccarMode.traccarDbConfigured,
+        adminAuth: traccarMode.adminAuth,
+      });
     }
-  };
 
-  // Executa inicializações externas sem bloquear o servidor HTTP.
-  startExternalBootstrap().catch((error) => {
-    console.warn("[startup] Erro inesperado durante bootstrap externo.", {
-      message: error?.message || error,
-      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    const liveSockets = new Map();
+    const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
+    const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
+    let stopSync = () => {};
+    let telemetryInterval;
+
+    const canStartTelemetry =
+      config?.jwt?.secret &&
+      deviceModule?.listDevices &&
+      traccarDbModule?.fetchLatestPositionsWithFallback;
+
+    const authenticateWebSocket = (req) => {
+      const token = extractToken(req);
+      if (!token) {
+        return null;
+      }
+
+      try {
+        return jwt.verify(token, config.jwt.secret);
+      } catch (error) {
+        console.warn("[ws-live] Token inválido na conexão WebSocket", {
+          message: error?.message || error,
+          path: req.url,
+        });
+        return null;
+      }
+    };
+
+    const removeSocketFromClient = (clientId, socket) => {
+      const sockets = liveSockets.get(clientId);
+      if (!sockets) return;
+
+      sockets.delete(socket);
+      if (!sockets.size) {
+        liveSockets.delete(clientId);
+      }
+    };
+
+    const normalisePositionMessage = (positions = []) => {
+      return positions.map((item) => ({
+        deviceId: item.deviceId,
+        latitude: item.latitude,
+        longitude: item.longitude,
+        speed: item.speed,
+        course: item.course,
+        timestamp: item.fixTime || item.serverTime || item.deviceTime || null,
+        address: item.address || "",
+      }));
+    };
+
+    const pushTelemetryToClient = async (clientId, sockets) => {
+      if (!sockets || !sockets.size) return;
+      try {
+        const devices = deviceModule.listDevices({ clientId });
+        const deviceIds = devices
+          .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+          .filter(Boolean);
+        if (!deviceIds.length) return;
+
+        // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
+        const positions = await traccarDbModule.fetchLatestPositionsWithFallback(deviceIds, null);
+        const payload = JSON.stringify({
+          type: "positions",
+          data: normalisePositionMessage(positions),
+        });
+
+        sockets.forEach((socket) => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(payload);
+          }
+        });
+      } catch (error) {
+        console.error(`[ws-live] Erro ao buscar telemetria para o client ${clientId}:`, error);
+        const errorPayload = JSON.stringify({
+          type: "error",
+          data: { message: "Falha ao atualizar dados de telemetria." },
+        });
+
+        sockets.forEach((socket) => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(errorPayload);
+          }
+        });
+      }
+    };
+
+    const dispatchTelemetry = async () => {
+      for (const [clientId, sockets] of liveSockets.entries()) {
+        if (!sockets.size) {
+          liveSockets.delete(clientId);
+          continue;
+        }
+
+        // Não chamamos a API HTTP do Traccar diretamente neste fluxo.
+        await pushTelemetryToClient(clientId, sockets);
+      }
+    };
+
+    if (canStartTelemetry) {
+      wss.on("connection", async (socket, req, user) => {
+        const clientId = user?.clientId;
+        if (!clientId) {
+          socket.close(4401, "Cliente não identificado");
+          return;
+        }
+
+        const sockets = liveSockets.get(clientId) || new Set();
+        sockets.add(socket);
+        liveSockets.set(clientId, sockets);
+
+        socket.on("close", () => removeSocketFromClient(clientId, socket));
+        socket.on("error", () => removeSocketFromClient(clientId, socket));
+
+        await pushTelemetryToClient(clientId, sockets);
+      });
+
+      server.on("upgrade", (req, socket, head) => {
+        const { pathname } = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
+        if (pathname !== "/ws/live") {
+          socket.destroy();
+          return;
+        }
+
+        const user = authenticateWebSocket(req);
+        if (!user) {
+          socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
+          socket.destroy();
+          return;
+        }
+
+        wss.handleUpgrade(req, socket, head, (ws) => {
+          wss.emit("connection", ws, req, user);
+        });
+      });
+
+      telemetryInterval = setInterval(() => {
+        void dispatchTelemetry();
+      }, TELEMETRY_INTERVAL_MS);
+    } else {
+      console.warn("[startup] WebSocket /ws/live desativado: dependências não disponíveis.");
+    }
+
+    const startExternalBootstrap = async () => {
+      const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
+
+      if (!traccarModule?.initializeTraccarAdminSession) {
+        console.warn("[startup] Traccar admin session indisponível; pulando bootstrap.");
+        return;
+      }
+
+      try {
+        await runWithTimeout(
+          (signal) => traccarModule.initializeTraccarAdminSession({ signal }),
+          traccarInitTimeout,
+          "initializeTraccarAdminSession",
+        ).then((traccarInit) => {
+          if (traccarInit?.ok && traccarSyncModule?.startTraccarSyncJob) {
+            stopSync = traccarSyncModule.startTraccarSyncJob();
+          } else {
+            console.warn(
+              "[startup] Sincronização automática do Traccar não iniciada no startup.",
+              traccarInit?.reason || "",
+            );
+            stopSync = () => {};
+          }
+        });
+      } catch (error) {
+        stopSync = () => {};
+        console.warn(
+          "[startup] Falha ao inicializar Traccar:",
+          error?.message || error,
+          process.env.NODE_ENV !== "production" ? error : "",
+        );
+        console.warn("[startup] Erro na inicialização do Traccar, mas ouvindo a porta.");
+      }
+    };
+
+    startExternalBootstrap().catch((error) => {
+      console.warn("[startup] Erro inesperado durante bootstrap externo.", {
+        message: error?.message || error,
+        stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+      });
     });
-  });
 
-  telemetryInterval = setInterval(() => {
-    void dispatchTelemetry();
-  }, TELEMETRY_INTERVAL_MS);
+    const shutdown = () => {
+      if (stopSync) {
+        stopSync();
+      }
+      if (telemetryInterval) {
+        clearInterval(telemetryInterval);
+      }
+      wss.close();
+    };
 
-  const shutdown = () => {
-    if (stopSync) {
-      stopSync();
-    }
-    if (telemetryInterval) {
-      clearInterval(telemetryInterval);
-    }
-    wss.close();
+    process.on("SIGTERM", shutdown);
+    process.on("SIGINT", shutdown);
+
+    ready = true;
+    console.info("[startup] ready=true (fase 2 concluída)");
   };
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
-}
-
-try {
-  await bootstrapServer();
-} catch (error) {
-  console.error("[startup] Falha ao iniciar a API", {
-    message: error?.message || error,
-    stack: error?.stack || error,
+  bootstrapPhase2().catch((error) => {
+    logErrorStack("[startup] Falha ao concluir fase 2", error);
+    process.exit(1);
   });
-  process.exit(1);
 }
 
-process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled rejection:", reason);
-});
-
-process.on("uncaughtException", (error) => {
-  console.error("Uncaught exception:", error);
+bootstrapServer().catch((error) => {
+  logErrorStack("[startup] Falha ao iniciar a API", error);
+  process.exit(1);
 });
