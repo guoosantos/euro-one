@@ -20,6 +20,7 @@ import {
   fetchPositions,
   fetchPositionsByIds,
   fetchTrips,
+  updatePositionAddress,
 } from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
@@ -31,7 +32,13 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import { enrichPositionsWithAddresses, formatAddress, prefetchPositionAddresses, resolveShortAddress } from "../utils/address.js";
+import {
+  enrichPositionsWithAddresses,
+  formatAddress,
+  formatFullAddress,
+  prefetchPositionAddresses,
+  resolveShortAddress,
+} from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -39,7 +46,12 @@ import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
 
-import { positionsColumns } from "../../shared/positionsColumns.js";
+import {
+  positionsColumns,
+  resolveColumnDefinition,
+  resolveColumnGroupOrder,
+  resolveColumnLabel,
+} from "../../shared/positionsColumns.js";
 import {
   telemetryAliases,
   telemetryAttributeCatalog,
@@ -815,7 +827,7 @@ function respondDeviceNotFound(res) {
 
 function extractBatteryLevel(attributes = {}) {
   if (!attributes || typeof attributes !== "object") return null;
-  const batteryKeys = ["batteryLevel", "battery", "batteryPercent", "battery_percentage", "bateria"];
+  const batteryKeys = ["batteryLevel", "batteryPercent", "battery_percentage"];
   for (const key of batteryKeys) {
     if (attributes[key] === undefined || attributes[key] === null) continue;
     const numeric = Number(attributes[key]);
@@ -1165,10 +1177,9 @@ function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = 
 
 const BASE_COLUMN_KEYS = new Set(positionsColumns.map((column) => column.key.toLowerCase()));
 const ATTRIBUTE_ALIAS_KEYS = new Set([
-  "battery",
+  "batterylevel",
   "batterypercent",
   "battery_percentage",
-  "bateria",
   "ignition",
   "ign",
   "keyignition",
@@ -1209,8 +1220,9 @@ function shouldIgnoreAttributeKey(key) {
   if (!normalized) return true;
   if (BASE_COLUMN_KEYS.has(normalized)) return true;
   if (ATTRIBUTE_ALIAS_KEYS.has(normalized)) return true;
-  if (normalized.match(/^(?:in|input|entrada|digitalinput)(1|2)$/i)) return true;
-  if (normalized.match(/^(?:out|output|saida|digitaloutput)(1|2)$/i)) return true;
+  if (normalized.match(/^(?:in|input|entrada|digitalinput)\\d+$/i)) return true;
+  if (normalized.match(/^(?:out|output|saida|saída|digitaloutput)\\d+$/i)) return true;
+  if (ioFriendlyNames[normalized]) return true;
   return false;
 }
 
@@ -1260,6 +1272,9 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
   const baseColumns = positionsColumns.filter(
     (column) => column.alwaysVisible || hasValue.get(column.key),
   );
+  const resolvedBaseColumns = baseColumns
+    .map((column) => resolveColumnDefinition(column.key, { protocol }) || column)
+    .filter(Boolean);
   const dynamicDefinitions = keys
     .map((key) => resolveColumnDefinition(key, { protocol }))
     .filter(Boolean)
@@ -1280,7 +1295,7 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
   });
 
   return [
-    ...baseColumns.map((column) => ({
+    ...resolvedBaseColumns.map((column) => ({
       ...column,
       label: resolveColumnLabel(column, "pt"),
       labelPdf: resolveColumnLabel(column, "pdf"),
@@ -1307,7 +1322,7 @@ function normalizeAddressValue(address, lat = null, lng = null) {
       ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
       : null;
 
-  const formatted = formatAddress(address);
+  const formatted = formatFullAddress(address);
   if (formatted && formatted !== "—") return formatted;
 
   if (typeof address === "string") {
@@ -1337,6 +1352,26 @@ function normalizeAddressValue(address, lat = null, lng = null) {
 
   if (coordinateFallback) return coordinateFallback;
   return "Endereço indisponível";
+}
+
+async function persistMissingPositionAddresses(positions = [], missingIds = new Set()) {
+  if (!missingIds.size) return;
+  for (const position of positions) {
+    if (!position?.id || !missingIds.has(position.id)) continue;
+    const formatted =
+      position.formattedAddress ||
+      position.address?.formattedAddress ||
+      position.address?.formatted ||
+      position.address?.address ||
+      position.address;
+    const full = formatFullAddress(formatted);
+    if (!full || full === "—") continue;
+    try {
+      await updatePositionAddress(position.id, full);
+    } catch (error) {
+      console.warn(\"[reports/positions] falha ao salvar endereço\", error?.message || error);
+    }
+  }
 }
 
 function extractOdometerMeters(attributes = {}) {
@@ -3354,6 +3389,9 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
   const traccarId = String(device.traccarId);
   const positions = await fetchPositions([traccarId], from, to, {});
+  const missingAddressIds = new Set(
+    positions.filter((position) => !position?.address || position.address === "Endereço não disponível").map((position) => position.id),
+  );
   const protocol =
     device?.protocol ||
     device?.attributes?.protocol ||
@@ -3362,6 +3400,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     null;
   prefetchPositionAddresses(positions);
   const enrichedPositions = await enrichPositionsWithAddresses(positions);
+  await persistMissingPositionAddresses(enrichedPositions, missingAddressIds);
 
   let filter = null;
   if (addressFilter?.lat != null && addressFilter?.lng != null) {
@@ -3417,6 +3456,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const hdop = extractHdop(attributes);
       const rawAccuracy = position.accuracy ?? attributes.accuracy ?? null;
       const vehicleVoltage = extractVehicleVoltage(attributes, protocolKey);
+      const motion = extractMotion(attributes, speedKmh);
+      const power = extractPowerVoltage(attributes);
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
       const { extras, ioDetails } = collectAttributeTranslations(attributes);
@@ -3429,6 +3470,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
       return {
         id: position.id ?? null,
+        deviceId: position.deviceId ?? null,
         gpsTime,
         deviceTime: position.deviceTime || null,
         serverTime: position.serverTime || null,
@@ -3465,6 +3507,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
         distance: null,
         totalDistance: null,
+        ...dynamicValues,
 
       };
     })
@@ -3582,14 +3625,21 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       "latitude",
       "longitude",
       "batteryLevel",
+      "power",
+      "motion",
       "rssi",
       "geofence",
       "commandResponse",
       "vehicleVoltage",
       "deviceStatus",
       "deviceStatusEvent",
+      "deviceId",
     ];
     optionalKeys.forEach((key) => {
+      if (hasValue(position[key])) availableColumns.add(key);
+    });
+
+    dynamicKeys.forEach((key) => {
       if (hasValue(position[key])) availableColumns.add(key);
     });
   }
@@ -3606,9 +3656,6 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     });
 
   const latestPosition = mapped[0] || null;
-  const orderedAvailableColumns = positionsColumns
-    .map((column) => column.key)
-    .filter((key) => availableColumns.has(key));
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
   const ignitionLabel =
     latestPosition?.ignition === true
@@ -3616,6 +3663,15 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       : latestPosition?.ignition === false
         ? "Desligada"
         : "Indisponível";
+
+  const hasValue = new Map();
+  mappedChronological.forEach((position) => {
+    Object.entries(position).forEach(([key, value]) => {
+      if (!isDisplayableValue(value)) return;
+      hasValue.set(key, true);
+    });
+  });
+  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue });
 
   const meta = {
     generatedAt: new Date().toISOString(),
@@ -3631,17 +3687,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       ignition: ignitionLabel,
     },
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
-    availableColumns: orderedAvailableColumns.length ? orderedAvailableColumns : Array.from(availableColumns),
+    availableColumns: columns.map((column) => column.key),
   };
-
-  const hasValue = new Map();
-  mappedChronological.forEach((position) => {
-    Object.entries(position).forEach(([key, value]) => {
-      if (!isDisplayableValue(value)) return;
-      hasValue.set(key, true);
-    });
-  });
-  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue });
 
   return { positions: mapped, meta: { ...meta, columns } };
 }

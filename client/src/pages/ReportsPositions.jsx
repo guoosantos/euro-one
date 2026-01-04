@@ -12,14 +12,14 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
-import formatAddress from "../lib/format-address.js";
+import { formatFullAddress } from "../lib/format-address.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
 
-const COLUMNS = positionsColumns.map((column) => ({
+const FALLBACK_COLUMNS = positionsColumns.map((column) => ({
   ...column,
   label: resolveColumnLabel(column, "pt"),
 }));
@@ -75,19 +75,6 @@ function formatBattery(value) {
   return String(value);
 }
 
-
-function formatDistance(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (!Number.isFinite(Number(value))) return String(value);
-  return `${Number(value).toFixed(2)} km`;
-}
-
-function formatHdop(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  if (!Number.isFinite(Number(value))) return String(value);
-  return Number(value).toFixed(2);
-}
-
 function formatVehicleVoltage(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (!Number.isFinite(Number(value))) return String(value);
@@ -120,6 +107,28 @@ function formatIgnition(value) {
   return value ? "Ligada" : "Desligada";
 }
 
+function formatIoState(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  return value;
+}
+
+function formatDynamicValue(key, value, definition) {
+  const descriptor = resolveTelemetryDescriptor(key);
+  if (descriptor) return formatByDescriptor(key, value);
+  if (value === null || value === undefined || value === "") return "—";
+  if (definition?.type === "boolean") return value ? "Sim" : "Não";
+  if (definition?.type === "percent") {
+    return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
+  }
+  if (definition?.type === "number") {
+    if (!Number.isFinite(Number(value))) return String(value);
+    const formatted = Number(value).toFixed(2);
+    return definition.unit ? `${formatted} ${definition.unit}`.trim() : formatted;
+  }
+  return value;
+}
+
 function normalizeAddressDisplay(value, lat = null, lng = null) {
   const coordinateFallback =
     Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
@@ -138,7 +147,7 @@ function normalizeAddressDisplay(value, lat = null, lng = null) {
     }
   }
   try {
-    const formatted = formatAddress(value);
+    const formatted = formatFullAddress(value);
     return formatted && formatted !== "—" ? formatted : coordinateFallback || "Endereço indisponível";
   } catch (_error) {
     return coordinateFallback || "Endereço indisponível";
@@ -174,20 +183,26 @@ export default function ReportsPositions() {
   const lastFilterKeyRef = useRef("");
 
 
-  const availableColumnKeys = useMemo(() => {
-    const metaColumns = Array.isArray(data?.meta?.availableColumns) ? data.meta.availableColumns : null;
-    const fallback = COLUMNS.map((column) => column.key);
-    const base = metaColumns?.length ? metaColumns : fallback;
-    const allowedSet = new Set(base);
-    const filtered = COLUMNS.filter((column) => allowedSet.has(column.key));
-    return filtered.length ? filtered.map((column) => column.key) : fallback;
-  }, [data?.meta?.availableColumns]);
-
   const availableColumns = useMemo(() => {
-    const allowed = new Set(availableColumnKeys);
-    const filtered = COLUMNS.filter((column) => allowed.has(column.key));
-    return filtered.length ? filtered : COLUMNS;
-  }, [availableColumnKeys]);
+    const metaColumns = Array.isArray(data?.meta?.columns) ? data.meta.columns : null;
+    if (metaColumns?.length) {
+      return metaColumns.map((column) => ({
+        ...column,
+        label: column.label || column.labelPt || resolveColumnLabel(column, "pt"),
+      }));
+    }
+    return FALLBACK_COLUMNS;
+  }, [data?.meta?.columns]);
+
+  const availableColumnKeys = useMemo(
+    () => availableColumns.map((column) => column.key),
+    [availableColumns],
+  );
+
+  const columnDefinitionMap = useMemo(
+    () => new Map(availableColumns.map((column) => [column.key, column])),
+    [availableColumns],
+  );
 
   const defaults = useMemo(() => buildColumnDefaults(availableColumns), [availableColumns]);
 
@@ -245,22 +260,22 @@ export default function ReportsPositions() {
         commandResponse: position.commandResponse || "—",
         deviceStatusEvent: position.deviceStatusEvent || "—",
         deviceStatus: position.deviceStatus || "Indisponível",
-        digitalInput1: position.digitalInput1 ?? "—",
-        digitalInput2: position.digitalInput2 ?? "—",
-        digitalOutput1: position.digitalOutput1 ?? "—",
-        digitalOutput2: position.digitalOutput2 ?? "—",
-        digitalInput3: position.digitalInput3 ?? "—",
-        digitalInput4: position.digitalInput4 ?? "—",
-        digitalInput5: position.digitalInput5 ?? "—",
-        digitalInput6: position.digitalInput6 ?? "—",
-        digitalInput7: position.digitalInput7 ?? "—",
-        digitalInput8: position.digitalInput8 ?? "—",
-        digitalOutput3: position.digitalOutput3 ?? "—",
-        digitalOutput4: position.digitalOutput4 ?? "—",
-        digitalOutput5: position.digitalOutput5 ?? "—",
-        digitalOutput6: position.digitalOutput6 ?? "—",
-        digitalOutput7: position.digitalOutput7 ?? "—",
-        digitalOutput8: position.digitalOutput8 ?? "—",
+        digitalInput1: formatIoState(position.digitalInput1),
+        digitalInput2: formatIoState(position.digitalInput2),
+        digitalOutput1: formatIoState(position.digitalOutput1),
+        digitalOutput2: formatIoState(position.digitalOutput2),
+        digitalInput3: formatIoState(position.digitalInput3),
+        digitalInput4: formatIoState(position.digitalInput4),
+        digitalInput5: formatIoState(position.digitalInput5),
+        digitalInput6: formatIoState(position.digitalInput6),
+        digitalInput7: formatIoState(position.digitalInput7),
+        digitalInput8: formatIoState(position.digitalInput8),
+        digitalOutput3: formatIoState(position.digitalOutput3),
+        digitalOutput4: formatIoState(position.digitalOutput4),
+        digitalOutput5: formatIoState(position.digitalOutput5),
+        digitalOutput6: formatIoState(position.digitalOutput6),
+        digitalOutput7: formatIoState(position.digitalOutput7),
+        digitalOutput8: formatIoState(position.digitalOutput8),
         ioDetails:
           Array.isArray(position.ioDetails) && position.ioDetails.length
             ? position.ioDetails
@@ -274,16 +289,15 @@ export default function ReportsPositions() {
       };
 
       Object.keys(position || {}).forEach((key) => {
-        if (resolveTelemetryDescriptor(key)) {
-          row[key] = formatByDescriptor(key, position[key]);
-        }
-
+        if (row[key] !== undefined) return;
+        const definition = columnDefinitionMap.get(key);
+        row[key] = formatDynamicValue(key, position[key], definition);
       });
 
       return row;
     });
 
-  }, [data]);
+  }, [columnDefinitionMap, data]);
 
 
   const filteredRows = useMemo(() => {
@@ -376,7 +390,7 @@ export default function ReportsPositions() {
       return;
     }
     const baseColumnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
-    const allowedExport = new Set(availableColumnKeys.length ? availableColumnKeys : COLUMNS.map((col) => col.key));
+    const allowedExport = new Set(availableColumnKeys.length ? availableColumnKeys : FALLBACK_COLUMNS.map((col) => col.key));
     const columnsToExport = baseColumnsToExport.filter((key) => allowedExport.has(key));
     setExportingPdf(true);
     try {

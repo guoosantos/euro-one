@@ -187,7 +187,7 @@ function normalisePositionRow(row) {
     valid: row.valid != null ? Boolean(row.valid) : null,
     protocol: row.protocol ?? null,
     network: parseJson(row.network),
-    address: row.address ? String(row.address) : "Endereço não disponível",
+    address: row.address ? String(row.address) : null,
     attributes,
   };
 }
@@ -514,6 +514,23 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null } 
 
   const rows = await queryTraccarDb(sql, params);
   return rows.map(normalisePositionRow).filter((position) => position && position.deviceId !== null && position.fixTime);
+}
+
+export async function updatePositionAddress(positionId, address) {
+  if (!positionId || !address) return null;
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const sql = `
+    UPDATE ${POSITION_TABLE}
+    SET address = ${dialect.placeholder(1)}
+    WHERE id = ${dialect.placeholder(2)}
+      AND (address IS NULL OR address = '' OR address = 'Endereço não disponível')
+  `;
+
+  return await queryTraccarDb(sql, [address, positionId]);
 }
 
 export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
