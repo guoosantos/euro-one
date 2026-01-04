@@ -6,7 +6,7 @@ import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { extractToken } from "./middleware/auth.js";
 
-async function bootstrap() {
+async function bootstrapServer() {
   console.info("[startup] API inicializando…");
 
   try {
@@ -63,13 +63,12 @@ async function bootstrap() {
   const host = process.env.HOST || "0.0.0.0";
   const rawPort = process.env.PORT ?? "3001";
   console.info(
-    `[startup] env PORT=${rawPort} (type=${typeof rawPort}) HOST=${host} NODE_ENV=${process.env.NODE_ENV || "development"}`,
+    `[startup] env PORT=${rawPort} HOST=${host} NODE_ENV=${process.env.NODE_ENV || "development"}`,
   );
   const port = Number(rawPort);
   if (!Number.isFinite(port) || port <= 0) {
     throw new Error(`PORT inválida: ${rawPort}`);
   }
-  console.info("[startup] Porta resolvida", { port, type: typeof port });
   const server = http.createServer(app);
   const liveSockets = new Map();
   const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
@@ -231,24 +230,30 @@ async function bootstrap() {
     });
   };
 
-  telemetryInterval = setInterval(() => {
-    void dispatchTelemetry();
-  }, TELEMETRY_INTERVAL_MS);
-
   server.on("error", (error) => {
-    console.error("[startup] Erro ao iniciar servidor HTTP", {
+    const code = error?.code;
+    const reason =
+      code === "EADDRINUSE"
+        ? "Porta já está em uso; ajuste a PORT ou libere o socket"
+        : code === "EACCES"
+          ? "Permissão negada ao tentar bindar a porta"
+          : "Erro ao iniciar servidor HTTP";
+    console.error(`[startup] ${reason}`, {
       message: error?.message || error,
-      code: error?.code,
+      code,
+      host,
+      port,
       stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
     });
     process.exit(1);
   });
 
-  console.info("[startup] Iniciando server.listen", { host, port });
-  server.listen({ port, host }, () => {
-    console.info(`[startup] listening on http://${host}:${port}`);
-    console.log(`API Rodando na porta ${port}`);
+  console.info(`[startup] before listen host=${host} port=${port} (type=${typeof port})`);
+  await new Promise((resolve) => {
+    server.listen({ port, host }, resolve);
   });
+  console.info(`[startup] listening on http://${host}:${port}`);
+  console.log(`API Rodando na porta ${port}`);
 
   const startExternalBootstrap = async () => {
     const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
@@ -288,6 +293,10 @@ async function bootstrap() {
     });
   });
 
+  telemetryInterval = setInterval(() => {
+    void dispatchTelemetry();
+  }, TELEMETRY_INTERVAL_MS);
+
   const shutdown = () => {
     if (stopSync) {
       stopSync();
@@ -302,13 +311,15 @@ async function bootstrap() {
   process.on("SIGINT", shutdown);
 }
 
-bootstrap().catch((error) => {
+try {
+  await bootstrapServer();
+} catch (error) {
   console.error("[startup] Falha ao iniciar a API", {
     message: error?.message || error,
-    stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    stack: error?.stack || error,
   });
   process.exit(1);
-});
+}
 
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled rejection:", reason);

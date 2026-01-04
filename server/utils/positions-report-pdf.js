@@ -177,22 +177,22 @@ function buildHtml({
   columnDefinitions = new Map(),
   chunkSize = 500,
 }) {
-  const density = Math.max(0.5, Math.min(1, 22 / Math.max(1, columns.length + 4)));
+  const columnCount = Math.max(1, columns.length);
+  const density = Math.max(0.45, Math.min(1, 20 / (columnCount + 6)));
   const baseFontSize = (9 * density).toFixed(2);
   const headerFontSize = (8 * density).toFixed(2);
-  const cellPadding = Math.max(3, Math.round(9 * density));
+  const cellPadding = Math.max(2, Math.round(8 * density));
 
-  const columnGroups = [columns?.length ? columns : []];
+  const columnsGroup = columns?.length ? columns : [];
 
-  const renderTable = (columnsGroup, sliceRows, groupIndex, sliceIndex) => {
+  const renderTable = (sliceRows, sliceIndex) => {
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
       .join("");
     const totalWeight =
-      columnsGroup.reduce(
-        (sum, key) => sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1),
-        0,
-      ) || 1;
+      columnsGroup.reduce((sum, key) => {
+        return sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1);
+      }, 0) || 1;
     const colgroup = columnsGroup
       .map((key) => {
         const weight = columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1;
@@ -213,7 +213,7 @@ function buildHtml({
       })
       .join("");
 
-    const pageBreak = groupIndex > 0 || sliceIndex > 0 ? '<div class="page-break"></div>' : "";
+    const pageBreak = sliceIndex > 0 ? '<div class="page-break"></div>' : "";
     return `
       ${pageBreak}
       <div class="header">
@@ -261,13 +261,7 @@ function buildHtml({
   };
 
   const slices = chunkArray(rows, chunkSize);
-  const tables = columnGroups
-    .map((group, groupIndex) =>
-      slices
-        .map((slice, sliceIndex) => renderTable(group, slice, groupIndex, sliceIndex))
-        .join(""),
-    )
-    .join("");
+  const tables = slices.map((slice, sliceIndex) => renderTable(slice, sliceIndex)).join("");
 
   const fontFaces = fontData?.regular
     ? `
@@ -422,7 +416,7 @@ function buildHtml({
         word-break: break-word;
         overflow-wrap: anywhere;
         hyphens: auto;
-        line-height: 1.35;
+        line-height: 1.45;
       }
       thead {
         display: table-header-group;
@@ -431,7 +425,7 @@ function buildHtml({
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       }
       thead th {
-        padding: calc(var(--cell-padding) * 0.6) var(--cell-padding);
+        padding: calc(var(--cell-padding) * 0.75) var(--cell-padding);
         text-align: left;
         font-weight: 700;
         font-size: var(--header-font-size);
@@ -440,7 +434,7 @@ function buildHtml({
         white-space: normal;
       }
       tbody td {
-        padding: calc(var(--cell-padding) * 0.6) var(--cell-padding);
+        padding: calc(var(--cell-padding) * 0.75) var(--cell-padding);
         border-bottom: 1px solid #e2e8f0;
         color: #1f2937;
         white-space: normal;
