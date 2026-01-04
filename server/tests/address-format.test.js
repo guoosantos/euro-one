@@ -41,6 +41,11 @@ test("formats Nominatim payload into Brazilian address layout", () => {
   assert.equal(formatted, "Avenida Paulista, 1000 - Bela Vista São Paulo-SP, 01310-000");
 });
 
+test("removes duplicated separators when UF appears twice", () => {
+  const formatted = formatFullAddress("Rua das Flores, 10 - Centro - SP, SP");
+  assert.equal(formatted, "Rua das Flores, 10 - Centro SP");
+});
+
 test("sets fullAddress when enriching a position", async () => {
   const position = {
     latitude: -19.0,

@@ -6,8 +6,9 @@ const cache = new Map();
 const pendingLookups = new Map();
 const dbAvailable = isPrismaAvailable() && Boolean(prisma?.geocodeCache);
 
-const NORMALIZED_PRECISION = 4;
-const LEGACY_PRECISION = 5;
+const NORMALIZED_PRECISION = 5;
+const LEGACY_PRECISION = 4;
+const MIN_LOOKUP_INTERVAL_MS = 1000;
 
 function hydrateCacheFromStorage() {
   const stored = loadCollection(STORAGE_KEY, []);
@@ -67,7 +68,10 @@ function formatFullAddressFromParts(parts = {}) {
   const cityStateBlock = cityState ? ` ${cityState}` : "";
   const postalBlock = postalCode ? `, ${postalCode}` : "";
 
-  const formatted = `${streetLine}${neighbourhoodBlock}${cityStateBlock}${postalBlock}`.trim();
+  const formatted = `${streetLine}${neighbourhoodBlock}${cityStateBlock}${postalBlock}`
+    .replace(/\s+-\s+-/g, " - ")
+    .replace(/,\s+,/g, ", ")
+    .trim();
   return formatted || null;
 }
 
@@ -191,6 +195,14 @@ function sanitiseBrazilianFormatting(value) {
   cleaned = cleaned.replace(/\s+-\s+-/g, " - ");
   cleaned = cleaned.replace(/\s+-\s*,/g, " - ");
   cleaned = cleaned.replace(/-\s*,/g, "- ");
+  cleaned = cleaned.replace(/\s+-\s*([A-Z]{2}),\s*([A-Z]{2})$/i, " - $1");
+  cleaned = cleaned.replace(/,\s*-\s*/g, " - ");
+  const ufTail = cleaned.match(/^(.*)-\s*([A-Z]{2})$/);
+  if (ufTail) {
+    const [, before, uf] = ufTail;
+    const trimmedBefore = before.trim();
+    cleaned = trimmedBefore.includes("-") ? `${trimmedBefore} ${uf}` : `${trimmedBefore}-${uf}`;
+  }
   return collapseWhitespace(cleaned);
 }
 
@@ -315,6 +327,7 @@ function normalizeGeocodePayload(payload, lat, lng) {
 const MAX_CONCURRENT_LOOKUPS = 3;
 const lookupQueue = [];
 let activeLookups = 0;
+let lastLookupStartedAt = 0;
 
 async function fetchGeocode(lat, lng) {
   const url = new URL("https://nominatim.openstreetmap.org/reverse");
@@ -338,14 +351,25 @@ async function runNextLookup() {
   if (activeLookups >= MAX_CONCURRENT_LOOKUPS) return;
   const task = lookupQueue.shift();
   if (!task) return;
-  activeLookups += 1;
-  try {
-    await task();
-  } finally {
-    activeLookups -= 1;
-    if (lookupQueue.length) {
-      setTimeout(runNextLookup, 100);
+  const now = Date.now();
+  const waitFor = Math.max(0, MIN_LOOKUP_INTERVAL_MS - (now - lastLookupStartedAt));
+  const execute = async () => {
+    activeLookups += 1;
+    lastLookupStartedAt = Date.now();
+    try {
+      await task();
+    } finally {
+      activeLookups -= 1;
+      if (lookupQueue.length) {
+        setTimeout(runNextLookup, MIN_LOOKUP_INTERVAL_MS);
+      }
     }
+  };
+
+  if (waitFor > 0) {
+    setTimeout(execute, waitFor);
+  } else {
+    execute();
   }
 }
 
@@ -353,6 +377,8 @@ function scheduleLookup(lat, lng) {
   const { primary } = resolveCacheKeys(lat, lng);
   const key = primary;
   if (!key) return Promise.resolve(null);
+
+  if (Number(lat) === 0 && Number(lng) === 0) return Promise.resolve(null);
 
   if (pendingLookups.has(key)) {
     return pendingLookups.get(key);
