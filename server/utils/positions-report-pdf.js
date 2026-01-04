@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../shared/telemetryDictionary.js";
-import { formatAddress } from "./address.js";
+import { formatFullAddress } from "./address.js";
 
 const BRAND_COLOR = "#001F3F";
 const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
@@ -82,19 +82,19 @@ function formatDate(value) {
 
 function normalizeAddress(value) {
   if (!value) return "—";
-  if (typeof value === "string") return formatAddress(value);
+  if (typeof value === "string") return formatFullAddress(value);
   if (value && typeof value === "object") {
-    if (value.formatted) return formatAddress(value.formatted);
-    if (value.formatted_address) return formatAddress(value.formatted_address);
-    if (value.formattedAddress) return formatAddress(value.formattedAddress);
-    if (value.address) return formatAddress(value.address);
+    if (value.formatted) return formatFullAddress(value.formatted);
+    if (value.formatted_address) return formatFullAddress(value.formatted_address);
+    if (value.formattedAddress) return formatFullAddress(value.formattedAddress);
+    if (value.address) return formatFullAddress(value.address);
     try {
-      return formatAddress(JSON.stringify(value));
+      return formatFullAddress(JSON.stringify(value));
     } catch (_error) {
       return "—";
     }
   }
-  return formatAddress(String(value));
+  return formatFullAddress(String(value));
 }
 
 function formatCellValue(key, value, definition) {
@@ -427,9 +427,9 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
 
 export function resolvePdfColumns(columns, availableColumns = null) {
   const allowed = Array.isArray(availableColumns) && availableColumns.length
-    ? availableColumns.filter((key) => positionsColumnMap.has(key))
+    ? availableColumns
     : positionsColumns.map((column) => column.key);
-  const requested = Array.isArray(columns) ? columns.filter((key) => positionsColumnMap.has(key)) : [];
+  const requested = Array.isArray(columns) ? columns : [];
   const filteredRequested = requested.filter((key) => allowed.includes(key));
   if (filteredRequested.length) return filteredRequested;
   return allowed;

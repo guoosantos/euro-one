@@ -39,6 +39,47 @@ function resolveParts(raw) {
   return raw.addressParts || raw.parts || raw.attributes?.addressParts || null;
 }
 
+function formatFullAddressFromParts(parts = {}) {
+  if (!parts || typeof parts !== "object") return null;
+  const street = parts.street || parts.road || parts.streetName || parts.route;
+  const houseNumber =
+    parts.houseNumber || parts.house_number || parts.house || (street ? "s/n" : null);
+  const neighbourhood = parts.neighbourhood || parts.suburb || parts.quarter;
+  const city = parts.city || parts.town || parts.village || parts.municipality;
+  const state = parts.state || parts.region || parts.state_district || parts.stateCode;
+  const countryCode = parts.countryCode || parts.country_code || parts.countryCodeIso;
+  const postalCode = parts.postalCode || parts.postcode || parts.zipcode;
+
+  const firstLine = [street, houseNumber].filter(Boolean).join(", ");
+  const locality = [neighbourhood, city].filter(Boolean).join(", ");
+  const region = [state, countryCode, postalCode].filter(Boolean).join(", ");
+
+  const formatted = [firstLine, locality, region].filter(Boolean).join(" - ");
+  return formatted || null;
+}
+
+export function formatFullAddress(rawAddress) {
+  if (!rawAddress) return "—";
+  if (typeof rawAddress === "object" && !Array.isArray(rawAddress)) {
+    const parts = resolveParts(rawAddress);
+    const formattedFromParts = formatFullAddressFromParts(parts);
+    if (formattedFromParts) return formattedFromParts;
+    const formatted =
+      rawAddress.formattedAddress ||
+      rawAddress.formatted ||
+      rawAddress.formatted_address ||
+      rawAddress.address ||
+      rawAddress.display_name ||
+      null;
+    if (formatted) return collapseWhitespace(formatted);
+  }
+  if (typeof rawAddress === "string") {
+    const cleaned = collapseWhitespace(rawAddress);
+    return cleaned || "—";
+  }
+  return "—";
+}
+
 function buildCacheEntry(lat, lng, payload = {}) {
   const { primary } = resolveCacheKeys(lat, lng);
   if (!primary) return null;
@@ -46,9 +87,11 @@ function buildCacheEntry(lat, lng, payload = {}) {
   const parts = resolveParts(payload) || null;
   const houseNumberFallback = parts?.houseNumber || parts?.house_number || parts?.house || (parts?.street ? "s/n" : null);
   const formattedFromParts = parts ? formatShortAddressFromParts({ ...parts, houseNumber: houseNumberFallback || parts?.houseNumber }) : null;
+  const fullFromParts = parts ? formatFullAddressFromParts({ ...parts, houseNumber: houseNumberFallback || parts?.houseNumber }) : null;
 
-  const formatted = formatAddress(
-    payload.formattedAddress ||
+  const formatted = formatFullAddress(
+    fullFromParts ||
+      payload.formattedAddress ||
       payload.formatted ||
       payload.shortAddress ||
       formattedFromParts ||
@@ -56,16 +99,17 @@ function buildCacheEntry(lat, lng, payload = {}) {
       payload.display_name ||
       null,
   );
-  const shortAddress = payload.shortAddress || formattedFromParts || formatted;
-  const address = payload.address || formatted || shortAddress || null;
+  const safeFormatted = formatted && formatted !== "—" ? formatted : null;
+  const shortAddress = payload.shortAddress || formattedFromParts || safeFormatted;
+  const address = safeFormatted || payload.address || shortAddress || null;
 
   return {
     key: primary,
     lat: Number(lat),
     lng: Number(lng),
     address,
-    formattedAddress: formatted || address || shortAddress || null,
-    shortAddress: shortAddress || formatted || address || null,
+    formattedAddress: safeFormatted || address || shortAddress || null,
+    shortAddress: shortAddress || safeFormatted || address || null,
     parts: parts || null,
     createdAt: payload.createdAt || payload.updatedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -225,13 +269,17 @@ function normalizeGeocodePayload(payload, lat, lng) {
     city: coalesce(details.city, details.town, details.village, details.municipality),
     state: coalesce(details.state, details.region, details.state_district),
     postalCode: details.postcode || details.zipcode,
+    country: details.country,
+    countryCode: details.country_code ? String(details.country_code).toUpperCase() : null,
+    stateCode: details.state_code ? String(details.state_code).toUpperCase() : null,
   };
 
   const shortAddress = formatShortAddressFromParts(parts) || formatAddress(displayName);
+  const fullAddress = formatFullAddressFromParts(parts) || formatFullAddress(displayName);
 
   return {
     address: displayName,
-    formattedAddress: formatAddress(displayName),
+    formattedAddress: fullAddress || formatAddress(displayName),
     shortAddress,
     parts,
     lat,
@@ -333,14 +381,14 @@ export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
   const rawAddress = position.address || position.formattedAddress || position.attributes?.address;
   const normalizedAddress = normalizeAddressPayload(rawAddress);
-  const baseFormatted = rawAddress ? formatAddress(rawAddress) : null;
+  const baseFormatted = rawAddress ? formatFullAddress(rawAddress) : null;
   const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
   const shortAddress = position.shortAddress || normalizedAddress.short || null;
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
   const coordinateFallback = buildCoordinateFallback(lat, lng);
   const fallbackFormatted =
-    formattedAddress || formatAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
+    formattedAddress || formatFullAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
 
   if (baseFormatted || shortAddress) {
     return {
@@ -420,6 +468,7 @@ export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
 
 export default {
   formatAddress,
+  formatFullAddress,
   ensurePositionAddress,
   enrichPositionsWithAddresses,
   resolveShortAddress,

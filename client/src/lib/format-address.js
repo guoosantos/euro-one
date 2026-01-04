@@ -63,6 +63,25 @@ function formatFromParts(rawParts = {}) {
   return fallback || null;
 }
 
+function formatFullFromParts(rawParts = {}) {
+  const parts = rawParts && typeof rawParts === "object" ? rawParts : {};
+
+  const street = parts.street || coalesce(parts.road, parts.streetName, parts.route, parts.logradouro, parts.endereco);
+  const houseNumber =
+    coalesce(parts.houseNumber, parts.house_number, parts.number, parts.numero, parts.house) || (street ? "s/n" : "");
+  const neighbourhood = coalesce(parts.neighbourhood, parts.suburb, parts.quarter, parts.bairro, parts.district);
+  const city = coalesce(parts.city, parts.town, parts.village, parts.municipality, parts.cidade);
+  const state = coalesce(parts.state, parts.region, parts.state_district, parts.stateCode, parts.uf, parts.estado);
+  const countryCode = coalesce(parts.countryCode, parts.country_code, parts.countryCodeIso).toUpperCase();
+  const postalCode = normalizeCep(coalesce(parts.postalCode, parts.postcode, parts.zipcode, parts.cep));
+
+  const firstLine = [street, houseNumber].filter(Boolean).join(", ");
+  const locality = [neighbourhood, city].filter(Boolean).join(", ");
+  const region = [state, countryCode, postalCode].filter(Boolean).join(", ");
+  const full = [firstLine, locality, region].filter(Boolean).join(" - ");
+  return full || null;
+}
+
 function normalizeInput(rawAddress) {
   if (!rawAddress) return null;
   if (typeof rawAddress === "string") {
@@ -120,6 +139,20 @@ export function formatAddress(rawAddress) {
 
   const preferred = formatFromParts(normalized.parts) || normalized.shortAddress || normalized.formattedAddress;
   const formatted = collapseWhitespace(preferred || formatAddressString(normalized.address || ""));
+  return formatted || "—";
+}
+
+export function formatFullAddress(rawAddress) {
+  const normalized = normalizeInput(rawAddress);
+  if (!normalized) return "—";
+
+  const full =
+    formatFullFromParts(normalized.parts) ||
+    normalized.formattedAddress ||
+    normalized.address ||
+    normalized.shortAddress ||
+    null;
+  const formatted = collapseWhitespace(full || formatAddressString(normalized.address || ""));
   return formatted || "—";
 }
 
