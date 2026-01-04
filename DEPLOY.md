@@ -7,7 +7,7 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
 1. Node.js 20+ e PM2 instalados no host.
 2. Clone o repositório e instale as dependências em modo workspace:
    ```bash
-   npm install
+   npm install --workspaces --include-workspace-root
    ```
 3. Gere os artefatos do cliente (se for servir assets estáticos):
    ```bash
@@ -21,7 +21,7 @@ O PM2 lê o arquivo `.env` na raiz (via `env_file` no `ecosystem.config.cjs`). A
 ## Subir com PM2
 
 ```bash
-pm2 start ecosystem.config.cjs --only euro-one-server --update-env
+pm2 start ecosystem.config.cjs --only euro-one-server --update-env --time
 pm2 logs euro-one-server --lines 200
 ```
 
@@ -38,7 +38,7 @@ Use o script auxiliar para validar o bind e o healthcheck (porta padrão 5189):
 HOST=127.0.0.1 PORT=5189 ./scripts/validate-server-start.sh
 ```
 
-O script executa `curl http://HOST:PORT/health` e `ss -ltnp | grep PORT`, retornando erro se o socket não estiver ouvindo.
+O script executa `curl http://127.0.0.1:PORT/health` e `ss -ltnp | grep PORT`. Em caso de falha, imprime `pm2 logs euro-one-server --lines 200` e retorna erro.
 
 ## Backfill de full_address (batch)
 

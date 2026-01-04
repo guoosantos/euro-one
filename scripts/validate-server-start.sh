@@ -4,9 +4,22 @@ set -euo pipefail
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-5189}"
 
+fail() {
+  echo "[validate] falha detectada"
+  if command -v pm2 >/dev/null 2>&1; then
+    pm2 logs euro-one-server --lines 200 || true
+  else
+    echo "[validate] pm2 não disponível para imprimir logs"
+  fi
+  exit 1
+}
+
 echo "[validate] checking http://${HOST}:${PORT}"
 
-curl -sf --max-time 8 "http://${HOST}:${PORT}/health" >/dev/null
+if ! curl -sf --max-time 8 "http://127.0.0.1:${PORT}/health" >/dev/null; then
+  echo "[validate] /health não respondeu"
+  fail
+fi
 echo "[validate] /health responded successfully"
 
 if command -v ss >/dev/null 2>&1; then
@@ -14,11 +27,11 @@ if command -v ss >/dev/null 2>&1; then
     echo "[validate] port ${PORT} is bound"
   else
     echo "[validate] port ${PORT} is NOT bound"
-    exit 1
+    fail
   fi
 else
   echo "[validate] 'ss' not available to verify listening socket"
-  exit 1
+  fail
 fi
 
 echo "[validate] checks completed"
