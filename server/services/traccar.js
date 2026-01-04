@@ -7,6 +7,48 @@ let traccarAvailable = false;
 let warnedMissingConfig = false;
 let warnedBaseUrlWithApi = false;
 
+function toAbortError(reason) {
+  if (reason instanceof Error) return reason;
+  if (reason === undefined) return new Error("Operação abortada");
+  return new Error(String(reason));
+}
+
+function throwIfAborted(signal) {
+  if (signal?.aborted) {
+    throw toAbortError(signal.reason);
+  }
+}
+
+function mergeAbortSignals(signals = []) {
+  const filtered = signals.filter(Boolean);
+  if (!filtered.length) {
+    return { signal: undefined, cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const abort = (event) => {
+    controller.abort(event?.target?.reason);
+  };
+
+  filtered.forEach((signal) => {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+    } else {
+      signal.addEventListener("abort", abort);
+    }
+  });
+
+  const cleanup = () => {
+    filtered.forEach((signal) => signal.removeEventListener("abort", abort));
+  };
+
+  if (controller.signal.aborted) {
+    cleanup();
+  }
+
+  return { signal: controller.signal, cleanup };
+}
+
 function sanitiseBaseUrl(raw) {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return { url: null, removedApi: false };
@@ -117,7 +159,10 @@ async function requestTraccar(path, options = {}) {
     responseType = "json",
     timeout = 5_000,
     maxAttempts = 3,
+    signal,
   } = options;
+
+  throwIfAborted(signal);
 
   const apiBaseUrl = getApiBaseUrl();
   if (!apiBaseUrl) {
@@ -155,10 +200,11 @@ async function requestTraccar(path, options = {}) {
     const timer = setTimeout(() => {
       controller.abort(new Error("Request timeout"));
     }, timeout);
+    const { signal: combinedSignal, cleanup } = mergeAbortSignals([controller.signal, signal]);
 
     try {
-      const response = await fetch(url, { ...init, signal: controller.signal });
-      clearTimeout(timer);
+      throwIfAborted(combinedSignal);
+      const response = await fetch(url, { ...init, signal: combinedSignal });
 
       const rawHeaders =
         typeof response.headers.raw === "function"
@@ -212,7 +258,6 @@ async function requestTraccar(path, options = {}) {
 
       return errorResult;
     } catch (error) {
-      clearTimeout(timer);
       const causeCode = error?.code || (error?.name === "AbortError" ? "ETIMEDOUT" : undefined);
       const isTimeout = causeCode === "ETIMEDOUT" || error?.name === "AbortError";
       const transient = isTimeout || transientCodes.includes(causeCode);
@@ -236,6 +281,9 @@ async function requestTraccar(path, options = {}) {
 
       setTraccarAvailability(false);
       return errorResult;
+    } finally {
+      clearTimeout(timer);
+      cleanup();
     }
   }
 
@@ -432,7 +480,9 @@ export function describeAdminAuth() {
   return "unknown";
 }
 
-export async function loginTraccar(email, password) {
+export async function loginTraccar(email, password, { signal } = {}) {
+  throwIfAborted(signal);
+
   if (!isTraccarConfigured()) {
     warnMissingTraccarConfig();
     throw buildTraccarUnavailableError(new Error("Traccar não configurado"), { endpoint: "/session" });
@@ -444,6 +494,7 @@ export async function loginTraccar(email, password) {
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
     },
+    signal,
   });
 
   if (!response.ok) {
@@ -501,7 +552,9 @@ export async function traccarProxy(method, url, { context, params, data, asAdmin
  * Tenta criar sessão via /api/session (cookie) e, em último caso,
  * valida conexão usando as credenciais configuradas.
  */
-export async function initializeTraccarAdminSession() {
+export async function initializeTraccarAdminSession({ signal } = {}) {
+  throwIfAborted(signal);
+
   if (!isTraccarConfigured()) {
     warnMissingTraccarConfig();
     setTraccarAvailability(false);
@@ -516,10 +569,13 @@ export async function initializeTraccarAdminSession() {
     return { ok: false, reason: "missing-credentials" };
   }
 
+  const ensureNotAborted = () => throwIfAborted(signal);
+
   if (adminUser && adminPassword) {
     try {
+      ensureNotAborted();
       storeAdminSession(null);
-      const auth = await loginTraccar(adminUser, adminPassword);
+      const auth = await loginTraccar(adminUser, adminPassword, { signal });
       if (auth?.ok) {
         storeAdminToken(auth);
 
@@ -533,6 +589,7 @@ export async function initializeTraccarAdminSession() {
           method: "GET",
           url: "/server",
           timeout: 3000,
+          signal,
         });
 
         if (ping?.ok) {
@@ -551,10 +608,12 @@ export async function initializeTraccarAdminSession() {
   }
 
   try {
+    ensureNotAborted();
     const check = await traccarAdminRequest({
       method: "GET",
       url: "/server",
       timeout: 3000,
+      signal,
     });
 
     if (check?.ok) {
