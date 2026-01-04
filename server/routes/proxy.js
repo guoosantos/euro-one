@@ -1358,7 +1358,7 @@ async function persistMissingPositionAddresses(positions = [], missingIds = new 
     try {
       await updatePositionAddress(position.id, full);
     } catch (error) {
-      console.warn(\"[reports/positions] falha ao salvar endereço\", error?.message || error);
+      console.warn("[reports/positions] falha ao salvar endereço", error?.message || error);
     }
   }
 }
