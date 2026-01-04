@@ -7,7 +7,16 @@ import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { extractToken } from "./middleware/auth.js";
 
 async function bootstrap() {
-  await loadEnv();
+  console.info("[startup] API inicializando…");
+
+  try {
+    await loadEnv();
+  } catch (error) {
+    console.warn("[startup] Falha ao carregar variáveis de ambiente; seguindo com defaults.", {
+      message: error?.message || error,
+      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    });
+  }
 
   const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
   if (missing.length) {
@@ -17,7 +26,14 @@ async function bootstrap() {
     );
   }
 
-  assertDemoFallbackSafety();
+  try {
+    assertDemoFallbackSafety();
+  } catch (error) {
+    console.warn("[startup] Verificação de fallback em modo demo falhou.", {
+      message: error?.message || error,
+      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    });
+  }
 
   if (
     !process.env.TRACCAR_ADMIN_TOKEN &&
@@ -44,17 +60,18 @@ async function bootstrap() {
     import("./config.js"),
   ]);
 
-  if (!config.osrm?.baseUrl) {
-    console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
-  }
-
   const PORT = Number(process.env.PORT) || 3001;
+  console.info(`[startup] Porta definida como ${PORT}`);
   const server = http.createServer(app);
   const liveSockets = new Map();
   const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
   const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
   let stopSync = () => {};
   let telemetryInterval;
+
+  if (!config.osrm?.baseUrl) {
+    console.warn("[startup] OSRM_BASE_URL não configurado: map matching ficará em modo passthrough.");
+  }
 
   const traccarMode = describeTraccarMode({ traccarDbConfigured: isTraccarDbConfigured() });
   console.info("[startup] Traccar mode", {
@@ -187,10 +204,6 @@ async function bootstrap() {
     });
   });
 
-  server.listen(PORT, () => {
-    console.log(`API Rodando na porta ${PORT}`);
-  });
-
   const runWithTimeout = (operation, timeoutMs, label) => {
     const controller = new AbortController();
     let timeoutId;
@@ -214,30 +227,48 @@ async function bootstrap() {
     void dispatchTelemetry();
   }, TELEMETRY_INTERVAL_MS);
 
-  const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
-  runWithTimeout(
-    (signal) => initializeTraccarAdminSession({ signal }),
-    traccarInitTimeout,
-    "initializeTraccarAdminSession",
-  )
-    .then((traccarInit) => {
-      if (traccarInit?.ok) {
-        stopSync = startTraccarSyncJob();
-      } else {
-        console.warn(
-          "Sincronização automática do Traccar não iniciada no startup.",
-          traccarInit?.reason || "",
-        );
-        stopSync = () => {};
-      }
-    })
-    .catch((error) => {
+  server.listen(PORT, () => {
+    console.log(`[startup] Servidor ouvindo em ${PORT}`);
+    console.log(`API Rodando na porta ${PORT}`);
+  });
+
+  const startExternalBootstrap = async () => {
+    const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
+
+    try {
+      await runWithTimeout(
+        (signal) => initializeTraccarAdminSession({ signal }),
+        traccarInitTimeout,
+        "initializeTraccarAdminSession",
+      ).then((traccarInit) => {
+        if (traccarInit?.ok) {
+          stopSync = startTraccarSyncJob();
+        } else {
+          console.warn(
+            "[startup] Sincronização automática do Traccar não iniciada no startup.",
+            traccarInit?.reason || "",
+          );
+          stopSync = () => {};
+        }
+      });
+    } catch (error) {
       stopSync = () => {};
       console.warn(
-        "[startup] Inicialização do Traccar não concluída (timeout ou falha). Seguindo em modo degradado.",
+        "[startup] Falha ao inicializar Traccar:",
         error?.message || error,
+        process.env.NODE_ENV !== "production" ? error : "",
       );
+      console.warn("[startup] Erro na inicialização do Traccar, mas ouvindo a porta.");
+    }
+  };
+
+  // Executa inicializações externas sem bloquear o servidor HTTP.
+  startExternalBootstrap().catch((error) => {
+    console.warn("[startup] Erro inesperado durante bootstrap externo.", {
+      message: error?.message || error,
+      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
     });
+  });
 
   const shutdown = () => {
     if (stopSync) {
@@ -258,7 +289,6 @@ bootstrap().catch((error) => {
     message: error?.message || error,
     stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
   });
-  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
