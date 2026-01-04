@@ -168,15 +168,6 @@ function chunkArray(list = [], size = 500) {
   return chunks;
 }
 
-function chunkColumns(list = [], size = 12) {
-  if (!Array.isArray(list) || size <= 0) return [list || []];
-  const chunks = [];
-  for (let i = 0; i < list.length; i += size) {
-    chunks.push(list.slice(i, i + size));
-  }
-  return chunks;
-}
-
 function buildHtml({
   rows,
   columns,
@@ -185,14 +176,13 @@ function buildHtml({
   fontData,
   columnDefinitions = new Map(),
   chunkSize = 500,
-  columnChunkSize = 12,
 }) {
-  const density = Math.max(0.66, Math.min(1, 18 / Math.max(1, columns.length)));
-  const baseFontSize = (10 * density).toFixed(2);
-  const headerFontSize = (9 * density).toFixed(2);
-  const cellPadding = Math.max(4, Math.round(10 * density));
+  const density = Math.max(0.5, Math.min(1, 22 / Math.max(1, columns.length + 4)));
+  const baseFontSize = (9 * density).toFixed(2);
+  const headerFontSize = (8 * density).toFixed(2);
+  const cellPadding = Math.max(3, Math.round(9 * density));
 
-  const columnGroups = chunkColumns(columns, columnChunkSize);
+  const columnGroups = [columns?.length ? columns : []];
 
   const renderTable = (columnsGroup, sliceRows, groupIndex, sliceIndex) => {
     const tableHeaders = columnsGroup
@@ -428,6 +418,12 @@ function buildHtml({
         font-size: var(--font-size);
         table-layout: fixed;
       }
+      th, td {
+        word-break: break-word;
+        overflow-wrap: anywhere;
+        hyphens: auto;
+        line-height: 1.35;
+      }
       thead {
         display: table-header-group;
         background: ${BRAND_COLOR};
@@ -435,23 +431,19 @@ function buildHtml({
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       }
       thead th {
-        padding: calc(var(--cell-padding) * 0.8) var(--cell-padding);
+        padding: calc(var(--cell-padding) * 0.6) var(--cell-padding);
         text-align: left;
         font-weight: 700;
         font-size: var(--header-font-size);
         text-transform: uppercase;
         letter-spacing: 0.05em;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
       }
       tbody td {
-        padding: calc(var(--cell-padding) * 0.8) var(--cell-padding);
+        padding: calc(var(--cell-padding) * 0.6) var(--cell-padding);
         border-bottom: 1px solid #e2e8f0;
         color: #1f2937;
-        word-break: break-word;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
       }
       tbody tr:nth-child(even) {
         background: #f8fafc;
@@ -500,7 +492,7 @@ export function resolvePdfColumns(columns, availableColumns = null) {
 }
 
 const MAX_PDF_ROWS = 5000;
-const MAX_PDF_COLUMNS = 30;
+const MAX_PDF_COLUMNS = 120;
 const PDF_CHUNK_SIZE = 500;
 
 export async function generatePositionsReportPdf({
@@ -560,10 +552,7 @@ export async function generatePositionsReportPdf({
     const columnMap = Array.isArray(columnDefinitions)
       ? new Map(columnDefinitions.map((column) => [column.key, column]))
       : null;
-    const columnChunkSize = Math.max(
-      1,
-      columnsToUse.length > 24 ? 10 : columnsToUse.length > 18 ? 12 : columnsToUse.length > 12 ? 15 : columnsToUse.length,
-    );
+    const needsWidePage = columnsToUse.length > 30;
     const html = buildHtml({
       rows: safeRows,
       columns: columnsToUse,
@@ -572,14 +561,14 @@ export async function generatePositionsReportPdf({
       fontData,
       columnDefinitions: columnMap,
       chunkSize: PDF_CHUNK_SIZE,
-      columnChunkSize,
     });
 
     await page.setContent(html, { waitUntil: "networkidle" });
 
     return await page.pdf({
-      format: "A4",
+      format: needsWidePage ? "A3" : "A4",
       landscape: true,
+      scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
       margin: { top: "16mm", right: "12mm", bottom: "20mm", left: "12mm" },

@@ -60,8 +60,16 @@ async function bootstrap() {
     import("./config.js"),
   ]);
 
-  const PORT = Number(process.env.PORT) || 3001;
-  console.info(`[startup] Porta definida como ${PORT}`);
+  const host = process.env.HOST || "0.0.0.0";
+  const rawPort = process.env.PORT ?? "3001";
+  console.info(
+    `[startup] env PORT=${rawPort} (type=${typeof rawPort}) HOST=${host} NODE_ENV=${process.env.NODE_ENV || "development"}`,
+  );
+  const port = Number(rawPort);
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error(`PORT inválida: ${rawPort}`);
+  }
+  console.info("[startup] Porta resolvida", { port, type: typeof port });
   const server = http.createServer(app);
   const liveSockets = new Map();
   const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
@@ -227,9 +235,19 @@ async function bootstrap() {
     void dispatchTelemetry();
   }, TELEMETRY_INTERVAL_MS);
 
-  server.listen(PORT, () => {
-    console.log(`[startup] Servidor ouvindo em ${PORT}`);
-    console.log(`API Rodando na porta ${PORT}`);
+  server.on("error", (error) => {
+    console.error("[startup] Erro ao iniciar servidor HTTP", {
+      message: error?.message || error,
+      code: error?.code,
+      stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
+    });
+    process.exit(1);
+  });
+
+  console.info("[startup] Iniciando server.listen", { host, port });
+  server.listen({ port, host }, () => {
+    console.info(`[startup] listening on http://${host}:${port}`);
+    console.log(`API Rodando na porta ${port}`);
   });
 
   const startExternalBootstrap = async () => {
@@ -289,6 +307,7 @@ bootstrap().catch((error) => {
     message: error?.message || error,
     stack: process.env.NODE_ENV !== "production" ? error?.stack : undefined,
   });
+  process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {

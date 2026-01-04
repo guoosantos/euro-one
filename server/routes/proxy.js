@@ -24,6 +24,7 @@ import {
   updatePositionFullAddress,
   ensureFullAddressForPositions,
 } from "../services/traccar-db.js";
+import { backfillPositionFullAddresses } from "../services/full-address-backfill.js";
 import {
   enforceClientGroupInQuery,
   enforceDeviceFilterInBody,
@@ -3390,6 +3391,18 @@ function normalizePagination(query = {}) {
   return { page, limit, offset };
 }
 
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function normalizeDateInput(value) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString();
+}
+
 async function resolvePositionsFullAddressBatch(positions = [], mode = "blocking") {
   const ids = positions.filter((position) => position && !position.fullAddress).map((position) => position.id);
   if (!ids.length) return { resolvedIds: [], pendingIds: [] };
@@ -3406,6 +3419,34 @@ async function resolvePositionsFullAddressBatch(positions = [], mode = "blocking
 
   return result;
 }
+
+router.post("/maintenance/positions/full-address/backfill", requireRole("admin"), async (req, res, next) => {
+  try {
+    const from = normalizeDateInput(req.body?.from ?? req.query?.from);
+    const to = normalizeDateInput(req.body?.to ?? req.query?.to);
+    const batch = parsePositiveInteger(req.body?.batch ?? req.query?.batch, 500);
+    const concurrency = parsePositiveInteger(req.body?.concurrency ?? req.query?.concurrency, 3);
+    const rate = parsePositiveInteger(req.body?.rate ?? req.query?.rate, 1);
+    const max = parsePositiveInteger(req.body?.max ?? req.query?.max, 1000);
+    const dryRunFlag = req.body?.dryRun ?? req.body?.["dry-run"] ?? req.query?.dryRun ?? req.query?.["dry-run"];
+    const dryRun = String(dryRunFlag).toLowerCase() === "true";
+
+    const data = await backfillPositionFullAddresses({
+      from,
+      to,
+      batch,
+      concurrency,
+      rate,
+      max,
+      dryRun,
+      logger: console,
+    });
+
+    res.json({ data, error: null });
+  } catch (error) {
+    next(error);
+  }
+});
 
 async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null }) {
   if (!vehicleId) {
