@@ -3490,7 +3490,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         return acc;
       }, {});
 
-      return {
+      const base = {
         id: position.id ?? null,
         deviceId: position.deviceId ?? null,
         gpsTime,
@@ -3515,10 +3515,6 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         vehicleVoltage,
 
         commandResponse: commandResponse || null,
-        digitalInput1: inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }),
-        digitalInput2: inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }),
-        digitalOutput1: outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }),
-        digitalOutput2: outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }),
         ioDetails,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
         __digitalInputs: inputs,
@@ -3532,6 +3528,18 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         ...dynamicValues,
 
       };
+      const setIfDefined = (key, value) => {
+        if (value !== undefined && value !== null) {
+          base[key] = value;
+        }
+      };
+
+      setIfDefined("digitalInput1", inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }));
+      setIfDefined("digitalInput2", inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }));
+      setIfDefined("digitalOutput1", outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }));
+      setIfDefined("digitalOutput2", outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }));
+
+      return base;
     })
     .sort((a, b) => {
       const timeA = a.gpsTime ? new Date(a.gpsTime).getTime() : 0;
@@ -3789,14 +3797,20 @@ router.post("/reports/positions/pdf", async (req, res) => {
 
 
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
-    const columns = resolvePdfColumns(req.body?.columns, report?.meta?.availableColumns);
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : report?.meta?.columns;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
     const pdf = await generatePositionsReportPdf({
       rows: report.positions,
       columns,
-      columnDefinitions: report.meta?.columns,
+      columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
-      availableColumns: report?.meta?.availableColumns,
+      availableColumns,
     });
 
     const durationMs = Date.now() - startedAt;

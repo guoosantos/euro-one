@@ -168,25 +168,52 @@ function chunkArray(list = [], size = 500) {
   return chunks;
 }
 
-function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitions = new Map(), chunkSize = 500 }) {
-  const tableHeaders = columns
-    .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
-    .join("");
-  const totalWeight =
-    columns.reduce((sum, key) => sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1), 0) ||
-    1;
-  const colgroup = columns
-    .map((key) => {
-      const weight = columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1;
-      const percent = ((weight / totalWeight) * 100).toFixed(2);
-      return `<col style="width:${percent}%" />`;
-    })
-    .join("");
+function chunkColumns(list = [], size = 12) {
+  if (!Array.isArray(list) || size <= 0) return [list || []];
+  const chunks = [];
+  for (let i = 0; i < list.length; i += size) {
+    chunks.push(list.slice(i, i + size));
+  }
+  return chunks;
+}
 
-  const renderSlice = (sliceRows, index) => {
+function buildHtml({
+  rows,
+  columns,
+  meta,
+  logoDataUrl,
+  fontData,
+  columnDefinitions = new Map(),
+  chunkSize = 500,
+  columnChunkSize = 12,
+}) {
+  const density = Math.max(0.66, Math.min(1, 18 / Math.max(1, columns.length)));
+  const baseFontSize = (10 * density).toFixed(2);
+  const headerFontSize = (9 * density).toFixed(2);
+  const cellPadding = Math.max(4, Math.round(10 * density));
+
+  const columnGroups = chunkColumns(columns, columnChunkSize);
+
+  const renderTable = (columnsGroup, sliceRows, groupIndex, sliceIndex) => {
+    const tableHeaders = columnsGroup
+      .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
+      .join("");
+    const totalWeight =
+      columnsGroup.reduce(
+        (sum, key) => sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1),
+        0,
+      ) || 1;
+    const colgroup = columnsGroup
+      .map((key) => {
+        const weight = columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1;
+        const percent = ((weight / totalWeight) * 100).toFixed(2);
+        return `<col style="width:${percent}%" />`;
+      })
+      .join("");
+
     const tableRows = sliceRows
       .map((row) => {
-        const cells = columns
+        const cells = columnsGroup
           .map((key) => {
             const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
             return `<td>${escapeHtml(formatCellValue(key, row[key], definition))}</td>`;
@@ -195,9 +222,40 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
         return `<tr>${cells}</tr>`;
       })
       .join("");
-    const pageBreak = index > 0 ? '<div class="page-break"></div>' : "";
+
+    const pageBreak = groupIndex > 0 || sliceIndex > 0 ? '<div class="page-break"></div>' : "";
     return `
       ${pageBreak}
+      <div class="header">
+        ${logoDataUrl ? `<div class="logo"><img src="${logoDataUrl}" alt="Euro One" /></div>` : '<div class="logo fallback">EURO ONE</div>'}
+        <div>
+          <div class="title">RELATÓRIO DE POSIÇÕES</div>
+          <div class="subtitle">Dados consolidados do veículo e posições georreferenciadas</div>
+          <div class="meta-chips">
+            <div class="badge">Período: ${escapeHtml(formatDate(meta?.from))} – ${escapeHtml(formatDate(meta?.to))}</div>
+            <div class="badge">Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</div>
+          </div>
+        </div>
+      </div>
+      <div class="meta-grid">
+        <div class="meta-item"><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+        <div class="meta-item"><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+        <div class="meta-item"><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
+        <div class="meta-item"><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
+        <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+        <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+      </div>
+      <div class="card">
+        <div class="card-title">Resumo do veículo</div>
+        <div class="card-grid">
+          <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+          <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+          <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
+          <div><span>Status atual</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+          <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Indisponível")}</div>
+        </div>
+      </div>
       <div class="table-wrapper">
         <table>
           <colgroup>${colgroup}</colgroup>
@@ -205,14 +263,21 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
             <tr>${tableHeaders}</tr>
           </thead>
           <tbody>
-            ${tableRows || `<tr><td colspan="${columns.length}">—</td></tr>`}
+            ${tableRows || `<tr><td colspan="${columnsGroup.length}">—</td></tr>`}
           </tbody>
         </table>
       </div>
     `;
   };
+
   const slices = chunkArray(rows, chunkSize);
-  const tables = slices.map((slice, index) => renderSlice(slice, index)).join("");
+  const tables = columnGroups
+    .map((group, groupIndex) =>
+      slices
+        .map((slice, sliceIndex) => renderTable(group, slice, groupIndex, sliceIndex))
+        .join(""),
+    )
+    .join("");
 
   const fontFaces = fontData?.regular
     ? `
@@ -231,10 +296,6 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
   `
     : "";
 
-  const logoMarkup = logoDataUrl
-    ? `<div class="logo"><img src="${logoDataUrl}" alt="Euro One" /></div>`
-    : `<div class="logo fallback">EURO ONE</div>`;
-
   return `
 <!doctype html>
 <html lang="pt-BR">
@@ -243,6 +304,11 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
     <style>
       ${fontFaces}
       * { box-sizing: border-box; }
+      :root {
+        --cell-padding: ${cellPadding}px;
+        --font-size: ${baseFontSize}px;
+        --header-font-size: ${headerFontSize}px;
+      }
       body {
         margin: 0;
         font-family: ${FONT_STACK};
@@ -359,7 +425,8 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
         width: 100%;
         border-collapse: collapse;
         margin-top: 4px;
-        font-size: 10px;
+        font-size: var(--font-size);
+        table-layout: fixed;
       }
       thead {
         display: table-header-group;
@@ -368,18 +435,23 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       }
       thead th {
-        padding: 9px 10px;
+        padding: calc(var(--cell-padding) * 0.8) var(--cell-padding);
         text-align: left;
-        font-weight: 600;
-        font-size: 9px;
+        font-weight: 700;
+        font-size: var(--header-font-size);
         text-transform: uppercase;
         letter-spacing: 0.05em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       tbody td {
-        padding: 9px 10px;
+        padding: calc(var(--cell-padding) * 0.8) var(--cell-padding);
         border-bottom: 1px solid #e2e8f0;
         color: #1f2937;
         word-break: break-word;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       tbody tr:nth-child(even) {
         background: #f8fafc;
@@ -409,36 +481,6 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
   </head>
   <body>
     <div class="report">
-      <div class="header">
-        ${logoMarkup}
-        <div>
-          <div class="title">RELATÓRIO DE POSIÇÕES</div>
-          <div class="subtitle">Dados consolidados do veículo e posições georreferenciadas</div>
-          <div class="meta-chips">
-            <div class="badge">Período: ${escapeHtml(formatDate(meta?.from))} – ${escapeHtml(formatDate(meta?.to))}</div>
-            <div class="badge">Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</div>
-          </div>
-        </div>
-      </div>
-      <div class="meta-grid">
-        <div class="meta-item"><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
-        <div class="meta-item"><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
-        <div class="meta-item"><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
-        <div class="meta-item"><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
-        <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
-        <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">Resumo do veículo</div>
-        <div class="card-grid">
-          <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
-          <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
-          <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
-          <div><span>Status atual</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
-          <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Indisponível")}</div>
-        </div>
-      </div>
       ${tables}
     </div>
   </body>
@@ -518,6 +560,10 @@ export async function generatePositionsReportPdf({
     const columnMap = Array.isArray(columnDefinitions)
       ? new Map(columnDefinitions.map((column) => [column.key, column]))
       : null;
+    const columnChunkSize = Math.max(
+      1,
+      columnsToUse.length > 24 ? 10 : columnsToUse.length > 18 ? 12 : columnsToUse.length > 12 ? 15 : columnsToUse.length,
+    );
     const html = buildHtml({
       rows: safeRows,
       columns: columnsToUse,
@@ -526,6 +572,7 @@ export async function generatePositionsReportPdf({
       fontData,
       columnDefinitions: columnMap,
       chunkSize: PDF_CHUNK_SIZE,
+      columnChunkSize,
     });
 
     await page.setContent(html, { waitUntil: "networkidle" });

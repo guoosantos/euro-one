@@ -7,20 +7,32 @@ function normalizeKey(key) {
   return String(key || "").trim();
 }
 
-function collectKeys(position, keySet) {
+function isDisplayableValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string" && value.trim() === "") return false;
+  return true;
+}
+
+function collectKeys(position, keySet, keysWithValue) {
   if (!position || typeof position !== "object") return;
-  Object.keys(position).forEach((key) => {
+  Object.entries(position).forEach(([key, value]) => {
     const normalized = normalizeKey(key);
     if (!normalized || normalized === "attributes") return;
-    keySet.add(normalized);
+    if (isDisplayableValue(value)) {
+      keySet.add(normalized);
+      keysWithValue.add(normalized);
+    }
   });
 
   const attributes = position.attributes;
   if (!attributes || typeof attributes !== "object") return;
-  Object.keys(attributes).forEach((key) => {
+  Object.entries(attributes).forEach(([key, value]) => {
     const normalized = normalizeKey(key);
     if (!normalized) return;
-    keySet.add(normalized);
+    if (isDisplayableValue(value)) {
+      keySet.add(normalized);
+      keysWithValue.add(normalized);
+    }
   });
 }
 
@@ -45,9 +57,11 @@ function resolveBaseOrder(key) {
 
 export default function buildPositionsSchema(positions = []) {
   const keys = new Set();
-  (positions || []).forEach((position) => collectKeys(position, keys));
+  const keysWithValue = new Set();
+  (positions || []).forEach((position) => collectKeys(position, keys, keysWithValue));
 
   const columns = Array.from(keys)
+    .filter((key) => keysWithValue.has(key))
     .map((key) => resolveColumn(key))
     .filter(Boolean);
 

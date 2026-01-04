@@ -218,6 +218,8 @@ export function resolveColumn(key) {
     return {
       key: descriptor.key || normalized,
       label: descriptor.labelPt || buildFriendlyLabel(normalized),
+      labelPt: descriptor.labelPt || buildFriendlyLabel(normalized),
+      labelPdf: descriptor.labelPt || buildFriendlyLabel(normalized),
       type: descriptor.type || null,
       unit: descriptor.unit || null,
       priority: descriptor.priority ?? resolveColumnGroupOrder(definition?.group),
@@ -227,6 +229,8 @@ export function resolveColumn(key) {
   return {
     key: definition?.key || normalized,
     label: definition ? resolveColumnLabel(definition, "pt") : buildFriendlyLabel(normalized),
+    labelPt: definition?.labelPt || definition?.label || buildFriendlyLabel(normalized),
+    labelPdf: definition?.labelPdf || definition?.labelPt || definition?.label || buildFriendlyLabel(normalized),
     type: definition?.type || null,
     unit: definition?.unit || null,
     priority: resolveColumnGroupOrder(definition?.group),
@@ -242,6 +246,16 @@ export function resolveColumnLabel(column, variant = "pt") {
 
 export function resolveColumnDefinition(key, { protocol } = {}) {
   if (!key) return null;
+  const telemetryDescriptor = resolveTelemetryDescriptor(key);
+  if (telemetryDescriptor) {
+    return {
+      key,
+      labelPt: telemetryDescriptor.labelPt || buildFriendlyLabel(key),
+      type: telemetryDescriptor.type || null,
+      unit: telemetryDescriptor.unit || null,
+      group: telemetryDescriptor.group || "io",
+    };
+  }
   const catalog = resolveCatalogEntry(key, protocol);
   const base = positionsColumnMap.get(key);
   if (base && catalog) {
