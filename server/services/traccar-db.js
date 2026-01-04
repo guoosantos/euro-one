@@ -468,7 +468,35 @@ export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId 
   }
 }
 
-export async function fetchPositions(deviceIds = [], from, to, { limit = null } = {}) {
+export async function countPositions(deviceIds = [], from, to) {
+  const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
+  if (!filtered.length) return 0;
+
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const params = [];
+  const conditions = [`deviceid IN (${buildPlaceholders(filtered)})`];
+  params.push(...filtered);
+
+  if (from) {
+    conditions.push(`fixtime >= ${dialect.placeholder(params.length + 1)}`);
+    params.push(from);
+  }
+  if (to) {
+    conditions.push(`fixtime <= ${dialect.placeholder(params.length + 1)}`);
+    params.push(to);
+  }
+
+  const sql = `SELECT COUNT(*) as total FROM ${POSITION_TABLE} WHERE ${conditions.join(" AND ")}`;
+  const rows = await queryTraccarDb(sql, params);
+  const total = Number(rows?.[0]?.total ?? rows?.[0]?.count ?? 0);
+  return Number.isFinite(total) ? total : 0;
+}
+
+export async function fetchPositions(deviceIds = [], from, to, { limit = null, offset = null } = {}) {
   const filtered = Array.from(new Set((deviceIds || []).filter(Boolean)));
   if (!filtered.length) return [];
 
@@ -513,6 +541,7 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null } 
     WHERE ${conditions.join(" AND ")}
     ORDER BY fixtime ASC
     ${limit ? `LIMIT ${Number(limit)}` : ""}
+    ${offset ? `OFFSET ${Number(offset)}` : ""}
   `;
 
   const rows = await queryTraccarDb(sql, params);

@@ -19,6 +19,8 @@ import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
+const ALL_CHUNK_SIZE = 200;
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => ({
   ...column,
@@ -165,7 +167,7 @@ function buildPdfFileName(vehicle, from, to) {
 
 export default function ReportsPositions() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
-  const { data, loading, error, generate, exportPdf } = usePositionsReport();
+  const { loading, error, generate, exportPdf, fetchPage } = usePositionsReport();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -182,11 +184,22 @@ export default function ReportsPositions() {
   const [exportingPdf, setExportingPdf] = useState(false);
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [positions, setPositions] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const baseQueryRef = useRef(null);
+  const [lastResolvedFilter, setLastResolvedFilter] = useState(null);
 
+  const isAllPages = pageSize === "all";
+  const effectivePageSize = isAllPages ? ALL_CHUNK_SIZE : pageSize;
+  const totalPages = meta?.totalPages || 1;
+  const currentPage = meta?.currentPage || page;
+  const totalItems = meta?.totalItems ?? positions.length;
 
   const availableColumns = useMemo(() => {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
-    const positions = Array.isArray(data?.positions) ? data.positions : [];
     if (positions.length) {
       const schema = buildPositionsSchema(positions);
       return schema.map((column) => ({
@@ -217,11 +230,11 @@ export default function ReportsPositions() {
   }, [defaults]);
 
   useEffect(() => {
-    const positionsCount = Array.isArray(data?.positions) ? data.positions.length : 0;
+    const positionsCount = positions.length;
     if (positionsCount > 0 || availableColumns.length === 0) {
       console.info("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
     }
-  }, [availableColumns.length, data?.positions]);
+  }, [availableColumns.length, positions.length]);
 
 
   const visibleColumns = useMemo(
@@ -239,7 +252,7 @@ export default function ReportsPositions() {
   );
 
   const rows = useMemo(() => {
-    const list = Array.isArray(data?.positions) ? data.positions : [];
+    const list = Array.isArray(positions) ? positions : [];
     return list.map((position) => {
       const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
@@ -312,7 +325,7 @@ export default function ReportsPositions() {
       return row;
     });
 
-  }, [columnDefinitionMap, data]);
+  }, [columnDefinitionMap, positions]);
 
 
   const filteredRows = useMemo(() => {
@@ -330,6 +343,7 @@ export default function ReportsPositions() {
     if (coordinates) {
       const filter = { ...coordinates, radius: DEFAULT_RADIUS_METERS };
       setAddressFilter(filter);
+      setLastResolvedFilter(filter);
       return filter;
     }
     setGeocoding(true);
@@ -337,15 +351,31 @@ export default function ReportsPositions() {
       const resolved = await geocodeAddress(text);
       if (!resolved) {
         setAddressFilter(null);
+        setLastResolvedFilter(null);
         return null;
       }
       const filter = { ...resolved, radius: DEFAULT_RADIUS_METERS };
       setAddressFilter(filter);
+      setLastResolvedFilter(filter);
       return filter;
     } finally {
       setGeocoding(false);
     }
   }, [addressQuery]);
+
+  const buildQueryParams = useCallback(
+    (filter, pageParam = 1, limitParam = effectivePageSize) => ({
+      vehicleId: selectedVehicleId,
+      from: new Date(from).toISOString(),
+      to: new Date(to).toISOString(),
+      addressLat: filter?.lat,
+      addressLng: filter?.lng,
+      addressRadius: filter?.radius,
+      page: pageParam,
+      limit: limitParam,
+    }),
+    [effectivePageSize, from, selectedVehicleId, to],
+  );
 
   const handleGenerate = useCallback(
     async (event) => {
@@ -365,21 +395,19 @@ export default function ReportsPositions() {
       try {
         const filterKey = `${resolvedFilter?.lat ?? ""}|${resolvedFilter?.lng ?? ""}|${resolvedFilter?.radius ?? ""}|${addressQuery.trim()}`;
         lastFilterKeyRef.current = filterKey;
-        await generate({
-          vehicleId: selectedVehicleId,
-          from: new Date(from).toISOString(),
-          to: new Date(to).toISOString(),
-          addressLat: resolvedFilter?.lat,
-          addressLng: resolvedFilter?.lng,
-          addressRadius: resolvedFilter?.radius,
-        });
+        const params = buildQueryParams(resolvedFilter, 1, effectivePageSize);
+        baseQueryRef.current = params;
+        setPage(1);
+        const normalized = await generate(params);
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
         setHasGenerated(true);
         setFeedback({ type: "success", message: "Relatório de posições atualizado." });
       } catch (requestError) {
         setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
       }
     },
-    [selectedVehicleId, from, to, generate, resolveAddressFilter, addressQuery],
+    [selectedVehicleId, from, to, generate, resolveAddressFilter, addressQuery, buildQueryParams, effectivePageSize],
   );
 
   useEffect(() => {
@@ -388,15 +416,71 @@ export default function ReportsPositions() {
     const filterKey = `${filter?.lat ?? ""}|${filter?.lng ?? ""}|${filter?.radius ?? ""}|${addressQuery.trim()}`;
     if (filterKey === lastFilterKeyRef.current) return;
     lastFilterKeyRef.current = filterKey;
-    generate({
-      vehicleId: selectedVehicleId,
-      from: new Date(from).toISOString(),
-      to: new Date(to).toISOString(),
-      addressLat: filter?.lat,
-      addressLng: filter?.lng,
-      addressRadius: filter?.radius,
-    }).catch(() => {});
-  }, [addressFilter, addressQuery, from, to, generate, hasGenerated, loading, selectedVehicleId]);
+    const params = buildQueryParams(filter, 1, effectivePageSize);
+    baseQueryRef.current = params;
+    setPage(1);
+    fetchPage(params)
+      .then((normalized) => {
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      })
+      .catch(() => {});
+  }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
+
+  useEffect(() => {
+    if (!hasGenerated || !baseQueryRef.current || isAllPages) return;
+    const params = { ...baseQueryRef.current, page, limit: effectivePageSize };
+    baseQueryRef.current = params;
+    generate(params)
+      .then((normalized) => {
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      })
+      .catch(() => {});
+  }, [effectivePageSize, generate, hasGenerated, isAllPages, page]);
+
+  const handleLoadMore = useCallback(async () => {
+    if (!isAllPages || loadingMore || !meta || !baseQueryRef.current) return;
+    if (meta.currentPage >= meta.totalPages) return;
+    const nextPage = (meta.currentPage || 1) + 1;
+    setLoadingMore(true);
+    try {
+      const params = { ...baseQueryRef.current, page: nextPage, limit: effectivePageSize };
+      baseQueryRef.current = params;
+      const normalized = await fetchPage(params);
+      setPositions((prev) => [...prev, ...(normalized.positions || [])]);
+      setMeta(normalized.meta);
+      setPage(nextPage);
+    } catch (loadError) {
+      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais posições." });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [effectivePageSize, fetchPage, isAllPages, loadingMore, meta]);
+
+  const handlePageSizeChange = useCallback(
+    async (value) => {
+      const normalizedValue = value === "all" ? "all" : Number(value);
+      setPageSize(normalizedValue);
+      setPage(1);
+      if (!hasGenerated || !selectedVehicleId) return;
+      const filter = lastResolvedFilter || addressFilter;
+      const params = buildQueryParams(
+        filter,
+        1,
+        normalizedValue === "all" ? ALL_CHUNK_SIZE : normalizedValue || effectivePageSize,
+      );
+      baseQueryRef.current = params;
+      try {
+        const normalized = await generate(params);
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      } catch (requestError) {
+        setFeedback({ type: "error", message: requestError?.message || "Erro ao aplicar paginação." });
+      }
+    },
+    [addressFilter, buildQueryParams, effectivePageSize, generate, hasGenerated, lastResolvedFilter, selectedVehicleId],
+  );
 
   const handleExportPdf = async () => {
     setFormError("");
@@ -493,6 +577,20 @@ export default function ReportsPositions() {
                 <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
               </div>
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
+                  <span className="whitespace-nowrap">Itens por página</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => handlePageSizeChange(event.target.value === "all" ? "all" : Number(event.target.value))}
+                    className="rounded bg-transparent text-white outline-none"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option} value={option} className="bg-[#0d1117] text-white">
+                        {option === "all" ? "Todos" : option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button
                   type="submit"
                   disabled={loading || geocoding || !selectedVehicleId}
@@ -546,6 +644,29 @@ export default function ReportsPositions() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
               <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
+              {!isAllPages && (
+                <div className="flex items-center gap-2 text-xs text-white/70">
+                  <button
+                    type="button"
+                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                    disabled={currentPage <= 1 || loading}
+                    className="rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 font-semibold text-white/70 transition hover:border-white/30 hover:text-white disabled:opacity-50"
+                  >
+                    ← Anterior
+                  </button>
+                  <span className="whitespace-nowrap">
+                    Página {currentPage} de {totalPages} • {totalItems} itens
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage >= totalPages || loading}
+                    className="rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 font-semibold text-white/70 transition hover:border-white/30 hover:text-white disabled:opacity-50"
+                  >
+                    Próxima →
+                  </button>
+                </div>
+              )}
             </div>
           </header>
 
@@ -649,12 +770,24 @@ export default function ReportsPositions() {
         <MonitoringTable
           rows={filteredRows}
           columns={visibleColumnsWithWidths}
-          loading={loading}
+          loading={loading || loadingMore}
           emptyText="Nenhuma posição encontrada para o período selecionado."
           columnWidths={columnPrefs?.widths}
           onColumnWidthChange={handleColumnWidthChange}
         />
       </section>
+      {isAllPages && meta && meta.currentPage < meta.totalPages && (
+        <div className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
+          >
+            {loadingMore ? "Carregando..." : "Carregar mais"}
+          </button>
+        </div>
+      )}
 
       {activePopup === "columns" && (
         <MonitoringColumnSelector

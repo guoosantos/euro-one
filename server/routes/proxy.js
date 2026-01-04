@@ -17,6 +17,7 @@ import {
   fetchEventsWithFallback,
   fetchLatestPositions,
   fetchLatestPositionsWithFallback,
+  countPositions,
   fetchPositions,
   fetchPositionsByIds,
   fetchTrips,
@@ -55,6 +56,7 @@ import {
   telemetryAliases,
   telemetryAttributeCatalog,
   resolveTelemetryDescriptor,
+  resolveEventDescriptor,
   ioFriendlyNames,
 } from "../../shared/telemetryDictionary.js";
 
@@ -1083,6 +1085,17 @@ function collectAttributeTranslations(attributes = {}) {
     const cleanedKey = String(rawKey).trim();
     const lowerKey = cleanedKey.toLowerCase();
     if (!cleanedKey) return;
+
+    if (["event", "eventcode", "eventid", "alarm"].includes(lowerKey)) {
+      const descriptor = resolveEventDescriptor(rawValue);
+      if (descriptor?.labelPt) {
+        extras.set("event", descriptor.labelPt);
+      } else if (rawValue !== null && rawValue !== undefined) {
+        extras.set("event", `Evento ${rawValue}`);
+      }
+      return;
+    }
+
     if (/^(in|out|input|output|entrada|saida|saída|digitalInput|digitalOutput)\d+$/i.test(cleanedKey)) return;
     if (/^(io)\d+$/i.test(cleanedKey)) {
       const friendly = ioFriendlyNames[lowerKey];
@@ -3360,7 +3373,23 @@ router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res,
   }
 });
 
-async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter }) {
+function normalizePagination(query = {}) {
+  const page = Math.max(1, Number(query.page) || 1);
+  const limitRaw = query.limit === "all" ? null : Number(query.limit);
+  const limit =
+    query.limit === undefined
+      ? 50
+      : query.limit === "all"
+        ? null
+        : Number.isFinite(limitRaw) && limitRaw > 0
+          ? limitRaw
+          : 50;
+  const offsetRaw = Number(query.offset);
+  const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : null;
+  return { page, limit, offset };
+}
+
+async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null }) {
   if (!vehicleId) {
     throw createError(400, "vehicleId é obrigatório");
   }
@@ -3382,7 +3411,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   }
 
   const traccarId = String(device.traccarId);
-  const positions = await fetchPositions([traccarId], from, to, {});
+  const page = pagination?.page || 1;
+  const limit = pagination?.limit || null;
+  const offset = pagination?.offset ?? (limit ? (page - 1) * limit : null);
+  const positions = await fetchPositions([traccarId], from, to, { limit, offset });
   const protocol =
     device?.protocol ||
     device?.attributes?.protocol ||
@@ -3663,6 +3695,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   });
   const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue: columnHasValue });
 
+  const totalItems = pagination ? await countPositions([traccarId], from, to) : mapped.length;
+  const pageSize = limit || mapped.length || 1;
+  const totalPages = limit ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
+  const currentPage = limit ? page : 1;
+
   const meta = {
     generatedAt: new Date().toISOString(),
     from,
@@ -3678,6 +3715,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     },
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
     availableColumns: columns.map((column) => column.key),
+    totalItems,
+    totalPages,
+    currentPage,
+    pageSize,
   };
 
   return { positions: mapped, meta: { ...meta, columns } };
@@ -3707,9 +3748,14 @@ router.get("/reports/positions", async (req, res) => {
     const from = parseDateOrThrow(req.query?.from, "from");
     const to = parseDateOrThrow(req.query?.to, "to");
     const addressFilter = parseAddressFilterQuery(req.query);
+    const pagination = normalizePagination(req.query);
 
-    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
-    return res.status(200).json({ data: report.positions, meta: report.meta, error: null });
+    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    return res.status(200).json({
+      data: report.positions,
+      meta: report.meta,
+      error: null,
+    });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");

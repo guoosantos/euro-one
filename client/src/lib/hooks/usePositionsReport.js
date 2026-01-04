@@ -5,10 +5,8 @@ import API_ROUTES from "../api-routes.js";
 function normalizePositionsPayload(payload) {
   if (!payload) return { positions: [], meta: null };
   const data = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.positions) ? payload.positions : [];
-  return {
-    positions: data,
-    meta: payload?.meta || payload?.__meta || null,
-  };
+  const meta = payload?.meta || payload?.__meta || null;
+  return { positions: data, meta };
 }
 
 async function resolveBlobErrorMessage(error) {
@@ -33,13 +31,17 @@ export default function usePositionsReport() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const fetchPage = useCallback(async (params) => {
+    const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.reports.positions, { params });
+    if (requestError) throw requestError;
+    return normalizePositionsPayload(payload);
+  }, []);
+
   const generate = useCallback(async (params) => {
     setLoading(true);
     setError(null);
     try {
-      const { data: payload, error: requestError } = await safeApi.get(API_ROUTES.reports.positions, { params });
-      if (requestError) throw requestError;
-      const normalized = normalizePositionsPayload(payload);
+      const normalized = await fetchPage(params);
       setData(normalized);
       return normalized;
     } catch (requestError) {
@@ -48,7 +50,7 @@ export default function usePositionsReport() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchPage]);
 
   const exportPdf = useCallback(async (payload) => {
     const { data, error: requestError, aborted, status, response } = await safeApi.post(
@@ -87,5 +89,5 @@ export default function usePositionsReport() {
     return data;
   }, []);
 
-  return { data, loading, error, generate, exportPdf };
+  return { data, loading, error, generate, exportPdf, fetchPage };
 }

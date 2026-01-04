@@ -159,20 +159,18 @@ function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf") {
   return resolveColumnLabel(column, variant);
 }
 
-function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitions }) {
+function chunkArray(list = [], size = 500) {
+  if (!Array.isArray(list) || size <= 0) return [list || []];
+  const chunks = [];
+  for (let i = 0; i < list.length; i += size) {
+    chunks.push(list.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitions = new Map(), chunkSize = 500 }) {
   const tableHeaders = columns
     .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
-    .join("");
-  const tableRows = rows
-    .map((row) => {
-      const cells = columns
-        .map((key) => {
-          const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
-          return `<td>${escapeHtml(formatCellValue(key, row[key], definition))}</td>`;
-        })
-        .join("");
-      return `<tr>${cells}</tr>`;
-    })
     .join("");
   const totalWeight =
     columns.reduce((sum, key) => sum + (columnDefinitions?.get?.(key)?.weight || positionsColumnMap.get(key)?.weight || 1), 0) ||
@@ -184,6 +182,37 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
       return `<col style="width:${percent}%" />`;
     })
     .join("");
+
+  const renderSlice = (sliceRows, index) => {
+    const tableRows = sliceRows
+      .map((row) => {
+        const cells = columns
+          .map((key) => {
+            const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
+            return `<td>${escapeHtml(formatCellValue(key, row[key], definition))}</td>`;
+          })
+          .join("");
+        return `<tr>${cells}</tr>`;
+      })
+      .join("");
+    const pageBreak = index > 0 ? '<div class="page-break"></div>' : "";
+    return `
+      ${pageBreak}
+      <div class="table-wrapper">
+        <table>
+          <colgroup>${colgroup}</colgroup>
+          <thead>
+            <tr>${tableHeaders}</tr>
+          </thead>
+          <tbody>
+            ${tableRows || `<tr><td colspan="${columns.length}">—</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    `;
+  };
+  const slices = chunkArray(rows, chunkSize);
+  const tables = slices.map((slice, index) => renderSlice(slice, index)).join("");
 
   const fontFaces = fontData?.regular
     ? `
@@ -370,6 +399,9 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
         gap: 8px;
         margin-top: 4px;
       }
+      .page-break {
+        page-break-before: always;
+      }
       @page {
         margin: 16mm 12mm 20mm;
       }
@@ -407,17 +439,7 @@ function buildHtml({ rows, columns, meta, logoDataUrl, fontData, columnDefinitio
           <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Indisponível")}</div>
         </div>
       </div>
-      <div class="table-wrapper">
-        <table>
-          <colgroup>${colgroup}</colgroup>
-          <thead>
-            <tr>${tableHeaders}</tr>
-          </thead>
-          <tbody>
-            ${tableRows || `<tr><td colspan=\"${columns.length}\">—</td></tr>`}
-          </tbody>
-        </table>
-      </div>
+      ${tables}
     </div>
   </body>
 </html>
@@ -435,8 +457,31 @@ export function resolvePdfColumns(columns, availableColumns = null) {
   return allowed;
 }
 
-export async function generatePositionsReportPdf({ rows, columns, meta, availableColumns = null }) {
+const MAX_PDF_ROWS = 5000;
+const MAX_PDF_COLUMNS = 30;
+const PDF_CHUNK_SIZE = 500;
 
+export async function generatePositionsReportPdf({
+  rows,
+  columns,
+  meta,
+  availableColumns = null,
+  columnDefinitions = [],
+}) {
+  const totalRows = Array.isArray(rows) ? rows.length : 0;
+  const safeColumns = resolvePdfColumns(columns, availableColumns);
+  if (totalRows > MAX_PDF_ROWS) {
+    const error = new Error(`Limite de linhas para PDF excedido (${totalRows}/${MAX_PDF_ROWS}). Utilize CSV para volumes maiores.`);
+    error.code = "PDF_ROWS_LIMIT";
+    error.status = 422;
+    throw error;
+  }
+  if (safeColumns.length > MAX_PDF_COLUMNS) {
+    const error = new Error(`Limite de colunas para PDF excedido (${safeColumns.length}/${MAX_PDF_COLUMNS}). Reduza as colunas.`);
+    error.code = "PDF_COLUMNS_LIMIT";
+    error.status = 422;
+    throw error;
+  }
   const chromium = await loadChromium();
   let browser = null;
 
@@ -467,7 +512,7 @@ export async function generatePositionsReportPdf({ rows, columns, meta, availabl
     const logoDataUrl = await fetchLogoDataUrl();
     const fontData = ensureFontData();
 
-    const columnsToUse = resolvePdfColumns(columns, availableColumns);
+    const columnsToUse = safeColumns;
 
     const safeRows = Array.isArray(rows) ? rows : [];
     const columnMap = Array.isArray(columnDefinitions)
@@ -480,6 +525,7 @@ export async function generatePositionsReportPdf({ rows, columns, meta, availabl
       logoDataUrl,
       fontData,
       columnDefinitions: columnMap,
+      chunkSize: PDF_CHUNK_SIZE,
     });
 
     await page.setContent(html, { waitUntil: "networkidle" });
