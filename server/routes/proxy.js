@@ -874,7 +874,7 @@ function extractSatellites(attributes = {}) {
 
 function extractHdop(attributes = {}) {
   if (!attributes || typeof attributes !== "object") return null;
-  const keys = ["hdop", "Hdop", "horizontalDilution", "dilution"];
+  const keys = ["hdop", "Hdop", "HDOP", "hDop", "horizontalDilution", "dilution"];
   for (const key of keys) {
     if (attributes[key] === undefined || attributes[key] === null) continue;
     const numeric = Number(attributes[key]);
@@ -981,17 +981,6 @@ function extractDigitalInputs(attributes = {}) {
 
 function extractDigitalOutputs(attributes = {}) {
   return extractDigitalIo(attributes, { kind: "output" });
-}
-
-function extractHdop(attributes = {}) {
-  if (!attributes || typeof attributes !== "object") return null;
-  const candidates = ["hdop", "HDOP", "hDop"];
-  for (const key of candidates) {
-    if (attributes[key] === undefined || attributes[key] === null) continue;
-    const numeric = Number(attributes[key]);
-    return Number.isFinite(numeric) ? numeric : attributes[key];
-  }
-  return null;
 }
 
 function extractVehicleVoltage(attributes = {}, protocol = null) {
@@ -3664,14 +3653,14 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         ? "Desligada"
         : "Indisponível";
 
-  const hasValue = new Map();
+  const columnHasValue = new Map();
   mappedChronological.forEach((position) => {
     Object.entries(position).forEach(([key, value]) => {
       if (!isDisplayableValue(value)) return;
-      hasValue.set(key, true);
+      columnHasValue.set(key, true);
     });
   });
-  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue });
+  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue: columnHasValue });
 
   const meta = {
     generatedAt: new Date().toISOString(),
