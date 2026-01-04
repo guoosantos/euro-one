@@ -39,3 +39,5 @@ Thumbs.db
 server/data/storage.json
 server/data/storage.json.bak_*
 tatus
+
+.pm2
