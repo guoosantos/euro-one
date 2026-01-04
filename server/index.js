@@ -53,7 +53,7 @@ async function bootstrap() {
   const liveSockets = new Map();
   const wss = new WebSocketServer({ noServer: true, path: "/ws/live" });
   const TELEMETRY_INTERVAL_MS = Number(process.env.WS_LIVE_INTERVAL_MS) || 5000;
-  let stopSync;
+  let stopSync = () => {};
   let telemetryInterval;
 
   const traccarMode = describeTraccarMode({ traccarDbConfigured: isTraccarDbConfigured() });
@@ -187,26 +187,57 @@ async function bootstrap() {
     });
   });
 
-  try {
-    const traccarInit = await initializeTraccarAdminSession();
-    if (traccarInit?.ok) {
-      stopSync = startTraccarSyncJob();
-    } else {
-      console.warn("Sincronização automática do Traccar não iniciada no startup.", traccarInit?.reason || "");
-      stopSync = () => {};
-    }
-  } catch (error) {
-    stopSync = () => {};
-    console.warn("Não foi possível inicializar a sessão administrativa do Traccar", error?.message || error);
-  }
+  server.listen(PORT, () => {
+    console.log(`API Rodando na porta ${PORT}`);
+  });
+
+  const runWithTimeout = (operation, timeoutMs, label) => {
+    const controller = new AbortController();
+    let timeoutId;
+
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort(new Error(`${label} timed out after ${timeoutMs}ms`));
+        reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    const operationPromise = Promise.resolve().then(() => operation(controller.signal));
+    operationPromise.catch(() => {});
+
+    return Promise.race([operationPromise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
+  };
 
   telemetryInterval = setInterval(() => {
     void dispatchTelemetry();
   }, TELEMETRY_INTERVAL_MS);
 
-  server.listen(PORT, () => {
-    console.log(`API Rodando na porta ${PORT}`);
-  });
+  const traccarInitTimeout = Number(process.env.TRACCAR_INIT_TIMEOUT_MS) || 5000;
+  runWithTimeout(
+    (signal) => initializeTraccarAdminSession({ signal }),
+    traccarInitTimeout,
+    "initializeTraccarAdminSession",
+  )
+    .then((traccarInit) => {
+      if (traccarInit?.ok) {
+        stopSync = startTraccarSyncJob();
+      } else {
+        console.warn(
+          "Sincronização automática do Traccar não iniciada no startup.",
+          traccarInit?.reason || "",
+        );
+        stopSync = () => {};
+      }
+    })
+    .catch((error) => {
+      stopSync = () => {};
+      console.warn(
+        "[startup] Inicialização do Traccar não concluída (timeout ou falha). Seguindo em modo degradado.",
+        error?.message || error,
+      );
+    });
 
   const shutdown = () => {
     if (stopSync) {
