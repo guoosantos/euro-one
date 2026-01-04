@@ -7,6 +7,7 @@ import {
   fetchEvents,
   fetchLatestPositions,
   fetchTrips,
+  ensureFullAddressForPositions,
 } from "../services/traccar-db.js";
 
 const defaultEnv = { ...process.env };
@@ -145,5 +146,55 @@ describe("traccar-db", () => {
       assert.equal(error.status, 503);
       return true;
     });
+  });
+
+  it("resolve e persiste full_address em lote respeitando cache local", async () => {
+    let updateCount = 0;
+    const captured = [];
+    const fakePool = {
+      query: async (_sql, params) => {
+        if (params?.length === 2) {
+          updateCount += 1;
+          captured.push(params[0]);
+        }
+        return [];
+      },
+    };
+
+    __setTraccarDbTestOverrides({
+      pool: fakePool,
+      dialect: {
+        placeholder: (index) => `$${index}`,
+        query: async (pool, sql, params) => pool.query(sql, params),
+      },
+    });
+
+    const positions = [
+      {
+        id: 1,
+        latitude: -19.92345,
+        longitude: -43.93456,
+        address: { addressParts: { street: "Rua Alfa", house_number: "100", city: "BH", state_code: "MG" } },
+        fullAddress: "",
+      },
+      {
+        id: 2,
+        latitude: -19.92345,
+        longitude: -43.93456,
+        address: { addressParts: { street: "Rua Beta", house_number: "200", city: "BH", state_code: "MG" } },
+        fullAddress: null,
+      },
+    ];
+
+    const { resolvedIds, pendingIds } = await ensureFullAddressForPositions(
+      positions.map((item) => item.id),
+      { positions, wait: true, minIntervalMs: 0 },
+    );
+
+    assert.deepEqual(new Set(resolvedIds), new Set([1, 2]));
+    assert.equal(pendingIds.length, 0);
+    assert.equal(updateCount, 2);
+    assert.ok(positions.every((item) => String(item.fullAddress || "").includes("MG")));
+    assert.ok(captured.every((value) => typeof value === "string" && value.length > 0));
   });
 });

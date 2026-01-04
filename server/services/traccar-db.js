@@ -13,6 +13,7 @@ import {
   resolveTraccarApiUrl,
   traccarProxy,
 } from "./traccar.js";
+import { ensurePositionAddress, formatFullAddress } from "../utils/address.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -563,6 +564,114 @@ export async function updatePositionFullAddress(positionId, fullAddress) {
   `;
 
   return await queryTraccarDb(sql, [fullAddress, positionId]);
+}
+
+function createLimiter(concurrency, minIntervalMs) {
+  const queue = [];
+  let active = 0;
+  let lastStart = 0;
+
+  async function run(task) {
+    if (active >= concurrency) {
+      await new Promise((resolve) => queue.push(resolve));
+    }
+
+    const now = Date.now();
+    const elapsed = now - lastStart;
+    if (elapsed < minIntervalMs) {
+      await new Promise((resolve) => setTimeout(resolve, minIntervalMs - elapsed));
+    }
+    lastStart = Date.now();
+    active += 1;
+    try {
+      return await task();
+    } finally {
+      active -= 1;
+      const next = queue.shift();
+      if (next) next();
+    }
+  }
+
+  return (task) => run(task);
+}
+
+export async function ensureFullAddressForPositions(positionIds = [], options = {}) {
+  const ids = Array.from(new Set((positionIds || []).filter(Boolean)));
+  if (!ids.length) return { resolvedIds: [], pendingIds: [] };
+
+  const {
+    positions: providedPositions = [],
+    wait = true,
+    timeoutMs = 15_000,
+    concurrency = 3,
+    minIntervalMs = 1_000,
+    onProgress = null,
+  } = options;
+
+  const positionsById = new Map((providedPositions || []).filter(Boolean).map((item) => [String(item.id), item]));
+  const existing = positionsById.size >= ids.length ? providedPositions : await fetchPositionsByIds(ids);
+  const missing = (existing || []).filter((item) => item && (!item.fullAddress || String(item.fullAddress).trim() === ""));
+
+  if (!missing.length) {
+    return { resolvedIds: [], pendingIds: [] };
+  }
+
+  const limiter = createLimiter(Math.max(1, concurrency), Math.max(0, minIntervalMs));
+  const pendingIds = new Set(missing.map((item) => item.id));
+  const resolvedIds = new Set();
+  const ignoredIds = new Set();
+
+  const tasks = missing.map((item) =>
+    limiter(async () => {
+      try {
+        if (!Number.isFinite(Number(item.latitude)) || !Number.isFinite(Number(item.longitude))) {
+          ignoredIds.add(item.id);
+          return;
+        }
+
+        if (Number(item.latitude) === 0 && Number(item.longitude) === 0) {
+          ignoredIds.add(item.id);
+          return;
+        }
+
+        const enriched = await ensurePositionAddress(item);
+        const formatted = formatFullAddress(
+          enriched.fullAddress || enriched.formattedAddress || enriched.address || item.fullAddress || item.address,
+        );
+        if (!formatted || formatted === "—") {
+          ignoredIds.add(item.id);
+          return;
+        }
+
+        await updatePositionFullAddress(item.id, formatted);
+        item.fullAddress = formatted;
+        resolvedIds.add(item.id);
+        if (typeof onProgress === "function") {
+          onProgress({ id: item.id, fullAddress: formatted });
+        }
+      } catch (error) {
+        console.warn("[traccar-db] falha ao resolver full_address", item?.id, error?.message || error);
+      } finally {
+        pendingIds.delete(item.id);
+      }
+    }),
+  );
+
+  if (!wait) {
+    Promise.allSettled(tasks).catch((error) => {
+      console.warn("[traccar-db] backfill assíncrono falhou", error?.message || error);
+    });
+    return { resolvedIds: Array.from(resolvedIds), pendingIds: Array.from(pendingIds) };
+  }
+
+  const all = Promise.allSettled(tasks);
+  const timed = new Promise((resolve) => setTimeout(resolve, timeoutMs, "timeout"));
+  const result = await Promise.race([all, timed]);
+  if (result === "timeout") {
+    return { resolvedIds: Array.from(resolvedIds), pendingIds: Array.from(pendingIds) };
+  }
+
+  return { resolvedIds: Array.from(resolvedIds), pendingIds: Array.from(pendingIds) };
 }
 
 export async function fetchEvents(deviceIds = [], from, to, limit = 50) {

@@ -22,6 +22,7 @@ import {
   fetchPositionsByIds,
   fetchTrips,
   updatePositionFullAddress,
+  ensureFullAddressForPositions,
 } from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
@@ -33,12 +34,7 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import {
-  enrichPositionsWithAddresses,
-  formatAddress,
-  formatFullAddress,
-  resolveShortAddress,
-} from "../utils/address.js";
+import { enrichPositionsWithAddresses, formatAddress, formatFullAddress, resolveShortAddress } from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -1324,12 +1320,17 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
       ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
       : null;
 
-  const formatted = formatFullAddress(fullAddress || address);
-  if (formatted && formatted !== "—") return formatted;
+  const formattedFull = formatFullAddress(fullAddress);
+  if (formattedFull && formattedFull !== "—") return formattedFull;
+
+  const fallbackSuffix = " (sem geocode)";
+
+  const formatted = formatFullAddress(address);
+  if (formatted && formatted !== "—") return `${formatted}${fallbackSuffix}`;
 
   if (typeof address === "string") {
     const trimmed = address.trim();
-    if (trimmed) return trimmed;
+    if (trimmed) return `${trimmed}${fallbackSuffix}`;
   }
   if (address && typeof address === "object") {
     const candidates = [
@@ -1340,7 +1341,7 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
     ]
       .map((candidate) => (typeof candidate === "string" ? candidate.trim() : ""))
       .filter(Boolean);
-    if (candidates.length) return candidates[0];
+    if (candidates.length) return `${candidates[0]}${fallbackSuffix}`;
 
     const parts = [
       address.road || address.street || address.addressLine1,
@@ -1349,10 +1350,10 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
     ]
       .map((part) => (part ? String(part).trim() : ""))
       .filter(Boolean);
-    if (parts.length) return parts.join(", ");
+    if (parts.length) return `${parts.join(", ")}${fallbackSuffix}`;
   }
 
-  if (coordinateFallback) return coordinateFallback;
+  if (coordinateFallback) return `${coordinateFallback}${fallbackSuffix}`;
   return "Endereço indisponível";
 }
 
@@ -3389,6 +3390,23 @@ function normalizePagination(query = {}) {
   return { page, limit, offset };
 }
 
+async function resolvePositionsFullAddressBatch(positions = [], mode = "blocking") {
+  const ids = positions.filter((position) => position && !position.fullAddress).map((position) => position.id);
+  if (!ids.length) return { resolvedIds: [], pendingIds: [] };
+
+  const wait = mode !== "async";
+  const timeoutMs = 15_000;
+  const result = await ensureFullAddressForPositions(ids, {
+    positions,
+    wait,
+    timeoutMs,
+    concurrency: 3,
+    minIntervalMs: 1_000,
+  });
+
+  return result;
+}
+
 async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null }) {
   if (!vehicleId) {
     throw createError(400, "vehicleId é obrigatório");
@@ -3422,6 +3440,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     positions?.[0]?.attributes?.protocol ||
     null;
   // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
+  const resolveMode = req.query?.addressMode === "async" || req.body?.addressMode === "async" ? "async" : "blocking";
+  await resolvePositionsFullAddressBatch(positions, resolveMode);
   const enrichedPositions = positions;
 
   let filter = null;
