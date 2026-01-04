@@ -13,6 +13,7 @@ import {
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
 import { formatFullAddress } from "../lib/format-address.js";
+import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
@@ -184,15 +185,18 @@ export default function ReportsPositions() {
 
 
   const availableColumns = useMemo(() => {
-    const metaColumns = Array.isArray(data?.meta?.columns) ? data.meta.columns : null;
-    if (metaColumns?.length) {
-      return metaColumns.map((column) => ({
+    // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
+    const positions = Array.isArray(data?.positions) ? data.positions : [];
+    if (positions.length) {
+      const schema = buildPositionsSchema(positions);
+      return schema.map((column) => ({
         ...column,
-        label: column.label || column.labelPt || resolveColumnLabel(column, "pt"),
+        defaultVisible: column.defaultVisible ?? true,
+        width: column.width ?? Math.min(240, Math.max(120, column.label.length * 7)),
       }));
     }
     return FALLBACK_COLUMNS;
-  }, [data?.meta?.columns]);
+  }, [data?.positions]);
 
   const availableColumnKeys = useMemo(
     () => availableColumns.map((column) => column.key),
@@ -211,6 +215,13 @@ export default function ReportsPositions() {
   useEffect(() => {
     setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
   }, [defaults]);
+
+  useEffect(() => {
+    const positionsCount = Array.isArray(data?.positions) ? data.positions.length : 0;
+    if (positionsCount > 0 || availableColumns.length === 0) {
+      console.info("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
+    }
+  }, [availableColumns.length, data?.positions]);
 
 
   const visibleColumns = useMemo(
@@ -239,7 +250,7 @@ export default function ReportsPositions() {
         serverTime: formatDateTime(position.serverTime),
         latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
         longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-        address: normalizeAddressDisplay(position.address, position.latitude, position.longitude),
+        address: normalizeAddressDisplay(position.fullAddress || position.address, position.latitude, position.longitude),
         lat: position.latitude,
         lng: position.longitude,
         speed: formatSpeed(position.speed),
@@ -288,10 +299,14 @@ export default function ReportsPositions() {
             : "—",
       };
 
-      Object.keys(position || {}).forEach((key) => {
+      const attributes = position?.attributes && typeof position.attributes === "object" ? position.attributes : {};
+      const keys = new Set([...Object.keys(position || {}), ...Object.keys(attributes)]);
+      keys.forEach((key) => {
+        if (key === "attributes" || key === "protocol") return;
         if (row[key] !== undefined) return;
         const definition = columnDefinitionMap.get(key);
-        row[key] = formatDynamicValue(key, position[key], definition);
+        const sourceValue = key in position ? position[key] : attributes[key];
+        row[key] = formatDynamicValue(key, sourceValue, definition);
       });
 
       return row;

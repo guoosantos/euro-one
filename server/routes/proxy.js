@@ -20,7 +20,7 @@ import {
   fetchPositions,
   fetchPositionsByIds,
   fetchTrips,
-  updatePositionAddress,
+  updatePositionFullAddress,
 } from "../services/traccar-db.js";
 import {
   enforceClientGroupInQuery,
@@ -36,7 +36,6 @@ import {
   enrichPositionsWithAddresses,
   formatAddress,
   formatFullAddress,
-  prefetchPositionAddresses,
   resolveShortAddress,
 } from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
@@ -1207,6 +1206,7 @@ const ATTRIBUTE_ALIAS_KEYS = new Set([
 function shouldIgnoreAttributeKey(key) {
   const normalized = String(key || "").trim().toLowerCase();
   if (!normalized) return true;
+  if (normalized === "protocol") return true;
   if (BASE_COLUMN_KEYS.has(normalized)) return true;
   if (ATTRIBUTE_ALIAS_KEYS.has(normalized)) return true;
   if (normalized.match(/^(?:in|input|entrada|digitalinput)\\d+$/i)) return true;
@@ -1305,13 +1305,13 @@ function parseAddressFilterQuery(query = {}) {
   };
 }
 
-function normalizeAddressValue(address, lat = null, lng = null) {
+function normalizeAddressValue(address, lat = null, lng = null, fullAddress = null) {
   const coordinateFallback =
     Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
       ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
       : null;
 
-  const formatted = formatFullAddress(address);
+  const formatted = formatFullAddress(fullAddress || address);
   if (formatted && formatted !== "—") return formatted;
 
   if (typeof address === "string") {
@@ -1343,11 +1343,12 @@ function normalizeAddressValue(address, lat = null, lng = null) {
   return "Endereço indisponível";
 }
 
-async function persistMissingPositionAddresses(positions = [], missingIds = new Set()) {
+async function persistMissingPositionFullAddresses(positions = [], missingIds = new Set()) {
   if (!missingIds.size) return;
   for (const position of positions) {
     if (!position?.id || !missingIds.has(position.id)) continue;
     const formatted =
+      position.fullAddress ||
       position.formattedAddress ||
       position.address?.formattedAddress ||
       position.address?.formatted ||
@@ -1356,9 +1357,9 @@ async function persistMissingPositionAddresses(positions = [], missingIds = new 
     const full = formatFullAddress(formatted);
     if (!full || full === "—") continue;
     try {
-      await updatePositionAddress(position.id, full);
+      await updatePositionFullAddress(position.id, full);
     } catch (error) {
-      console.warn("[reports/positions] falha ao salvar endereço", error?.message || error);
+      console.warn("[positions] falha ao salvar full_address", error?.message || error);
     }
   }
 }
@@ -2215,7 +2216,11 @@ router.get("/positions", async (req, res, next) => {
     const limit = req.query?.limit ? Number(req.query.limit) : null;
 
     const positions = await fetchPositions(deviceIdsToQuery, from, to, { limit });
+    const missingFullAddressIds = new Set(
+      positions.filter((position) => !position?.fullAddress).map((position) => position.id),
+    );
     const data = await enrichPositionsWithAddresses(positions);
+    await persistMissingPositionFullAddresses(data, missingFullAddressIds);
 
     const enriched = data.map((position) => decoratePositionWithDevice(position, lookup)).filter(Boolean);
 
@@ -3378,18 +3383,14 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
   const traccarId = String(device.traccarId);
   const positions = await fetchPositions([traccarId], from, to, {});
-  const missingAddressIds = new Set(
-    positions.filter((position) => !position?.address || position.address === "Endereço não disponível").map((position) => position.id),
-  );
   const protocol =
     device?.protocol ||
     device?.attributes?.protocol ||
     positions?.[0]?.protocol ||
     positions?.[0]?.attributes?.protocol ||
     null;
-  prefetchPositionAddresses(positions);
-  const enrichedPositions = await enrichPositionsWithAddresses(positions);
-  await persistMissingPositionAddresses(enrichedPositions, missingAddressIds);
+  // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
+  const enrichedPositions = positions;
 
   let filter = null;
   if (addressFilter?.lat != null && addressFilter?.lng != null) {
@@ -3465,7 +3466,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         serverTime: position.serverTime || null,
         latitude: position.latitude ?? null,
         longitude: position.longitude ?? null,
-        address: normalizeAddressValue(position.address, position.latitude, position.longitude),
+        address: normalizeAddressValue(position.address, position.latitude, position.longitude, position.fullAddress),
         speed: speedKmh,
         direction: position.course ?? null,
         ignition,

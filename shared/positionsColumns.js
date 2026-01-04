@@ -1,3 +1,5 @@
+import { resolveTelemetryDescriptor } from "./telemetryDictionary.js";
+
 const BASE_COLUMNS = [
   { key: "gpsTime", labelPt: "Hora GPS", labelPdf: "Hora GPS", width: 140, defaultVisible: true, weight: 1.4, group: "base" },
   { key: "address", labelPt: "Endereço", labelPdf: "Endereço", width: 260, defaultVisible: true, weight: 2.6, group: "base" },
@@ -201,6 +203,35 @@ function resolveVoltagePattern(key) {
 
 export const positionsColumns = BASE_COLUMNS;
 export const positionsColumnMap = new Map(BASE_COLUMNS.map((column) => [column.key, column]));
+
+export function resolveColumn(key) {
+  if (!key) return null;
+  const normalized = normalizeKey(key);
+  if (!normalized) return null;
+  if (normalized.toLowerCase() === "protocol") return null;
+
+  const definition = resolveColumnDefinition(normalized) || resolveColumnDefinition(key);
+  const descriptor = resolveTelemetryDescriptor(normalized) || resolveTelemetryDescriptor(key);
+  if (!definition && !descriptor) return null;
+
+  if (descriptor && (!definition || definition.labelPt === buildFriendlyLabel(definition.key))) {
+    return {
+      key: descriptor.key || normalized,
+      label: descriptor.labelPt || buildFriendlyLabel(normalized),
+      type: descriptor.type || null,
+      unit: descriptor.unit || null,
+      priority: descriptor.priority ?? resolveColumnGroupOrder(definition?.group),
+    };
+  }
+
+  return {
+    key: definition?.key || normalized,
+    label: definition ? resolveColumnLabel(definition, "pt") : buildFriendlyLabel(normalized),
+    type: definition?.type || null,
+    unit: definition?.unit || null,
+    priority: resolveColumnGroupOrder(definition?.group),
+  };
+}
 
 export function resolveColumnLabel(column, variant = "pt") {
   if (!column) return "[SEM TRADUÇÃO]";
