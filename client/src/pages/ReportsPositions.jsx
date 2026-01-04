@@ -209,7 +209,7 @@ export default function ReportsPositions() {
       }));
     }
     return FALLBACK_COLUMNS;
-  }, [data?.positions]);
+  }, [positions]);
 
   const availableColumnKeys = useMemo(
     () => availableColumns.map((column) => column.key),
