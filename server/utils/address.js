@@ -46,13 +46,19 @@ function formatFullAddressFromParts(parts = {}) {
     parts.houseNumber || parts.house_number || parts.house || (street ? "s/n" : null);
   const neighbourhood = parts.neighbourhood || parts.suburb || parts.quarter;
   const city = parts.city || parts.town || parts.village || parts.municipality;
-  const state = parts.state || parts.region || parts.state_district || parts.stateCode;
-  const countryCode = parts.countryCode || parts.country_code || parts.countryCodeIso;
+  const state = parts.stateCode || parts.state_code || parts.state || parts.region || parts.state_district;
+  const country =
+    parts.country ||
+    parts.countryName ||
+    parts.country_name ||
+    parts.countryCode ||
+    parts.country_code ||
+    parts.countryCodeIso;
   const postalCode = parts.postalCode || parts.postcode || parts.zipcode;
 
   const firstLine = [street, houseNumber].filter(Boolean).join(", ");
   const locality = [neighbourhood, city].filter(Boolean).join(", ");
-  const region = [state, countryCode, postalCode].filter(Boolean).join(", ");
+  const region = [state, country, postalCode].filter(Boolean).join(", ");
 
   const formatted = [firstLine, locality, region].filter(Boolean).join(" - ");
   return formatted || null;

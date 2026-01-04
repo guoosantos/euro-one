@@ -188,6 +188,7 @@ function normalisePositionRow(row) {
     protocol: row.protocol ?? null,
     network: parseJson(row.network),
     address: row.address ? String(row.address) : null,
+    fullAddress: row.full_address ?? row.fullAddress ?? null,
     attributes,
   };
 }
@@ -343,7 +344,7 @@ export async function fetchTrips(deviceId, from, to) {
   }
 
   const sql = `
-    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, attributes
+    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, attributes
     FROM ${POSITION_TABLE}
     WHERE deviceid = ${dialect.placeholder(1)}
       AND fixtime BETWEEN ${dialect.placeholder(2)} AND ${dialect.placeholder(3)}
@@ -392,6 +393,7 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
       latest.protocol,
       latest.network,
       latest.address,
+      latest.full_address,
       latest.attributes
     FROM (
       SELECT
@@ -505,6 +507,7 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null } 
       protocol,
       network,
       address,
+      full_address,
       attributes
     FROM ${POSITION_TABLE}
     WHERE ${conditions.join(" AND ")}
@@ -516,8 +519,8 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null } 
   return rows.map(normalisePositionRow).filter((position) => position && position.deviceId !== null && position.fixTime);
 }
 
-export async function updatePositionAddress(positionId, address) {
-  if (!positionId || !address) return null;
+export async function updatePositionFullAddress(positionId, fullAddress) {
+  if (!positionId || !fullAddress) return null;
   const dialect = resolveDialect();
   if (!dialect) {
     throw createError(500, "Cliente do banco do Traccar não suportado");
@@ -525,12 +528,12 @@ export async function updatePositionAddress(positionId, address) {
 
   const sql = `
     UPDATE ${POSITION_TABLE}
-    SET address = ${dialect.placeholder(1)}
+    SET full_address = ${dialect.placeholder(1)}
     WHERE id = ${dialect.placeholder(2)}
-      AND (address IS NULL OR address = '' OR address = 'Endereço não disponível')
+      AND (full_address IS NULL OR full_address = '')
   `;
 
-  return await queryTraccarDb(sql, [address, positionId]);
+  return await queryTraccarDb(sql, [fullAddress, positionId]);
 }
 
 export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
@@ -650,6 +653,7 @@ export async function fetchPositionsByIds(positionIds = []) {
       protocol,
       network,
       address,
+      full_address,
       attributes
     FROM ${POSITION_TABLE}
     WHERE id IN (${placeholders})
