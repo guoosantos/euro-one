@@ -66,6 +66,7 @@ const defaultDeps = {
   ensureTraccarRegistryConsistency,
   getCachedTraccarResources: traccarSyncService.getCachedTraccarResources,
   enrichPositionsWithAddresses: addressUtils.enrichPositionsWithAddresses,
+  ensureCachedPositionAddress: addressUtils.ensureCachedPositionAddress,
 };
 
 const deps = { ...defaultDeps };
@@ -1194,8 +1195,11 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
               timestamp: rawPosition.serverTime || rawPosition.deviceTime || rawPosition.fixTime,
             })
           : null;
+        const warmedPosition = normalisedPosition
+          ? deps.ensureCachedPositionAddress(normalisedPosition, { priority: "normal" })
+          : null;
         const lastUpdate =
-          normalisedPosition?.timestamp ||
+          warmedPosition?.timestamp ||
           rawPosition?.serverTime ||
           rawPosition?.deviceTime ||
           rawPosition?.fixTime ||
@@ -1215,7 +1219,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
           traccarId,
           vehicle: mergedVehicle,
           client: mergedClient,
-          position: normalisedPosition,
+          position: warmedPosition,
           rawPosition,
           lastUpdate,
         };
@@ -1266,19 +1270,22 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
             timestamp: position.serverTime || position.deviceTime || position.fixTime,
           })
         : null;
+      const warmedPosition = normalisedPosition
+        ? deps.ensureCachedPositionAddress(normalisedPosition, { priority: "normal" })
+        : null;
 
       const attributesSource =
-        normalisedPosition?.rawAttributes ||
-        normalisedPosition?.attributes ||
+        warmedPosition?.rawAttributes ||
+        warmedPosition?.attributes ||
         position?.attributes ||
         best?.device?.rawPosition?.attributes ||
         {};
       const applicableMappings = filterMappingsForDevice(telemetryMappings, {
         deviceId: principalDevice?.traccarId || principalDevice?.id,
-        protocol: normalisedPosition?.protocol || metadataById.get(String(principalDevice?.traccarId))?.protocol,
+        protocol: warmedPosition?.protocol || metadataById.get(String(principalDevice?.traccarId))?.protocol,
       });
       const mappedAttributes = buildMappedAttributes(attributesSource, applicableMappings);
-      const positionWithMapping = normalisedPosition ? { ...normalisedPosition, mappedAttributes } : null;
+      const positionWithMapping = warmedPosition ? { ...warmedPosition, mappedAttributes } : null;
 
       const deviceMetadata = metadataById.get(String(principalDevice?.traccarId || principalDevice?.id)) || null;
       const deviceMatch = principalDevice ? devicesByTraccarId.get(String(principalDevice.traccarId || principalDevice.id)) : null;
@@ -1290,7 +1297,7 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
             name: deviceMetadata?.name || principalDevice?.name || principalDevice?.uniqueId || String(principalDevice?.id),
             uniqueId: deviceMetadata?.uniqueId || principalDevice?.uniqueId || null,
             status: deviceMetadata?.status || "unknown",
-            lastUpdate: deviceMetadata?.lastUpdate || normalisedPosition?.timestamp || null,
+            lastUpdate: deviceMetadata?.lastUpdate || warmedPosition?.timestamp || null,
             vehicleId: principalDevice?.vehicleId || vehicle?.id || null,
             vehicle: principalDevice?.vehicle || vehicle || null,
           }
