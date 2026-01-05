@@ -11,6 +11,7 @@ import { translateEventType } from "../lib/event-translations.js";
 import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
+import { formatAddress } from "../lib/format-address.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import Card from "../ui/Card";
@@ -461,7 +462,9 @@ export default function Home() {
                   <td className="py-2 pr-4">
                     <SeverityBadge severity={event.severity} />
                   </td>
-                  <td className="py-2 pr-4 text-white/70">{event.attributes?.address ?? event.address ?? "—"}</td>
+                  <td className="py-2 pr-4 text-white/70">
+                    {formatAddress(event.attributes?.address ?? event.address)}
+                  </td>
                   <td className="py-2 pr-4 text-right">
                     <button
                       type="button"

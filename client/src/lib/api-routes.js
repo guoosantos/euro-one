@@ -23,6 +23,7 @@ export const API_ROUTES = {
     summary: "traccar/reports/summary",
     route: "traccar/reports/route",
     positions: "reports/positions",
+    analytic: "reports/analytic",
     positionsPdf: "reports/positions/pdf",
     positionsXlsx: "reports/positions/xlsx",
     positionsCsv: "reports/positions/csv",

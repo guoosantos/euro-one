@@ -210,6 +210,7 @@ export default function Sidebar() {
 
   const reportLinks = [
     { to: "/reports/positions", label: "Relatório de Posições", icon: FileBarChart },
+    { to: "/reports/analytic", label: "Relatório Analítico", icon: FileBarChart },
   ];
 
   const analysisLinks = [

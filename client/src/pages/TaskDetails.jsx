@@ -5,6 +5,7 @@ import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { CoreApi } from "../lib/coreApi.js";
 import { formatDate } from "../lib/fleet-utils.js";
+import { formatAddress } from "../lib/format-address.js";
 
 export default function TaskDetails() {
   const { id } = useParams();
@@ -64,7 +65,7 @@ export default function TaskDetails() {
       <div className="flex items-center justify-between">
         <div>
           <div className="text-lg font-semibold text-white">{t("tasks.detailsTitle")}</div>
-          <div className="text-sm text-white/60">{task.address || t("tasks.addressPlaceholder")}</div>
+          <div className="text-sm text-white/60">{formatAddress(task.address || t("tasks.addressPlaceholder"))}</div>
         </div>
         <button className="btn" onClick={() => navigate("/tasks")}>{t("back")}</button>
       </div>
@@ -84,7 +85,7 @@ export default function TaskDetails() {
         />
         <Detail label={t("tasks.createdAt")} value={task.createdAt ? formatDate(task.createdAt) : "—"} />
         <Detail label={t("tasks.geofenceRadius")} value={task.geofenceRadius || "—"} />
-        <Detail label="GeoFence" value={task.geoFenceId || "—"} />
+        <Detail label={t("tasks.geofence")} value={task.geoFenceId || "—"} />
       </div>
 
       {timeline.length ? (

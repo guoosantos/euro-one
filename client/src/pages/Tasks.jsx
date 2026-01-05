@@ -8,6 +8,7 @@ import useDrivers from "../lib/hooks/useDrivers.js";
 import useTasks from "../lib/hooks/useTasks.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { formatDate } from "../lib/fleet-utils.js";
+import { formatAddress } from "../lib/format-address.js";
 
 export default function Tasks() {
   const { t } = useTranslation();
@@ -239,7 +240,7 @@ export default function Tasks() {
                     {driverIndex[task.driverId]?.name || "—"}
                   </td>
                   <td className="py-2 pr-4 text-white/80">
-                    {task.address || "—"}
+                    {formatAddress(task.address)}
                   </td>
                   <td className="py-2 pr-4 text-white/70">
                     {task.startTimeExpected

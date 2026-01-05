@@ -88,6 +88,24 @@ function normalizeInput(rawAddress) {
     return { address: rawAddress };
   }
   if (typeof rawAddress === "object") {
+    const looksLikeParts = [
+      "road",
+      "street",
+      "streetName",
+      "route",
+      "logradouro",
+      "endereco",
+      "suburb",
+      "neighbourhood",
+      "bairro",
+      "city",
+      "town",
+      "state",
+      "region",
+      "postcode",
+      "postalCode",
+      "country",
+    ].some((key) => rawAddress[key]);
     const parts = rawAddress.addressParts || rawAddress.parts || rawAddress.attributes?.addressParts || null;
     return {
       address:
@@ -100,7 +118,7 @@ function normalizeInput(rawAddress) {
         rawAddress.attributes?.formatted ||
         null,
       shortAddress: rawAddress.shortAddress || rawAddress.attributes?.shortAddress || null,
-      parts,
+      parts: parts || (looksLikeParts ? rawAddress : null),
     };
   }
   return null;
@@ -134,12 +152,28 @@ function formatAddressString(rawAddress) {
 }
 
 export function formatAddress(rawAddress) {
+  if (!rawAddress) return "—";
+  if (typeof rawAddress === "string") return rawAddress;
+  if (typeof rawAddress === "object") {
+    const composed = [
+      rawAddress.road,
+      rawAddress.suburb,
+      rawAddress.city,
+      rawAddress.state,
+      rawAddress.postcode,
+      rawAddress.country,
+    ]
+      .filter(Boolean)
+      .join(", ");
+    if (composed) return composed;
+  }
+
   const normalized = normalizeInput(rawAddress);
-  if (!normalized) return "—";
+  if (!normalized) return String(rawAddress);
 
   const preferred = formatFromParts(normalized.parts) || normalized.shortAddress || normalized.formattedAddress;
   const formatted = collapseWhitespace(preferred || formatAddressString(normalized.address || ""));
-  return formatted || "—";
+  return formatted || String(rawAddress);
 }
 
 export function formatFullAddress(rawAddress) {
