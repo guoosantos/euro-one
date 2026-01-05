@@ -1,11 +1,11 @@
-import { formatFullAddress, ensurePositionAddress } from "../utils/address.js";
+import { enqueueGeocodeJob } from "../jobs/geocode.queue.js";
+import { enqueueWarmGeocodeFromPositions, formatFullAddress, getCachedGeocode } from "../utils/address.js";
 import { queryTraccarDb, updatePositionFullAddress } from "./traccar-db.js";
 
 const DEFAULT_BATCH = 500;
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_RATE = 1; // requests per second
 const DEFAULT_MAX = 1000;
-const DEFAULT_MAX_RETRIES = 1;
 
 function isCoordinateFallback(value) {
   if (!value) return false;
@@ -89,40 +89,29 @@ function createLimiter(concurrency, minIntervalMs) {
   return (task) => run(task);
 }
 
-async function processRow(row, { dryRun, maxRetries }) {
-  let attempt = 0;
-  let lastError = null;
-  while (attempt <= maxRetries) {
-    try {
-      const enriched = await ensurePositionAddress({
-        id: row.id,
-        latitude: row.latitude,
-        longitude: row.longitude,
-        address: row.address,
-        fullAddress: row.full_address,
-        attributes: row.attributes,
-      });
-      const formatted = formatFullAddress(
-        enriched.fullAddress || enriched.formattedAddress || enriched.address || row.full_address || row.address,
-      );
-      if (!formatted || formatted === "—" || isCoordinateFallback(formatted)) {
-        return { updated: false };
-      }
-      if (!dryRun) {
-        await updatePositionFullAddress(row.id, formatted);
-      }
-      return { updated: true, fullAddress: formatted };
-    } catch (error) {
-      lastError = error;
-      attempt += 1;
-      if (attempt > maxRetries) {
-        throw error;
-      }
+async function processRow(row, { dryRun, priority }) {
+  const cached = getCachedGeocode(row.latitude, row.longitude);
+  const formatted = formatFullAddress(
+    cached?.formattedAddress || cached?.shortAddress || cached?.address || row.full_address || row.address,
+  );
+
+  if (formatted && formatted !== "—" && !isCoordinateFallback(formatted)) {
+    if (!dryRun) {
+      await updatePositionFullAddress(row.id, formatted);
     }
+    return { updated: true, fullAddress: formatted };
   }
 
-  if (lastError) throw lastError;
-  return { updated: false };
+  await enqueueGeocodeJob({
+    lat: row.latitude,
+    lng: row.longitude,
+    positionId: row.id,
+    deviceId: row.deviceid ?? row.deviceId ?? null,
+    reason: "warm_fill",
+    priority: priority || "high",
+  });
+
+  return { updated: false, queued: true };
 }
 
 export async function backfillPositionFullAddresses(options = {}) {
@@ -134,7 +123,6 @@ export async function backfillPositionFullAddresses(options = {}) {
     rate = DEFAULT_RATE,
     max = DEFAULT_MAX,
     dryRun = false,
-    maxRetries = DEFAULT_MAX_RETRIES,
     logger = console,
   } = options;
 
@@ -158,9 +146,11 @@ export async function backfillPositionFullAddresses(options = {}) {
     const tasks = rows.map((row) =>
       limiter(async () => {
         try {
-          const result = await processRow(row, { dryRun, maxRetries: parsePositiveNumber(maxRetries, DEFAULT_MAX_RETRIES) });
+          const result = await processRow(row, { dryRun, priority: "high" });
           if (result.updated) {
             updated += 1;
+          } else if (result.queued) {
+            await enqueueWarmGeocodeFromPositions([row], { priority: "high", reason: "warm_fill" });
           }
         } catch (error) {
           errors += 1;

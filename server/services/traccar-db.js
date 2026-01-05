@@ -13,7 +13,8 @@ import {
   resolveTraccarApiUrl,
   traccarProxy,
 } from "./traccar.js";
-import { ensureCachedAddresses, ensurePositionAddress, formatFullAddress } from "../utils/address.js";
+import { ensureCachedAddresses, enqueueWarmGeocodeFromPositions, formatFullAddress, getCachedGeocode } from "../utils/address.js";
+import { enqueueGeocodeJob } from "../jobs/geocode.queue.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -210,7 +211,9 @@ function normaliseEventRow(row) {
 
 function decoratePositionsWithGeocode(positions = [], options = {}) {
   const list = Array.isArray(positions) ? positions : [];
-  return ensureCachedAddresses(list, options);
+  const resolved = ensureCachedAddresses(list, options);
+  void enqueueWarmGeocodeFromPositions(resolved, { priority: options.priority || "normal", reason: "warm_fill" });
+  return resolved;
 }
 
 function calculateDistanceKm(from, to) {
@@ -565,7 +568,9 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
   const normalized = rows
     .map(normalisePositionRow)
     .filter((position) => position && position.deviceId !== null && position.fixTime);
-  return decoratePositionsWithGeocode(normalized, { warm: true, priority: "range" });
+  const decorated = decoratePositionsWithGeocode(normalized, { warm: true, priority: "range" });
+  void enqueueWarmGeocodeFromPositions(decorated, { priority: "range", reason: "warm_fill" });
+  return decorated;
 }
 
 export async function updatePositionFullAddress(positionId, fullAddress) {
@@ -647,47 +652,61 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
   }
 
   const limiter = createLimiter(Math.max(1, concurrency), Math.max(0, minIntervalMs));
-  const pendingIds = new Set(missing.map((item) => item.id));
+  const pendingIds = new Set();
   const resolvedIds = new Set();
-  const ignoredIds = new Set();
 
   const tasks = missing.map((item) =>
     limiter(async () => {
       try {
         if (!Number.isFinite(Number(item.latitude)) || !Number.isFinite(Number(item.longitude))) {
-          ignoredIds.add(item.id);
           return;
         }
 
         if (Number(item.latitude) === 0 && Number(item.longitude) === 0) {
-          ignoredIds.add(item.id);
           return;
         }
 
-        const enriched = await ensurePositionAddress(item);
+        const cached = getCachedGeocode(item.latitude, item.longitude);
         const formatted = formatFullAddress(
-          enriched.fullAddress || enriched.formattedAddress || enriched.address || item.fullAddress || item.address,
+          cached?.formattedAddress || cached?.shortAddress || cached?.address || item.fullAddress || item.address,
         );
-        if (!formatted || formatted === "—" || isCoordinateFallback(formatted)) {
-          ignoredIds.add(item.id);
+        if (formatted && formatted !== "—" && !isCoordinateFallback(formatted)) {
+          await updatePositionFullAddress(item.id, formatted);
+          item.fullAddress = formatted;
+          resolvedIds.add(item.id);
+          if (typeof onProgress === "function") {
+            onProgress({ id: item.id, fullAddress: formatted });
+          }
           return;
         }
 
-        await updatePositionFullAddress(item.id, formatted);
-        item.fullAddress = formatted;
-        resolvedIds.add(item.id);
-        if (typeof onProgress === "function") {
-          onProgress({ id: item.id, fullAddress: formatted });
-        }
+        pendingIds.add(item.id);
+        await enqueueGeocodeJob({
+          lat: item.latitude,
+          lng: item.longitude,
+          positionId: item.id,
+          deviceId: item.deviceId ?? item.deviceid ?? null,
+          reason: "warm_fill",
+          priority: "high",
+        });
       } catch (error) {
         console.warn("[traccar-db] falha ao resolver full_address", item?.id, error?.message || error);
-      } finally {
-        pendingIds.delete(item.id);
       }
     }),
   );
 
   if (!wait) {
+    missing.forEach((item) => {
+      const cached = getCachedGeocode(item.latitude, item.longitude);
+      const formatted = formatFullAddress(
+        cached?.formattedAddress || cached?.shortAddress || cached?.address || item.fullAddress || item.address,
+      );
+      if (formatted && formatted !== "—" && !isCoordinateFallback(formatted)) {
+        resolvedIds.add(item.id);
+      } else {
+        pendingIds.add(item.id);
+      }
+    });
     Promise.allSettled(tasks).catch((error) => {
       console.warn("[traccar-db] backfill assíncrono falhou", error?.message || error);
     });

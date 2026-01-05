@@ -7,6 +7,7 @@ const FAILURE_CACHE_TTL = 15 * 1000;
 const RATE_LIMIT_MS = 450;
 const REQUEST_TIMEOUT_MS = 4500;
 const RETRY_DELAY_MS = 500;
+const PENDING_RETRY_DELAYS = [600, 1200, 1800];
 
 const cache = new Map();
 const failureCache = new Map();
@@ -129,37 +130,19 @@ function runWithRateLimit(fn, { signal } = {}) {
   return rateLimitQueue;
 }
 
-async function resolveFromApi(lat, lng, { signal } = {}) {
-  const url = `${REVERSE_URL}?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`;
+async function resolveFromApi(lat, lng, { signal, reason = null, priority = null } = {}) {
+  const search = new URLSearchParams({
+    lat: String(lat),
+    lng: String(lng),
+  });
+  if (reason) search.set("reason", reason);
+  if (priority) search.set("priority", priority);
+  const url = `${REVERSE_URL}?${search.toString()}`;
   const headers = new Headers({ Accept: "application/json" });
   const authorization = resolveAuthorizationHeader();
   if (authorization) headers.set("Authorization", authorization);
 
   const { response, payload } = await fetchWithRetry(() => fetchJson(url, { headers, signal }), { signal });
-  if (!response.ok) {
-    const error = new Error(`Reverse geocode HTTP ${response.status}`);
-    error.status = response.status;
-    error.payload = payload;
-    throw error;
-  }
-  return payload;
-}
-
-async function resolveFromPublic(lat, lng, { signal } = {}) {
-  const url = new URL("https://nominatim.openstreetmap.org/reverse");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("lat", String(lat));
-  url.searchParams.set("lon", String(lng));
-  url.searchParams.set("zoom", "18");
-  url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("accept-language", "pt-BR");
-  url.searchParams.set("countrycodes", "br");
-
-  const { response, payload } = await fetchWithRetry(
-    () => fetchJson(url.toString(), { headers: { Accept: "application/json" }, signal, credentials: "omit" }),
-    { signal },
-  );
-
   if (!response.ok) {
     const error = new Error(`Reverse geocode HTTP ${response.status}`);
     error.status = response.status;
@@ -186,11 +169,27 @@ export async function reverseGeocode(lat, lng, { signal, force = false } = {}) {
 
   if (inFlight.has(key)) return inFlight.get(key);
 
+  const waitForPending = async () => {
+    for (const delay of PENDING_RETRY_DELAYS) {
+      await wait(delay, signal);
+      const followUp = await runWithRateLimit(() => resolveFromApi(normalizedLat, normalizedLng, { signal }), { signal });
+      if (followUp?.status !== "pending") return followUp;
+    }
+    return null;
+  };
+
   const promise = (async () => {
     try {
-      const data = await runWithRateLimit(() => resolveFromApi(normalizedLat, normalizedLng, { signal }), { signal });
+      const reason = force ? "user_action" : undefined;
+      const priority = force ? "high" : undefined;
+      let data = await runWithRateLimit(() => resolveFromApi(normalizedLat, normalizedLng, { signal, reason, priority }), { signal });
+      if (data?.status === "pending") {
+        const followUp = await waitForPending();
+        if (followUp) {
+          data = followUp;
+        }
+      }
       if (data?.status === "fallback") {
-        setCachedFailure(key, true);
         return null;
       }
       const address = formatGeocodeAddress(data);
@@ -198,24 +197,13 @@ export async function reverseGeocode(lat, lng, { signal, force = false } = {}) {
         setCachedReverse(key, address);
         return address;
       }
+      if (data?.status === "pending") {
+        return null;
+      }
       setCachedFailure(key, true);
       return null;
     } catch (error) {
       if (signal?.aborted || error?.name === "AbortError") throw error;
-      try {
-        const fallbackData = await runWithRateLimit(
-          () => resolveFromPublic(normalizedLat, normalizedLng, { signal }),
-          { signal },
-        );
-        const fallbackAddress = formatGeocodeAddress(fallbackData);
-        if (fallbackAddress) {
-          setCachedReverse(key, fallbackAddress);
-          return fallbackAddress;
-        }
-      } catch (_fallbackError) {
-        // ignore fallback errors
-      }
-      setCachedFailure(key, true);
       return null;
     } finally {
       inFlight.delete(key);
