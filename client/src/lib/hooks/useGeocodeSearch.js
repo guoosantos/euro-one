@@ -22,7 +22,7 @@ export function mapGeocoderError(error) {
   if (error?.message === GEOCODER_NETWORK_MESSAGE || error?.cause instanceof TypeError) {
     return GEOCODER_NETWORK_MESSAGE;
   }
-  return error?.message || "Não foi possível buscar endereços.";
+  return error?.message || "Não foi possível buscar endereços agora. Tente novamente.";
 }
 
 function parseCoordinateQuery(term) {
@@ -179,6 +179,12 @@ export default function useGeocodeSearch(mapPreferences) {
           : "Não foi possível buscar endereços.";
       const message = payload?.error?.message || defaultMessage;
       const error = new Error(message);
+      error.status = response.status;
+      throw error;
+    }
+
+    if (payload?.error?.message) {
+      const error = new Error(payload.error.message);
       error.status = response.status;
       throw error;
     }

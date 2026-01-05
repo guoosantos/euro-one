@@ -153,7 +153,7 @@ describe("traccar-db", () => {
     const captured = [];
     const fakePool = {
       query: async (_sql, params) => {
-        if (params?.length === 2) {
+        if (params?.length === 3) {
           updateCount += 1;
           captured.push(params[0]);
         }

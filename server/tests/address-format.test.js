@@ -14,12 +14,12 @@ const SAMPLE_PARTS = {
 
 test("formats Brazilian address parts in the expected compact order", () => {
   const formatted = formatFullAddress({ addressParts: SAMPLE_PARTS });
-  assert.equal(formatted, "Av. Miguel Perrela, 766 - Castelo Belo Horizonte-MG, 31330-290");
+  assert.equal(formatted, "Av. Miguel Perrela, 766 - Castelo Belo Horizonte-MG, 31330-290, Brasil");
 });
 
-test("removes trailing country names and handles missing fields gracefully", () => {
+test("preserves country names and handles missing fields gracefully", () => {
   const formatted = formatFullAddress("Rua Sem Nome, 123, Bairro, Cidade, Estado, Brasil");
-  assert.equal(formatted, "Rua Sem Nome, 123, Bairro, Cidade, Estado");
+  assert.equal(formatted, "Rua Sem Nome, 123, Bairro, Cidade, Estado, Brasil");
 
   const fallback = formatFullAddress({ addressParts: { city: "Cidade", state: "SP" } });
   assert.equal(fallback, "Cidade-SP");
@@ -38,7 +38,7 @@ test("formats Nominatim payload into Brazilian address layout", () => {
     },
   };
   const formatted = formatFullAddress(nominatimPayload);
-  assert.equal(formatted, "Avenida Paulista, 1000 - Bela Vista São Paulo-SP, 01310-000");
+  assert.equal(formatted, "Avenida Paulista, 1000 - Bela Vista São Paulo-SP, 01310-000, Brasil");
 });
 
 test("removes duplicated separators when UF appears twice", () => {

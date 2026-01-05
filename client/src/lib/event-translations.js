@@ -50,6 +50,8 @@ const EVENT_LABELS = {
     door: "Porta",
     engineon: "Motor ligado",
     engineoff: "Motor desligado",
+    faultregister: "Registro de falhas",
+    pcregister: "Registro PC",
   },
   "en-US": {
     generic: "Event",
@@ -99,6 +101,8 @@ const EVENT_LABELS = {
     door: "Door",
     engineon: "Engine on",
     engineoff: "Engine off",
+    faultregister: "Fault register",
+    pcregister: "PC register",
   },
 };
 

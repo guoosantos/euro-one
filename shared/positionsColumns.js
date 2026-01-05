@@ -139,6 +139,57 @@ function toTitleCase(value) {
     .join(" ");
 }
 
+const WORD_TRANSLATIONS = {
+  device: "dispositivo",
+  time: "hora",
+  server: "servidor",
+  gps: "gps",
+  speed: "velocidade",
+  direction: "direção",
+  latitude: "latitude",
+  longitude: "longitude",
+  ignition: "ignição",
+  distance: "distância",
+  total: "total",
+  battery: "bateria",
+  voltage: "tensão",
+  power: "energia",
+  engine: "motor",
+  temperature: "temperatura",
+  temp: "temperatura",
+  signal: "sinal",
+  status: "status",
+  command: "comando",
+  response: "resposta",
+  input: "entrada",
+  output: "saída",
+  door: "porta",
+  front: "dianteira",
+  rear: "traseira",
+  left: "esquerda",
+  right: "direita",
+  clutch: "embreagem",
+  pedal: "pedal",
+  pressed: "pressionado",
+  brake: "freio",
+  handbrake: "freio de mão",
+  fuel: "combustível",
+  level: "nível",
+  seatbelt: "cinto",
+  driver: "motorista",
+  passenger: "passageiro",
+};
+
+function translateWords(value) {
+  return value
+    .split(" ")
+    .map((part) => {
+      const key = part.toLowerCase();
+      return WORD_TRANSLATIONS[key] || part;
+    })
+    .join(" ");
+}
+
 function splitWords(value) {
   return value
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
@@ -150,10 +201,11 @@ function splitWords(value) {
 function buildFriendlyLabel(key) {
   const normalized = splitWords(String(key || ""));
   if (!normalized) return "Campo";
-  if (normalized.toLowerCase().startsWith("sensor ")) {
-    return toTitleCase(normalized);
+  const translated = translateWords(normalized);
+  if (translated.toLowerCase().startsWith("sensor ")) {
+    return toTitleCase(translated);
   }
-  return toTitleCase(normalized);
+  return toTitleCase(translated);
 }
 
 function withUnit(label, unit) {

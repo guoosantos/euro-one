@@ -13,6 +13,7 @@ import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.j
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { EventsTable } from "./EventsTable.js";
 
 const EVENT_TABS = ["Relatório", "Criticidade"];
 const EVENT_TYPES = [
@@ -119,6 +120,7 @@ const POWER_DISCONNECTED_TYPES = new Set([
 
 function cleanAddress(address) {
   if (!address) return null;
+  if (typeof address === "object") return null;
   const text = String(address).trim();
   return UNAVAILABLE_ADDRESSES.has(text) ? null : text;
 }
@@ -224,7 +226,7 @@ function buildInitialColumns() {
 }
 
 export default function Events() {
-  const { locale } = useTranslation();
+  const { locale, t } = useTranslation();
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();
@@ -523,7 +525,9 @@ export default function Events() {
         severity,
         protocol,
         address: cleanAddress(
-          event?.address ||
+          event?.shortAddress ||
+            event?.formattedAddress ||
+            event?.address ||
             positionFromEvent?.address ||
             positionFromId?.address ||
             position?.address ||
@@ -822,77 +826,15 @@ export default function Events() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
-              <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
-                <colgroup>
-                  {visibleColumns.map((column) => (
-                    <col key={column.id} style={getWidthStyle(column.id)} />
-                  ))}
-                </colgroup>
-                <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] text-left text-[11px] uppercase tracking-[0.12em] text-white/60 shadow-sm">
-                  <tr>
-                    {visibleColumns.map((column) => (
-                      <th
-                        key={column.id}
-                        style={getWidthStyle(column.id)}
-                        className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
-                        title={column.label}
-                      >
-                        <div className="flex items-center justify-between gap-2 pr-2">
-                          <span className="truncate whitespace-nowrap" title={column.label}>
-                            {column.label}
-                          </span>
-                          <span
-                            role="separator"
-                            tabIndex={0}
-                            onMouseDown={(event) => startResize(column.id, event)}
-                            onClick={(event) => event.stopPropagation()}
-                            className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
-                            title="Redimensionar coluna"
-                          />
-                        </div>
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/40 text-xs">
-                  {reportLoading && (
-                    <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
-                        Carregando eventos…
-                      </td>
-                    </tr>
-                  )}
-                  {!reportLoading && reportError && (
-                    <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-red-300">
-                        Não foi possível carregar os eventos. {reportError.message}
-                      </td>
-                    </tr>
-                  )}
-                  {!reportLoading && !reportError && reportRows.length === 0 && (
-                    <tr>
-                      <td colSpan={visibleColumns.length} className="px-3 py-4 text-center text-sm text-white/60">
-                        Nenhum evento encontrado para o período selecionado.
-                      </td>
-                    </tr>
-                  )}
-                  {reportRows.map((row) => (
-                    <tr key={row.id} className="hover:bg-white/5">
-                      {visibleColumns.map((column) => (
-                        <td
-                          key={column.id}
-                          style={getWidthStyle(column.id)}
-                          className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 last:border-r-0"
-                        >
-                          {renderColumnValue(column.id, row, locale, t)}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <EventsTable
+              columns={visibleColumns}
+              rows={reportRows}
+              loading={reportLoading}
+              error={reportError}
+              renderCell={(columnId, row) => renderColumnValue(columnId, row, locale, t)}
+              getWidthStyle={getWidthStyle}
+              onResize={startResize}
+            />
           </div>
         )}
 

@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { config } from "../config.js";
-import { formatAddress, getCachedGeocode, persistGeocode, resolveShortAddress } from "../utils/address.js";
+import { formatAddress, formatFullAddress, getCachedGeocode, persistGeocode, resolveShortAddress } from "../utils/address.js";
 
 const router = express.Router();
 
@@ -13,7 +13,10 @@ const cache = createTtlCache(10 * 60 * 1000);
 const reverseCache = createTtlCache(30 * 60 * 1000);
 const pending = new Map();
 const reversePending = new Map();
-const RETRY_DELAYS_MS = [300, 800, 1500];
+const RETRY_DELAYS_MS = [300];
+const REQUEST_TIMEOUT_MS = 3500;
+const ACCEPT_LANGUAGE = "pt-BR,pt;q=0.9";
+const COUNTRY_BIAS = "br";
 
 function sanitizeTerm(term) {
   if (typeof term !== "string") return "";
@@ -70,6 +73,14 @@ function buildReverseKey(lat, lng) {
   return `${lat.toFixed(5)},${lng.toFixed(5)}`;
 }
 
+function formatCountry(value) {
+  if (!value) return "";
+  const text = String(value).trim();
+  if (!text) return "";
+  if (text.toLowerCase() === "brazil") return "Brasil";
+  return text;
+}
+
 function buildShortAddress(payload) {
   const details = payload?.address || {};
   const street =
@@ -83,11 +94,24 @@ function buildShortAddress(payload) {
   const neighbourhood = details.neighbourhood || details.suburb || details.quarter || null;
   const city = details.city || details.town || details.village || details.municipality || null;
   const state = details.state || details.region || details.state_district || null;
+  const postalCode = details.postcode || details.zipcode || details.cep || null;
+  const country = formatCountry(details.country);
 
   const main = [street, neighbourhood].filter(Boolean).join(", ");
   const tail = [city, state].filter(Boolean).join(" - ");
   const combined = [main, tail].filter(Boolean).join(" - ");
-  return combined || formatAddress(payload?.display_name || "");
+  const full = [combined, postalCode, country].filter(Boolean).join(", ");
+  return full || formatAddress(payload?.display_name || "");
+}
+
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 async function fetchReverse(lat, lng) {
@@ -97,13 +121,24 @@ async function fetchReverse(lat, lng) {
   url.searchParams.set("lon", String(lng));
   url.searchParams.set("zoom", "18");
   url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("accept-language", ACCEPT_LANGUAGE);
+  url.searchParams.set("countrycodes", COUNTRY_BIAS);
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      "User-Agent": "Euro-One Monitoring Server",
-      Accept: "application/json",
-    },
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(url.toString(), {
+      headers: {
+        "User-Agent": "Euro-One Monitoring Server",
+        Accept: "application/json",
+        "Accept-Language": ACCEPT_LANGUAGE,
+      },
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw createError(504, "Timeout ao buscar endereço reverso");
+    }
+    throw error;
+  }
 
   let payload = null;
   try {
@@ -123,21 +158,23 @@ async function fetchReverse(lat, lng) {
 
 async function fetchReverseWithRetry(lat, lng) {
   let lastError;
-  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt += 1) {
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       return await fetchReverse(lat, lng);
     } catch (error) {
       lastError = error;
       const status = error?.status || error?.statusCode;
-      if (status !== 429 && status !== 503) {
+      if (![429, 503, 504].includes(status)) {
         throw error;
       }
-      const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (attempt < RETRY_DELAYS_MS.length) {
+        const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
     }
   }
 
-  throw lastError || createError(502, "Falha ao buscar endereço reverso");
+  throw lastError || createError(504, "Falha ao buscar endereço reverso");
 }
 
 async function queryProvider(term, limit = 5) {
@@ -147,43 +184,74 @@ async function queryProvider(term, limit = 5) {
   url.searchParams.set("limit", String(limit));
   url.searchParams.set("addressdetails", "1");
   url.searchParams.set("polygon_geojson", "0");
+  url.searchParams.set("accept-language", ACCEPT_LANGUAGE);
+  url.searchParams.set("countrycodes", COUNTRY_BIAS);
 
-  const response = await fetch(url.toString(), {
-    headers: {
-      "User-Agent": "Euro-One Monitoring Server",
-      Accept: "application/json",
-    },
-  });
+  let response;
+  try {
+    response = await fetchWithTimeout(url.toString(), {
+      headers: {
+        "User-Agent": "Euro-One Monitoring Server",
+        Accept: "application/json",
+        "Accept-Language": ACCEPT_LANGUAGE,
+      },
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      throw createError(504, "Timeout ao buscar endereços");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const err = createError(response.status, "Falha ao buscar endereços");
     throw err;
   }
 
-  const payload = await response.json();
+  const payload = await response.json().catch(() => []);
   return Array.isArray(payload) ? payload : [];
+}
+
+async function queryProviderWithRetry(term, limit) {
+  let lastError;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await queryProvider(term, limit);
+    } catch (error) {
+      lastError = error;
+      const status = error?.status || error?.statusCode;
+      if (![429, 503, 504].includes(status)) {
+        throw error;
+      }
+      if (attempt < RETRY_DELAYS_MS.length) {
+        const delay = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)];
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError || createError(504, "Falha ao buscar endereços");
 }
 
 router.get("/geocode/search", async (req, res) => {
   const query = sanitizeTerm(req.query.q ?? req.query.query ?? "");
   if (!query || query.length < 3) {
-    return res.json({ data: [] });
+    return res.json({ ok: true, data: [] });
   }
 
   const limit = Math.max(1, Math.min(Number(req.query.limit) || 5, 10));
   const cacheKey = `${query.toLowerCase()}|${limit}`;
   const cached = cache.get(cacheKey);
   if (cached) {
-    return res.json({ data: cached });
+    return res.json({ ok: true, data: cached });
   }
 
   if (pending.has(cacheKey)) {
     const shared = await pending.get(cacheKey).catch(() => []);
-    return res.json({ data: shared });
+    return res.json({ ok: true, data: shared });
   }
 
   const promise = (async () => {
-    const rawResults = await queryProvider(query, limit);
+    const rawResults = await queryProviderWithRetry(query, limit);
     const normalized = rawResults
       .map((item) => normalizeResult(item, query))
       .filter(Boolean)
@@ -196,13 +264,17 @@ router.get("/geocode/search", async (req, res) => {
 
   try {
     const results = await promise;
-    return res.json({ data: results });
+    return res.json({ ok: true, data: results });
   } catch (error) {
+    console.warn("[geocode:search] Falha ao buscar endereços", {
+      status: error?.status || error?.statusCode,
+      message: error?.message,
+    });
     const message =
       error?.status === 429
         ? "Limite de consultas atingido. Tente novamente em instantes."
-        : "Não foi possível buscar endereços agora. Tente novamente em instantes.";
-    return res.status(error?.status || 502).json({ data: [], error: { message } });
+        : "Não foi possível buscar endereços agora. Tente novamente.";
+    return res.json({ ok: true, data: [], error: { message } });
   } finally {
     pending.delete(cacheKey);
   }
@@ -219,12 +291,20 @@ router.get("/geocode/reverse", async (req, res) => {
   const key = buildReverseKey(lat, lng);
   const cached = key ? reverseCache.get(key) : null;
   if (cached) {
-    return res.json({ ...cached, cached: true });
+    return res.json({ ok: true, ...cached, cached: true });
   }
 
   const persisted = getCachedGeocode(lat, lng);
   if (persisted) {
-    const payload = { ...persisted, cached: true, source: "geocodeCache" };
+    const payload = {
+      ok: true,
+      lat: persisted.lat ?? lat,
+      lng: persisted.lng ?? lng,
+      shortAddress: persisted.shortAddress || persisted.formattedAddress || persisted.address || null,
+      formattedAddress: persisted.formattedAddress || persisted.shortAddress || persisted.address || null,
+      cached: true,
+      source: "geocodeCache",
+    };
     if (key) reverseCache.set(key, payload);
     return res.json(payload);
   }
@@ -238,7 +318,7 @@ router.get("/geocode/reverse", async (req, res) => {
     try {
       const payload = await fetchReverseWithRetry(lat, lng);
       const shortAddress = buildShortAddress(payload);
-      const formattedAddress = formatAddress(payload?.display_name || shortAddress);
+      const formattedAddress = formatFullAddress(payload?.display_name || shortAddress);
       const resolved = {
         lat,
         lng,
@@ -274,20 +354,27 @@ router.get("/geocode/reverse", async (req, res) => {
     const fallback = await resolveShortAddress(lat, lng);
     if (fallback) {
       const payload = {
+        ok: true,
         lat,
         lng,
-        address: fallback.address || fallback.formattedAddress || fallback.shortAddress,
-        formattedAddress: fallback.formattedAddress || fallback.address || fallback.shortAddress,
         shortAddress: fallback.shortAddress || fallback.formattedAddress || fallback.address,
+        formattedAddress: fallback.formattedAddress || fallback.address || fallback.shortAddress,
       };
       if (key) reverseCache.set(key, payload);
       return res.json(payload);
     }
 
-    return res.status(502).json({ error: { message: "Não foi possível obter o endereço agora." } });
+    const safeFallback = `Sem endereço (${lat.toFixed(5)},${lng.toFixed(5)})`;
+    return res.json({
+      ok: true,
+      lat,
+      lng,
+      shortAddress: safeFallback,
+      formattedAddress: safeFallback,
+    });
   }
 
-  return res.json(resolved);
+  return res.json({ ok: true, ...resolved });
 });
 
 export default router;
