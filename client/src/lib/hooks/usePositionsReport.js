@@ -126,5 +126,42 @@ export default function usePositionsReport() {
     return data;
   }, []);
 
-  return { data, loading, error, generate, exportPdf, exportXlsx, fetchPage };
+  const exportCsv = useCallback(async (payload) => {
+    const { data, error: requestError, aborted, status, response } = await safeApi.post(
+      API_ROUTES.reports.positionsCsv,
+      payload,
+      {
+        responseType: "blob",
+        timeout: 120_000,
+      },
+    );
+
+    if (aborted) {
+      const abortError = new Error("Tempo excedido ao exportar CSV. Tente novamente.");
+      abortError.name = "TimeoutError";
+      abortError.status = status ?? null;
+      abortError.aborted = true;
+      abortError.response = response || null;
+      throw abortError;
+    }
+
+    if (requestError) {
+      const parsedMessage = await resolveBlobErrorMessage(requestError);
+      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao exportar CSV.");
+      if (requestError?.status) friendlyError.status = requestError.status;
+      friendlyError.response = requestError?.response;
+      throw friendlyError;
+    }
+
+    if (!(data instanceof Blob) || data.size === 0) {
+      const invalidError = new Error("CSV não disponível no momento. Tente novamente em instantes.");
+      invalidError.response = response || null;
+      invalidError.status = status ?? null;
+      throw invalidError;
+    }
+
+    return data;
+  }, []);
+
+  return { data, loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage };
 }

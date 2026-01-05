@@ -7,6 +7,17 @@ const DEFAULT_RATE = 1; // requests per second
 const DEFAULT_MAX = 1000;
 const DEFAULT_MAX_RETRIES = 1;
 
+function isCoordinateFallback(value) {
+  if (!value) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  const match = text.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return false;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
+
 function parsePositiveNumber(value, fallback) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
@@ -94,7 +105,7 @@ async function processRow(row, { dryRun, maxRetries }) {
       const formatted = formatFullAddress(
         enriched.fullAddress || enriched.formattedAddress || enriched.address || row.full_address || row.address,
       );
-      if (!formatted || formatted === "—") {
+      if (!formatted || formatted === "—" || isCoordinateFallback(formatted)) {
         return { updated: false };
       }
       if (!dryRun) {

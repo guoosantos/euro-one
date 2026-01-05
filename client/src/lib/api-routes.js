@@ -25,6 +25,7 @@ export const API_ROUTES = {
     positions: "reports/positions",
     positionsPdf: "reports/positions/pdf",
     positionsXlsx: "reports/positions/xlsx",
+    positionsCsv: "reports/positions/csv",
   },
   commands: "commands",
   commandsHistory: "commands/history",
