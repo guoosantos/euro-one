@@ -1,4 +1,5 @@
 import { resolveEventDescriptor } from "../../../shared/telemetryDictionary.js";
+import { formatIotmDiagEvent, resolveIotmDiagnosticInfo } from "../utils/formatIotmDiagEvent.js";
 
 const EVENT_LABELS = {
   "pt-BR": {
@@ -248,7 +249,13 @@ function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
   return definition.defaultLabel || definition.label || "";
 }
 
-export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator, protocol = null) {
+function resolveIotmDiagnosticLabel(rawType, payload) {
+  const info = resolveIotmDiagnosticInfo({ rawCode: rawType, payload });
+  if (!info) return null;
+  return formatIotmDiagEvent({ ...info, rawCode: rawType, payload });
+}
+
+export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator, protocol = null, payload = null) {
   const candidate = normalizeEventCandidate(rawType);
   if (!candidate) {
     return {
@@ -261,6 +268,20 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
 
   const numeric = Number(candidate);
   if (Number.isFinite(numeric) && String(numeric) === candidate) {
+    const protocolKey = normalizeProtocol(protocol);
+    if (protocolKey === "iotm") {
+      const iotmLabel = resolveIotmDiagnosticLabel(candidate, payload);
+      if (iotmLabel) {
+        return {
+          label: iotmLabel,
+          raw: candidate,
+          type: "iotm",
+          icon: null,
+          isNumeric: true,
+        };
+      }
+    }
+
     const descriptor = resolveDescriptorLabel(candidate, protocol);
     if (descriptor?.labelPt) {
       return {
@@ -281,6 +302,17 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
         isNumeric: true,
       };
     }
+    if (protocolKey === "iotm") {
+      return {
+        label: `Evento IOTM ${candidate}`,
+        raw: candidate,
+        isFallback: true,
+        type: "event",
+        icon: null,
+        isNumeric: true,
+      };
+    }
+
     const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
     return {
       label: `Evento ${candidate}${protocolLabel}`,
@@ -309,7 +341,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
               ? true
               : undefined
           : undefined;
-  const translated = translateEventType(candidate, locale, fallbackTranslator);
+  const translated = translateEventType(candidate, locale, fallbackTranslator, protocol, payload);
   return {
     label: translated || candidate,
     raw: candidate,
@@ -319,13 +351,22 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
   };
 }
 
-export function translateEventType(type, locale = "pt-BR", fallbackTranslator, protocol = null) {
+export function translateEventType(type, locale = "pt-BR", fallbackTranslator, protocol = null, payload = null) {
   const raw = normalizeEventCandidate(type);
   if (!raw) {
     const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
     return dictionary.generic;
   }
   if (/^\d+$/.test(raw)) {
+    const protocolKey = normalizeProtocol(protocol);
+    if (protocolKey === "iotm") {
+      const iotmLabel = resolveIotmDiagnosticLabel(raw, payload);
+      if (iotmLabel) return iotmLabel;
+      const descriptor = resolveDescriptorLabel(raw, protocol);
+      if (descriptor?.labelPt) return descriptor.labelPt;
+      return `Evento IOTM ${raw}`;
+    }
+
     const descriptor = resolveDescriptorLabel(raw, protocol);
     if (descriptor?.labelPt) return descriptor.labelPt;
     const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
@@ -374,7 +415,7 @@ export function resolveEventLabelFromPayload(payload = {}, locale = "pt-BR", fal
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
   const protocol = resolveProtocolFromPayload(payload);
-  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol);
+  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol, payload);
 }
 
 export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR", fallbackTranslator) {
@@ -394,7 +435,7 @@ export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR"
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
   const protocol = resolveProtocolFromPayload(payload);
-  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol);
+  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol, payload);
 }
 
 export function getEventSeverity(type, defaultSeverity = "medium") {

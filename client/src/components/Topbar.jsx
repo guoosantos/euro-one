@@ -139,6 +139,7 @@ export function Topbar({ title }) {
                         locale,
                         null,
                         event.protocol || event.attributes?.protocol || null,
+                        event,
                       )}
                     </div>
                     <div className="text-xs text-white/40">{formatDate(event.time ?? event.eventTime ?? event.serverTime)}</div>

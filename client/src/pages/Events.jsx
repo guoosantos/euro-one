@@ -1004,7 +1004,7 @@ function renderColumnValue(columnId, row, locale, t) {
     case "device":
       return row.device || "—";
     case "type":
-      return translateEventType(row.type || "", locale, t, row.protocol) || "—";
+      return translateEventType(row.type || "", locale, t, row.protocol, row) || "—";
     case "description":
       return row.description || "—";
     case "severity":

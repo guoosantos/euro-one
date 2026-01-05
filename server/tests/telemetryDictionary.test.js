@@ -4,7 +4,7 @@ import { resolveEventDescriptor, resolveTelemetryDescriptor } from "../../shared
 
 test("resolveEventDescriptor aplica protocolo GT06 e IOTM", () => {
   const gt06 = resolveEventDescriptor("69", { protocol: "gt06" });
-  assert.equal(gt06?.labelPt, "Interferência GSM");
+  assert.equal(gt06?.labelPt, "JAMMER GSM");
 
   const iotm = resolveEventDescriptor("1", { protocol: "iotm" });
   assert.equal(iotm?.labelPt, "Ignição ligada");
