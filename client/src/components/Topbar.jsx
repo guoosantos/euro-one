@@ -133,7 +133,14 @@ export function Topbar({ title }) {
               <ul>
                 {recentEvents.map((event) => (
                   <li key={event.id ?? `${event.deviceId}-${event.time}` } className="px-4 py-2 text-sm text-white/70">
-                    <div className="font-medium">{translateEventType(event.type ?? event.event, locale)}</div>
+                    <div className="font-medium">
+                      {translateEventType(
+                        event.type ?? event.event,
+                        locale,
+                        null,
+                        event.protocol || event.attributes?.protocol || null,
+                      )}
+                    </div>
                     <div className="text-xs text-white/40">{formatDate(event.time ?? event.eventTime ?? event.serverTime)}</div>
                   </li>
                 ))}

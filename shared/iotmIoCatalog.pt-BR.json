@@ -4,6 +4,7 @@
   { "id": 16, "key": "signalIn2", "labelPt": "Entrada 2", "type": "boolean" },
   { "id": 18, "key": "signalIn4", "labelPt": "Entrada 4", "type": "boolean" },
   { "id": 19, "key": "signalIn5", "labelPt": "Entrada 5", "type": "boolean" },
+  { "id": 25, "key": "geozoneInsidePrimary", "labelPt": "Geozona Principal (Dentro)", "type": "boolean" },
   { "id": 98, "key": "doorFrontLeft", "labelPt": "Porta Dianteira Esquerda", "type": "boolean" },
   { "id": 100, "key": "doorRearRight", "labelPt": "Porta Traseira Direita", "type": "boolean" },
   { "id": 109, "key": "ignitionState", "labelPt": "Ignição", "type": "boolean" },

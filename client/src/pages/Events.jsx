@@ -497,6 +497,16 @@ export default function Events() {
         positionsById,
         positionsByDeviceId,
       });
+      const protocol =
+        event?.protocol ||
+        event?.attributes?.protocol ||
+        position?.protocol ||
+        position?.attributes?.protocol ||
+        positionFromEvent?.protocol ||
+        positionFromEvent?.attributes?.protocol ||
+        positionFromId?.protocol ||
+        positionFromId?.attributes?.protocol ||
+        null;
       const rawSeverity =
         event?.severity ??
         event?.attributes?.severity ??
@@ -511,6 +521,7 @@ export default function Events() {
         type: event?.type || event?.attributes?.type || event?.event,
         description: event?.attributes?.message || event?.attributes?.description || event?.attributes?.type || "—",
         severity,
+        protocol,
         address: cleanAddress(
           event?.address ||
             positionFromEvent?.address ||
@@ -783,7 +794,7 @@ export default function Events() {
                 >
                   {EVENT_TYPES.map((option) => (
                     <option key={option} value={option}>
-                      {option === "all" ? "Todos" : translateEventType(option, locale)}
+                      {option === "all" ? "Todos" : translateEventType(option, locale, t)}
                     </option>
                   ))}
                 </Select>
@@ -874,7 +885,7 @@ export default function Events() {
                           style={getWidthStyle(column.id)}
                           className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 last:border-r-0"
                         >
-                          {renderColumnValue(column.id, row, locale)}
+                          {renderColumnValue(column.id, row, locale, t)}
                         </td>
                       ))}
                     </tr>
@@ -986,14 +997,14 @@ export default function Events() {
   );
 }
 
-function renderColumnValue(columnId, row, locale) {
+function renderColumnValue(columnId, row, locale, t) {
   switch (columnId) {
     case "time":
       return row.time ? new Date(row.time).toLocaleString() : "—";
     case "device":
       return row.device || "—";
     case "type":
-      return translateEventType(row.type || "", locale) || "—";
+      return translateEventType(row.type || "", locale, t, row.protocol) || "—";
     case "description":
       return row.description || "—";
     case "severity":

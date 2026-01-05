@@ -5073,8 +5073,8 @@
     "id": 49156,
     "key": "sensor_script_1_name",
     "name": "SENSOR_SCRIPT_1_NAME",
-    "labelPt": "SENSOR_SCRIPT_1_NAME",
-    "descriptionPt": "-",
+    "labelPt": "Nome do script 1",
+    "descriptionPt": "Nome do script 1.",
     "descriptionEn": "-",
     "type": null,
     "unit": null
@@ -5213,8 +5213,8 @@
     "id": 49170,
     "key": "sensor_firmware_version",
     "name": "SENSOR_FIRMWARE_VERSION",
-    "labelPt": "SENSOR_FIRMWARE_VERSION",
-    "descriptionPt": "-",
+    "labelPt": "Versão do firmware",
+    "descriptionPt": "Versão do firmware.",
     "descriptionEn": "-",
     "type": null,
     "unit": null
@@ -5243,8 +5243,8 @@
     "id": 49173,
     "key": "sensor_dtc",
     "name": "SENSOR_DTC",
-    "labelPt": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
-    "descriptionPt": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
+    "labelPt": "Códigos de falha (DTC) do FMS",
+    "descriptionPt": "Códigos de falha (DTC) do FMS preenchidos durante a geração do pacote de telemetria.",
     "descriptionEn": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
     "type": null,
     "unit": null
@@ -5293,8 +5293,8 @@
     "id": 49178,
     "key": "sensor_modem_firmware_version",
     "name": "SENSOR_MODEM_FIRMWARE_VERSION",
-    "labelPt": "SENSOR_MODEM_FIRMWARE_VERSION",
-    "descriptionPt": "-",
+    "labelPt": "Versão do firmware do modem",
+    "descriptionPt": "Versão do firmware do modem.",
     "descriptionEn": "-",
     "type": null,
     "unit": null

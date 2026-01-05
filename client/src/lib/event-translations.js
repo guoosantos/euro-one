@@ -1,3 +1,5 @@
+import { resolveEventDescriptor } from "../../../shared/telemetryDictionary.js";
+
 const EVENT_LABELS = {
   "pt-BR": {
     generic: "Evento",
@@ -202,6 +204,34 @@ function normalizeEventCandidate(value) {
   return asString;
 }
 
+function normalizeProtocol(protocol) {
+  if (!protocol) return null;
+  const cleaned = String(protocol).trim().toLowerCase();
+  return cleaned || null;
+}
+
+function resolveProtocolFromPayload(payload = {}) {
+  const attributes = payload?.attributes || payload?.position?.attributes || payload?.rawAttributes || payload?.position?.rawAttributes || {};
+  return (
+    payload?.protocol ||
+    payload?.position?.protocol ||
+    payload?.device?.protocol ||
+    attributes.protocol ||
+    attributes.deviceProtocol ||
+    attributes.device_protocol ||
+    null
+  );
+}
+
+function resolveDescriptorLabel(candidate, protocol) {
+  if (!candidate) return null;
+  const protocolKey = normalizeProtocol(protocol);
+  if (!protocolKey) return null;
+  const descriptor = resolveEventDescriptor(candidate, { protocol: protocolKey });
+  if (!descriptor?.labelPt) return null;
+  return { ...descriptor, protocol: protocolKey };
+}
+
 function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
   if (!definition) return "";
   if (typeof fallbackTranslator === "function" && definition.labelKey) {
@@ -218,7 +248,7 @@ function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
   return definition.defaultLabel || definition.label || "";
 }
 
-export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator) {
+export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator, protocol = null) {
   const candidate = normalizeEventCandidate(rawType);
   if (!candidate) {
     return {
@@ -231,6 +261,17 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
 
   const numeric = Number(candidate);
   if (Number.isFinite(numeric) && String(numeric) === candidate) {
+    const descriptor = resolveDescriptorLabel(candidate, protocol);
+    if (descriptor?.labelPt) {
+      return {
+        label: descriptor.labelPt,
+        raw: candidate,
+        type: descriptor.key || "event",
+        icon: null,
+        isNumeric: true,
+        severity: descriptor.severity,
+      };
+    }
     const definition = J16_EVENT_DEFINITIONS[candidate];
     if (definition) {
       return {
@@ -240,7 +281,15 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
         isNumeric: true,
       };
     }
-    return { label: `Evento ${candidate}`, raw: candidate, isFallback: true, type: "event", icon: null, isNumeric: true };
+    const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
+    return {
+      label: `Evento ${candidate}${protocolLabel}`,
+      raw: candidate,
+      isFallback: true,
+      type: "event",
+      icon: null,
+      isNumeric: true,
+    };
   }
 
   const normalized = normalizeType(candidate);
@@ -270,8 +319,19 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
   };
 }
 
-export function translateEventType(type, locale = "pt-BR", fallbackTranslator) {
-  const normalized = normalizeType(type);
+export function translateEventType(type, locale = "pt-BR", fallbackTranslator, protocol = null) {
+  const raw = normalizeEventCandidate(type);
+  if (!raw) {
+    const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
+    return dictionary.generic;
+  }
+  if (/^\d+$/.test(raw)) {
+    const descriptor = resolveDescriptorLabel(raw, protocol);
+    if (descriptor?.labelPt) return descriptor.labelPt;
+    const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
+    return `Evento ${raw}${protocolLabel}`;
+  }
+  const normalized = normalizeType(raw);
   const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
   if (normalized && dictionary[normalized]) {
     return dictionary[normalized];
@@ -293,8 +353,8 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator) {
   return normalized ? normalized : dictionary.generic;
 }
 
-export function resolveEventLabel(rawType, locale = "pt-BR", fallbackTranslator) {
-  return resolveEventDefinition(rawType, locale, fallbackTranslator);
+export function resolveEventLabel(rawType, locale = "pt-BR", fallbackTranslator, protocol = null) {
+  return resolveEventDefinition(rawType, locale, fallbackTranslator, protocol);
 }
 
 export function resolveEventLabelFromPayload(payload = {}, locale = "pt-BR", fallbackTranslator) {
@@ -313,7 +373,8 @@ export function resolveEventLabelFromPayload(payload = {}, locale = "pt-BR", fal
   ];
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
-  return resolveEventDefinition(candidate, locale, fallbackTranslator);
+  const protocol = resolveProtocolFromPayload(payload);
+  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol);
 }
 
 export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR", fallbackTranslator) {
@@ -332,7 +393,8 @@ export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR"
   ];
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
-  return resolveEventDefinition(candidate, locale, fallbackTranslator);
+  const protocol = resolveProtocolFromPayload(payload);
+  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol);
 }
 
 export function getEventSeverity(type, defaultSeverity = "medium") {

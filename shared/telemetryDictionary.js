@@ -285,7 +285,21 @@ const IOTM_IO_FRIENDLY_NAMES = [...(iotmIoCatalog || []), ...IOTM_SENSOR_RANGE_E
     return acc;
   }, {});
 
-export const ioFriendlyNames = { ...BASE_IO_FRIENDLY_NAMES, ...IOTM_IO_FRIENDLY_NAMES };
+const XIRGO_IO_FRIENDLY_NAMES = (xirgoSensorsCatalog || [])
+  .filter((entry) => entry && entry.id !== undefined && entry.id !== null && entry.labelPt)
+  .reduce((acc, entry) => {
+    const id = String(entry.id).trim();
+    if (!id) return acc;
+    acc[`io${id}`.toLowerCase()] = {
+      key: entry.key || `xirgoIo${id}`,
+      labelPt: entry.labelPt,
+      type: entry.type || null,
+      unit: entry.unit || null,
+    };
+    return acc;
+  }, {});
+
+export const ioFriendlyNames = { ...BASE_IO_FRIENDLY_NAMES, ...IOTM_IO_FRIENDLY_NAMES, ...XIRGO_IO_FRIENDLY_NAMES };
 
 const DEFAULT_EVENT_CODE_MAP = new Map([
   ["3", { key: "ignitionOn", labelPt: "Ignição ligada" }],
@@ -480,10 +494,16 @@ function normalizeProtocolKey(protocol) {
 }
 
 export function resolveTelemetryDescriptor(key) {
-  if (TELEMETRY_DESCRIPTOR_MAP.has(key)) return TELEMETRY_DESCRIPTOR_MAP.get(key);
-  if (ioFriendlyNames[key]) return { ...ioFriendlyNames[key], key };
-  if (/^\\d+$/.test(String(key))) {
-    return { key: `iotmSensor${key}`, labelPt: `Sensor ${key}`, type: null, unit: null };
+  if (!key) return null;
+  const normalizedKey = String(key).trim();
+  if (!normalizedKey) return null;
+  const lowerKey = normalizedKey.toLowerCase();
+  if (TELEMETRY_DESCRIPTOR_MAP.has(normalizedKey)) return TELEMETRY_DESCRIPTOR_MAP.get(normalizedKey);
+  if (TELEMETRY_DESCRIPTOR_MAP.has(lowerKey)) return TELEMETRY_DESCRIPTOR_MAP.get(lowerKey);
+  if (ioFriendlyNames[normalizedKey]) return { ...ioFriendlyNames[normalizedKey], key: normalizedKey };
+  if (ioFriendlyNames[lowerKey]) return { ...ioFriendlyNames[lowerKey], key: lowerKey };
+  if (/^\\d+$/.test(normalizedKey)) {
+    return { key: `iotmSensor${normalizedKey}`, labelPt: `Sensor ${normalizedKey}`, type: null, unit: null };
   }
   return null;
 }

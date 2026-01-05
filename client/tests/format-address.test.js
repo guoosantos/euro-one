@@ -19,3 +19,16 @@ test("formatAddress retorna traço quando vazio", () => {
   assert.strictEqual(formatAddress(null), "—");
   assert.strictEqual(formatAddress("   "), "—");
 });
+
+test("formatAddress formata objetos de endereço", () => {
+  const raw = {
+    addressParts: {
+      road: "Rua Alfa",
+      house_number: "100",
+      suburb: "Centro",
+      city: "Belo Horizonte",
+      state: "MG",
+    },
+  };
+  assert.strictEqual(formatAddress(raw), "R. Alfa, 100 - Centro, Belo Horizonte - MG");
+});
