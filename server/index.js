@@ -116,6 +116,7 @@ async function bootstrapServer() {
   }
 
   let ready = false;
+  let stopGeocodeWorker = () => {};
   const app = express();
   app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/ready", (_req, res) => {
@@ -176,6 +177,15 @@ async function bootstrapServer() {
         await runWithTimeout(() => addressModule.initGeocodeCache(), bootstrapTimeout, "initGeocodeCache");
       } catch (error) {
         console.warn("[startup] Falha ao hidratar cache de endereços", error?.message || error);
+      }
+    }
+
+    const geocodeWorkerModule = await importWithLog("./workers/geocode.worker.js");
+    if (geocodeWorkerModule?.startGeocodeWorker) {
+      try {
+        stopGeocodeWorker = geocodeWorkerModule.startGeocodeWorker();
+      } catch (error) {
+        console.warn("[startup] Falha ao iniciar geocode worker", error?.message || error);
       }
     }
 
@@ -402,6 +412,7 @@ async function bootstrapServer() {
         clearInterval(telemetryInterval);
       }
       wss.close();
+      stopGeocodeWorker();
     };
 
     process.on("SIGTERM", shutdown);

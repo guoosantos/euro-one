@@ -11,7 +11,7 @@ export default function AddressStatus({ address, loading, lat, lng, onRetry, cla
   const resolvedAddress = address && address !== "—" ? address : "";
   const isFallback = !resolvedAddress || resolvedAddress === FALLBACK_ADDRESS;
   const display = loading
-    ? "Carregando…"
+    ? "Resolvendo endereço..."
     : isFallback
       ? coords || FALLBACK_ADDRESS
       : resolvedAddress;

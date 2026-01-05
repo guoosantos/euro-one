@@ -1,14 +1,13 @@
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
+import { buildGridKey, enqueueGeocodeJob } from "../jobs/geocode.queue.js";
 import { loadCollection, saveCollection } from "../services/storage.js";
 
 const STORAGE_KEY = "geocodeCache";
 const cache = new Map();
-const pendingLookups = new Map();
 let cacheReady = false;
 
 const NORMALIZED_PRECISION = 5;
 const LEGACY_PRECISION = 4;
-const MIN_LOOKUP_INTERVAL_MS = 1000;
 
 function hydrateCacheFromStorage() {
   const stored = loadCollection(STORAGE_KEY, []);
@@ -260,8 +259,8 @@ export function formatShortAddressFromParts(parts = {}) {
   const base = [streetLine, locality].filter(Boolean).join(" - ");
   const suffix = [postalCode, country].filter(Boolean).join(", ");
 
-  const formatted = [base || locality, suffix].filter(Boolean).join(", ").replace(/\s+,/g, ", ").trim();
-  if (formatted) return formatted;
+  const formatted = [base || locality, suffix || country].filter(Boolean).join(", ").replace(/\s+,/g, ", ").trim();
+  if (formatted) return formatted.endsWith(country) ? formatted : `${formatted}, ${country}`.replace(/,\s*,/g, ", ").trim();
 
   const fallback = [street, neighbourhood, cityState || state, postalCode, country].filter(Boolean).join(", ");
   return fallback || null;
@@ -297,7 +296,7 @@ export function getCachedGeocode(lat, lng) {
   };
 }
 
-function normalizeGeocodePayload(payload, lat, lng) {
+export function normalizeGeocodePayload(payload, lat, lng) {
   const displayName = collapseWhitespace(payload?.display_name) || null;
   const details = payload?.address || {};
 
@@ -335,130 +334,93 @@ function normalizeGeocodePayload(payload, lat, lng) {
   };
 }
 
-const MAX_CONCURRENT_LOOKUPS = 3;
-const lookupQueue = [];
-let activeLookups = 0;
-let lastLookupStartedAt = 0;
-
-async function fetchGeocode(lat, lng) {
-  const url = new URL("https://nominatim.openstreetmap.org/reverse");
-  url.searchParams.set("format", "json");
-  url.searchParams.set("lat", String(lat));
-  url.searchParams.set("lon", String(lng));
-  url.searchParams.set("zoom", "18");
-  url.searchParams.set("addressdetails", "1");
-
-  const response = await fetch(url.toString(), {
-    headers: { "User-Agent": "euro-one/1.0" },
-  });
-  if (!response.ok) {
-    throw new Error(`Geocode HTTP ${response.status}`);
-  }
-  const payload = await response.json();
-  return normalizeGeocodePayload(payload, lat, lng);
+function isPlaceholderAddress(value = "") {
+  const text = collapseWhitespace(value).toLowerCase();
+  if (!text) return true;
+  return text.startsWith("sem endereço") || text.startsWith("resolvendo endereço");
 }
 
-async function runNextLookup() {
-  if (activeLookups >= MAX_CONCURRENT_LOOKUPS) return;
-  const task = lookupQueue.shift();
-  if (!task) return;
-  const now = Date.now();
-  const waitFor = Math.max(0, MIN_LOOKUP_INTERVAL_MS - (now - lastLookupStartedAt));
-  const execute = async () => {
-    activeLookups += 1;
-    lastLookupStartedAt = Date.now();
-    try {
-      await task();
-    } finally {
-      activeLookups -= 1;
-      if (lookupQueue.length) {
-        setTimeout(runNextLookup, MIN_LOOKUP_INTERVAL_MS);
-      }
-    }
-  };
-
-  if (waitFor > 0) {
-    setTimeout(execute, waitFor);
-  } else {
-    execute();
-  }
+function shouldQueueGeocode({ formattedAddress, shortAddress, geocodeStatus }) {
+  const hasShort = collapseWhitespace(shortAddress || "");
+  const hasFormatted = collapseWhitespace(formattedAddress || "");
+  const statusOk = geocodeStatus === "ok";
+  const missingShort = !hasShort || isPlaceholderAddress(shortAddress);
+  const missingFormatted = !hasFormatted || isPlaceholderAddress(formattedAddress);
+  return missingShort || missingFormatted || !statusOk;
 }
 
-function scheduleLookup(lat, lng) {
-  const { primary } = resolveCacheKeys(lat, lng);
-  const key = primary;
-  if (!key) return Promise.resolve(null);
-
-  if (Number(lat) === 0 && Number(lng) === 0) return Promise.resolve(null);
-
-  if (pendingLookups.has(key)) {
-    return pendingLookups.get(key);
-  }
-
-  const promise = new Promise((resolve) => {
-    const task = async () => {
-      try {
-        const address = await fetchGeocode(lat, lng);
-        if (address) {
-          const entry = buildCacheEntry(lat, lng, address);
-          await persistCacheEntry(entry);
-          resolve(entry);
-          return;
-        }
-        resolve(address);
-      } catch (_error) {
-        resolve(null);
-      } finally {
-        pendingLookups.delete(key);
-      }
-    };
-    lookupQueue.push(task);
-    runNextLookup();
-  });
-
-  pendingLookups.set(key, promise);
-  return promise;
-}
-
-async function lookupGeocode(lat, lng, { blocking = true } = {}) {
-  const { primary, legacy } = resolveCacheKeys(lat, lng);
-  const key = primary || legacy;
-  if (!key) return null;
-
-  const cached = cache.get(primary) || cache.get(legacy);
-  if (cached?.address || cached?.shortAddress) {
-    return cached;
-  }
-
-  if (pendingLookups.has(primary)) {
-    return pendingLookups.get(primary);
-  }
-
-  const promise = scheduleLookup(lat, lng);
-  if (!blocking) return null;
-  return promise;
-}
-
-export function enqueueGeocodeJob({ lat, lng, blocking = false, priority = "normal" } = {}) {
+function queueGeocodeForCoordinates({
+  lat,
+  lng,
+  positionId = null,
+  deviceId = null,
+  priority = "normal",
+  reason = "warm_fill",
+} = {}) {
   const normalizedLat = normalizeCoordinate(lat);
   const normalizedLng = normalizeCoordinate(lng);
   if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) return null;
+  if (normalizedLat === 0 && normalizedLng === 0) return null;
 
-  return lookupGeocode(normalizedLat, normalizedLng, { blocking }).catch((error) => {
-    const status = error?.status || error?.statusCode;
-    const isThrottle = status === 429 || status === 503;
-    if (!isThrottle) {
-      console.warn("[geocode] falha ao enfileirar geocode", {
-        message: error?.message || error,
-        status,
-        priority,
-      });
-    }
-    return null;
+  return enqueueGeocodeJob({
+    lat: normalizedLat,
+    lng: normalizedLng,
+    positionId,
+    deviceId,
+    priority,
+    reason,
   });
 }
 
-export async function ensurePositionAddress(position) {
+export async function enqueueWarmGeocodeFromPositions(
+  list = [],
+  { priority = "normal", reason = "warm_fill", minIntervalMs = 75 } = {},
+) {
+  const positions = Array.isArray(list) ? list : [];
+  const seen = new Set();
+
+  const queueable = positions
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const lat = item.latitude ?? item.lat ?? item.latFrom ?? item.startLat ?? null;
+      const lng = item.longitude ?? item.lon ?? item.lng ?? item.lonFrom ?? item.startLng ?? null;
+      if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+      const gridKey = buildGridKey(lat, lng);
+      if (!gridKey || seen.has(gridKey)) return null;
+
+      const needsQueue = shouldQueueGeocode({
+        formattedAddress: item.formattedAddress || item.fullAddress || "",
+        shortAddress: item.shortAddress || "",
+        geocodeStatus: item.geocodeStatus,
+      });
+      if (!needsQueue) return null;
+
+      seen.add(gridKey);
+      return {
+        lat,
+        lng,
+        positionId: item.id ?? item.positionid ?? null,
+        deviceId: item.deviceId ?? item.deviceid ?? null,
+        priority,
+        reason,
+      };
+    })
+    .filter(Boolean);
+
+  let chain = Promise.resolve();
+  queueable.forEach((payload, index) => {
+    chain = chain.then(async () => {
+      await queueGeocodeForCoordinates(payload);
+      if (index < queueable.length - 1 && minIntervalMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, minIntervalMs));
+      }
+    });
+  });
+
+  return chain;
+}
+
+export async function ensurePositionAddress(position, { priority = "normal", reason = "warm_fill" } = {}) {
   if (!position || typeof position !== "object") return position;
   const rawAddress =
     position.fullAddress || position.address || position.formattedAddress || position.attributes?.fullAddress || position.attributes?.address;
@@ -472,53 +434,54 @@ export async function ensurePositionAddress(position) {
   const fallbackFormatted =
     formattedAddress || formatFullAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
 
-  if (baseFormatted || shortAddress) {
-    return {
-      ...position,
-      address: normalizedAddress,
-      formattedAddress: formattedAddress || shortAddress || fallbackFormatted || "—",
-      fullAddress: formattedAddress || shortAddress || fallbackFormatted || position.fullAddress || null,
-      shortAddress: shortAddress || formattedAddress || fallbackFormatted || "—",
-    };
-  }
-
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
-    return {
-      ...position,
-      address: normalizedAddress,
-      formattedAddress: formattedAddress || null,
-      fullAddress: formattedAddress || null,
-      shortAddress: shortAddress || null,
-    };
-  }
-
-  const resolved = await lookupGeocode(lat, lng);
-  if (!resolved) {
-    const finalFormatted = formattedAddress || fallbackFormatted || coordinateFallback || "—";
-    return {
-      ...position,
-      address: normalizedAddress,
-      formattedAddress: finalFormatted,
-      fullAddress: finalFormatted,
-      shortAddress: shortAddress || finalFormatted,
-    };
-  }
-  const resolvedAddress = normalizeAddressPayload(resolved.address || resolved.formattedAddress);
+  const cached = getCachedGeocode(lat, lng);
+  const hasProvidedAddress = Boolean(baseFormatted || shortAddress);
   const finalFormatted =
-    resolved.formattedAddress || formattedAddress || resolved.shortAddress || fallbackFormatted || coordinateFallback || "—";
+    cached?.formattedAddress || formattedAddress || shortAddress || fallbackFormatted || coordinateFallback || "—";
+  const finalShort =
+    cached?.shortAddress ||
+    (shouldEnqueue ? "Resolvendo endereço..." : null) ||
+    shortAddress ||
+    finalFormatted ||
+    coordinateFallback ||
+    "—";
+  const baseStatus = position.geocodeStatus || (cached || hasProvidedAddress ? "ok" : "pending");
+  const shouldEnqueue = shouldQueueGeocode({
+    formattedAddress: finalFormatted,
+    shortAddress: finalShort,
+    geocodeStatus: baseStatus,
+  });
+  const geocodeStatus = cached ? "ok" : shouldEnqueue ? "pending" : "ok";
+  const geocodedAt = cached?.cachedAt || (shouldEnqueue ? new Date().toISOString() : position.geocodedAt || null);
+  const placeholderShort = buildPlaceholderShortAddress(lat, lng);
+
+  if (shouldEnqueue && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+    queueGeocodeForCoordinates({
+      lat,
+      lng,
+      positionId: position.id ?? position.positionid ?? null,
+      deviceId: position.deviceId ?? position.deviceid ?? null,
+      priority,
+      reason,
+    });
+  }
+
   return {
     ...position,
-    address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress || { formatted: finalFormatted },
-    formattedAddress: finalFormatted,
-    fullAddress: finalFormatted,
-    shortAddress: resolved.shortAddress || shortAddress || finalFormatted,
-    addressParts: resolved.parts,
+    address: cached?.address ? normalizeAddressPayload(cached.address) : normalizedAddress,
+    formattedAddress: finalFormatted || placeholderShort,
+    fullAddress: finalFormatted || position.fullAddress || placeholderShort || null,
+    shortAddress: finalShort || placeholderShort,
+    addressParts: cached?.parts || position.addressParts,
+    geocodeStatus,
+    geocodedAt,
   };
 }
 
 export async function enrichPositionsWithAddresses(collection) {
   if (!Array.isArray(collection)) return collection;
   const enriched = await Promise.all(collection.map((item) => ensurePositionAddress(item)));
+  void enqueueWarmGeocodeFromPositions(enriched, { priority: "normal", reason: "warm_fill" });
   return enriched;
 }
 
@@ -530,8 +493,21 @@ export function prefetchPositionAddresses(collection) {
     if (hasAddress) return;
     const lat = item.latitude ?? item.lat;
     const lng = item.longitude ?? item.lon ?? item.lng;
-    if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return;
-    lookupGeocode(lat, lng, { blocking: false });
+    const cached = getCachedGeocode(lat, lng);
+    const shouldQueue = shouldQueueGeocode({
+      formattedAddress: cached?.formattedAddress || item.formattedAddress,
+      shortAddress: cached?.shortAddress || item.shortAddress,
+      geocodeStatus: item.geocodeStatus,
+    });
+    if (!shouldQueue) return;
+    queueGeocodeForCoordinates({
+      lat,
+      lng,
+      positionId: item.id ?? item.positionid ?? null,
+      deviceId: item.deviceId ?? item.deviceid ?? null,
+      priority: "normal",
+      reason: "warm_fill",
+    });
   });
 }
 
@@ -542,12 +518,10 @@ export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
       : null;
   }
 
-  const resolved = await lookupGeocode(lat, lng);
-  if (resolved) {
-    return {
-      ...resolved,
-    };
-  }
+  const cached = getCachedGeocode(lat, lng);
+  if (cached) return { ...cached };
+
+  queueGeocodeForCoordinates({ lat, lng, priority: "high", reason: "warm_fill" });
 
   if (fallbackAddress) {
     const formatted = formatAddress(fallbackAddress);
@@ -593,12 +567,34 @@ export function ensureCachedPositionAddress(
 
   let shortAddress = cached?.shortAddress || formatAddress(normalizedShort);
   if (shortAddress === "—") shortAddress = "";
-  const fallbackText = placeholderText || buildPlaceholderShortAddress(lat, lng);
+  const tentativeFormatted =
+    (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") || buildCoordinateFallback(lat, lng) || "";
+  const fallbackTextCandidate = buildPlaceholderShortAddress(lat, lng);
+  const preliminaryShort = shortAddress || fallbackTextCandidate;
+  const finalFormattedBase = tentativeFormatted || preliminaryShort;
+  const needsQueue = shouldQueueGeocode({
+    formattedAddress: finalFormattedBase,
+    shortAddress: preliminaryShort,
+    geocodeStatus: position.geocodeStatus || (cached ? "ok" : "pending"),
+  });
+  const fallbackText = placeholderText || (needsQueue ? "Resolvendo endereço..." : buildPlaceholderShortAddress(lat, lng));
   const finalShort = shortAddress || (placeholder ? fallbackText : "");
-  const finalFormatted = (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") || finalShort || buildCoordinateFallback(lat, lng) || "";
+  const finalFormatted =
+    (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") ||
+    finalFormattedBase ||
+    finalShort ||
+    buildCoordinateFallback(lat, lng) ||
+    "";
 
-  if (warm && !cached && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
-    enqueueGeocodeJob({ lat, lng, blocking: false, priority });
+  if (warm && needsQueue && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+    queueGeocodeForCoordinates({
+      lat,
+      lng,
+      positionId: position.id ?? position.positionid ?? null,
+      deviceId: position.deviceId ?? position.deviceid ?? null,
+      priority,
+      reason: "warm_fill",
+    });
   }
 
   return {
@@ -606,14 +602,16 @@ export function ensureCachedPositionAddress(
     formattedAddress: finalFormatted,
     fullAddress: position.fullAddress || finalFormatted,
     shortAddress: finalShort,
-    geocodeStatus: cached ? "ok" : "pending",
-    geocodedAt: cached?.cachedAt || null,
+    geocodeStatus: cached ? "ok" : needsQueue ? "pending" : position.geocodeStatus || "pending",
+    geocodedAt: cached?.cachedAt || (needsQueue ? new Date().toISOString() : position.geocodedAt || null),
   };
 }
 
 export function ensureCachedAddresses(collection, options = {}) {
   if (!Array.isArray(collection)) return [];
-  return collection.map((item) => ensureCachedPositionAddress(item, options));
+  const mapped = collection.map((item) => ensureCachedPositionAddress(item, options));
+  void enqueueWarmGeocodeFromPositions(mapped, { priority: options.priority || "normal", reason: "warm_fill" });
+  return mapped;
 }
 
 export default {
@@ -629,4 +627,5 @@ export default {
   ensureCachedPositionAddress,
   ensureCachedAddresses,
   formatShortAddressFromParts,
+  normalizeGeocodePayload,
 };
