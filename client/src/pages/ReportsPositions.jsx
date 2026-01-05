@@ -12,15 +12,15 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
-import { formatFullAddress } from "../lib/format-address.js";
+import { formatAddress } from "../lib/format-address.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
-const ALL_CHUNK_SIZE = 200;
+const DEFAULT_PAGE_SIZE = 1000;
+const PAGE_SIZE_OPTIONS = [1000];
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => ({
   ...column,
@@ -132,15 +132,11 @@ function formatDynamicValue(key, value, definition) {
   return value;
 }
 
-function normalizeAddressDisplay(value, lat = null, lng = null) {
-  const coordinateFallback =
-    Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
-      ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
-      : null;
-  if (!value) return coordinateFallback || "Endereço indisponível";
+function normalizeAddressDisplay(value) {
+  if (!value) return "Endereço indisponível";
   if (typeof value === "string") {
     const trimmed = value.trim();
-    return trimmed || coordinateFallback || "Endereço indisponível";
+    return trimmed || "Endereço indisponível";
   }
   if (value && typeof value === "object") {
     const withFormatted = value.formatted || value.formattedAddress || value.formatted_address;
@@ -150,10 +146,10 @@ function normalizeAddressDisplay(value, lat = null, lng = null) {
     }
   }
   try {
-    const formatted = formatFullAddress(value);
-    return formatted && formatted !== "—" ? formatted : coordinateFallback || "Endereço indisponível";
+    const formatted = formatAddress(value);
+    return formatted && formatted !== "—" ? formatted : "Endereço indisponível";
   } catch (_error) {
-    return coordinateFallback || "Endereço indisponível";
+    return "Endereço indisponível";
   }
 }
 
@@ -173,9 +169,17 @@ function buildXlsxFileName(vehicle, from, to) {
   return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
 }
 
+function buildCsvFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
+}
+
 export default function ReportsPositions() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
-  const { loading, error, generate, exportPdf, exportXlsx, fetchPage } = usePositionsReport();
+  const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = usePositionsReport();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -191,22 +195,23 @@ export default function ReportsPositions() {
   const [pdfColumns, setPdfColumns] = useState([]);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
+  const [exportingCsv, setExportingCsv] = useState(false);
   const [exportFormat, setExportFormat] = useState("pdf");
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(50);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [positions, setPositions] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const baseQueryRef = useRef(null);
   const [lastResolvedFilter, setLastResolvedFilter] = useState(null);
 
-  const isAllPages = pageSize === "all";
-  const effectivePageSize = isAllPages ? ALL_CHUNK_SIZE : pageSize;
+  const effectivePageSize = pageSize;
   const totalPages = meta?.totalPages || 1;
   const currentPage = meta?.currentPage || page;
   const totalItems = meta?.totalItems ?? positions.length;
+  const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
 
   const availableColumns = useMemo(() => {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
@@ -264,7 +269,7 @@ export default function ReportsPositions() {
   const rows = useMemo(() => {
     const list = Array.isArray(positions) ? positions : [];
     return list.map((position) => {
-      const row = {
+    const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
         deviceId: position.id ?? position.gpsTime ?? Math.random(),
 
@@ -273,7 +278,7 @@ export default function ReportsPositions() {
         serverTime: formatDateTime(position.serverTime),
         latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
         longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
-        address: normalizeAddressDisplay(position.fullAddress || position.address, position.latitude, position.longitude),
+        address: normalizeAddressDisplay(position.address),
         lat: position.latitude,
         lng: position.longitude,
         speed: formatSpeed(position.speed),
@@ -437,20 +442,9 @@ export default function ReportsPositions() {
       .catch(() => {});
   }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
 
-  useEffect(() => {
-    if (!hasGenerated || !baseQueryRef.current || isAllPages) return;
-    const params = { ...baseQueryRef.current, page, limit: effectivePageSize };
-    baseQueryRef.current = params;
-    generate(params)
-      .then((normalized) => {
-        setPositions(normalized.positions);
-        setMeta(normalized.meta);
-      })
-      .catch(() => {});
-  }, [effectivePageSize, generate, hasGenerated, isAllPages, page]);
 
   const handleLoadMore = useCallback(async () => {
-    if (!isAllPages || loadingMore || !meta || !baseQueryRef.current) return;
+    if (loadingMore || !meta || !baseQueryRef.current) return;
     if (meta.currentPage >= meta.totalPages) return;
     const nextPage = (meta.currentPage || 1) + 1;
     setLoadingMore(true);
@@ -466,20 +460,16 @@ export default function ReportsPositions() {
     } finally {
       setLoadingMore(false);
     }
-  }, [effectivePageSize, fetchPage, isAllPages, loadingMore, meta]);
+  }, [effectivePageSize, fetchPage, loadingMore, meta]);
 
   const handlePageSizeChange = useCallback(
     async (value) => {
-      const normalizedValue = value === "all" ? "all" : Number(value);
-      setPageSize(normalizedValue);
+      const normalizedValue = Number(value);
+      setPageSize(normalizedValue || DEFAULT_PAGE_SIZE);
       setPage(1);
       if (!hasGenerated || !selectedVehicleId) return;
       const filter = lastResolvedFilter || addressFilter;
-      const params = buildQueryParams(
-        filter,
-        1,
-        normalizedValue === "all" ? ALL_CHUNK_SIZE : normalizedValue || effectivePageSize,
-      );
+      const params = buildQueryParams(filter, 1, normalizedValue || effectivePageSize);
       baseQueryRef.current = params;
       try {
         const normalized = await generate(params);
@@ -489,7 +479,15 @@ export default function ReportsPositions() {
         setFeedback({ type: "error", message: requestError?.message || "Erro ao aplicar paginação." });
       }
     },
-    [addressFilter, buildQueryParams, effectivePageSize, generate, hasGenerated, lastResolvedFilter, selectedVehicleId],
+    [
+      addressFilter,
+      buildQueryParams,
+      effectivePageSize,
+      generate,
+      hasGenerated,
+      lastResolvedFilter,
+      selectedVehicleId,
+    ],
   );
 
   const resolveExportPayload = async () => {
@@ -605,6 +603,42 @@ export default function ReportsPositions() {
     }
   };
 
+  const handleExportCsv = async () => {
+    const resolvedPayload = await resolveExportPayload();
+    if (!resolvedPayload) return;
+    setExportingCsv(true);
+    try {
+      const blob = await exportCsv(resolvedPayload.payload);
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "CSV não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = buildCsvFileName(selectedVehicle, from, to);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setPdfModalOpen(false);
+    } catch (requestError) {
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar CSV.",
+      });
+    } finally {
+      setExportingCsv(false);
+    }
+  };
+
   const handleApplyColumns = (prefs) => {
     setColumnPrefs(prefs);
     saveColumnPreferences(COLUMN_STORAGE_KEY, prefs);
@@ -650,12 +684,12 @@ export default function ReportsPositions() {
                   <span className="whitespace-nowrap">Itens por página</span>
                   <select
                     value={pageSize}
-                    onChange={(event) => handlePageSizeChange(event.target.value === "all" ? "all" : Number(event.target.value))}
+                    onChange={(event) => handlePageSizeChange(Number(event.target.value))}
                     className="rounded bg-transparent text-white outline-none"
                   >
                     {PAGE_SIZE_OPTIONS.map((option) => (
                       <option key={option} value={option} className="bg-[#0d1117] text-white">
-                        {option === "all" ? "Todos" : option}
+                        {option}
                       </option>
                     ))}
                   </select>
@@ -670,7 +704,7 @@ export default function ReportsPositions() {
                 <button
                   type="button"
                   onClick={() => openPdfModal("pdf")}
-                  disabled={loading || exportingPdf || exportingXlsx || !selectedVehicleId}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
                   className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
                 >
                   {exportingPdf ? "Exportando…" : "Exportar PDF"}
@@ -678,10 +712,18 @@ export default function ReportsPositions() {
                 <button
                   type="button"
                   onClick={() => openPdfModal("xlsx")}
-                  disabled={loading || exportingPdf || exportingXlsx || !selectedVehicleId}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
                   className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
                 >
                   {exportingXlsx ? "Exportando…" : "Exportar Excel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPdfModal("csv")}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
                 </button>
                 <button
                   type="button"
@@ -721,29 +763,11 @@ export default function ReportsPositions() {
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
               <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
-              {!isAllPages && (
-                <div className="flex items-center gap-2 text-xs text-white/70">
-                  <button
-                    type="button"
-                    onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                    disabled={currentPage <= 1 || loading}
-                    className="rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 font-semibold text-white/70 transition hover:border-white/30 hover:text-white disabled:opacity-50"
-                  >
-                    ← Anterior
-                  </button>
-                  <span className="whitespace-nowrap">
-                    Página {currentPage} de {totalPages} • {totalItems} itens
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                    disabled={currentPage >= totalPages || loading}
-                    className="rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 font-semibold text-white/70 transition hover:border-white/30 hover:text-white disabled:opacity-50"
-                  >
-                    Próxima →
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-2 text-xs text-white/70">
+                <span className="whitespace-nowrap">
+                  Página {currentPage} de {totalPages} • {totalItems} itens
+                </span>
+              </div>
             </div>
           </header>
 
@@ -853,7 +877,7 @@ export default function ReportsPositions() {
           onColumnWidthChange={handleColumnWidthChange}
         />
       </section>
-      {isAllPages && meta && meta.currentPage < meta.totalPages && (
+      {canLoadMore && (
         <div className="flex items-center justify-center">
           <button
             type="button"
@@ -889,7 +913,11 @@ export default function ReportsPositions() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-semibold text-white">
-                  {exportFormat === "xlsx" ? "Colunas do Excel" : "Colunas do PDF"}
+                  {exportFormat === "xlsx"
+                    ? "Colunas do Excel"
+                    : exportFormat === "csv"
+                      ? "Colunas do CSV (Excel)"
+                      : "Colunas do PDF"}
                 </div>
                 <p className="text-xs text-white/60">Escolha as colunas para exportação.</p>
               </div>
@@ -934,7 +962,13 @@ export default function ReportsPositions() {
               <button
                 type="button"
                 className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
-                onClick={exportFormat === "xlsx" ? handleExportXlsx : handleExportPdf}
+                onClick={
+                  exportFormat === "xlsx"
+                    ? handleExportXlsx
+                    : exportFormat === "csv"
+                      ? handleExportCsv
+                      : handleExportPdf
+                }
               >
                 Confirmar
               </button>

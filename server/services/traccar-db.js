@@ -595,6 +595,17 @@ function createLimiter(concurrency, minIntervalMs) {
   return (task) => run(task);
 }
 
+function isCoordinateFallback(value) {
+  if (!value) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  const match = text.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return false;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
+
 export async function ensureFullAddressForPositions(positionIds = [], options = {}) {
   const ids = Array.from(new Set((positionIds || []).filter(Boolean)));
   if (!ids.length) return { resolvedIds: [], pendingIds: [] };
@@ -638,7 +649,7 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
         const formatted = formatFullAddress(
           enriched.fullAddress || enriched.formattedAddress || enriched.address || item.fullAddress || item.address,
         );
-        if (!formatted || formatted === "—") {
+        if (!formatted || formatted === "—" || isCoordinateFallback(formatted)) {
           ignoredIds.add(item.id);
           return;
         }

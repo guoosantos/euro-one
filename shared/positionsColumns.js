@@ -113,11 +113,13 @@ const PROTOCOL_COLUMN_CATALOG = {
     rssi: { labelPt: "RSSI / Sinal", group: "sensor" },
   },
   gt06: {
-    blocked: { labelPt: "Saída 1 (Bloqueio)", type: "boolean", group: "output" },
+    adc1: { labelPt: "Entrada 1", type: "boolean", group: "input" },
+    blocked: { labelPt: "Saída 1", type: "boolean", group: "output" },
+    type: { labelPt: "Tipo do Evento", group: "other" },
     charge: { labelPt: "Carga Ativa", type: "boolean", group: "battery" },
     batterylevel: { labelPt: "Nível de Bateria", unit: "%", type: "percent", group: "battery" },
     rssi: { labelPt: "RSSI / Sinal", group: "sensor" },
-    digitaloutput1: { labelPt: "Saída 1 (Bloqueio)", type: "boolean", group: "output" },
+    digitaloutput1: { labelPt: "Saída 1", type: "boolean", group: "output" },
   },
 };
 

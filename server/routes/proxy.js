@@ -42,7 +42,7 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
-import { generatePositionsReportXlsx } from "../utils/positions-report-xlsx.js";
+import { generatePositionsReportCsv, generatePositionsReportXlsx } from "../utils/positions-report-xlsx.js";
 
 import {
   positionsColumns,
@@ -1116,19 +1116,19 @@ function collectAttributeTranslations(attributes = {}, protocol = null, { includ
     const inputMatch = cleanedKey.match(/^(?:in|input|entrada|digitalInput)_?(\d+)$/i);
     const outputMatch = cleanedKey.match(/^(?:out|output|saida|saída|digitalOutput)_?(\d+)$/i);
     if (inputMatch || outputMatch) {
-      if (includeGenericIo) {
-        const labelPrefix = inputMatch ? "Entrada" : "Saída";
-        const index = inputMatch ? inputMatch[1] : outputMatch?.[1];
-        const label = `${labelPrefix} ${index} (${cleanedKey})`;
-        ioDetails.push({ key: lowerKey, label, value: normalizeIoValue(rawValue) });
-      }
       return;
     }
 
     if (/^(io)\d+$/i.test(cleanedKey)) {
       const friendly = ioFriendlyNames[lowerKey];
       if (friendly) {
-        const descriptor = resolveTelemetryDescriptor(friendly.key);
+        const descriptor =
+          resolveTelemetryDescriptor(friendly.key) || {
+            key: friendly.key,
+            labelPt: friendly.labelPt,
+            type: friendly.type || null,
+            unit: friendly.unit || null,
+          };
         const formatted = normalizeDictionaryValue(descriptor, rawValue);
         if (formatted !== null && formatted !== undefined) {
           extras.set(descriptor.key, formatted);
@@ -1346,44 +1346,34 @@ function parseAddressFilterQuery(query = {}) {
   };
 }
 
-function normalizeAddressValue(address, lat = null, lng = null, fullAddress = null) {
-  const coordinateFallback =
-    Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))
-      ? `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`
-      : null;
+function isCoordinateFallback(value) {
+  if (!value) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  const match = text.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!match) return false;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  return Number.isFinite(lat) && Number.isFinite(lng);
+}
 
-  const formattedFull = formatFullAddress(fullAddress);
-  if (formattedFull && formattedFull !== "—") return formattedFull;
+function normalizeAddressValue(address, fullAddress = null) {
+  const candidate = fullAddress || address;
+  const short = formatAddress(candidate);
+  if (short && short !== "—" && !isCoordinateFallback(short)) return short;
 
-  const formatted = formatFullAddress(address);
-  if (formatted && formatted !== "—") return formatted;
-
-  if (typeof address === "string") {
-    const trimmed = address.trim();
-    if (trimmed) return trimmed;
-  }
-  if (address && typeof address === "object") {
-    const candidates = [
-      address.formatted,
-      address.formatted_address,
-      address.formattedAddress,
-      address.display_name,
-    ]
-      .map((candidate) => (typeof candidate === "string" ? candidate.trim() : ""))
-      .filter(Boolean);
-    if (candidates.length) return candidates[0];
-
-    const parts = [
-      address.road || address.street || address.addressLine1,
-      address.city || address.town || address.village,
-      address.state || address.state_code || address.region,
-    ]
-      .map((part) => (part ? String(part).trim() : ""))
-      .filter(Boolean);
-    if (parts.length) return parts.join(", ");
+  const formattedFull = formatFullAddress(candidate);
+  if (formattedFull && formattedFull !== "—") {
+    const shortFromFull = formatAddress(formattedFull);
+    if (shortFromFull && shortFromFull !== "—" && !isCoordinateFallback(shortFromFull)) return shortFromFull;
+    if (!isCoordinateFallback(formattedFull)) return formattedFull;
   }
 
-  if (coordinateFallback) return coordinateFallback;
+  if (typeof candidate === "string") {
+    const trimmed = candidate.trim();
+    if (trimmed && !isCoordinateFallback(trimmed)) return trimmed;
+  }
+
   return "Endereço indisponível";
 }
 
@@ -3409,12 +3399,12 @@ function normalizePagination(query = {}) {
   const limitRaw = query.limit === "all" ? null : Number(query.limit);
   const limit =
     query.limit === undefined
-      ? 50
+      ? 1000
       : query.limit === "all"
         ? null
         : Number.isFinite(limitRaw) && limitRaw > 0
           ? limitRaw
-          : 50;
+          : 1000;
   const offsetRaw = Number(query.offset);
   const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : null;
   return { page, limit, offset };
@@ -3569,14 +3559,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const rawAccuracy = position.accuracy ?? attributes.accuracy ?? null;
       const vehicleVoltage = extractVehicleVoltage(attributes, protocolKey);
       const motion = extractMotion(attributes, speedKmh);
-      const power = extractPowerVoltage(attributes);
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
       const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, { includeGenericIo: true });
-      const resolvedAddress = normalizeAddressValue(position.address, position.latitude, position.longitude, position.fullAddress);
-      const resolvedFullAddress =
-        formatFullAddress(position.fullAddress || position.formattedAddress || position.address || resolvedAddress) ||
-        resolvedAddress;
+      const resolvedAddress = normalizeAddressValue(position.address, position.fullAddress);
 
       const dynamicValues = dynamicKeys.reduce((acc, key) => {
         const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
@@ -3593,13 +3579,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         latitude: position.latitude ?? null,
         longitude: position.longitude ?? null,
         address: resolvedAddress,
-        fullAddress: resolvedFullAddress,
         speed: speedKmh,
         direction: position.course ?? null,
         ignition,
         vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
         motion,
-        power,
         batteryLevel: extractBatteryLevel(attributes),
         rssi: extractRssi(attributes),
         satellites: extractSatellites(attributes),
@@ -3762,7 +3746,6 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       "latitude",
       "longitude",
       "batteryLevel",
-      "power",
       "motion",
       "rssi",
       "geofence",
@@ -3859,6 +3842,14 @@ function buildPositionsXlsxFileName(meta, from, to) {
   const safeFrom = sanitizeFileToken(from, "from");
   const safeTo = sanitizeFileToken(to, "to");
   return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+}
+
+function buildPositionsCsvFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "positions";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
 }
 
 /**
@@ -4020,6 +4011,68 @@ router.post("/reports/positions/xlsx", async (req, res) => {
       durationMs,
     });
     res.status(status).json({ message, code: error?.code || "POSITIONS_XLSX_ERROR" });
+  }
+});
+
+router.post("/reports/positions/csv", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/csv] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+
+    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : report?.meta?.columns;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+
+    const csvBuffer = generatePositionsReportCsv({
+      rows: report.positions,
+      columns,
+      columnDefinitions: resolvedColumnDefinitions,
+      availableColumns,
+    });
+
+    const durationMs = Date.now() - startedAt;
+    const fileName = buildPositionsCsvFileName(report?.meta, from, to);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/csv] relatório de posições gerado", {
+      vehicleId,
+      rows: report.positions.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
+    res.status(200).send(csvBuffer);
+  } catch (error) {
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório de posições em CSV.";
+    const durationMs = Date.now() - startedAt;
+    console.error("[reports/csv] erro ao exportar posições", {
+      status,
+      code: error?.code,
+      message,
+      durationMs,
+    });
+    res.status(status).json({ message, code: error?.code || "POSITIONS_CSV_ERROR" });
   }
 });
 
