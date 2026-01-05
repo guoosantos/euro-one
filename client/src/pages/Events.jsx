@@ -224,7 +224,8 @@ function buildInitialColumns() {
 }
 
 export default function Events() {
-  const { locale } = useTranslation();
+  const { t: translateFn, locale } = useTranslation();
+  const t = translateFn || ((value) => value);
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();

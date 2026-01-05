@@ -244,23 +244,26 @@ export function formatAddress(address) {
   return `${fallback.slice(0, 2).join(", ")} - ${fallback.slice(-2).join(" - ")}`;
 }
 
-function formatShortAddressFromParts(parts = {}) {
+export function formatShortAddressFromParts(parts = {}) {
   const street = parts.street || coalesce(parts.road, parts.streetName, parts.route);
-  const houseNumber = parts.houseNumber || coalesce(parts.house_number, parts.house) || (street ? "s/n" : "");
+  const houseNumber = parts.houseNumber || coalesce(parts.house_number, parts.house, parts.number, parts.numero);
   const neighbourhood = parts.neighbourhood || coalesce(parts.neighbourhood, parts.suburb, parts.quarter);
   const city = parts.city || coalesce(parts.city, parts.town, parts.village, parts.municipality);
-  const state = parts.state || coalesce(parts.state, parts.region, parts.state_district);
-  const postalCode = parts.postalCode || coalesce(parts.postcode, parts.zipcode);
+  const stateCode = coalesce(parts.stateCode, parts.state_code, parts.state);
+  const state = stateCode ? stateCode.toUpperCase() : "";
+  const postalCode = normalizeCep(parts.postalCode || coalesce(parts.postcode, parts.zipcode, parts.cep));
+  const country = parts.country || coalesce(parts.country, parts.countryName) || "Brasil";
 
-  const firstLine = [street, houseNumber].filter(Boolean).join(", ");
-  const locality = [neighbourhood, city].filter(Boolean).join(", ");
-  const region = [state, postalCode].filter(Boolean).join(", ");
+  const streetLine = street ? [street, houseNumber].filter(Boolean).join(", ") : "";
+  const cityState = [city, state].filter(Boolean).join("-").trim();
+  const locality = [neighbourhood, cityState].filter(Boolean).join(" ").trim();
+  const base = [streetLine, locality].filter(Boolean).join(" - ");
+  const suffix = [postalCode, country].filter(Boolean).join(", ");
 
-  const suffix = [locality, region].filter(Boolean).join(" - ");
-  const compact = [firstLine, suffix].filter(Boolean).join(" - ");
-  if (compact) return compact;
+  const formatted = [base || locality, suffix].filter(Boolean).join(", ").replace(/\s+,/g, ", ").trim();
+  if (formatted) return formatted;
 
-  const fallback = [street, neighbourhood, city, state, postalCode].filter(Boolean).join(", ");
+  const fallback = [street, neighbourhood, cityState || state, postalCode, country].filter(Boolean).join(", ");
   return fallback || null;
 }
 
@@ -436,6 +439,25 @@ async function lookupGeocode(lat, lng, { blocking = true } = {}) {
   return promise;
 }
 
+export function enqueueGeocodeJob({ lat, lng, blocking = false, priority = "normal" } = {}) {
+  const normalizedLat = normalizeCoordinate(lat);
+  const normalizedLng = normalizeCoordinate(lng);
+  if (!Number.isFinite(normalizedLat) || !Number.isFinite(normalizedLng)) return null;
+
+  return lookupGeocode(normalizedLat, normalizedLng, { blocking }).catch((error) => {
+    const status = error?.status || error?.statusCode;
+    const isThrottle = status === 429 || status === 503;
+    if (!isThrottle) {
+      console.warn("[geocode] falha ao enfileirar geocode", {
+        message: error?.message || error,
+        status,
+        priority,
+      });
+    }
+    return null;
+  });
+}
+
 export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
   const rawAddress =
@@ -535,6 +557,65 @@ export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
   return null;
 }
 
+function normalizeShortAddressInput(value) {
+  if (!value) return "";
+  if (typeof value === "string") return collapseWhitespace(value);
+  if (typeof value === "object") {
+    return (
+      value.shortAddress ||
+      value.formattedAddress ||
+      value.address ||
+      value.formatted ||
+      value.formatted_address ||
+      ""
+    );
+  }
+  return String(value || "").trim();
+}
+
+function buildPlaceholderShortAddress(lat, lng) {
+  const coordinate = buildCoordinateFallback(lat, lng);
+  return coordinate ? `Sem endereço (${coordinate})` : "Sem endereço";
+}
+
+export function ensureCachedPositionAddress(
+  position,
+  { warm = true, placeholder = true, placeholderText = null, priority = "normal" } = {},
+) {
+  if (!position || typeof position !== "object") return position;
+  const lat = position.latitude ?? position.lat;
+  const lng = position.longitude ?? position.lon ?? position.lng;
+  const cached = getCachedGeocode(lat, lng);
+  const normalizedShort = normalizeShortAddressInput(position.shortAddress || position.fullAddress || position.address);
+  const formattedAddress =
+    cached?.formattedAddress ||
+    formatFullAddress(position.formattedAddress || position.fullAddress || normalizedShort || position.address);
+
+  let shortAddress = cached?.shortAddress || formatAddress(normalizedShort);
+  if (shortAddress === "—") shortAddress = "";
+  const fallbackText = placeholderText || buildPlaceholderShortAddress(lat, lng);
+  const finalShort = shortAddress || (placeholder ? fallbackText : "");
+  const finalFormatted = (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") || finalShort || buildCoordinateFallback(lat, lng) || "";
+
+  if (warm && !cached && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
+    enqueueGeocodeJob({ lat, lng, blocking: false, priority });
+  }
+
+  return {
+    ...position,
+    formattedAddress: finalFormatted,
+    fullAddress: position.fullAddress || finalFormatted,
+    shortAddress: finalShort,
+    geocodeStatus: cached ? "ok" : "pending",
+    geocodedAt: cached?.cachedAt || null,
+  };
+}
+
+export function ensureCachedAddresses(collection, options = {}) {
+  if (!Array.isArray(collection)) return [];
+  return collection.map((item) => ensureCachedPositionAddress(item, options));
+}
+
 export default {
   formatAddress,
   formatFullAddress,
@@ -544,4 +625,8 @@ export default {
   getCachedGeocode,
   prefetchPositionAddresses,
   persistGeocode,
+  enqueueGeocodeJob,
+  ensureCachedPositionAddress,
+  ensureCachedAddresses,
+  formatShortAddressFromParts,
 };

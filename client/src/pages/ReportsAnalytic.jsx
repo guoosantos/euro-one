@@ -289,6 +289,7 @@ export default function ReportsAnalytic() {
             columns={columns}
             loading={loading}
             emptyText={hasGenerated ? t("reportsAnalytic.empty") : t("reportsAnalytic.emptyBefore")}
+            liveGeocode={false}
           />
         </div>
 

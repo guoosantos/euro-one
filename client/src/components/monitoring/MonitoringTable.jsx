@@ -22,6 +22,7 @@ export default function MonitoringTable({
   columnWidths: externalWidths,
   onColumnWidthChange,
   onRowClick,
+  liveGeocode = true,
 }) {
   const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
@@ -251,6 +252,7 @@ export default function MonitoringTable({
                         lat={row.lat}
                         lng={row.lng}
                         loading={row.addressLoading}
+                        liveLookup={liveGeocode}
                         className="max-w-full"
                       />
                     );

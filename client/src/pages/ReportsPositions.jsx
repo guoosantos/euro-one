@@ -888,6 +888,7 @@ export default function ReportsPositions() {
           emptyText="Nenhuma posição encontrada para o período selecionado."
           columnWidths={columnPrefs?.widths}
           onColumnWidthChange={handleColumnWidthChange}
+          liveGeocode={false}
         />
       </section>
       {canLoadMore && (

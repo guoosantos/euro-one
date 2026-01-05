@@ -189,6 +189,10 @@ export async function reverseGeocode(lat, lng, { signal, force = false } = {}) {
   const promise = (async () => {
     try {
       const data = await runWithRateLimit(() => resolveFromApi(normalizedLat, normalizedLng, { signal }), { signal });
+      if (data?.status === "fallback") {
+        setCachedFailure(key, true);
+        return null;
+      }
       const address = formatGeocodeAddress(data);
       if (address) {
         setCachedReverse(key, address);
