@@ -1,4 +1,6 @@
 import express from "express";
+import xirgoSensorsCatalog from "../../shared/xirgoSensorsCatalog.pt-BR.json" assert { type: "json" };
+import deviceDiagnosticCatalog from "../../shared/deviceDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
 import { authenticate, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -47,10 +49,13 @@ router.get("/compliance", requireRole("user", "manager", "admin"), (_req, res) =
 
 router.get("/iot-sensors", requireRole("user", "manager", "admin"), (_req, res) => {
   res.json({
-    sensors: [
-      { id: "temp-1", type: "Temperatura", value: 4.2, unit: "°C" },
-      { id: "tire-3", type: "Pneu", value: 31, unit: "psi" },
-    ],
+    sensors: xirgoSensorsCatalog,
+  });
+});
+
+router.get("/iotm-diagnostic-events", requireRole("user", "manager", "admin"), (_req, res) => {
+  res.json({
+    events: deviceDiagnosticCatalog,
   });
 });
 

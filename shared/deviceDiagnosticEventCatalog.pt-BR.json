@@ -1,0 +1,32 @@
+[
+  {
+    "id": "f0=0",
+    "labelPt": "Reinicialização por software.",
+    "severity": "info",
+    "description": "Reinicialização por software."
+  },
+  {
+    "id": "f0=1",
+    "labelPt": "Alimentação conectada.",
+    "severity": "info",
+    "description": "Alimentação conectada."
+  },
+  {
+    "id": "f0=4",
+    "labelPt": "Problema na alimentação elétrica.",
+    "severity": "info",
+    "description": "Problema na alimentação elétrica."
+  },
+  {
+    "id": "f0=5",
+    "labelPt": "Alimentação conectada.",
+    "severity": "info",
+    "description": "Alimentação conectada."
+  },
+  {
+    "id": "f0=8",
+    "labelPt": "Reinicialização pelo watchdog (após atualização de firmware).",
+    "severity": "info",
+    "description": "Reinicialização pelo watchdog (após atualização de firmware)."
+  }
+]

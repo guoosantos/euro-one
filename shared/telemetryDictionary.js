@@ -1,6 +1,8 @@
 import { iotmEventCatalog } from "./iotmEventCatalog.js";
 import iotmIoCatalog from "./iotmIoCatalog.pt-BR.json" assert { type: "json" };
 import iotmDiagnosticCatalog from "./iotmDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
+import deviceDiagnosticCatalog from "./deviceDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
+import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" assert { type: "json" };
 
 const BASE_TELEMETRY_ATTRIBUTES = [
   { key: "engineWorking", labelPt: "Motor em funcionamento", type: "boolean", unit: null, priority: 15 },
@@ -68,6 +70,17 @@ const IOTM_IO_ENTRIES = (iotmIoCatalog || [])
     type: entry.type || null,
     unit: entry.unit || null,
     priority: entry.priority ?? 250,
+    id: entry.id ?? null,
+  }));
+
+const XIRGO_SENSOR_ENTRIES = (xirgoSensorsCatalog || [])
+  .filter((entry) => entry && entry.key && entry.labelPt)
+  .map((entry) => ({
+    key: entry.key,
+    labelPt: entry.labelPt,
+    type: entry.type || null,
+    unit: entry.unit || null,
+    priority: 270,
     id: entry.id ?? null,
   }));
 
@@ -161,6 +174,7 @@ export const telemetryAttributeCatalog = [
   ...IOTM_SENSOR_RANGE_ENTRIES.filter(
     (entry) => !BASE_TELEMETRY_ATTRIBUTES.some((base) => base.key === entry.key),
   ),
+  ...XIRGO_SENSOR_ENTRIES.filter((entry) => !BASE_TELEMETRY_ATTRIBUTES.some((base) => base.key === entry.key)),
 ];
 
 const TELEMETRY_DESCRIPTOR_MAP = new Map(telemetryAttributeCatalog.map((item) => [item.key, item]));
@@ -229,7 +243,16 @@ const IOTM_TELEMETRY_ALIASES = [...(iotmIoCatalog || []), ...IOTM_SENSOR_RANGE_E
     return acc;
   }, {});
 
-export const telemetryAliases = { ...BASE_TELEMETRY_ALIASES, ...IOTM_TELEMETRY_ALIASES };
+const XIRGO_TELEMETRY_ALIASES = (xirgoSensorsCatalog || [])
+  .filter((entry) => entry && entry.key && entry.id !== undefined && entry.id !== null)
+  .reduce((acc, entry) => {
+    const id = String(entry.id).trim();
+    if (!id || acc[id]) return acc;
+    acc[id] = entry.key;
+    return acc;
+  }, {});
+
+export const telemetryAliases = { ...BASE_TELEMETRY_ALIASES, ...IOTM_TELEMETRY_ALIASES, ...XIRGO_TELEMETRY_ALIASES };
 
 const BASE_IO_FRIENDLY_NAMES = {
   io157: { key: "handBrake", labelPt: "Freio de Mão", type: "boolean" },
@@ -303,7 +326,7 @@ const IOTM_EVENT_CODE_MAP = new Map(
 );
 
 const IOTM_DIAGNOSTIC_CODE_MAP = new Map(
-  (iotmDiagnosticCatalog || []).map((item) => [
+  [...(iotmDiagnosticCatalog || []), ...(deviceDiagnosticCatalog || [])].map((item) => [
     String(item.id).toLowerCase(),
     { key: `iotm_diag_${item.id}`, labelPt: item.labelPt, severity: item.severity, description: item.description },
   ]),
