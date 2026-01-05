@@ -431,6 +431,7 @@ export async function ensurePositionAddress(position, { priority = "normal", rea
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
   const coordinateFallback = buildCoordinateFallback(lat, lng);
+  const placeholderShort = buildPlaceholderShortAddress(lat, lng);
   const fallbackFormatted =
     formattedAddress || formatFullAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
 
@@ -438,22 +439,24 @@ export async function ensurePositionAddress(position, { priority = "normal", rea
   const hasProvidedAddress = Boolean(baseFormatted || shortAddress);
   const finalFormatted =
     cached?.formattedAddress || formattedAddress || shortAddress || fallbackFormatted || coordinateFallback || "—";
+  const preliminaryShort =
+    cached?.shortAddress || shortAddress || finalFormatted || coordinateFallback || placeholderShort || "—";
+  const baseStatus = position.geocodeStatus || (cached || hasProvidedAddress ? "ok" : "pending");
+  const shouldEnqueue = shouldQueueGeocode({
+    formattedAddress: finalFormatted,
+    shortAddress: preliminaryShort,
+    geocodeStatus: baseStatus,
+  });
   const finalShort =
     cached?.shortAddress ||
     (shouldEnqueue ? "Resolvendo endereço..." : null) ||
     shortAddress ||
     finalFormatted ||
     coordinateFallback ||
+    placeholderShort ||
     "—";
-  const baseStatus = position.geocodeStatus || (cached || hasProvidedAddress ? "ok" : "pending");
-  const shouldEnqueue = shouldQueueGeocode({
-    formattedAddress: finalFormatted,
-    shortAddress: finalShort,
-    geocodeStatus: baseStatus,
-  });
   const geocodeStatus = cached ? "ok" : shouldEnqueue ? "pending" : "ok";
   const geocodedAt = cached?.cachedAt || (shouldEnqueue ? new Date().toISOString() : position.geocodedAt || null);
-  const placeholderShort = buildPlaceholderShortAddress(lat, lng);
 
   if (shouldEnqueue && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
     queueGeocodeForCoordinates({

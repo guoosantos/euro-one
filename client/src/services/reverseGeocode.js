@@ -130,13 +130,14 @@ function runWithRateLimit(fn, { signal } = {}) {
   return rateLimitQueue;
 }
 
-async function resolveFromApi(lat, lng, { signal, reason = null, priority = null } = {}) {
+async function resolveFromApi(lat, lng, { signal, reason = null, priority = null, force = false } = {}) {
   const search = new URLSearchParams({
     lat: String(lat),
     lng: String(lng),
   });
   if (reason) search.set("reason", reason);
   if (priority) search.set("priority", priority);
+  if (force) search.set("force", "1");
   const url = `${REVERSE_URL}?${search.toString()}`;
   const headers = new Headers({ Accept: "application/json" });
   const authorization = resolveAuthorizationHeader();
@@ -182,7 +183,10 @@ export async function reverseGeocode(lat, lng, { signal, force = false } = {}) {
     try {
       const reason = force ? "user_action" : undefined;
       const priority = force ? "high" : undefined;
-      let data = await runWithRateLimit(() => resolveFromApi(normalizedLat, normalizedLng, { signal, reason, priority }), { signal });
+      let data = await runWithRateLimit(
+        () => resolveFromApi(normalizedLat, normalizedLng, { signal, reason, priority, force }),
+        { signal },
+      );
       if (data?.status === "pending") {
         const followUp = await waitForPending();
         if (followUp) {

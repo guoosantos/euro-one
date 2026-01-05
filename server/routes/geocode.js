@@ -169,14 +169,15 @@ router.get("/geocode/search", async (req, res) => {
 router.get("/geocode/reverse", async (req, res) => {
   const lat = Number(req.query.lat ?? req.query.latitude);
   const lng = Number(req.query.lng ?? req.query.lon ?? req.query.longitude);
+  const force = ["1", "true"].includes(String(req.query?.force ?? "").toLowerCase());
 
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
     return res.status(400).json({ error: { message: "Coordenadas inválidas." } });
   }
 
   const key = buildReverseKey(lat, lng);
-  const cached = key ? reverseCache.get(key) : null;
-  if (cached) {
+  const cached = !force && key ? reverseCache.get(key) : null;
+  if (cached?.status === "ok") {
     return res.json(cached);
   }
 
@@ -188,7 +189,7 @@ router.get("/geocode/reverse", async (req, res) => {
   }
 
   const reason = typeof req.query?.reason === "string" ? req.query.reason : "user_action";
-  const priority = req.query?.priority === "high" ? "high" : "high";
+  const priority = req.query?.priority === "high" ? "high" : "normal";
   let enqueued = null;
   try {
     enqueued = await enqueueGeocodeJob({
@@ -214,7 +215,6 @@ router.get("/geocode/reverse", async (req, res) => {
     },
     enqueued ? "pending" : "fallback",
   );
-  if (key) reverseCache.set(key, responsePayload);
   return res.json(responsePayload);
 });
 

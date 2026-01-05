@@ -8,7 +8,8 @@ function formatCoords(lat, lng) {
 
 export default function AddressStatus({ address, loading, lat, lng, onRetry, className = "" }) {
   const coords = useMemo(() => formatCoords(lat, lng), [lat, lng]);
-  const resolvedAddress = address && address !== "—" ? address : "";
+  const safeAddress = typeof address === "string" ? address : "";
+  const resolvedAddress = safeAddress && safeAddress !== "—" ? safeAddress : "";
   const isFallback = !resolvedAddress || resolvedAddress === FALLBACK_ADDRESS;
   const display = loading
     ? "Resolvendo endereço..."

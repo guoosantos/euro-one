@@ -8,6 +8,8 @@ let BullWorker = null;
 let IORedis = null;
 
 const shouldLogDriverWarnings = process.env.NODE_ENV !== "test";
+let warnedMissingRedisUrl = false;
+let warnedMemoryDriver = false;
 
 try {
   ({ Queue: BullQueue, QueueScheduler: BullQueueScheduler, Worker: BullWorker } = require("bullmq"));
@@ -65,7 +67,12 @@ export function buildGridKey(lat, lng) {
 }
 
 function getRedisUrl() {
-  return process.env.GEOCODE_REDIS_URL || process.env.REDIS_URL || "redis://127.0.0.1:6379";
+  const envUrl = process.env.GEOCODE_REDIS_URL || process.env.REDIS_URL;
+  if (!envUrl && shouldLogDriverWarnings && process.env.NODE_ENV === "production" && !warnedMissingRedisUrl) {
+    console.warn("[geocode-queue] GEOCODE_REDIS_URL/REDIS_URL não configurado; usando redis://127.0.0.1:6379.");
+    warnedMissingRedisUrl = true;
+  }
+  return envUrl || "redis://127.0.0.1:6379";
 }
 
 function ensureConnection() {
@@ -152,6 +159,10 @@ function createMemoryQueue() {
 
 export function getGeocodeQueue() {
   if (state.driver !== "bullmq") {
+    if (!warnedMemoryDriver && shouldLogDriverWarnings && process.env.NODE_ENV === "production") {
+      console.warn("[geocode-queue] Modo em memória ativo em produção; configure Redis/BullMQ.");
+      warnedMemoryDriver = true;
+    }
     if (!state.queue) {
       state.queue = createMemoryQueue();
     }

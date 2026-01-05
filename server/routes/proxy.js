@@ -35,7 +35,13 @@ import {
   resolveAllowedDeviceIds,
   normaliseJsonList,
 } from "../utils/report-helpers.js";
-import { enrichPositionsWithAddresses, formatAddress, formatFullAddress, resolveShortAddress } from "../utils/address.js";
+import {
+  enrichPositionsWithAddresses,
+  ensureCachedAddresses,
+  formatAddress,
+  formatFullAddress,
+  resolveShortAddress,
+} from "../utils/address.js";
 import { stringifyCsv } from "../utils/csv.js";
 import { computeRouteSummary, computeTripMetrics } from "../utils/report-metrics.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
@@ -1379,6 +1385,15 @@ function isCoordinateFallback(value) {
   return Number.isFinite(lat) && Number.isFinite(lng);
 }
 
+function buildShortAddressFallback(lat, lng) {
+  const normalizedLat = Number(lat);
+  const normalizedLng = Number(lng);
+  if (Number.isFinite(normalizedLat) && Number.isFinite(normalizedLng)) {
+    return `Sem endereço (${normalizedLat.toFixed(5)}, ${normalizedLng.toFixed(5)})`;
+  }
+  return "Sem endereço";
+}
+
 function normalizeAddressValue(address, fullAddress = null, shortAddress = null) {
   const candidate = shortAddress || fullAddress || address;
   const short = formatAddress(candidate);
@@ -1522,17 +1537,26 @@ function normalisePosition(position) {
   if (!position) return null;
   const attributes = position.attributes || {};
   const fixTime = position.fixTime || position.deviceTime || position.serverTime || null;
+  const latitude = position.latitude ?? null;
+  const longitude = position.longitude ?? null;
+  const fallbackShort = buildShortAddressFallback(latitude, longitude);
+  const resolvedAddress =
+    normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
+  const resolvedShortAddress = position.shortAddress || resolvedAddress || fallbackShort;
+  const resolvedFormatted = position.formattedAddress || resolvedAddress || resolvedShortAddress || fallbackShort;
   return {
     deviceId: position.deviceId != null ? String(position.deviceId) : null,
-    latitude: position.latitude ?? null,
-    longitude: position.longitude ?? null,
+    latitude,
+    longitude,
     speed: position.speed ?? null,
     course: position.course ?? null,
     timestamp: fixTime || position.serverTime || position.deviceTime || null,
     fixTime: position.fixTime || null,
     deviceTime: position.deviceTime || null,
     serverTime: position.serverTime || null,
-    address: position.address || "Endereço não disponível",
+    address: resolvedAddress,
+    shortAddress: resolvedShortAddress,
+    formattedAddress: resolvedFormatted,
     attributes,
     batteryLevel: extractBatteryLevel(attributes),
     ignition: extractIgnition(attributes),
@@ -1820,18 +1844,28 @@ async function normalizeReportPayload(path, payload) {
 
         const start = await resolveShortAddress(startLat, startLng, trip.startAddress);
         const end = await resolveShortAddress(endLat, endLng, trip.endAddress);
+        const startFallback = buildShortAddressFallback(startLat, startLng);
+        const endFallback = buildShortAddressFallback(endLat, endLng);
+        const startResolved = start?.address || trip.startAddress || null;
+        const endResolved = end?.address || trip.endAddress || null;
+        const startShort =
+          start?.shortAddress || start?.formattedAddress || startResolved || startFallback;
+        const endShort =
+          end?.shortAddress || end?.formattedAddress || endResolved || endFallback;
+        const startFormatted = start?.formattedAddress || startResolved || startShort;
+        const endFormatted = end?.formattedAddress || endResolved || endShort;
 
         const metrics = computeTripMetrics(trip);
 
         return {
           ...trip,
           ...metrics,
-          startAddress: start?.address || trip.startAddress,
-          endAddress: end?.address || trip.endAddress,
-          startShortAddress: start?.shortAddress || start?.formattedAddress || null,
-          endShortAddress: end?.shortAddress || end?.formattedAddress || null,
-          startFormattedAddress: start?.formattedAddress || null,
-          endFormattedAddress: end?.formattedAddress || null,
+          startAddress: startResolved || startShort,
+          endAddress: endResolved || endShort,
+          startShortAddress: startShort,
+          endShortAddress: endShort,
+          startFormattedAddress: startFormatted,
+          endFormattedAddress: endFormatted,
         };
       }),
     );
@@ -1968,14 +2002,23 @@ async function handleEventsReport(req, res, next) {
     const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
     const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
-    const positionMap = new Map(positions.map((position) => [position.id, position]));
+    const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
+    const positionMap = new Map(enrichedPositions.map((position) => [position.id, position]));
 
     const severityFilter = req.query?.severity;
     const resolvedFilter = req.query?.resolved;
 
     const eventsWithAddress = events.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
+      const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
       const formattedAddress = position ? formatAddress(position.address) : null;
+      const resolvedShortAddress =
+        position?.shortAddress ||
+        formattedAddress ||
+        normalizeAddressValue(position?.address, position?.fullAddress, position?.shortAddress) ||
+        fallbackShort;
+      const resolvedAddress =
+        normalizeAddressValue(position?.address, position?.fullAddress, position?.shortAddress) || resolvedShortAddress;
       const decoratedPosition = position ? decoratePositionWithDevice(position, lookup) : null;
       const device = buildDeviceInfo(
         lookup.devicesByTraccarId?.get(String(event.deviceId)),
@@ -1995,7 +2038,8 @@ async function handleEventsReport(req, res, next) {
         position: decoratedPosition || position,
         latitude: decoratedPosition?.latitude ?? position?.latitude,
         longitude: decoratedPosition?.longitude ?? position?.longitude,
-        address: formattedAddress || decoratedPosition?.address || position?.address || event.address || null,
+        address: resolvedAddress || decoratedPosition?.address || position?.address || event.address || fallbackShort,
+        shortAddress: resolvedShortAddress || fallbackShort,
         device,
         lastCommunication,
         batteryLevel,
@@ -2061,9 +2105,9 @@ router.get("/telemetry", async (req, res) => {
 
 
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
+    const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
-
-    const data = positions.map((position) => normalisePosition(position)).filter(Boolean);
+    const data = enrichedPositions.map((position) => normalisePosition(position)).filter(Boolean);
 
     return res.status(200).json({ data, positions: data, error: null });
   } catch (error) {
@@ -2316,8 +2360,9 @@ router.get("/positions/last", async (req, res) => {
     }
 
     const positions = await fetchLatestPositionsWithFallback(deviceIdsToQuery, null);
+    const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
-    const data = positions
+    const data = enrichedPositions
       .map((position) => decoratePositionWithDevice(normalisePosition(position), lookup))
       .filter(Boolean);
 
@@ -3667,7 +3712,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
   const resolveMode = req.query?.addressMode === "blocking" || req.body?.addressMode === "blocking" ? "blocking" : "async";
   await resolvePositionsFullAddressBatch(positions, resolveMode);
-  const enrichedPositions = positions;
+  const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
   let filter = null;
   if (addressFilter?.lat != null && addressFilter?.lng != null) {
@@ -3727,7 +3772,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
       const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, { includeGenericIo: true });
-      const resolvedAddress = normalizeAddressValue(position.address, position.fullAddress, position.shortAddress);
+      const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
+      const resolvedAddress =
+        normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
+      const resolvedShortAddress = position.shortAddress || resolvedAddress || fallbackShort;
+      const resolvedFormatted = position.formattedAddress || resolvedAddress || resolvedShortAddress || fallbackShort;
 
       const dynamicValues = dynamicKeys.reduce((acc, key) => {
         const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
@@ -3742,13 +3791,13 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         deviceTime: position.deviceTime || null,
         serverTime: position.serverTime || null,
         latitude: position.latitude ?? null,
-      longitude: position.longitude ?? null,
-      address: resolvedAddress,
-      shortAddress: position.shortAddress || resolvedAddress,
-      formattedAddress: position.formattedAddress || resolvedAddress,
-      speed: speedKmh,
-      direction: position.course ?? null,
-      ignition,
+        longitude: position.longitude ?? null,
+        address: resolvedAddress,
+        shortAddress: resolvedShortAddress,
+        formattedAddress: resolvedFormatted,
+        speed: speedKmh,
+        direction: position.course ?? null,
+        ignition,
         vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
         motion,
         batteryLevel: extractBatteryLevel(attributes),
@@ -4007,18 +4056,24 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   const resolveMode = req.query?.addressMode === "blocking" ? "blocking" : "async";
   const positions = await fetchPositions([traccarId], from, to);
   await resolvePositionsFullAddressBatch(positions, resolveMode);
+  const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
-  const positionEntries = positions.map((position) => {
+  const positionEntries = enrichedPositions.map((position) => {
     const attributes = position.attributes || {};
     const speedRaw = Number(position.speed ?? 0);
     const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
     const timestamp = position.fixTime || position.deviceTime || position.serverTime || null;
     const jamming = extractJamming(attributes);
+    const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
+    const resolvedAddress =
+      normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
+    const resolvedShortAddress = position.shortAddress || resolvedAddress || fallbackShort;
     return {
       id: position.id ? `position-${position.id}` : `position-${timestamp || position.deviceId}`,
       type: "position",
       occurredAt: timestamp,
-      address: normalizeAddressValue(position.address, position.fullAddress, position.shortAddress),
+      address: resolvedAddress,
+      shortAddress: resolvedShortAddress,
       speed: speedKmh,
       ignition: extractIgnition(attributes),
       input2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
@@ -4034,7 +4089,8 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
   const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
   const eventPositions = await fetchPositionsByIds(positionIds);
-  const positionMap = new Map(eventPositions.map((position) => [position.id, position]));
+  const enrichedEventPositions = ensureCachedAddresses(eventPositions, { priority: "normal" });
+  const positionMap = new Map(enrichedEventPositions.map((position) => [position.id, position]));
   const eventEntries = events.map((event) => {
     const position = event.positionId ? positionMap.get(event.positionId) : null;
     const attributes = event.attributes || {};
@@ -4042,11 +4098,14 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     const speedRaw = Number(position?.speed ?? 0);
     const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
     const ignition = extractIgnition(positionAttributes) ?? extractIgnition(attributes);
-    const address = normalizeAddressValue(
-      position?.address || event.address || attributes.address,
-      position?.fullAddress || null,
-      position?.shortAddress || null,
-    );
+    const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
+    const address =
+      normalizeAddressValue(
+        position?.address || event.address || attributes.address,
+        position?.fullAddress || null,
+        position?.shortAddress || null,
+      ) || fallbackShort;
+    const shortAddress = position?.shortAddress || address || fallbackShort;
     return {
       id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,
       type: "event",
@@ -4054,6 +4113,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       eventType: event.type || null,
       eventDescription: attributes.description || attributes.message || null,
       address,
+      shortAddress,
       speed: speedKmh,
       ignition,
       geofence: event.geofenceId || attributes.geofence || null,
