@@ -4,3 +4,2725 @@ ID,Name,Description
 "fun_id=0,war_id=4",f0=4,Problema na alimentação elétrica.
 "fun_id=0,war_id=5",f0=5,Alimentação conectada.
 "fun_id=0,war_id=8",f0=8,Reinicialização pelo watchdog (após atualização de firmware).
+Device Diagnostic Events (Auto-Generated)
+Última atualização em 5 November, 2024
+Event code (old protocol)
+Event code (SDK)
+Description (common)
+Description (SDK specific)
+Event code (old protocol)
+Event code (SDK)
+Description (common)
+Description (SDK specific)
+f0=0
+fun_id=0, war_id=0
+Software reset.
+ 
+f0=1
+fun_id=0, war_id=1
+Power supply was plugged in.
+ 
+f0=4
+fun_id=0, war_id=4
+Power supply problem.
+ 
+f0=5
+fun_id=0, war_id=5
+Power supply was plugged in.
+ 
+f0=8
+fun_id=0, war_id=8
+Reset performed by watchdog (after firmware update).
+ 
+f0=100
+fun_id=0, war_id=100
+Undetermined error.
+ 
+f0=101
+fun_id=0, war_id=101
+No server acknowledgement.
+ 
+f0=102
+fun_id=0, war_id=102
+No server acknowledgement. Connection with a server lost.
+ 
+f0=103
+fun_id=0, war_id=103
+While waiting confirmation jumped from server to command environment.
+ 
+f0=104
+fun_id=0, war_id=104
+Unrecognized data from server.
+ 
+f0=105
+fun_id=0, war_id=105
+No valid answer/value.
+ 
+f0=106
+fun_id=0, war_id=106
+Undetermined error.
+ 
+f0=107
+fun_id=0, war_id=107
+Device signature mismatch..
+ 
+f0=108
+fun_id=0, war_id=108
+Confirmation not received
+ 
+f0=109
+fun_id=0, war_id=109
+Firmware: wrong firmware size.
+ 
+f0=110
+fun_id=0, war_id=110
+Firmware: unknown firmware size.
+ 
+f0=111
+fun_id=0, war_id=111
+Firmware: writing to flash memory was not completed successfully.
+ 
+f0=112
+fun_id=0, war_id=112
+Firmware: was not able to receive whole file.
+ 
+f0=113
+fun_id=0, war_id=113
+Firmware: size mismatch with.a server.
+ 
+f0=114
+fun_id=0, war_id=114
+Firmware: writing to flash memory failed.
+ 
+f0=115
+fun_id=0, war_id=115
+Firmware: unknown error.
+ 
+f0=116
+fun_id=0, war_id=116
+GPS hung up.
+ 
+f0=117
+fun_id=0, war_id=117
+Undetermined error.
+ 
+f0=118
+fun_id=0, war_id=118
+GSM signal is too weak.
+ 
+f0=119
+fun_id=0, war_id=119
+GPRS not registered and not searching register to.
+ 
+f0=120
+fun_id=0, war_id=120
+GPRS registration denied.
+ 
+f0=121
+fun_id=0, war_id=121
+GSM not registered and not searching register to.
+ 
+f0=122
+fun_id=0, war_id=122
+GSM registration denied.
+ 
+f0=123
+fun_id=0, war_id=123
+NMEA data was not sufficient.
+ 
+f0=124
+fun_id=0, war_id=124
+Server problem.
+ 
+f0=125
+fun_id=0, war_id=125
+Our server and "Google" does not work, probably misunderstanding with GPRS ACT.
+ 
+f0=126
+fun_id=0, war_id=126
+Server database error.
+ 
+f0=127
+fun_id=0, war_id=127
+Self-contained modem shutdown.
+ 
+f0=128
+fun_id=0, war_id=128
+During time synchronization .found that internal time is rushing more than 20 seconds comparing with GPS seconds.
+ 
+f0=129
+fun_id=0, war_id=129
+During time synchronization found that internal time is behind GPS more than 20 seconds.
+ 
+f0=130
+fun_id=0, war_id=130
+Device acquired a sms for reboot.
+ 
+f0=131
+fun_id=0, war_id=131
+Bandwidth exceeded its limit.
+ 
+f0=132
+fun_id=0, war_id=132
+Controlled watchdog reboot - data was not lost.
+ 
+f0=133
+fun_id=0, war_id=133
+No data sent to server in 24 hours. Modem reboot.
+ 
+f0=134
+fun_id=0, war_id=134
+GSM registration denied for 30 times. Modem reboot.
+ 
+f0=135
+fun_id=0, war_id=135
+GSM registration is in searching state.
+ 
+f0=136
+fun_id=0, war_id=136
+GSM registration is in unknown state.
+ 
+f0=137
+fun_id=0, war_id=137
+GPRS registration is in searching state.
+ 
+f0=138
+fun_id=0, war_id=138
+GPRS registration is in unknown state.
+ 
+f0=139
+fun_id=0, war_id=139
+Intelligent modem reset.
+ 
+f0=140
+fun_id=0, war_id=140
+SIM card not inserted.
+ 
+f0=141
+fun_id=0, war_id=141
+PIN code of the SIM card lost during process.
+ 
+f0=142
+fun_id=0, war_id=142
+SIM card state problem during startup (PUK required ?).
+ 
+f0=143
+fun_id=0, war_id=143
+Re-activated PDP context.
+ 
+f0=144
+fun_id=0, war_id=144
+Connection lost during data exchange with server.
+ 
+f0=145
+fun_id=0, war_id=145
+New TCP connection.
+ 
+f0=146
+fun_id=0, war_id=146
+No answer supported in data mode.
+ 
+f0=147
+fun_id=0, war_id=147
+Unexpected number of bytes (4 instead of 2).
+ 
+f0=148
+fun_id=0, war_id=148
+Server error.
+ 
+f0=149
+fun_id=0, war_id=149
+Undetermined error.
+ 
+f0=150
+fun_id=0, war_id=150
+DCD not received.
+ 
+f0=151
+fun_id=0, war_id=151
+SIM card was not found after reset.
+ 
+f0=152
+fun_id=0, war_id=152
+PUK code required.
+ 
+f0=153
+fun_id=0, war_id=153
+GPS signal is too weak.
+ 
+f0=154
+fun_id=0, war_id=154
+Modem stopped responding. No possibility to shut it down with ON-OFF impulse. Unconditional shutdown performed.
+ 
+f0=155
+fun_id=0, war_id=155
+Modem turn on is unsuccessful.
+ 
+f0=156
+fun_id=0, war_id=156
+Registered to a home operator.
+ 
+f0=157
+fun_id=0, war_id=157
+Registered to a home operator.
+ 
+f0=158
+fun_id=0, war_id=158
+Forced disconnect from internet.
+ 
+f0=159
+fun_id=0, war_id=159
+New UDP socket to FMSet.
+ 
+f0=160
+fun_id=0, war_id=160
+New socket to server2 created.
+ 
+f0=161
+fun_id=0, war_id=161
+New optional socket created.
+ 
+f0=162
+fun_id=0, war_id=162
+New tachograph card socket created.
+ 
+f0=163
+fun_id=0, war_id=163
+PDP watchdog - disconnecting.
+ 
+f0=164
+fun_id=0, war_id=164
+NTP synchronization done.
+ 
+f0=165
+fun_id=0, war_id=165
+Success socket to tacho card or data server.
+ 
+f0=166
+fun_id=0, war_id=166
+Not success socket to tacho card or data server.
+ 
+f0=167
+fun_id=0, war_id=167
+Start to search new operator to register.
+ 
+f0=168
+fun_id=0, war_id=168
+Searching operators in coverage modem return error. Modem set to automatic registration mode.
+ 
+f0=169
+fun_id=0, war_id=169
+Operators in coverage found.
+ 
+f0=170
+fun_id=0, war_id=170
+Preferred operator found from list and set to manual registration.
+ 
+f0=171
+fun_id=0, war_id=171
+Operators in coverage no in preferred list.
+ 
+f0=172
+fun_id=0, war_id=172
+All operators is in banned list.
+ 
+f0=173
+fun_id=0, war_id=173
+Select one operator from coverage to register to in manual mode.
+ 
+f0=174
+fun_id=0, war_id=174
+No pref list programed select automatic registration mode.
+ 
+f0=175
+fun_id=0, war_id=175
+Registration set to manual.
+ 
+f0=176
+fun_id=0, war_id=176
+No NTP server found.
+ 
+f0=177
+fun_id=0, war_id=177
+Wrong response key got to AsyncStack service.
+ 
+f0=178
+fun_id=0, war_id=178
+Response repeat got.
+ 
+f0=179
+fun_id=0, war_id=179
+Modem turned off by itself or IP address end is 255.
+ 
+f0=180
+fun_id=0, war_id=180
+Operator set manual mode not successful.
+ 
+f0=181
+fun_id=0, war_id=181
+Automatic operator selection enabled
+ 
+f0=182
+fun_id=0, war_id=182
+Automatic operator selection enabled
+ 
+f0=183
+fun_id=0, war_id=183
+Manual operator search failed so switched to automatic mode.
+ 
+f0=184
+fun_id=0, war_id=184
+Malformed data from socket
+ 
+f0=240
+fun_id=0, war_id=240
+Power supply lost.
+ 
+ 
+ 
+ 
+ 
+f8=1
+fun_id=8, war_id=1
+While executing "+CGATT" command, confirmation (OK) not received.
+ 
+f10=1
+fun_id=10, war_id=1
+Got ERROR condition while creating PDP context.
+ 
+f10=2
+fun_id=10, war_id=2
+No answer received .while creating PDP context.
+ 
+f10=3
+fun_id=10, war_id=3
+OK answer not found while creating PDP context.
+ 
+f10=4
+fun_id=10, war_id=4
+IP address not found in the answer while. creating PDP context.
+ 
+f12=1
+fun_id=12, war_id=1
+Answer not received while creating socket.
+ 
+f12=2
+fun_id=12, war_id=2
+While creating socket, NO CARRIER answer got instead of CONNECT.
+ 
+f12=3
+fun_id=12, war_id=3
+Got ERROR condition while creating socket.
+ 
+ 
+ 
+ 
+ 
+f20=x
+fun_id=20, war_id=x
+X - Bits 24-31 of fault register
+ 
+f21=x
+fun_id=21, war_id=x
+X - Bits 16-23 of fault register
+ 
+f22=x
+fun_id=22, war_id=x
+X - Bits 8-15 of fault register
+ 
+f23=x
+fun_id=23, war_id=x
+X - Bits 0-7 of fault register
+ 
+f24=x
+fun_id=24, war_id=x
+X - Bits 24-31 of PC register
+ 
+f25=x
+fun_id=25, war_id=x
+X - Bits 16-23 of PC register
+ 
+f26=x
+fun_id=26, war_id=x
+X - Bits 8-15 of PC register
+ 
+f27=x
+fun_id=27, war_id=x
+X - Bits 0-7 of PC register
+ 
+ 
+ 
+ 
+ 
+f28=1
+fun_id=28, war_id=1
+SIM card is busy.
+ 
+ 
+ 
+ 
+ 
+f43=2
+fun_id=43, war_id=2
+SIM card temporarily doesn't let to read contact list, at startup.
+ 
+ 
+ 
+ 
+ 
+f93=1
+fun_id=93, war_id=1
+Fault code, Stack overflow
+ 
+f93=2
+fun_id=93, war_id=2
+Fault code, FIFO overflow
+ 
+f93=3
+fun_id=93, war_id=3
+Fault code, Mailbox overflow
+ 
+f93=4
+fun_id=93, war_id=4
+Fault code, Timer overflow
+ 
+f93=5
+fun_id=93, war_id=5
+Fault code, Low VCC or Battery voltage
+ 
+f93=6
+fun_id=93, war_id=6
+Fault code, Watchdog timer
+ 
+f93=100
+fun_id=93, war_id=100
+Fault code, Paused thread
+ 
+ 
+ 
+ 
+ 
+f99=1
+fun_id=99, war_id=1
+No response from cell module
+ 
+f99=2
+fun_id=99, war_id=2
+Auto GNSS turned off
+ 
+f99=3
+fun_id=99, war_id=3
+NMEA serial configuration changed
+ 
+f99=4
+fun_id=99, war_id=4
+GLONASS system configuration changed
+ 
+f99=5
+fun_id=99, war_id=5
+GPS module turned off
+ 
+f99=6
+fun_id=99, war_id=6
+Echo mode turned on (potential cell module unintentional reset detected)
+ 
+ 
+ 
+ 
+ 
+f100=0
+fun_id=100, war_id=0
+General modem reboot ON-OFF.
+ 
+f100=1
+fun_id=100, war_id=1
+Flash memory formatted.
+ 
+f100=2
+fun_id=100, war_id=2
+HEAP memory fall-short.
+ 
+f100=3
+fun_id=100, war_id=3
+Server confirmed data packet, which is not recognized.
+ 
+f100=4
+fun_id=100, war_id=4
+Software modem reboot is in process.
+ 
+f100=5
+fun_id=100, war_id=5
+No operator in coverage from preferred list.
+ 
+f100=6
+fun_id=100, war_id=6
+N/A
+ 
+f100=7
+fun_id=100, war_id=7
+Operator found and set.
+ 
+f100=8
+fun_id=100, war_id=8
+Operator search not successful.
+ 
+f100=9
+fun_id=100, war_id=9
+No success to find country code in mode2.
+ 
+f100=10
+fun_id=100, war_id=10
+Found country code in mode2.
+ 
+f100=11
+fun_id=100, war_id=11
+Manual registration not successful.
+ 
+f100=12
+fun_id=100, war_id=12
+Got status: registration denied.
+ 
+f100=13
+fun_id=100, war_id=13
+CGREG status returned that modem no longer is trying to register to GPRS.
+ 
+f100=14
+fun_id=100, war_id=14
+Connection to server failed.
+ 
+f100=15
+fun_id=100, war_id=15
+Modem reboot, after several not successful PDP activation.
+ 
+f100=16
+fun_id=100, war_id=16
+VOICE call detected.
+ 
+f100=17
+fun_id=100, war_id=17
+DATA call detected.
+ 
+f100=18
+fun_id=100, war_id=18
+Socket reset command received from server (Probably server forgot device, but device didn’t forget server).
+ 
+f100=19
+fun_id=100, war_id=19
+Modem shut down automatically.
+ 
+f100=20
+fun_id=100, war_id=20
+Modem reset procedure.
+ 
+f100=21
+fun_id=100, war_id=21
+Modem ON.
+ 
+f100=22
+fun_id=100, war_id=22
+Modem OFF.
+ 
+f100=23
+fun_id=100, war_id=23
+Modem power cycle.
+ 
+f100=24
+fun_id=100, war_id=24
+Firmware update command.
+ 
+f100=25
+fun_id=100, war_id=25
+Firmware update command denied. Bad CS.
+ 
+f100=26
+fun_id=100, war_id=26
+Suspend sent.
+ 
+f100=27
+fun_id=100, war_id=27
+Resume sent.
+ 
+f100=28
+fun_id=100, war_id=28
+Socket over buffer.
+ 
+f100=29
+fun_id=100, war_id=29
+Wrong Checksum from server.
+ 
+f100=30
+fun_id=100, war_id=30
+Too much bytes from server.
+ 
+f100=31
+fun_id=100, war_id=31
+Not enough bytes from server.
+ 
+f100=32
+fun_id=100, war_id=32
+New connectivity settings received by SMS.
+ 
+f100=33
+fun_id=100, war_id=33
+Server requested too much data from device.
+ 
+f100=34
+fun_id=100, war_id=34
+Registration type changed from auto to manual.
+ 
+f100=35
+fun_id=100, war_id=35
+Got NO CARRIER, while trying to resume the socket.
+ 
+f100=36
+fun_id=100, war_id=36
+Neither NO CARRIER nor CONNECT not received, while trying to resume socket.
+ 
+f100=37
+fun_id=100, war_id=37
+Registration type changed from MANUAL to AUTO.
+ 
+f100=38
+fun_id=100, war_id=38
+FOTASNAP sent.
+ 
+f100=39
+fun_id=100, war_id=39
+FOTA confirmation sent.
+ 
+f100=40
+fun_id=100, war_id=40
+FOTA success.
+ 
+f100=41
+fun_id=100, war_id=41
+FOTA not success.
+ 
+f100=42
+fun_id=100, war_id=42
+FOTA success confirmation sent.
+ 
+f100=43
+fun_id=100, war_id=43
+Automatic modem reboot.
+ 
+f100=44
+fun_id=100, war_id=44
+Time adjusted from server.
+ 
+f100=45
+fun_id=100, war_id=45
+SIM card change detected.
+ 
+f100=46
+fun_id=100, war_id=46
+Prefered operator list reseted.
+ 
+f100=47
+fun_id=100, war_id=47
+GPS power off by SMS command.
+ 
+f100=48
+fun_id=100, war_id=48
+GPS power on by SMS command.
+ 
+f100=49
+fun_id=100, war_id=49
+Automatic unregistration from network initialized.
+ 
+f100=50
+fun_id=100, war_id=50
+Received too old sms for output control.
+ 
+f100=51
+fun_id=100, war_id=51
+Received sms for output controls.
+ 
+f100=52
+fun_id=100, war_id=52
+Too much operators in list - some operators is skipped.
+ 
+f100=53
+fun_id=100, war_id=53
+SIM card insertion failure.
+ 
+f100=54
+fun_id=100, war_id=54
+Registered operator not in preferred list. Starting search operators in coverage.
+ 
+f100=55
+fun_id=100, war_id=55
+No preferred operator in coverage.
+ 
+f100=56
+fun_id=100, war_id=56
+Modem returned negative answer to search operator command.
+ 
+f100=57
+fun_id=100, war_id=57
+Stopped events registration.
+ 
+f100=58
+fun_id=100, war_id=58
+Output Command received.
+ 
+f100=59
+fun_id=100, war_id=59
+Modem reboot in case of 28=1.
+ 
+f100=60
+fun_id=100, war_id=60
+GPS Cold start L76.
+ 
+f100=61
+fun_id=100, war_id=61
+Timer from internal LSI.
+ 
+f100=62
+fun_id=100, war_id=62
+Too much bytes in DT7 structure.
+ 
+f100=63
+fun_id=100, war_id=63
+Modem unconditional shutdown.
+ 
+f100=64
+fun_id=100, war_id=64
+Modem watchdog timer1 timeout.
+ 
+f100=65
+fun_id=100, war_id=65
+Modem settings poweron = 0.
+ 
+f100=66
+fun_id=100, war_id=66
+Configuration check fail.
+ 
+f100=67
+fun_id=100, war_id=67
+PDP context lost.
+ 
+f100=68
+fun_id=100, war_id=68
+Reconnect requested.
+ 
+f100=69
+fun_id=100, war_id=69
+IMEI read.
+ 
+f100=70
+fun_id=100, war_id=70
+Settings by FMSet changed.
+ 
+f100=71
+fun_id=100, war_id=71
+Modem config lost.
+ 
+f100=72
+fun_id=100, war_id=72
+PDP context lost.
+ 
+f100=73
+fun_id=100, war_id=73
+Modem TX buf overflow.
+ 
+f100=74
+fun_id=100, war_id=74
+Failed to create a socket.
+ 
+f100=75
+fun_id=100, war_id=75
+Failed to configure bearer.
+ 
+f100=76
+fun_id=100, war_id=76
+Failed to set APN name.
+ 
+f100=77
+fun_id=100, war_id=77
+Failed to create PDP context.
+ 
+f100=78
+fun_id=100, war_id=78
+Failed to receive local IP address.
+ 
+f100=79
+fun_id=100, war_id=79
+Failed to deactivate PDP context.
+ 
+f100=80
+fun_id=100, war_id=80
+Bad configuration CRC.
+ 
+f100=81
+fun_id=100, war_id=81
+Failed to close bearer.
+ 
+f100=82
+fun_id=100, war_id=82
+Modem restart made by software
+ 
+ 
+ 
+ 
+ 
+f101=1
+fun_id=101, war_id=1
+GPS firmware file send started.
+ 
+f101=2
+fun_id=101, war_id=2
+FTP connection failed.
+ 
+f101=3
+fun_id=101, war_id=3
+One of two files download failed.
+ 
+f101=4
+fun_id=101, war_id=4
+File send successful.
+ 
+f101=5
+fun_id=101, war_id=5
+MTK 3333 update started.
+ 
+f101=6
+fun_id=101, war_id=6
+MTK 3333 update finished successfully.
+ 
+f101=7
+fun_id=101, war_id=7
+MTK start failed.
+ 
+f101=8
+fun_id=101, war_id=8
+DA of MTK failed.
+ 
+f101=9
+fun_id=101, war_id=9
+JUMP of MTK failed.
+ 
+f101=10
+fun_id=101, war_id=10
+WRITE of MTK failed.
+ 
+f101=11
+fun_id=101, war_id=11
+Data reception of MT3333 FW CRC from FTP did not fit.
+ 
+f101=12
+fun_id=101, war_id=12
+Data reception of MT3333 DA CRC from FTP did not fit.
+ 
+f101=13
+fun_id=101, war_id=13
+CRC of MT3333 FW file from Flash did not fit.
+ 
+f101=14
+fun_id=101, war_id=14
+CRC of MT3333 DA file from Flash did not fit.
+ 
+f101=15
+fun_id=101, war_id=15
+Second try of bootloader run.
+ 
+f101=16
+fun_id=101, war_id=16
+Third try of bootloader run.
+ 
+f101=18
+fun_id=101, war_id=18
+Data Read not mach.
+ 
+f101=19
+fun_id=101, war_id=19
+Exit from FW write procedure.
+ 
+f101=20
+fun_id=101, war_id=20
+Defragment FW bytes.
+ 
+f101=21
+fun_id=101, war_id=21
+Found and initialized Ublox GPS
+ 
+f101=22
+fun_id=101, war_id=22
+Found and initialized Quectel GPS
+ 
+f101=23
+fun_id=101, war_id=23
+GPS receiver was not found
+ 
+ 
+ 
+ 
+ 
+f102=0
+fun_id=102, war_id=0
+Task gps_manager halted.
+ 
+f102=1
+fun_id=102, war_id=1
+Task accelerometer_manager halted.
+ 
+f102=2
+fun_id=102, war_id=2
+Task onewire_manager halted.
+ 
+f102=3
+fun_id=102, war_id=3
+Task modem_manager halted.
+ 
+f102=4
+fun_id=102, war_id=4
+Task global_manager halted.
+ 
+f102=5
+fun_id=102, war_id=5
+Task led_manager halted.
+ 
+f102=6
+fun_id=102, war_id=6
+Task rs485_manager halted.
+Task Script 1 manager halted.
+f102=7
+fun_id=102, war_id=7
+Task can1_manager halted.
+Task Script 2 manager halted.
+f102=8
+fun_id=102, war_id=8
+Task rs232_manager halted.
+Task Script 3 manager halted.
+f102=9
+fun_id=102, war_id=9
+Task can2_manager halted.
+Task can1_manager halted.
+f102=10
+fun_id=102, war_id=10
+N/A
+Task can2_manager halted.
+f102=50
+fun_id=102, war_id=50
+Under voltage detected.
+ 
+f102=100
+fun_id=102, war_id=100
+Failed to wake up in time, watchdog reset
+ 
+ 
+ 
+ 
+ 
+f103=0
+fun_id=103, war_id=0
+Device reset cause (129). Check other events around to identify restart reason.
+ 
+f103=5
+fun_id=103, war_id=5
+Software issued reset detected
+ 
+f103=8
+fun_id=103, war_id=8
+Hardware watchdog issued reset detected
+ 
+f103=128
+fun_id=103, war_id=128
+10 subsequent reboots detected, deleting current configuration and loading default one
+ 
+f103=129
+fun_id=103, war_id=129
+Found invalid reboot counter value.
+ 
+ 
+ 
+ 
+ 
+Events related to digital Tachograph
+ 
+ 
+ 
+f104=1
+fun_id=104, war_id=1
+SMS card1 received.
+ 
+f104=2
+fun_id=104, war_id=2
+SMS card2 received.
+ 
+f104=3
+fun_id=104, war_id=3
+SMS tacho1 received.
+ 
+f104=4
+fun_id=104, war_id=4
+SMS tacho2 received.
+ 
+f104=11
+fun_id=104, war_id=11
+Unknown TCO
+ 
+f104=12
+fun_id=104, war_id=12
+TCOSC1 detected
+ 
+f104=13
+fun_id=104, war_id=13
+TCOSC2 detected
+ 
+f104=14
+fun_id=104, war_id=14
+TCO SC3 detected
+ 
+f104=15
+fun_id=104, war_id=15
+TCO SC5 detected
+ 
+f104=16
+fun_id=104, war_id=16
+TCO SC6 detected
+ 
+f104=17
+fun_id=104, war_id=17
+TCO detected
+ 
+f104=18
+fun_id=104, war_id=18
+SE5000 detected
+ 
+f104=19
+fun_id=104, war_id=19
+DTCO 1381 detected
+ 
+f104=20
+fun_id=104, war_id=20
+TCO not detected
+ 
+f104=21
+fun_id=104, war_id=21
+Unexpected response
+ 
+f104=22
+fun_id=104, war_id=22
+Transmit error
+ 
+f104=23
+fun_id=104, war_id=23
+Repeating request due to timeout or missing frame
+ 
+f104=24
+fun_id=104, war_id=24
+RemoteCompanyCardReady request failed
+ 
+f104=25
+fun_id=104, war_id=25
+CompanyCardToVUData transmit failed
+ 
+f104=26
+fun_id=104, war_id=26
+RequestTransferExit request failed
+ 
+f104=27
+fun_id=104, war_id=27
+Card TransferData request failed
+ 
+f104=28
+fun_id=104, war_id=28
+RequestUpload request failed
+ 
+f104=29
+fun_id=104, war_id=29
+CAN start communication success.
+ 
+f104=30
+fun_id=104, war_id=30
+CAN company card ATTR accepted by tachograph.
+ 
+f104=31
+fun_id=104, war_id=31
+CAN company card ATTR not accepted by tachograph.
+ 
+f104=32
+fun_id=104, war_id=32
+CAN APDU start success.
+ 
+f104=33
+fun_id=104, war_id=33
+No APDU from Card received per 60 sec.
+ 
+f104=34
+fun_id=104, war_id=34
+APDU talk rejected by tachograph.
+ 
+f104=35
+fun_id=104, war_id=35
+Next APDU accepted by tachograph.
+ 
+f104=36
+fun_id=104, war_id=36
+Remote authentication successful.
+ 
+f104=37
+fun_id=104, war_id=37
+Remote download access granted.
+ 
+f104=38
+fun_id=104, war_id=38
+Remote download access not granted.
+ 
+f104=39
+fun_id=104, war_id=39
+Request upload positive response.
+ 
+f104=40
+fun_id=104, war_id=40
+Request upload negative response.
+ 
+f104=41
+fun_id=104, war_id=41
+Negative response got during download.
+ 
+f104=42
+fun_id=104, war_id=42
+DDD file download success driver card.
+ 
+f104=43
+fun_id=104, war_id=43
+DDD file download success driver card or VU.
+ 
+f104=44
+fun_id=104, war_id=44
+Fault during write DDD data to flash.
+ 
+f104=45
+fun_id=104, war_id=45
+APDU requested by VU while requesting remote download
+ 
+f104=46
+fun_id=104, war_id=46
+No ATTR got from card.
+ 
+f104=47
+fun_id=104, war_id=47
+No Driver1 card inserted.
+ 
+f104=48
+fun_id=104, war_id=48
+No Driver2 card inserted.
+ 
+f104=49
+fun_id=104, war_id=49
+No answer from tachograph, len = 0.
+ 
+f104=50
+fun_id=104, war_id=50
+Card open by another device or no Card.
+ 
+f104=51
+fun_id=104, war_id=51
+Request to check VIN sent to server.
+ 
+f104=52
+fun_id=104, war_id=52
+Tacho file confirmation  sent to server.
+ 
+f104=53
+fun_id=104, war_id=53
+Card1 file confirmation sent to server.
+ 
+f104=54
+fun_id=104, war_id=54
+Card2 file confirmation sent to serve.
+ 
+f104=55
+fun_id=104, war_id=55
+Tacho file request from server got.
+ 
+f104=56
+fun_id=104, war_id=56
+Card1 file request from server got.
+ 
+f104=57
+fun_id=104, war_id=57
+Card2 file request from server got.
+ 
+f104=58
+fun_id=104, war_id=58
+Request VIN by sms.
+ 
+f104=59
+fun_id=104, war_id=59
+Company card ATTR is too long.
+ 
+f104=60
+fun_id=104, war_id=60
+CAN communication lost.
+ 
+f104=61
+fun_id=104, war_id=61
+Opening CARD T0 protocol.
+ 
+f104=62
+fun_id=104, war_id=62
+Opening CARD T1 protocol.
+ 
+f104=63
+fun_id=104, war_id=63
+Opening CARD Tx protocol.
+ 
+f104=64
+fun_id=104, war_id=64
+ATTR got from card.
+ 
+f104=65
+fun_id=104, war_id=65
+ATTR wait interrupted by tacho server task change
+ 
+f104=66
+fun_id=104, war_id=66
+During APDU wait tachograph stopped responding.
+ 
+f104=67
+fun_id=104, war_id=67
+Request on currently used SA was detected
+ 
+f104=68
+fun_id=104, war_id=68
+NRC78 - response pending, enhanced timeout
+ 
+f104=69
+fun_id=104, war_id=69
+Company card has rejected APDU from VU
+ 
+f104=70
+fun_id=104, war_id=70
+Unknown response (CompanyCardToVUData req)
+ 
+f104=71
+fun_id=104, war_id=71
+APDU error responded from VU
+ 
+f104=72
+fun_id=104, war_id=72
+Too many authentication errors (from VU)
+ 
+f104=73
+fun_id=104, war_id=73
+Incorrect data length (CompanyCardToVUData req)
+ 
+f104=74
+fun_id=104, war_id=74
+Detected 500 kbit/s (matching previous)
+ 
+f104=75
+fun_id=104, war_id=75
+Detected 250 kbit/s
+ 
+f104=76
+fun_id=104, war_id=76
+Detected 250 kbit/s (matching previous)
+ 
+f104=77
+fun_id=104, war_id=77
+Detected 500 kbit/s
+ 
+f104=78
+fun_id=104, war_id=78
+Selected 500 kbit/s (CAN activity not detected)
+ 
+f104=79
+fun_id=104, war_id=79
+Selected 250 kbit/s (CAN activity not detected)
+ 
+f104=80
+fun_id=104, war_id=80
+NRC21 - VU busy, repeating request
+ 
+f104=81
+fun_id=104, war_id=81
+Remote session timeout, will restart
+ 
+f104=82
+fun_id=104, war_id=82
+Unknown response to APDU
+ 
+f104=83
+fun_id=104, war_id=83
+Socket closed, exchange terminates
+ 
+f104=84
+fun_id=104, war_id=84
+Response to currently used SA was detected
+ 
+f104=85
+fun_id=104, war_id=85
+ATTR was not received during timeout (200 s)
+ 
+f104=86
+fun_id=104, war_id=86
+Unknown response to initial ATTR
+ 
+f104=87
+fun_id=104, war_id=87
+RemoteCompanyCardReady conditions incorrect
+ 
+f104=88
+fun_id=104, war_id=88
+RemoteCompanyCardReady request sequence error detected
+ 
+f104=89
+fun_id=104, war_id=89
+Failed reading real time parameters after CAN setup
+ 
+f104=90
+fun_id=104, war_id=90
+Failed reading real time parameters after company card authorization
+ 
+f104=91
+fun_id=104, war_id=91
+Failed reading real time parameters after remote download was granted
+ 
+f104=92
+fun_id=104, war_id=92
+Failed reading real time parameters while waiting to restart authorization
+ 
+f104=93
+fun_id=104, war_id=93
+Failed starting remote session after completing setup
+ 
+f104=94
+fun_id=104, war_id=94
+Failed reading real time parameters while waiting for ATTR
+ 
+f104=95
+fun_id=104, war_id=95
+Failed reading real time parameters while waiting for APDU
+ 
+f104=96
+fun_id=104, war_id=96
+Tacho server task state changed while waiting for APDU
+ 
+f104=97
+fun_id=104, war_id=97
+APDU wait timeout
+ 
+f104=98
+fun_id=104, war_id=98
+Unknown response to remote session start request
+ 
+f104=99
+fun_id=104, war_id=99
+Tester present request failed
+ 
+f104=100
+fun_id=104, war_id=100
+Initialized with 0xFA SA
+ 
+f104=101
+fun_id=104, war_id=101
+Initialized with 0xFB SA
+ 
+f104=102
+fun_id=104, war_id=102
+Initialized with 0xF9 SA
+ 
+f104=103
+fun_id=104, war_id=103
+Initialized with 0xF8 SA
+ 
+f104=104
+fun_id=104, war_id=104
+Initialized with 0xF7 SA
+ 
+f104=105
+fun_id=104, war_id=105
+Initialized with 0xF6 SA
+ 
+f104=106
+fun_id=104, war_id=106
+Initialized with 0xF5 SA
+ 
+f104=107
+fun_id=104, war_id=107
+Initialized with 0xF4 SA
+ 
+f104=108
+fun_id=104, war_id=108
+Initialized with 0xF3 SA
+ 
+f104=109
+fun_id=104, war_id=109
+Initialized with 0xF2 SA
+ 
+f104=110
+fun_id=104, war_id=110
+Initialized with 0x4A SA
+ 
+f104=120
+fun_id=104, war_id=120
+Tacho app response CRC is incorrect
+ 
+f104=121
+fun_id=104, war_id=121
+Tacho auth server idle timeout, closing connection
+ 
+f104=122
+fun_id=104, war_id=122
+Virtual socket closed
+ 
+f104=123
+fun_id=104, war_id=123
+Virtual socket create error - card server not found
+ 
+f104=124
+fun_id=104, war_id=124
+Tacho app response size unsupported
+ 
+f104=125
+fun_id=104, war_id=125
+Device requested to close company card
+ 
+f104=126
+fun_id=104, war_id=126
+Tacho download server idle timeout, closing connection
+ 
+f104=127
+fun_id=104, war_id=127
+Virtual socket create error
+ 
+f104=128
+fun_id=104, war_id=128
+Tacho task pending - forcing connection start
+ 
+f104=129
+fun_id=104, war_id=129
+Initializing communication on CAN priority 6
+ 
+f104=130
+fun_id=104, war_id=130
+Initializing communication on CAN priority 7
+ 
+f104=131
+fun_id=104, war_id=131
+Unexpected response to download request
+ 
+ 
+ 
+ 
+ 
+f105=16
+fun_id=105, war_id=16
+General Reject.
+ 
+f105=17
+fun_id=105, war_id=17
+Service Not Supported.
+ 
+f105=18
+fun_id=105, war_id=18
+Sub Function Not Supported.
+ 
+f105=19
+fun_id=105, war_id=19
+Incorrect Message Length Or Invalid Format.
+ 
+f105=33
+fun_id=105, war_id=33
+Busy Repeat Request.
+ 
+f105=34
+fun_id=105, war_id=34
+Conditions Not Correct.
+ 
+f105=36
+fun_id=105, war_id=36
+Request Sequence Error.
+ 
+f105=49
+fun_id=105, war_id=49
+Request Out Of Range.
+ 
+f105=113
+fun_id=105, war_id=113
+Transfer Data Suspended.
+ 
+f105=115
+fun_id=105, war_id=115
+Wrong Block Sequence Counter.
+ 
+f105=120
+fun_id=105, war_id=120
+Request Correctly Received / Response Pending.
+ 
+f105=127
+fun_id=105, war_id=127
+Service Not Supported In Active Session.
+ 
+ 
+ 
+ 
+ 
+f106=XX
+fun_id=106, war_id=XX
+Special event code sequence.
+ 
+ 
+ 
+ 
+ 
+f107=1
+fun_id=107, war_id=1
+SMS command got to download UCP file from DataCold.
+ 
+f107=2
+fun_id=107, war_id=2
+Start download success.
+ 
+f107=3
+fun_id=107, war_id=3
+Not success exit function.
+ 
+f107=4
+fun_id=107, war_id=4
+No success to get analog sensor enabled or not.
+ 
+f107=5
+fun_id=107, war_id=5
+No success to get digital sensor enabled or not.
+ 
+f107=6
+fun_id=107, war_id=6
+No success to get analog sensor names wrong length.
+ 
+f107=7
+fun_id=107, war_id=7
+No success to get analog sensor names.
+ 
+f107=8
+fun_id=107, war_id=8
+No success to get digital sensor names wrong length.
+ 
+f107=9
+fun_id=107, war_id=9
+No success to get digital sensor names.
+ 
+f107=10
+fun_id=107, war_id=10
+No success to get additional digital sensor names wrong length.
+ 
+f107=11
+fun_id=107, war_id=11
+No success to get additional digital sensor names.
+ 
+f107=12
+fun_id=107, war_id=12
+No answer to records read.
+ 
+f107=13
+fun_id=107, war_id=13
+UCP file record finalized.
+ 
+f107=14
+fun_id=107, war_id=14
+No answer to PIN code request.
+ 
+f107=15
+fun_id=107, war_id=15
+No answer to info request.
+ 
+f107=16
+fun_id=107, war_id=16
+Info request less than 32 bytes.
+ 
+f107=17
+fun_id=107, war_id=17
+Cant prepare new record in flash.
+ 
+ 
+ 
+ 
+ 
+Events related to CAN dump
+ 
+ 
+ 
+f108=1
+fun_id=108, war_id=1
+CAN dump no bit rate detected.
+ 
+f108=2
+fun_id=108, war_id=2
+CAN dump bit rate detected.
+ 
+f108=3
+fun_id=108, war_id=3
+CAN dump finish.
+ 
+f108=7
+fun_id=108, war_id=7
+CAN bit rate detection started.
+ 
+ 
+ 
+ 
+ 
+Events related to Deep Sleep
+ 
+ 
+ 
+f109=0
+fun_id=109, war_id=0
+Going to sleep.
+ 
+f109=1
+fun_id=109, war_id=1
+Wake up from motion.
+ 
+f109=2
+fun_id=109, war_id=2
+Wake up from IN2 state change.
+ 
+f109=3
+fun_id=109, war_id=3
+Wake up from IN3 state change.
+ 
+f109=4
+fun_id=109, war_id=4
+Wake up from IN4 state change.
+ 
+f109=5
+fun_id=109, war_id=5
+Wake up from IN5 state change (Ignition).
+ 
+f109=6
+fun_id=109, war_id=6
+Wake up from sleep timeout (RTC alarm).
+ 
+f109=7
+fun_id=109, war_id=7
+Wake up from SMS/Voice call/Jamming.
+ 
+f109=8
+fun_id=109, war_id=8
+Wake up from received CAN message.
+ 
+f109=9
+fun_id=109, war_id=9
+Wake up from external power cut.
+ 
+f109=10
+fun_id=109, war_id=10
+Wake up from 1-wire activity.
+ 
+ 
+ 
+ 
+ 
+Events related to GNSS receiver sleep
+ 
+ 
+ 
+f110=0
+fun_id=110, war_id=0
+GPS put to sleep.
+ 
+f110=1
+fun_id=110, war_id=1
+GPS started.
+ 
+f110=2
+fun_id=110, war_id=2
+Failed to start GPS.
+ 
+f110=3
+fun_id=110, war_id=3
+GPS power on.
+ 
+f110=4
+fun_id=110, war_id=4
+More than 30 wrong GPS coordinate fixes.
+ 
+f110=5
+fun_id=110, war_id=5
+GPS restart command received.
+ 
+f110=6
+fun_id=110, war_id=6
+Ephemeris received to modem.
+ 
+f110=7
+fun_id=110, war_id=7
+Http request for ephemeris failed.
+ 
+f110=8
+fun_id=110, war_id=8
+Ephemeris download to GPS started.
+ 
+f110=9
+fun_id=110, war_id=9
+Ephemeris download to GPS finished.
+ 
+f110=10
+fun_id=110, war_id=10
+Enabled GPS Vehicle mode.
+ 
+f110=11
+fun_id=110, war_id=11
+Enabled GPS Pedestrian mode.
+ 
+f110=12
+fun_id=110, war_id=12
+Failed to change GPS vehicle/pedestrian mode.
+ 
+f110=13
+fun_id=110, war_id=13
+Last coordinates were updated 10s before .
+ 
+f110=14
+fun_id=110, war_id=14
+GPS restarted.
+ 
+f110=15
+fun_id=110, war_id=15
+Remote PMTK command.
+ 
+f110=16
+fun_id=110, war_id=16
+GPS NMEA output config was changed to default settings.
+ 
+ 
+ 
+ 
+ 
+f111=0
+fun_id=111, war_id=0
+Record write caused by inputs change.
+ 
+f111=1
+fun_id=111, war_id=1
+Record write caused by timeout.
+ 
+f111=2
+fun_id=111, war_id=2
+Record write caused by external source.
+ 
+f111=3
+fun_id=111, war_id=3
+Record write caused by course change.
+ 
+f111=4
+fun_id=111, war_id=4
+Record write caused by speed change.
+ 
+f111=5
+fun_id=111, war_id=5
+Record write caused by distance limit.
+ 
+f111=6
+fun_id=111, war_id=6
+RS485 KEYPAD.
+ 
+f111=7
+fun_id=111, war_id=7
+Asyns Stack Sending. Message sent not from flash, but other triggers (timeout, input change, etc).
+ 
+f111=8
+fun_id=111, war_id=8
+iButton change.
+ 
+f111=9
+fun_id=111, war_id=9
+iButton change.
+ 
+f111=10
+fun_id=111, war_id=10
+Driving quality matrix time 200 sec reached.
+ 
+f111=11
+fun_id=111, war_id=11
+Mobileye data change.
+ 
+f111=12
+fun_id=111, war_id=12
+iButton present change.
+ 
+f111=13
+fun_id=111, war_id=13
+FMS TCO1 state change.
+ 
+f111=14
+fun_id=111, war_id=14
+CIP state change.
+ 
+f111=15
+fun_id=111, war_id=15
+Wiegand26 change.
+ 
+f111=16
+fun_id=111, war_id=16
+CAN-C tachograph driver1 status changed.
+ 
+f111=17
+fun_id=111, war_id=17
+CAN-C tachograph driver2 status changed.
+ 
+f111=18
+fun_id=111, war_id=18
+Reserved.
+ 
+f111=19
+fun_id=111, war_id=19
+EN15430 Front Plough and Spreader data type (Data Type 10).
+ 
+ 
+ 
+ 
+ 
+f112=N
+fun_id=112, war_id=N
+Flash sub sector erase per 1h counter.
+ 
+f113=N
+fun_id=113, war_id=N
+Flash sector erase per 1h counter.
+ 
+ 
+ 
+ 
+ 
+ 
+fun_id=114, war_id=0
+ 
+self-orientation lost
+ 
+fun_id=114, war_id=1
+ 
+self-orientation acquired
+ 
+ 
+ 
+ 
+f115=0
+fun_id=115, war_id=0
+tacho extended parameter flags: succeeded
+ 
+f115=1
+fun_id=115, war_id=1
+tacho extended parameter flags: out of range
+ 
+f115=2
+fun_id=115, war_id=2
+tacho extended parameter flags: conditions not correct
+ 
+f115=3
+fun_id=115, war_id=3
+tacho extended parameter flags: no response
+ 
+f115=4
+fun_id=115, war_id=4
+tacho extended parameter flags: error indicator
+ 
+f115=5
+fun_id=115, war_id=5
+tacho extended parameter flags: not available
+ 
+f115=6
+fun_id=115, war_id=6
+tacho extended parameter flags: unknown response
+ 
+f116=x
+fun_id=116, war_id=x
+tacho extended parameters 1-8
+ 
+f117=x
+fun_id=117, war_id=x
+tacho extended parameters 9-16
+ 
+f118=x
+fun_id=118, war_id=x
+tacho extended parameters 17-24
+ 
+f119=x
+fun_id=119, war_id=x
+tacho extended parameters 25-30
+ 
+ 
+ 
+ 
+ 
+Events related to GSM/GPRS registration
+ 
+ 
+ 
+f120=0
+fun_id=120, war_id=0
+CREG error.
+ 
+f120=1
+fun_id=120, war_id=1
+CREG not registered, ME is not currently searching a new operator to register to.
+ 
+f120=2
+fun_id=120, war_id=2
+CREG registered, home network.
+ 
+f120=3
+fun_id=120, war_id=3
+CREG not registered, but ME is currently searching a new operator to register to.
+ 
+f120=4
+fun_id=120, war_id=4
+CREG registration denied.
+ 
+f120=5
+fun_id=120, war_id=5
+CREG unknown.
+ 
+f120=6
+fun_id=120, war_id=6
+CREG registered, roaming.
+ 
+ 
+ 
+ 
+ 
+f121=x
+fun_id=121, war_id=x
+data byte #0
+ 
+f122=x
+fun_id=122, war_id=x
+data byte #1
+ 
+f123=x
+fun_id=123, war_id=x
+data byte #2
+ 
+f124=x
+fun_id=124, war_id=x
+data byte #3
+ 
+f125=x
+fun_id=125, war_id=x
+data byte #4
+ 
+f126=x
+fun_id=126, war_id=x
+data byte #5
+ 
+f127=x
+fun_id=127, war_id=x
+data byte #6
+ 
+f128=x
+fun_id=128, war_id=x
+tacho data error subtype
+ 
+f129=x
+fun_id=129, war_id=x
+tacho data error type
+ 
+ 
+ 
+ 
+ 
+f130=ID
+fun_id=130, war_id=ID
+Cargojot sensor battery fault.
+ 
+f130=ID
+fun_id=130, war_id=ID
+Cargojot sensor battery ok.
+ 
+f130=252
+fun_id=130, war_id=252
+Hub reset detected.
+ 
+f130=253
+fun_id=130, war_id=253
+Protocol version not supported.
+ 
+f130=254
+fun_id=130, war_id=254
+10 messages with bad CRC in a row.
+ 
+f130=255
+fun_id=130, war_id=255
+Cargojot message receive timeout.
+ 
+ 
+ 
+ 
+ 
+Events related to Script
+ 
+ 
+ 
+ 
+fun_id=140+scriptID, war_id=0
+ 
+Script stopped.
+ 
+fun_id=140+scriptID, war_id=1
+ 
+Script started.
+ 
+fun_id=140+scriptID, war_id=2
+ 
+Error none.
+ 
+fun_id=140+scriptID, war_id=3
+ 
+Forced exit.
+ 
+fun_id=140+scriptID, war_id=4
+ 
+Assertion failed.
+ 
+fun_id=140+scriptID, war_id=5
+ 
+Stack/heap collision.
+ 
+fun_id=140+scriptID, war_id=6
+ 
+Index out of bounds.
+ 
+fun_id=140+scriptID, war_id=7
+ 
+Invalid memory access.
+ 
+fun_id=140+scriptID, war_id=8
+ 
+Invalid instruction.
+ 
+fun_id=140+scriptID, war_id=9
+ 
+Stack underflow.
+ 
+fun_id=140+scriptID, war_id=10
+ 
+Heap underflow.
+ 
+fun_id=140+scriptID, war_id=11
+ 
+No callback, or invalid callback.
+ 
+fun_id=140+scriptID, war_id=12
+ 
+Native function failed.
+ 
+fun_id=140+scriptID, war_id=13
+ 
+Divide by zero.
+ 
+fun_id=140+scriptID, war_id=14
+ 
+Go into sleep mode - code can be restarted.
+ 
+fun_id=140+scriptID, war_id=15
+ 
+No implementation for this state, no fall-back.
+ 
+fun_id=140+scriptID, war_id=18
+ 
+Out of memory.
+ 
+fun_id=140+scriptID, war_id=19
+ 
+Invalid file format.
+ 
+fun_id=140+scriptID, war_id=20
+ 
+File is for a newer version of the VM.
+ 
+fun_id=140+scriptID, war_id=21
+ 
+Function not found.
+ 
+fun_id=140+scriptID, war_id=22
+ 
+Invalid index parameter (bad entry point).
+ 
+fun_id=140+scriptID, war_id=23
+ 
+Debugger cannot run.
+ 
+fun_id=140+scriptID, war_id=24
+ 
+VM not initialized (or doubly initialized).
+ 
+fun_id=140+scriptID, war_id=25
+ 
+Unable to set user data field (table full).
+ 
+fun_id=140+scriptID, war_id=26
+ 
+Can not initialize the JIT.
+ 
+fun_id=140+scriptID, war_id=27
+ 
+Parameter error.
+ 
+fun_id=140+scriptID, war_id=31
+ 
+Script stopped - sleep.
+ 
+ 
+ 
+ 
+ 
+fun_id=145, war_id=0
+ 
+Script download begin.
+ 
+fun_id=145, war_id=1
+ 
+Wrong script download command.
+ 
+fun_id=145, war_id=2
+ 
+Script download timeout.
+ 
+fun_id=145, war_id=3
+ 
+Script checksum change detected.
+ 
+fun_id=145, war_id=4
+ 
+Connected to ftp.
+ 
+fun_id=145, war_id=5
+ 
+Script download failed.
+ 
+fun_id=145, war_id=6
+ 
+Script downloaded.
+ 
+fun_id=145, war_id=7
+ 
+Erased script EEPROM.
+ 
+fun_id=145, war_id=8
+ 
+Script load failed, size too big.
+ 
+ 
+ 
+ 
+ 
+fun_id=150, war_id=0
+ 
+Connected to MQTT broker.
+ 
+fun_id=150, war_id=1
+ 
+Connection to MQTT broker lost.
+ 
+fun_id=150, war_id=2
+ 
+Ping successful.
+ 
+fun_id=150, war_id=3
+ 
+MQTT bad command.
+ 
+fun_id=150, war_id=4
+ 
+Sensor settings updated.
+ 
+fun_id=150, war_id=5
+ 
+Trying to create TCP socket.
+ 
+fun_id=150, war_id=6
+ 
+Certificate upload successful.
+ 
+fun_id=150, war_id=7
+ 
+Certificate upload failed.
+ 
+ 
+ 
+ 
+f155=1
+fun_id=155, war_id=1
+CAN1 file updated.
+ 
+f155=2
+fun_id=155, war_id=2
+CAN2 file updated.
+ 
+f155=3
+fun_id=155, war_id=3
+CAN1 file loaded.
+ 
+f155=4
+fun_id=155, war_id=4
+CAN2 file loaded.
+ 
+ 
+ 
+ 
+ 
+f160=0
+fun_id=160, war_id=0
+Setting's read from flash failed.
+ 
+ 
+ 
+ 
+ 
+f161=XX
+fun_id=161, war_id=XX
+LSI calibration rate (XX-100)%.
+ 
+ 
+ 
+ 
+ 
+f162=0
+fun_id=162, war_id=0
+Moving record page initialize.
+ 
+f162=1
+fun_id=162, war_id=1
+Moving record address set to beginning.
+ 
+ 
+ 
+ 
+ 
+f163=0
+fun_id=163, war_id=0
+FOTA command received.
+ 
+f163=1
+fun_id=163, war_id=1
+HTTP FOTA download successful.
+ 
+f163=2
+fun_id=163, war_id=2
+HTTP FOTA download failed.
+ 
+f163=3
+fun_id=163, war_id=3
+FOTA state change timeout.
+ 
+f163=4
+fun_id=163, war_id=4
+FOTA state change timeout.
+ 
+ 
+ 
+ 
+ 
+ 
+fun_id=170, war_id=1
+ 
+Failed to add U8 sensor
+ 
+fun_id=170, war_id=2
+ 
+Failed to add U32 sensor
+ 
+fun_id=170, war_id=3
+ 
+Failed to add U64 sensor
+ 
+ 
+ 
+ 
+f174=x
+fun_id=174, war_id=x
+openFile
+ 
+f175=x
+fun_id=175, war_id=x
+openCard
+ 
+f176=x
+fun_id=176, war_id=x
+answergot
+ 
+f177=x
+fun_id=177, war_id=x
+maxrecord
+ 
+f178=x
+fun_id=178, war_id=x
+maxindexsize
+ 
+f179=x
+fun_id=179, war_id=x
+Tacho server task value
+ 
+ 
+ 
+ 
+ 
+Events related to canbase_b (source: 1-CAN1, 2-CAN2)
+ 
+ 
+ 
+f180+source=0
+fun_id=180+source, war_id=0
+canbase_b initialized and started
+canbase_b initialized and started
+f180+source=1
+fun_id=180+source, war_id=1
+Unknown PGN
+Unknown PGN
+f180+source=2
+fun_id=180+source, war_id=2
+DTC buffer is full
+DTC buffer is full
+f180+source=3
+fun_id=180+source, war_id=3
+Output command finished
+DTC unsupported conversion method
+f180+source=4
+fun_id=180+source, war_id=4
+CAN profile not loaded
+BAM request item not found
+f180+source=5
+fun_id=180+source, war_id=5
+Unsupported preset table 2 type
+Unsupported preset table 2 type
+f180+source=6
+fun_id=180+source, war_id=6
+Unsupported boolean/SIG sensor
+Unsupported boolean/SIG sensor
+f180+source=7
+fun_id=180+source, war_id=7
+Unsupported float sensor
+Unsupported float sensor
+f180+source=8
+fun_id=180+source, war_id=8
+Unsupported preset table 7 type
+Unsupported preset table 7 type
+f180+source=9
+fun_id=180+source, war_id=9
+Unused preset table 7 type
+Unused preset table 7 type
+f180+source=10
+fun_id=180+source, war_id=10
+Message transmit failed
+Unsupported structure type
+f180+source=11
+fun_id=180+source, war_id=11
+Unsupported result size
+Unsupported result size
+f180+source=12
+fun_id=180+source, war_id=12
+Error interrupt flag
+Request array full for dummy request
+f180+source=13
+fun_id=180+source, war_id=13
+BAM CAN filter is full
+BAM CAN filter is full
+f180+source=14
+fun_id=180+source, war_id=14
+Bus off error
+PGN Request array is full
+f180+source=15
+fun_id=180+source, war_id=15
+CAN filter error
+ID list CAN filter is full
+f180+source=16
+fun_id=180+source, war_id=16
+Unsupported preset table 6 type
+Unsupported preset table 6 type
+f180+source=17
+fun_id=180+source, war_id=17
+Message receive timeout
+ID list request array is full
+f180+source=18
+fun_id=180+source, war_id=18
+Output command error
+Output command list is full
+f180+source=19
+fun_id=180+source, war_id=19
+Unsupported preset table 5 type
+Unsupported preset table 5 type
+f180+source=20
+fun_id=180+source, war_id=20
+Bitrate was not found
+Bitrate was not found
+f180+source=21
+fun_id=180+source, war_id=21
+CAN struct CRC is zero
+CAN struct CRC is zero
+f180+source=22
+fun_id=180+source, war_id=22
+Output command unsupported preset table 6 type
+Output command unsupported preset table 6 type
+f180+source=23
+fun_id=180+source, war_id=23
+Output command was not found
+Output command was not found
+f180+source=24
+fun_id=180+source, war_id=24
+Request blocked when not in motion
+Request blocked when not in motion
+f180+source=25
+fun_id=180+source, war_id=25
+Request: unsupported service ID received 
+Request: unsupported service ID received 
+f180+source=26
+fun_id=180+source, war_id=26
+Request: negative service ID received
+Request: negative service ID received
+f180+source=27
+fun_id=180+source, war_id=27
+Request: unsupported protocol 
+Request: unsupported protocol 
+f180+source=28
+fun_id=180+source, war_id=28
+Request: unsupported mode 
+Request: unsupported mode 
+f180+source=29
+fun_id=180+source, war_id=29
+Request: response was not received
+Request: response was not received
+f180+source=30
+fun_id=180+source, war_id=30
+Request: invalid parameters, request was not sent
+Request: invalid parameters, request was not sent
+f180+source=31
+fun_id=180+source, war_id=31
+canbase_b stopped
+ 
+f180+source=32
+fun_id=180+source, war_id=32
+Normal mode failed
+ 
+f180+source=33
+fun_id=180+source, war_id=33
+Silent mode failed
+ 
+f180+source=34
+fun_id=180+source, war_id=34
+CAN Passive error
+ 
+f180+source=35
+fun_id=180+source, war_id=35
+CAN Warning error
+ 
+f180+source=36
+fun_id=180+source, war_id=36
+Receive buffer overfull
+ 
+f180+source=37
+fun_id=180+source, war_id=37
+New receive error
+ 
+f180+source=38
+fun_id=180+source, war_id=38
+New transmit error
+ 
+f180+source=39
+fun_id=180+source, war_id=39
+CAN frame fill error
+ 
+f180+source=40
+fun_id=180+source, war_id=40
+CAN frame format error
+ 
+f180+source=41
+fun_id=180+source, war_id=41
+CAN frame ACK error
+ 
+f180+source=42
+fun_id=180+source, war_id=42
+CAN frame recessive error
+ 
+f180+source=43
+fun_id=180+source, war_id=43
+CAN frame dominant error
+ 
+f180+source=44
+fun_id=180+source, war_id=44
+CAN frame CRC error
+ 
+f180+source=45
+fun_id=180+source, war_id=45
+CAN frame software error
+ 
+f180+source=46
+fun_id=180+source, war_id=46
+Remote config command received
+ 
+f180+source=47
+fun_id=180+source, war_id=47
+Bit rate initialization started
+ 
+f180+source=48
+fun_id=180+source, war_id=48
+Trying to start in silent mode
+ 
+f180+source=49
+fun_id=180+source, war_id=49
+Trying to start in normal mode
+ 
+f180+source=50
+fun_id=180+source, war_id=50
+Bit rate validation failed, message not received
+ 
+f180+source=51
+fun_id=180+source, war_id=51
+Retransmission forced off
+ 
+f180+source=52
+fun_id=180+source, war_id=52
+Requests forced off
+ 
+f180+source=53
+fun_id=180+source, war_id=53
+Using silent mode for startup
+ 
+f180+source=54
+fun_id=180+source, war_id=54
+Bit rate validation success, message received
+ 
+f180+source=55
+fun_id=180+source, war_id=55
+Ignoring new receive errors
+ 
+ 
+ 
+ 
+ 
+DPS related events
+ 
+ 
+ 
+f190=0
+fun_id=190, war_id=0
+Connected to DPS
+ 
+f190=1
+fun_id=190, war_id=1
+IoT Hub assigned
+ 
+f190=2
+fun_id=190, war_id=2
+DPS unauthorised response
+ 
+f190=3
+fun_id=190, war_id=3
+DPS unknown response
+ 
+ 
+ 
+ 
+ 
+APN related events
+ 
+ 
+ 
+ 
+fun_id=200, war_id=x
+x is APN index in the settings template
+ 
+ 
+fun_id=201, war_id=0
+APN activated successfully
+ 
+ 
+fun_id=201, war_id=1
+APN activation failed
+ 
+ 
+fun_id=201, war_id=2
+Only one APN in the settings template was found
+ 
+ 
+fun_id=201, war_id=3
+Changing APN to next from the list
+ 
+ 
+fun_id=201, war_id=5
+Settings template was changed
+ 
+ 
+fun_id=201, war_id=6
+In the new settings template, the previous APN was not found. Start the APN list from the beginning
+ 
+ 
+fun_id=201, war_id=7
+APN activation failed, and the modem did not answer to AT command
+ 
+ 
+ 
+ 
+ 
+f210=0
+fun_id=210, war_id=0
+BT application started
+ 
+f210=1
+fun_id=210, war_id=1
+BT chip reset event received
+ 
+f210=2
+fun_id=210, war_id=2
+BT low power mode
+ 
+f210=3
+fun_id=210, war_id=3
+BT off
+ 
+f210=4
+fun_id=210, war_id=4
+BT firmware update success
+ 
+f210=5
+fun_id=210, war_id=5
+BT firmware update failure
+ 
+ 
+ 
+ 
+ 
+f221=x
+fun_id=221, war_id=x
+Out1 state change (0 - OFF, 1 - ON)
+ 
+f222=x
+fun_id=222, war_id=x
+Out2 state change (0 - OFF, 1 - ON)
+ 
+f223=x
+fun_id=223, war_id=x
+Out3 state change (0 - OFF, 1 - ON)
+ 
+f224=x
+fun_id=224, war_id=x
+Out4 state change (0 - OFF, 1 - ON)
+ 
+f225=0
+fun_id=225, war_id=0
+Output reset using “output” function inside script
+ 
+f225=1
+fun_id=225, war_id=1
+Output set using “output” function inside script
+ 
+ 
+ 
+ 
+ 
+f240+source=XX
+fun_id=240+source, war_id=XX
+System time is XX seconds late (source : 0 - GPS, 1 NTP).
+ 
+ 
+ 
+ 
+ 
+f250+source=XX
+fun_id=250+source, war_id=XX
+System time is XX seconds ahead (source : 0 - GPS, 1 NTP).
+ 
