@@ -3,7 +3,13 @@ import createError from "http-errors";
 
 import { createTtlCache } from "../utils/ttl-cache.js";
 import { config } from "../config.js";
-import { formatAddress, getCachedGeocode, persistGeocode, resolveShortAddress } from "../utils/address.js";
+import {
+  formatAddress,
+  formatShortAddressFromParts,
+  getCachedGeocode,
+  persistGeocode,
+  resolveShortAddress,
+} from "../utils/address.js";
 
 const router = express.Router();
 
@@ -72,22 +78,32 @@ function buildReverseKey(lat, lng) {
 
 function buildShortAddress(payload) {
   const details = payload?.address || {};
-  const street =
-    details.road ||
-    details.residential ||
-    details.cycleway ||
-    details.pedestrian ||
-    details.highway ||
-    details.footway ||
-    null;
-  const neighbourhood = details.neighbourhood || details.suburb || details.quarter || null;
-  const city = details.city || details.town || details.village || details.municipality || null;
-  const state = details.state || details.region || details.state_district || null;
+  const formatted = formatShortAddressFromParts({
+    ...details,
+    country: details.country || payload?.address?.country,
+    stateCode: details.state_code || details.stateCode,
+  });
+  return formatted || formatAddress(payload?.display_name || "");
+}
 
-  const main = [street, neighbourhood].filter(Boolean).join(", ");
-  const tail = [city, state].filter(Boolean).join(" - ");
-  const combined = [main, tail].filter(Boolean).join(" - ");
-  return combined || formatAddress(payload?.display_name || "");
+function normalizeResponse(entry, status = "ok") {
+  const toString = (value) => {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return value;
+    return String(value);
+  };
+
+  if (!entry) {
+    return { shortAddress: "", formattedAddress: "", address: "", status };
+  }
+
+  return {
+    ...entry,
+    address: toString(entry.address),
+    formattedAddress: toString(entry.formattedAddress || entry.address),
+    shortAddress: toString(entry.shortAddress || entry.formattedAddress || entry.address),
+    status,
+  };
 }
 
 async function fetchReverse(lat, lng) {
@@ -196,13 +212,15 @@ router.get("/geocode/search", async (req, res) => {
 
   try {
     const results = await promise;
-    return res.json({ data: results });
+    return res.json({ data: results, status: "ok" });
   } catch (error) {
     const message =
       error?.status === 429
         ? "Limite de consultas atingido. Tente novamente em instantes."
         : "Não foi possível buscar endereços agora. Tente novamente em instantes.";
-    return res.status(error?.status || 502).json({ data: [], error: { message } });
+    return res
+      .status(200)
+      .json({ data: [], status: "fallback", error: { message, reason: error?.message, code: error?.status } });
   } finally {
     pending.delete(cacheKey);
   }
@@ -219,12 +237,12 @@ router.get("/geocode/reverse", async (req, res) => {
   const key = buildReverseKey(lat, lng);
   const cached = key ? reverseCache.get(key) : null;
   if (cached) {
-    return res.json({ ...cached, cached: true });
+    return res.json(normalizeResponse({ ...cached, cached: true }, cached.shortAddress ? "ok" : "pending"));
   }
 
   const persisted = getCachedGeocode(lat, lng);
   if (persisted) {
-    const payload = { ...persisted, cached: true, source: "geocodeCache" };
+    const payload = normalizeResponse({ ...persisted, cached: true, source: "geocodeCache" }, "ok");
     if (key) reverseCache.set(key, payload);
     return res.json(payload);
   }
@@ -273,21 +291,29 @@ router.get("/geocode/reverse", async (req, res) => {
   if (!resolved) {
     const fallback = await resolveShortAddress(lat, lng);
     if (fallback) {
-      const payload = {
-        lat,
-        lng,
-        address: fallback.address || fallback.formattedAddress || fallback.shortAddress,
-        formattedAddress: fallback.formattedAddress || fallback.address || fallback.shortAddress,
-        shortAddress: fallback.shortAddress || fallback.formattedAddress || fallback.address,
-      };
+      const payload = normalizeResponse(
+        {
+          lat,
+          lng,
+          address: fallback.address || fallback.formattedAddress || fallback.shortAddress,
+          formattedAddress: fallback.formattedAddress || fallback.address || fallback.shortAddress,
+          shortAddress: fallback.shortAddress || fallback.formattedAddress || fallback.address,
+          status: "fallback",
+        },
+        "fallback",
+      );
       if (key) reverseCache.set(key, payload);
       return res.json(payload);
     }
 
-    return res.status(502).json({ error: { message: "Não foi possível obter o endereço agora." } });
+    return res
+      .status(200)
+      .json(normalizeResponse({ lat, lng, shortAddress: "", formattedAddress: "", reason: "provider_unavailable" }, "fallback"));
   }
 
-  return res.json(resolved);
+  const responsePayload = normalizeResponse(resolved, "ok");
+  if (key) reverseCache.set(key, responsePayload);
+  return res.json(responsePayload);
 });
 
 export default router;

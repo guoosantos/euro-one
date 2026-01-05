@@ -1379,12 +1379,12 @@ function isCoordinateFallback(value) {
   return Number.isFinite(lat) && Number.isFinite(lng);
 }
 
-function normalizeAddressValue(address, fullAddress = null) {
-  const candidate = fullAddress || address;
+function normalizeAddressValue(address, fullAddress = null, shortAddress = null) {
+  const candidate = shortAddress || fullAddress || address;
   const short = formatAddress(candidate);
   if (short && short !== "—" && !isCoordinateFallback(short)) return short;
 
-  const formattedFull = formatFullAddress(candidate);
+  const formattedFull = formatFullAddress(candidate || fullAddress || address);
   if (formattedFull && formattedFull !== "—") {
     const shortFromFull = formatAddress(formattedFull);
     if (shortFromFull && shortFromFull !== "—" && !isCoordinateFallback(shortFromFull)) return shortFromFull;
@@ -1396,7 +1396,8 @@ function normalizeAddressValue(address, fullAddress = null) {
     if (trimmed && !isCoordinateFallback(trimmed)) return trimmed;
   }
 
-  return "Endereço indisponível";
+  if (typeof shortAddress === "string" && shortAddress.trim()) return shortAddress.trim();
+  return "Sem endereço";
 }
 
 async function persistMissingPositionFullAddresses(positions = [], missingIds = new Set()) {
@@ -3664,7 +3665,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     positions?.[0]?.attributes?.protocol ||
     null;
   // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
-  const resolveMode = req.query?.addressMode === "async" || req.body?.addressMode === "async" ? "async" : "blocking";
+  const resolveMode = req.query?.addressMode === "blocking" || req.body?.addressMode === "blocking" ? "blocking" : "async";
   await resolvePositionsFullAddressBatch(positions, resolveMode);
   const enrichedPositions = positions;
 
@@ -3726,7 +3727,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
       const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, { includeGenericIo: true });
-      const resolvedAddress = normalizeAddressValue(position.address, position.fullAddress);
+      const resolvedAddress = normalizeAddressValue(position.address, position.fullAddress, position.shortAddress);
 
       const dynamicValues = dynamicKeys.reduce((acc, key) => {
         const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
@@ -3741,11 +3742,13 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         deviceTime: position.deviceTime || null,
         serverTime: position.serverTime || null,
         latitude: position.latitude ?? null,
-        longitude: position.longitude ?? null,
-        address: resolvedAddress,
-        speed: speedKmh,
-        direction: position.course ?? null,
-        ignition,
+      longitude: position.longitude ?? null,
+      address: resolvedAddress,
+      shortAddress: position.shortAddress || resolvedAddress,
+      formattedAddress: position.formattedAddress || resolvedAddress,
+      speed: speedKmh,
+      direction: position.course ?? null,
+      ignition,
         vehicleState: resolveVehicleState(ignition, speedKmh ?? 0),
         motion,
         batteryLevel: extractBatteryLevel(attributes),
@@ -4001,7 +4004,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     throw createError(409, "Equipamento vinculado sem traccarId");
   }
 
-  const resolveMode = req.query?.addressMode === "async" ? "async" : "blocking";
+  const resolveMode = req.query?.addressMode === "blocking" ? "blocking" : "async";
   const positions = await fetchPositions([traccarId], from, to);
   await resolvePositionsFullAddressBatch(positions, resolveMode);
 
@@ -4015,7 +4018,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       id: position.id ? `position-${position.id}` : `position-${timestamp || position.deviceId}`,
       type: "position",
       occurredAt: timestamp,
-      address: normalizeAddressValue(position.address, position.fullAddress),
+      address: normalizeAddressValue(position.address, position.fullAddress, position.shortAddress),
       speed: speedKmh,
       ignition: extractIgnition(attributes),
       input2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
@@ -4042,6 +4045,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     const address = normalizeAddressValue(
       position?.address || event.address || attributes.address,
       position?.fullAddress || null,
+      position?.shortAddress || null,
     );
     return {
       id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,

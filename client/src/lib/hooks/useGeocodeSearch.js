@@ -183,6 +183,14 @@ export default function useGeocodeSearch(mapPreferences) {
       throw error;
     }
 
+    if (payload?.status === "fallback") {
+      const message =
+        payload?.error?.message || "Não foi possível buscar endereços agora. Tente novamente em instantes.";
+      const error = new Error(message);
+      error.status = payload?.error?.code || 503;
+      throw error;
+    }
+
     return normaliseList(payload, term);
   }, [normaliseList]);
 

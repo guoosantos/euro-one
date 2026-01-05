@@ -13,7 +13,7 @@ import {
   resolveTraccarApiUrl,
   traccarProxy,
 } from "./traccar.js";
-import { ensurePositionAddress, formatFullAddress } from "../utils/address.js";
+import { ensureCachedAddresses, ensurePositionAddress, formatFullAddress } from "../utils/address.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
@@ -208,6 +208,11 @@ function normaliseEventRow(row) {
   };
 }
 
+function decoratePositionsWithGeocode(positions = [], options = {}) {
+  const list = Array.isArray(positions) ? positions : [];
+  return ensureCachedAddresses(list, options);
+}
+
 function calculateDistanceKm(from, to) {
   const toRad = (value) => (value * Math.PI) / 180;
   if (!from || !to) return 0;
@@ -353,7 +358,8 @@ export async function fetchTrips(deviceId, from, to) {
   `;
 
   const rows = await queryTraccarDb(sql, [deviceId, from, to]);
-  return buildTripsFromPositions(rows);
+  const decorated = decoratePositionsWithGeocode(rows, { warm: true, priority: "trip" });
+  return buildTripsFromPositions(decorated);
 }
 
 export async function fetchLatestPositions(deviceIds = [], clientId = null) {
@@ -408,9 +414,14 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
   `;
 
   const rows = (await queryTraccarDb(sql, params)) || [];
-  return rows
+  const normalized = rows
     .map(normalisePositionRow)
     .filter((position) => position && position.deviceId !== null && position.fixTime);
+  return decoratePositionsWithGeocode(normalized, {
+    warm: true,
+    priority: "latest",
+    placeholderText: "Resolvendo endereço...",
+  });
 }
 
 
@@ -428,9 +439,14 @@ async function fetchLatestPositionsFromApi(deviceIds = [], context = {}) {
   const positions = Array.isArray(response?.positions) ? response.positions : response?.data || [];
 
   if (response?.ok) {
-    return positions
+    const normalized = positions
       .map(normalisePositionRow)
       .filter((position) => position && position.deviceId !== null && position.fixTime);
+    return decoratePositionsWithGeocode(normalized, {
+      warm: true,
+      priority: "latest-fallback",
+      placeholderText: "Resolvendo endereço...",
+    });
   }
 
   const status = Number(response?.error?.code || response?.status);
@@ -546,7 +562,10 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
   `;
 
   const rows = await queryTraccarDb(sql, params);
-  return rows.map(normalisePositionRow).filter((position) => position && position.deviceId !== null && position.fixTime);
+  const normalized = rows
+    .map(normalisePositionRow)
+    .filter((position) => position && position.deviceId !== null && position.fixTime);
+  return decoratePositionsWithGeocode(normalized, { warm: true, priority: "range" });
 }
 
 export async function updatePositionFullAddress(positionId, fullAddress) {
@@ -809,7 +828,8 @@ export async function fetchPositionsByIds(positionIds = []) {
   `;
 
   const rows = await queryTraccarDb(sql, filtered);
-  return rows.map(normalisePositionRow).filter(Boolean);
+  const normalized = rows.map(normalisePositionRow).filter(Boolean);
+  return decoratePositionsWithGeocode(normalized, { warm: true, priority: "by-id" });
 }
 
 export async function fetchDevicesMetadata() {
