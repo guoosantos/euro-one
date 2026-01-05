@@ -1,32 +1,32 @@
 [
   {
     "id": "f0=0",
-    "labelPt": "Reinicialização por software.",
+    "labelPt": "Reset de software",
     "severity": "info",
-    "description": "Reinicialização por software."
+    "description": "Reset de software."
   },
   {
     "id": "f0=1",
-    "labelPt": "Alimentação conectada.",
+    "labelPt": "Alimentação conectada",
     "severity": "info",
-    "description": "Alimentação conectada."
+    "description": "Fonte de alimentação conectada."
   },
   {
     "id": "f0=4",
-    "labelPt": "Problema na alimentação elétrica.",
-    "severity": "info",
-    "description": "Problema na alimentação elétrica."
+    "labelPt": "Problema na alimentação",
+    "severity": "warning",
+    "description": "Problema na fonte de alimentação."
   },
   {
     "id": "f0=5",
-    "labelPt": "Alimentação conectada.",
+    "labelPt": "Alimentação conectada",
     "severity": "info",
-    "description": "Alimentação conectada."
+    "description": "Fonte de alimentação conectada."
   },
   {
     "id": "f0=8",
-    "labelPt": "Reinicialização pelo watchdog (após atualização de firmware).",
-    "severity": "info",
-    "description": "Reinicialização pelo watchdog (após atualização de firmware)."
+    "labelPt": "Reset por monitor de segurança",
+    "severity": "warning",
+    "description": "Reset realizado pelo monitor de segurança (após atualização de firmware)."
   }
 ]
