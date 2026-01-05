@@ -1,0 +1,3410 @@
+[
+  {
+    "ID": 0,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 1,
+    "Name": "SENSOR_MODEM_ON",
+    "Description": "Status of cell module on board",
+    "Description_ptBR": "Status de cell module na placa"
+  },
+  {
+    "ID": 2,
+    "Name": "SENSOR_MOTION_DETECTED",
+    "Description": "Source: Accelerometer. Start: instantly. Reset: delayed",
+    "Description_ptBR": "Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso"
+  },
+  {
+    "ID": 3,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 4,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 5,
+    "Name": "SENSOR_SYSTEM_TIME_PRESENT",
+    "Description": "Status to indicate whether system has a valid time",
+    "Description_ptBR": "Status para indicar whether system has a valid time"
+  },
+  {
+    "ID": 6,
+    "Name": "SENSOR_INSIDE_GEOZONE",
+    "Description": "Status to indicate whether device is currently inside geozone",
+    "Description_ptBR": "Status para indicar whether dispositivo is atualmente inside geozone"
+  },
+  {
+    "ID": 7,
+    "Name": "SENSOR_POOR_GNSS_SIGNAL",
+    "Description": "Set when device has GNSS fix but Satellite count and HDOP is low",
+    "Description_ptBR": "Ativado quando dispositivo has GNSS fix but Satellite count and HDOP is low"
+  },
+  {
+    "ID": 8,
+    "Name": "SENSOR_GSM_JAMMING",
+    "Description": "Status to indicate whether cellular connectivity is currently being jammed",
+    "Description_ptBR": "Status para indicar whether celular connectivity is atualmente being jammed"
+  },
+  {
+    "ID": 9,
+    "Name": "SENSOR_ROAMING",
+    "Description": "Status to indicate whether cellular connectivity is currently in roaming mode",
+    "Description_ptBR": "Status para indicar whether celular connectivity is atualmente in roaming mode"
+  },
+  {
+    "ID": 10,
+    "Name": "SENSOR_GSM_REGISTERED",
+    "Description": "Status to indicate device registration to cellular network",
+    "Description_ptBR": "Status para indicar dispositivo registro to celular rede"
+  },
+  {
+    "ID": 11,
+    "Name": "SENSOR_GPRS_REGISTERED",
+    "Description": "Status to indicate if GPRS service is currently available",
+    "Description_ptBR": "Status para indicar if GPRS service is atualmente disponível"
+  },
+  {
+    "ID": 12,
+    "Name": "SENSOR_PDP_ACTIVE",
+    "Description": "Status to indicate that device has currently active internet session (PDP)",
+    "Description_ptBR": "Status para indicar that dispositivo has atualmente active internet session (PDP)"
+  },
+  {
+    "ID": 13,
+    "Name": "SENSOR_PREFERRED_OPERATOR_ACTIVE",
+    "Description": "Status to indicate whether device is currently attached to preferred operator (only active if operator list is assigned in settings)",
+    "Description_ptBR": "Status para indicar whether dispositivo is atualmente attached to preferred operator (only active if operator list is assigned in settings)"
+  },
+  {
+    "ID": 14,
+    "Name": "SENSOR_GNSS_SPEED_PRESENT",
+    "Description": "Status to indicate that speed value from GNSS receiver is above 0.",
+    "Description_ptBR": "Status para indicar that velocidade value from GNSS receiver is above 0."
+  },
+  {
+    "ID": 15,
+    "Name": "SENSOR_SIGNAL_WIEGAND_ID_PRESENT",
+    "Description": "Status to indicate that card ID value has been read using Wiegand26 protocol. 4 second reset delay after removing id",
+    "Description_ptBR": "Status para indicar that card ID value has been read using Wiegand26 protocol. 4 segundos reset delay após removing id"
+  },
+  {
+    "ID": 16,
+    "Name": "SENSOR_IN_2",
+    "Description": "Status to indicate that IN2 has voltage above value configured through digital inputs threshold setting.",
+    "Description_ptBR": "Status para indicar that IN2 has tensão above value configured through digital inputs limiar setting."
+  },
+  {
+    "ID": 17,
+    "Name": "SENSOR_IN_3",
+    "Description": "Status to indicate that IN3 has voltage above value configured through digital inputs threshold setting.",
+    "Description_ptBR": "Status para indicar that IN3 has tensão above value configured through digital inputs limiar setting."
+  },
+  {
+    "ID": 18,
+    "Name": "SENSOR_IN_4",
+    "Description": "Status to indicate that IN4 has voltage above value configured through digital inputs threshold setting.",
+    "Description_ptBR": "Status para indicar that IN4 has tensão above value configured through digital inputs limiar setting."
+  },
+  {
+    "ID": 19,
+    "Name": "SENSOR_IN_5",
+    "Description": "Status to indicate that IN5 has voltage above value configured through digital inputs threshold setting.",
+    "Description_ptBR": "Status para indicar that IN5 has tensão above value configured through digital inputs limiar setting."
+  },
+  {
+    "ID": 20,
+    "Name": "SENSOR_IN_7",
+    "Description": "Status to indicate alternator voltage (virtual ignition) through power rail. 30 seconds to become 1 from 0. instantly from 0 to 1. threshold=13.2V",
+    "Description_ptBR": "Status para indicar alternator tensão (virtual ignição) through energia rail. 30 segundos to become 1 from 0. instantaneamente from 0 to 1. limiar=13.2V"
+  },
+  {
+    "ID": 21,
+    "Name": "SENSOR_IN_8",
+    "Description": "Status to indicate that selected ADC channel is above threshold set in the settings",
+    "Description_ptBR": "Status para indicar that selected ADC channel is above limiar set in the settings"
+  },
+  {
+    "ID": 22,
+    "Name": "SENSOR_ONE_HOUR_TICK",
+    "Description": "Set for 3 minutes every hour",
+    "Description_ptBR": "Ativado por 3 minutos a cada horas"
+  },
+  {
+    "ID": 23,
+    "Name": "SENSOR_SIX_HOURS_TICK",
+    "Description": "Set for 3 minutes every 6 hours",
+    "Description_ptBR": "Ativado por 3 minutos a cada 6 horas"
+  },
+  {
+    "ID": 24,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 25,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 26,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 27,
+    "Name": "SENSOR_STATIC_SIGNAL_1",
+    "Description": "Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions",
+    "Description_ptBR": "Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions"
+  },
+  {
+    "ID": 28,
+    "Name": "SENSOR_STATIC_SIGNAL_2",
+    "Description": "Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions",
+    "Description_ptBR": "Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions"
+  },
+  {
+    "ID": 29,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 30,
+    "Name": "SENSOR_IBUTTON_PRESENT",
+    "Description": "Status to indicate when Ibutton tag has been read using 1 wire. 4 second reset delay after removing id",
+    "Description_ptBR": "Status para indicar when Ibutton tag has been read using 1 wire. 4 segundos reset delay após removing id"
+  },
+  {
+    "ID": 31,
+    "Name": "SENSOR_BOOL_USER_DEFINED_0",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32,
+    "Name": "SENSOR_BOOL_USER_DEFINED_1",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 33,
+    "Name": "SENSOR_BOOL_USER_DEFINED_2",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 34,
+    "Name": "SENSOR_BOOL_USER_DEFINED_3",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 35,
+    "Name": "SENSOR_BOOL_USER_DEFINED_4",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 36,
+    "Name": "SENSOR_BOOL_USER_DEFINED_5",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 37,
+    "Name": "SENSOR_BOOL_USER_DEFINED_6",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 38,
+    "Name": "SENSOR_BOOL_USER_DEFINED_7",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 39,
+    "Name": "SENSOR_BOOL_USER_DEFINED_8",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40,
+    "Name": "SENSOR_BOOL_USER_DEFINED_9",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 41,
+    "Name": "SENSOR_BOOL_USER_DEFINED_10",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 42,
+    "Name": "SENSOR_BOOL_USER_DEFINED_11",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 43,
+    "Name": "SENSOR_BOOL_USER_DEFINED_12",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 44,
+    "Name": "SENSOR_BOOL_USER_DEFINED_13",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 45,
+    "Name": "SENSOR_BOOL_USER_DEFINED_14",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 46,
+    "Name": "SENSOR_BOOL_USER_DEFINED_15",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 47,
+    "Name": "SENSOR_BOOL_USER_DEFINED_16",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 48,
+    "Name": "SENSOR_BOOL_USER_DEFINED_17",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 49,
+    "Name": "SENSOR_BOOL_USER_DEFINED_18",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 50,
+    "Name": "SENSOR_BOOL_USER_DEFINED_19",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 51,
+    "Name": "SENSOR_BOOL_USER_DEFINED_20",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 52,
+    "Name": "SENSOR_BOOL_USER_DEFINED_21",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 53,
+    "Name": "SENSOR_BOOL_USER_DEFINED_22",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 54,
+    "Name": "SENSOR_BOOL_USER_DEFINED_23",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 55,
+    "Name": "SENSOR_BOOL_USER_DEFINED_24",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 56,
+    "Name": "SENSOR_BOOL_USER_DEFINED_25",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 57,
+    "Name": "SENSOR_BOOL_USER_DEFINED_26",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 58,
+    "Name": "SENSOR_BOOL_USER_DEFINED_27",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 59,
+    "Name": "SENSOR_BOOL_USER_DEFINED_28",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 60,
+    "Name": "SENSOR_BOOL_USER_DEFINED_29",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 61,
+    "Name": "SENSOR_BOOL_USER_DEFINED_30",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 62,
+    "Name": "SENSOR_BOOL_USER_DEFINED_31",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 63,
+    "Name": "SENSOR_BOOL_USER_DEFINED_32",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 64,
+    "Name": "SENSOR_BOOL_USER_DEFINED_33",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 65,
+    "Name": "SENSOR_BOOL_USER_DEFINED_34",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 66,
+    "Name": "SENSOR_BOOL_USER_DEFINED_35",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 67,
+    "Name": "SENSOR_BOOL_USER_DEFINED_36",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 68,
+    "Name": "SENSOR_BOOL_USER_DEFINED_37",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 69,
+    "Name": "SENSOR_BOOL_USER_DEFINED_38",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 70,
+    "Name": "SENSOR_BOOL_USER_DEFINED_39",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 71,
+    "Name": "SENSOR_BOOL_USER_DEFINED_40",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 72,
+    "Name": "SENSOR_BOOL_USER_DEFINED_41",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 73,
+    "Name": "SENSOR_BOOL_USER_DEFINED_42",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 74,
+    "Name": "SENSOR_BOOL_USER_DEFINED_43",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 75,
+    "Name": "SENSOR_BOOL_USER_DEFINED_44",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 76,
+    "Name": "SENSOR_BOOL_USER_DEFINED_45",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 77,
+    "Name": "SENSOR_BOOL_USER_DEFINED_46",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 78,
+    "Name": "SENSOR_BOOL_USER_DEFINED_47",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 79,
+    "Name": "SENSOR_BOOL_USER_DEFINED_48",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 80,
+    "Name": "SENSOR_BOOL_USER_DEFINED_49",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 81,
+    "Name": "SENSOR_BOOL_USER_DEFINED_50",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 82,
+    "Name": "SENSOR_BOOL_USER_DEFINED_51",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 83,
+    "Name": "SENSOR_BOOL_USER_DEFINED_52",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 84,
+    "Name": "SENSOR_BOOL_USER_DEFINED_53",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 85,
+    "Name": "SENSOR_BOOL_USER_DEFINED_54",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 86,
+    "Name": "SENSOR_BOOL_USER_DEFINED_55",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 87,
+    "Name": "SENSOR_BOOL_USER_DEFINED_56",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 88,
+    "Name": "SENSOR_BOOL_USER_DEFINED_57",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 89,
+    "Name": "SENSOR_BOOL_USER_DEFINED_58",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 90,
+    "Name": "SENSOR_BOOL_USER_DEFINED_59",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 91,
+    "Name": "SENSOR_BOOL_USER_DEFINED_60",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 92,
+    "Name": "SENSOR_BOOL_USER_DEFINED_61",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 93,
+    "Name": "SENSOR_BOOL_USER_DEFINED_62",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 94,
+    "Name": "SENSOR_BOOL_USER_DEFINED_63",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 95,
+    "Name": "SENSOR_BOOL_USER_DEFINED_64",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 96,
+    "Name": "SENSOR_ARMED",
+    "Description": "Signal from vehicle CAN bus to indicate alarm armed",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar alarm armed"
+  },
+  {
+    "ID": 97,
+    "Name": "SENSOR_LOCKED",
+    "Description": "Signal from vehicle CAN bus to indicate doors locked",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar portas travado"
+  },
+  {
+    "ID": 98,
+    "Name": "SENSOR_DOORS_F_L",
+    "Description": "Signal from vehicle CAN bus to indicate front left doors open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar front left portas aberto"
+  },
+  {
+    "ID": 99,
+    "Name": "SENSOR_DOORS_F_R",
+    "Description": "Signal from vehicle CAN bus to indicate front right doors open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar front right portas aberto"
+  },
+  {
+    "ID": 100,
+    "Name": "SENSOR_DOORS_R_L",
+    "Description": "Signal from vehicle CAN bus to indicate rear left doors open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar rear left portas aberto"
+  },
+  {
+    "ID": 101,
+    "Name": "SENSOR_DOORS_R_R",
+    "Description": "Signal from vehicle CAN bus to indicate rear right doors open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar rear right portas aberto"
+  },
+  {
+    "ID": 102,
+    "Name": "SENSOR_BONNET",
+    "Description": "Signal from vehicle CAN bus to indicate bonnet open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar bonnet aberto"
+  },
+  {
+    "ID": 103,
+    "Name": "SENSOR_TRUNK",
+    "Description": "Signal from vehicle CAN bus to indicate trunk open",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar trunk aberto"
+  },
+  {
+    "ID": 104,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 105,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 106,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 107,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 108,
+    "Name": "SENSOR_FACTORY_ALARM",
+    "Description": "Signal from vehicle CAN bus to indicate factory alarm triggered",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar factory alarm triggered"
+  },
+  {
+    "ID": 109,
+    "Name": "SENSOR_IGNITION",
+    "Description": "Signal from vehicle CAN bus to indicate ignition on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar ignição on"
+  },
+  {
+    "ID": 110,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 111,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 112,
+    "Name": "SENSOR_BOOL_USER_DEFINED_65",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 113,
+    "Name": "SENSOR_BOOL_USER_DEFINED_66",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 114,
+    "Name": "SENSOR_BOOL_USER_DEFINED_67",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 115,
+    "Name": "SENSOR_BOOL_USER_DEFINED_68",
+    "Description": "Boolean type sensor to store custom values using scripts",
+    "Description_ptBR": "Boolean type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 116,
+    "Name": "SENSOR_STOP_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate STOP warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar STOP warning lamp on"
+  },
+  {
+    "ID": 117,
+    "Name": "SENSOR_OIL_PRESSURE_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate oil pressure warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar oil pressure warning lamp on"
+  },
+  {
+    "ID": 118,
+    "Name": "SENSOR_COOLANT_FLUID_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate coolant fluid warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar coolant fluid warning lamp on"
+  },
+  {
+    "ID": 119,
+    "Name": "SENSOR_BRAKE_SYSTEM_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate brake system warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar brake system warning lamp on"
+  },
+  {
+    "ID": 120,
+    "Name": "SENSOR_BATTERY_VOLTAGE_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate charging system warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar charging system warning lamp on"
+  },
+  {
+    "ID": 121,
+    "Name": "SENSOR_AIRBAG_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate airbag warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar airbag warning lamp on"
+  },
+  {
+    "ID": 122,
+    "Name": "SENSOR_CHECK_ENGINE_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate check engine warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar check motor warning lamp on"
+  },
+  {
+    "ID": 123,
+    "Name": "SENSOR_HEADLAMP_MALFUNCTION_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate headlamp malfunction warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar headlamp malfunction warning lamp on"
+  },
+  {
+    "ID": 124,
+    "Name": "SENSOR_TIRE_PRESSURE_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate tire pressure warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar tire pressure warning lamp on"
+  },
+  {
+    "ID": 125,
+    "Name": "SENSOR_LOW_BRAKE_PAD_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate low brake pad warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar low brake pad warning lamp on"
+  },
+  {
+    "ID": 126,
+    "Name": "SENSOR_MASTER_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate master warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar master warning lamp on"
+  },
+  {
+    "ID": 127,
+    "Name": "SENSOR_ABS_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate ABS warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar ABS warning lamp on"
+  },
+  {
+    "ID": 128,
+    "Name": "SENSOR_LOW_FUEL_LEVEL_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate low fuel level warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar low combustível level warning lamp on"
+  },
+  {
+    "ID": 129,
+    "Name": "SENSOR_ESP_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate ESP warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar ESP warning lamp on"
+  },
+  {
+    "ID": 130,
+    "Name": "SENSOR_GLOW_PLUG_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate diesel fuel/air system warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar diesel combustível/air system warning lamp on"
+  },
+  {
+    "ID": 131,
+    "Name": "SENSOR_DPF_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate DPF warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar DPF warning lamp on"
+  },
+  {
+    "ID": 132,
+    "Name": "SENSOR_EPC_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate EPC warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar EPC warning lamp on"
+  },
+  {
+    "ID": 133,
+    "Name": "SENSOR_DRIVER_SEATBELT_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate driver seatbelt warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar driver seatbelt warning lamp on"
+  },
+  {
+    "ID": 134,
+    "Name": "SENSOR_PASSENGER_SEATBELT_WARNING",
+    "Description": "Signal from vehicle CAN bus to indicate passenger seatbelt warning lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar passenger seatbelt warning lamp on"
+  },
+  {
+    "ID": 135,
+    "Name": "SENSOR_PARKING_LIGHT_INDICATOR",
+    "Description": "Signal from vehicle CAN bus to indicate parking light indicator on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar parking light indicator on"
+  },
+  {
+    "ID": 136,
+    "Name": "SENSOR_HEADLIGHT_INDICATOR",
+    "Description": "Signal from vehicle CAN bus to indicate headlamp indicator on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar headlamp indicator on"
+  },
+  {
+    "ID": 137,
+    "Name": "SENSOR_HIGH_BEAM_LIGHT_INDICATOR",
+    "Description": "Signal from vehicle CAN bus to indicate high beam light indicator on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar high beam light indicator on"
+  },
+  {
+    "ID": 138,
+    "Name": "SENSOR_KEY_INSERTED",
+    "Description": "Signal from vehicle CAN bus to indicate key inserted",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar key inserted"
+  },
+  {
+    "ID": 139,
+    "Name": "SENSOR_HANDBRAKE",
+    "Description": "Signal from vehicle CAN bus to indicate handbrake activated",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar handbrake activated"
+  },
+  {
+    "ID": 140,
+    "Name": "SENSOR_FOOT_BRAKE",
+    "Description": "Signal from vehicle CAN bus to indicate footbrake pressed",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar footbrake pressed"
+  },
+  {
+    "ID": 141,
+    "Name": "SENSOR_ENGINE_WORKING",
+    "Description": "Signal from vehicle CAN bus to indicate engine on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar motor on"
+  },
+  {
+    "ID": 142,
+    "Name": "SENSOR_READY_TO_DRIVE",
+    "Description": "Signal from vehicle CAN bus to indicate ready to drive lamp on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar ready to drive lamp on"
+  },
+  {
+    "ID": 143,
+    "Name": "SENSOR_CRUISE_CONTROL",
+    "Description": "Signal from vehicle CAN bus to indicate cruise control on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar cruise control on"
+  },
+  {
+    "ID": 144,
+    "Name": "SENSOR_RETARDER_AUTO",
+    "Description": "Signal from vehicle CAN bus to indicate retarder state - auto [Legacy]",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar retarder state - auto [Legado]"
+  },
+  {
+    "ID": 145,
+    "Name": "SENSOR_RETARDER_MANUAL",
+    "Description": "Retarder state - manual [Legacy]",
+    "Description_ptBR": "Retarder state - manual [Legado]"
+  },
+  {
+    "ID": 146,
+    "Name": "SENSOR_AIR_CONDITIONING",
+    "Description": "Signal from vehicle CAN bus to indicate air conditioning on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar air conditioning on"
+  },
+  {
+    "ID": 147,
+    "Name": "SENSOR_WEBASTO",
+    "Description": "Signal from vehicle CAN bus to indicate webasto on",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar webasto on"
+  },
+  {
+    "ID": 148,
+    "Name": "SENSOR_OUT_1",
+    "Description": "Returns status of OUT1",
+    "Description_ptBR": "Returns Status de OUT1"
+  },
+  {
+    "ID": 149,
+    "Name": "SENSOR_OUT_2",
+    "Description": "Returns status of OUT2",
+    "Description_ptBR": "Returns Status de OUT2"
+  },
+  {
+    "ID": 150,
+    "Name": "SENSOR_OUT_3",
+    "Description": "Returns status of OUT3",
+    "Description_ptBR": "Returns Status de OUT3"
+  },
+  {
+    "ID": 151,
+    "Name": "SENSOR_OVERTURN",
+    "Description": "Source: Accelerometer. Start: instantly. Reset: delayed",
+    "Description_ptBR": "Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso"
+  },
+  {
+    "ID": 152,
+    "Name": "SENSOR_SHOCK_1",
+    "Description": "Source: Accelerometer. Start: instantly. Reset: delayed",
+    "Description_ptBR": "Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso"
+  },
+  {
+    "ID": 153,
+    "Name": "SENSOR_SHOCK_2",
+    "Description": "Source: Accelerometer. Start: instantly. Reset: delayed",
+    "Description_ptBR": "Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso"
+  },
+  {
+    "ID": 154,
+    "Name": "SENSOR_OUT_4",
+    "Description": "Returns status of OUT4",
+    "Description_ptBR": "Returns Status de OUT4"
+  },
+  {
+    "ID": 155,
+    "Name": "SENSOR_GNSS_JAMMING",
+    "Description": "Signal to indicate GNSS jamming",
+    "Description_ptBR": "Sinal para indicar GNSS jamming"
+  },
+  {
+    "ID": 156,
+    "Name": "SENSOR_TAMPER",
+    "Description": "Signal to indicate tamper button state (for devices equipped with tamper switch)",
+    "Description_ptBR": "Sinal para indicar tamper button state (for devices equipped with tamper switch)"
+  },
+  {
+    "ID": 157,
+    "Name": "SENSOR_CLUTCH_PEDAL_PRESSED",
+    "Description": "Signal from vehicle CAN bus to indicate clutch pedal being pressed",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar clutch pedal being pressed"
+  },
+  {
+    "ID": 158,
+    "Name": "SENSOR_PTO_ENABLED",
+    "Description": "Signal from vehicle CAN bus to indicate PTO enabled",
+    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar PTO enabled"
+  },
+  {
+    "ID": 159,
+    "Name": "SENSOR_CAN_ACTIVITY_PRESENT",
+    "Description": "CAN messages received during the last 10 seconds on CAN1 or on CAN2.",
+    "Description_ptBR": "CAN messages received during the last 10 segundos on CAN1 or on CAN2."
+  },
+  {
+    "ID": 160,
+    "Name": "SENSOR_STATIC_SIGNAL_3",
+    "Description": "Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions",
+    "Description_ptBR": "Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions"
+  },
+  {
+    "ID": 161,
+    "Name": "SENSOR_STATIC_SIGNAL_4",
+    "Description": "Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions",
+    "Description_ptBR": "Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions"
+  },
+  {
+    "ID": 162,
+    "Name": "SENSOR_STATIC_SIGNAL_5",
+    "Description": "Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions",
+    "Description_ptBR": "Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions"
+  },
+  {
+    "ID": 163,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 164,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 165,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 166,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 167,
+    "Name": "SENSOR_EXTERNAL_POWER_PRESENT",
+    "Description": "Sensor to indicate that power is connected to device (voltage above 9V)",
+    "Description_ptBR": "Sensor to indicar that energia is conectado to dispositivo (tensão above 9V)"
+  },
+  {
+    "ID": 168,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 169,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 170,
+    "Name": "SENSOR_DTC_CAPTURED",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 171,
+    "Name": "SENSOR_CAN_1_ACTIVITY_PRESENT",
+    "Description": "CAN messages received during the last 10 seconds on CAN1",
+    "Description_ptBR": "CAN messages received during the last 10 segundos on CAN1"
+  },
+  {
+    "ID": 172,
+    "Name": "SENSOR_CAN_2_ACTIVITY_PRESENT",
+    "Description": "CAN messages received during the last 10 seconds on CAN2.",
+    "Description_ptBR": "CAN messages received during the last 10 segundos on CAN2."
+  },
+  {
+    "ID": 8192,
+    "Name": "SENSOR_GNSS_SPEED",
+    "Description": "Speed received from GNSS in km/h",
+    "Description_ptBR": "velocidade received from GNSS in km/h"
+  },
+  {
+    "ID": 8193,
+    "Name": "SENSOR_GNSS_SATELLITES",
+    "Description": "Number of locked in satellites",
+    "Description_ptBR": "Number of travado in satellites"
+  },
+  {
+    "ID": 8194,
+    "Name": "SENSOR_GNSS_H_DOP",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8195,
+    "Name": "SENSOR_MOBILE_NETWORK_CODE",
+    "Description": "Mobile network code. Available once device is connected to cellular network.",
+    "Description_ptBR": "Mobile rede code. disponível once dispositivo is conectado to celular rede."
+  },
+  {
+    "ID": 8196,
+    "Name": "SENSOR_TIMING_ADVANCE",
+    "Description": "Timing Advance from GSM",
+    "Description_ptBR": "Timing Advance from GSM"
+  },
+  {
+    "ID": 8197,
+    "Name": "SENSOR_GSM_POWER",
+    "Description": "Cellular signal strength (RSSI) in dBm",
+    "Description_ptBR": "celular signal strength (RSSI) in dBm"
+  },
+  {
+    "ID": 8198,
+    "Name": "SENSOR_PEDAL_POSITION",
+    "Description": "Accelerator pedal position 1: 0 to 250 % op. range",
+    "Description_ptBR": "Accelerator pedal position 1: 0 to 250 % op. range"
+  },
+  {
+    "ID": 8199,
+    "Name": "SENSOR_FUEL_LEVEL_1",
+    "Description": "Fuel level in L or in %, 100=100% or 100L. Note: when using FMS: Fuel level 1: 0.4 %/bit, 0 offset, 0 to 250 % op. Range",
+    "Description_ptBR": "combustível level in L or in %, 100=100% or 100L. Note: when using FMS: combustível level 1: 0.4 %/bit, 0 offset, 0 to 250 % op. Range"
+  },
+  {
+    "ID": 8200,
+    "Name": "SENSOR_ENGINE_TEMPERATURE",
+    "Description": "Engine temperature",
+    "Description_ptBR": "motor temperatura"
+  },
+  {
+    "ID": 8201,
+    "Name": "SENSOR_FUEL_LEVEL_2",
+    "Description": "Fuel level in L or in %, 100=100% or 100L. Note: when using FMS: Fuel level 2: 0.4 %/bit, 0 offset, 0 to 250 % op. range",
+    "Description_ptBR": "combustível level in L or in %, 100=100% or 100L. Note: when using FMS: combustível level 2: 0.4 %/bit, 0 offset, 0 to 250 % op. range"
+  },
+  {
+    "ID": 8202,
+    "Name": "SENSOR_ENGINE_LOAD",
+    "Description": "Engine Load. Note: when using FMS: Engine percent load at current speed: 1 %/bit, 0 offset, 0 to 125 % op. range",
+    "Description_ptBR": "motor Load. Note: when using FMS: motor percent load at current velocidade: 1 %/bit, 0 offset, 0 to 125 % op. range"
+  },
+  {
+    "ID": 8203,
+    "Name": "SENSOR_U8_USER_DEFINED_0",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8204,
+    "Name": "SENSOR_U8_USER_DEFINED_1",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8205,
+    "Name": "SENSOR_U8_USER_DEFINED_2",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8206,
+    "Name": "SENSOR_U8_USER_DEFINED_3",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8207,
+    "Name": "SENSOR_U8_USER_DEFINED_4",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8208,
+    "Name": "SENSOR_U8_USER_DEFINED_5",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8209,
+    "Name": "SENSOR_U8_USER_DEFINED_6",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8210,
+    "Name": "SENSOR_U8_USER_DEFINED_7",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8211,
+    "Name": "SENSOR_U8_USER_DEFINED_8",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8212,
+    "Name": "SENSOR_U8_USER_DEFINED_9",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8213,
+    "Name": "SENSOR_U8_USER_DEFINED_10",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8214,
+    "Name": "SENSOR_U8_USER_DEFINED_11",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8215,
+    "Name": "SENSOR_U8_USER_DEFINED_12",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8216,
+    "Name": "SENSOR_U8_USER_DEFINED_13",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8217,
+    "Name": "SENSOR_U8_USER_DEFINED_14",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8218,
+    "Name": "SENSOR_U8_USER_DEFINED_15",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8219,
+    "Name": "SENSOR_U8_USER_DEFINED_16",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8220,
+    "Name": "SENSOR_U8_USER_DEFINED_17",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8221,
+    "Name": "SENSOR_U8_USER_DEFINED_18",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8222,
+    "Name": "SENSOR_U8_USER_DEFINED_19",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8223,
+    "Name": "SENSOR_U8_USER_DEFINED_20",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8224,
+    "Name": "SENSOR_U8_USER_DEFINED_21",
+    "Description": "Unsigned 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 8225,
+    "Name": "SENSOR_ADBLUE_LEVEL",
+    "Description": "FMS Aftertreatment 1 Diesel Exhaust Fluid Tank 1 Level: 0 % = Empty, 100% = Full",
+    "Description_ptBR": "FMS Aftertreatment 1 Diesel Exhaust Fluid Tank 1 Level: 0 % = Empty, 100% = Full"
+  },
+  {
+    "ID": 8226,
+    "Name": "SENSOR_TOP_SPEED",
+    "Description": "Vehicle top speed",
+    "Description_ptBR": "Vehicle top velocidade"
+  },
+  {
+    "ID": 8227,
+    "Name": "SENSOR_GNSS_GMT_SECONDS",
+    "Description": "GMT seconds",
+    "Description_ptBR": "GMT segundos"
+  },
+  {
+    "ID": 8228,
+    "Name": "SENSOR_GNSS_GMT_MINUNTES",
+    "Description": "GMT minutes",
+    "Description_ptBR": "GMT minutos"
+  },
+  {
+    "ID": 8229,
+    "Name": "SENSOR_GNSS_GMT_HOURS",
+    "Description": "GMT hours",
+    "Description_ptBR": "GMT horas"
+  },
+  {
+    "ID": 8230,
+    "Name": "SENSOR_GNSS_GMT_DAYS",
+    "Description": "GMT day",
+    "Description_ptBR": "GMT day"
+  },
+  {
+    "ID": 8231,
+    "Name": "SENSOR_GNSS_GMT_MONTHS",
+    "Description": "GMT month",
+    "Description_ptBR": "GMT month"
+  },
+  {
+    "ID": 8232,
+    "Name": "SENSOR_GNSS_GMT_YEARS",
+    "Description": "GMT year",
+    "Description_ptBR": "GMT year"
+  },
+  {
+    "ID": 8233,
+    "Name": "SENSOR_WAKE_UP_REASON",
+    "Description": "Wake up reason for script reload: 0 - Unknown, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut",
+    "Description_ptBR": "Wake up reason for script reload: 0 - desconhecido, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut"
+  },
+  {
+    "ID": 8234,
+    "Name": "SENSOR_FUEL_LEVEL_TYPE",
+    "Description": "0 - N/A, 1 - 1 %/bit, 2 - 0.4 %/bit, 3 - 1 L/bit",
+    "Description_ptBR": "0 - N/A, 1 - 1 %/bit, 2 - 0.4 %/bit, 3 - 1 L/bit"
+  },
+  {
+    "ID": 8235,
+    "Name": "SENSOR_DUMP_STATE",
+    "Description": "Can dump status: 0 - Idle, 1 - Waiting for Bitrate, 2 - Bitrate Found, 3 - Bitrate Not Found, 4 - Reading CAN bus, 5 - CAN Read Success, 6 - Can Read Failed.",
+    "Description_ptBR": "CAN dump status: 0 - Idle, 1 - Waiting for Bitrate, 2 - Bitrate Found, 3 - Bitrate Not Found, 4 - Reading barramento CAN, 5 - CAN Read Success, 6 - CAN Read Failed."
+  },
+  {
+    "ID": 8236,
+    "Name": "SENSOR_GEOZONE_ID",
+    "Description": "value is the last ID of geozone group that the device is currently in.",
+    "Description_ptBR": "value is the last ID of geozone group that the dispositivo is atualmente in."
+  },
+  {
+    "ID": 8237,
+    "Name": "SENSOR_SLOT_1_ACTIVITY",
+    "Description": "Binary encoded slot 1 activity from tachograph. 0b000 - break/rest, 0b001 - availability, 0b010 - work, 0b011 - driving, 0b100 - reserved, 0b101 reserved  ",
+    "Description_ptBR": "Binary encoded slot 1 activity from tachograph. 0b000 - break/rest, 0b001 - availability, 0b010 - work, 0b011 - driving, 0b100 - reserved, 0b101 reserved"
+  },
+  {
+    "ID": 8238,
+    "Name": "SENSOR_SLOT_2_ACTIVITY",
+    "Description": "Binary encoded slot 1 activity from tachograph. 0b000 - break/rest, 0b001 - availability, 0b010 - work, 0b011 - driving, 0b100 - reserved, 0b101 reserved ",
+    "Description_ptBR": "Binary encoded slot 1 activity from tachograph. 0b000 - break/rest, 0b001 - availability, 0b010 - work, 0b011 - driving, 0b100 - reserved, 0b101 reserved"
+  },
+  {
+    "ID": 8239,
+    "Name": "SENSOR_TACHO_FILE_MANAGER_STATE",
+    "Description": "0 - Tacho file manager at sleep state, communication inactive; 1 - Tacho file manager entering sleep state, communication ended; 2 - Tacho file manager card authentication in progress; 3 - Tacho file manager completed overview file collection and is uploading the file; 4 - Tacho file manager is requesting server to check commands for current vehicle number; 5 - Tacho file manager is requesting server to check commands for current 1st Driver Card; 6 - Tacho file manager is requesting server to check commands for current 2nd Driver Card; 7 - Tacho file manager is sending confirmation that overview file transfer completed; 8 - Tacho file manager is sending confirmation that 1st Driver Card file transfer completed; 9 - Tacho file manager is sending confirmation that 2nd Driver Card file transfer completed; 10 - Tacho connection failed, next attempt will be delayed.",
+    "Description_ptBR": "0 - Tacho file manager at sleep state, communication inactive; 1 - Tacho file manager entering sleep state, communication ended; 2 - Tacho file manager card authentication in progress; 3 - Tacho file manager completed overview file collection and is uploading the file; 4 - Tacho file manager is requesting server to check commands for current vehicle number; 5 - Tacho file manager is requesting server to check commands for current 1st Driver Card; 6 - Tacho file manager is requesting server to check commands for current 2nd Driver Card; 7 - Tacho file manager is sending confirmation that overview file transfer completed; 8 - Tacho file manager is sending confirmation that 1st Driver Card file transfer completed; 9 - Tacho file manager is sending confirmation that 2nd Driver Card file transfer completed; 10 - Tacho connection failed, next attempt will be com atraso."
+  },
+  {
+    "ID": 8240,
+    "Name": "SENSOR_HARDWARE_TYPE",
+    "Description": "255 - unknown, 55 - Light 2G, 56 - Light 3G, 70 - Light+ 2G, 71 Light+ 3G, 85 - StCAN 2G, 86 - StCAN 3G, 87 - StCAN 2G 32Mb, 100 - XtCAN 2G, 101 - XtCAN 3G, 102 - XtCAN 2G 32Mb, 115 - Tacho 2G, 116 - Tacho 3G, 117 - Tacho 2G 32Mb",
+    "Description_ptBR": "255 - desconhecido, 55 - Light 2G, 56 - Light 3G, 70 - Light+ 2G, 71 Light+ 3G, 85 - StCAN 2G, 86 - StCAN 3G, 87 - StCAN 2G 32Mb, 100 - XtCAN 2G, 101 - XtCAN 3G, 102 - XtCAN 2G 32Mb, 115 - Tacho 2G, 116 - Tacho 3G, 117 - Tacho 2G 32Mb"
+  },
+  {
+    "ID": 8241,
+    "Name": "SENSOR_CRUISE_CONTROL_STATE",
+    "Description": "FMS, 0 - Off/Disabled, 1 – Hold, 2 – Accelerate, 3 – Decelerate, 4 – Resume, 5 – Set, 6 – Accel. Override, 7 - Not available",
+    "Description_ptBR": "FMS, 0 - Off/Disabled, 1 – Hold, 2 – Accelerate, 3 – Decelerate, 4 – Resume, 5 – Set, 6 – Accel. Override, 7 - Not disponível"
+  },
+  {
+    "ID": 8242,
+    "Name": "SENSOR_BATTERY_TEMPERATURE_1",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8243,
+    "Name": "SENSOR_BATTERY_TEMPERATURE_2",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8244,
+    "Name": "SENSOR_BATTERY_TEMPERATURE_3",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8245,
+    "Name": "SENSOR_BATTERY_TEMPERATURE_4",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8246,
+    "Name": "SENSOR_WASHER_FLUID_LEVEL",
+    "Description": "Washer Fluid Level: 0 to 100",
+    "Description_ptBR": "Washer Fluid Level: 0 to 100"
+  },
+  {
+    "ID": 8247,
+    "Name": "SENSOR_RETARDER_TORQUE_MODE",
+    "Description": "FMS. 0 means “No request”: retarder torque = 0 (no braking). Modes 1 to 14 indicate that there is either a torque request or the identified function is currently controlling the retarder: retarder torque may range from 0 (no braking) to the upper limit",
+    "Description_ptBR": "FMS. 0 means “No request”: retarder torque = 0 (no braking). Modes 1 to 14 indicar that there is either a torque request or the identified function is atualmente controlling the retarder: retarder torque may range from 0 (no braking) to the upper limit"
+  },
+  {
+    "ID": 8248,
+    "Name": "SENSOR_RETARDER_PERCENT_TORQUE",
+    "Description": "FMS Actual Retarder - Percent Torque",
+    "Description_ptBR": "FMS Actual Retarder - Percent Torque"
+  },
+  {
+    "ID": 8249,
+    "Name": "SENSOR_RETARDER_SELECTION",
+    "Description": "FMS Retarder Selection, non-engine",
+    "Description_ptBR": "FMS Retarder Selection, non-motor"
+  },
+  {
+    "ID": 8250,
+    "Name": "SENSOR_ENGINE_PERCENT_TORQUE",
+    "Description": "Actual Engine – Percent Torque: -125 to 125 %",
+    "Description_ptBR": "Actual motor – Percent Torque: -125 to 125 %"
+  },
+  {
+    "ID": 8251,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8252,
+    "Name": "SENSOR_CURRENT_GEAR",
+    "Description": "Transmission Current Gear: -125 to 125, negative values are reverse gears, positive values are forward gears, zero is neutral. 251 (0xFB) is park",
+    "Description_ptBR": "Transmission Current Gear: -125 to 125, negative values are reverse gears, positive values are forward gears, zero is neutral. 251 (0xFB) is park"
+  },
+  {
+    "ID": 8253,
+    "Name": "SENSOR_FRONT_WIPER_MODE",
+    "Description": "Front Operator Wiper Switch",
+    "Description_ptBR": "Front Operator Wiper Switch"
+  },
+  {
+    "ID": 8254,
+    "Name": "SENSOR_INTAKE_PRESSURE",
+    "Description": "Engine Intake Manifold #1 Absolute Pressure: 0 to 500 kPa",
+    "Description_ptBR": "motor Intake Manifold #1 Absolute Pressure: 0 to 500 kPa"
+  },
+  {
+    "ID": 8255,
+    "Name": "SENSOR_OIL_PRESSURE",
+    "Description": "Engine Oil-Filter Outlet Pressure: 0 to 1000 kPa",
+    "Description_ptBR": "motor Oil-Filter Outlet Pressure: 0 to 1000 kPa"
+  },
+  {
+    "ID": 8256,
+    "Name": "SENSOR_BAROMETRIC_PRESSURE",
+    "Description": "Barometric Pressure: 0 to 125 kPa",
+    "Description_ptBR": "Barometric Pressure: 0 to 125 kPa"
+  },
+  {
+    "ID": 8257,
+    "Name": "SENSOR_BATTERY_CHARGE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 8258,
+    "Name": "SENSOR_TRANSMISSION_OIL_LIFE",
+    "Description": "Transmission Oil Life Remaining: 0 to 100 %",
+    "Description_ptBR": "Transmission Oil Life Remaining: 0 to 100 %"
+  },
+  {
+    "ID": 8259,
+    "Name": "SENSOR_DPF_2_SOOT_LOAD",
+    "Description": "Diesel Particulate Filter 2 Soot Load Percent: 0 to 250 %",
+    "Description_ptBR": "Diesel Particulate Filter 2 Soot Load Percent: 0 to 250 %"
+  },
+  {
+    "ID": 8260,
+    "Name": "SENSOR_DPF_1_SOOT_LOAD",
+    "Description": "Diesel Particulate Filter 1 Soot Load Percent: 0 to 250 %",
+    "Description_ptBR": "Diesel Particulate Filter 1 Soot Load Percent: 0 to 250 %"
+  },
+  {
+    "ID": 8261,
+    "Name": "SENSOR_DPF_2_ASH_LOAD",
+    "Description": "Diesel Particulate Filter 2 Ash Load Percent: 0 to 250 %",
+    "Description_ptBR": "Diesel Particulate Filter 2 Ash Load Percent: 0 to 250 %"
+  },
+  {
+    "ID": 8262,
+    "Name": "SENSOR_DPF_1_ASH_LOAD",
+    "Description": "Diesel Particulate Filter 1 Ash Load Percent: 0 to 250 %",
+    "Description_ptBR": "Diesel Particulate Filter 1 Ash Load Percent: 0 to 250 %"
+  },
+  {
+    "ID": 8263,
+    "Name": "SENSOR_CLUTCH_LIFE_REMAINING",
+    "Description": "FMS Clutch life remaining: 0 to 100 %",
+    "Description_ptBR": "FMS Clutch life remaining: 0 to 100 %"
+  },
+  {
+    "ID": 8264,
+    "Name": "SENSOR_TRANSMISSION_SERVICE",
+    "Description": "Transmission Service Indicator: 0 - off, 1 - on continuously, 2 - flashing",
+    "Description_ptBR": "Transmission Service Indicator: 0 - off, 1 - on continuously, 2 - flashing"
+  },
+  {
+    "ID": 8265,
+    "Name": "SENSOR_SERVICE_2_COMPONENT_ID",
+    "Description": "Identification of component needing service.  See Table SPN911_A.",
+    "Description_ptBR": "Identification of component needing service.  See Table SPN911_A."
+  },
+  {
+    "ID": 8266,
+    "Name": "SENSOR_SERVICE_1_COMPONENT_ID_1",
+    "Description": "Identification of component needing service.  See Table SPN911_A.",
+    "Description_ptBR": "Identification of component needing service.  See Table SPN911_A."
+  },
+  {
+    "ID": 8267,
+    "Name": "SENSOR_SERVICE_1_COMPONENT_ID_2",
+    "Description": "Identification of component needing service.  See Table SPN911_A.",
+    "Description_ptBR": "Identification of component needing service.  See Table SPN911_A."
+  },
+  {
+    "ID": 8268,
+    "Name": "SENSOR_SERVICE_1_COMPONENT_ID_3",
+    "Description": "Identification of component needing service.  See Table SPN911_A.",
+    "Description_ptBR": "Identification of component needing service.  See Table SPN911_A."
+  },
+  {
+    "ID": 8269,
+    "Name": "SENSOR_HUMIDITY",
+    "Description": "Ambient air humidity: 0 to 100 %",
+    "Description_ptBR": "Ambient air humidity: 0 to 100 %"
+  },
+  {
+    "ID": 8270,
+    "Name": "SENSOR_AUXILIARY_TANK_LEVEL",
+    "Description": "Auxiliary tank liquid level: 0 to 100 %",
+    "Description_ptBR": "Auxiliary tank liquid level: 0 to 100 %"
+  },
+  {
+    "ID": 8271,
+    "Name": "SENSOR_MQTT_BROKER_STATUS",
+    "Description": "0 - disconnected; 1 - connected",
+    "Description_ptBR": "0 - desconectado; 1 - conectado"
+  },
+  {
+    "ID": 8272,
+    "Name": "SENSOR_SELF_ORIENTATION_STATUS",
+    "Description": "0 - orientation lost, 1 - oriented",
+    "Description_ptBR": "0 - orientation lost, 1 - oriented"
+  },
+  {
+    "ID": 8273,
+    "Name": "SENSOR_PCB_VERSION",
+    "Description": "Hardware PCB version",
+    "Description_ptBR": "Hardware PCB version"
+  },
+  {
+    "ID": 8274,
+    "Name": "SENSOR_ASSEMBLY_VERSION",
+    "Description": "Hardware assembly version",
+    "Description_ptBR": "Hardware assembly version"
+  },
+  {
+    "ID": 8275,
+    "Name": "SENSOR_FUEL_LEVEL_PERCENT",
+    "Description": "Fuel level percent value",
+    "Description_ptBR": "combustível level percent value"
+  },
+  {
+    "ID": 12288,
+    "Name": "SENSOR_VCC",
+    "Description": "Voltage measured on external power rail in mV",
+    "Description_ptBR": "tensão measured on external energia rail in mV"
+  },
+  {
+    "ID": 12289,
+    "Name": "SENSOR_ADC_5",
+    "Description": "Voltage measured on ADC5 in mV",
+    "Description_ptBR": "tensão measured on ADC5 in mV"
+  },
+  {
+    "ID": 12290,
+    "Name": "SENSOR_ADC_4",
+    "Description": "Voltage measured on ADC4 in mV",
+    "Description_ptBR": "tensão measured on ADC4 in mV"
+  },
+  {
+    "ID": 12291,
+    "Name": "SENSOR_ADC_3",
+    "Description": "Voltage measured on ADC3 in mV",
+    "Description_ptBR": "tensão measured on ADC3 in mV"
+  },
+  {
+    "ID": 12292,
+    "Name": "SENSOR_VBAT",
+    "Description": "Voltage measured on internal battery rail in mV",
+    "Description_ptBR": "tensão measured on internal battery rail in mV"
+  },
+  {
+    "ID": 12293,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 12294,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 12295,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 12296,
+    "Name": "SENSOR_MOBILE_COUNTRY_CODE",
+    "Description": "Mobile country code received from cellular network to which device is currently attached to",
+    "Description_ptBR": "Mobile country code received from celular rede to which dispositivo is atualmente attached to"
+  },
+  {
+    "ID": 12297,
+    "Name": "SENSOR_LOCATION_AREA_CODE",
+    "Description": "GSM Location area code",
+    "Description_ptBR": "GSM Location area code"
+  },
+  {
+    "ID": 12298,
+    "Name": "SENSOR_CELL_ID",
+    "Description": "ID of a cell to which cell module is currently attached to.",
+    "Description_ptBR": "ID of a cell to which cell module is atualmente attached to."
+  },
+  {
+    "ID": 12299,
+    "Name": "SENSOR_GNSS_COURSE",
+    "Description": "0 to 360, 0 when stationary",
+    "Description_ptBR": "0 to 360, 0 when stationary"
+  },
+  {
+    "ID": 12300,
+    "Name": "SENSOR_ENGINE_SPEED",
+    "Description": "Sensor from vehicle CAN bus to indicate engine speed in RPM",
+    "Description_ptBR": "Sensor from vehicle barramento CAN to indicar motor velocidade in RPM"
+  },
+  {
+    "ID": 12301,
+    "Name": "SENSOR_U16_USER_DEFINED_0",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12302,
+    "Name": "SENSOR_U16_USER_DEFINED_1",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12303,
+    "Name": "SENSOR_U16_USER_DEFINED_2",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12304,
+    "Name": "SENSOR_U16_USER_DEFINED_3",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12305,
+    "Name": "SENSOR_U16_USER_DEFINED_4",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12306,
+    "Name": "SENSOR_U16_USER_DEFINED_5",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12307,
+    "Name": "SENSOR_U16_USER_DEFINED_6",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12308,
+    "Name": "SENSOR_U16_USER_DEFINED_7",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12309,
+    "Name": "SENSOR_U16_USER_DEFINED_8",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12310,
+    "Name": "SENSOR_U16_USER_DEFINED_9",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12311,
+    "Name": "SENSOR_U16_USER_DEFINED_10",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12312,
+    "Name": "SENSOR_U16_USER_DEFINED_11",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12313,
+    "Name": "SENSOR_U16_USER_DEFINED_12",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12314,
+    "Name": "SENSOR_U16_USER_DEFINED_13",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12315,
+    "Name": "SENSOR_U16_USER_DEFINED_14",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12316,
+    "Name": "SENSOR_U16_USER_DEFINED_15",
+    "Description": "Unsigned 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 12317,
+    "Name": "SENSOR_WHEEL_SPEED",
+    "Description": "Wheel Speed from CAN bus",
+    "Description_ptBR": "Wheel velocidade from barramento CAN"
+  },
+  {
+    "ID": 12318,
+    "Name": "SENSOR_FUEL_LEVEL_L",
+    "Description": "Fuel level volume from CAN bus",
+    "Description_ptBR": "combustível level volume from barramento CAN"
+  },
+  {
+    "ID": 12319,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 12320,
+    "Name": "SENSOR_AGC_MONITOR",
+    "Description": "GNSS quality parameter (Automatic Gain Control)",
+    "Description_ptBR": "GNSS quality parameter (Automatic Gain Control)"
+  },
+  {
+    "ID": 12321,
+    "Name": "SENSOR_FUEL_RATE",
+    "Description": "FMS Fuel Rate:0 to 3,212.75 L/h",
+    "Description_ptBR": "FMS combustível Rate:0 to 3,212.75 L/h"
+  },
+  {
+    "ID": 12322,
+    "Name": "SENSOR_FREQ_IN2",
+    "Description": "Sensor to indicate frequency measured on IN2 input.",
+    "Description_ptBR": "Sensor to indicar frequency measured on IN2 input."
+  },
+  {
+    "ID": 12323,
+    "Name": "SENSOR_FREQ_IN3",
+    "Description": "Sensor to indicate frequency measured on IN3 input.",
+    "Description_ptBR": "Sensor to indicar frequency measured on IN3 input."
+  },
+  {
+    "ID": 12324,
+    "Name": "SENSOR_FREQ_IN4",
+    "Description": "Sensor to indicate frequency measured on IN4 input.",
+    "Description_ptBR": "Sensor to indicar frequency measured on IN4 input."
+  },
+  {
+    "ID": 12325,
+    "Name": "SENSOR_FREQ_IN5",
+    "Description": "Sensor to indicate frequency measured on IN5 input.",
+    "Description_ptBR": "Sensor to indicar frequency measured on IN5 input."
+  },
+  {
+    "ID": 12326,
+    "Name": "SENSOR_PULSE_PERIOD_IN_2",
+    "Description": "Average time between two pulses",
+    "Description_ptBR": "Average time between two pulses"
+  },
+  {
+    "ID": 12327,
+    "Name": "SENSOR_PULSE_PERIOD_IN_3",
+    "Description": "Average time between two pulses",
+    "Description_ptBR": "Average time between two pulses"
+  },
+  {
+    "ID": 12328,
+    "Name": "SENSOR_PULSE_PERIOD_IN_4",
+    "Description": "Average time between two pulses",
+    "Description_ptBR": "Average time between two pulses"
+  },
+  {
+    "ID": 12329,
+    "Name": "SENSOR_PULSE_PERIOD_IN_5",
+    "Description": "Average time between two pulses",
+    "Description_ptBR": "Average time between two pulses"
+  },
+  {
+    "ID": 12330,
+    "Name": "SENSOR_AMBIENT_TEMPERATURE",
+    "Description": "Ambient Air Temperature",
+    "Description_ptBR": "Ambient Air temperatura"
+  },
+  {
+    "ID": 12331,
+    "Name": "SENSOR_CAN_1_COMMAND",
+    "Description": "Command Identifier used by canbase_b function on CAN1",
+    "Description_ptBR": "Command Identifier used by canbase_b function on CAN1"
+  },
+  {
+    "ID": 12332,
+    "Name": "SENSOR_CAN_2_COMMAND",
+    "Description": "Command Identifier used by canbase_b function on CAN2",
+    "Description_ptBR": "Command Identifier used by canbase_b function on CAN2"
+  },
+  {
+    "ID": 12333,
+    "Name": "SENSOR_AXLE_1_WEIGHT",
+    "Description": "Axle 1 weight",
+    "Description_ptBR": "Axle 1 weight"
+  },
+  {
+    "ID": 12334,
+    "Name": "SENSOR_AXLE_2_WEIGHT",
+    "Description": "Axle 2 weight",
+    "Description_ptBR": "Axle 2 weight"
+  },
+  {
+    "ID": 12335,
+    "Name": "SENSOR_AXLE_3_WEIGHT",
+    "Description": "Axle 3 weight",
+    "Description_ptBR": "Axle 3 weight"
+  },
+  {
+    "ID": 12336,
+    "Name": "SENSOR_AXLE_4_WEIGHT",
+    "Description": "Axle 4 weight",
+    "Description_ptBR": "Axle 4 weight"
+  },
+  {
+    "ID": 12337,
+    "Name": "SENSOR_AXLE_5_WEIGHT",
+    "Description": "Axle 5 weight",
+    "Description_ptBR": "Axle 5 weight"
+  },
+  {
+    "ID": 12338,
+    "Name": "SENSOR_TRAILER_WEIGHT",
+    "Description": "FMS Trailer Weight: 0 to 128,510 kg",
+    "Description_ptBR": "FMS Trailer Weight: 0 to 128,510 kg"
+  },
+  {
+    "ID": 12339,
+    "Name": "SENSOR_CARGO_AMBIENT_TEMPERATURE",
+    "Description": "FMS Cargo Ambient Temperature: -273 to 1735 °C",
+    "Description_ptBR": "FMS Cargo Ambient temperatura: -273 to 1735 °C"
+  },
+  {
+    "ID": 12340,
+    "Name": "SENSOR_INSTANT_FUEL_ECONOMY",
+    "Description": "FMS Instantaneous Fuel Economy: 0 to 125.5 km/L",
+    "Description_ptBR": "FMS Instantaneous combustível Economy: 0 to 125.5 km/L"
+  },
+  {
+    "ID": 12341,
+    "Name": "SENSOR_INTERIOR_TEMPERATURE",
+    "Description": "FMS Cab Interior Temperature: -273 to 1735 °C",
+    "Description_ptBR": "FMS Cab Interior temperatura: -273 to 1735 °C"
+  },
+  {
+    "ID": 12342,
+    "Name": "SENSOR_TRANSMISSION_TEMPERATURE",
+    "Description": "FMS Transmission Oil Temperature: -273 to 1735 °C",
+    "Description_ptBR": "FMS Transmission Oil temperatura: -273 to 1735 °C"
+  },
+  {
+    "ID": 12343,
+    "Name": "SENSOR_CARGO_WEIGHT",
+    "Description": "FMS Cargo Weight: 0 to 128,510 kg",
+    "Description_ptBR": "FMS Cargo Weight: 0 to 128,510 kg"
+  },
+  {
+    "ID": 12344,
+    "Name": "SENSOR_SERVICE_DISTANCE",
+    "Description": "FMS Service Distance: -160635 to 160640 km",
+    "Description_ptBR": "FMS Service Distance: -160635 to 160640 km"
+  },
+  {
+    "ID": 12345,
+    "Name": "SENSOR_GROSS_VEHICLE_WEIGHT",
+    "Description": "FMS Gross Combination Vehicle Weight: 0 to 642,550 kg",
+    "Description_ptBR": "FMS Gross Combination Vehicle Weight: 0 to 642,550 kg"
+  },
+  {
+    "ID": 12346,
+    "Name": "SENSOR_RANGE",
+    "Description": "Remaining Distance with Current Fuel Level",
+    "Description_ptBR": "Remaining Distance with Current combustível Level"
+  },
+  {
+    "ID": 12347,
+    "Name": "SENSOR_1979_RPM",
+    "Description": "J1979 Engine RPM: Min 0, Max 16383.75 rpm",
+    "Description_ptBR": "J1979 motor RPM: Min 0, Max 16383.75 rpm"
+  },
+  {
+    "ID": 12348,
+    "Name": "SENSOR_1979_MAF",
+    "Description": "J1979 MAF air flow rate: Min 0, Max 655.35 g/s",
+    "Description_ptBR": "J1979 MAF air flow rate: Min 0, Max 655.35 g/s"
+  },
+  {
+    "ID": 12349,
+    "Name": "SENSOR_1979_FUEL_RATE",
+    "Description": "J1979 Engine fuel rate: Min 0, Max 3212.75 L/h",
+    "Description_ptBR": "J1979 motor combustível rate: Min 0, Max 3212.75 L/h"
+  },
+  {
+    "ID": 12350,
+    "Name": "SENSOR_1979_RAIL_PRESSURE",
+    "Description": "J1979 Fuel Rail Pressure: Min 0, Max 5177.265 kPa",
+    "Description_ptBR": "J1979 combustível Rail Pressure: Min 0, Max 5177.265 kPa"
+  },
+  {
+    "ID": 12351,
+    "Name": "SENSOR_SERVICE_DELAY_OP_TIME_BASED",
+    "Description": "FMS Service Delay/Operational Time Based: -32127 to 32128 km",
+    "Description_ptBR": "FMS Service Delay/Operational Time Based: -32127 to 32128 km"
+  },
+  {
+    "ID": 12352,
+    "Name": "SENSOR_FREQ_IN_2_COUNT",
+    "Description": "Pulse count on IN2",
+    "Description_ptBR": "Pulse count on IN2"
+  },
+  {
+    "ID": 12353,
+    "Name": "SENSOR_FREQ_IN_3_COUNT",
+    "Description": "Pulse count on IN3",
+    "Description_ptBR": "Pulse count on IN3"
+  },
+  {
+    "ID": 12354,
+    "Name": "SENSOR_FREQ_IN_4_COUNT",
+    "Description": "Pulse count on IN4",
+    "Description_ptBR": "Pulse count on IN4"
+  },
+  {
+    "ID": 12355,
+    "Name": "SENSOR_FREQ_IN_5_COUNT",
+    "Description": "Pulse count on IN5",
+    "Description_ptBR": "Pulse count on IN5"
+  },
+  {
+    "ID": 12356,
+    "Name": "SENSOR_POWER_CUT_RESET",
+    "Description": "Count of power cut reset",
+    "Description_ptBR": "Count of energia cut reset"
+  },
+  {
+    "ID": 12357,
+    "Name": "SENSOR_SOFTWARE_RESET",
+    "Description": "Count of software reset",
+    "Description_ptBR": "Count of software reset"
+  },
+  {
+    "ID": 12358,
+    "Name": "SENSOR_SELF_ORIENTATION_CONFIDENCE",
+    "Description": "Self orientation confidence, status sensor is set when confidence reaches 1200",
+    "Description_ptBR": "Self orientation confidence, status sensor is Ativado quando confidence reaches 1200"
+  },
+  {
+    "ID": 12359,
+    "Name": "SENSOR_TIME_TILL_SLEEP",
+    "Description": "Time until the device goes to sleep",
+    "Description_ptBR": "Time until the dispositivo goes to sleep"
+  },
+  {
+    "ID": 12360,
+    "Name": "SENSOR_OW_HUMIDITY",
+    "Description": "Humidity from onewire sensor",
+    "Description_ptBR": "Humidity from onewire sensor"
+  },
+  {
+    "ID": 12361,
+    "Name": "SENSOR_MAIN_FS_BYTES_PENDING",
+    "Description": "Data bytes left to send to telemetry server in Bytes",
+    "Description_ptBR": "Data bytes left to send to telemetry server in Bytes"
+  },
+  {
+    "ID": 12362,
+    "Name": "SENSOR_EVENT_FS_BYTES_PENDING",
+    "Description": "Event data bytes left to send to telemetry server in Bytes",
+    "Description_ptBR": "Event data bytes left to send to telemetry server in Bytes"
+  },
+  {
+    "ID": 16384,
+    "Name": "SENSOR_SYSTEM_TIME",
+    "Description": "Unix time used for system services",
+    "Description_ptBR": "Unix time used for system services"
+  },
+  {
+    "ID": 16385,
+    "Name": "SENSOR_TOTAL_FUEL_USED",
+    "Description": "Total fuel used from CAN bus",
+    "Description_ptBR": "Total combustível used from barramento CAN"
+  },
+  {
+    "ID": 16386,
+    "Name": "SENSOR_TOTAL_ENGINE_HOURS",
+    "Description": "FMS Total engine hours from CAN bus",
+    "Description_ptBR": "FMS Total motor horas from barramento CAN"
+  },
+  {
+    "ID": 16387,
+    "Name": "SENSOR_TOTAL_DISTANCE",
+    "Description": "Total distance from CAN bus",
+    "Description_ptBR": "Total distance from barramento CAN"
+  },
+  {
+    "ID": 16388,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16389,
+    "Name": "SENSOR_U32_USER_DEFINED_0",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16390,
+    "Name": "SENSOR_U32_USER_DEFINED_1",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16391,
+    "Name": "SENSOR_U32_USER_DEFINED_2",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16392,
+    "Name": "SENSOR_U32_USER_DEFINED_3",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16393,
+    "Name": "SENSOR_U32_USER_DEFINED_4",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16394,
+    "Name": "SENSOR_U32_USER_DEFINED_5",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16395,
+    "Name": "SENSOR_U32_USER_DEFINED_6",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16396,
+    "Name": "SENSOR_U32_USER_DEFINED_7",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16397,
+    "Name": "SENSOR_U32_USER_DEFINED_8",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16398,
+    "Name": "SENSOR_U32_USER_DEFINED_9",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16399,
+    "Name": "SENSOR_U32_USER_DEFINED_10",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16400,
+    "Name": "SENSOR_U32_USER_DEFINED_11",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16401,
+    "Name": "SENSOR_U32_USER_DEFINED_12",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16402,
+    "Name": "SENSOR_U32_USER_DEFINED_13",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16403,
+    "Name": "SENSOR_U32_USER_DEFINED_14",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16404,
+    "Name": "SENSOR_U32_USER_DEFINED_15",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16405,
+    "Name": "SENSOR_U32_USER_DEFINED_16",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16406,
+    "Name": "SENSOR_U32_USER_DEFINED_17",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16407,
+    "Name": "SENSOR_U32_USER_DEFINED_18",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16408,
+    "Name": "SENSOR_U32_USER_DEFINED_19",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16409,
+    "Name": "SENSOR_U32_USER_DEFINED_20",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16410,
+    "Name": "SENSOR_U32_USER_DEFINED_21",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16411,
+    "Name": "SENSOR_U32_USER_DEFINED_22",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16412,
+    "Name": "SENSOR_U32_USER_DEFINED_23",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16413,
+    "Name": "SENSOR_U32_USER_DEFINED_24",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16414,
+    "Name": "SENSOR_U32_USER_DEFINED_25",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16415,
+    "Name": "SENSOR_U32_USER_DEFINED_26",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16416,
+    "Name": "SENSOR_U32_USER_DEFINED_27",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16417,
+    "Name": "SENSOR_U32_USER_DEFINED_28",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16418,
+    "Name": "SENSOR_U32_USER_DEFINED_29",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16419,
+    "Name": "SENSOR_U32_USER_DEFINED_30",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16420,
+    "Name": "SENSOR_U32_USER_DEFINED_31",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16421,
+    "Name": "SENSOR_U32_USER_DEFINED_32",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16422,
+    "Name": "SENSOR_U32_USER_DEFINED_33",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16423,
+    "Name": "SENSOR_U32_USER_DEFINED_34",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16424,
+    "Name": "SENSOR_U32_USER_DEFINED_35",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16425,
+    "Name": "SENSOR_U32_USER_DEFINED_36",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16426,
+    "Name": "SENSOR_U32_USER_DEFINED_37",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16427,
+    "Name": "SENSOR_U32_USER_DEFINED_38",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16428,
+    "Name": "SENSOR_U32_USER_DEFINED_39",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16429,
+    "Name": "SENSOR_U32_USER_DEFINED_40",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16430,
+    "Name": "SENSOR_U32_USER_DEFINED_41",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16431,
+    "Name": "SENSOR_U32_USER_DEFINED_42",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16432,
+    "Name": "SENSOR_U32_USER_DEFINED_43",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16433,
+    "Name": "SENSOR_U32_USER_DEFINED_44",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16434,
+    "Name": "SENSOR_U32_USER_DEFINED_45",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16435,
+    "Name": "SENSOR_U32_USER_DEFINED_46",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16436,
+    "Name": "SENSOR_U32_USER_DEFINED_47",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16437,
+    "Name": "SENSOR_U32_USER_DEFINED_48",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16438,
+    "Name": "SENSOR_U32_USER_DEFINED_49",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16439,
+    "Name": "SENSOR_U32_USER_DEFINED_50",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16440,
+    "Name": "SENSOR_U32_USER_DEFINED_51",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16441,
+    "Name": "SENSOR_U32_USER_DEFINED_52",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16442,
+    "Name": "SENSOR_U32_USER_DEFINED_53",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16443,
+    "Name": "SENSOR_U32_USER_DEFINED_54",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16444,
+    "Name": "SENSOR_U32_USER_DEFINED_55",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16445,
+    "Name": "SENSOR_U32_USER_DEFINED_56",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16446,
+    "Name": "SENSOR_U32_USER_DEFINED_57",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16447,
+    "Name": "SENSOR_U32_USER_DEFINED_58",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16448,
+    "Name": "SENSOR_U32_USER_DEFINED_59",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16449,
+    "Name": "SENSOR_U32_USER_DEFINED_60",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16450,
+    "Name": "SENSOR_U32_USER_DEFINED_61",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16451,
+    "Name": "SENSOR_U32_USER_DEFINED_62",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16452,
+    "Name": "SENSOR_U32_USER_DEFINED_63",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16453,
+    "Name": "SENSOR_U32_USER_DEFINED_64",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16454,
+    "Name": "SENSOR_U32_USER_DEFINED_65",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16455,
+    "Name": "SENSOR_U32_USER_DEFINED_66",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16456,
+    "Name": "SENSOR_U32_USER_DEFINED_67",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16457,
+    "Name": "SENSOR_U32_USER_DEFINED_68",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16458,
+    "Name": "SENSOR_U32_USER_DEFINED_69",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16459,
+    "Name": "SENSOR_U32_USER_DEFINED_70",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16460,
+    "Name": "SENSOR_U32_USER_DEFINED_71",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16461,
+    "Name": "SENSOR_U32_USER_DEFINED_72",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16462,
+    "Name": "SENSOR_U32_USER_DEFINED_73",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16463,
+    "Name": "SENSOR_U32_USER_DEFINED_74",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16464,
+    "Name": "SENSOR_U32_USER_DEFINED_75",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16465,
+    "Name": "SENSOR_U32_USER_DEFINED_76",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16466,
+    "Name": "SENSOR_U32_USER_DEFINED_77",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16467,
+    "Name": "SENSOR_U32_USER_DEFINED_78",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16468,
+    "Name": "SENSOR_U32_USER_DEFINED_79",
+    "Description": "Unsigned 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 16469,
+    "Name": "SENSOR_TICKS_FROM_RESET",
+    "Description": "Internally calculated 1 s ticks from last reset",
+    "Description_ptBR": "Internally calculated 1 s ticks from last reset"
+  },
+  {
+    "ID": 16470,
+    "Name": "SENSOR_RECEIVED_CAN",
+    "Description": "Counter of received messages from CAN bus",
+    "Description_ptBR": "Counter of received messages from barramento CAN"
+  },
+  {
+    "ID": 16471,
+    "Name": "SENSOR_MISSED_CAN",
+    "Description": "Counter of missed messages from CAN bus",
+    "Description_ptBR": "Counter of missed messages from barramento CAN"
+  },
+  {
+    "ID": 16472,
+    "Name": "SENSOR_CAN_1_BIT_RATE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16473,
+    "Name": "SENSOR_CAN_2_BIT_RATE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16474,
+    "Name": "SENSOR_TOTAL_FUEL_USED_HIGH_RES",
+    "Description": "FMS High resolution engine total fuel used: 0 to 4211081.215 L",
+    "Description_ptBR": "FMS High resolution motor total combustível used: 0 to 4211081.215 L"
+  },
+  {
+    "ID": 16475,
+    "Name": "SENSOR_TACHO_ODOMETER",
+    "Description": "Odometer from tachograph",
+    "Description_ptBR": "odômetro from tachograph"
+  },
+  {
+    "ID": 16476,
+    "Name": "SENSOR_SLOT_1_TIME",
+    "Description": "Slot 1 time from tachograph",
+    "Description_ptBR": "Slot 1 time from tachograph"
+  },
+  {
+    "ID": 16477,
+    "Name": "SENSOR_SLOT_2_TIME",
+    "Description": "Slot 2 time from tachograph",
+    "Description_ptBR": "Slot 2 time from tachograph"
+  },
+  {
+    "ID": 16478,
+    "Name": "SENSOR_SLOT_1_DISTANCE",
+    "Description": "Slot 1 distance from tachograph",
+    "Description_ptBR": "Slot 1 distance from tachograph"
+  },
+  {
+    "ID": 16479,
+    "Name": "SENSOR_SLOT_2_DISTANCE",
+    "Description": "Slot 2 distance from tachograph",
+    "Description_ptBR": "Slot 2 distance from tachograph"
+  },
+  {
+    "ID": 16480,
+    "Name": "SENSOR_LAST_REGISTRATION_TIME",
+    "Description": "Timestamp of last successful data registration",
+    "Description_ptBR": "Timestamp of last successful data registro"
+  },
+  {
+    "ID": 16481,
+    "Name": "SENSOR_ID_WIEGAND_26",
+    "Description": "Wiegand ID read using wiegand26 protocol",
+    "Description_ptBR": "Wiegand ID read using wiegand26 protocol"
+  },
+  {
+    "ID": 16482,
+    "Name": "SENSOR_TOTAL_DISTANCE_HIGH_RES",
+    "Description": "FMS High Resolution Vehicle Distance: 0 to 21055406 m",
+    "Description_ptBR": "FMS High Resolution Vehicle Distance: 0 to 21055406 m"
+  },
+  {
+    "ID": 16483,
+    "Name": "SENSOR_AXLE_WEIGHT",
+    "Description": "FMS Axle Location [LS 8bits] and Axle Weight [MS 24bits]: 0 to 32127.5 kg",
+    "Description_ptBR": "FMS Axle Location [LS 8bits] and Axle Weight [MS 24bits]: 0 to 32127.5 kg"
+  },
+  {
+    "ID": 16484,
+    "Name": "SENSOR_TIME_OF_HARVESTING",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16485,
+    "Name": "SENSOR_HARVESTED_AREA",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16486,
+    "Name": "SENSOR_TACHOGRAPH_TIMESTAMP",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 16487,
+    "Name": "SENSOR_TICKS_FROM_RESET_MS",
+    "Description": "Internally calculated 1 ms ticks from last reset",
+    "Description_ptBR": "Internally calculated 1 ms ticks from last reset"
+  },
+  {
+    "ID": 16488,
+    "Name": "SENSOR_IDLE_TOTAL_FUEL_USED",
+    "Description": "Engine total idle fuel used: 0 to 2105540607.5 L",
+    "Description_ptBR": "motor total idle combustível used: 0 to 2105540607.5 L"
+  },
+  {
+    "ID": 16489,
+    "Name": "SENSOR_IDLE_TOTAL_HOURS",
+    "Description": "Engine total idle hours: 0 to 0 to 210554060.75 h",
+    "Description_ptBR": "motor total idle horas: 0 to 0 to 210554060.75 h"
+  },
+  {
+    "ID": 16490,
+    "Name": "SENSOR_AXES_OVERFLOW_COUNTER",
+    "Description": "Accelerometer data buffer overflow counter",
+    "Description_ptBR": "Acelerômetro data buffer overflow counter"
+  },
+  {
+    "ID": 16491,
+    "Name": "SENSOR_NTP_TIME",
+    "Description": "Unix time reported by NTP server",
+    "Description_ptBR": "Unix time reported by NTP server"
+  },
+  {
+    "ID": 16492,
+    "Name": "SENSOR_GNSS_TIME",
+    "Description": "Unix time reported by GNSS receiver",
+    "Description_ptBR": "Unix time reported by GNSS receiver"
+  },
+  {
+    "ID": 16493,
+    "Name": "SENSOR_SCRIPT_1_ID",
+    "Description": "Script identifier",
+    "Description_ptBR": "Script identifier"
+  },
+  {
+    "ID": 16494,
+    "Name": "SENSOR_SCRIPT_2_ID",
+    "Description": "Script identifier",
+    "Description_ptBR": "Script identifier"
+  },
+  {
+    "ID": 16495,
+    "Name": "SENSOR_SCRIPT_3_ID",
+    "Description": "Script identifier",
+    "Description_ptBR": "Script identifier"
+  },
+  {
+    "ID": 20480,
+    "Name": "SENSOR_IBUTTON_ID",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 20481,
+    "Name": "SENSOR_U64_USER_DEFINED_0",
+    "Description": "Unsigned 64 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 64 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 20482,
+    "Name": "SENSOR_U64_USER_DEFINED_1",
+    "Description": "Unsigned 64 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 64 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 20483,
+    "Name": "SENSOR_U64_USER_DEFINED_2",
+    "Description": "Unsigned 64 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Unsigned 64 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 20484,
+    "Name": "SENSOR_TEMPERATURE_ID_1",
+    "Description": "Temperature sensor ID from 1-wire",
+    "Description_ptBR": "temperatura sensor ID from 1-wire"
+  },
+  {
+    "ID": 20485,
+    "Name": "SENSOR_TEMPERATURE_ID_2",
+    "Description": "Temperature sensor ID from 1-wire",
+    "Description_ptBR": "temperatura sensor ID from 1-wire"
+  },
+  {
+    "ID": 20486,
+    "Name": "SENSOR_TEMPERATURE_ID_3",
+    "Description": "Temperature sensor ID from 1-wire",
+    "Description_ptBR": "temperatura sensor ID from 1-wire"
+  },
+  {
+    "ID": 20487,
+    "Name": "SENSOR_TEMPERATURE_ID_4",
+    "Description": "Temperature sensor ID from 1-wire",
+    "Description_ptBR": "temperatura sensor ID from 1-wire"
+  },
+  {
+    "ID": 20488,
+    "Name": "SENSOR_TELL_TALE_STATUS_0",
+    "Description": "FMS Tell Tale Status: FMS1. (Bit Field)",
+    "Description_ptBR": "FMS Tell Tale Status: FMS1. (Bit Field)"
+  },
+  {
+    "ID": 20489,
+    "Name": "SENSOR_TELL_TALE_STATUS_1",
+    "Description": "FMS Tell Tale Status: FMS1. (Bit Field)",
+    "Description_ptBR": "FMS Tell Tale Status: FMS1. (Bit Field)"
+  },
+  {
+    "ID": 20490,
+    "Name": "SENSOR_TELL_TALE_STATUS_2",
+    "Description": "FMS Tell Tale Status: FMS1. (Bit Field)",
+    "Description_ptBR": "FMS Tell Tale Status: FMS1. (Bit Field)"
+  },
+  {
+    "ID": 20491,
+    "Name": "SENSOR_TELL_TALE_STATUS_3",
+    "Description": "FMS Tell Tale Status: FMS1. (Bit Field)",
+    "Description_ptBR": "FMS Tell Tale Status: FMS1. (Bit Field)"
+  },
+  {
+    "ID": 20492,
+    "Name": "SENSOR_TELL_TALE_STATUS_4",
+    "Description": "FMS Tell Tale Status: FMS1. (Bit Field)",
+    "Description_ptBR": "FMS Tell Tale Status: FMS1. (Bit Field)"
+  },
+  {
+    "ID": 20493,
+    "Name": "SENSOR_TRAILER_ID",
+    "Description": "J1939",
+    "Description_ptBR": "J1939"
+  },
+  {
+    "ID": 20494,
+    "Name": "SENSOR_FMS_TACHOGRAPH",
+    "Description": "Tachograph : TCO1 in FMS Standard",
+    "Description_ptBR": "Tachograph : TCO1 in FMS Standard"
+  },
+  {
+    "ID": 20495,
+    "Name": "SENSOR_TIRE_CONDITION",
+    "Description": "J1939",
+    "Description_ptBR": "J1939"
+  },
+  {
+    "ID": 24576,
+    "Name": "SENSOR_S8_USER_DEFINED_0",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24577,
+    "Name": "SENSOR_S8_USER_DEFINED_1",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24578,
+    "Name": "SENSOR_S8_USER_DEFINED_2",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24579,
+    "Name": "SENSOR_S8_USER_DEFINED_3",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24580,
+    "Name": "SENSOR_S8_USER_DEFINED_4",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24581,
+    "Name": "SENSOR_S8_USER_DEFINED_5",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24582,
+    "Name": "SENSOR_S8_USER_DEFINED_6",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24583,
+    "Name": "SENSOR_S8_USER_DEFINED_7",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24584,
+    "Name": "SENSOR_S8_USER_DEFINED_8",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 24585,
+    "Name": "SENSOR_S8_USER_DEFINED_9",
+    "Description": "Signed 8 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 8 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28672,
+    "Name": "SENSOR_AXES_X",
+    "Description": "1/4096 multiplier",
+    "Description_ptBR": "1/4096 multiplier"
+  },
+  {
+    "ID": 28673,
+    "Name": "SENSOR_AXES_Y",
+    "Description": "1/4096 multiplier",
+    "Description_ptBR": "1/4096 multiplier"
+  },
+  {
+    "ID": 28674,
+    "Name": "SENSOR_AXES_Z",
+    "Description": "1/4096 multiplier",
+    "Description_ptBR": "1/4096 multiplier"
+  },
+  {
+    "ID": 28675,
+    "Name": "SENSOR_ALTITUDE",
+    "Description": "Altitude value in meters above sea level received from GNSS",
+    "Description_ptBR": "Altitude value in meters above sea level received from GNSS"
+  },
+  {
+    "ID": 28676,
+    "Name": "SENSOR_S16_USER_DEFINED_0",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28677,
+    "Name": "SENSOR_S16_USER_DEFINED_1",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28678,
+    "Name": "SENSOR_S16_USER_DEFINED_2",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28679,
+    "Name": "SENSOR_S16_USER_DEFINED_3",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28680,
+    "Name": "SENSOR_S16_USER_DEFINED_4",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28681,
+    "Name": "SENSOR_S16_USER_DEFINED_5",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28682,
+    "Name": "SENSOR_S16_USER_DEFINED_6",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28683,
+    "Name": "SENSOR_S16_USER_DEFINED_7",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28684,
+    "Name": "SENSOR_S16_USER_DEFINED_8",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28685,
+    "Name": "SENSOR_S16_USER_DEFINED_9",
+    "Description": "Signed 16 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 16 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 28686,
+    "Name": "SENSOR_CELLULAR_TEMPERATURE",
+    "Description": "Temperature read from cell module in degrees (C)",
+    "Description_ptBR": "temperatura read from cell module in degrees (C)"
+  },
+  {
+    "ID": 28687,
+    "Name": "SENSOR_LOCAL_TIME_ZONE",
+    "Description": "Local time zone, expressed in quarters of an hour. Range: -48 to +56",
+    "Description_ptBR": "Local time zone, expressed in quarters of an horas. Range: -48 to +56"
+  },
+  {
+    "ID": 32768,
+    "Name": "SENSOR_S32_USER_DEFINED_0",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32769,
+    "Name": "SENSOR_S32_USER_DEFINED_1",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32770,
+    "Name": "SENSOR_S32_USER_DEFINED_2",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32771,
+    "Name": "SENSOR_S32_USER_DEFINED_3",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32772,
+    "Name": "SENSOR_S32_USER_DEFINED_4",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32773,
+    "Name": "SENSOR_S32_USER_DEFINED_5",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32774,
+    "Name": "SENSOR_S32_USER_DEFINED_6",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32775,
+    "Name": "SENSOR_S32_USER_DEFINED_7",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32776,
+    "Name": "SENSOR_S32_USER_DEFINED_8",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 32777,
+    "Name": "SENSOR_S32_USER_DEFINED_9",
+    "Description": "Signed 32 bits integer type sensor to store custom values using scripts",
+    "Description_ptBR": "Signed 32 bits integer type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40960,
+    "Name": "SENSOR_TEMPERATURE",
+    "Description": "Temperature from 1-wire sensor, 60 s delay after failure",
+    "Description_ptBR": "temperatura from 1-wire sensor, 60 s delay após failure"
+  },
+  {
+    "ID": 40961,
+    "Name": "SENSOR_ACCELERATION",
+    "Description": "positive values for acceleration, negative for braking",
+    "Description_ptBR": "positive values for acceleration, negative for braking"
+  },
+  {
+    "ID": 40962,
+    "Name": "SENSOR_CORNERING",
+    "Description": "positive values when turning one direction, negative - other direction",
+    "Description_ptBR": "positive values when turning one direction, negative - other direction"
+  },
+  {
+    "ID": 40963,
+    "Name": "SENSOR_F32_USER_DEFINED_0",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40964,
+    "Name": "SENSOR_F32_USER_DEFINED_1",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40965,
+    "Name": "SENSOR_F32_USER_DEFINED_2",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40966,
+    "Name": "SENSOR_F32_USER_DEFINED_3",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40967,
+    "Name": "SENSOR_F32_USER_DEFINED_4",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40968,
+    "Name": "SENSOR_F32_USER_DEFINED_5",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40969,
+    "Name": "SENSOR_F32_USER_DEFINED_6",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40970,
+    "Name": "SENSOR_F32_USER_DEFINED_7",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40971,
+    "Name": "SENSOR_F32_USER_DEFINED_8",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40972,
+    "Name": "SENSOR_F32_USER_DEFINED_9",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40973,
+    "Name": "SENSOR_F32_USER_DEFINED_10",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40974,
+    "Name": "SENSOR_F32_USER_DEFINED_11",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40975,
+    "Name": "SENSOR_F32_USER_DEFINED_12",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40976,
+    "Name": "SENSOR_F32_USER_DEFINED_13",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40977,
+    "Name": "SENSOR_F32_USER_DEFINED_14",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40978,
+    "Name": "SENSOR_F32_USER_DEFINED_15",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40979,
+    "Name": "SENSOR_F32_USER_DEFINED_16",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40980,
+    "Name": "SENSOR_F32_USER_DEFINED_17",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40981,
+    "Name": "SENSOR_F32_USER_DEFINED_18",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40982,
+    "Name": "SENSOR_F32_USER_DEFINED_19",
+    "Description": "Floating point (32bit) type sensor to store custom values using scripts",
+    "Description_ptBR": "Floating point (32bit) type sensor to store custom values using scripts"
+  },
+  {
+    "ID": 40983,
+    "Name": "SENSOR_TEMPERATURE_1",
+    "Description": "Temperature from 1-wire sensor",
+    "Description_ptBR": "temperatura from 1-wire sensor"
+  },
+  {
+    "ID": 40984,
+    "Name": "SENSOR_TEMPERATURE_2",
+    "Description": "Temperature from 1-wire sensor",
+    "Description_ptBR": "temperatura from 1-wire sensor"
+  },
+  {
+    "ID": 40985,
+    "Name": "SENSOR_TEMPERATURE_3",
+    "Description": "Temperature from 1-wire sensor",
+    "Description_ptBR": "temperatura from 1-wire sensor"
+  },
+  {
+    "ID": 40986,
+    "Name": "SENSOR_TEMPERATURE_4",
+    "Description": "Temperature from 1-wire sensor",
+    "Description_ptBR": "temperatura from 1-wire sensor"
+  },
+  {
+    "ID": 40987,
+    "Name": "SENSOR_FUEL_INSTANT",
+    "Description": "Fuel instant consumption form CAN bus",
+    "Description_ptBR": "combustível instant consumption form barramento CAN"
+  },
+  {
+    "ID": 40988,
+    "Name": "SENSOR_BOARD_TEMPERATURE",
+    "Description": "Temperature measured on devices board ie thermistor or discrete temperature sensor",
+    "Description_ptBR": "temperatura measured on devices board ie thermistor or discrete temperatura sensor"
+  },
+  {
+    "ID": 45056,
+    "Name": "SENSOR_GNSS_LONGITUDE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 45057,
+    "Name": "SENSOR_GNSS_LATITUDE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 45058,
+    "Name": "SENSOR_DISTANCE",
+    "Description": "Odometer from GNSS",
+    "Description_ptBR": "odômetro from GNSS"
+  },
+  {
+    "ID": 49152,
+    "Name": "SENSOR_STRING_1",
+    "Description": "Max string size - 254",
+    "Description_ptBR": "Max string size - 254"
+  },
+  {
+    "ID": 49153,
+    "Name": "SENSOR_STRING_2",
+    "Description": "Max string size - 254",
+    "Description_ptBR": "Max string size - 254"
+  },
+  {
+    "ID": 49154,
+    "Name": "SENSOR_STRING_3",
+    "Description": "Max string size - 254",
+    "Description_ptBR": "Max string size - 254"
+  },
+  {
+    "ID": 49155,
+    "Name": "SENSOR_STRING_4",
+    "Description": "Max string size - 254",
+    "Description_ptBR": "Max string size - 254"
+  },
+  {
+    "ID": 49156,
+    "Name": "SENSOR_SCRIPT_1_NAME",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49157,
+    "Name": "SENSOR_SCRIPT_2_NAME",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49158,
+    "Name": "SENSOR_SCRIPT_3_NAME",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49159,
+    "Name": "SENSOR_IMEI",
+    "Description": "Cell module IMEI. Value becomes available right after first cell module boot after software reset.",
+    "Description_ptBR": "Cell module IMEI. Value becomes disponível right após first cell module boot após software reset."
+  },
+  {
+    "ID": 49160,
+    "Name": "SENSOR_APN_NAME",
+    "Description": "Currently used APN name",
+    "Description_ptBR": "atualmente used APN name"
+  },
+  {
+    "ID": 49161,
+    "Name": "SENSOR_APN_USER",
+    "Description": "Currently used APN user",
+    "Description_ptBR": "atualmente used APN user"
+  },
+  {
+    "ID": 49162,
+    "Name": "SENSOR_APN_PASSWORD",
+    "Description": "Currently used APN password",
+    "Description_ptBR": "atualmente used APN password"
+  },
+  {
+    "ID": 49163,
+    "Name": "SENSOR_PREFERED_IP",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49164,
+    "Name": "SENSOR_SERVER_1_NAME",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49165,
+    "Name": "SENSOR_SERVER_2_NAME",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49166,
+    "Name": "SENSOR_SOCKET_TYPE",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49167,
+    "Name": "SENSOR_SERVER_SMS_NUMBER",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49168,
+    "Name": "SENSOR_DEBUG_SMS_NUMBER",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49169,
+    "Name": "SENSOR_ALARM_SMS_NUMBER",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49170,
+    "Name": "SENSOR_FIRMWARE_VERSION",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49171,
+    "Name": "SENSOR_IMSI",
+    "Description": "SIM card IMSI number. Value becomes available right after first cell module boot when SIM card is present.",
+    "Description_ptBR": "SIM card IMSI number. Value becomes disponível right após first cell module boot when SIM card is present."
+  },
+  {
+    "ID": 49172,
+    "Name": "SENSOR_ICCID",
+    "Description": "SIM card ICCID. Value becomes available right after first cell module boot when SIM card is present.",
+    "Description_ptBR": "SIM card ICCID. Value becomes disponível right após first cell module boot when SIM card is present."
+  },
+  {
+    "ID": 49173,
+    "Name": "SENSOR_DTC",
+    "Description": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
+    "Description_ptBR": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation"
+  },
+  {
+    "ID": 49174,
+    "Name": "SENSOR_DRIVER_1_ID",
+    "Description": "Card ID inserted into 1st tachograph slot",
+    "Description_ptBR": "Card ID inserted into 1st tachograph slot"
+  },
+  {
+    "ID": 49175,
+    "Name": "SENSOR_DRIVER_2_ID",
+    "Description": "Card ID inserted into 2nd tachograph slot",
+    "Description_ptBR": "Card ID inserted into 2nd tachograph slot"
+  },
+  {
+    "ID": 49176,
+    "Name": "SENSOR_ISOBUS_NAME",
+    "Description": "ISOBUS implement NAME as described in EN11783-5",
+    "Description_ptBR": "ISOBUS implement NAME as described in EN11783-5"
+  },
+  {
+    "ID": 49177,
+    "Name": "SENSOR_NETWORK_INFO",
+    "Description": "This sensor indicates network information such as the access technology selected, the operator, and the band selected.",
+    "Description_ptBR": "This sensor indicates rede information such as the access technology selected, the operator, and the band selected."
+  },
+  {
+    "ID": 49178,
+    "Name": "SENSOR_MODEM_FIRMWARE_VERSION",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49179,
+    "Name": "SENSOR_VIN_D8",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49180,
+    "Name": "SENSOR_DTCO_VERSION",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49181,
+    "Name": "SENSOR_VIN_PLATE_CAN",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 49182,
+    "Name": "SENSOR_BT_FIRMWARE_VERSION",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 53248,
+    "Name": "SENSOR_GNSS_COORDINATES",
+    "Description": "16 bytes of data in following order: Latitude (float), Longitude (float), Speed (16 bits unsigned), HDOP (8 bits unsigned, value has to be divided by 10), Satellites (8 bits unsigned), Course (16 bits unsigned), Altitude (16 bits signed)",
+    "Description_ptBR": "16 bytes of data in following order: Latitude (float), Longitude (float), velocidade (16 bits unsigned), HDOP (8 bits unsigned, value has to be divided by 10), Satellites (8 bits unsigned), Course (16 bits unsigned), Altitude (16 bits signed)"
+  },
+  {
+    "ID": 61431,
+    "Name": "-",
+    "Description": "-",
+    "Description_ptBR": "-"
+  },
+  {
+    "ID": 61432,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_1",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61433,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_2",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61434,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_3",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61435,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_4",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61436,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_5",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61437,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT_6",
+    "Description": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages ",
+    "Description_ptBR": "BCE_IOTM protocol. Annex B. Specific structure parsing for ISOBUS messages"
+  },
+  {
+    "ID": 61438,
+    "Name": "SENSOR_ISOBUS_IMPLEMENT",
+    "Description": "Legacy, not used",
+    "Description_ptBR": "Legado, não utilizado"
+  }
+]

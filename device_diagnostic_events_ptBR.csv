@@ -1,0 +1,6 @@
+ID,Name,Description
+"fun_id=0,war_id=0",f0=0,Reinicialização por software.
+"fun_id=0,war_id=1",f0=1,Alimentação conectada.
+"fun_id=0,war_id=4",f0=4,Problema na alimentação elétrica.
+"fun_id=0,war_id=5",f0=5,Alimentação conectada.
+"fun_id=0,war_id=8",f0=8,Reinicialização pelo watchdog (após atualização de firmware).
