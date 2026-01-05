@@ -9,6 +9,7 @@ import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
 import MapZoomControls from "./MapZoomControls.jsx";
 import AppMap from "./AppMap.jsx";
+import { formatAddress } from "../../lib/format-address.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
@@ -289,7 +290,7 @@ function RegionOverlay({ target }) {
       <Tooltip direction="top" offset={[0, -10]} opacity={0.9} className="monitoring-popup">
         <div className="text-xs text-white/80">
           <div className="font-semibold text-white">{target.label}</div>
-          <div>{target.address}</div>
+          <div>{formatAddress(target.address)}</div>
           <div className="text-white/60">Raio: {radius} m</div>
         </div>
       </Tooltip>

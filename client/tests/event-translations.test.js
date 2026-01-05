@@ -23,7 +23,7 @@ test("translateEventType usa fallback translator quando chave não existe", () =
 
 test("translateEventType aplica catálogo IOTM com fallback por protocolo", () => {
   assert.strictEqual(translateEventType("1", "pt-BR", null, "iotm"), "Ignição ligada");
-  assert.strictEqual(translateEventType("164", "pt-BR", null, "iotm"), "Evento 164 (IOTM)");
+  assert.strictEqual(translateEventType("164", "pt-BR", null, "iotm"), "Sincronização NTP concluída");
 });
 
 test("resolveEventDefinition usa rótulo de catálogo quando disponível", () => {

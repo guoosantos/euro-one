@@ -55,15 +55,15 @@
   },
   {
     "id": "9",
-    "labelPt": "Interferência GSM",
+    "labelPt": "JAMMER GSM",
     "severity": "critical",
-    "description": "Interferência GSM detectada."
+    "description": "JAMMER GSM detectada."
   },
   {
     "id": "10",
-    "labelPt": "Interferência GPS",
+    "labelPt": "JAMMER GPS",
     "severity": "critical",
-    "description": "Interferência GPS detectada."
+    "description": "JAMMER GPS detectada."
   },
   {
     "id": "11",
@@ -103,13 +103,13 @@
   },
   {
     "id": "21",
-    "labelPt": "Interferência GPS",
+    "labelPt": "JAMMER GPS",
     "severity": "critical",
     "description": "Interferência no sinal GPS detectada."
   },
   {
     "id": "69",
-    "labelPt": "Interferência GSM",
+    "labelPt": "JAMMER GSM",
     "severity": "critical",
     "description": "Interferência no sinal GSM detectada."
   },
@@ -169,9 +169,9 @@
   },
   {
     "id": "145",
-    "labelPt": "Interferência GSM",
+    "labelPt": "JAMMER GSM",
     "severity": "critical",
-    "description": "Interferência GSM detectada."
+    "description": "JAMMER GSM detectada."
   },
   {
     "id": "158",

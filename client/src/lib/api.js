@@ -1,7 +1,7 @@
 const TOKEN_STORAGE_KEY = "euro-one.session.token";
 const USER_STORAGE_KEY = "euro-one.session.user";
 
-const RAW_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
+const RAW_BASE_URL = (import.meta?.env?.VITE_API_BASE_URL || "").trim().replace(/\/$/, "");
 const FALLBACK_BASE_URL = "http://localhost:3001/api";
 
 const windowLocation = typeof window !== "undefined" ? window.location : null;

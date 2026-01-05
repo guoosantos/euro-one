@@ -461,6 +461,7 @@ export default function Home() {
                       locale,
                       t,
                       event.protocol || event.attributes?.protocol || null,
+                      event,
                     )}
                   </td>
                   <td className="py-2 pr-4 text-white/70">
@@ -544,7 +545,13 @@ export default function Home() {
                   {group.events
                     .slice(0, expanded ? 6 : 3)
                     .map((event) =>
-                      translateEventType(event.type, locale, t, event.protocol || event.attributes?.protocol || null),
+                      translateEventType(
+                        event.type,
+                        locale,
+                        t,
+                        event.protocol || event.attributes?.protocol || null,
+                        event,
+                      ),
                     )
                     .filter(Boolean)
                     .join(" · ")}

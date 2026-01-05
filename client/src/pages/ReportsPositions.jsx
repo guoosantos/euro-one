@@ -16,16 +16,20 @@ import { formatAddress } from "../lib/format-address.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
+import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 1000;
 const PAGE_SIZE_OPTIONS = [1000];
 
-const FALLBACK_COLUMNS = positionsColumns.map((column) => ({
-  ...column,
-  label: resolveColumnLabel(column, "pt"),
-}));
+const FALLBACK_COLUMNS = positionsColumns.map((column) => {
+  const label = resolveColumnLabel(column, "pt");
+  return {
+    ...column,
+    label: resolveSensorLabel({ name: label, key: column.key }),
+  };
+});
 
 function parseCoordinateQuery(raw) {
   if (!raw) return null;
@@ -153,6 +157,12 @@ function normalizeAddressDisplay(value) {
   }
 }
 
+function normalizeColumnLabel(column) {
+  if (!column) return column;
+  const label = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
+  return { ...column, label, labelPt: label, labelPdf: column.labelPdf || label };
+}
+
 function buildPdfFileName(vehicle, from, to) {
   const plate = vehicle?.plate || vehicle?.name || "vehicle";
   const safePlate = String(plate).replace(/\s+/g, "-");
@@ -217,13 +227,16 @@ export default function ReportsPositions() {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
     if (positions.length) {
       const schema = buildPositionsSchema(positions);
-      return schema.map((column) => ({
-        ...column,
-        defaultVisible: column.defaultVisible ?? true,
-        width: column.width ?? Math.min(240, Math.max(120, column.label.length * 7)),
-      }));
+      return schema.map((column) => {
+        const normalized = normalizeColumnLabel(column);
+        return {
+          ...normalized,
+          defaultVisible: normalized.defaultVisible ?? true,
+          width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
+        };
+      });
     }
-    return FALLBACK_COLUMNS;
+    return FALLBACK_COLUMNS.map(normalizeColumnLabel);
   }, [positions]);
 
   const availableColumnKeys = useMemo(
@@ -246,8 +259,8 @@ export default function ReportsPositions() {
 
   useEffect(() => {
     const positionsCount = positions.length;
-    if (positionsCount > 0 || availableColumns.length === 0) {
-      console.info("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
+    if (import.meta.env.DEV && (positionsCount > 0 || availableColumns.length === 0)) {
+      console.debug("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
     }
   }, [availableColumns.length, positions.length]);
 
