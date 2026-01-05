@@ -1012,7 +1012,7 @@ function renderColumnValue(columnId, row, locale, t) {
       return renderSeverityBadge(row.severity);
     case "address":
       if (row.address || (Number.isFinite(row.latitude) && Number.isFinite(row.longitude))) {
-        return <AddressCell address={row.address} lat={row.latitude} lng={row.longitude} />;
+        return <AddressCell address={row.address} />;
       }
       return "—";
     case "speed":

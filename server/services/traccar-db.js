@@ -250,7 +250,7 @@ function buildTripSegment(start, end, accumulator) {
       time: start.fixTime || start.serverTime || start.deviceTime,
       latitude: start.latitude,
       longitude: start.longitude,
-      address: start.address || {},
+      address: start.address || null,
       attributes: start.attributes || {},
     },
     end: {
@@ -258,7 +258,7 @@ function buildTripSegment(start, end, accumulator) {
       time: end.fixTime || end.serverTime || end.deviceTime,
       latitude: end.latitude,
       longitude: end.longitude,
-      address: end.address || {},
+      address: end.address || null,
       attributes: end.attributes || {},
     },
     distanceKm: Number(accumulator.distanceKm.toFixed(3)),
@@ -423,7 +423,6 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
   return decoratePositionsWithGeocode(normalized, {
     warm: true,
     priority: "latest",
-    placeholderText: "Resolvendo endereço...",
   });
 }
 
@@ -448,7 +447,6 @@ async function fetchLatestPositionsFromApi(deviceIds = [], context = {}) {
     return decoratePositionsWithGeocode(normalized, {
       warm: true,
       priority: "latest-fallback",
-      placeholderText: "Resolvendo endereço...",
     });
   }
 

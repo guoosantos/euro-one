@@ -168,25 +168,10 @@ export async function persistGeocode(lat, lng, payload) {
   return entry;
 }
 
-function buildCoordinateFallback(lat, lng) {
-  if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
-  return `${Number(lat).toFixed(5)}, ${Number(lng).toFixed(5)}`;
-}
-
 function normalizeCoordinate(value, precision = NORMALIZED_PRECISION) {
   const number = Number(value);
   if (!Number.isFinite(number)) return null;
   return Number(number.toFixed(precision));
-}
-
-function normalizeAddressPayload(rawAddress) {
-  if (rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)) {
-    return rawAddress;
-  }
-  if (rawAddress) {
-    return { formatted: String(rawAddress) };
-  }
-  return {};
 }
 
 function collapseWhitespace(value) {
@@ -340,6 +325,15 @@ function isPlaceholderAddress(value = "") {
   return text.startsWith("sem endereço") || text.startsWith("resolvendo endereço");
 }
 
+function normalizeAddressText(value) {
+  if (!value) return null;
+  const formatted = formatFullAddress(value);
+  const cleaned = collapseWhitespace(formatted);
+  if (!cleaned || cleaned === "—") return null;
+  if (isPlaceholderAddress(cleaned)) return null;
+  return cleaned;
+}
+
 function shouldQueueGeocode({ formattedAddress, shortAddress, geocodeStatus }) {
   const hasShort = collapseWhitespace(shortAddress || "");
   const hasFormatted = collapseWhitespace(formattedAddress || "");
@@ -424,37 +418,23 @@ export async function ensurePositionAddress(position, { priority = "normal", rea
   if (!position || typeof position !== "object") return position;
   const rawAddress =
     position.fullAddress || position.address || position.formattedAddress || position.attributes?.fullAddress || position.attributes?.address;
-  const normalizedAddress = normalizeAddressPayload(rawAddress);
-  const baseFormatted = rawAddress ? formatFullAddress(rawAddress) : null;
-  const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
-  const shortAddress = position.shortAddress || normalizedAddress.short || null;
+  const baseFormatted = normalizeAddressText(rawAddress);
+  const formattedAddress = baseFormatted || normalizeAddressText(position.formattedAddress) || null;
+  const shortAddress = normalizeAddressText(position.shortAddress) || (formattedAddress ? formatAddress(formattedAddress) : null);
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
-  const coordinateFallback = buildCoordinateFallback(lat, lng);
-  const placeholderShort = buildPlaceholderShortAddress(lat, lng);
-  const fallbackFormatted =
-    formattedAddress || formatFullAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
 
   const cached = getCachedGeocode(lat, lng);
-  const hasProvidedAddress = Boolean(baseFormatted || shortAddress);
-  const finalFormatted =
-    cached?.formattedAddress || formattedAddress || shortAddress || fallbackFormatted || coordinateFallback || "—";
-  const preliminaryShort =
-    cached?.shortAddress || shortAddress || finalFormatted || coordinateFallback || placeholderShort || "—";
+  const hasProvidedAddress = Boolean(baseFormatted || shortAddress || formattedAddress);
+  const finalFormatted = cached?.formattedAddress || formattedAddress || cached?.shortAddress || shortAddress || null;
+  const preliminaryShort = cached?.shortAddress || shortAddress || finalFormatted || null;
   const baseStatus = position.geocodeStatus || (cached || hasProvidedAddress ? "ok" : "pending");
   const shouldEnqueue = shouldQueueGeocode({
-    formattedAddress: finalFormatted,
-    shortAddress: preliminaryShort,
+    formattedAddress: finalFormatted || "",
+    shortAddress: preliminaryShort || "",
     geocodeStatus: baseStatus,
   });
-  const finalShort =
-    cached?.shortAddress ||
-    (shouldEnqueue ? "Resolvendo endereço..." : null) ||
-    shortAddress ||
-    finalFormatted ||
-    coordinateFallback ||
-    placeholderShort ||
-    "—";
+  const finalShort = cached?.shortAddress || preliminaryShort || null;
   const geocodeStatus = cached ? "ok" : shouldEnqueue ? "pending" : "ok";
   const geocodedAt = cached?.cachedAt || (shouldEnqueue ? new Date().toISOString() : position.geocodedAt || null);
 
@@ -469,12 +449,14 @@ export async function ensurePositionAddress(position, { priority = "normal", rea
     });
   }
 
+  const addressText = cached?.address || baseFormatted || formattedAddress || shortAddress || null;
+
   return {
     ...position,
-    address: cached?.address ? normalizeAddressPayload(cached.address) : normalizedAddress,
-    formattedAddress: finalFormatted || placeholderShort,
-    fullAddress: finalFormatted || position.fullAddress || placeholderShort || null,
-    shortAddress: finalShort || placeholderShort,
+    address: addressText,
+    formattedAddress: finalFormatted,
+    fullAddress: finalFormatted || position.fullAddress || null,
+    shortAddress: finalShort,
     addressParts: cached?.parts || position.addressParts,
     geocodeStatus,
     geocodedAt,
@@ -534,60 +516,27 @@ export async function resolveShortAddress(lat, lng, fallbackAddress = null) {
   return null;
 }
 
-function normalizeShortAddressInput(value) {
-  if (!value) return "";
-  if (typeof value === "string") return collapseWhitespace(value);
-  if (typeof value === "object") {
-    return (
-      value.shortAddress ||
-      value.formattedAddress ||
-      value.address ||
-      value.formatted ||
-      value.formatted_address ||
-      ""
-    );
-  }
-  return String(value || "").trim();
-}
-
-function buildPlaceholderShortAddress(lat, lng) {
-  const coordinate = buildCoordinateFallback(lat, lng);
-  return coordinate ? `Sem endereço (${coordinate})` : "Sem endereço";
-}
-
 export function ensureCachedPositionAddress(
   position,
-  { warm = true, placeholder = true, placeholderText = null, priority = "normal" } = {},
+  { warm = true, priority = "normal" } = {},
 ) {
   if (!position || typeof position !== "object") return position;
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
   const cached = getCachedGeocode(lat, lng);
-  const normalizedShort = normalizeShortAddressInput(position.shortAddress || position.fullAddress || position.address);
-  const formattedAddress =
-    cached?.formattedAddress ||
-    formatFullAddress(position.formattedAddress || position.fullAddress || normalizedShort || position.address);
+  const normalizedShort = normalizeAddressText(position.shortAddress) || normalizeAddressText(position.fullAddress);
+  const formattedAddress = cached?.formattedAddress || normalizeAddressText(position.formattedAddress || position.fullAddress || position.address);
 
-  let shortAddress = cached?.shortAddress || formatAddress(normalizedShort);
-  if (shortAddress === "—") shortAddress = "";
-  const tentativeFormatted =
-    (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") || buildCoordinateFallback(lat, lng) || "";
-  const fallbackTextCandidate = buildPlaceholderShortAddress(lat, lng);
-  const preliminaryShort = shortAddress || fallbackTextCandidate;
-  const finalFormattedBase = tentativeFormatted || preliminaryShort;
+  let shortAddress = cached?.shortAddress || (normalizedShort ? formatAddress(normalizedShort) : null);
+  if (shortAddress === "—") shortAddress = null;
+  const finalFormattedBase = formattedAddress || shortAddress || null;
   const needsQueue = shouldQueueGeocode({
-    formattedAddress: finalFormattedBase,
-    shortAddress: preliminaryShort,
+    formattedAddress: finalFormattedBase || "",
+    shortAddress: shortAddress || "",
     geocodeStatus: position.geocodeStatus || (cached ? "ok" : "pending"),
   });
-  const fallbackText = placeholderText || (needsQueue ? "Resolvendo endereço..." : buildPlaceholderShortAddress(lat, lng));
-  const finalShort = shortAddress || (placeholder ? fallbackText : "");
-  const finalFormatted =
-    (formattedAddress && formattedAddress !== "—" ? formattedAddress : "") ||
-    finalFormattedBase ||
-    finalShort ||
-    buildCoordinateFallback(lat, lng) ||
-    "";
+  const finalShort = shortAddress || null;
+  const finalFormatted = formattedAddress || finalFormattedBase || finalShort || null;
 
   if (warm && needsQueue && Number.isFinite(Number(lat)) && Number.isFinite(Number(lng))) {
     queueGeocodeForCoordinates({
@@ -602,6 +551,7 @@ export function ensureCachedPositionAddress(
 
   return {
     ...position,
+    address: cached?.address || normalizeAddressText(position.address) || normalizeAddressText(position.fullAddress) || null,
     formattedAddress: finalFormatted,
     fullAddress: position.fullAddress || finalFormatted,
     shortAddress: finalShort,
