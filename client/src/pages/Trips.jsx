@@ -29,6 +29,7 @@ import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 import AddressStatus from "../ui/AddressStatus.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
 // improved replay rendering, and event navigation for trip playback.
@@ -594,6 +595,18 @@ function normalizeAddressValue(value) {
   return trimmed;
 }
 
+function normalizeAddressCandidate(value) {
+  if (!value) return null;
+  if (typeof value === "string") return normalizeAddressValue(value);
+  if (typeof value === "object") {
+    const formatted = normalizeAddressValue(formatAddress(value));
+    if (formatted && formatted !== "—") return formatted;
+    const name = normalizeAddressValue(value?.name);
+    if (name) return name;
+  }
+  return null;
+}
+
 function formatPointAddress(point) {
   const candidates = [
     point?.address,
@@ -645,6 +658,8 @@ function persistColumns(columns) {
 
 function formatAttributeLabel(key) {
   if (!key) return "Atributo";
+  const descriptor = resolveTelemetryDescriptor(key);
+  if (descriptor?.labelPt) return descriptor.labelPt;
   const spaced = String(key)
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .replace(/[_]+/g, " ")
@@ -1070,7 +1085,7 @@ function TimelineTable({
                         : column.render
                           ? column.render(entry)
                           : entry[column.key];
-                    const content = rawContent ?? "—";
+                    const content = normalizeTimelineCellValue(rawContent);
                     return (
                       <td key={`${entry.index}-${column.key}`} className={`px-3 py-2 text-white/80 ${alignment} ${wrapClass}`}>
                         {content}
@@ -1097,6 +1112,25 @@ function TimelineTable({
       </div>
     </div>
   );
+}
+
+function normalizeTimelineCellValue(value) {
+  if (React.isValidElement(value)) return value;
+  if (value === null || value === undefined) return "—";
+  if (value instanceof Date) return value.toLocaleString();
+  if (typeof value === "object") {
+    const formatted = normalizeAddressCandidate(value);
+    if (formatted) return formatted;
+    if (value?.display_name) return String(value.display_name);
+    if (value?.formattedAddress) return String(value.formattedAddress);
+    if (value?.formatted) return String(value.formatted);
+    try {
+      return JSON.stringify(value);
+    } catch (_error) {
+      return String(value);
+    }
+  }
+  return value;
 }
 
 function EventPanel({ events = [], selectedType, onSelectType, totalTimeline = 0 }) {
@@ -1849,7 +1883,10 @@ export default function Trips() {
   const resolveEntryAddress = useCallback(
     (entry) => {
       if (!entry) return "—";
-      if (entry?.backendAddress) return entry.backendAddress;
+      const backend = normalizeAddressCandidate(entry?.backendAddress);
+      if (backend) {
+        return <AddressStatus address={backend} loading={false} lat={entry?.lat} lng={entry?.lng} />;
+      }
       const key = entry?.addressKey || buildCoordKey(entry?.lat, entry?.lng);
       const resolved = key ? resolvedAddresses[key] : null;
       const isLoading = key ? addressLoading.has(key) : false;
@@ -1886,7 +1923,7 @@ export default function Trips() {
       const backend = isStart
         ? trip.startShortAddress || trip.startAddress
         : trip.endShortAddress || trip.endAddress;
-      const normalizedBackend = normalizeAddressValue(backend);
+      const normalizedBackend = normalizeAddressCandidate(backend);
       if (normalizedBackend) {
         return <AddressStatus address={normalizedBackend} loading={false} lat={lat} lng={lng} />;
       }

@@ -153,7 +153,10 @@ function formatAddressString(rawAddress) {
 
 export function formatAddress(rawAddress) {
   if (!rawAddress) return "—";
-  if (typeof rawAddress === "string") return rawAddress;
+  if (typeof rawAddress === "string") {
+    const formatted = formatAddressString(rawAddress);
+    return formatted || "—";
+  }
   if (typeof rawAddress === "object") {
     const composed = [
       rawAddress.road,

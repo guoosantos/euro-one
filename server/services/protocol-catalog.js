@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import iotmEventCatalog from "../../shared/iotmEventCatalog.pt-BR.json" assert { type: "json" };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const catalogPath = path.join(__dirname, "..", "data", "protocol-catalog.json");
@@ -52,6 +53,19 @@ export function getProtocolCommandAllowlist(protocol) {
 export function getProtocolEvents(protocol) {
   const catalog = loadProtocolCatalog();
   const protocolKey = normalizeProtocolKey(protocol);
-  const events = catalog?.events?.[protocolKey];
-  return Array.isArray(events) ? events : null;
+  const baseEvents = Array.isArray(catalog?.events?.[protocolKey]) ? catalog.events[protocolKey] : [];
+  if (protocolKey === "iotm") {
+    const seen = new Set(baseEvents.map((event) => String(event?.id)));
+    const iotmEvents = (iotmEventCatalog || [])
+      .filter((item) => item?.id !== undefined && item?.id !== null)
+      .map((item) => ({
+        id: String(item.id),
+        name: item.labelPt || `Evento ${item.id}`,
+        description: item.description || "",
+      }))
+      .filter((item) => !seen.has(item.id));
+    const merged = [...baseEvents, ...iotmEvents];
+    return merged.length ? merged : null;
+  }
+  return baseEvents.length ? baseEvents : null;
 }
