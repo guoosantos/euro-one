@@ -34,6 +34,7 @@ import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { formatAddress } from "../lib/format-address.js";
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -656,7 +657,7 @@ export default function Devices() {
   function formatPositionSummary(position) {
     if (!position) return "—";
     const address = position.address || position.attributes?.address;
-    if (address) return address;
+    if (address) return formatAddress(address);
     const lat = Number(position.latitude ?? position.lat ?? position.latitute);
     const lon = Number(position.longitude ?? position.lon ?? position.lng);
     if (Number.isFinite(lat) && Number.isFinite(lon)) {

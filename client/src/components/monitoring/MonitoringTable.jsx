@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 import AddressCell from "../../ui/AddressCell.jsx";
+import { useTranslation } from "../../lib/i18n.js";
 
 const MIN_COLUMN_WIDTH = 60;
 const MAX_COLUMN_WIDTH = 800;
@@ -22,6 +23,7 @@ export default function MonitoringTable({
   onColumnWidthChange,
   onRowClick,
 }) {
+  const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
     const list = Array.isArray(columns) ? columns : [];
     if (list.length) return list;
@@ -205,7 +207,7 @@ export default function MonitoringTable({
                     onMouseDown={(event) => startResize(col.key, event)}
                     onClick={(event) => event.stopPropagation()}
                     className="ml-auto inline-flex h-5 w-1 cursor-col-resize items-center justify-center rounded bg-white/10 hover:bg-primary/40"
-                    title="Redimensionar coluna"
+                    title={t("monitoring.resizeColumn")}
                   />
                 </div>
               </th>
@@ -219,7 +221,7 @@ export default function MonitoringTable({
                 colSpan={Math.max(normalizedColumns.length, 1)}
                 className="px-3 py-4 text-center text-sm text-white/50"
               >
-                {loading ? "Carregando dados da frota..." : emptyText || "—"}
+                {loading ? t("monitoring.tableLoading") : emptyText || "—"}
               </td>
             </tr>
           ) : (

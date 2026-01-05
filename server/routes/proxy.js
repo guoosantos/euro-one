@@ -1005,6 +1005,28 @@ function extractVehicleVoltage(attributes = {}, protocol = null) {
   return null;
 }
 
+function extractJamming(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidate =
+    attributes.jamming ??
+    attributes.jammer ??
+    attributes.jammerDetected ??
+    attributes.gsmJamming ??
+    attributes.gsmJam ??
+    attributes.gpsJamming ??
+    attributes.gpsJam ??
+    null;
+  if (candidate === null || candidate === undefined || candidate === "") return null;
+  if (typeof candidate === "boolean") return candidate;
+  if (typeof candidate === "number") return candidate;
+  const text = String(candidate).trim();
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (["true", "yes", "sim", "1", "on"].includes(normalized)) return true;
+  if (["false", "no", "nao", "não", "0", "off"].includes(normalized)) return false;
+  return text;
+}
+
 function normalizeDictionaryValue(descriptor, raw) {
   if (!descriptor) return raw;
   if (descriptor.type === "boolean") {
@@ -3439,6 +3461,148 @@ async function resolvePositionsFullAddressBatch(positions = [], mode = "blocking
   return result;
 }
 
+async function fetchCommandHistoryItems(req, { vehicleId, traccarId, from, to, clientId }) {
+  let dispatches = [];
+  let userLookup = new Map();
+  if (isPrismaAvailable()) {
+    try {
+      const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+      dispatches = await dispatchModel.findMany({
+        where: {
+          vehicleId,
+          ...(clientId ? { clientId } : {}),
+          sentAt: {
+            gte: from,
+            lte: to,
+          },
+        },
+        orderBy: { sentAt: "asc" },
+      });
+
+      const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
+      if (userIds.length && prisma?.user?.findMany) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, username: true },
+        });
+        userLookup = new Map(
+          users.map((user) => [
+            user.id,
+            user.name || user.username || user.email || user.id,
+          ]),
+        );
+      }
+    } catch (error) {
+      console.warn("[commands] Falha ao buscar histórico no banco, retornando apenas Traccar", error?.message || error);
+    }
+  }
+
+  let eventItems = [];
+  try {
+    const events = await fetchCommandResultEvents(traccarId, from, to);
+    eventItems = events
+      .filter((event) => event?.type === "commandResult")
+      .map((event) => {
+        return {
+          id: event.id ?? null,
+          eventTime: event.eventTime ?? null,
+          result: resolveCommandResultText(event),
+          commandName: resolveCommandNameFromEvent(event),
+          attributes: event?.attributes || {},
+        };
+      });
+  } catch (error) {
+    console.warn("[commands] Falha ao consultar eventos do Traccar", error?.message || error);
+  }
+
+  const parsedEvents = eventItems
+    .map((event) => ({
+      ...event,
+      parsedTime: event.eventTime ? new Date(event.eventTime) : null,
+    }))
+    .filter((event) => event.parsedTime && Number.isFinite(event.parsedTime.getTime()))
+    .sort((a, b) => a.parsedTime - b.parsedTime);
+
+  const usedEventIds = new Set();
+  const fromMs = new Date(from).getTime();
+  const toMs = new Date(to).getTime();
+  const matchWindowMs = Number.isFinite(toMs - fromMs)
+    ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
+    : 2 * 60 * 60 * 1000;
+  const allowSkewMs = 15 * 60 * 1000;
+  const dispatchItems = dispatches.map((dispatch) => {
+    let matched = null;
+
+    if (dispatch.status !== "failed") {
+      matched = findMatchingCommandEvent({
+        dispatch,
+        parsedEvents,
+        usedEventIds,
+        matchWindowMs,
+        allowSkewMs,
+      });
+    }
+
+    if (matched?.id) {
+      usedEventIds.add(matched.id);
+    }
+
+    const userName = dispatch.createdBy ? userLookup.get(dispatch.createdBy) || null : null;
+    const payloadSummary = dispatch.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
+    const resolvedCommandName = dispatch.commandName || dispatch.commandKey || payloadSummary?.type || null;
+    const receivedAt = matched?.eventTime || null;
+    const status = mapDispatchStatusToApi(dispatch.status, Boolean(receivedAt));
+
+    return buildCommandHistoryItem({
+      id: dispatch.id,
+      vehicleId,
+      traccarId,
+      user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
+      command: resolvedCommandName,
+      commandName: resolvedCommandName,
+      payload: payloadSummary,
+      status,
+      sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
+      receivedAt,
+      respondedAt: receivedAt,
+      result: matched?.result || null,
+      source: "EURO_ONE",
+      traccarCommandId: dispatch.traccarCommandId || null,
+    });
+  });
+
+  const unmatchedEvents = parsedEvents
+    .filter((event) => !usedEventIds.has(event.id))
+    .map((event) => ({
+      id: event.id ? `event-${event.id}` : `event-${event.eventTime}`,
+      eventTime: event.eventTime,
+      commandName: event.commandName,
+      result: event.result,
+      attributes: event.attributes || {},
+    }));
+
+  const traccarItems = unmatchedEvents.map((event) =>
+    buildCommandHistoryItem({
+      id: event.id,
+      vehicleId,
+      traccarId,
+      user: null,
+      command: event.commandName || null,
+      commandName: event.commandName || null,
+      payload: event.attributes || null,
+      status: "RESPONDED",
+      sentAt: null,
+      receivedAt: event.eventTime,
+      respondedAt: event.eventTime,
+      result: event.result,
+      source: "TRACCAR",
+      traccarCommandId: event.id || null,
+    }),
+  );
+
+  return [...dispatchItems, ...traccarItems].filter((item) => item.sentAt || item.receivedAt);
+}
+
 router.post("/maintenance/positions/full-address/backfill", requireRole("admin"), async (req, res, next) => {
   try {
     const from = normalizeDateInput(req.body?.from ?? req.query?.from);
@@ -3822,6 +3986,169 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   return { positions: mapped, meta: { ...meta, columns } };
 }
 
+async function buildAnalyticReportData(req, { vehicleId, from, to, pagination }) {
+  if (!vehicleId) {
+    throw createError(400, "vehicleId é obrigatório");
+  }
+  if (!from || !to) {
+    throw createError(400, "from/to são obrigatórios");
+  }
+
+  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+  const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+  const traccarId = Number(traccarDevice?.traccarId);
+  if (!Number.isFinite(traccarId)) {
+    throw createError(409, "Equipamento vinculado sem traccarId");
+  }
+
+  const resolveMode = req.query?.addressMode === "async" ? "async" : "blocking";
+  const positions = await fetchPositions([traccarId], from, to);
+  await resolvePositionsFullAddressBatch(positions, resolveMode);
+
+  const positionEntries = positions.map((position) => {
+    const attributes = position.attributes || {};
+    const speedRaw = Number(position.speed ?? 0);
+    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
+    const timestamp = position.fixTime || position.deviceTime || position.serverTime || null;
+    const jamming = extractJamming(attributes);
+    return {
+      id: position.id ? `position-${position.id}` : `position-${timestamp || position.deviceId}`,
+      type: "position",
+      occurredAt: timestamp,
+      address: normalizeAddressValue(position.address, position.fullAddress),
+      speed: speedKmh,
+      ignition: extractIgnition(attributes),
+      input2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
+      input4: extractDigitalChannel(attributes, { index: 4, kind: "input" }),
+      geofence: attributes.geofence ?? attributes.geofenceId ?? null,
+      jamming,
+      vehicleVoltage: extractVehicleVoltage(attributes, position.protocol),
+      isCritical: Boolean(jamming),
+    };
+  });
+
+  const eventLimit = parsePositiveInteger(req.query?.eventLimit, 10000);
+  const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
+  const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
+  const eventPositions = await fetchPositionsByIds(positionIds);
+  const positionMap = new Map(eventPositions.map((position) => [position.id, position]));
+  const eventEntries = events.map((event) => {
+    const position = event.positionId ? positionMap.get(event.positionId) : null;
+    const attributes = event.attributes || {};
+    const positionAttributes = position?.attributes || {};
+    const speedRaw = Number(position?.speed ?? 0);
+    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
+    const ignition = extractIgnition(positionAttributes) ?? extractIgnition(attributes);
+    const address = normalizeAddressValue(
+      position?.address || event.address || attributes.address,
+      position?.fullAddress || null,
+    );
+    return {
+      id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,
+      type: "event",
+      occurredAt: event.eventTime || null,
+      eventType: event.type || null,
+      eventDescription: attributes.description || attributes.message || null,
+      address,
+      speed: speedKmh,
+      ignition,
+      geofence: event.geofenceId || attributes.geofence || null,
+      jamming: extractJamming(positionAttributes) ?? extractJamming(attributes),
+      vehicleVoltage: extractVehicleVoltage(positionAttributes),
+      severity: resolveEventSeverity(event),
+      isCritical: resolveEventSeverity(event) === "critical",
+    };
+  });
+
+  const commandHistory = await fetchCommandHistoryItems(req, { vehicleId, traccarId, from, to, clientId });
+  const commandEntries = commandHistory.flatMap((item) => {
+    const base = {
+      commandName: item.commandName || item.command,
+      commandResult: item.result || null,
+      commandStatus: item.status || null,
+      userName: item.user?.name || null,
+    };
+    const isCritical = ["ERROR"].includes(String(item.status || "").toUpperCase());
+    const sentEntry = item.sentAt
+      ? [{
+        id: `command-${item.id}-sent`,
+        type: "command",
+        occurredAt: item.sentAt,
+        ...base,
+        isCritical,
+      }]
+      : [];
+    const responseTime = item.respondedAt || item.receivedAt || (item.sentAt
+      ? new Date(new Date(item.sentAt).getTime() + 1).toISOString()
+      : null);
+    const responseEntry = responseTime
+      ? [{
+        id: `command-${item.id}-response`,
+        type: "command_response",
+        occurredAt: responseTime,
+        ...base,
+        isCritical,
+      }]
+      : [];
+    return [...sentEntry, ...responseEntry];
+  });
+
+  const typeFilter = String(req.query?.type || "all").toLowerCase();
+  const criticalOnly = ["true", "1", "yes", "sim"].includes(String(req.query?.criticalOnly || "").toLowerCase());
+  const geofenceFilter = String(req.query?.geofence || "all").toLowerCase();
+  const search = String(req.query?.search || "").trim().toLowerCase();
+
+  const entries = [...positionEntries, ...eventEntries, ...commandEntries]
+    .filter((entry) => entry.occurredAt)
+    .filter((entry) => {
+      if (typeFilter !== "all") {
+        if (typeFilter === "position" && entry.type !== "position") return false;
+        if (typeFilter === "event" && entry.type !== "event") return false;
+        if (typeFilter === "command" && entry.type !== "command") return false;
+        if (["response", "command_response"].includes(typeFilter) && entry.type !== "command_response") return false;
+        if (typeFilter === "audit" && !["command", "command_response"].includes(entry.type)) return false;
+        if (typeFilter === "critical" && !entry.isCritical) return false;
+      }
+      if (criticalOnly && !entry.isCritical) return false;
+      if (geofenceFilter === "inside" && !entry.geofence) return false;
+      if (geofenceFilter === "outside" && entry.geofence) return false;
+      if (search) {
+        const haystack = [
+          entry.eventType,
+          entry.eventDescription,
+          entry.commandName,
+          entry.commandResult,
+          entry.userName,
+        ]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        if (!haystack.some((value) => value.includes(search))) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
+
+  const page = pagination.page ?? 1;
+  const pageSize = pagination.limit ?? 1000;
+  const totalItems = entries.length;
+  const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
+  const start = pageSize ? (page - 1) * pageSize : 0;
+  const items = pageSize ? entries.slice(start, start + pageSize) : entries;
+
+  return {
+    items,
+    meta: {
+      vehicleId,
+      from,
+      to,
+      page,
+      pageSize: pageSize ?? totalItems,
+      totalItems,
+      totalPages,
+    },
+  };
+}
+
 function sanitizeFileToken(value, fallback) {
   const text = String(value ?? "").trim();
   if (!text) return fallback;
@@ -3867,6 +4194,33 @@ router.get("/reports/positions", async (req, res) => {
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
     return res.status(200).json({
       data: report.positions,
+      meta: report.meta,
+      error: null,
+    });
+  } catch (error) {
+    if (error?.status === 400) {
+      return respondBadRequest(res, error.message || "Parâmetros inválidos.");
+    }
+    if (error?.status === 404) {
+      return res.status(404).json({ data: [], error: { message: error.message, code: "NOT_FOUND" } });
+    }
+    if (error?.status === 409) {
+      return res.status(409).json({ data: [], error: { message: error.message, code: "DEVICE_MISSING" } });
+    }
+    return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+});
+
+router.get("/reports/analytic", async (req, res) => {
+  try {
+    const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.query?.from, "from");
+    const to = parseDateOrThrow(req.query?.to, "to");
+    const pagination = normalizePagination(req.query);
+
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    return res.status(200).json({
+      data: report.items,
       meta: report.meta,
       error: null,
     });

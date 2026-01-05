@@ -27,6 +27,7 @@ import Videos from "./pages/Videos";
 import Face from "./pages/Face";
 import Ranking from "./pages/Ranking";
 import ReportsPositions from "./pages/ReportsPositions.jsx";
+import ReportsAnalytic from "./pages/ReportsAnalytic.jsx";
 import AnalyticsHeatmap from "./pages/Analytics/Heatmap";
 import Account from "./pages/Account";
 import Settings from "./pages/Settings";
@@ -93,6 +94,7 @@ export const routeConfig = [
   { path: "/ranking", element: Ranking, title: "Ranking", requireTenant: true },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", requireTenant: true },
+  { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório analítico", requireTenant: true },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true },
