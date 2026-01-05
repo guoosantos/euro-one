@@ -1334,6 +1334,7 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
     .map((column) => ({
       ...column,
       label: resolveColumnLabel(column, "pt"),
+      labelPt: resolveColumnLabel(column, "pt"),
       labelPdf: resolveColumnLabel(column, "pdf"),
       width: column.width || Math.min(240, Math.max(120, resolveColumnLabel(column, "pt").length * 7)),
       weight: column.weight || 1,
@@ -1350,6 +1351,7 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
     ...resolvedBaseColumns.map((column) => ({
       ...column,
       label: resolveColumnLabel(column, "pt"),
+      labelPt: resolveColumnLabel(column, "pt"),
       labelPdf: resolveColumnLabel(column, "pdf"),
     })),
     ...groupedDynamic,
@@ -1531,7 +1533,14 @@ function normalisePosition(position) {
     fixTime: position.fixTime || null,
     deviceTime: position.deviceTime || null,
     serverTime: position.serverTime || null,
-    address: position.address || "Endereço não disponível",
+    address:
+      position.shortAddress ||
+      position.fullAddress ||
+      position.formattedAddress ||
+      position.address ||
+      "Endereço não disponível",
+    shortAddress: position.shortAddress || null,
+    formattedAddress: position.fullAddress || position.formattedAddress || null,
     attributes,
     batteryLevel: extractBatteryLevel(attributes),
     ignition: extractIgnition(attributes),
@@ -1601,6 +1610,108 @@ function resolveEventSeverity(event) {
   const typeKey = String(event?.type || event?.event || event?.attributes?.type || "").toLowerCase();
   if (CRITICAL_EVENT_TYPES.has(typeKey)) return "critical";
   return "normal";
+}
+
+function parseDiagnosticRegisterFragment(rawValue) {
+  if (!rawValue) return null;
+  const match = String(rawValue).trim().match(/^f(2[0-7])\s*=\s*([0-9a-fx]+)$/i);
+  if (!match) return null;
+  const register = Number(match[1]);
+  const rawNumber = String(match[2]).trim().toLowerCase();
+  const parsed = rawNumber.startsWith("0x") ? parseInt(rawNumber, 16) : Number(rawNumber);
+  if (!Number.isFinite(parsed)) return null;
+  return { register, value: parsed & 0xff };
+}
+
+function extractDiagnosticFragment(event) {
+  const candidates = [
+    event?.attributes?.event,
+    event?.attributes?.alarm,
+    event?.attributes?.eventCode,
+    event?.attributes?.type,
+    event?.event,
+    event?.type,
+  ];
+  for (const candidate of candidates) {
+    const parsed = parseDiagnosticRegisterFragment(candidate);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
+function formatRegisterBits(value) {
+  const bits = [];
+  const unsigned = value >>> 0;
+  for (let i = 0; i < 32; i += 1) {
+    if ((unsigned >>> i) & 1) bits.push(i);
+  }
+  return bits;
+}
+
+function buildDiagnosticRegisterEvents(events = []) {
+  const fragments = new Map();
+  const output = [];
+
+  events.forEach((event, index) => {
+    const fragment = extractDiagnosticFragment(event);
+    if (!fragment) {
+      output.push(event);
+      return;
+    }
+
+    const group = fragment.register >= 24 ? "pc" : "fault";
+    const keyBase = `${event.deviceId || "device"}:${event.positionId || ""}:${event.eventTime || event.serverTime || event.deviceTime || index}`;
+    const key = `${group}:${keyBase}`;
+
+    if (!fragments.has(key)) {
+      fragments.set(key, { base: event, parts: {} });
+      output.push({ __diagGroupKey: key });
+    }
+    fragments.get(key).parts[fragment.register] = fragment.value;
+  });
+
+  const aggregated = new Map();
+  fragments.forEach(({ base, parts }, key) => {
+    const isPc = key.startsWith("pc:");
+    const byte24 = parts[24] ?? 0;
+    const byte25 = parts[25] ?? 0;
+    const byte26 = parts[26] ?? 0;
+    const byte27 = parts[27] ?? 0;
+    const byte20 = parts[20] ?? 0;
+    const byte21 = parts[21] ?? 0;
+    const byte22 = parts[22] ?? 0;
+    const byte23 = parts[23] ?? 0;
+    const value = isPc
+      ? (((byte24 << 24) | (byte25 << 16) | (byte26 << 8) | byte27) >>> 0)
+      : (((byte20 << 24) | (byte21 << 16) | (byte22 << 8) | byte23) >>> 0);
+    const hex = value.toString(16).padStart(8, "0").toUpperCase();
+    const bits = formatRegisterBits(value);
+    const bitsLabel = bits.length ? bits.join(", ") : "nenhum";
+    const label = isPc
+      ? `Registro PC: 0x${hex} (bits setados: ${bitsLabel})`
+      : `Registro de falhas: 0x${hex} (bits setados: ${bitsLabel})`;
+
+    aggregated.set(key, {
+      ...base,
+      id: `${base?.id || "diag"}-${key}`,
+      type: isPc ? "pcRegister" : "faultRegister",
+      attributes: {
+        ...(base?.attributes || {}),
+        message: label,
+        description: label,
+        diagnosticRegister: isPc ? "pc" : "fault",
+        diagnosticValue: `0x${hex}`,
+        diagnosticBits: bits,
+      },
+    });
+  });
+
+  return output.map((event) => {
+    if (event && event.__diagGroupKey) {
+      return aggregated.get(event.__diagGroupKey);
+    }
+    return event;
+  }).filter(Boolean);
 }
 
 function isSeverityMatch(eventSeverity, filter) {
@@ -1964,7 +2075,8 @@ async function handleEventsReport(req, res, next) {
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
 
-    const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
+    const rawEvents = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
+    const events = buildDiagnosticRegisterEvents(rawEvents);
     const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
     const positionMap = new Map(positions.map((position) => [position.id, position]));
@@ -1974,7 +2086,9 @@ async function handleEventsReport(req, res, next) {
 
     const eventsWithAddress = events.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
-      const formattedAddress = position ? formatAddress(position.address) : null;
+      const formattedAddress = position
+        ? formatAddress(position.shortAddress || position.fullAddress || position.address)
+        : null;
       const decoratedPosition = position ? decoratePositionWithDevice(position, lookup) : null;
       const device = buildDeviceInfo(
         lookup.devicesByTraccarId?.get(String(event.deviceId)),
@@ -1994,7 +2108,16 @@ async function handleEventsReport(req, res, next) {
         position: decoratedPosition || position,
         latitude: decoratedPosition?.latitude ?? position?.latitude,
         longitude: decoratedPosition?.longitude ?? position?.longitude,
-        address: formattedAddress || decoratedPosition?.address || position?.address || event.address || null,
+        address:
+          formattedAddress ||
+          decoratedPosition?.shortAddress ||
+          decoratedPosition?.formattedAddress ||
+          decoratedPosition?.address ||
+          position?.shortAddress ||
+          position?.fullAddress ||
+          position?.address ||
+          event.address ||
+          null,
         device,
         lastCommunication,
         batteryLevel,
