@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "../../lib/i18n.js";
 import { formatAddress as formatAddressString } from "../../lib/format-address.js";
-import { FALLBACK_ADDRESS, useReverseGeocode } from "../../lib/utils/geocode.js";
+import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 
 export default function VehicleDetailsDrawer({
   vehicle,
@@ -68,13 +68,9 @@ export default function VehicleDetailsDrawer({
   const fallbackDevice = safeVehicle?.device ?? {};
   const device = selectedDevice || fallbackDevice;
   const position = device?.position || safeVehicle?.position || null;
-  const lat = position?.latitude ?? position?.lat ?? safeVehicle.lat;
-  const lng = position?.longitude ?? position?.lon ?? safeVehicle.lng;
-  const address = safeVehicle.address || position?.address;
-  const { address: reverseAddress, loading: reverseLoading } = useReverseGeocode(lat, lng, {
-    enabled: !address && Number.isFinite(lat) && Number.isFinite(lng),
-  });
-  const resolvedAddress = resolveAddressLabel(address || reverseAddress, reverseLoading);
+  const address = safeVehicle.address || position?.address || position?.formattedAddress || position?.fullAddress;
+  const isPending = position?.geocodeStatus === "pending";
+  const resolvedAddress = resolveAddressLabel(address, isPending);
   const hasCameras = Array.isArray(device?.cameras) && device.cameras.length > 0;
   const latestPosition = position?.fixTime || position?.deviceTime || position?.serverTime || safeVehicle.lastUpdate;
 
@@ -291,6 +287,6 @@ function Detail({ label, value }) {
 function resolveAddressLabel(address, isLoading = false) {
   const formatted = formatAddressString(address);
   if (formatted && formatted !== "—") return formatted;
-  if (isLoading) return "Carregando endereço...";
+  if (isLoading) return "Carregando…";
   return FALLBACK_ADDRESS;
 }

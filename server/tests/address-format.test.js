@@ -54,4 +54,6 @@ test("sets fullAddress when enriching a position", async () => {
   };
   const enriched = await ensurePositionAddress(position);
   assert.ok(enriched.fullAddress?.includes("Av. Miguel Perrela"), "fullAddress should be defined");
+  assert.equal(typeof enriched.address, "string");
+  assert.ok(enriched.address.includes("Av. Miguel Perrela"));
 });

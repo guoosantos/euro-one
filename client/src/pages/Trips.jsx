@@ -9,9 +9,7 @@ import { useTranslation } from "../lib/i18n.js";
 import useReportsRoute from "../lib/hooks/useReportsRoute";
 import { useReports } from "../lib/hooks/useReports";
 import { formatDateTime, pickCoordinate, pickSpeed } from "../lib/monitoring-helpers.js";
-import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { formatAddress } from "../lib/format-address.js";
-import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
@@ -1339,6 +1337,7 @@ export default function Trips() {
           __severity: normalizeSeverityFromPoint(point),
           __address: backendAddress,
           __addressKey: addressKey,
+          __geocodeStatus: point.geocodeStatus || null,
           __speed: pickSpeed(point),
           __label: translatedLabel,
           __event: mappedEvent,
@@ -1717,6 +1716,7 @@ export default function Trips() {
         speed: point.__speed,
         backendAddress: point.__address,
         addressKey: point.__addressKey,
+        geocodeStatus: point.__geocodeStatus,
         lat: point.lat,
         lng: point.lng,
         heading: point.__heading,
@@ -1738,101 +1738,6 @@ export default function Trips() {
     [timelineEntries, timelineFilter],
   );
 
-  const shouldLookupAddresses = useMemo(
-    () => selectedColumns.includes("address") && timelineEntries.length > 0 && !isPlaying,
-    [isPlaying, selectedColumns, timelineEntries.length],
-  );
-  const formatFallbackAddress = useCallback((lat, lng) => {
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      return `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-    }
-    return FALLBACK_ADDRESS;
-  }, []);
-
-  const addressWindowSize = 80;
-  const replayAddressItems = useMemo(() => {
-    if (!shouldLookupAddresses || !timelineEntries.length) return [];
-    const sourceEntries = filteredTimelineEntries.length ? filteredTimelineEntries : timelineEntries;
-    const focusIndex = sourceEntries.findIndex((entry) => entry.index === activeIndex);
-    const windowRadius = Math.max(Math.floor(addressWindowSize / 2), 1);
-    const startIndex = focusIndex === -1 ? 0 : Math.max(0, focusIndex - windowRadius);
-    const endIndex =
-      focusIndex === -1
-        ? Math.min(sourceEntries.length, addressWindowSize)
-        : Math.min(sourceEntries.length, focusIndex + windowRadius + 1);
-    const deduped = new Map();
-    const pushEntry = (entry) => {
-      if (!entry) return;
-      const addressKey = entry.addressKey || buildCoordKey(entry.lat, entry.lng);
-      if (!addressKey || deduped.has(addressKey)) return;
-      deduped.set(addressKey, { addressKey, lat: entry.lat, lng: entry.lng });
-    };
-
-    pushEntry(timelineEntries[0]);
-    pushEntry(timelineEntries[timelineEntries.length - 1]);
-    sourceEntries.slice(startIndex, endIndex).forEach(pushEntry);
-    if (focusIndex === -1) {
-      pushEntry(timelineEntries.find((entry) => entry.index === activeIndex));
-    }
-    return Array.from(deduped.values());
-  }, [activeIndex, addressWindowSize, filteredTimelineEntries, shouldLookupAddresses, timelineEntries]);
-
-  const resolveTimelineAddressKey = useCallback((entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng), []);
-  const resolveTimelineAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
-
-  const {
-    addresses: resolvedAddresses,
-    loadingKeys: addressLoading,
-    refreshEntries: refreshTimelineAddresses,
-  } = useAddressLookup(replayAddressItems, {
-    getKey: resolveTimelineAddressKey,
-    getCoords: resolveTimelineAddressCoords,
-    enabled: shouldLookupAddresses && replayAddressItems.length > 0,
-  });
-  const tripAddressItems = useMemo(() => {
-    if (!trips.length) return [];
-    const items = [];
-    const seen = new Set();
-    trips.forEach((trip) => {
-      const startLat = toFiniteNumber(trip.startLat ?? trip.startLatitude ?? trip.start?.latitude);
-      const startLng = toFiniteNumber(trip.startLon ?? trip.startLongitude ?? trip.start?.longitude);
-      const endLat = toFiniteNumber(trip.endLat ?? trip.endLatitude ?? trip.end?.latitude);
-      const endLng = toFiniteNumber(trip.endLon ?? trip.endLongitude ?? trip.end?.longitude);
-
-      if (!trip.startShortAddress && !trip.startAddress && Number.isFinite(startLat) && Number.isFinite(startLng)) {
-        const key = buildCoordKey(startLat, startLng);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          items.push({ addressKey: key, lat: startLat, lng: startLng });
-        }
-      }
-      if (!trip.endShortAddress && !trip.endAddress && Number.isFinite(endLat) && Number.isFinite(endLng)) {
-        const key = buildCoordKey(endLat, endLng);
-        if (key && !seen.has(key)) {
-          seen.add(key);
-          items.push({ addressKey: key, lat: endLat, lng: endLng });
-        }
-      }
-    });
-    return items;
-  }, [trips]);
-
-  const resolveTripAddressKey = useCallback(
-    (entry) => entry.addressKey || buildCoordKey(entry.lat, entry.lng),
-    [],
-  );
-  const resolveTripAddressCoords = useCallback((entry) => ({ lat: entry.lat, lng: entry.lng }), []);
-
-  const {
-    addresses: tripAddresses,
-    loadingKeys: tripAddressLoading,
-    refreshEntries: refreshTripAddresses,
-  } = useAddressLookup(tripAddressItems, {
-    getKey: resolveTripAddressKey,
-    getCoords: resolveTripAddressCoords,
-    batchSize: 4,
-    enabled: tripAddressItems.length > 0,
-  });
 
   const tripEvents = useMemo(
     () =>
@@ -1885,66 +1790,27 @@ export default function Trips() {
       if (!entry) return "—";
       const backend = normalizeAddressCandidate(entry?.backendAddress);
       if (backend) {
-        return <AddressStatus address={backend} loading={false} lat={entry?.lat} lng={entry?.lng} />;
+        return <AddressStatus address={backend} loading={false} />;
       }
-      const key = entry?.addressKey || buildCoordKey(entry?.lat, entry?.lng);
-      const resolved = key ? resolvedAddresses[key] : null;
-      const isLoading = key ? addressLoading.has(key) : false;
-      const fallback = formatFallbackAddress(entry?.lat, entry?.lng);
-      const display = resolved || fallback;
-      const shouldRetry = !isLoading && display === fallback;
-
-      return (
-        <AddressStatus
-          address={display}
-          loading={isLoading}
-          lat={entry?.lat}
-          lng={entry?.lng}
-          onRetry={
-            shouldRetry && key
-              ? () => refreshTimelineAddresses({ key, lat: entry?.lat, lng: entry?.lng })
-              : null
-          }
-        />
-      );
+      const isLoading = entry?.geocodeStatus === "pending";
+      return <AddressStatus address={null} loading={isLoading} />;
     },
-    [addressLoading, buildCoordKey, formatFallbackAddress, refreshTimelineAddresses, resolvedAddresses],
+    [],
   );
   const resolveTripAddress = useCallback(
     (trip, type) => {
       if (!trip) return "—";
       const isStart = type === "start";
-      const lat = toFiniteNumber(
-        isStart ? trip.startLat ?? trip.startLatitude ?? trip.start?.latitude : trip.endLat ?? trip.endLatitude ?? trip.end?.latitude,
-      );
-      const lng = toFiniteNumber(
-        isStart ? trip.startLon ?? trip.startLongitude ?? trip.start?.longitude : trip.endLon ?? trip.endLongitude ?? trip.end?.longitude,
-      );
       const backend = isStart
         ? trip.startShortAddress || trip.startAddress
         : trip.endShortAddress || trip.endAddress;
       const normalizedBackend = normalizeAddressCandidate(backend);
       if (normalizedBackend) {
-        return <AddressStatus address={normalizedBackend} loading={false} lat={lat} lng={lng} />;
+        return <AddressStatus address={normalizedBackend} loading={false} />;
       }
-      const key = buildCoordKey(lat, lng);
-      const resolved = key ? tripAddresses[key] : null;
-      const isLoading = key ? tripAddressLoading.has(key) : false;
-      const fallback = formatFallbackAddress(lat, lng);
-      const display = resolved || fallback;
-      const shouldRetry = !isLoading && display === fallback;
-
-      return (
-        <AddressStatus
-          address={display}
-          loading={isLoading}
-          lat={lat}
-          lng={lng}
-          onRetry={shouldRetry && key ? () => refreshTripAddresses({ key, lat, lng }) : null}
-        />
-      );
+      return <AddressStatus address={null} loading={false} />;
     },
-    [buildCoordKey, formatFallbackAddress, refreshTripAddresses, tripAddresses, tripAddressLoading],
+    [],
   );
 
   const dynamicAttributeKeys = useMemo(() => {

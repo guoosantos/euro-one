@@ -19,10 +19,8 @@ import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
-import useAddressLookup from "../lib/hooks/useAddressLookup.js";
 import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
-import { FALLBACK_ADDRESS } from "../lib/utils/geocode.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
@@ -819,6 +817,7 @@ export default function Monitoring() {
       const stalenessMinutes = minutesSince(lastActivity);
       const rawAddress = pos?.address || pos?.attributes?.formattedAddress;
       const addressKey = buildCoordKey(lat, lng);
+      const geocodeStatus = pos?.geocodeStatus || null;
       const mergedAttributes = {
         ...(vehicle?.attributes || {}),
         ...(device?.attributes || {}),
@@ -871,6 +870,7 @@ export default function Monitoring() {
         plate: device.plate ?? "—",
         rawAddress,
         addressKey,
+        geocodeStatus,
         speed: pickSpeed(pos),
         lastUpdate: lastActivity,
         lastActivity,
@@ -895,41 +895,11 @@ export default function Monitoring() {
     });
   }, [buildCoordKey, filteredDevices, locale, t]);
 
-  const resolveAddressKey = useCallback(
-    (row) => row.addressKey || buildCoordKey(row.lat, row.lng),
-    [buildCoordKey],
-  );
-
-  const addressItems = useMemo(() => {
-    const seen = new Set();
-    return rows.reduce((acc, row) => {
-      const key = resolveAddressKey(row);
-      if (!key || seen.has(key)) return acc;
-      seen.add(key);
-      acc.push({ key, lat: row.lat, lng: row.lng });
-      return acc;
-    }, []);
-  }, [resolveAddressKey, rows]);
-
-  const getAddressKey = useCallback((item) => item.key, []);
-  const getAddressCoords = useCallback((item) => ({ lat: item.lat, lng: item.lng }), []);
-
-  const { addresses: reverseAddresses, loadingKeys: addressLoading } = useAddressLookup(addressItems, {
-    enabled: addressItems.length > 0,
-    getKey: getAddressKey,
-    getCoords: getAddressCoords,
-  });
-
   const decoratedRows = useMemo(() => {
     return rows.map((row) => {
       const formatted = formatAddress(row.rawAddress);
-      const addressKey = row.addressKey || buildCoordKey(row.lat, row.lng);
-      const cached = addressKey ? reverseAddresses[addressKey] : null;
-      const isLoading = addressKey ? addressLoading.has(addressKey) : false;
-      const resolved =
-        formatted && formatted !== "—"
-          ? formatted
-          : cached || FALLBACK_ADDRESS;
+      const resolved = formatted && formatted !== "—" ? formatted : null;
+      const isLoading = row.geocodeStatus === "pending";
 
       return {
         ...row,
@@ -938,7 +908,7 @@ export default function Monitoring() {
         isNearby: nearbyDeviceIds.includes(row.deviceId),
       };
     });
-  }, [addressLoading, buildCoordKey, nearbyDeviceIds, reverseAddresses, rows]);
+  }, [nearbyDeviceIds, rows]);
 
   const focusSelectedRowOnMap = useCallback((row, reason) => {
     if (!row) return;

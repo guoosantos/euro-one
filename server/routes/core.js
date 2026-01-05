@@ -343,21 +343,20 @@ function invalidateRegistry(prefix) {
 
 function sanitizePosition(rawPosition) {
   if (!rawPosition || typeof rawPosition !== "object") {
-    return { address: {}, formattedAddress: null, shortAddress: null };
+    return { address: null, formattedAddress: null, shortAddress: null };
   }
   const address = rawPosition.address;
-  const normalizedAddress =
-    address && typeof address === "object" && !Array.isArray(address)
-      ? address
-      : address
-      ? { formatted: String(address) }
-      : {};
+  const formattedFromPayload = addressUtils.formatFullAddress(address);
+  const normalizedAddress = formattedFromPayload && formattedFromPayload !== "—" ? formattedFromPayload : null;
+  const formattedAddress = addressUtils.formatFullAddress(rawPosition.formattedAddress || normalizedAddress);
+  const safeFormatted = formattedAddress && formattedAddress !== "—" ? formattedAddress : normalizedAddress;
+  const shortAddress = addressUtils.formatAddress(rawPosition.shortAddress || safeFormatted || "");
 
   return {
     ...rawPosition,
     address: normalizedAddress,
-    formattedAddress: rawPosition.formattedAddress || normalizedAddress.formatted || null,
-    shortAddress: rawPosition.shortAddress || normalizedAddress.short || null,
+    formattedAddress: safeFormatted,
+    shortAddress: shortAddress && shortAddress !== "—" ? shortAddress : null,
   };
 }
 

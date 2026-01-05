@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 import AddressCell from "../../ui/AddressCell.jsx";
 import { useTranslation } from "../../lib/i18n.js";
 
@@ -22,7 +21,6 @@ export default function MonitoringTable({
   columnWidths: externalWidths,
   onColumnWidthChange,
   onRowClick,
-  liveGeocode = true,
 }) {
   const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
@@ -249,10 +247,8 @@ export default function MonitoringTable({
                     cellValue = (
                       <AddressCell
                         address={row.address || row.rawAddress || row.position?.address}
-                        lat={row.lat}
-                        lng={row.lng}
                         loading={row.addressLoading}
-                        liveLookup={liveGeocode}
+                        geocodeStatus={row.geocodeStatus}
                         className="max-w-full"
                       />
                     );

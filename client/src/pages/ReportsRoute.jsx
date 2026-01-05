@@ -209,7 +209,7 @@ export default function ReportsRoute() {
         render: (point) => {
           const lat = pickCoordinate([point.latitude, point.lat, point.attributes?.latitude]);
           const lng = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
-          return <AddressCell address={point.address || point.attributes?.address} lat={lat} lng={lng} />;
+          return <AddressCell address={point.address || point.attributes?.address} />;
         },
       },
     ],
