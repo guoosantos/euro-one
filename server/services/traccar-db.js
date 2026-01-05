@@ -13,19 +13,12 @@ import {
   resolveTraccarApiUrl,
   traccarProxy,
 } from "./traccar.js";
-import { ensurePositionAddress, formatAddress, formatFullAddress } from "../utils/address.js";
-import { createTtlCache } from "../utils/ttl-cache.js";
+import { ensurePositionAddress, formatFullAddress } from "../utils/address.js";
 
 const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
 const EVENT_TABLE = "tc_events";
 const DEVICE_TABLE = "tc_devices";
-const GEO_DEBOUNCE_MS = 30_000;
-const GEO_MIN_MOVE_METERS = 50;
-const GEO_RECENT_WINDOW_MS = 10 * 60 * 1000;
-const GEO_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const GEO_MAX_CONCURRENCY = 2;
-const GEO_MIN_INTERVAL_MS = 900;
 
 let dbPool = null;
 let testOverrides = null;
@@ -197,7 +190,6 @@ function normalisePositionRow(row) {
     network: parseJson(row.network),
     address: row.address ? String(row.address) : null,
     fullAddress: row.full_address ?? row.fullAddress ?? null,
-    shortAddress: row.short_address ?? row.shortAddress ?? null,
     attributes,
   };
 }
@@ -353,7 +345,7 @@ export async function fetchTrips(deviceId, from, to) {
   }
 
   const sql = `
-    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, short_address, attributes
+    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, attributes
     FROM ${POSITION_TABLE}
     WHERE deviceid = ${dialect.placeholder(1)}
       AND fixtime BETWEEN ${dialect.placeholder(2)} AND ${dialect.placeholder(3)}
@@ -403,7 +395,6 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
       latest.network,
       latest.address,
       latest.full_address,
-      latest.short_address,
       latest.attributes
     FROM (
       SELECT
@@ -457,9 +448,7 @@ export async function fetchLatestPositionsWithFallback(deviceIds = [], clientId 
 
   if (dbConfigured) {
     try {
-      const positions = await fetchLatestPositions(filtered, clientId);
-      schedulePositionsGeocode(positions);
-      return positions;
+      return await fetchLatestPositions(filtered, clientId);
     } catch (error) {
       lastError = error;
     }
@@ -548,7 +537,6 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
       network,
       address,
       full_address,
-      short_address,
       attributes
     FROM ${POSITION_TABLE}
     WHERE ${conditions.join(" AND ")}
@@ -561,177 +549,21 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
   return rows.map(normalisePositionRow).filter((position) => position && position.deviceId !== null && position.fixTime);
 }
 
-export async function updatePositionFullAddress(positionId, fullAddress, shortAddress = null) {
+export async function updatePositionFullAddress(positionId, fullAddress) {
   if (!positionId || !fullAddress) return null;
   const dialect = resolveDialect();
   if (!dialect) {
     throw createError(500, "Cliente do banco do Traccar não suportado");
   }
-  const resolvedShort = shortAddress || formatAddress(fullAddress);
 
   const sql = `
     UPDATE ${POSITION_TABLE}
-    SET
-      full_address = CASE WHEN (full_address IS NULL OR full_address = '') THEN ${dialect.placeholder(1)} ELSE full_address END,
-      short_address = CASE WHEN (short_address IS NULL OR short_address = '') THEN ${dialect.placeholder(2)} ELSE short_address END
-    WHERE id = ${dialect.placeholder(3)}
+    SET full_address = ${dialect.placeholder(1)}
+    WHERE id = ${dialect.placeholder(2)}
+      AND (full_address IS NULL OR full_address = '')
   `;
 
-  return await queryTraccarDb(sql, [fullAddress, resolvedShort, positionId]);
-}
-
-const geocodeCache = createTtlCache(GEO_CACHE_TTL_MS);
-const geocodePending = new Map();
-const geocodeQueue = [];
-const lastGeocodeByDevice = new Map();
-let geocodeActive = 0;
-let geocodeLastStartedAt = 0;
-
-function buildGeocodeKey(lat, lng) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
-}
-
-function parsePositionTimestamp(position) {
-  if (!position) return null;
-  const value = position.fixTime || position.deviceTime || position.serverTime || position.timestamp || position.time || null;
-  if (!value) return null;
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? null : parsed;
-}
-
-function computeDistanceMeters(from, to) {
-  const toRad = (value) => (value * Math.PI) / 180;
-  const R = 6371000;
-  const dLat = toRad((to.latitude ?? 0) - (from.latitude ?? 0));
-  const dLon = toRad((to.longitude ?? 0) - (from.longitude ?? 0));
-  const lat1 = toRad(from.latitude ?? 0);
-  const lat2 = toRad(to.latitude ?? 0);
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1) * Math.cos(lat2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function shouldScheduleGeocode(position) {
-  if (!position?.id || !position?.deviceId) return false;
-  const lat = Number(position.latitude);
-  const lng = Number(position.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-  if (lat === 0 && lng === 0) return false;
-
-  const timestamp = parsePositionTimestamp(position);
-  if (timestamp && Date.now() - timestamp > GEO_RECENT_WINDOW_MS) return false;
-
-  const last = lastGeocodeByDevice.get(String(position.deviceId));
-  if (last) {
-    const elapsed = Date.now() - last.timestamp;
-    if (elapsed < GEO_DEBOUNCE_MS) {
-      const distance = computeDistanceMeters(
-        { latitude: last.lat, longitude: last.lng },
-        { latitude: lat, longitude: lng },
-      );
-      if (distance < GEO_MIN_MOVE_METERS) {
-        return false;
-      }
-    }
-  }
-
-  return true;
-}
-
-function runGeocodeQueue() {
-  if (geocodeActive >= GEO_MAX_CONCURRENCY) return;
-  const task = geocodeQueue.shift();
-  if (!task) return;
-
-  const now = Date.now();
-  const waitFor = Math.max(0, GEO_MIN_INTERVAL_MS - (now - geocodeLastStartedAt));
-  const execute = async () => {
-    geocodeActive += 1;
-    geocodeLastStartedAt = Date.now();
-    try {
-      await task();
-    } finally {
-      geocodeActive -= 1;
-      if (geocodeQueue.length) {
-        setTimeout(runGeocodeQueue, GEO_MIN_INTERVAL_MS);
-      }
-    }
-  };
-
-  if (waitFor > 0) {
-    setTimeout(execute, waitFor);
-  } else {
-    execute();
-  }
-}
-
-function schedulePositionGeocode(position) {
-  const lat = Number(position.latitude);
-  const lng = Number(position.longitude);
-  if (!shouldScheduleGeocode(position)) return;
-
-  const key = buildGeocodeKey(lat, lng);
-  if (!key) return;
-
-  if (position.fullAddress && position.shortAddress) return;
-
-  if (position.fullAddress && !position.shortAddress) {
-    const shortAddress = formatAddress(position.fullAddress);
-    updatePositionFullAddress(position.id, position.fullAddress, shortAddress).catch((error) => {
-      console.warn("[traccar-db] falha ao salvar short_address", position?.id, error?.message || error);
-    });
-    return;
-  }
-
-  if (geocodePending.has(key)) return;
-
-  const cached = geocodeCache.get(key);
-  if (cached?.fullAddress) {
-    updatePositionFullAddress(position.id, cached.fullAddress, cached.shortAddress).catch((error) => {
-      console.warn("[traccar-db] falha ao aplicar cache de geocode", position?.id, error?.message || error);
-    });
-    return;
-  }
-
-  const promise = async () => {
-    try {
-      const enriched = await ensurePositionAddress(position);
-      const full = formatFullAddress(
-        enriched?.fullAddress ||
-          enriched?.formattedAddress ||
-          enriched?.address ||
-          position.fullAddress ||
-          position.address ||
-          null,
-      );
-      if (!full || full === "—" || isCoordinateFallback(full)) return;
-
-      const short = formatAddress(enriched?.shortAddress || enriched?.formattedAddress || enriched?.address || full);
-      await updatePositionFullAddress(position.id, full, short);
-      geocodeCache.set(key, { fullAddress: full, shortAddress: short });
-      lastGeocodeByDevice.set(String(position.deviceId), {
-        timestamp: Date.now(),
-        lat,
-        lng,
-      });
-    } catch (error) {
-      console.warn("[traccar-db] falha ao geocodificar posição", position?.id, error?.message || error);
-    } finally {
-      geocodePending.delete(key);
-    }
-  };
-
-  geocodePending.set(key, promise);
-  geocodeQueue.push(promise);
-  runGeocodeQueue();
-}
-
-export function schedulePositionsGeocode(positions = []) {
-  if (!Array.isArray(positions) || positions.length === 0) return;
-  positions.forEach((position) => schedulePositionGeocode(position));
+  return await queryTraccarDb(sql, [fullAddress, positionId]);
 }
 
 function createLimiter(concurrency, minIntervalMs) {
@@ -971,7 +803,6 @@ export async function fetchPositionsByIds(positionIds = []) {
       network,
       address,
       full_address,
-      short_address,
       attributes
     FROM ${POSITION_TABLE}
     WHERE id IN (${placeholders})

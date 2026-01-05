@@ -4,7 +4,6 @@ import useReportsStops from "../lib/hooks/useReportsStops";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
-import { formatAddress } from "../lib/format-address.js";
 
 export default function ReportsStops() {
   const {
@@ -199,7 +198,7 @@ function formatDuration(value) {
 
 function formatLocation(stop) {
   if (!stop) return "—";
-  if (stop.address) return formatAddress(stop.address);
+  if (stop.address) return stop.address;
   if (stop.latitude && stop.longitude) {
     return `${Number(stop.latitude).toFixed(5)}, ${Number(stop.longitude).toFixed(5)}`;
   }

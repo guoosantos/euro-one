@@ -280,16 +280,13 @@ function pickNumber(...candidates) {
 function normaliseTelemetryPosition(position) {
   if (!position) return null;
   const attrs = position.attributes || {};
-  const rawAddress =
-    position.shortAddress || position.fullAddress || position.address || attrs.address || attrs.formattedAddress || null;
-  const formattedAddress = rawAddress ? addressUtils.formatFullAddress(rawAddress) : null;
-  const shortAddress = rawAddress ? addressUtils.formatAddress(rawAddress) : null;
+  const rawAddress = position.address;
   const resolvedAddress =
-    shortAddress && shortAddress !== "—"
-      ? shortAddress
-      : formattedAddress && formattedAddress !== "—"
-        ? formattedAddress
-        : null;
+    rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)
+      ? rawAddress
+      : rawAddress
+      ? { formatted: rawAddress }
+      : null;
 
   const altitude = position.altitude ?? attrs.altitude ?? null;
   const speed = pickNumber(position.speed, attrs.speed);
@@ -315,9 +312,7 @@ function normaliseTelemetryPosition(position) {
     valid: position.valid ?? attrs.valid ?? null,
     protocol: position.protocol || attrs.protocol || null,
     network: position.network || null,
-    address: resolvedAddress || "Sem endereço",
-    formattedAddress: formattedAddress && formattedAddress !== "—" ? formattedAddress : null,
-    shortAddress: shortAddress && shortAddress !== "—" ? shortAddress : null,
+    address: resolvedAddress || { formatted: "Endereço não disponível" },
 
     ignition: normaliseBoolean(attrs.ignition),
     batteryLevel: pickNumber(attrs.batteryLevel, attrs.battery, attrs.battery_level),
@@ -347,16 +342,21 @@ function invalidateRegistry(prefix) {
 
 function sanitizePosition(rawPosition) {
   if (!rawPosition || typeof rawPosition !== "object") {
-    return { address: null, formattedAddress: null, shortAddress: null };
+    return { address: {}, formattedAddress: null, shortAddress: null };
   }
   const address = rawPosition.address;
-  const normalizedAddress = addressUtils.formatAddress(address);
+  const normalizedAddress =
+    address && typeof address === "object" && !Array.isArray(address)
+      ? address
+      : address
+      ? { formatted: String(address) }
+      : {};
 
   return {
     ...rawPosition,
-    address: normalizedAddress && normalizedAddress !== "—" ? normalizedAddress : null,
-    formattedAddress: rawPosition.formattedAddress || addressUtils.formatFullAddress(address) || null,
-    shortAddress: rawPosition.shortAddress || normalizedAddress || null,
+    address: normalizedAddress,
+    formattedAddress: rawPosition.formattedAddress || normalizedAddress.formatted || null,
+    shortAddress: rawPosition.shortAddress || normalizedAddress.short || null,
   };
 }
 

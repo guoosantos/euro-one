@@ -1,5 +1,4 @@
 import { matchesTenant } from "./tenancy";
-import { formatAddress } from "./format-address.js";
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutos
 const ALERT_THRESHOLD_MS = 60 * 60 * 1000; // 1 hora
@@ -117,7 +116,7 @@ function buildRow(key, device, position, now) {
       device?.uniqueId ??
       key,
     lastUpdate: timestamp ? new Date(timestamp).toISOString() : null,
-    address: formatAddress(position?.shortAddress || position?.formattedAddress || position?.address || device?.address || ""),
+    address: position?.address ?? device?.address ?? "",
     speed: coerceSpeed(position?.speed),
     ignition: coerceBoolean(attributes, ["ignition", "acc", "switchOn", "ign"], null),
     battery: coerceNumberAttribute(attributes, ["batteryLevel", "battery", "batteryPercent", "power"]),

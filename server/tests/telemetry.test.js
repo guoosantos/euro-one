@@ -109,7 +109,7 @@ describe("/api/core/telemetry", () => {
 
     assert.equal(status, 200);
     assert.equal(data.telemetry.length, 1);
-    assert.equal(data.telemetry[0].position.address, "Rua A");
+    assert.equal(data.telemetry[0].position.address.formatted, "Rua A");
     assert.equal(data.warnings.length, 0);
   });
 

@@ -9,11 +9,7 @@ function normalizeCoordinate(value) {
 }
 
 export default function AddressCell({ address, lat, lng, loading: externalLoading = false, className = "" }) {
-  const isObjectAddress = address && typeof address === "object" && !Array.isArray(address);
-  const formattedAddress = useMemo(
-    () => (isObjectAddress ? "Sem endereço" : formatAddress(address)),
-    [address, isObjectAddress],
-  );
+  const formattedAddress = useMemo(() => formatAddress(address), [address]);
   const safeLat = normalizeCoordinate(lat);
   const safeLng = normalizeCoordinate(lng);
   const isUnavailable =

@@ -9,10 +9,6 @@ let cacheReady = false;
 const NORMALIZED_PRECISION = 5;
 const LEGACY_PRECISION = 4;
 const MIN_LOOKUP_INTERVAL_MS = 1000;
-const GEOCODER_TIMEOUT_MS = 3500;
-const GEOCODER_RETRY_DELAY_MS = 300;
-const GEOCODER_LANGUAGE = "pt-BR,pt;q=0.9";
-const GEOCODER_COUNTRY = "br";
 
 function hydrateCacheFromStorage() {
   const stored = loadCollection(STORAGE_KEY, []);
@@ -58,15 +54,6 @@ function normalizeCep(value) {
   return `${digits.slice(0, 5)}-${digits.slice(5)}`;
 }
 
-function normalizeCountry(value) {
-  if (!value) return "";
-  const text = String(value).trim();
-  if (!text) return "";
-  if (text.toLowerCase() === "br" || text.toLowerCase() === "brasil") return "Brasil";
-  if (text.toLowerCase() === "brazil") return "Brasil";
-  return text;
-}
-
 function formatFullAddressFromParts(parts = {}) {
   if (!parts || typeof parts !== "object") return null;
 
@@ -78,16 +65,14 @@ function formatFullAddressFromParts(parts = {}) {
   const stateCode = (parts.stateCode || parts.state_code || parts.uf || "").toString().toUpperCase();
   const state = stateCode || (parts.state || parts.region || parts.state_district || "").toString().toUpperCase();
   const postalCode = normalizeCep(parts.postalCode || parts.postcode || parts.zipcode || parts.cep);
-  const country = normalizeCountry(parts.country || parts.country_name || parts.countryCode || parts.country_code);
 
   const streetLine = [street, houseNumber].filter(Boolean).join(", ");
   const neighbourhoodBlock = neighbourhood ? ` - ${neighbourhood}` : "";
   const cityState = [city, state].filter(Boolean).join("-");
   const cityStateBlock = cityState ? ` ${cityState}` : "";
   const postalBlock = postalCode ? `, ${postalCode}` : "";
-  const countryBlock = country ? `, ${country}` : "";
 
-  const formatted = `${streetLine}${neighbourhoodBlock}${cityStateBlock}${postalBlock}${countryBlock}`
+  const formatted = `${streetLine}${neighbourhoodBlock}${cityStateBlock}${postalBlock}`
     .replace(/\s+-\s+-/g, " - ")
     .replace(/,\s+,/g, ", ")
     .trim();
@@ -197,19 +182,12 @@ function normalizeCoordinate(value, precision = NORMALIZED_PRECISION) {
 
 function normalizeAddressPayload(rawAddress) {
   if (rawAddress && typeof rawAddress === "object" && !Array.isArray(rawAddress)) {
-    const formatted =
-      rawAddress.formattedAddress ||
-      rawAddress.formatted ||
-      rawAddress.formatted_address ||
-      rawAddress.address ||
-      rawAddress.display_name ||
-      null;
-    return formatted ? String(formatted) : "";
+    return rawAddress;
   }
   if (rawAddress) {
-    return String(rawAddress);
+    return { formatted: String(rawAddress) };
   }
-  return "";
+  return {};
 }
 
 function collapseWhitespace(value) {
@@ -219,7 +197,8 @@ function collapseWhitespace(value) {
 function sanitiseBrazilianFormatting(value) {
   if (!value) return "";
   let cleaned = collapseWhitespace(value);
-  cleaned = cleaned.replace(/\b(brazil)\b/gi, "Brasil");
+  cleaned = cleaned.replace(/,\s*(brasil|brazil)$/i, "");
+  cleaned = cleaned.replace(/\s+-\s+(brasil|brazil)$/i, "");
   cleaned = cleaned.replace(/\s*,\s*,+/g, ", ");
   cleaned = cleaned.replace(/\s+-\s+-/g, " - ");
   cleaned = cleaned.replace(/\s+-\s*,/g, " - ");
@@ -246,19 +225,6 @@ function coalesce(...values) {
 
 export function formatAddress(address) {
   if (!address) return "—";
-  if (typeof address === "object" && !Array.isArray(address)) {
-    const parts = resolveParts(address);
-    const shortFromParts = formatShortAddressFromParts(parts || address);
-    if (shortFromParts) return sanitiseBrazilianFormatting(shortFromParts);
-    const formatted =
-      address.formattedAddress ||
-      address.formatted ||
-      address.formatted_address ||
-      address.address ||
-      address.display_name ||
-      null;
-    if (formatted) return sanitiseBrazilianFormatting(formatted);
-  }
   const cleaned = collapseWhitespace(address);
   if (!cleaned) return "—";
 
@@ -284,19 +250,17 @@ function formatShortAddressFromParts(parts = {}) {
   const neighbourhood = parts.neighbourhood || coalesce(parts.neighbourhood, parts.suburb, parts.quarter);
   const city = parts.city || coalesce(parts.city, parts.town, parts.village, parts.municipality);
   const state = parts.state || coalesce(parts.state, parts.region, parts.state_district);
-  const postalCode = parts.postalCode || coalesce(parts.postcode, parts.zipcode, parts.cep);
-  const country = normalizeCountry(parts.country || parts.country_name || parts.countryCode || parts.country_code);
+  const postalCode = parts.postalCode || coalesce(parts.postcode, parts.zipcode);
 
   const firstLine = [street, houseNumber].filter(Boolean).join(", ");
   const locality = [neighbourhood, city].filter(Boolean).join(", ");
   const region = [state, postalCode].filter(Boolean).join(", ");
-  const tail = [region, country].filter(Boolean).join(", ");
 
-  const suffix = [locality, tail].filter(Boolean).join(" - ");
+  const suffix = [locality, region].filter(Boolean).join(" - ");
   const compact = [firstLine, suffix].filter(Boolean).join(" - ");
   if (compact) return compact;
 
-  const fallback = [street, neighbourhood, city, state, postalCode, country].filter(Boolean).join(", ");
+  const fallback = [street, neighbourhood, city, state, postalCode].filter(Boolean).join(", ");
   return fallback || null;
 }
 
@@ -380,41 +344,15 @@ async function fetchGeocode(lat, lng) {
   url.searchParams.set("lon", String(lng));
   url.searchParams.set("zoom", "18");
   url.searchParams.set("addressdetails", "1");
-  url.searchParams.set("accept-language", GEOCODER_LANGUAGE);
-  url.searchParams.set("countrycodes", GEOCODER_COUNTRY);
 
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), GEOCODER_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(url.toString(), {
-      headers: { "User-Agent": "euro-one/1.0", "Accept-Language": GEOCODER_LANGUAGE },
-      signal: controller.signal,
-    });
-    if (!response.ok) {
-      throw new Error(`Geocode HTTP ${response.status}`);
-    }
-    const payload = await response.json();
-    return normalizeGeocodePayload(payload, lat, lng);
-  } finally {
-    clearTimeout(timeoutId);
+  const response = await fetch(url.toString(), {
+    headers: { "User-Agent": "euro-one/1.0" },
+  });
+  if (!response.ok) {
+    throw new Error(`Geocode HTTP ${response.status}`);
   }
-}
-
-async function fetchGeocodeWithRetry(lat, lng) {
-  let lastError = null;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      return await fetchGeocode(lat, lng);
-    } catch (error) {
-      lastError = error;
-      if (error?.name === "AbortError") throw error;
-      if (attempt === 0) {
-        await new Promise((resolve) => setTimeout(resolve, GEOCODER_RETRY_DELAY_MS));
-      }
-    }
-  }
-  throw lastError;
+  const payload = await response.json();
+  return normalizeGeocodePayload(payload, lat, lng);
 }
 
 async function runNextLookup() {
@@ -457,7 +395,7 @@ function scheduleLookup(lat, lng) {
   const promise = new Promise((resolve) => {
     const task = async () => {
       try {
-        const address = await fetchGeocodeWithRetry(lat, lng);
+        const address = await fetchGeocode(lat, lng);
         if (address) {
           const entry = buildCacheEntry(lat, lng, address);
           await persistCacheEntry(entry);
@@ -501,39 +439,31 @@ async function lookupGeocode(lat, lng, { blocking = true } = {}) {
 export async function ensurePositionAddress(position) {
   if (!position || typeof position !== "object") return position;
   const rawAddress =
-    position.fullAddress ||
-    position.formattedAddress ||
-    position.shortAddress ||
-    position.address ||
-    position.attributes?.fullAddress ||
-    position.attributes?.address;
+    position.fullAddress || position.address || position.formattedAddress || position.attributes?.fullAddress || position.attributes?.address;
   const normalizedAddress = normalizeAddressPayload(rawAddress);
   const baseFormatted = rawAddress ? formatFullAddress(rawAddress) : null;
-  const baseShort = rawAddress ? formatAddress(rawAddress) : null;
-  const formattedAddress = baseFormatted && baseFormatted !== "—" ? baseFormatted : null;
-  const shortCandidate = position.shortAddress || baseShort || null;
-  const shortAddress = shortCandidate && shortCandidate !== "—" ? shortCandidate : null;
+  const formattedAddress = baseFormatted || position.formattedAddress || normalizedAddress.formatted || null;
+  const shortAddress = position.shortAddress || normalizedAddress.short || null;
   const lat = position.latitude ?? position.lat;
   const lng = position.longitude ?? position.lon ?? position.lng;
   const coordinateFallback = buildCoordinateFallback(lat, lng);
   const fallbackFormatted =
-    formattedAddress || formatFullAddress(normalizedAddress || "") || coordinateFallback;
+    formattedAddress || formatFullAddress(normalizedAddress.formatted || normalizedAddress.short || "") || coordinateFallback;
 
   if (baseFormatted || shortAddress) {
     return {
       ...position,
-      address: formattedAddress || shortAddress || fallbackFormatted || "—",
+      address: normalizedAddress,
       formattedAddress: formattedAddress || shortAddress || fallbackFormatted || "—",
       fullAddress: formattedAddress || shortAddress || fallbackFormatted || position.fullAddress || null,
       shortAddress: shortAddress || formattedAddress || fallbackFormatted || "—",
-      addressParts: resolveParts(rawAddress) || position.addressParts || null,
     };
   }
 
   if (!Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) {
     return {
       ...position,
-      address: normalizedAddress || null,
+      address: normalizedAddress,
       formattedAddress: formattedAddress || null,
       fullAddress: formattedAddress || null,
       shortAddress: shortAddress || null,
@@ -545,21 +475,22 @@ export async function ensurePositionAddress(position) {
     const finalFormatted = formattedAddress || fallbackFormatted || coordinateFallback || "—";
     return {
       ...position,
-      address: normalizedAddress || finalFormatted,
+      address: normalizedAddress,
       formattedAddress: finalFormatted,
       fullAddress: finalFormatted,
       shortAddress: shortAddress || finalFormatted,
     };
   }
+  const resolvedAddress = normalizeAddressPayload(resolved.address || resolved.formattedAddress);
   const finalFormatted =
     resolved.formattedAddress || formattedAddress || resolved.shortAddress || fallbackFormatted || coordinateFallback || "—";
   return {
     ...position,
-    address: resolved.formattedAddress || resolved.shortAddress || resolved.address || finalFormatted,
+    address: Object.keys(resolvedAddress).length ? resolvedAddress : normalizedAddress || { formatted: finalFormatted },
     formattedAddress: finalFormatted,
     fullAddress: finalFormatted,
     shortAddress: resolved.shortAddress || shortAddress || finalFormatted,
-    addressParts: resolved.parts || position.addressParts || resolveParts(rawAddress) || null,
+    addressParts: resolved.parts,
   };
 }
 
