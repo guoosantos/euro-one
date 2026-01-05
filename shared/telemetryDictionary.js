@@ -1,3 +1,5 @@
+import { iotmEventCatalog } from "./iotmEventCatalog.js";
+
 export const telemetryAttributeCatalog = [
   { key: "engineWorking", labelPt: "Motor em funcionamento", type: "boolean", unit: null, priority: 15 },
   { key: "ignitionState", labelPt: "Ignição", type: "boolean", unit: null, priority: 16 },
@@ -130,11 +132,12 @@ export const ioFriendlyNames = {
   io109: { key: "ignitionState", labelPt: "Ignição", type: "boolean" },
 };
 
-const EVENT_CODE_MAP = new Map([
+const DEFAULT_EVENT_CODE_MAP = new Map([
   ["3", { key: "ignitionOn", labelPt: "Ignição ligada" }],
   ["4", { key: "ignitionOff", labelPt: "Ignição desligada" }],
   ["21", { key: "gpsJamming", labelPt: "GPS Jamming" }],
   ["69", { key: "gsmJamming", labelPt: "GSM Jamming" }],
+  ["70", { key: "jamming", labelPt: "Jamming detectado" }],
   ["98", { key: "doorFrontLeft", labelPt: "Porta dianteira esquerda" }],
   ["100", { key: "doorRearRight", labelPt: "Porta traseira direita" }],
   ["133", { key: "driverSeatbelt", labelPt: "Cinto motorista" }],
@@ -143,9 +146,33 @@ const EVENT_CODE_MAP = new Map([
   ["137", { key: "highBeam", labelPt: "Farol alto" }],
   ["139", { key: "handBrake", labelPt: "Freio de mão" }],
   ["141", { key: "engineWorking", labelPt: "Motor em funcionamento" }],
+  ["145", { key: "gsmJamming", labelPt: "GSM Jamming" }],
   ["158", { key: "engineEvent", labelPt: "Evento do motor" }],
   ["255", { key: "generic", labelPt: "Evento do dispositivo" }],
 ]);
+
+const GT06_EVENT_CODE_MAP = new Map([
+  ...DEFAULT_EVENT_CODE_MAP,
+  ["0", { key: "generic", labelPt: "Evento do dispositivo" }],
+  ["1", { key: "sos", labelPt: "SOS / Botão de pânico" }],
+  ["2", { key: "powerCut", labelPt: "Corte de alimentação" }],
+  ["5", { key: "overspeed", labelPt: "Velocidade excedida" }],
+  ["6", { key: "lowBattery", labelPt: "Bateria baixa" }],
+  ["7", { key: "shock", labelPt: "Alarme de vibração" }],
+  ["8", { key: "geofenceEnter", labelPt: "Entrada em geocerca" }],
+  ["9", { key: "geofenceExit", labelPt: "Saída de geocerca" }],
+]);
+
+const IOTM_EVENT_CODE_MAP = new Map(
+  iotmEventCatalog.map((item) => [
+    String(item.id),
+    { key: `iotm_${item.id}`, labelPt: item.labelPt, severity: item.severity, description: item.description },
+  ]),
+);
+
+function normalizeProtocolKey(protocol) {
+  return String(protocol || "").trim().toLowerCase();
+}
 
 export function resolveTelemetryDescriptor(key) {
   if (TELEMETRY_DESCRIPTOR_MAP.has(key)) return TELEMETRY_DESCRIPTOR_MAP.get(key);
@@ -153,10 +180,16 @@ export function resolveTelemetryDescriptor(key) {
   return null;
 }
 
-export function resolveEventDescriptor(code) {
+export function resolveEventDescriptor(code, { protocol } = {}) {
   if (code === undefined || code === null) return null;
   const normalized = String(code).trim();
   if (!normalized) return null;
-  if (EVENT_CODE_MAP.has(normalized)) return EVENT_CODE_MAP.get(normalized);
-  return null;
+  const protocolKey = normalizeProtocolKey(protocol);
+  if (protocolKey === "iotm") {
+    return IOTM_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+  }
+  if (protocolKey === "gt06") {
+    return GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+  }
+  return DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
 }

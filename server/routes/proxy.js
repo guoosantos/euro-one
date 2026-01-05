@@ -42,9 +42,11 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
+import { generatePositionsReportXlsx } from "../utils/positions-report-xlsx.js";
 
 import {
   positionsColumns,
+  positionsColumnMap,
   resolveColumnDefinition,
   resolveColumnGroupOrder,
   resolveColumnLabel,
@@ -1073,7 +1075,24 @@ function formatGenericIoLabel(key) {
   return null;
 }
 
-function collectAttributeTranslations(attributes = {}) {
+function isGenericIoColumnLabel(definition, key) {
+  if (!definition?.labelPt) return false;
+  const base = positionsColumnMap.get(key);
+  if (!base) return false;
+  const baseLabel = resolveColumnLabel(base, "pt");
+  const resolvedLabel = resolveColumnLabel(definition, "pt");
+  if (resolvedLabel !== baseLabel) return false;
+  return /^(Entrada|Saída)\s+\d+/.test(resolvedLabel);
+}
+
+function shouldExposeIoColumn(key, protocol = null) {
+  const definition = resolveColumnDefinition(key, { protocol });
+  if (!definition) return true;
+  if (isGenericIoColumnLabel(definition, key)) return false;
+  return true;
+}
+
+function collectAttributeTranslations(attributes = {}, protocol = null, { includeGenericIo = true } = {}) {
   const extras = new Map();
   const ioDetails = [];
 
@@ -1084,16 +1103,28 @@ function collectAttributeTranslations(attributes = {}) {
     if (!cleanedKey) return;
 
     if (["event", "eventcode", "eventid", "alarm"].includes(lowerKey)) {
-      const descriptor = resolveEventDescriptor(rawValue);
+      const descriptor = resolveEventDescriptor(rawValue, { protocol });
       if (descriptor?.labelPt) {
         extras.set("event", descriptor.labelPt);
       } else if (rawValue !== null && rawValue !== undefined) {
-        extras.set("event", `Evento ${rawValue}`);
+        const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
+        extras.set("event", `Evento ${rawValue}${protocolLabel}`);
       }
       return;
     }
 
-    if (/^(in|out|input|output|entrada|saida|saída|digitalInput|digitalOutput)\d+$/i.test(cleanedKey)) return;
+    const inputMatch = cleanedKey.match(/^(?:in|input|entrada|digitalInput)_?(\d+)$/i);
+    const outputMatch = cleanedKey.match(/^(?:out|output|saida|saída|digitalOutput)_?(\d+)$/i);
+    if (inputMatch || outputMatch) {
+      if (includeGenericIo) {
+        const labelPrefix = inputMatch ? "Entrada" : "Saída";
+        const index = inputMatch ? inputMatch[1] : outputMatch?.[1];
+        const label = `${labelPrefix} ${index} (${cleanedKey})`;
+        ioDetails.push({ key: lowerKey, label, value: normalizeIoValue(rawValue) });
+      }
+      return;
+    }
+
     if (/^(io)\d+$/i.test(cleanedKey)) {
       const friendly = ioFriendlyNames[lowerKey];
       if (friendly) {
@@ -1102,8 +1133,8 @@ function collectAttributeTranslations(attributes = {}) {
         if (formatted !== null && formatted !== undefined) {
           extras.set(descriptor.key, formatted);
         }
-      } else {
-        const label = formatGenericIoLabel(cleanedKey) || cleanedKey;
+      } else if (includeGenericIo) {
+        const label = `${formatGenericIoLabel(cleanedKey) || cleanedKey} (${cleanedKey})`;
         ioDetails.push({ key: lowerKey, label, value: normalizeIoValue(rawValue) });
       }
       return;
@@ -1324,14 +1355,12 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
   const formattedFull = formatFullAddress(fullAddress);
   if (formattedFull && formattedFull !== "—") return formattedFull;
 
-  const fallbackSuffix = " (sem geocode)";
-
   const formatted = formatFullAddress(address);
-  if (formatted && formatted !== "—") return `${formatted}${fallbackSuffix}`;
+  if (formatted && formatted !== "—") return formatted;
 
   if (typeof address === "string") {
     const trimmed = address.trim();
-    if (trimmed) return `${trimmed}${fallbackSuffix}`;
+    if (trimmed) return trimmed;
   }
   if (address && typeof address === "object") {
     const candidates = [
@@ -1342,7 +1371,7 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
     ]
       .map((candidate) => (typeof candidate === "string" ? candidate.trim() : ""))
       .filter(Boolean);
-    if (candidates.length) return `${candidates[0]}${fallbackSuffix}`;
+    if (candidates.length) return candidates[0];
 
     const parts = [
       address.road || address.street || address.addressLine1,
@@ -1351,10 +1380,10 @@ function normalizeAddressValue(address, lat = null, lng = null, fullAddress = nu
     ]
       .map((part) => (part ? String(part).trim() : ""))
       .filter(Boolean);
-    if (parts.length) return `${parts.join(", ")}${fallbackSuffix}`;
+    if (parts.length) return parts.join(", ");
   }
 
-  if (coordinateFallback) return `${coordinateFallback}${fallbackSuffix}`;
+  if (coordinateFallback) return coordinateFallback;
   return "Endereço indisponível";
 }
 
@@ -3543,7 +3572,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const power = extractPowerVoltage(attributes);
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
-      const { extras, ioDetails } = collectAttributeTranslations(attributes);
+      const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, { includeGenericIo: true });
+      const resolvedAddress = normalizeAddressValue(position.address, position.latitude, position.longitude, position.fullAddress);
+      const resolvedFullAddress =
+        formatFullAddress(position.fullAddress || position.formattedAddress || position.address || resolvedAddress) ||
+        resolvedAddress;
 
       const dynamicValues = dynamicKeys.reduce((acc, key) => {
         const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
@@ -3559,7 +3592,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         serverTime: position.serverTime || null,
         latitude: position.latitude ?? null,
         longitude: position.longitude ?? null,
-        address: normalizeAddressValue(position.address, position.latitude, position.longitude, position.fullAddress),
+        address: resolvedAddress,
+        fullAddress: resolvedFullAddress,
         speed: speedKmh,
         direction: position.course ?? null,
         ignition,
@@ -3595,10 +3629,18 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         }
       };
 
-      setIfDefined("digitalInput1", inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }));
-      setIfDefined("digitalInput2", inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }));
-      setIfDefined("digitalOutput1", outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }));
-      setIfDefined("digitalOutput2", outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }));
+      if (shouldExposeIoColumn("digitalInput1", protocol)) {
+        setIfDefined("digitalInput1", inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }));
+      }
+      if (shouldExposeIoColumn("digitalInput2", protocol)) {
+        setIfDefined("digitalInput2", inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }));
+      }
+      if (shouldExposeIoColumn("digitalOutput1", protocol)) {
+        setIfDefined("digitalOutput1", outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }));
+      }
+      if (shouldExposeIoColumn("digitalOutput2", protocol)) {
+        setIfDefined("digitalOutput2", outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }));
+      }
 
       return base;
     })
@@ -3687,13 +3729,17 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
 
     inputs.forEach((value, index) => {
       if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
-      position[`digitalInput${index}`] = value;
+      const key = `digitalInput${index}`;
+      if (!shouldExposeIoColumn(key, protocol)) return;
+      position[key] = value;
       inputIndexes.add(index);
     });
 
     outputs.forEach((value, index) => {
       if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
-      position[`digitalOutput${index}`] = value;
+      const key = `digitalOutput${index}`;
+      if (!shouldExposeIoColumn(key, protocol)) return;
+      position[key] = value;
       outputIndexes.add(index);
     });
 
@@ -3807,6 +3853,14 @@ function buildPositionsPdfFileName(meta, from, to) {
   return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
 }
 
+function buildPositionsXlsxFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "positions";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+}
+
 /**
  * === Reports (GET no nosso backend, GET→POST no Traccar) ===
  */
@@ -3900,6 +3954,72 @@ router.post("/reports/positions/pdf", async (req, res) => {
       durationMs,
     });
     res.status(status).json({ message, code: error?.code || "POSITIONS_PDF_ERROR" });
+  }
+});
+
+router.post("/reports/positions/xlsx", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/xlsx] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+
+    const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter });
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : report?.meta?.columns;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+
+    const xlsxBuffer = await generatePositionsReportXlsx({
+      rows: report.positions,
+      columns,
+      columnDefinitions: resolvedColumnDefinitions,
+      meta: report.meta,
+      availableColumns,
+    });
+
+    const durationMs = Date.now() - startedAt;
+    const fileName = buildPositionsXlsxFileName(report?.meta, from, to);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/xlsx] relatório de posições gerado", {
+      vehicleId,
+      rows: report.positions.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
+    res.status(200).send(Buffer.from(xlsxBuffer));
+  } catch (error) {
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório de posições em Excel.";
+    const durationMs = Date.now() - startedAt;
+    console.error("[reports/xlsx] erro ao exportar posições", {
+      status,
+      code: error?.code,
+      message,
+      durationMs,
+    });
+    res.status(status).json({ message, code: error?.code || "POSITIONS_XLSX_ERROR" });
   }
 });
 

@@ -165,9 +165,17 @@ function buildPdfFileName(vehicle, from, to) {
   return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
 }
 
+function buildXlsxFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+}
+
 export default function ReportsPositions() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
-  const { loading, error, generate, exportPdf, fetchPage } = usePositionsReport();
+  const { loading, error, generate, exportPdf, exportXlsx, fetchPage } = usePositionsReport();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -182,6 +190,8 @@ export default function ReportsPositions() {
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfColumns, setPdfColumns] = useState([]);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [exportingXlsx, setExportingXlsx] = useState(false);
+  const [exportFormat, setExportFormat] = useState("pdf");
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
@@ -482,30 +492,30 @@ export default function ReportsPositions() {
     [addressFilter, buildQueryParams, effectivePageSize, generate, hasGenerated, lastResolvedFilter, selectedVehicleId],
   );
 
-  const handleExportPdf = async () => {
+  const resolveExportPayload = async () => {
     setFormError("");
     if (!selectedVehicleId) {
       setFormError("Selecione exatamente um veículo.");
-      return;
+      return null;
     }
     const baseColumnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
     const allowedExport = new Set(availableColumnKeys.length ? availableColumnKeys : FALLBACK_COLUMNS.map((col) => col.key));
     const columnsToExport = baseColumnsToExport.filter((key) => allowedExport.has(key));
-    setExportingPdf(true);
-    try {
-      const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
-      const columnDefinitionsPayload = availableColumns.map((column) => ({
-        key: column.key,
-        labelPt: column.label,
-        labelPdf: column.labelPdf || column.label,
-        weight: column.weight,
-        width: column.width,
-        type: column.type,
-        unit: column.unit,
-        group: column.group,
-        defaultVisible: column.defaultVisible,
-      }));
-      const blob = await exportPdf({
+    const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
+    const columnDefinitionsPayload = availableColumns.map((column) => ({
+      key: column.key,
+      labelPt: column.label,
+      labelPdf: column.labelPdf || column.label,
+      weight: column.weight,
+      width: column.width,
+      type: column.type,
+      unit: column.unit,
+      group: column.group,
+      defaultVisible: column.defaultVisible,
+    }));
+    return {
+      columnsToExport,
+      payload: {
         vehicleId: selectedVehicleId,
         from: new Date(from).toISOString(),
         to: new Date(to).toISOString(),
@@ -519,7 +529,16 @@ export default function ReportsPositions() {
               radius: resolvedFilter.radius,
             }
           : null,
-      });
+      },
+    };
+  };
+
+  const handleExportPdf = async () => {
+    const resolvedPayload = await resolveExportPayload();
+    if (!resolvedPayload) return;
+    setExportingPdf(true);
+    try {
+      const blob = await exportPdf(resolvedPayload.payload);
       if (!(blob instanceof Blob) || blob.size === 0) {
         setFeedback({
           type: "error",
@@ -550,6 +569,42 @@ export default function ReportsPositions() {
     }
   };
 
+  const handleExportXlsx = async () => {
+    const resolvedPayload = await resolveExportPayload();
+    if (!resolvedPayload) return;
+    setExportingXlsx(true);
+    try {
+      const blob = await exportXlsx(resolvedPayload.payload);
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "Excel não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = buildXlsxFileName(selectedVehicle, from, to);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setPdfModalOpen(false);
+    } catch (requestError) {
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar Excel.",
+      });
+    } finally {
+      setExportingXlsx(false);
+    }
+  };
+
   const handleApplyColumns = (prefs) => {
     setColumnPrefs(prefs);
     saveColumnPreferences(COLUMN_STORAGE_KEY, prefs);
@@ -568,8 +623,9 @@ export default function ReportsPositions() {
     });
   };
 
-  const openPdfModal = () => {
+  const openPdfModal = (format = "pdf") => {
     setPdfColumns(visibleColumns.map((column) => column.key));
+    setExportFormat(format);
     setPdfModalOpen(true);
   };
 
@@ -613,11 +669,19 @@ export default function ReportsPositions() {
                 </button>
                 <button
                   type="button"
-                  onClick={openPdfModal}
-                  disabled={loading || exportingPdf || !selectedVehicleId}
+                  onClick={() => openPdfModal("pdf")}
+                  disabled={loading || exportingPdf || exportingXlsx || !selectedVehicleId}
                   className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
                 >
                   {exportingPdf ? "Exportando…" : "Exportar PDF"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPdfModal("xlsx")}
+                  disabled={loading || exportingPdf || exportingXlsx || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingXlsx ? "Exportando…" : "Exportar Excel"}
                 </button>
                 <button
                   type="button"
@@ -824,7 +888,9 @@ export default function ReportsPositions() {
           >
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold text-white">Colunas do PDF</div>
+                <div className="text-sm font-semibold text-white">
+                  {exportFormat === "xlsx" ? "Colunas do Excel" : "Colunas do PDF"}
+                </div>
                 <p className="text-xs text-white/60">Escolha as colunas para exportação.</p>
               </div>
               <button
@@ -868,7 +934,7 @@ export default function ReportsPositions() {
               <button
                 type="button"
                 className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
-                onClick={handleExportPdf}
+                onClick={exportFormat === "xlsx" ? handleExportXlsx : handleExportPdf}
               >
                 Confirmar
               </button>

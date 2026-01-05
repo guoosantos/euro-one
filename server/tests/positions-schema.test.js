@@ -31,6 +31,6 @@ test("resolves IO and event labels from dictionaries", () => {
   const ioColumn = resolveColumn("io157");
   assert.equal(resolveColumnLabel(ioColumn, "pt"), "Freio de Mão");
 
-  const eventDescriptor = resolveEventDescriptor("136");
+  const eventDescriptor = resolveEventDescriptor("136", { protocol: "gt06" });
   assert.equal(eventDescriptor?.labelPt, "Farol baixo");
 });
