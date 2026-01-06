@@ -1464,7 +1464,7 @@ function resolveVehicleState(ignition, speedKmh) {
   if (ignition === true && speedKmh > 0) return "Em movimento";
   if (ignition === true) return "Ligado";
   if (ignition === false) return "Desligado";
-  return "Indisponível";
+  return "Dado não disponível";
 }
 
 function resolveDeviceStatusToken(position) {
@@ -1494,7 +1494,7 @@ function resolveDeviceStatusToken(position) {
 function resolveDeviceStatusLabel(token) {
   if (token === "active") return "Ativo";
   if (token === "inactive") return "Inativo";
-  return "Indisponível";
+  return "Dado não disponível";
 }
 
 function parseCommandEvents(events = []) {
@@ -4060,7 +4060,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       ? "Ligada"
       : latestPosition?.ignition === false
         ? "Desligada"
-        : "Indisponível";
+        : "Dado não disponível";
 
   const columnHasValue = new Map();
   mappedChronological.forEach((position) => {

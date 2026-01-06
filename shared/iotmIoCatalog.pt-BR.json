@@ -12,7 +12,7 @@
   { "id": 134, "key": "passengerSeatbelt", "labelPt": "Cinto do Passageiro", "type": "boolean" },
   { "id": 136, "key": "lowBeam", "labelPt": "Farol Baixo", "type": "boolean" },
   { "id": 137, "key": "highBeam", "labelPt": "Farol Alto", "type": "boolean" },
-  { "id": 139, "key": "handBrake", "labelPt": "Freio de Mão", "type": "boolean" },
+  { "id": 139, "key": "handBrake", "labelPt": "Freio de estacionamento", "type": "boolean" },
   { "id": 141, "key": "engineWorking", "labelPt": "Motor em funcionamento", "type": "boolean" },
   { "id": 148, "key": "digitalOutput1", "labelPt": "Saída 1", "type": "boolean" },
   { "id": 157, "key": "clutchPedal", "labelPt": "Pedal da Embreagem", "type": "boolean" },

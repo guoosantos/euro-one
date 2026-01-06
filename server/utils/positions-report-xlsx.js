@@ -50,7 +50,7 @@ function normalizeAddress(value) {
 
 function formatCellValue(key, value, definition) {
   if (value === null || value === undefined || value === "") {
-    if (key === "ignition" || key === "vehicleState") return "Indisponível";
+    if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
     return "—";
   }
   if (key === "ioDetails" && Array.isArray(value) && value.length) {
@@ -86,7 +86,7 @@ function formatCellValue(key, value, definition) {
   if (key === "hdop") return Number.isFinite(Number(value)) ? Number(value).toFixed(2) : String(value);
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
-  if (key === "vehicleState" && value === "—") return "Indisponível";
+  if (key === "vehicleState" && value === "—") return "Dado não disponível";
   if (key === "address") return normalizeAddress(value);
   if (definition?.type === "boolean") return value ? "Sim" : "Não";
   if (definition?.type === "percent") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);

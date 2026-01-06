@@ -99,7 +99,7 @@ function normalizeAddress(value) {
 
 function formatCellValue(key, value, definition) {
   if (value === null || value === undefined || value === "") {
-    if (key === "ignition" || key === "vehicleState") return "Indisponível";
+    if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
     return "—";
   }
   if (key === "ioDetails" && Array.isArray(value) && value.length) {
@@ -137,7 +137,7 @@ function formatCellValue(key, value, definition) {
 
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
-  if (key === "vehicleState" && value === "—") return "Indisponível";
+  if (key === "vehicleState" && value === "—") return "Dado não disponível";
   if (key === "address") return normalizeAddress(value);
   if (definition?.type === "boolean") return value ? "Sim" : "Não";
   if (definition?.type === "percent") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
@@ -247,7 +247,7 @@ function buildHtml({
           <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
           <div><span>Status atual</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
           <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Indisponível")}</div>
+          <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Dado não disponível")}</div>
         </div>
       </div>
       <div class="table-wrapper">

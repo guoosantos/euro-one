@@ -115,7 +115,7 @@ function formatByDescriptor(key, value) {
 }
 
 function formatIgnition(value) {
-  if (value === null || value === undefined) return "Indisponível";
+  if (value === null || value === undefined) return "Dado não disponível";
   return value ? "Ligada" : "Desligada";
 }
 
@@ -316,7 +316,7 @@ export default function ReportsPositions() {
         speed: formatSpeed(position.speed),
         direction: formatDirection(position.direction),
         ignition: formatIgnition(position.ignition),
-        vehicleState: position.vehicleState || "Indisponível",
+        vehicleState: position.vehicleState || "Dado não disponível",
         batteryLevel: formatBattery(position.batteryLevel),
         rssi: position.rssi ?? "—",
         satellites: position.satellites ?? "—",
@@ -330,7 +330,7 @@ export default function ReportsPositions() {
         handBrake: formatByDescriptor("handBrake", position.handBrake),
         commandResponse: position.commandResponse || "—",
         deviceStatusEvent: position.deviceStatusEvent || "—",
-        deviceStatus: position.deviceStatus || "Indisponível",
+        deviceStatus: position.deviceStatus || "Dado não disponível",
         digitalInput1: formatIoState(position.digitalInput1),
         digitalInput2: formatIoState(position.digitalInput2),
         digitalOutput1: formatIoState(position.digitalOutput1),
@@ -377,7 +377,7 @@ export default function ReportsPositions() {
 
   const filteredRows = useMemo(() => {
     if (!hideUnavailableIgnition) return rows;
-    return rows.filter((row) => row.ignition !== "Indisponível" && row.vehicleState !== "Indisponível");
+    return rows.filter((row) => row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível");
   }, [hideUnavailableIgnition, rows]);
 
   const resolveAddressFilter = useCallback(async () => {
