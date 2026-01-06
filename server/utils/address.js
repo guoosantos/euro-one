@@ -215,19 +215,29 @@ export async function persistGeocode(lat, lng, payload) {
   return entry;
 }
 
-export async function incrementGeocodeCacheHit(key) {
+export async function incrementGeocodeCacheHit(key, { prismaClient = prisma, dbAvailable = isDbAvailable() } = {}) {
   if (!key) return;
   const cached = cache.get(key);
   if (cached) {
     cached.hitsCount = (cached.hitsCount || 0) + 1;
   }
-  if (!isDbAvailable()) return;
+  if (!dbAvailable || !prismaClient?.geocodeCache) return;
   try {
-    await prisma.geocodeCache.update({
+    // update() falha quando o registro não existe; updateMany é seguro e nos permite criar sob demanda.
+    const result = await prismaClient.geocodeCache.updateMany({
       where: { key },
       data: { hitsCount: { increment: 1 } },
     });
+    if (result?.count) return;
+    await prismaClient.geocodeCache.create({
+      data: {
+        key,
+        data: { key },
+        hitsCount: 1,
+      },
+    });
   } catch (error) {
+    if (error?.code === "P2002") return;
     console.warn("[geocode] Falha ao atualizar hits do cache", error?.message || error);
   }
 }

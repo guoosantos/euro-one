@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 let BullQueue = null;
 let BullWorker = null;
 let IORedis = null;
@@ -6,23 +8,27 @@ const shouldLogDriverWarnings = process.env.NODE_ENV !== "test";
 let warnedMissingRedisUrl = false;
 let warnedMemoryDriver = false;
 
-const bullmqModule = await import("bullmq").catch((error) => {
-  if (shouldLogDriverWarnings) {
-    console.warn("[geocode-queue] BullMQ indisponível, ativando modo em memória.", error?.message || error);
+const require = createRequire(import.meta.url);
+
+async function loadOptionalModule(specifier, label) {
+  try {
+    const resolved = require.resolve(specifier);
+    return await import(resolved);
+  } catch (error) {
+    if (shouldLogDriverWarnings) {
+      console.warn(`[geocode-queue] ${label} indisponível, ativando modo em memória.`, error?.message || error);
+    }
+    return null;
   }
-  return null;
-});
+}
+
+const bullmqModule = await loadOptionalModule("bullmq", "BullMQ");
 
 if (bullmqModule) {
   ({ Queue: BullQueue, Worker: BullWorker } = bullmqModule);
 }
 
-const ioredisModule = await import("ioredis").catch((error) => {
-  if (shouldLogDriverWarnings) {
-    console.warn("[geocode-queue] ioredis indisponível, ativando modo em memória.", error?.message || error);
-  }
-  return null;
-});
+const ioredisModule = await loadOptionalModule("ioredis", "ioredis");
 
 if (ioredisModule) {
   IORedis = ioredisModule.default ?? ioredisModule;
