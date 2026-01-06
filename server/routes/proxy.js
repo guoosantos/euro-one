@@ -4129,131 +4129,60 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     device?.attributes?.protocol ||
     null;
 
-  const positions = await fetchPositions([traccarId], from, to);
-  const enrichedPositions = positions;
-
-  const formatIoValue = (value) => {
-    if (value === null || value === undefined || value === "") return null;
-    if (typeof value === "boolean") return value ? "Sim" : "Não";
-    return String(value);
-  };
-
-  const buildIoSummary = (attributes = {}) => {
-    const list = [];
-    const ioDetails = Array.isArray(attributes?.ioDetails) ? attributes.ioDetails : null;
-    if (ioDetails?.length) {
-      ioDetails.forEach((item) => {
-        const label = item?.label || item?.key || "IO";
-        const value = formatIoValue(item?.value);
-        if (value) list.push(`${label}: ${value}`);
-      });
-    }
-
-    const input2 = extractDigitalChannel(attributes, { index: 2, kind: "input" });
-    const input4 = extractDigitalChannel(attributes, { index: 4, kind: "input" });
-    if (input2 !== null && input2 !== undefined) {
-      list.push(`E2: ${formatIoValue(input2) ?? "—"}`);
-    }
-    if (input4 !== null && input4 !== undefined) {
-      list.push(`E4: ${formatIoValue(input4) ?? "—"}`);
-    }
-
-    return list.length ? list.join(" • ") : null;
-  };
-
-  const extractGeozoneInside = (attributes = {}) =>
-    attributes.geozoneInside ?? attributes.geozoneInsidePrimary ?? attributes.geofenceInside ?? null;
-
-  const extractGeozoneId = (attributes = {}) =>
-    attributes.geozoneId ?? attributes.geofenceId ?? null;
-
-  const positionEntries = enrichedPositions.map((position) => {
-    const attributes = position.attributes || {};
-    const speedRaw = Number(position.speed ?? 0);
-    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
-    const timestamp = position.fixTime || position.deviceTime || position.serverTime || null;
-    const jamming = extractJamming(attributes);
-    const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
-    const resolvedAddress =
-      normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
-    const resolvedShortAddress = position.shortAddress || resolvedAddress || fallbackShort;
+  const positionsReport = await buildPositionsReportData(req, {
+    vehicleId,
+    from,
+    to,
+    addressFilter: null,
+    pagination: null,
+  });
+  const positionEntries = positionsReport.positions.map((position) => {
+    const occurredAt = position.gpsTime || position.deviceTime || position.serverTime || null;
     return {
-      id: position.id ? `position-${position.id}` : `position-${timestamp || position.deviceId}`,
+      ...position,
       type: "position",
-      occurredAt: timestamp,
-      address: resolvedAddress,
-      shortAddress: resolvedShortAddress,
-      latitude: position.latitude ?? null,
-      longitude: position.longitude ?? null,
-      speed: speedKmh,
-      ignition: extractIgnition(attributes),
-      digitalInput2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
-      digitalInput4: extractDigitalChannel(attributes, { index: 4, kind: "input" }),
-      digitalInput5: extractDigitalChannel(attributes, { index: 5, kind: "input" }),
-      digitalOutput1: extractDigitalChannel(attributes, { index: 1, kind: "output" }),
-      digitalOutput2: extractDigitalChannel(attributes, { index: 2, kind: "output" }),
-      ioSummary: buildIoSummary(attributes),
-      geofence: attributes.geofence ?? attributes.geofenceId ?? null,
-      geozoneId: extractGeozoneId(attributes),
-      geozoneInside: extractGeozoneInside(attributes),
-      jamming,
-      vehicleVoltage: extractVehicleVoltage(attributes, position.protocol),
-      isCritical: Boolean(jamming),
-      severity: jamming ? "critical" : null,
-      protocol: position.protocol || attributes?.protocol || protocol,
-      attributes: { ...attributes },
+      occurredAt,
     };
   });
 
   const eventLimit = parsePositiveInteger(req.query?.eventLimit ?? req.body?.eventLimit, 10000);
   const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
-  const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
-  const eventPositions = await fetchPositionsByIds(positionIds);
-  const positionMap = new Map(eventPositions.map((position) => [position.id, position]));
+  const positionMap = new Map(
+    positionEntries
+      .filter((position) => position?.id != null)
+      .map((position) => [String(position.id), position]),
+  );
   const eventEntries = events.map((event) => {
-    const position = event.positionId ? positionMap.get(event.positionId) : null;
+    const position = event.positionId != null ? positionMap.get(String(event.positionId)) : null;
     const attributes = event.attributes || {};
-    const positionAttributes = position?.attributes || {};
-    const mergedAttributes = { ...positionAttributes, ...attributes };
-    const speedRaw = Number(position?.speed ?? 0);
-    const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
-    const ignition = extractIgnition(positionAttributes) ?? extractIgnition(attributes);
     const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
     const address =
       normalizeAddressValue(
         position?.address || event.address || attributes.address,
-        position?.fullAddress || null,
-        position?.shortAddress || null,
+        null,
+        null,
       ) || fallbackShort;
-    const shortAddress = position?.shortAddress || address || fallbackShort;
     const severity = resolveEventSeverity(event);
     return {
+      ...(position ? { ...position } : {}),
       id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,
       type: "event",
-      occurredAt: event.eventTime || null,
+      occurredAt: event.eventTime || position?.gpsTime || null,
+      gpsTime: event.eventTime || position?.gpsTime || null,
+      positionId: event.positionId ?? null,
       eventType: event.type || null,
       eventDescription: attributes.description || attributes.message || null,
       address,
-      shortAddress,
       latitude: position?.latitude ?? null,
       longitude: position?.longitude ?? null,
-      speed: speedKmh,
-      ignition,
-      digitalInput2: extractDigitalChannel(mergedAttributes, { index: 2, kind: "input" }),
-      digitalInput4: extractDigitalChannel(mergedAttributes, { index: 4, kind: "input" }),
-      digitalInput5: extractDigitalChannel(mergedAttributes, { index: 5, kind: "input" }),
-      digitalOutput1: extractDigitalChannel(mergedAttributes, { index: 1, kind: "output" }),
-      digitalOutput2: extractDigitalChannel(mergedAttributes, { index: 2, kind: "output" }),
-      ioSummary: buildIoSummary(mergedAttributes),
-      geofence: event.geofenceId || attributes.geofence || null,
-      geozoneId: event.geofenceId || extractGeozoneId(mergedAttributes),
-      geozoneInside: extractGeozoneInside(mergedAttributes),
-      jamming: extractJamming(mergedAttributes),
-      vehicleVoltage: extractVehicleVoltage(mergedAttributes),
+      speed: position?.speed ?? null,
+      ignition: position?.ignition ?? extractIgnition(attributes),
+      geofence: position?.geofence ?? event.geofenceId ?? attributes.geofence ?? null,
+      vehicleVoltage: position?.vehicleVoltage ?? extractVehicleVoltage(attributes),
       severity,
       isCritical: severity === "critical",
-      protocol: event?.protocol || position?.protocol || mergedAttributes?.protocol || protocol,
-      attributes: { ...mergedAttributes },
+      protocol: event?.protocol || protocol,
+      attributes: { ...attributes },
     };
   });
 
@@ -4299,6 +4228,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         id: `command-${item.id}-sent`,
         type: "command",
         occurredAt: item.sentAt,
+        gpsTime: item.sentAt,
         ...base,
         isCritical,
       }]
@@ -4311,6 +4241,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         id: `command-${item.id}-response`,
         type: "command_response",
         occurredAt: responseTime,
+        gpsTime: responseTime,
         ...base,
         isCritical,
       }]
@@ -4379,25 +4310,31 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
 
   entries.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
 
-  const eventLabelsByTimestamp = new Map();
+  const eventLabelsByPositionId = new Map();
   entries.forEach((entry) => {
     if (entry.type !== "event") return;
-    const timestamp = entry.occurredAt ? new Date(entry.occurredAt).getTime() : Number.NaN;
-    if (!Number.isFinite(timestamp)) return;
+    if (entry.positionId == null) return;
     const label = resolveAnalyticEventLabel(entry);
     if (!label) return;
-    const bucket = eventLabelsByTimestamp.get(timestamp) || [];
+    const key = String(entry.positionId);
+    const bucket = eventLabelsByPositionId.get(key) || [];
     bucket.push(label);
-    eventLabelsByTimestamp.set(timestamp, bucket);
+    eventLabelsByPositionId.set(key, bucket);
   });
 
   const entriesWithEvents = entries.map((entry) => {
     if (!["position", "event"].includes(entry.type)) return entry;
-    const timestamp = entry.occurredAt ? new Date(entry.occurredAt).getTime() : Number.NaN;
-    if (!Number.isFinite(timestamp)) return entry;
-    const labels = eventLabelsByTimestamp.get(timestamp);
-    const resolvedLabel = labels?.length ? labels.join(" • ") : "Posição registrada";
-    return { ...entry, event: resolvedLabel };
+    if (entry.type === "event") {
+      const resolvedLabel = resolveAnalyticEventLabel(entry);
+      return resolvedLabel ? { ...entry, event: resolvedLabel } : entry;
+    }
+    const positionKey = entry.id != null ? String(entry.id) : null;
+    const labels = positionKey ? eventLabelsByPositionId.get(positionKey) : null;
+    if (labels?.length) {
+      return { ...entry, event: labels.join(" • ") };
+    }
+    const fallbackLabel = resolveAnalyticEventLabel(entry);
+    return { ...entry, event: fallbackLabel || "Posição registrada" };
   });
 
   const page = pagination?.page ?? 1;
@@ -4414,6 +4351,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     "type",
     "eventType",
     "eventDescription",
+    "positionId",
     "commandName",
     "commandResult",
     "commandStatus",
