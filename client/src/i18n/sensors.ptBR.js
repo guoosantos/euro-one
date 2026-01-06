@@ -1,25 +1,25 @@
 import xirgoSensors from "../../../xirgo_sensors_ID_Name_Description_ptBR.json" with { type: "json" };
 
 const SENSOR_LABEL_OVERRIDES = {
-  SENSOR_ARMED: "CAN: Alarme armado",
-  SENSOR_LOCKED: "CAN: Portas travadas",
-  SENSOR_DOORS_F_L: "CAN: Porta dianteira esquerda",
-  SENSOR_DOORS_F_R: "CAN: Porta dianteira direita",
-  SENSOR_DOORS_R_L: "CAN: Porta traseira esquerda",
-  SENSOR_DOORS_R_R: "CAN: Porta traseira direita",
-  SENSOR_BONNET: "CAN: Capô aberto",
-  SENSOR_TRUNK: "CAN: Porta-malas aberto",
-  SENSOR_FACTORY_ALARM: "CAN: Alarme de fábrica",
-  SENSOR_IGNITION: "CAN: Ignição ligada",
-  SENSOR_HEADLIGHT_INDICATOR: "CAN: Farol baixo",
-  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN: Farol alto",
-  SENSOR_PARKING_LIGHT_INDICATOR: "CAN: Luz de posição",
-  SENSOR_DRIVER_SEATBELT_WARNING: "CAN: Cinto motorista",
-  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN: Cinto passageiro",
-  SENSOR_ENGINE_WORKING: "CAN: Motor ligado",
-  SENSOR_HANDBRAKE: "CAN: Freio de mão",
-  SENSOR_FOOT_BRAKE: "CAN: Freio de pé",
-  SENSOR_KEY_INSERTED: "CAN: Chave inserida",
+  SENSOR_ARMED: "CAN – Alarme armado",
+  SENSOR_LOCKED: "CAN – Portas travadas",
+  SENSOR_DOORS_F_L: "CAN – Porta dianteira esquerda",
+  SENSOR_DOORS_F_R: "CAN – Porta dianteira direita",
+  SENSOR_DOORS_R_L: "CAN – Porta traseira esquerda",
+  SENSOR_DOORS_R_R: "CAN – Porta traseira direita",
+  SENSOR_BONNET: "CAN – Capô aberto",
+  SENSOR_TRUNK: "CAN – Porta-malas aberto",
+  SENSOR_FACTORY_ALARM: "CAN – Alarme de fábrica",
+  SENSOR_IGNITION: "CAN – Ignição ligada",
+  SENSOR_HEADLIGHT_INDICATOR: "CAN – Farol baixo",
+  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN – Farol alto",
+  SENSOR_PARKING_LIGHT_INDICATOR: "CAN – Luz de posição",
+  SENSOR_DRIVER_SEATBELT_WARNING: "CAN – Cinto do Motorista",
+  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN – Cinto do Passageiro",
+  SENSOR_ENGINE_WORKING: "CAN – Motor ligado",
+  SENSOR_HANDBRAKE: "CAN – Freio de mão",
+  SENSOR_FOOT_BRAKE: "CAN – Freio de pé",
+  SENSOR_KEY_INSERTED: "CAN – Chave inserida",
 };
 
 const SENSOR_LABEL_REPLACEMENTS = [
@@ -33,8 +33,8 @@ const SENSOR_LABEL_REPLACEMENTS = [
   [/headlamp/gi, "farol baixo"],
   [/high beam/gi, "farol alto"],
   [/parking light/gi, "luz de posição"],
-  [/driver seatbelt/gi, "cinto motorista"],
-  [/passenger seatbelt/gi, "cinto passageiro"],
+  [/driver seatbelt/gi, "cinto do motorista"],
+  [/passenger seatbelt/gi, "cinto do passageiro"],
   [/engine on/gi, "motor ligado"],
   [/ignition on/gi, "ignição ligada"],
   [/handbrake/gi, "freio de mão"],
@@ -53,8 +53,8 @@ export const normalizeSensorLabel = (label, name) => {
   if (SENSOR_LABEL_OVERRIDES[nameKey]) return SENSOR_LABEL_OVERRIDES[nameKey];
 
   let cleaned = trimmed;
-  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\s*to\s*indicar\s*/i, "CAN: ");
-  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\s*/i, "CAN: ");
+  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\s*to\s*indicar\s*/i, "CAN – ");
+  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\s*/i, "CAN – ");
   cleaned = cleaned.replace(/indicator on$/i, "");
   cleaned = cleaned.replace(/warning lamp on$/i, "");
 

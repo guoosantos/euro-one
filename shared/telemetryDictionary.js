@@ -22,8 +22,8 @@ const BASE_TELEMETRY_ATTRIBUTES = [
   { key: "clutchPedal", labelPt: "Pedal da Embreagem", type: "boolean", unit: null, priority: 141 },
   { key: "highBeam", labelPt: "Farol Alto", type: "boolean", unit: null, priority: 142 },
   { key: "lowBeam", labelPt: "Farol Baixo", type: "boolean", unit: null, priority: 143 },
-  { key: "driverSeatbelt", labelPt: "Cinto Motorista", type: "boolean", unit: null, priority: 144 },
-  { key: "passengerSeatbelt", labelPt: "Cinto Passageiro", type: "boolean", unit: null, priority: 145 },
+  { key: "driverSeatbelt", labelPt: "Cinto do Motorista", type: "boolean", unit: null, priority: 144 },
+  { key: "passengerSeatbelt", labelPt: "Cinto do Passageiro", type: "boolean", unit: null, priority: 145 },
   { key: "fuelUsed", labelPt: "Combustível Usado", type: "number", unit: "L", priority: 160 },
   { key: "fuelUsedHighRes", labelPt: "Combustível Usado (Alta Res.)", type: "number", unit: "L", priority: 161 },
   { key: "fuelLevel1", labelPt: "Nível de Combustível 1", type: "number", unit: "%", priority: 162 },
@@ -63,25 +63,25 @@ const BASE_TELEMETRY_ATTRIBUTES = [
 ];
 
 const SENSOR_LABEL_OVERRIDES = {
-  SENSOR_ARMED: "CAN: Alarme armado",
-  SENSOR_LOCKED: "CAN: Portas travadas",
-  SENSOR_DOORS_F_L: "CAN: Porta dianteira esquerda",
-  SENSOR_DOORS_F_R: "CAN: Porta dianteira direita",
-  SENSOR_DOORS_R_L: "CAN: Porta traseira esquerda",
-  SENSOR_DOORS_R_R: "CAN: Porta traseira direita",
-  SENSOR_BONNET: "CAN: Capô aberto",
-  SENSOR_TRUNK: "CAN: Porta-malas aberto",
-  SENSOR_FACTORY_ALARM: "CAN: Alarme de fábrica",
-  SENSOR_IGNITION: "CAN: Ignição ligada",
-  SENSOR_HEADLIGHT_INDICATOR: "CAN: Farol baixo",
-  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN: Farol alto",
-  SENSOR_PARKING_LIGHT_INDICATOR: "CAN: Luz de posição",
-  SENSOR_DRIVER_SEATBELT_WARNING: "CAN: Cinto motorista",
-  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN: Cinto passageiro",
-  SENSOR_ENGINE_WORKING: "CAN: Motor ligado",
-  SENSOR_HANDBRAKE: "CAN: Freio de mão",
-  SENSOR_FOOT_BRAKE: "CAN: Freio de pé",
-  SENSOR_KEY_INSERTED: "CAN: Chave inserida",
+  SENSOR_ARMED: "CAN – Alarme armado",
+  SENSOR_LOCKED: "CAN – Portas travadas",
+  SENSOR_DOORS_F_L: "CAN – Porta dianteira esquerda",
+  SENSOR_DOORS_F_R: "CAN – Porta dianteira direita",
+  SENSOR_DOORS_R_L: "CAN – Porta traseira esquerda",
+  SENSOR_DOORS_R_R: "CAN – Porta traseira direita",
+  SENSOR_BONNET: "CAN – Capô aberto",
+  SENSOR_TRUNK: "CAN – Porta-malas aberto",
+  SENSOR_FACTORY_ALARM: "CAN – Alarme de fábrica",
+  SENSOR_IGNITION: "CAN – Ignição ligada",
+  SENSOR_HEADLIGHT_INDICATOR: "CAN – Farol baixo",
+  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN – Farol alto",
+  SENSOR_PARKING_LIGHT_INDICATOR: "CAN – Luz de posição",
+  SENSOR_DRIVER_SEATBELT_WARNING: "CAN – Cinto do Motorista",
+  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN – Cinto do Passageiro",
+  SENSOR_ENGINE_WORKING: "CAN – Motor ligado",
+  SENSOR_HANDBRAKE: "CAN – Freio de mão",
+  SENSOR_FOOT_BRAKE: "CAN – Freio de pé",
+  SENSOR_KEY_INSERTED: "CAN – Chave inserida",
 };
 
 const SENSOR_LABEL_REPLACEMENTS = [
@@ -95,8 +95,8 @@ const SENSOR_LABEL_REPLACEMENTS = [
   [/headlamp/gi, "farol baixo"],
   [/high beam/gi, "farol alto"],
   [/parking light/gi, "luz de posição"],
-  [/driver seatbelt/gi, "cinto motorista"],
-  [/passenger seatbelt/gi, "cinto passageiro"],
+  [/driver seatbelt/gi, "cinto do motorista"],
+  [/passenger seatbelt/gi, "cinto do passageiro"],
   [/engine on/gi, "motor ligado"],
   [/ignition on/gi, "ignição ligada"],
   [/handbrake/gi, "freio de mão"],
@@ -115,8 +115,8 @@ const normalizeSensorLabel = (label, name) => {
   if (SENSOR_LABEL_OVERRIDES[nameKey]) return SENSOR_LABEL_OVERRIDES[nameKey];
 
   let cleaned = trimmed;
-  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\\s*to\\s*indicar\\s*/i, "CAN: ");
-  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\\s*/i, "CAN: ");
+  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\\s*to\\s*indicar\\s*/i, "CAN – ");
+  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\\s*/i, "CAN – ");
   cleaned = cleaned.replace(/indicator on$/i, "");
   cleaned = cleaned.replace(/warning lamp on$/i, "");
 
@@ -333,8 +333,8 @@ const BASE_IO_FRIENDLY_NAMES = {
   io137: { key: "highBeam", labelPt: "Farol Alto", type: "boolean" },
   io98: { key: "doorFrontLeft", labelPt: "Porta Dianteira Esquerda", type: "boolean" },
   io100: { key: "doorRearRight", labelPt: "Porta Traseira Direita", type: "boolean" },
-  io133: { key: "driverSeatbelt", labelPt: "Cinto Motorista", type: "boolean" },
-  io134: { key: "passengerSeatbelt", labelPt: "Cinto Passageiro", type: "boolean" },
+  io133: { key: "driverSeatbelt", labelPt: "Cinto do Motorista", type: "boolean" },
+  io134: { key: "passengerSeatbelt", labelPt: "Cinto do Passageiro", type: "boolean" },
   io109: { key: "ignitionState", labelPt: "Ignição", type: "boolean" },
 };
 

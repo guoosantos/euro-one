@@ -1235,6 +1235,8 @@ function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = 
 
 const BASE_COLUMN_KEYS = new Set(positionsColumns.map((column) => column.key.toLowerCase()));
 const ATTRIBUTE_ALIAS_KEYS = new Set([
+  "commandresponse",
+  "command_response",
   "batterylevel",
   "batterypercent",
   "battery_percentage",
