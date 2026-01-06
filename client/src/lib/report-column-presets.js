@@ -5,28 +5,15 @@ export const EURO_PRESET_KEYS = [
   "occurredAt",
   "event",
   "address",
-  "criticality",
-  "geofence",
-  "ioDetails",
-  "ioSummary",
   "ignition",
-  "vehicleVoltage",
   "speed",
-];
-
-export const EURO_ANALYTIC_PRESET_KEYS = [
-  "occurredAt",
-  "event",
-  "address",
-  "ignition",
-  "geozoneInside",
+  "vehicleVoltage",
   "digitalInput2",
   "digitalInput4",
   "digitalInput5",
   "digitalOutput1",
   "digitalOutput2",
-  "speed",
-  "vehicleVoltage",
+  "geozoneInside",
   "geozoneId",
 ];
 

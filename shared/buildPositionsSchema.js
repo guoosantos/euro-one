@@ -9,15 +9,36 @@ function normalizeKey(key) {
 
 function isDisplayableValue(value) {
   if (value === null || value === undefined) return false;
-  if (typeof value === "string" && value.trim() === "") return false;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "" || trimmed === "-" || trimmed === "—") return false;
+  }
   return true;
+}
+
+const EXCLUDED_KEYS = new Set([
+  "id",
+  "deviceid",
+  "positionid",
+  "formattedaddress",
+  "shortaddress",
+  "formatted_address",
+  "short_address",
+]);
+
+const LATITUDE_ALIASES = new Set(["lat", "latitude"]);
+const LONGITUDE_ALIASES = new Set(["lng", "lon", "long", "longitude"]);
+
+function shouldExcludeKey(key) {
+  if (!key) return true;
+  return EXCLUDED_KEYS.has(String(key).toLowerCase());
 }
 
 function collectKeys(position, keySet, keysWithValue) {
   if (!position || typeof position !== "object") return;
   Object.entries(position).forEach(([key, value]) => {
     const normalized = normalizeKey(key);
-    if (!normalized || normalized === "attributes") return;
+    if (!normalized || normalized === "attributes" || shouldExcludeKey(normalized)) return;
     if (isDisplayableValue(value)) {
       keySet.add(normalized);
       keysWithValue.add(normalized);
@@ -28,7 +49,7 @@ function collectKeys(position, keySet, keysWithValue) {
   if (!attributes || typeof attributes !== "object") return;
   Object.entries(attributes).forEach(([key, value]) => {
     const normalized = normalizeKey(key);
-    if (!normalized) return;
+    if (!normalized || shouldExcludeKey(normalized)) return;
     if (isDisplayableValue(value)) {
       keySet.add(normalized);
       keysWithValue.add(normalized);
@@ -59,6 +80,49 @@ export default function buildPositionsSchema(positions = []) {
   const keys = new Set();
   const keysWithValue = new Set();
   (positions || []).forEach((position) => collectKeys(position, keys, keysWithValue));
+
+  const hasAddress = Array.from(keys).some((key) => key.toLowerCase() === "address");
+  if (hasAddress) {
+    Array.from(keys).forEach((key) => {
+      const lower = key.toLowerCase();
+      if (["formattedaddress", "shortaddress", "formatted_address", "short_address"].includes(lower)) {
+        keys.delete(key);
+        keysWithValue.delete(key);
+      }
+    });
+  }
+
+  const hasCanonicalLatitude = Array.from(keys).some((key) => key.toLowerCase() === "latitude");
+  const hasCanonicalLongitude = Array.from(keys).some((key) => key.toLowerCase() === "longitude");
+  if (hasCanonicalLatitude) {
+    Array.from(keys).forEach((key) => {
+      const lower = key.toLowerCase();
+      if (LATITUDE_ALIASES.has(lower) && lower !== "latitude") {
+        keys.delete(key);
+        keysWithValue.delete(key);
+      }
+    });
+  }
+  if (hasCanonicalLongitude) {
+    Array.from(keys).forEach((key) => {
+      const lower = key.toLowerCase();
+      if (LONGITUDE_ALIASES.has(lower) && lower !== "longitude") {
+        keys.delete(key);
+        keysWithValue.delete(key);
+      }
+    });
+  }
+
+  const hasIoDetails = Array.from(keys).some((key) => key.toLowerCase() === "iodetails");
+  const hasIoSummary = Array.from(keys).some((key) => key.toLowerCase() === "iosummary");
+  if (hasIoDetails && hasIoSummary) {
+    Array.from(keys).forEach((key) => {
+      if (key.toLowerCase() === "iosummary") {
+        keys.delete(key);
+        keysWithValue.delete(key);
+      }
+    });
+  }
 
   const columns = Array.from(keys)
     .filter((key) => keysWithValue.has(key))
