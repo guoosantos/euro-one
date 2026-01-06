@@ -30,8 +30,8 @@ const BASE_COLUMNS = [
 
   {
     key: "digitalInput1",
-    labelPt: "Entrada digital 1",
-    labelPdf: "Entrada digital 1",
+    labelPt: "Entrada Digital 1",
+    labelPdf: "Entrada Digital 1",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -40,8 +40,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput2",
-    labelPt: "Entrada digital 2",
-    labelPdf: "Entrada digital 2",
+    labelPt: "Entrada Digital 2",
+    labelPdf: "Entrada Digital 2",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -50,8 +50,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput3",
-    labelPt: "Entrada digital 3",
-    labelPdf: "Entrada digital 3",
+    labelPt: "Entrada Digital 3",
+    labelPdf: "Entrada Digital 3",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -60,8 +60,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput4",
-    labelPt: "Entrada digital 4",
-    labelPdf: "Entrada digital 4",
+    labelPt: "Entrada Digital 4",
+    labelPdf: "Entrada Digital 4",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -70,8 +70,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput5",
-    labelPt: "Entrada digital 5",
-    labelPdf: "Entrada digital 5",
+    labelPt: "Entrada Digital 5",
+    labelPdf: "Entrada Digital 5",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -80,8 +80,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput6",
-    labelPt: "Entrada digital 6",
-    labelPdf: "Entrada digital 6",
+    labelPt: "Entrada Digital 6",
+    labelPdf: "Entrada Digital 6",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -90,8 +90,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput7",
-    labelPt: "Entrada digital 7",
-    labelPdf: "Entrada digital 7",
+    labelPt: "Entrada Digital 7",
+    labelPdf: "Entrada Digital 7",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -100,8 +100,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput8",
-    labelPt: "Entrada digital 8",
-    labelPdf: "Entrada digital 8",
+    labelPt: "Entrada Digital 8",
+    labelPdf: "Entrada Digital 8",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -111,8 +111,8 @@ const BASE_COLUMNS = [
 
   {
     key: "digitalOutput1",
-    labelPt: "Saída digital 1",
-    labelPdf: "Saída digital 1",
+    labelPt: "Saída Digital 1",
+    labelPdf: "Saída Digital 1",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -121,8 +121,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput2",
-    labelPt: "Saída digital 2",
-    labelPdf: "Saída digital 2",
+    labelPt: "Saída Digital 2",
+    labelPdf: "Saída Digital 2",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -131,8 +131,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput3",
-    labelPt: "Saída digital 3",
-    labelPdf: "Saída digital 3",
+    labelPt: "Saída Digital 3",
+    labelPdf: "Saída Digital 3",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -141,8 +141,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput4",
-    labelPt: "Saída digital 4",
-    labelPdf: "Saída digital 4",
+    labelPt: "Saída Digital 4",
+    labelPdf: "Saída Digital 4",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -151,8 +151,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput5",
-    labelPt: "Saída digital 5",
-    labelPdf: "Saída digital 5",
+    labelPt: "Saída Digital 5",
+    labelPdf: "Saída Digital 5",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -161,8 +161,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput6",
-    labelPt: "Saída digital 6",
-    labelPdf: "Saída digital 6",
+    labelPt: "Saída Digital 6",
+    labelPdf: "Saída Digital 6",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -171,8 +171,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput7",
-    labelPt: "Saída digital 7",
-    labelPdf: "Saída digital 7",
+    labelPt: "Saída Digital 7",
+    labelPdf: "Saída Digital 7",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -181,8 +181,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput8",
-    labelPt: "Saída digital 8",
-    labelPdf: "Saída digital 8",
+    labelPt: "Saída Digital 8",
+    labelPdf: "Saída Digital 8",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -202,8 +202,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "rssi",
-    labelPt: "Intensidade do sinal celular (RSSI)",
-    labelPdf: "Intensidade do sinal celular (RSSI)",
+    labelPt: "Intensidade do Sinal Celular (RSSI em dBm)",
+    labelPdf: "Intensidade do Sinal Celular (RSSI em dBm)",
     width: 160,
     defaultVisible: false,
     weight: 1.2,
@@ -259,8 +259,8 @@ const BASE_COLUMNS = [
 
   {
     key: "deviceStatus",
-    labelPt: "Status do dispositivo",
-    labelPdf: "Status do dispositivo",
+    labelPt: "Status Operacional do Dispositivo",
+    labelPdf: "Status Operacional do Dispositivo",
     width: 180,
     defaultVisible: true,
     weight: 1.6,
@@ -307,10 +307,10 @@ const PROTOCOL_COLUMN_CATALOG = {
     accuracy: { labelPt: "Precisão do posicionamento", unit: "m", type: "number", group: "sensor" },
     network: { labelPt: "Rede", group: "other" },
     geofenceids: { labelPt: "Geozonas", group: "other" },
-    obdodometer: { labelPt: "Hodômetro via OBD", unit: "km", type: "number", group: "sensor" },
-    power: { labelPt: "Tensão da Bateria do Veículo", unit: "V", type: "number", group: "voltage" },
+    obdodometer: { labelPt: "Hodômetro do Veículo (OBD)", unit: "km", type: "number", group: "sensor" },
+    power: { labelPt: "Tensão da Alimentação do Dispositivo", unit: "V", type: "number", group: "voltage" },
     battery: { labelPt: "Tensão da Bateria Interna do Dispositivo", unit: "V", type: "number", group: "battery" },
-    fuelused: { labelPt: "Combustível consumido", unit: "L", type: "number", group: "sensor" },
+    fuelused: { labelPt: "Combustível Consumido", unit: "L", type: "number", group: "sensor" },
     devicetemp: { labelPt: "Temperatura do dispositivo", unit: "°C", type: "number", group: "sensor" },
     acceleration: { labelPt: "Aceleração", unit: "m/s²", type: "number", group: "sensor" },
     hdop: { labelPt: "Precisão horizontal do GPS", type: "number", group: "sensor" },
@@ -322,17 +322,17 @@ const PROTOCOL_COLUMN_CATALOG = {
     hours: { labelPt: "Horas de Motor", unit: "h", type: "number", group: "other" },
     charge: { labelPt: "Carga da Bateria", type: "boolean", group: "battery" },
     batterylevel: { labelPt: "Nível da Bateria", unit: "%", type: "percent", group: "battery" },
-    rssi: { labelPt: "Intensidade do sinal celular (RSSI)", group: "sensor" },
-    status: { labelPt: "Status operacional do dispositivo", group: "other" },
+    rssi: { labelPt: "Intensidade do Sinal Celular (RSSI em dBm)", group: "sensor" },
+    status: { labelPt: "Status Operacional do Dispositivo", group: "other" },
   },
   gt06: {
-    adc1: { labelPt: "Entrada digital 1", type: "boolean", group: "input" },
-    blocked: { labelPt: "Saída digital 1", type: "boolean", group: "output" },
+    adc1: { labelPt: "Entrada Digital 1", type: "boolean", group: "input" },
+    blocked: { labelPt: "Saída Digital 1", type: "boolean", group: "output" },
     type: { labelPt: "Tipo do Evento", group: "other" },
     charge: { labelPt: "Carga Ativa", type: "boolean", group: "battery" },
     batterylevel: { labelPt: "Nível de Bateria", unit: "%", type: "percent", group: "battery" },
-    rssi: { labelPt: "Intensidade do sinal celular (RSSI)", group: "sensor" },
-    digitaloutput1: { labelPt: "Saída digital 1", type: "boolean", group: "output" },
+    rssi: { labelPt: "Intensidade do Sinal Celular (RSSI em dBm)", group: "sensor" },
+    digitaloutput1: { labelPt: "Saída Digital 1", type: "boolean", group: "output" },
   },
 };
 
@@ -391,11 +391,11 @@ function resolveIoPattern(key) {
   if (!normalized) return null;
   const inputMatch = normalized.match(/^(?:sensor_)?(?:in|input|entrada|digitalinput)_?(\d+)$/i);
   if (inputMatch) {
-    return { labelPt: `Entrada digital ${inputMatch[1]}`, type: "boolean", group: "input" };
+    return { labelPt: `Entrada Digital ${inputMatch[1]}`, type: "boolean", group: "input" };
   }
   const outputMatch = normalized.match(/^(?:sensor_)?(?:out|output|saida|digitaloutput)_?(\d+)$/i);
   if (outputMatch) {
-    return { labelPt: `Saída digital ${outputMatch[1]}`, type: "boolean", group: "output" };
+    return { labelPt: `Saída Digital ${outputMatch[1]}`, type: "boolean", group: "output" };
   }
   const ioMatch = normalized.match(/^(?:io|i\/o)[-_ ]?(\d+)$/i);
   if (ioMatch) {
