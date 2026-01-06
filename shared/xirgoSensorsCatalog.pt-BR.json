@@ -5243,8 +5243,8 @@
     "id": 49173,
     "key": "sensor_dtc",
     "name": "SENSOR_DTC",
-    "labelPt": "Códigos de falha (DTC) do FMS",
-    "descriptionPt": "Códigos de falha (DTC) do FMS preenchidos durante a geração do pacote de telemetria.",
+    "labelPt": "Códigos de falha do veículo (DTC)",
+    "descriptionPt": "Códigos de falha do veículo (DTC) preenchidos durante a geração do pacote de telemetria.",
     "descriptionEn": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
     "type": null,
     "unit": null

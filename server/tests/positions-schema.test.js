@@ -29,7 +29,7 @@ test("does not include generic IO columns without values and dedupes by key", ()
 
 test("resolves IO and event labels from dictionaries", () => {
   const ioColumn = resolveColumn("io157");
-  assert.equal(resolveColumnLabel(ioColumn, "pt"), "Freio de Mão");
+  assert.equal(resolveColumnLabel(ioColumn, "pt"), "Freio de estacionamento");
 
   const eventDescriptor = resolveEventDescriptor("136", { protocol: "gt06" });
   assert.equal(eventDescriptor?.labelPt, "Farol baixo");

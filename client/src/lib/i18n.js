@@ -211,7 +211,7 @@ const TRANSLATIONS = {
     "monitoring.columns.charge": "Carga",
     "monitoring.columns.blocked": "Bloqueado",
     "monitoring.columns.batteryLevel": "Nível da bateria",
-    "monitoring.columns.rssi": "RSSI / Sinal",
+    "monitoring.columns.rssi": "Intensidade do sinal celular (RSSI)",
     "monitoring.columns.distance": "Distância parcial",
     "monitoring.columns.totalDistance": "Distância total",
     "monitoring.columns.motion": "Movimento",
