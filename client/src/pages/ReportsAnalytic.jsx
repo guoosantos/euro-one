@@ -7,6 +7,7 @@ import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import { useTranslation } from "../lib/i18n.js";
 import { formatAddress } from "../lib/format-address.js";
+import { geocodeAddress } from "../lib/geocode.js";
 import { resolveEventDefinition } from "../lib/event-translations.js";
 import {
   loadColumnPreferences,
@@ -21,13 +22,14 @@ import {
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
-import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
+import { positionsColumns, resolveColumn, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
 
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
 const DEFAULT_PAGE_SIZE = 100;
-const COLUMN_STORAGE_KEY = "reports:analytic:columns";
+const COLUMN_STORAGE_KEY = "reports:analytic:columns:v2";
+const DEFAULT_RADIUS_METERS = 100;
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -42,6 +44,18 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
+}
+
+function parseCoordinateQuery(raw) {
+  if (!raw) return null;
+  const cleaned = raw.trim();
+  if (!cleaned) return null;
+  const match = cleaned.match(/(-?\d+(?:\.\d+)?)\s*,?\s*(-?\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const lat = Number(match[1]);
+  const lng = Number(match[2]);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng, address: cleaned };
 }
 
 function formatSpeed(value) {
@@ -158,8 +172,8 @@ function resolveEventLabel(entry, t) {
     entry.protocol,
     entry,
   );
-  const label = definition?.label || entry.eventDescription || t("reportsAnalytic.event.generic");
-  return label;
+  if (definition?.label) return definition.label;
+  return t("reportsAnalytic.event.position");
 }
 
 function resolveCriticalityLabel(entry, t) {
@@ -191,13 +205,15 @@ export default function ReportsAnalytic() {
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
-  const [typeFilter, setTypeFilter] = useState("all");
-  const [criticalOnly, setCriticalOnly] = useState(false);
-  const [geofenceFilter, setGeofenceFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  const [addressQuery, setAddressQuery] = useState("");
+  const [addressFilter, setAddressFilter] = useState(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [feedback, setFeedback] = useState(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [hasGenerated, setHasGenerated] = useState(false);
+  const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const [activePopup, setActivePopup] = useState(null);
   const [topBarVisible, setTopBarVisible] = useState(true);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
@@ -351,18 +367,28 @@ export default function ReportsAnalytic() {
   );
 
   const dynamicColumns = useMemo(() => {
-    if (entries.length) {
-      const schema = buildPositionsSchema(entries);
-      return schema.map((column) => {
+    const schema = entries.length ? buildPositionsSchema(entries) : [];
+    const metaKeys = Array.isArray(meta?.availableColumns) ? meta.availableColumns : [];
+    const metaColumns = metaKeys.map((key) => resolveColumn(key)).filter(Boolean);
+    const merged = [...schema, ...metaColumns];
+    if (!merged.length) {
+      return FALLBACK_COLUMNS.map(normalizeColumnLabel);
+    }
+    const seen = new Set();
+    return merged
+      .filter((column) => {
+        if (!column?.key || seen.has(column.key)) return false;
+        seen.add(column.key);
+        return true;
+      })
+      .map((column) => {
         const normalized = normalizeColumnLabel(column);
         return {
           ...normalized,
           width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
         };
       });
-    }
-    return FALLBACK_COLUMNS.map(normalizeColumnLabel);
-  }, [entries]);
+  }, [entries, meta]);
 
   const availableColumns = useMemo(() => {
     const merged = [...baseColumns, ...extraColumns, ...dynamicColumns];
@@ -432,19 +458,45 @@ export default function ReportsAnalytic() {
     saveColumnPreferences(COLUMN_STORAGE_KEY, defaultPrefs);
   }, [defaultPrefs]);
 
+  const resolveAddressFilter = useCallback(async () => {
+    const text = addressQuery.trim();
+    if (!text) {
+      setAddressFilter(null);
+      return null;
+    }
+    const coordinates = parseCoordinateQuery(text);
+    if (coordinates) {
+      const filter = { ...coordinates, radius: DEFAULT_RADIUS_METERS };
+      setAddressFilter(filter);
+      return filter;
+    }
+    setGeocoding(true);
+    try {
+      const resolved = await geocodeAddress(text);
+      if (!resolved) {
+        setAddressFilter(null);
+        return null;
+      }
+      const filter = { ...resolved, radius: DEFAULT_RADIUS_METERS };
+      setAddressFilter(filter);
+      return filter;
+    } finally {
+      setGeocoding(false);
+    }
+  }, [addressQuery]);
+
   const buildQueryParams = useCallback(
-    () => ({
+    (filter = addressFilter, pageParam = page, limitParam = pageSize) => ({
       vehicleId: selectedVehicleId,
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
-      page,
-      limit: pageSize,
-      type: typeFilter,
-      geofence: geofenceFilter,
-      criticalOnly: criticalOnly ? "true" : "false",
-      search: search.trim() || undefined,
+      addressLat: filter?.lat,
+      addressLng: filter?.lng,
+      addressRadius: filter?.radius,
+      page: pageParam,
+      limit: limitParam,
     }),
-    [criticalOnly, from, geofenceFilter, page, pageSize, search, selectedVehicleId, to, typeFilter],
+    [addressFilter, from, page, pageSize, selectedVehicleId, to],
   );
 
   const fetchReport = useCallback(async () => {
@@ -459,11 +511,29 @@ export default function ReportsAnalytic() {
     fetchReport();
   }, [fetchReport, hasGenerated]);
 
-  const handleSubmit = (event) => {
+  const handleSubmit = async (event) => {
     event.preventDefault();
-    setPage(1);
-    setHasGenerated(true);
-    fetchReport();
+    setFeedback(null);
+    if (!selectedVehicleId) {
+      setFormError("Selecione exatamente um veículo.");
+      return;
+    }
+    if (!from || !to) {
+      setFormError("Selecione o período completo.");
+      return;
+    }
+    setFormError("");
+    const resolvedFilter = await resolveAddressFilter();
+    try {
+      const params = buildQueryParams(resolvedFilter, 1, pageSize);
+      lastQueryRef.current = params;
+      setPage(1);
+      await generate(params);
+      setHasGenerated(true);
+      setFeedback({ type: "success", message: "Relatório analítico atualizado." });
+    } catch (requestError) {
+      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
+    }
   };
 
   const handlePageSizeChange = async (value) => {
@@ -471,7 +541,7 @@ export default function ReportsAnalytic() {
     setPageSize(normalized);
     setPage(1);
     if (!hasGenerated || !selectedVehicleId) return;
-    const params = { ...buildQueryParams(), page: 1, limit: normalized };
+    const params = buildQueryParams(addressFilter, 1, normalized);
     lastQueryRef.current = params;
     await generate(params);
   };
@@ -531,8 +601,15 @@ export default function ReportsAnalytic() {
     [columnDefinitionMap, entries, t],
   );
 
+  const filteredRows = useMemo(() => {
+    if (!hideUnavailableIgnition) return rows;
+    return rows.filter((row) => row.ignition !== "Indisponível");
+  }, [hideUnavailableIgnition, rows]);
+
   const resolveExportPayload = async () => {
+    setFormError("");
     if (!selectedVehicleId) {
+      setFormError("Selecione exatamente um veículo.");
       return null;
     }
     const baseColumnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
@@ -549,6 +626,7 @@ export default function ReportsAnalytic() {
       group: column.group,
       defaultVisible: column.defaultVisible,
     }));
+    const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
     return {
       columnsToExport,
       payload: {
@@ -558,10 +636,13 @@ export default function ReportsAnalytic() {
         columns: columnsToExport,
         availableColumns: availableColumns.map((column) => column.key),
         columnDefinitions: columnDefinitionsPayload,
-        type: typeFilter,
-        geofence: geofenceFilter,
-        criticalOnly: criticalOnly ? "true" : "false",
-        search: search.trim() || undefined,
+        addressFilter: resolvedFilter
+          ? {
+              lat: resolvedFilter.lat,
+              lng: resolvedFilter.lng,
+              radius: resolvedFilter.radius,
+            }
+          : null,
       },
     };
   };
@@ -645,183 +726,203 @@ export default function ReportsAnalytic() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <section className="card flex flex-col gap-4 p-0">
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <header className="space-y-2 px-6 pt-5">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">{t("reportsAnalytic.title")}</p>
-              </div>
-              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                  <span className="whitespace-nowrap">{t("reportsAnalytic.pagination.pageSize")}</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-                    className="rounded bg-transparent text-white outline-none"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((option) => (
-                      <option key={option} value={option} className="bg-[#0d1117] text-white">
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  disabled={loading || !selectedVehicleId}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {loading ? t("reportsAnalytic.loading") : t("reportsAnalytic.generate")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("pdf")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("xlsx")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingXlsx ? "Exportando…" : "Exportar Excel"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("csv")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePopup("columns")}
-                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                  title="Selecionar colunas"
-                  aria-label="Selecionar colunas"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <line x1="9" y1="4" x2="9" y2="20" />
-                    <line x1="15" y1="4" x2="15" y2="20" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTopBarVisible((visible) => !visible)}
-                  className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
-                  title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                  aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                >
-                  {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                </button>
-              </div>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        <header className="space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/50">{t("reportsAnalytic.title")}</p>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <p className="text-sm text-white/70">{t("reportsAnalytic.subtitle")}</p>
-              <div className="flex items-center gap-2 text-xs text-white/70">
-                <span className="whitespace-nowrap">
-                  {t("reportsAnalytic.pagination.pageInfo", { current: currentPage, total: totalPages })} • {t("reportsAnalytic.pagination.total", { count: totalItems })}
-                </span>
-              </div>
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
+                <span className="whitespace-nowrap">{t("reportsAnalytic.pagination.pageSize")}</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => handlePageSizeChange(Number(event.target.value))}
+                  className="rounded bg-transparent text-white outline-none"
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option} className="bg-[#0d1117] text-white">
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={loading || geocoding || !selectedVehicleId}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {loading ? t("reportsAnalytic.loading") : t("reportsAnalytic.generate")}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("pdf")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingPdf ? "Exportando…" : "Exportar PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("xlsx")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingXlsx ? "Exportando…" : "Exportar Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("csv")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePopup("columns")}
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                title="Selecionar colunas"
+                aria-label="Selecionar colunas"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="9" y1="4" x2="9" y2="20" />
+                  <line x1="15" y1="4" x2="15" y2="20" />
+                </svg>
+              </button>
+              <label
+                className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
+                title="Ocultar ignição indisponível"
+              >
+                <input
+                  type="checkbox"
+                  checked={hideUnavailableIgnition}
+                  onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="whitespace-nowrap">Disponibilidade</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setTopBarVisible((visible) => !visible)}
+                className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
+                title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+              >
+                {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+              </button>
             </div>
-          </header>
-
-          {topBarVisible ? (
-            <div className="space-y-3 px-6 pb-6">
-              <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
-                <div className="xl:col-span-4">
-                  <VehicleSelector
-                    label="Veículo"
-                    placeholder="Busque por placa, nome ou ID"
-                    className="text-sm"
-                  />
-                </div>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
-                  <input
-                    type="datetime-local"
-                    value={from}
-                    onChange={(event) => setFrom(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                </label>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
-                  <input
-                    type="datetime-local"
-                    value={to}
-                    onChange={(event) => setTo(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                </label>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">{t("reportsAnalytic.filters.type")}</span>
-                  <select
-                    value={typeFilter}
-                    onChange={(event) => setTypeFilter(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  >
-                    <option value="all">{t("reportsAnalytic.filters.all")}</option>
-                    <option value="position">{t("reportsAnalytic.filters.position")}</option>
-                    <option value="event">{t("reportsAnalytic.filters.event")}</option>
-                    <option value="command">{t("reportsAnalytic.filters.command")}</option>
-                    <option value="response">{t("reportsAnalytic.filters.response")}</option>
-                    <option value="audit">{t("reportsAnalytic.filters.audit")}</option>
-                    <option value="critical">{t("reportsAnalytic.filters.critical")}</option>
-                  </select>
-                </label>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">{t("reportsAnalytic.filters.geofence")}</span>
-                  <select
-                    value={geofenceFilter}
-                    onChange={(event) => setGeofenceFilter(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  >
-                    <option value="all">{t("reportsAnalytic.filters.geofenceAll")}</option>
-                    <option value="inside">{t("reportsAnalytic.filters.geofenceInside")}</option>
-                    <option value="outside">{t("reportsAnalytic.filters.geofenceOutside")}</option>
-                  </select>
-                </label>
-                <label className="text-sm xl:col-span-4">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">{t("reportsAnalytic.filters.search")}</span>
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder={t("reportsAnalytic.filters.searchPlaceholder")}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-xs text-white/60 xl:col-span-2 xl:mt-6">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-white/30 bg-transparent accent-primary"
-                    checked={criticalOnly}
-                    onChange={(event) => setCriticalOnly(event.target.checked)}
-                  />
-                  {t("reportsAnalytic.filters.criticalOnly")}
-                </label>
-              </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <p className="text-sm text-white/70">{t("reportsAnalytic.subtitle")}</p>
+            <div className="flex items-center gap-2 text-xs text-white/70">
+              <span className="whitespace-nowrap">
+                {t("reportsAnalytic.pagination.pageInfo", { current: currentPage, total: totalPages })} • {t("reportsAnalytic.pagination.total", { count: totalItems })}
+              </span>
             </div>
-          ) : null}
-        </form>
-      </section>
+          </div>
+        </header>
 
-      {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-          {error.message || t("reportsAnalytic.loadError")}
-        </div>
-      )}
+        {topBarVisible ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
+              <div className="xl:col-span-4">
+                <VehicleSelector
+                  label="Veículo"
+                  placeholder="Busque por placa, nome ou ID"
+                  className="text-sm"
+                />
+              </div>
+              <label className="text-sm xl:col-span-4">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
+                <input
+                  type="text"
+                  value={addressQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAddressQuery(value);
+                    if (!value.trim()) {
+                      setAddressFilter(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (addressQuery.trim()) {
+                      resolveAddressFilter();
+                    }
+                  }}
+                  placeholder="Rua, cidade ou lat,lng"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+                {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
+                {addressFilter && (
+                  <p className="mt-1 text-xs text-white/60">
+                    Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
+                  </p>
+                )}
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-white/60">Filtros ocultos. Clique para ajustar os critérios.</p>
+            <button
+              type="button"
+              onClick={() => setTopBarVisible(true)}
+              className="rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white"
+            >
+              Mostrar filtros
+            </button>
+          </div>
+        )}
+        {formError && (
+          <div>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+          </div>
+        )}
+        {feedback && (
+          <div>
+            <div
+              className={`rounded-lg border p-3 text-sm ${
+                feedback.type === "success"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {feedback.message}
+            </div>
+          </div>
+        )}
+        {error && !feedback?.message && (
+          <div>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+              {error.message || t("reportsAnalytic.loadError")}
+            </div>
+          </div>
+        )}
+      </form>
 
-      <section className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-[#0b0f17]">
+      <section className="flex-1 min-h-0">
         <MonitoringTable
-          rows={rows}
+          rows={filteredRows}
           columns={visibleColumnsWithWidths}
           loading={loading}
           emptyText={hasGenerated ? t("reportsAnalytic.empty") : t("reportsAnalytic.emptyBefore")}
