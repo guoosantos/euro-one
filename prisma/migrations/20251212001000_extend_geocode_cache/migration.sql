@@ -1,0 +1,6 @@
+ALTER TABLE "GeocodeCache" ADD COLUMN "latCenter" DOUBLE PRECISION;
+ALTER TABLE "GeocodeCache" ADD COLUMN "lonCenter" DOUBLE PRECISION;
+ALTER TABLE "GeocodeCache" ADD COLUMN "addressText" TEXT;
+ALTER TABLE "GeocodeCache" ADD COLUMN "addressJson" JSONB;
+ALTER TABLE "GeocodeCache" ADD COLUMN "provider" TEXT;
+ALTER TABLE "GeocodeCache" ADD COLUMN "hitsCount" INTEGER NOT NULL DEFAULT 0;

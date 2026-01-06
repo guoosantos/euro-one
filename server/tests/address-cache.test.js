@@ -16,8 +16,8 @@ test("ensurePositionAddress usa cache persistido sem geocode remoto", async () =
       latitude: -23.5,
       longitude: -46.6,
     });
-    assert.equal(position.fullAddress, "Rua Teste, 100 - SP");
-    assert.equal(position.shortAddress, "Rua Teste, 100 - SP");
+    assert.equal(position.fullAddress, "Rua Teste, 100-SP");
+    assert.equal(position.shortAddress, "Rua Teste, 100-SP");
   } finally {
     global.fetch = originalFetch;
   }

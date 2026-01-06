@@ -1,13 +1,15 @@
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildGridKey, enqueueGeocodeJob } from "../jobs/geocode.queue.js";
 import { loadCollection, saveCollection } from "../services/storage.js";
+import { config } from "../config.js";
 
 const STORAGE_KEY = "geocodeCache";
 const cache = new Map();
 let cacheReady = false;
 
-const NORMALIZED_PRECISION = 5;
-const LEGACY_PRECISION = 4;
+const NORMALIZED_PRECISION = Number.isFinite(config.geocoder?.gridPrecision) ? config.geocoder.gridPrecision : 4;
+const LEGACY_PRECISION_RAW = Number(process.env.GEOCODER_GRID_PRECISION_LEGACY || 5);
+const LEGACY_PRECISION = Number.isFinite(LEGACY_PRECISION_RAW) ? LEGACY_PRECISION_RAW : 5;
 
 function hydrateCacheFromStorage() {
   const stored = loadCollection(STORAGE_KEY, []);
@@ -21,13 +23,37 @@ function isDbAvailable() {
   return isPrismaAvailable() && Boolean(prisma?.geocodeCache);
 }
 
+function normalizeCacheEntry(entry) {
+  if (!entry) return null;
+  if (entry.key && entry.data) {
+    return { key: entry.key, ...entry.data, createdAt: entry.createdAt, updatedAt: entry.updatedAt };
+  }
+  if (entry.key) {
+    return {
+      key: entry.key,
+      lat: entry.latCenter ?? entry.lat ?? null,
+      lng: entry.lonCenter ?? entry.lng ?? null,
+      address: entry.addressText ?? entry.address ?? null,
+      formattedAddress: entry.formattedAddress ?? entry.addressText ?? null,
+      shortAddress: entry.shortAddress ?? entry.addressText ?? null,
+      parts: entry.addressJson ?? entry.parts ?? null,
+      provider: entry.provider ?? null,
+      hitsCount: entry.hitsCount ?? 0,
+      createdAt: entry.createdAt,
+      updatedAt: entry.updatedAt,
+    };
+  }
+  return null;
+}
+
 async function hydrateCacheFromDatabase() {
   if (!isDbAvailable()) return;
   try {
     const stored = await prisma.geocodeCache.findMany();
     stored.forEach((entry) => {
-      if (!entry?.key || !entry?.data) return;
-      cache.set(entry.key, { key: entry.key, ...entry.data, createdAt: entry.createdAt, updatedAt: entry.updatedAt });
+      const normalized = normalizeCacheEntry(entry);
+      if (!normalized?.key) return;
+      cache.set(normalized.key, normalized);
     });
   } catch (error) {
     console.warn("[geocode] Falha ao hidratar cache do banco", error?.message || error);
@@ -125,12 +151,15 @@ function buildCacheEntry(lat, lng, payload = {}) {
 
   return {
     key: primary,
+    gridKey: primary,
     lat: Number(lat),
     lng: Number(lng),
     address,
     formattedAddress: safeFormatted || address || shortAddress || null,
     shortAddress: shortAddress || safeFormatted || address || null,
     parts: parts || null,
+    provider: payload.provider || payload.source || null,
+    hitsCount: payload.hitsCount ?? 0,
     createdAt: payload.createdAt || payload.updatedAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -145,8 +174,26 @@ async function persistCacheEntry(entry) {
   try {
     await prisma.geocodeCache.upsert({
       where: { key: entry.key },
-      update: { data: entry, updatedAt: new Date() },
-      create: { key: entry.key, data: entry },
+      update: {
+        data: entry,
+        latCenter: entry.lat ?? null,
+        lonCenter: entry.lng ?? null,
+        addressText: entry.formattedAddress || entry.address || null,
+        addressJson: entry.parts || null,
+        provider: entry.provider || null,
+        hitsCount: entry.hitsCount ?? 0,
+        updatedAt: new Date(),
+      },
+      create: {
+        key: entry.key,
+        data: entry,
+        latCenter: entry.lat ?? null,
+        lonCenter: entry.lng ?? null,
+        addressText: entry.formattedAddress || entry.address || null,
+        addressJson: entry.parts || null,
+        provider: entry.provider || null,
+        hitsCount: entry.hitsCount ?? 0,
+      },
     });
   } catch (error) {
     console.warn("[geocode] Falha ao persistir cache no banco", error?.message || error);
@@ -166,6 +213,23 @@ export async function persistGeocode(lat, lng, payload) {
   if (!entry) return null;
   await persistCacheEntry(entry);
   return entry;
+}
+
+export async function incrementGeocodeCacheHit(key) {
+  if (!key) return;
+  const cached = cache.get(key);
+  if (cached) {
+    cached.hitsCount = (cached.hitsCount || 0) + 1;
+  }
+  if (!isDbAvailable()) return;
+  try {
+    await prisma.geocodeCache.update({
+      where: { key },
+      data: { hitsCount: { increment: 1 } },
+    });
+  } catch (error) {
+    console.warn("[geocode] Falha ao atualizar hits do cache", error?.message || error);
+  }
 }
 
 function normalizeCoordinate(value, precision = NORMALIZED_PRECISION) {
@@ -272,6 +336,8 @@ export function getCachedGeocode(lat, lng) {
   if (!cached) return null;
   const formattedAddress = cached.formattedAddress || formatAddress(cached.address || cached.shortAddress || "");
   return {
+    key: cached.key || primary || legacy,
+    gridKey: cached.key || primary || legacy,
     lat: cached.lat ?? lat,
     lng: cached.lng ?? lng,
     address: cached.address || formattedAddress || cached.shortAddress || null,
@@ -337,7 +403,8 @@ function normalizeAddressText(value) {
 function shouldQueueGeocode({ formattedAddress, shortAddress, geocodeStatus }) {
   const hasShort = collapseWhitespace(shortAddress || "");
   const hasFormatted = collapseWhitespace(formattedAddress || "");
-  const statusOk = geocodeStatus === "ok";
+  const normalizedStatus = String(geocodeStatus || "").toLowerCase();
+  const statusOk = normalizedStatus === "ok" || normalizedStatus === "resolved";
   const missingShort = !hasShort || isPlaceholderAddress(shortAddress);
   const missingFormatted = !hasFormatted || isPlaceholderAddress(formattedAddress);
   return missingShort || missingFormatted || !statusOk;
@@ -576,6 +643,7 @@ export default {
   getCachedGeocode,
   prefetchPositionAddresses,
   persistGeocode,
+  incrementGeocodeCacheHit,
   enqueueGeocodeJob,
   ensureCachedPositionAddress,
   ensureCachedAddresses,

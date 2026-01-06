@@ -117,6 +117,7 @@ async function bootstrapServer() {
 
   let ready = false;
   let stopGeocodeWorker = () => {};
+  let stopGeocodeMonitor = () => {};
   const app = express();
   app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/ready", (_req, res) => {
@@ -186,6 +187,15 @@ async function bootstrapServer() {
         stopGeocodeWorker = geocodeWorkerModule.startGeocodeWorker();
       } catch (error) {
         console.warn("[startup] Falha ao iniciar geocode worker", error?.message || error);
+      }
+    }
+
+    const geocodeMonitorModule = await importWithLog("./services/geocode-monitor.js");
+    if (geocodeMonitorModule?.startGeocodeMonitor) {
+      try {
+        stopGeocodeMonitor = geocodeMonitorModule.startGeocodeMonitor();
+      } catch (error) {
+        console.warn("[startup] Falha ao iniciar geocode monitor", error?.message || error);
       }
     }
 
@@ -413,6 +423,7 @@ async function bootstrapServer() {
       }
       wss.close();
       stopGeocodeWorker();
+      stopGeocodeMonitor();
     };
 
     process.on("SIGTERM", shutdown);

@@ -20,6 +20,11 @@ const TRACCAR_UNAVAILABLE_MESSAGE = "Banco do Traccar indisponível";
 const POSITION_TABLE = "tc_positions";
 const EVENT_TABLE = "tc_events";
 const DEVICE_TABLE = "tc_devices";
+const ADDRESS_STATUS = {
+  PENDING: "PENDING",
+  RESOLVED: "RESOLVED",
+  FAILED: "FAILED",
+};
 
 let dbPool = null;
 let testOverrides = null;
@@ -171,9 +176,27 @@ function normaliseDate(raw) {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
+function normalizeAddressStatus(status) {
+  if (!status) return null;
+  const raw = String(status).trim().toUpperCase();
+  if (raw === ADDRESS_STATUS.PENDING || raw === ADDRESS_STATUS.RESOLVED || raw === ADDRESS_STATUS.FAILED) {
+    return raw;
+  }
+  return null;
+}
+
+function mapGeocodeStatus(addressStatus) {
+  const normalized = normalizeAddressStatus(addressStatus);
+  if (normalized === ADDRESS_STATUS.RESOLVED) return "ok";
+  if (normalized === ADDRESS_STATUS.FAILED) return "failed";
+  if (normalized === ADDRESS_STATUS.PENDING) return "pending";
+  return null;
+}
+
 function normalisePositionRow(row) {
   if (!row) return null;
   const attributes = parseJson(row.attributes);
+  const addressStatus = normalizeAddressStatus(row.address_status ?? row.addressStatus ?? null);
   return {
     id: row.id ?? row.positionid ?? null,
     deviceId: row.deviceid ?? row.deviceId ?? null,
@@ -191,7 +214,12 @@ function normalisePositionRow(row) {
     network: parseJson(row.network),
     address: row.address ? String(row.address) : null,
     fullAddress: row.full_address ?? row.fullAddress ?? null,
+    addressStatus,
+    addressProvider: row.address_provider ?? row.addressProvider ?? null,
+    addressUpdatedAt: normaliseDate(row.address_updated_at ?? row.addressUpdatedAt),
+    addressError: row.address_error ?? row.addressError ?? null,
     attributes,
+    geocodeStatus: mapGeocodeStatus(addressStatus),
   };
 }
 
@@ -353,7 +381,7 @@ export async function fetchTrips(deviceId, from, to) {
   }
 
   const sql = `
-    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, attributes
+    SELECT id, deviceid, servertime, devicetime, fixtime, latitude, longitude, speed, course, address, full_address, address_status, address_provider, address_updated_at, address_error, attributes
     FROM ${POSITION_TABLE}
     WHERE deviceid = ${dialect.placeholder(1)}
       AND fixtime BETWEEN ${dialect.placeholder(2)} AND ${dialect.placeholder(3)}
@@ -404,6 +432,10 @@ export async function fetchLatestPositions(deviceIds = [], clientId = null) {
       latest.network,
       latest.address,
       latest.full_address,
+      latest.address_status,
+      latest.address_provider,
+      latest.address_updated_at,
+      latest.address_error,
       latest.attributes
     FROM (
       SELECT
@@ -554,6 +586,10 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
       network,
       address,
       full_address,
+      address_status,
+      address_provider,
+      address_updated_at,
+      address_error,
       attributes
     FROM ${POSITION_TABLE}
     WHERE ${conditions.join(" AND ")}
@@ -571,21 +607,78 @@ export async function fetchPositions(deviceIds = [], from, to, { limit = null, o
   return decorated;
 }
 
-export async function updatePositionFullAddress(positionId, fullAddress) {
-  if (!positionId || !fullAddress) return null;
+export async function updatePositionAddress(
+  positionId,
+  { fullAddress = null, status = ADDRESS_STATUS.RESOLVED, provider = null, error = null } = {},
+) {
+  if (!positionId) return null;
   const dialect = resolveDialect();
   if (!dialect) {
     throw createError(500, "Cliente do banco do Traccar não suportado");
   }
 
+  const fields = [];
+  const params = [];
+
+  if (fullAddress) {
+    fields.push(`full_address = ${dialect.placeholder(params.length + 1)}`);
+    params.push(fullAddress);
+  }
+
+  if (status) {
+    fields.push(`address_status = ${dialect.placeholder(params.length + 1)}`);
+    params.push(status);
+  }
+
+  if (provider !== undefined) {
+    fields.push(`address_provider = ${dialect.placeholder(params.length + 1)}`);
+    params.push(provider);
+  }
+
+  if (error !== undefined) {
+    fields.push(`address_error = ${dialect.placeholder(params.length + 1)}`);
+    params.push(error);
+  }
+
+  fields.push(`address_updated_at = ${dialect.placeholder(params.length + 1)}`);
+  params.push(new Date());
+
+  if (!fields.length) return null;
+
   const sql = `
     UPDATE ${POSITION_TABLE}
-    SET full_address = ${dialect.placeholder(1)}
-    WHERE id = ${dialect.placeholder(2)}
-      AND (full_address IS NULL OR full_address = '')
+    SET ${fields.join(", ")}
+    WHERE id = ${dialect.placeholder(params.length + 1)}
   `;
 
-  return await queryTraccarDb(sql, [fullAddress, positionId]);
+  params.push(positionId);
+  return await queryTraccarDb(sql, params);
+}
+
+export async function updatePositionFullAddress(positionId, fullAddress, options = {}) {
+  if (!positionId || !fullAddress) return null;
+  return updatePositionAddress(positionId, {
+    fullAddress,
+    status: options.status || ADDRESS_STATUS.RESOLVED,
+    provider: options.provider,
+    error: options.error,
+  });
+}
+
+export async function markPositionGeocodePending(positionId, { provider = null } = {}) {
+  return updatePositionAddress(positionId, {
+    status: ADDRESS_STATUS.PENDING,
+    provider,
+    error: null,
+  });
+}
+
+export async function markPositionGeocodeFailed(positionId, { error = null, provider = null } = {}) {
+  return updatePositionAddress(positionId, {
+    status: ADDRESS_STATUS.FAILED,
+    provider,
+    error: error ? String(error).slice(0, 200) : null,
+  });
 }
 
 function createLimiter(concurrency, minIntervalMs) {
@@ -669,7 +762,9 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
           cached?.formattedAddress || cached?.shortAddress || cached?.address || item.fullAddress || item.address,
         );
         if (formatted && formatted !== "—" && !isCoordinateFallback(formatted)) {
-          await updatePositionFullAddress(item.id, formatted);
+          await updatePositionFullAddress(item.id, formatted, {
+            provider: cached?.provider || null,
+          });
           item.fullAddress = formatted;
           resolvedIds.add(item.id);
           if (typeof onProgress === "function") {
@@ -679,6 +774,7 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
         }
 
         pendingIds.add(item.id);
+        await markPositionGeocodePending(item.id);
         await enqueueGeocodeJob({
           lat: item.latitude,
           lng: item.longitude,
@@ -719,6 +815,102 @@ export async function ensureFullAddressForPositions(positionIds = [], options = 
   }
 
   return { resolvedIds: Array.from(resolvedIds), pendingIds: Array.from(pendingIds) };
+}
+
+export async function fetchLatestResolvedPositionForDevice(deviceId) {
+  if (!deviceId) return null;
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const sql = `
+    SELECT
+      id,
+      deviceid,
+      fixtime,
+      latitude,
+      longitude,
+      full_address,
+      address_status,
+      address_provider,
+      address_updated_at,
+      address_error,
+      attributes
+    FROM ${POSITION_TABLE}
+    WHERE deviceid = ${dialect.placeholder(1)}
+      AND full_address IS NOT NULL
+      AND full_address <> ''
+      AND address_status = ${dialect.placeholder(2)}
+    ORDER BY fixtime DESC
+    LIMIT 1
+  `;
+
+  const rows = await queryTraccarDb(sql, [deviceId, ADDRESS_STATUS.RESOLVED]);
+  const normalized = rows.map(normalisePositionRow).filter(Boolean);
+  return normalized[0] || null;
+}
+
+export async function fetchPositionsMissingAddresses({
+  lookbackMinutes = 120,
+  limit = 500,
+  includeFailed = true,
+  includePending = true,
+  includeNullStatus = true,
+} = {}) {
+  const dialect = resolveDialect();
+  if (!dialect) {
+    throw createError(500, "Cliente do banco do Traccar não suportado");
+  }
+
+  const statuses = [];
+  if (includePending) statuses.push(ADDRESS_STATUS.PENDING);
+  if (includeFailed) statuses.push(ADDRESS_STATUS.FAILED);
+
+  const params = [];
+  const conditions = ["(full_address IS NULL OR full_address = '')"];
+
+  if (lookbackMinutes && Number.isFinite(Number(lookbackMinutes))) {
+    const since = new Date(Date.now() - Number(lookbackMinutes) * 60_000);
+    conditions.push(`fixtime >= ${dialect.placeholder(params.length + 1)}`);
+    params.push(since);
+  }
+
+  if (statuses.length) {
+    const placeholders = buildPlaceholders(statuses, params.length + 1);
+    const statusClause = `address_status IN (${placeholders})`;
+    params.push(...statuses);
+    if (includeNullStatus) {
+      conditions.push(`(${statusClause} OR address_status IS NULL)`);
+    } else {
+      conditions.push(statusClause);
+    }
+  } else if (includeNullStatus) {
+    conditions.push("address_status IS NULL");
+  }
+
+  const sql = `
+    SELECT
+      id,
+      deviceid,
+      fixtime,
+      latitude,
+      longitude,
+      address,
+      full_address,
+      address_status,
+      address_provider,
+      address_updated_at,
+      address_error,
+      attributes
+    FROM ${POSITION_TABLE}
+    WHERE ${conditions.join(" AND ")}
+    ORDER BY fixtime DESC
+    LIMIT ${Number(limit)}
+  `;
+
+  const rows = await queryTraccarDb(sql, params);
+  return rows.map(normalisePositionRow).filter(Boolean);
 }
 
 export async function fetchEvents(deviceIds = [], from, to, limit = 50) {
@@ -839,6 +1031,10 @@ export async function fetchPositionsByIds(positionIds = []) {
       network,
       address,
       full_address,
+      address_status,
+      address_provider,
+      address_updated_at,
+      address_error,
       attributes
     FROM ${POSITION_TABLE}
     WHERE id IN (${placeholders})

@@ -1,6 +1,6 @@
 import { enqueueGeocodeJob } from "../jobs/geocode.queue.js";
 import { enqueueWarmGeocodeFromPositions, formatFullAddress, getCachedGeocode } from "../utils/address.js";
-import { queryTraccarDb, updatePositionFullAddress } from "./traccar-db.js";
+import { markPositionGeocodePending, queryTraccarDb, updatePositionFullAddress } from "./traccar-db.js";
 
 const DEFAULT_BATCH = 500;
 const DEFAULT_CONCURRENCY = 3;
@@ -25,6 +25,7 @@ function parsePositiveNumber(value, fallback) {
 
 function buildWhereClause({ from, to, lastId = null }) {
   const clauses = ["(full_address IS NULL OR full_address = '')"];
+  clauses.push("(address_status IS NULL OR address_status IN ('PENDING', 'FAILED'))");
   const params = [];
 
   if (from) {
@@ -46,7 +47,7 @@ function buildWhereClause({ from, to, lastId = null }) {
 async function fetchBatch({ from, to, limit, lastId }) {
   const { where, params } = buildWhereClause({ from, to, lastId });
   const sql = `
-    SELECT id, deviceid, fixtime, latitude, longitude, address, full_address, attributes
+    SELECT id, deviceid, fixtime, latitude, longitude, address, full_address, address_status, address_provider, attributes
     FROM tc_positions
     WHERE ${where}
     ORDER BY id ASC
@@ -97,11 +98,12 @@ async function processRow(row, { dryRun, priority }) {
 
   if (formatted && formatted !== "—" && !isCoordinateFallback(formatted)) {
     if (!dryRun) {
-      await updatePositionFullAddress(row.id, formatted);
+      await updatePositionFullAddress(row.id, formatted, { provider: cached?.provider || null });
     }
     return { updated: true, fullAddress: formatted };
   }
 
+  await markPositionGeocodePending(row.id, { provider: row.address_provider ?? null });
   await enqueueGeocodeJob({
     lat: row.latitude,
     lng: row.longitude,
