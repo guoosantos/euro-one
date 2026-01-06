@@ -13,12 +13,11 @@ const require = createRequire(import.meta.url);
 
 async function loadOptionalModule(specifier, label) {
   try {
-    const resolved = require.resolve(specifier);
-    return await import(resolved);
-  } catch (error) {
-    if (shouldLogDriverWarnings) {
-      console.warn(`[geocode-queue] ${label} indisponível, ativando modo em memória.`, error?.message || error);
-    }
+    // ESM loader: evita problemas de resolução/require dentro do PM2
+    return await import(specifier);
+  } catch (err) {
+    const message = err?.message || String(err);
+    console.warn(`[geocode-queue] ${label} indisponível, ativando modo em memória.`, message);
     return null;
   }
 }
@@ -100,13 +99,19 @@ function ensureConnection() {
   if (state.connection) return state.connection;
 
   try {
-    const client = new IORedis(getRedisUrl(), {
-      maxRetriesPerRequest: 2,
-      enableOfflineQueue: false,
-      retryStrategy(times) {
-        return Math.min(times * 250, 2000);
-      },
-    });
+const client = new IORedis(getRedisUrl(), {
+  // BullMQ requirement:
+  maxRetriesPerRequest: null,
+
+  // Recommended for BullMQ (avoid ready-check edge cases on managed/containers):
+  enableReadyCheck: false,
+
+  enableOfflineQueue: false,
+  retryStrategy(times) {
+    return Math.min(times * 250, 2000);
+  },
+});
+
     client.on("error", (error) => {
       logRedisErrorOnce(error);
     });
