@@ -1,4 +1,4 @@
-import xirgoSensors from "../../../xirgo_sensors_ID_Name_Description_ptBR.json" assert { type: "json" };
+import xirgoSensors from "../../../xirgo_sensors_ID_Name_Description_ptBR.json" with { type: "json" };
 
 const SENSOR_LABEL_OVERRIDES = {
   SENSOR_ARMED: "CAN: Alarme armado",

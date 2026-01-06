@@ -6,17 +6,22 @@ import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import usePositionsReport from "../lib/hooks/usePositionsReport.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import {
-  buildColumnDefaults,
   loadColumnPreferences,
   mergeColumnPreferences,
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
+import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import { formatAddress } from "../lib/format-address.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
+import {
+  buildAddressWithLatLng,
+  resolveReportColumnLabel,
+  resolveReportColumnTooltip,
+} from "../lib/report-column-labels.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -159,8 +164,16 @@ function normalizeAddressDisplay(value) {
 
 function normalizeColumnLabel(column) {
   if (!column) return column;
-  const label = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
-  return { ...column, label, labelPt: label, labelPdf: column.labelPdf || label };
+  const baseLabel = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
+  const label = resolveReportColumnLabel(column.key, baseLabel);
+  const tooltip = resolveReportColumnTooltip(column.key, column.label || column.labelPt || label);
+  return {
+    ...column,
+    label,
+    labelPt: label,
+    labelPdf: column.labelPdf || label,
+    fullLabel: tooltip,
+  };
 }
 
 function buildPdfFileName(vehicle, from, to) {
@@ -249,7 +262,10 @@ export default function ReportsPositions() {
     [availableColumns],
   );
 
-  const defaults = useMemo(() => buildColumnDefaults(availableColumns), [availableColumns]);
+  const defaults = useMemo(
+    () => buildColumnPreset(availableColumns, EURO_PRESET_KEYS),
+    [availableColumns],
+  );
 
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
@@ -275,6 +291,9 @@ export default function ReportsPositions() {
       visibleColumns.map((column) => ({
         ...column,
         width: columnPrefs?.widths?.[column.key] ?? column.width,
+        render: column.key === "address"
+          ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
+          : column.render,
       })),
     [visibleColumns, columnPrefs],
   );

@@ -1,4 +1,4 @@
-import catalog from "./iotmEventCatalog.pt-BR.json" assert { type: "json" };
+import catalog from "./iotmEventCatalog.pt-BR.json" with { type: "json" };
 
 export const iotmEventCatalog = catalog;
 

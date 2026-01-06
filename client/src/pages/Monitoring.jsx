@@ -21,6 +21,8 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import useTasks from "../lib/hooks/useTasks.js";
 import { useUI } from "../lib/store.js";
 import { formatAddress } from "../lib/format-address.js";
+import safeApi from "../lib/safe-api.js";
+import { API_ROUTES } from "../lib/api-routes.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
@@ -81,6 +83,11 @@ const COLUMN_MIN_WIDTHS = {
 };
 const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 const DEFAULT_PAGE_SIZE = 50;
+const GEO_CACHE_STORAGE_KEY = "monitoring:geocode-cache:v1";
+const GEO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const GEO_MAX_CACHE_ENTRIES = 500;
+const GEO_MAX_CONCURRENT = 4;
+const GEO_QUEUE_DELAY_MS = 120;
 const normaliseLayoutVisibility = (value = {}) => ({
   showMap: value.showMap !== false,
   showTable: value.showTable !== false,
@@ -196,6 +203,40 @@ const arraysEqual = (a = [], b = []) => {
     if (a[index] !== b[index]) return false;
   }
   return true;
+};
+
+const loadGeocodeCache = () => {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const stored = localStorage.getItem(GEO_CACHE_STORAGE_KEY);
+    if (!stored) return new Map();
+    const parsed = JSON.parse(stored);
+    const entries = Array.isArray(parsed?.entries) ? parsed.entries : [];
+    const now = Date.now();
+    const hydrated = entries
+      .filter((entry) => entry && Array.isArray(entry) && entry.length >= 2)
+      .map(([key, value]) => {
+        const updatedAt = Number(value?.updatedAt ?? 0);
+        if (updatedAt && now - updatedAt > GEO_CACHE_TTL_MS) return null;
+        return [key, value];
+      })
+      .filter(Boolean);
+    return new Map(hydrated);
+  } catch (_error) {
+    return new Map();
+  }
+};
+
+const persistGeocodeCache = (cache) => {
+  if (typeof window === "undefined") return;
+  try {
+    const entries = Array.from(cache.entries())
+      .sort((a, b) => Number(b?.[1]?.updatedAt ?? 0) - Number(a?.[1]?.updatedAt ?? 0))
+      .slice(0, GEO_MAX_CACHE_ENTRIES);
+    localStorage.setItem(GEO_CACHE_STORAGE_KEY, JSON.stringify({ entries }));
+  } catch (_error) {
+    // ignore
+  }
 };
 
 const getColumnMinWidth = (key) => {
@@ -374,6 +415,88 @@ export default function Monitoring() {
   const mapViewportRef = useRef(null);
   const selectionRef = useRef({ vehicleId: null, deviceId: null });
   const selectedDeviceIdRef = useRef(null);
+  const geocodeCacheRef = useRef(loadGeocodeCache());
+  const geocodeQueueRef = useRef([]);
+  const geocodeQueuedRef = useRef(new Set());
+  const geocodeInFlightRef = useRef(new Map());
+  const geocodeActiveRef = useRef(0);
+  const geocodePersistTimerRef = useRef(null);
+  const geocodePumpTimerRef = useRef(null);
+  const [geocodeVersion, setGeocodeVersion] = useState(0);
+
+  const scheduleGeocodePersist = useCallback(() => {
+    if (geocodePersistTimerRef.current) return;
+    geocodePersistTimerRef.current = setTimeout(() => {
+      geocodePersistTimerRef.current = null;
+      persistGeocodeCache(geocodeCacheRef.current);
+    }, 800);
+  }, []);
+
+  const updateGeocodeCache = useCallback((key, payload) => {
+    if (!key) return;
+    const current = geocodeCacheRef.current.get(key) || {};
+    const next = { ...current, ...payload, updatedAt: Date.now() };
+    geocodeCacheRef.current.set(key, next);
+    setGeocodeVersion((prev) => prev + 1);
+    scheduleGeocodePersist();
+  }, [scheduleGeocodePersist]);
+
+  const pumpGeocodeQueue = useCallback(() => {
+    if (geocodePumpTimerRef.current) return;
+
+    const run = () => {
+      while (geocodeActiveRef.current < GEO_MAX_CONCURRENT && geocodeQueueRef.current.length > 0) {
+        const next = geocodeQueueRef.current.shift();
+        if (!next) continue;
+        const { key, lat, lng, deviceId } = next;
+        geocodeQueuedRef.current.delete(key);
+        if (geocodeInFlightRef.current.has(key)) continue;
+        geocodeActiveRef.current += 1;
+        updateGeocodeCache(key, { status: "pending" });
+
+        const request = safeApi.get(API_ROUTES.geocode.reverse, {
+          params: {
+            lat,
+            lng,
+            deviceId,
+            reason: "monitoring",
+            priority: "high",
+          },
+        });
+        geocodeInFlightRef.current.set(key, request);
+
+        request
+          .then(({ data, error: requestError }) => {
+            if (requestError) {
+              updateGeocodeCache(key, { status: "fallback" });
+              return;
+            }
+            const formatted = data?.formattedAddress || data?.address || data?.shortAddress || "";
+            updateGeocodeCache(key, {
+              status: data?.status || data?.geocodeStatus || (formatted ? "ok" : "pending"),
+              address: formatted || null,
+              shortAddress: data?.shortAddress || null,
+              gridKey: data?.gridKey || null,
+            });
+          })
+          .catch(() => {
+            updateGeocodeCache(key, { status: "fallback" });
+          })
+          .finally(() => {
+            geocodeInFlightRef.current.delete(key);
+            geocodeActiveRef.current = Math.max(0, geocodeActiveRef.current - 1);
+          });
+      }
+
+      if (geocodeQueueRef.current.length || geocodeActiveRef.current > 0) {
+        geocodePumpTimerRef.current = setTimeout(run, GEO_QUEUE_DELAY_MS);
+      } else {
+        geocodePumpTimerRef.current = null;
+      }
+    };
+
+    geocodePumpTimerRef.current = setTimeout(run, GEO_QUEUE_DELAY_MS);
+  }, [updateGeocodeCache]);
 
   const queryFilters = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
@@ -489,6 +612,17 @@ export default function Monitoring() {
     setMonitoringTopbarVisible(layoutVisibility.showTopbar !== false);
     return () => setMonitoringTopbarVisible(true);
   }, [layoutVisibility.showTopbar, setMonitoringTopbarVisible]);
+
+  useEffect(() => () => {
+    if (geocodePersistTimerRef.current) {
+      clearTimeout(geocodePersistTimerRef.current);
+      geocodePersistTimerRef.current = null;
+    }
+    if (geocodePumpTimerRef.current) {
+      clearTimeout(geocodePumpTimerRef.current);
+      geocodePumpTimerRef.current = null;
+    }
+  }, []);
 
   const columnStorageKey = useMemo(
     () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
@@ -895,20 +1029,51 @@ export default function Monitoring() {
     });
   }, [buildCoordKey, filteredDevices, locale, t]);
 
+  const queueGeocodeForRow = useCallback(
+    (row) => {
+      if (!row?.addressKey) return;
+      if (!Number.isFinite(row.lat) || !Number.isFinite(row.lng)) return;
+      const cached = geocodeCacheRef.current.get(row.addressKey);
+      if (cached?.status === "ok" && cached?.address) return;
+      if (geocodeInFlightRef.current.has(row.addressKey)) return;
+      if (geocodeQueuedRef.current.has(row.addressKey)) return;
+      const formatted = formatAddress(row.rawAddress);
+      if (formatted && formatted !== "—") return;
+      geocodeQueuedRef.current.add(row.addressKey);
+      geocodeQueueRef.current.push({
+        key: row.addressKey,
+        lat: row.lat,
+        lng: row.lng,
+        deviceId: row.deviceId,
+      });
+      updateGeocodeCache(row.addressKey, { status: "pending" });
+      pumpGeocodeQueue();
+    },
+    [pumpGeocodeQueue, updateGeocodeCache],
+  );
+
+  useEffect(() => {
+    rows.forEach((row) => queueGeocodeForRow(row));
+  }, [queueGeocodeForRow, rows]);
+
   const decoratedRows = useMemo(() => {
     return rows.map((row) => {
-      const formatted = formatAddress(row.rawAddress);
+      const cached = row.addressKey ? geocodeCacheRef.current.get(row.addressKey) : null;
+      const cachedAddress = cached?.address || cached?.formattedAddress || cached?.shortAddress || null;
+      const formatted = cachedAddress || formatAddress(row.rawAddress);
       const resolved = formatted && formatted !== "—" ? formatted : null;
-      const isLoading = row.geocodeStatus === "pending";
+      const geocodeStatus = cached?.status || row.geocodeStatus || null;
+      const isLoading = geocodeStatus === "pending" && !cachedAddress;
 
       return {
         ...row,
         address: resolved,
         addressLoading: isLoading,
+        geocodeStatus,
         isNearby: nearbyDeviceIds.includes(row.deviceId),
       };
     });
-  }, [nearbyDeviceIds, rows]);
+  }, [geocodeVersion, nearbyDeviceIds, rows]);
 
   const focusSelectedRowOnMap = useCallback((row, reason) => {
     if (!row) return;

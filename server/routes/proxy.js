@@ -4058,6 +4058,35 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   await resolvePositionsFullAddressBatch(positions, resolveMode);
   const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
 
+  const formatIoValue = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    if (typeof value === "boolean") return value ? "Sim" : "Não";
+    return String(value);
+  };
+
+  const buildIoSummary = (attributes = {}) => {
+    const list = [];
+    const ioDetails = Array.isArray(attributes?.ioDetails) ? attributes.ioDetails : null;
+    if (ioDetails?.length) {
+      ioDetails.forEach((item) => {
+        const label = item?.label || item?.key || "IO";
+        const value = formatIoValue(item?.value);
+        if (value) list.push(`${label}: ${value}`);
+      });
+    }
+
+    const input2 = extractDigitalChannel(attributes, { index: 2, kind: "input" });
+    const input4 = extractDigitalChannel(attributes, { index: 4, kind: "input" });
+    if (input2 !== null && input2 !== undefined) {
+      list.push(`E2: ${formatIoValue(input2) ?? "—"}`);
+    }
+    if (input4 !== null && input4 !== undefined) {
+      list.push(`E4: ${formatIoValue(input4) ?? "—"}`);
+    }
+
+    return list.length ? list.join(" • ") : null;
+  };
+
   const positionEntries = enrichedPositions.map((position) => {
     const attributes = position.attributes || {};
     const speedRaw = Number(position.speed ?? 0);
@@ -4074,14 +4103,18 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       occurredAt: timestamp,
       address: resolvedAddress,
       shortAddress: resolvedShortAddress,
+      latitude: position.latitude ?? null,
+      longitude: position.longitude ?? null,
       speed: speedKmh,
       ignition: extractIgnition(attributes),
       input2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
       input4: extractDigitalChannel(attributes, { index: 4, kind: "input" }),
+      ioSummary: buildIoSummary(attributes),
       geofence: attributes.geofence ?? attributes.geofenceId ?? null,
       jamming,
       vehicleVoltage: extractVehicleVoltage(attributes, position.protocol),
       isCritical: Boolean(jamming),
+      severity: jamming ? "critical" : null,
     };
   });
 
@@ -4106,6 +4139,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         position?.shortAddress || null,
       ) || fallbackShort;
     const shortAddress = position?.shortAddress || address || fallbackShort;
+    const severity = resolveEventSeverity(event);
     return {
       id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,
       type: "event",
@@ -4114,15 +4148,46 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       eventDescription: attributes.description || attributes.message || null,
       address,
       shortAddress,
+      latitude: position?.latitude ?? null,
+      longitude: position?.longitude ?? null,
       speed: speedKmh,
       ignition,
+      ioSummary: buildIoSummary(positionAttributes),
       geofence: event.geofenceId || attributes.geofence || null,
       jamming: extractJamming(positionAttributes) ?? extractJamming(attributes),
       vehicleVoltage: extractVehicleVoltage(positionAttributes),
-      severity: resolveEventSeverity(event),
-      isCritical: resolveEventSeverity(event) === "critical",
+      severity,
+      isCritical: severity === "critical",
     };
   });
+
+  const positionTimeline = positionEntries
+    .filter((entry) => entry.occurredAt)
+    .map((entry) => ({
+      ...entry,
+      __timestamp: new Date(entry.occurredAt).getTime(),
+    }))
+    .filter((entry) => Number.isFinite(entry.__timestamp))
+    .sort((a, b) => a.__timestamp - b.__timestamp);
+
+  const findNearestPosition = (when) => {
+    const timestamp = new Date(when).getTime();
+    if (!Number.isFinite(timestamp) || positionTimeline.length === 0) return null;
+    let low = 0;
+    let high = positionTimeline.length - 1;
+    let match = null;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      const current = positionTimeline[mid];
+      if (current.__timestamp <= timestamp) {
+        match = current;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return match;
+  };
 
   const commandHistory = await fetchCommandHistoryItems(req, { vehicleId, traccarId, from, to, clientId });
   const commandEntries = commandHistory.flatMap((item) => {
@@ -4154,15 +4219,34 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         isCritical,
       }]
       : [];
-    return [...sentEntry, ...responseEntry];
+    return [...sentEntry, ...responseEntry].map((entry) => {
+      const nearest = findNearestPosition(entry.occurredAt);
+      return {
+        ...entry,
+        address: nearest?.address || null,
+        shortAddress: nearest?.shortAddress || null,
+        latitude: nearest?.latitude ?? null,
+        longitude: nearest?.longitude ?? null,
+        speed: nearest?.speed ?? null,
+        ignition: nearest?.ignition ?? null,
+        ioSummary: nearest?.ioSummary || null,
+        geofence: nearest?.geofence || null,
+        vehicleVoltage: nearest?.vehicleVoltage ?? null,
+        severity: isCritical ? "critical" : null,
+        auditAction: entry.type === "command" ? "Envio de comando" : "Retorno do comando",
+      };
+    });
   });
+
+  const futureActionEntries = [];
+  const auditEntries = [];
 
   const typeFilter = String(req.query?.type || "all").toLowerCase();
   const criticalOnly = ["true", "1", "yes", "sim"].includes(String(req.query?.criticalOnly || "").toLowerCase());
   const geofenceFilter = String(req.query?.geofence || "all").toLowerCase();
   const search = String(req.query?.search || "").trim().toLowerCase();
 
-  const entries = [...positionEntries, ...eventEntries, ...commandEntries]
+  const entries = [...positionEntries, ...eventEntries, ...commandEntries, ...futureActionEntries, ...auditEntries]
     .filter((entry) => entry.occurredAt)
     .filter((entry) => {
       if (typeFilter !== "all") {
@@ -4170,7 +4254,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         if (typeFilter === "event" && entry.type !== "event") return false;
         if (typeFilter === "command" && entry.type !== "command") return false;
         if (["response", "command_response"].includes(typeFilter) && entry.type !== "command_response") return false;
-        if (typeFilter === "audit" && !["command", "command_response"].includes(entry.type)) return false;
+        if (typeFilter === "audit" && !["command", "command_response", "action", "audit"].includes(entry.type)) return false;
         if (typeFilter === "critical" && !entry.isCritical) return false;
       }
       if (criticalOnly && !entry.isCritical) return false;

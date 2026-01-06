@@ -1,6 +1,6 @@
 import express from "express";
-import xirgoSensorsCatalog from "../../shared/xirgoSensorsCatalog.pt-BR.json" assert { type: "json" };
-import deviceDiagnosticCatalog from "../../shared/deviceDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
+import xirgoSensorsCatalog from "../../shared/xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
+import deviceDiagnosticCatalog from "../../shared/deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
 import { authenticate, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();

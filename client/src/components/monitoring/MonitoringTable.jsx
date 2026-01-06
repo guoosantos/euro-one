@@ -188,17 +188,19 @@ export default function MonitoringTable({
 
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
           <tr>
-            {normalizedColumns.map((col) => (
+            {normalizedColumns.map((col) => {
+              const columnTitle = col.title || col.fullLabel || col.label;
+              return (
               <th
                 key={col.key}
                 style={getWidthStyle(col.key)}
 
                 className="relative border-r border-white/5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
-                title={col.label}
+                title={columnTitle}
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
-                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={col.label}>{col.label}</span>
+                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={columnTitle}>{col.label}</span>
 
                   <span
                     role="separator"
@@ -210,7 +212,8 @@ export default function MonitoringTable({
                   />
                 </div>
               </th>
-            ))}
+            );
+            })}
           </tr>
         </thead>
         <tbody className="bg-[#0b0f17] text-xs">
@@ -243,7 +246,7 @@ export default function MonitoringTable({
 
                   const isAddressColumn = col.key === "address" || col.key === "endereco";
 
-                  if (isAddressColumn) {
+                  if (isAddressColumn && !col.render) {
                     cellValue = (
                       <AddressCell
                         address={row.address || row.rawAddress || row.position?.address}
