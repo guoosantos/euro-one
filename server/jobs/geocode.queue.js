@@ -245,6 +245,26 @@ function resolvePriority(priority = "normal") {
   return PRIORITY_MAP[priority] || PRIORITY_MAP.normal;
 }
 
+async function updateGeocodeJob(existing, nextData, queue, jobOptions) {
+  if (typeof existing?.updateData === "function") {
+    await existing.updateData(nextData);
+    return existing;
+  }
+  if (typeof existing?.update === "function") {
+    await existing.update(nextData);
+    return existing;
+  }
+  if (typeof existing?.remove === "function" && queue?.add) {
+    await existing.remove();
+    return queue.add("reverse-geocode", nextData, jobOptions);
+  }
+  if (queue?.add) {
+    return queue.add("reverse-geocode", nextData, jobOptions);
+  }
+  existing.data = nextData;
+  return existing;
+}
+
 export async function enqueueGeocodeJob({
   positionId = null,
   positionIds = [],
@@ -275,22 +295,23 @@ export async function enqueueGeocodeJob({
     reason,
     priority,
   };
+  const jobOptions = {
+    jobId: gridJobId,
+    priority: resolvePriority(priority),
+    delay: Math.max(0, Number(delayMs) || 0),
+    attempts: DEFAULT_ATTEMPTS,
+    backoff: { type: "geocodeBackoff" },
+  };
 
   try {
     const existing = await queue.getJob(gridJobId);
     if (existing) {
       const mergedIds = mergePositionIds(existing.data?.positionIds || [], positionId);
-      await existing.update({ ...existing.data, positionIds: mergedIds });
-      return existing;
+      const nextData = { ...existing.data, ...payload, positionIds: mergedIds };
+      return await updateGeocodeJob(existing, nextData, queue, jobOptions);
     }
 
-    return await queue.add("reverse-geocode", payload, {
-      jobId: gridJobId,
-      priority: resolvePriority(priority),
-      delay: Math.max(0, Number(delayMs) || 0),
-      attempts: DEFAULT_ATTEMPTS,
-      backoff: { type: "geocodeBackoff" },
-    });
+    return await queue.add("reverse-geocode", payload, jobOptions);
   } catch (error) {
     console.warn("[geocode-queue] Failed to enqueue geocode job", {
       message: error?.message || error,
