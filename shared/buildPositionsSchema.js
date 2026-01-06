@@ -20,6 +20,8 @@ const EXCLUDED_KEYS = new Set([
   "id",
   "deviceid",
   "positionid",
+  "commandresponse",
+  "command_response",
   "formattedaddress",
   "shortaddress",
   "formatted_address",
