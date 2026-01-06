@@ -7,6 +7,7 @@ let IORedis = null;
 const shouldLogDriverWarnings = process.env.NODE_ENV !== "test";
 let warnedMissingRedisUrl = false;
 let warnedMemoryDriver = false;
+let lastRedisErrorAt = 0;
 
 const require = createRequire(import.meta.url);
 
@@ -83,28 +84,39 @@ function getRedisUrl() {
   return envUrl || "redis://127.0.0.1:6379";
 }
 
+function shouldAvoidMemoryFallback() {
+  return Boolean(process.env.GEOCODE_REDIS_URL) && BullQueue && BullWorker && IORedis;
+}
+
+function logRedisErrorOnce(error, windowMs = 10_000) {
+  const now = Date.now();
+  if (now - lastRedisErrorAt < windowMs) return;
+  lastRedisErrorAt = now;
+  console.warn("[geocode-queue] Redis connection error", error?.message || error);
+}
+
 function ensureConnection() {
   if (state.driver !== "bullmq") return null;
   if (state.connection) return state.connection;
 
   try {
     const client = new IORedis(getRedisUrl(), {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      lazyConnect: true,
+      maxRetriesPerRequest: 2,
+      enableOfflineQueue: false,
+      retryStrategy(times) {
+        return Math.min(times * 250, 2000);
+      },
     });
     client.on("error", (error) => {
-      const code = error?.code || error?.name;
-      if (code === "ECONNREFUSED" || code === "ENOTFOUND") {
-        state.driver = "memory";
-      }
-      console.warn("[geocode-queue] Redis connection error", error?.message || error);
+      logRedisErrorOnce(error);
     });
     state.connection = client;
     return client;
   } catch (error) {
     console.warn("[geocode-queue] Failed to initialize Redis connection", error?.message || error);
-    state.driver = "memory";
+    if (!shouldAvoidMemoryFallback()) {
+      state.driver = "memory";
+    }
     return null;
   }
 }
@@ -214,8 +226,11 @@ export function getGeocodeQueue() {
 
   const connection = ensureConnection();
   if (!connection) {
-    state.driver = "memory";
-    return getGeocodeQueue();
+    if (!shouldAvoidMemoryFallback()) {
+      state.driver = "memory";
+      return getGeocodeQueue();
+    }
+    return null;
   }
 
   try {
@@ -232,8 +247,11 @@ export function getGeocodeQueue() {
       });
   } catch (error) {
     console.warn("[geocode-queue] Failed to initialize queue", error?.message || error);
-    state.driver = "memory";
-    return getGeocodeQueue();
+    if (!shouldAvoidMemoryFallback()) {
+      state.driver = "memory";
+      return getGeocodeQueue();
+    }
+    return null;
   }
 
   return state.queue;
@@ -346,8 +364,12 @@ export function registerGeocodeProcessor(processor, { concurrency = 3 } = {}) {
   const connection = getGeocodeQueueConnection();
   const queue = getGeocodeQueue();
   if (!connection || !queue) {
-    state.driver = "memory";
-    return registerGeocodeProcessor(processor, { concurrency });
+    if (!shouldAvoidMemoryFallback()) {
+      state.driver = "memory";
+      return registerGeocodeProcessor(processor, { concurrency });
+    }
+    console.warn("[geocode-queue] Worker não inicializado; aguardando Redis/BullMQ.");
+    return () => {};
   }
 
   state.worker =
@@ -373,7 +395,7 @@ export function registerGeocodeProcessor(processor, { concurrency = 3 } = {}) {
   });
 
   state.worker.on("error", (error) => {
-    console.warn("[geocode-queue] worker error", error?.message || error);
+    logRedisErrorOnce(error);
   });
 
   return () => {
