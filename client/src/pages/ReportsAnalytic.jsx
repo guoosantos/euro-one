@@ -156,6 +156,7 @@ function resolveCommandStatusLabel(status, t) {
 }
 
 function resolveEventLabel(entry, t) {
+  if (entry?.event) return entry.event;
   if (entry.type === "position") return t("reportsAnalytic.event.position");
   if (entry.type === "command") {
     const name = entry.commandName || t("reportsAnalytic.commandFallback");

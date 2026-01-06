@@ -64,6 +64,7 @@ import {
   resolveEventDescriptor,
   ioFriendlyNames,
 } from "../../shared/telemetryDictionary.js";
+import { resolveEventDefinition } from "../../client/src/lib/event-translations.js";
 
 
 const router = express.Router();
@@ -1626,6 +1627,41 @@ function resolveEventSeverity(event) {
   const typeKey = String(event?.type || event?.event || event?.attributes?.type || "").toLowerCase();
   if (CRITICAL_EVENT_TYPES.has(typeKey)) return "critical";
   return "normal";
+}
+
+const ANALYTIC_EVENT_STATUS_TYPES = new Set([
+  "deviceonline",
+  "deviceoffline",
+  "deviceunknown",
+  "deviceinactive",
+  "devicemoving",
+  "devicestopped",
+]);
+
+function normalizeEventTypeKey(value) {
+  if (!value) return "";
+  return String(value).trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function resolveAnalyticEventCandidate(entry) {
+  const attributes = entry?.attributes || {};
+  return (
+    attributes.alarm ??
+    attributes.event ??
+    attributes.type ??
+    entry?.eventType ??
+    entry?.eventDescription ??
+    null
+  );
+}
+
+function resolveAnalyticEventLabel(entry) {
+  const candidate = resolveAnalyticEventCandidate(entry);
+  if (!candidate) return null;
+  const normalized = normalizeEventTypeKey(candidate);
+  if (ANALYTIC_EVENT_STATUS_TYPES.has(normalized)) return null;
+  const definition = resolveEventDefinition(candidate, "pt-BR", null, entry?.protocol, entry);
+  return definition?.label || null;
 }
 
 function isSeverityMatch(eventSeverity, filter) {
@@ -4343,12 +4379,33 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
 
   entries.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
 
+  const eventLabelsByTimestamp = new Map();
+  entries.forEach((entry) => {
+    if (entry.type !== "event") return;
+    const timestamp = entry.occurredAt ? new Date(entry.occurredAt).getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) return;
+    const label = resolveAnalyticEventLabel(entry);
+    if (!label) return;
+    const bucket = eventLabelsByTimestamp.get(timestamp) || [];
+    bucket.push(label);
+    eventLabelsByTimestamp.set(timestamp, bucket);
+  });
+
+  const entriesWithEvents = entries.map((entry) => {
+    if (!["position", "event"].includes(entry.type)) return entry;
+    const timestamp = entry.occurredAt ? new Date(entry.occurredAt).getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) return entry;
+    const labels = eventLabelsByTimestamp.get(timestamp);
+    const resolvedLabel = labels?.length ? labels.join(" • ") : "Posição registrada";
+    return { ...entry, event: resolvedLabel };
+  });
+
   const page = pagination?.page ?? 1;
   const pageSize = pagination?.limit === undefined ? 1000 : pagination?.limit;
-  const totalItems = entries.length;
+  const totalItems = entriesWithEvents.length;
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
   const start = pageSize ? (page - 1) * pageSize : 0;
-  const items = pageSize ? entries.slice(start, start + pageSize) : entries;
+  const items = pageSize ? entriesWithEvents.slice(start, start + pageSize) : entriesWithEvents;
 
   const availableColumns = new Set();
   const skipColumns = new Set([
@@ -4376,7 +4433,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       availableColumns.add(key);
     });
   };
-  entries.forEach(collectKeys);
+  entriesWithEvents.forEach(collectKeys);
 
   const latestPosition = positionEntries[positionEntries.length - 1] || null;
   const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
