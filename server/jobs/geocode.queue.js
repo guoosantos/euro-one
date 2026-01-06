@@ -1,7 +1,3 @@
-import { createRequire } from "module";
-
-const require = createRequire(import.meta.url);
-
 let BullQueue = null;
 let BullWorker = null;
 let IORedis = null;
@@ -10,21 +6,26 @@ const shouldLogDriverWarnings = process.env.NODE_ENV !== "test";
 let warnedMissingRedisUrl = false;
 let warnedMemoryDriver = false;
 
-try {
-  ({ Queue: BullQueue, Worker: BullWorker } = require("bullmq"));
-} catch (error) {
+const bullmqModule = await import("bullmq").catch((error) => {
   if (shouldLogDriverWarnings) {
     console.warn("[geocode-queue] BullMQ indisponível, ativando modo em memória.", error?.message || error);
   }
+  return null;
+});
+
+if (bullmqModule) {
+  ({ Queue: BullQueue, Worker: BullWorker } = bullmqModule);
 }
 
-try {
-  // eslint-disable-next-line n/no-missing-require
-  IORedis = require("ioredis");
-} catch (error) {
+const ioredisModule = await import("ioredis").catch((error) => {
   if (shouldLogDriverWarnings) {
     console.warn("[geocode-queue] ioredis indisponível, ativando modo em memória.", error?.message || error);
   }
+  return null;
+});
+
+if (ioredisModule) {
+  IORedis = ioredisModule.default ?? ioredisModule;
 }
 
 const GEOCODE_QUEUE_NAME = "geocode";
