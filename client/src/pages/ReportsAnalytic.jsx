@@ -1,14 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
-import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
-import { useTranslation } from "../lib/i18n.js";
-import { formatAddress } from "../lib/format-address.js";
+import usePositionsReport from "../lib/hooks/usePositionsReport.js";
 import { geocodeAddress } from "../lib/geocode.js";
-import { resolveEventDefinition } from "../lib/event-translations.js";
 import {
   loadColumnPreferences,
   mergeColumnPreferences,
@@ -16,20 +12,21 @@ import {
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
 import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
+import { formatAddress } from "../lib/format-address.js";
+import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
+import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
+import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
+import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
 import {
   buildAddressWithLatLng,
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
-import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
-import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
-import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
-import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
 
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
-const DEFAULT_PAGE_SIZE = 100;
-const COLUMN_STORAGE_KEY = "reports:analytic:columns:v2";
+const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
+const DEFAULT_PAGE_SIZE = 1000;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -38,13 +35,6 @@ const FALLBACK_COLUMNS = positionsColumns.map((column) => {
     label: resolveSensorLabel({ name: label, key: column.key }),
   };
 });
-
-function formatDateTime(value) {
-  if (!value) return "—";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
-}
 
 function parseCoordinateQuery(raw) {
   if (!raw) return null;
@@ -56,6 +46,13 @@ function parseCoordinateQuery(raw) {
   const lng = Number(match[2]);
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
   return { lat, lng, address: cleaned };
+}
+
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString();
 }
 
 function formatSpeed(value) {
@@ -114,6 +111,7 @@ function formatByDescriptor(key, value) {
     return text || "—";
   }
   return value ?? "—";
+
 }
 
 function formatIgnition(value) {
@@ -164,47 +162,6 @@ function normalizeAddressDisplay(value) {
   }
 }
 
-function resolveCommandStatusLabel(status, t) {
-  if (!status) return t("reportsAnalytic.status.pending");
-  const normalized = String(status).toUpperCase();
-  if (normalized === "RESPONDED") return t("reportsAnalytic.status.success");
-  if (normalized === "ERROR") return t("reportsAnalytic.status.failure");
-  if (normalized === "SENT" || normalized === "PENDING") return t("reportsAnalytic.status.pending");
-  if (normalized === "TIMEOUT") return t("reportsAnalytic.status.timeout");
-  if (normalized === "UNSUPPORTED") return t("reportsAnalytic.status.unsupported");
-  return status;
-}
-
-function resolveEventLabel(entry, t) {
-  if (entry?.event) return entry.event;
-  if (entry.type === "position") return t("reportsAnalytic.event.position");
-  if (entry.type === "command") {
-    const name = entry.commandName || t("reportsAnalytic.commandFallback");
-    return t("reportsAnalytic.event.commandSent", { name });
-  }
-  if (entry.type === "command_response") {
-    const name = entry.commandName || t("reportsAnalytic.commandFallback");
-    return t("reportsAnalytic.event.commandResponse", { name });
-  }
-  const definition = resolveEventDefinition(
-    entry.eventType || entry.eventDescription,
-    "pt-BR",
-    t,
-    entry.protocol,
-    entry,
-  );
-  if (definition?.label) return definition.label;
-  return t("reportsAnalytic.event.position");
-}
-
-function resolveCriticalityLabel(entry, t) {
-  const severity = entry.severity ? String(entry.severity).toLowerCase() : null;
-  const known = new Set(["critical", "high", "medium", "low", "info"]);
-  if (severity && known.has(severity)) return t(`severity.${severity}`);
-  if (entry.isCritical) return t("severity.critical");
-  return "—";
-}
-
 function normalizeColumnLabel(column) {
   if (!column) return column;
   const baseLabel = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
@@ -219,10 +176,33 @@ function normalizeColumnLabel(column) {
   };
 }
 
-export default function ReportsAnalytic() {
-  const { t } = useTranslation();
+function buildPdfFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
+}
+
+function buildXlsxFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+}
+
+function buildCsvFileName(vehicle, from, to) {
+  const plate = vehicle?.plate || vehicle?.name || "vehicle";
+  const safePlate = String(plate).replace(/\s+/g, "-");
+  const safeFrom = String(from).replace(/[:\\s]/g, "-");
+  const safeTo = String(to).replace(/[:\\s]/g, "-");
+  return `position-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
+}
+
+export default function ReportsPositions() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
-  const { data, loading, error, generate, exportPdf, exportXlsx, exportCsv } = useAnalyticReport();
+  const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = usePositionsReport();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -231,26 +211,35 @@ export default function ReportsAnalytic() {
   const [geocoding, setGeocoding] = useState(false);
   const [formError, setFormError] = useState("");
   const [feedback, setFeedback] = useState(null);
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [hasGenerated, setHasGenerated] = useState(false);
-  const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
-  const [activePopup, setActivePopup] = useState(null);
   const [topBarVisible, setTopBarVisible] = useState(true);
+  const [activePopup, setActivePopup] = useState(null);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
   const [pdfColumns, setPdfColumns] = useState([]);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [exportFormat, setExportFormat] = useState("pdf");
-  const lastQueryRef = useRef(null);
+  const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
+  const lastFilterKeyRef = useRef("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [positions, setPositions] = useState([]);
+  const [meta, setMeta] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const baseQueryRef = useRef(null);
+  const [lastResolvedFilter, setLastResolvedFilter] = useState(null);
 
-  const entries = data?.entries || [];
-  const meta = data?.meta || null;
+  const effectivePageSize = pageSize;
+  const totalPages = meta?.totalPages || 1;
+  const currentPage = meta?.currentPage || page;
+  const totalItems = meta?.totalItems ?? positions.length;
+  const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
 
   const availableColumns = useMemo(() => {
-    if (entries.length) {
-      const schema = buildPositionsSchema(entries);
+    // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
+    if (positions.length) {
+      const schema = buildPositionsSchema(positions);
       return schema.map((column) => {
         const normalized = normalizeColumnLabel(column);
         return {
@@ -261,22 +250,36 @@ export default function ReportsAnalytic() {
       });
     }
     return FALLBACK_COLUMNS.map(normalizeColumnLabel);
-  }, [entries]);
+  }, [positions]);
+
+  const availableColumnKeys = useMemo(
+    () => availableColumns.map((column) => column.key),
+    [availableColumns],
+  );
 
   const columnDefinitionMap = useMemo(
     () => new Map(availableColumns.map((column) => [column.key, column])),
     [availableColumns],
   );
 
-  const defaultPrefs = useMemo(
+  const defaults = useMemo(
     () => buildColumnPreset(availableColumns, EURO_PRESET_KEYS),
     [availableColumns],
   );
-  const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaultPrefs));
+
+  const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
   useEffect(() => {
-    setColumnPrefs((prev) => mergeColumnPreferences(defaultPrefs, prev));
-  }, [defaultPrefs]);
+    setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
+  }, [defaults]);
+
+  useEffect(() => {
+    const positionsCount = positions.length;
+    if (import.meta.env.DEV && (positionsCount > 0 || availableColumns.length === 0)) {
+      console.debug("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
+    }
+  }, [availableColumns.length, positions.length]);
+
 
   const visibleColumns = useMemo(
     () => resolveVisibleColumns(availableColumns, columnPrefs),
@@ -295,29 +298,87 @@ export default function ReportsAnalytic() {
     [visibleColumns, columnPrefs],
   );
 
-  const handleColumnWidthChange = useCallback(
-    (key, width) => {
-      setColumnPrefs((prev) => {
-        const next = { ...prev, widths: { ...(prev?.widths || {}), [key]: width } };
-        saveColumnPreferences(COLUMN_STORAGE_KEY, next);
-        return next;
+  const rows = useMemo(() => {
+    const list = Array.isArray(positions) ? positions : [];
+    return list.map((position) => {
+    const row = {
+        key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+        deviceId: position.id ?? position.gpsTime ?? Math.random(),
+
+        gpsTime: formatDateTime(position.gpsTime),
+        deviceTime: formatDateTime(position.deviceTime),
+        serverTime: formatDateTime(position.serverTime),
+        latitude: position.latitude != null ? position.latitude.toFixed(6) : "—",
+        longitude: position.longitude != null ? position.longitude.toFixed(6) : "—",
+        address: normalizeAddressDisplay(position.address),
+        lat: position.latitude,
+        lng: position.longitude,
+        speed: formatSpeed(position.speed),
+        direction: formatDirection(position.direction),
+        ignition: formatIgnition(position.ignition),
+        vehicleState: position.vehicleState || "Indisponível",
+        batteryLevel: formatBattery(position.batteryLevel),
+        rssi: position.rssi ?? "—",
+        satellites: position.satellites ?? "—",
+        geofence: position.geofence || "—",
+        accuracy: formatAccuracy(position.accuracy),
+        hdop: formatHdop(position.hdop),
+        distance: formatDistance(position.distance),
+        totalDistance: formatDistance(position.totalDistance),
+        vehicleVoltage: formatVehicleVoltage(position.vehicleVoltage),
+        deviceTemp: formatByDescriptor("deviceTemp", position.deviceTemp),
+        handBrake: formatByDescriptor("handBrake", position.handBrake),
+        commandResponse: position.commandResponse || "—",
+        deviceStatusEvent: position.deviceStatusEvent || "—",
+        deviceStatus: position.deviceStatus || "Indisponível",
+        digitalInput1: formatIoState(position.digitalInput1),
+        digitalInput2: formatIoState(position.digitalInput2),
+        digitalOutput1: formatIoState(position.digitalOutput1),
+        digitalOutput2: formatIoState(position.digitalOutput2),
+        digitalInput3: formatIoState(position.digitalInput3),
+        digitalInput4: formatIoState(position.digitalInput4),
+        digitalInput5: formatIoState(position.digitalInput5),
+        digitalInput6: formatIoState(position.digitalInput6),
+        digitalInput7: formatIoState(position.digitalInput7),
+        digitalInput8: formatIoState(position.digitalInput8),
+        digitalOutput3: formatIoState(position.digitalOutput3),
+        digitalOutput4: formatIoState(position.digitalOutput4),
+        digitalOutput5: formatIoState(position.digitalOutput5),
+        digitalOutput6: formatIoState(position.digitalOutput6),
+        digitalOutput7: formatIoState(position.digitalOutput7),
+        digitalOutput8: formatIoState(position.digitalOutput8),
+        ioDetails:
+          Array.isArray(position.ioDetails) && position.ioDetails.length
+            ? position.ioDetails
+                .map((item) => {
+                  const label = item?.label || item?.key || "IO";
+                  const value = item?.value ?? "—";
+                  return `${label}: ${value}`;
+                })
+                .join(" • ")
+            : "—",
+      };
+
+      const attributes = position?.attributes && typeof position.attributes === "object" ? position.attributes : {};
+      const keys = new Set([...Object.keys(position || {}), ...Object.keys(attributes)]);
+      keys.forEach((key) => {
+        if (key === "attributes" || key === "protocol") return;
+        if (row[key] !== undefined) return;
+        const definition = columnDefinitionMap.get(key);
+        const sourceValue = key in position ? position[key] : attributes[key];
+        row[key] = formatDynamicValue(key, sourceValue, definition);
       });
-    },
-    [],
-  );
 
-  const handleApplyColumns = useCallback(
-    (next) => {
-      setColumnPrefs(next);
-      saveColumnPreferences(COLUMN_STORAGE_KEY, next);
-    },
-    [],
-  );
+      return row;
+    });
 
-  const handleRestoreColumns = useCallback(() => {
-    setColumnPrefs(defaultPrefs);
-    saveColumnPreferences(COLUMN_STORAGE_KEY, defaultPrefs);
-  }, [defaultPrefs]);
+  }, [columnDefinitionMap, positions]);
+
+
+  const filteredRows = useMemo(() => {
+    if (!hideUnavailableIgnition) return rows;
+    return rows.filter((row) => row.ignition !== "Indisponível" && row.vehicleState !== "Indisponível");
+  }, [hideUnavailableIgnition, rows]);
 
   const resolveAddressFilter = useCallback(async () => {
     const text = addressQuery.trim();
@@ -329,6 +390,7 @@ export default function ReportsAnalytic() {
     if (coordinates) {
       const filter = { ...coordinates, radius: DEFAULT_RADIUS_METERS };
       setAddressFilter(filter);
+      setLastResolvedFilter(filter);
       return filter;
     }
     setGeocoding(true);
@@ -336,10 +398,12 @@ export default function ReportsAnalytic() {
       const resolved = await geocodeAddress(text);
       if (!resolved) {
         setAddressFilter(null);
+        setLastResolvedFilter(null);
         return null;
       }
       const filter = { ...resolved, radius: DEFAULT_RADIUS_METERS };
       setAddressFilter(filter);
+      setLastResolvedFilter(filter);
       return filter;
     } finally {
       setGeocoding(false);
@@ -347,7 +411,7 @@ export default function ReportsAnalytic() {
   }, [addressQuery]);
 
   const buildQueryParams = useCallback(
-    (filter = addressFilter, pageParam = page, limitParam = pageSize) => ({
+    (filter, pageParam = 1, limitParam = effectivePageSize) => ({
       vehicleId: selectedVehicleId,
       from: new Date(from).toISOString(),
       to: new Date(to).toISOString(),
@@ -357,151 +421,106 @@ export default function ReportsAnalytic() {
       page: pageParam,
       limit: limitParam,
     }),
-    [addressFilter, from, page, pageSize, selectedVehicleId, to],
+    [effectivePageSize, from, selectedVehicleId, to],
   );
 
-  const fetchReport = useCallback(async () => {
-    if (!selectedVehicleId) return;
-    const params = buildQueryParams();
-    lastQueryRef.current = params;
-    await generate(params);
-  }, [buildQueryParams, generate, selectedVehicleId]);
+  const handleGenerate = useCallback(
+    async (event) => {
+      event?.preventDefault?.();
+      setFeedback(null);
+      if (!selectedVehicleId) {
+        setFormError("Selecione exatamente um veículo.");
+        return;
+      }
+      if (!from || !to) {
+        setFormError("Selecione o período completo.");
+        return;
+      }
+
+      setFormError("");
+      const resolvedFilter = await resolveAddressFilter();
+      try {
+        const filterKey = `${resolvedFilter?.lat ?? ""}|${resolvedFilter?.lng ?? ""}|${resolvedFilter?.radius ?? ""}|${addressQuery.trim()}`;
+        lastFilterKeyRef.current = filterKey;
+        const params = buildQueryParams(resolvedFilter, 1, effectivePageSize);
+        baseQueryRef.current = params;
+        setPage(1);
+        const normalized = await generate(params);
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+        setHasGenerated(true);
+        setFeedback({ type: "success", message: "Relatório de posições atualizado." });
+      } catch (requestError) {
+        setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
+      }
+    },
+    [selectedVehicleId, from, to, generate, resolveAddressFilter, addressQuery, buildQueryParams, effectivePageSize],
+  );
 
   useEffect(() => {
-    if (!hasGenerated) return;
-    fetchReport();
-  }, [fetchReport, hasGenerated]);
-
-  const handleSubmit = async (event) => {
-    event.preventDefault();
-    setFeedback(null);
-    if (!selectedVehicleId) {
-      setFormError("Selecione exatamente um veículo.");
-      return;
-    }
-    if (!from || !to) {
-      setFormError("Selecione o período completo.");
-      return;
-    }
-    setFormError("");
-    const resolvedFilter = await resolveAddressFilter();
-    try {
-      const params = buildQueryParams(resolvedFilter, 1, pageSize);
-      lastQueryRef.current = params;
-      setPage(1);
-      await generate(params);
-      setHasGenerated(true);
-      setFeedback({ type: "success", message: "Relatório analítico atualizado." });
-    } catch (requestError) {
-      setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
-    }
-  };
-
-  const handlePageSizeChange = async (value) => {
-    const normalized = Number(value) || DEFAULT_PAGE_SIZE;
-    setPageSize(normalized);
+    if (!hasGenerated || loading || !selectedVehicleId) return;
+    const filter = addressQuery.trim() ? addressFilter : null;
+    const filterKey = `${filter?.lat ?? ""}|${filter?.lng ?? ""}|${filter?.radius ?? ""}|${addressQuery.trim()}`;
+    if (filterKey === lastFilterKeyRef.current) return;
+    lastFilterKeyRef.current = filterKey;
+    const params = buildQueryParams(filter, 1, effectivePageSize);
+    baseQueryRef.current = params;
     setPage(1);
-    if (!hasGenerated || !selectedVehicleId) return;
-    const params = buildQueryParams(addressFilter, 1, normalized);
-    lastQueryRef.current = params;
-    await generate(params);
-  };
+    fetchPage(params)
+      .then((normalized) => {
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      })
+      .catch(() => {});
+  }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
 
-  const totalItems = meta?.totalItems ?? entries.length;
-  const totalPages = meta?.totalPages ?? 1;
-  const currentPage = meta?.page ?? page;
 
-  const rows = useMemo(
-    () =>
-      entries.map((entry) => {
-        const commandStatus = entry.commandStatus ? resolveCommandStatusLabel(entry.commandStatus, t) : null;
-        const commandResult = entry.commandResult ? `${commandStatus ? `${commandStatus} · ` : ""}${entry.commandResult}` : commandStatus;
-        const eventLabel = resolveEventLabel(entry, t);
-        const gpsTime = entry.gpsTime || entry.occurredAt || null;
-        const audit =
-          entry.userName
-            ? `${entry.userName}${entry.auditAction ? ` · ${entry.auditAction}` : ""}`
-            : entry.auditSummary || "—";
-        const row = {
-          key: entry.id ?? `${gpsTime}-${entry.latitude}-${entry.longitude}`,
-          deviceId: entry.id ?? gpsTime ?? Math.random(),
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || !meta || !baseQueryRef.current) return;
+    if (meta.currentPage >= meta.totalPages) return;
+    const nextPage = (meta.currentPage || 1) + 1;
+    setLoadingMore(true);
+    try {
+      const params = { ...baseQueryRef.current, page: nextPage, limit: effectivePageSize };
+      baseQueryRef.current = params;
+      const normalized = await fetchPage(params);
+      setPositions((prev) => [...prev, ...(normalized.positions || [])]);
+      setMeta(normalized.meta);
+      setPage(nextPage);
+    } catch (loadError) {
+      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais posições." });
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [effectivePageSize, fetchPage, loadingMore, meta]);
 
-          gpsTime: formatDateTime(gpsTime),
-          deviceTime: formatDateTime(entry.deviceTime),
-          serverTime: formatDateTime(entry.serverTime),
-          latitude: entry.latitude != null ? entry.latitude.toFixed(6) : "—",
-          longitude: entry.longitude != null ? entry.longitude.toFixed(6) : "—",
-          address: normalizeAddressDisplay(entry.address),
-          lat: entry.latitude,
-          lng: entry.longitude,
-          event: entry.type === "command_response" && commandResult ? `${eventLabel} (${commandResult})` : eventLabel,
-          speed: formatSpeed(entry.speed),
-          direction: formatDirection(entry.direction),
-          ignition: formatIgnition(entry.ignition),
-          vehicleState: entry.vehicleState || "Indisponível",
-          batteryLevel: formatBattery(entry.batteryLevel),
-          rssi: entry.rssi ?? "—",
-          satellites: entry.satellites ?? "—",
-          geofence: entry.geofence || "—",
-          accuracy: formatAccuracy(entry.accuracy),
-          hdop: formatHdop(entry.hdop),
-          distance: formatDistance(entry.distance),
-          totalDistance: formatDistance(entry.totalDistance),
-          vehicleVoltage: formatVehicleVoltage(entry.vehicleVoltage),
-          deviceTemp: formatByDescriptor("deviceTemp", entry.deviceTemp),
-          handBrake: formatByDescriptor("handBrake", entry.handBrake),
-          commandResponse: entry.commandResponse || "—",
-          deviceStatusEvent: entry.deviceStatusEvent || "—",
-          deviceStatus: entry.deviceStatus || "Indisponível",
-          digitalInput1: formatIoState(entry.digitalInput1),
-          digitalInput2: formatIoState(entry.digitalInput2),
-          digitalOutput1: formatIoState(entry.digitalOutput1),
-          digitalOutput2: formatIoState(entry.digitalOutput2),
-          digitalInput3: formatIoState(entry.digitalInput3),
-          digitalInput4: formatIoState(entry.digitalInput4),
-          digitalInput5: formatIoState(entry.digitalInput5),
-          digitalInput6: formatIoState(entry.digitalInput6),
-          digitalInput7: formatIoState(entry.digitalInput7),
-          digitalInput8: formatIoState(entry.digitalInput8),
-          digitalOutput3: formatIoState(entry.digitalOutput3),
-          digitalOutput4: formatIoState(entry.digitalOutput4),
-          digitalOutput5: formatIoState(entry.digitalOutput5),
-          digitalOutput6: formatIoState(entry.digitalOutput6),
-          digitalOutput7: formatIoState(entry.digitalOutput7),
-          digitalOutput8: formatIoState(entry.digitalOutput8),
-          ioDetails:
-            Array.isArray(entry.ioDetails) && entry.ioDetails.length
-              ? entry.ioDetails
-                  .map((item) => {
-                    const label = item?.label || item?.key || "IO";
-                    const value = item?.value ?? "—";
-                    return `${label}: ${value}`;
-                  })
-                  .join(" • ")
-              : "—",
-          criticality: resolveCriticalityLabel(entry, t),
-          audit,
-        };
-
-        const attributes = entry?.attributes && typeof entry.attributes === "object" ? entry.attributes : {};
-        const keys = new Set([...Object.keys(entry || {}), ...Object.keys(attributes)]);
-        keys.forEach((key) => {
-          if (["attributes", "protocol"].includes(key)) return;
-          if (row[key] !== undefined) return;
-          const definition = columnDefinitionMap.get(key);
-          const sourceValue = key in entry ? entry[key] : attributes[key];
-          row[key] = formatDynamicValue(key, sourceValue, definition);
-        });
-
-        return row;
-      }),
-    [columnDefinitionMap, entries, t],
+  const handlePageSizeChange = useCallback(
+    async (value) => {
+      const normalizedValue = Number(value);
+      setPageSize(normalizedValue || DEFAULT_PAGE_SIZE);
+      setPage(1);
+      if (!hasGenerated || !selectedVehicleId) return;
+      const filter = lastResolvedFilter || addressFilter;
+      const params = buildQueryParams(filter, 1, normalizedValue || effectivePageSize);
+      baseQueryRef.current = params;
+      try {
+        const normalized = await generate(params);
+        setPositions(normalized.positions);
+        setMeta(normalized.meta);
+      } catch (requestError) {
+        setFeedback({ type: "error", message: requestError?.message || "Erro ao aplicar paginação." });
+      }
+    },
+    [
+      addressFilter,
+      buildQueryParams,
+      effectivePageSize,
+      generate,
+      hasGenerated,
+      lastResolvedFilter,
+      selectedVehicleId,
+    ],
   );
-
-  const filteredRows = useMemo(() => {
-    if (!hideUnavailableIgnition) return rows;
-    return rows.filter((row) => row.ignition !== "Indisponível");
-  }, [hideUnavailableIgnition, rows]);
 
   const resolveExportPayload = async () => {
     setFormError("");
@@ -510,8 +529,9 @@ export default function ReportsAnalytic() {
       return null;
     }
     const baseColumnsToExport = pdfColumns.length ? pdfColumns : visibleColumns.map((col) => col.key);
-    const allowedExport = new Set(availableColumns.map((column) => column.key));
+    const allowedExport = new Set(availableColumnKeys.length ? availableColumnKeys : FALLBACK_COLUMNS.map((col) => col.key));
     const columnsToExport = baseColumnsToExport.filter((key) => allowedExport.has(key));
+    const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
     const columnDefinitionsPayload = availableColumns.map((column) => ({
       key: column.key,
       labelPt: column.label,
@@ -523,7 +543,6 @@ export default function ReportsAnalytic() {
       group: column.group,
       defaultVisible: column.defaultVisible,
     }));
-    const resolvedFilter = addressQuery.trim() ? await resolveAddressFilter() : addressFilter;
     return {
       columnsToExport,
       payload: {
@@ -531,7 +550,7 @@ export default function ReportsAnalytic() {
         from: new Date(from).toISOString(),
         to: new Date(to).toISOString(),
         columns: columnsToExport,
-        availableColumns: availableColumns.map((column) => column.key),
+        availableColumns: availableColumnKeys,
         columnDefinitions: columnDefinitionsPayload,
         addressFilter: resolvedFilter
           ? {
@@ -550,17 +569,31 @@ export default function ReportsAnalytic() {
     setExportingPdf(true);
     try {
       const blob = await exportPdf(resolvedPayload.payload);
-      if (!(blob instanceof Blob) || blob.size === 0) return;
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "PDF não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const plate = selectedVehicle?.plate || selectedVehicle?.name || "veiculo";
       link.href = url;
-      link.download = `relatorio-analitico-${String(plate).replace(/\s+/g, "-")}.pdf`;
+      link.download = buildPdfFileName(selectedVehicle, from, to);
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       setPdfModalOpen(false);
+    } catch (requestError) {
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar PDF.",
+      });
     } finally {
       setExportingPdf(false);
     }
@@ -572,17 +605,31 @@ export default function ReportsAnalytic() {
     setExportingXlsx(true);
     try {
       const blob = await exportXlsx(resolvedPayload.payload);
-      if (!(blob instanceof Blob) || blob.size === 0) return;
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "Excel não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const plate = selectedVehicle?.plate || selectedVehicle?.name || "veiculo";
       link.href = url;
-      link.download = `relatorio-analitico-${String(plate).replace(/\s+/g, "-")}.xlsx`;
+      link.download = buildXlsxFileName(selectedVehicle, from, to);
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       setPdfModalOpen(false);
+    } catch (requestError) {
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar Excel.",
+      });
     } finally {
       setExportingXlsx(false);
     }
@@ -594,20 +641,52 @@ export default function ReportsAnalytic() {
     setExportingCsv(true);
     try {
       const blob = await exportCsv(resolvedPayload.payload);
-      if (!(blob instanceof Blob) || blob.size === 0) return;
+      if (!(blob instanceof Blob) || blob.size === 0) {
+        setFeedback({
+          type: "error",
+          message: "CSV não foi recebido. Tente novamente em instantes.",
+        });
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
-      const plate = selectedVehicle?.plate || selectedVehicle?.name || "veiculo";
       link.href = url;
-      link.download = `relatorio-analitico-${String(plate).replace(/\s+/g, "-")}.csv`;
+      link.download = buildCsvFileName(selectedVehicle, from, to);
       document.body.appendChild(link);
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
       setPdfModalOpen(false);
+    } catch (requestError) {
+      const abortedMessage =
+        requestError?.aborted || requestError?.name === "TimeoutError"
+          ? "A exportação demorou mais que o esperado. Tente novamente."
+          : null;
+      setFeedback({
+        type: "error",
+        message: abortedMessage || requestError?.message || "Falha ao exportar CSV.",
+      });
     } finally {
       setExportingCsv(false);
     }
+  };
+
+  const handleApplyColumns = (prefs) => {
+    setColumnPrefs(prefs);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, prefs);
+  };
+
+  const handleRestoreColumns = () => {
+    setColumnPrefs(defaults);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, defaults);
+  };
+
+  const handleColumnWidthChange = (key, width) => {
+    setColumnPrefs((prev) => {
+      const next = { ...prev, widths: { ...(prev?.widths || {}), [key]: width } };
+      saveColumnPreferences(COLUMN_STORAGE_KEY, next);
+      return next;
+    });
   };
 
   const openPdfModal = (format = "pdf") => {
@@ -617,108 +696,110 @@ export default function ReportsAnalytic() {
   };
 
   const columnsForSelection = useMemo(
+
     () => availableColumns.map((column) => ({ key: column.key, label: column.label })),
     [availableColumns],
+
   );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+      <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <header className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50">{t("reportsAnalytic.title")}</p>
-            </div>
-            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-              <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                <span className="whitespace-nowrap">{t("reportsAnalytic.pagination.pageSize")}</span>
-                <select
-                  value={pageSize}
-                  onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-                  className="rounded bg-transparent text-white outline-none"
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
+              </div>
+              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
+                  <span className="whitespace-nowrap">Itens por página</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => handlePageSizeChange(Number(event.target.value))}
+                    className="rounded bg-transparent text-white outline-none"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option} value={option} className="bg-[#0d1117] text-white">
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="submit"
+                  disabled={loading || geocoding || !selectedVehicleId}
+                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
                 >
-                  {PAGE_SIZE_OPTIONS.map((option) => (
-                    <option key={option} value={option} className="bg-[#0d1117] text-white">
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="submit"
-                disabled={loading || geocoding || !selectedVehicleId}
-                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
-              >
-                {loading ? t("reportsAnalytic.loading") : t("reportsAnalytic.generate")}
-              </button>
-              <button
-                type="button"
-                onClick={() => openPdfModal("pdf")}
-                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-              >
-                {exportingPdf ? "Exportando…" : "Exportar PDF"}
-              </button>
-              <button
-                type="button"
-                onClick={() => openPdfModal("xlsx")}
-                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-              >
-                {exportingXlsx ? "Exportando…" : "Exportar Excel"}
-              </button>
-              <button
-                type="button"
-                onClick={() => openPdfModal("csv")}
-                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-              >
-                {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivePopup("columns")}
-                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                title="Selecionar colunas"
-                aria-label="Selecionar colunas"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="4" width="18" height="16" rx="2" />
-                  <line x1="9" y1="4" x2="9" y2="20" />
-                  <line x1="15" y1="4" x2="15" y2="20" />
-                </svg>
-              </button>
-              <label
-                className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
-                title="Ocultar ignição indisponível"
-              >
-                <input
-                  type="checkbox"
-                  checked={hideUnavailableIgnition}
-                  onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
-                  className="h-4 w-4 accent-primary"
-                />
-                <span className="whitespace-nowrap">Disponibilidade</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => setTopBarVisible((visible) => !visible)}
-                className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
-                title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-              >
-                {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-              </button>
+                  {loading ? "Gerando…" : "Gerar relatório"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPdfModal("pdf")}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPdfModal("xlsx")}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingXlsx ? "Exportando…" : "Exportar Excel"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => openPdfModal("csv")}
+                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+                >
+                  {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePopup("columns")}
+                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                  title="Selecionar colunas"
+                  aria-label="Selecionar colunas"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="16" rx="2" />
+                    <line x1="9" y1="4" x2="9" y2="20" />
+                    <line x1="15" y1="4" x2="15" y2="20" />
+                  </svg>
+                </button>
+                <label
+                  className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
+                  title="Ocultar posições sem ignição"
+                >
+                  <input
+                    type="checkbox"
+                    checked={hideUnavailableIgnition}
+                    onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="whitespace-nowrap">Disponibilidade</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setTopBarVisible((visible) => !visible)}
+                  className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
+                  title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                  aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                >
+                  {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                </button>
+              </div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <p className="text-sm text-white/70">{t("reportsAnalytic.subtitle")}</p>
-            <div className="flex items-center gap-2 text-xs text-white/70">
-              <span className="whitespace-nowrap">
-                {t("reportsAnalytic.pagination.pageInfo", { current: currentPage, total: totalPages })} • {t("reportsAnalytic.pagination.total", { count: totalItems })}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
+              <div className="flex items-center gap-2 text-xs text-white/70">
+                <span className="whitespace-nowrap">
+                  Página {currentPage} de {totalPages} • {totalItems} itens
+                </span>
+              </div>
             </div>
-          </div>
         </header>
 
         {topBarVisible ? (
@@ -790,6 +871,7 @@ export default function ReportsAnalytic() {
             </button>
           </div>
         )}
+
         {formError && (
           <div>
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
@@ -810,9 +892,7 @@ export default function ReportsAnalytic() {
         )}
         {error && !feedback?.message && (
           <div>
-            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
-              {error.message || t("reportsAnalytic.loadError")}
-            </div>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
           </div>
         )}
       </form>
@@ -821,41 +901,31 @@ export default function ReportsAnalytic() {
         <MonitoringTable
           rows={filteredRows}
           columns={visibleColumnsWithWidths}
-          loading={loading}
-          emptyText={hasGenerated ? t("reportsAnalytic.empty") : t("reportsAnalytic.emptyBefore")}
-          liveGeocode={false}
+          loading={loading || loadingMore}
+          emptyText="Nenhuma posição encontrada para o período selecionado."
           columnWidths={columnPrefs?.widths}
           onColumnWidthChange={handleColumnWidthChange}
+          liveGeocode={false}
         />
       </section>
-
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          className="rounded-lg border border-border px-3 py-2 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-          onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-          disabled={currentPage <= 1 || loading}
-        >
-          {t("reportsAnalytic.pagination.prev")}
-        </button>
-        <div className="text-xs text-white/60">
-          {t("reportsAnalytic.pagination.pageInfo", { current: currentPage, total: totalPages })}
+      {canLoadMore && (
+        <div className="flex items-center justify-center">
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
+          >
+            {loadingMore ? "Carregando..." : "Carregar mais"}
+          </button>
         </div>
-        <button
-          type="button"
-          className="rounded-lg border border-border px-3 py-2 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-          onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-          disabled={currentPage >= totalPages || loading}
-        >
-          {t("reportsAnalytic.pagination.next")}
-        </button>
-      </div>
+      )}
 
       {activePopup === "columns" && (
         <MonitoringColumnSelector
           columns={availableColumns}
           columnPrefs={columnPrefs}
-          defaultPrefs={defaultPrefs}
+          defaultPrefs={defaults}
           onApply={handleApplyColumns}
           onRestore={handleRestoreColumns}
           onClose={() => setActivePopup(null)}

@@ -4098,314 +4098,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   return { positions: mapped, meta: { ...meta, columns } };
 }
 
-async function buildAnalyticReportData(req, { vehicleId, from, to, pagination }) {
-  if (!vehicleId) {
-    throw createError(400, "vehicleId é obrigatório");
-  }
-  if (!from || !to) {
-    throw createError(400, "from/to são obrigatórios");
-  }
-
-  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-  const vehicles = listVehicles({ clientId });
-  const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
-  if (!vehicle) {
-    throw createError(404, "Veículo não encontrado");
-  }
-
-  const devices = listDevices({ clientId });
-  const device = devices.find((item) => String(item.vehicleId) === String(vehicleId));
-  if (!device?.traccarId) {
-    throw createError(409, "Equipamento vinculado sem traccarId");
-  }
-
-  const traccarId = Number(device?.traccarId);
-  if (!Number.isFinite(traccarId)) {
-    throw createError(409, "Equipamento vinculado sem traccarId");
-  }
-
-  const protocol =
-    device?.protocol ||
-    device?.attributes?.protocol ||
-    null;
-
-  const positionsReport = await buildPositionsReportData(req, {
-    vehicleId,
-    from,
-    to,
-    addressFilter: null,
-    pagination: null,
-  });
-  const positionEntries = positionsReport.positions.map((position) => {
-    const occurredAt = position.gpsTime || position.deviceTime || position.serverTime || null;
-    return {
-      ...position,
-      type: "position",
-      occurredAt,
-    };
-  });
-
-  const eventLimit = parsePositiveInteger(req.query?.eventLimit ?? req.body?.eventLimit, 10000);
-  const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
-  const positionMap = new Map(
-    positionEntries
-      .filter((position) => position?.id != null)
-      .map((position) => [String(position.id), position]),
-  );
-  const eventEntries = events.map((event) => {
-    const position = event.positionId != null ? positionMap.get(String(event.positionId)) : null;
-    const attributes = event.attributes || {};
-    const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
-    const address =
-      normalizeAddressValue(
-        position?.address || event.address || attributes.address,
-        null,
-        null,
-      ) || fallbackShort;
-    const severity = resolveEventSeverity(event);
-    return {
-      ...(position ? { ...position } : {}),
-      id: event.id ? `event-${event.id}` : `event-${event.eventTime || event.deviceId}`,
-      type: "event",
-      occurredAt: event.eventTime || position?.gpsTime || null,
-      gpsTime: event.eventTime || position?.gpsTime || null,
-      positionId: event.positionId ?? null,
-      eventType: event.type || null,
-      eventDescription: attributes.description || attributes.message || null,
-      address,
-      latitude: position?.latitude ?? null,
-      longitude: position?.longitude ?? null,
-      speed: position?.speed ?? null,
-      ignition: position?.ignition ?? extractIgnition(attributes),
-      geofence: position?.geofence ?? event.geofenceId ?? attributes.geofence ?? null,
-      vehicleVoltage: position?.vehicleVoltage ?? extractVehicleVoltage(attributes),
-      severity,
-      isCritical: severity === "critical",
-      protocol: event?.protocol || protocol,
-      attributes: { ...attributes },
-    };
-  });
-
-  const positionTimeline = positionEntries
-    .filter((entry) => entry.occurredAt)
-    .map((entry) => ({
-      ...entry,
-      __timestamp: new Date(entry.occurredAt).getTime(),
-    }))
-    .filter((entry) => Number.isFinite(entry.__timestamp))
-    .sort((a, b) => a.__timestamp - b.__timestamp);
-
-  const findNearestPosition = (when) => {
-    const timestamp = new Date(when).getTime();
-    if (!Number.isFinite(timestamp) || positionTimeline.length === 0) return null;
-    let low = 0;
-    let high = positionTimeline.length - 1;
-    let match = null;
-    while (low <= high) {
-      const mid = Math.floor((low + high) / 2);
-      const current = positionTimeline[mid];
-      if (current.__timestamp <= timestamp) {
-        match = current;
-        low = mid + 1;
-      } else {
-        high = mid - 1;
-      }
-    }
-    return match;
-  };
-
-  const commandHistory = await fetchCommandHistoryItems(req, { vehicleId, traccarId, from, to, clientId });
-  const commandEntries = commandHistory.flatMap((item) => {
-    const base = {
-      commandName: item.commandName || item.command,
-      commandResult: item.result || null,
-      commandStatus: item.status || null,
-      userName: item.user?.name || null,
-    };
-    const isCritical = ["ERROR"].includes(String(item.status || "").toUpperCase());
-    const sentEntry = item.sentAt
-      ? [{
-        id: `command-${item.id}-sent`,
-        type: "command",
-        occurredAt: item.sentAt,
-        gpsTime: item.sentAt,
-        ...base,
-        isCritical,
-      }]
-      : [];
-    const responseTime = item.respondedAt || item.receivedAt || (item.sentAt
-      ? new Date(new Date(item.sentAt).getTime() + 1).toISOString()
-      : null);
-    const responseEntry = responseTime
-      ? [{
-        id: `command-${item.id}-response`,
-        type: "command_response",
-        occurredAt: responseTime,
-        gpsTime: responseTime,
-        ...base,
-        isCritical,
-      }]
-      : [];
-    return [...sentEntry, ...responseEntry].map((entry) => {
-      const nearest = findNearestPosition(entry.occurredAt);
-      return {
-        ...entry,
-        address: nearest?.address || null,
-        shortAddress: nearest?.shortAddress || null,
-        latitude: nearest?.latitude ?? null,
-        longitude: nearest?.longitude ?? null,
-        speed: nearest?.speed ?? null,
-        ignition: nearest?.ignition ?? null,
-        ioSummary: nearest?.ioSummary || null,
-        geofence: nearest?.geofence || null,
-        vehicleVoltage: nearest?.vehicleVoltage ?? null,
-        digitalInput2: nearest?.digitalInput2 ?? null,
-        digitalInput4: nearest?.digitalInput4 ?? null,
-        digitalInput5: nearest?.digitalInput5 ?? null,
-        digitalOutput1: nearest?.digitalOutput1 ?? null,
-        digitalOutput2: nearest?.digitalOutput2 ?? null,
-        geozoneId: nearest?.geozoneId ?? null,
-        geozoneInside: nearest?.geozoneInside ?? null,
-        severity: isCritical ? "critical" : null,
-        auditAction: entry.type === "command" ? "Envio de comando" : "Retorno do comando",
-        protocol: nearest?.protocol || protocol,
-        attributes: nearest?.attributes ? { ...nearest.attributes } : {},
-      };
-    });
-  });
-
-  const futureActionEntries = [];
-  const auditEntries = [];
-
-  const rawEntries = [...positionEntries, ...eventEntries, ...commandEntries, ...futureActionEntries, ...auditEntries]
-    .filter((entry) => entry.occurredAt);
-
-  const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object"
-    ? req.body.addressFilter
-    : parseAddressFilterQuery(req.query);
-  let filter = null;
-  if (addressFilter?.lat != null && addressFilter?.lng != null) {
-    const lat = Number(addressFilter.lat);
-    const lng = Number(addressFilter.lng);
-    const radius = Number(addressFilter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
-    if (Number.isFinite(lat) && Number.isFinite(lng)) {
-      filter = {
-        lat,
-        lng,
-        radius: Number.isFinite(radius) && radius > 0 ? radius : DEFAULT_REPORT_RADIUS_METERS,
-      };
-    }
-  }
-
-  const entries = filter
-    ? rawEntries.filter((entry) => {
-        if (entry.latitude == null || entry.longitude == null) return false;
-        const distance = computeDistanceMeters(
-          { lat: filter.lat, lng: filter.lng },
-          { lat: entry.latitude, lng: entry.longitude },
-        );
-        return distance <= (filter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
-      })
-    : rawEntries;
-
-  entries.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
-
-  const eventLabelsByPositionId = new Map();
-  entries.forEach((entry) => {
-    if (entry.type !== "event") return;
-    if (entry.positionId == null) return;
-    const label = resolveAnalyticEventLabel(entry);
-    if (!label) return;
-    const key = String(entry.positionId);
-    const bucket = eventLabelsByPositionId.get(key) || [];
-    bucket.push(label);
-    eventLabelsByPositionId.set(key, bucket);
-  });
-
-  const entriesWithEvents = entries.map((entry) => {
-    if (!["position", "event"].includes(entry.type)) return entry;
-    if (entry.type === "event") {
-      const resolvedLabel = resolveAnalyticEventLabel(entry);
-      return resolvedLabel ? { ...entry, event: resolvedLabel } : entry;
-    }
-    const positionKey = entry.id != null ? String(entry.id) : null;
-    const labels = positionKey ? eventLabelsByPositionId.get(positionKey) : null;
-    if (labels?.length) {
-      return { ...entry, event: labels.join(" • ") };
-    }
-    const fallbackLabel = resolveAnalyticEventLabel(entry);
-    return { ...entry, event: fallbackLabel || "Posição registrada" };
-  });
-
-  const page = pagination?.page ?? 1;
-  const pageSize = pagination?.limit === undefined ? 1000 : pagination?.limit;
-  const totalItems = entriesWithEvents.length;
-  const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
-  const start = pageSize ? (page - 1) * pageSize : 0;
-  const items = pageSize ? entriesWithEvents.slice(start, start + pageSize) : entriesWithEvents;
-
-  const availableColumns = new Set();
-  const skipColumns = new Set([
-    "attributes",
-    "__timestamp",
-    "type",
-    "eventType",
-    "eventDescription",
-    "positionId",
-    "commandName",
-    "commandResult",
-    "commandStatus",
-    "userName",
-    "auditAction",
-    "protocol",
-  ]);
-  const collectKeys = (entry) => {
-    Object.entries(entry || {}).forEach(([key, value]) => {
-      if (skipColumns.has(key)) return;
-      if (value === null || value === undefined || value === "") return;
-      availableColumns.add(key);
-    });
-    const attrs = entry?.attributes || {};
-    Object.entries(attrs).forEach(([key, value]) => {
-      if (value === null || value === undefined || value === "") return;
-      availableColumns.add(key);
-    });
-  };
-  entriesWithEvents.forEach(collectKeys);
-
-  const latestPosition = positionEntries[positionEntries.length - 1] || null;
-  const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
-  const ignitionLabel =
-    latestPosition?.ignition === true
-      ? "Ligada"
-      : latestPosition?.ignition === false
-        ? "Desligada"
-        : "Indisponível";
-
-  return {
-    items,
-    meta: {
-      generatedAt: new Date().toISOString(),
-      vehicleId,
-      from,
-      to,
-      page,
-      pageSize: pageSize ?? totalItems,
-      totalItems,
-      totalPages,
-      vehicle: {
-        id: vehicle.id,
-        plate: vehicle.plate || null,
-        name: vehicle.name || null,
-        customer: client?.name || null,
-        status: vehicle.status || null,
-        lastCommunication: latestPosition?.occurredAt || null,
-        ignition: ignitionLabel,
-      },
-      exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
-      availableColumns: Array.from(availableColumns),
-    },
-  };
+async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination }) {
+  return buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
 }
 
 function sanitizeFileToken(value, fallback) {
@@ -4499,11 +4193,12 @@ router.get("/reports/analytic", async (req, res) => {
     const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.query?.from, "from");
     const to = parseDateOrThrow(req.query?.to, "to");
+    const addressFilter = parseAddressFilterQuery(req.query);
     const pagination = normalizePagination(req.query);
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
     return res.status(200).json({
-      data: report.items,
+      data: report.positions,
       meta: report.meta,
       error: null,
     });
@@ -4536,36 +4231,33 @@ router.post("/reports/analytic/pdf", async (req, res) => {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
     const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
       ? req.body.columnDefinitions
-      : null;
+      : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
     const pdf = await generatePositionsReportPdf({
-      rows: report.items,
+      rows: report.positions,
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
       availableColumns,
-      options: {
-        title: "RELATÓRIO ANALÍTICO",
-        subtitle: "Linha do tempo completa do veículo e auditoria de comandos",
-      },
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildAnalyticPdfFileName(report?.meta, from, to);
+    const fileName = buildPositionsPdfFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/pdf] relatório analítico gerado", {
       vehicleId,
-      rows: report.items.length,
+      rows: report.positions.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
@@ -4603,31 +4295,28 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
     const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
       ? req.body.columnDefinitions
-      : null;
+      : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
     const xlsxBuffer = await generatePositionsReportXlsx({
-      rows: report.items,
+      rows: report.positions,
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
       availableColumns,
-      options: {
-        sheetName: "Relatório Analítico",
-        title: "RELATÓRIO ANALÍTICO",
-      },
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildAnalyticXlsxFileName(report?.meta, from, to);
+    const fileName = buildPositionsXlsxFileName(report?.meta, from, to);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4635,7 +4324,7 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/xlsx] relatório analítico gerado", {
       vehicleId,
-      rows: report.items.length,
+      rows: report.positions.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
@@ -4673,31 +4362,32 @@ router.post("/reports/analytic/csv", async (req, res) => {
     const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
+    const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
     const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
       ? req.body.columnDefinitions
-      : null;
+      : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
     const csvBuffer = generatePositionsReportCsv({
-      rows: report.items,
+      rows: report.positions,
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       availableColumns,
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildAnalyticCsvFileName(report?.meta, from, to);
+    const fileName = buildPositionsCsvFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/csv] relatório analítico gerado", {
       vehicleId,
-      rows: report.items.length,
+      rows: report.positions.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
