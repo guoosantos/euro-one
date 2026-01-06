@@ -94,7 +94,7 @@ export const routeConfig = [
   { path: "/ranking", element: Ranking, title: "Ranking", requireTenant: true },
   { path: "/analytics/heatmap", element: AnalyticsHeatmap, title: "Analytics", requireTenant: true },
   { path: "/reports/positions", element: ReportsPositions, title: "Relatório de posições", requireTenant: true },
-  { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório analítico", requireTenant: true },
+  { path: "/reports/analytic", element: ReportsAnalytic, title: "Relatório Analítico", requireTenant: true },
   { path: "/account", element: Account, title: "Conta", requireTenant: true },
   { path: "/settings", element: Settings, title: "Configurações", requireTenant: true },
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true },

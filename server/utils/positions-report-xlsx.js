@@ -8,7 +8,6 @@ const BRAND_COLOR = "001F3F";
 const LIGHT_FILL = "F3F6FA";
 const ZEBRA_FILL = "0F172A0F";
 const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
-const MAX_XLSX_ROWS = 20_000;
 const MAX_XLSX_COLUMNS = 120;
 const MAX_COLUMN_WIDTH = 60;
 const MIN_COLUMN_WIDTH = 12;
@@ -76,7 +75,7 @@ function formatCellValue(key, value, definition) {
       return descriptor.unit ? `${formatted} ${descriptor.unit}`.trim() : formatted;
     }
   }
-  if (["gpsTime", "deviceTime", "serverTime"].includes(key)) return formatDate(value);
+  if (["gpsTime", "deviceTime", "serverTime", "occurredAt"].includes(key)) return formatDate(value);
   if (key === "speed") return Number.isFinite(Number(value)) ? `${Number(value)} km/h` : String(value);
   if (key === "direction") return Number.isFinite(Number(value)) ? `${Number(value)}°` : String(value);
   if (key === "accuracy") return Number.isFinite(Number(value)) ? `${Number(value)} m` : String(value);
@@ -120,7 +119,7 @@ export async function generatePositionsReportXlsx({
   options = {},
 } = {}) {
   const safeColumns = resolvePdfColumns(columns, availableColumns || columns).slice(0, MAX_XLSX_COLUMNS);
-  const safeRows = rows.slice(0, MAX_XLSX_ROWS);
+  const safeRows = Array.isArray(rows) ? rows : [];
   const definitionsMap = new Map(
     (columnDefinitions || []).map((column) => [column.key, column]),
   );
@@ -129,7 +128,9 @@ export async function generatePositionsReportXlsx({
   workbook.creator = "Euro-One";
   workbook.created = new Date();
 
-  const worksheet = workbook.addWorksheet("Relatório de Posições", {
+  const sheetName = options?.sheetName || "Relatório de Posições";
+  const reportTitle = options?.title || "RELATÓRIO DE POSIÇÕES";
+  const worksheet = workbook.addWorksheet(sheetName, {
     properties: { defaultRowHeight: 18 },
     views: [],
   });
@@ -157,7 +158,7 @@ export async function generatePositionsReportXlsx({
   worksheet.mergeCells(infoRow.number, 1, infoRow.number, totalColumns);
   worksheet.mergeCells(detailRow.number, 1, detailRow.number, totalColumns);
 
-  titleRow.getCell(2).value = "RELATÓRIO DE POSIÇÕES";
+  titleRow.getCell(2).value = reportTitle;
   titleRow.getCell(2).font = { bold: true, size: 12, color: { argb: "FFFFFFFF" } };
   titleRow.getCell(2).fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${BRAND_COLOR}` } };
   titleRow.height = 24;

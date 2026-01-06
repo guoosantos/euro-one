@@ -26,7 +26,7 @@ import {
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 1000;
-const PAGE_SIZE_OPTIONS = [1000];
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");

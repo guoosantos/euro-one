@@ -81,6 +81,8 @@ const COLUMN_WIDTHS_STORAGE_KEY = "events:columns:widths:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_COLUMN_WIDTH = 140;
+const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
+const DEFAULT_PAGE_SIZE = 100;
 
 const SEVERITY_LABELS = {
   informativa: "Informativa",
@@ -263,6 +265,10 @@ export default function Events() {
   const [reportEvents, setReportEvents] = useState([]);
   const [reportLoading, setReportLoading] = useState(false);
   const [reportError, setReportError] = useState(null);
+  const [reportMeta, setReportMeta] = useState(null);
+  const [reportGenerated, setReportGenerated] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
 
   const [protocols, setProtocols] = useState([]);
   const [selectedProtocol, setSelectedProtocol] = useState("");
@@ -390,7 +396,7 @@ export default function Events() {
     };
   }, []);
 
-  const fetchReport = useCallback(async () => {
+  const fetchReport = useCallback(async (pageOverride = page) => {
     setReportLoading(true);
     setReportError(null);
     try {
@@ -402,7 +408,8 @@ export default function Events() {
         from: from ? new Date(from).toISOString() : undefined,
         to: to ? new Date(to).toISOString() : undefined,
         deviceIds: deviceIdsToQuery.length ? deviceIdsToQuery : undefined,
-        limit: 200,
+        limit: pageSize,
+        page: pageOverride,
       };
 
       const response = await api.get(API_ROUTES.events, { params });
@@ -411,6 +418,7 @@ export default function Events() {
         : Array.isArray(response?.data?.data?.events)
         ? response.data.data.events
         : [];
+      setReportMeta(response?.data?.meta || null);
       const selectedTypeKey = normalizeEventTypeKey(eventType);
       const filtered =
         eventType === "all"
@@ -423,13 +431,15 @@ export default function Events() {
               return normalizeEventTypeKey(eventTypeValue) === selectedTypeKey;
             });
       setReportEvents(filtered);
+      setReportGenerated(true);
     } catch (error) {
       setReportError(error instanceof Error ? error : new Error("Erro ao carregar eventos"));
       setReportEvents([]);
+      setReportMeta(null);
     } finally {
       setReportLoading(false);
     }
-  }, [allDeviceIds, eventType, from, selectedVehicle, to]);
+  }, [allDeviceIds, eventType, from, page, pageSize, selectedVehicle, to]);
 
   useEffect(() => {
     if (activeTab !== "Criticidade" || !selectedProtocol) return;
@@ -540,6 +550,15 @@ export default function Events() {
       };
     });
   }, [positionsByDeviceId, reportEvents, vehicleByDeviceId]);
+
+  const totalItems = reportMeta?.totalItems ?? reportEvents.length;
+  const totalPages = reportMeta?.totalPages ?? 1;
+  const currentPage = reportMeta?.page ?? page;
+
+  useEffect(() => {
+    if (!reportGenerated) return;
+    fetchReport(page);
+  }, [fetchReport, page, reportGenerated]);
 
   const visibleColumns = useMemo(
     () => DEFAULT_COLUMNS.filter((column) => columnsVisibility[column.id]),
@@ -700,7 +719,34 @@ export default function Events() {
             </div>
             {activeTab === "Relatório" && (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <Button type="button" onClick={fetchReport}>
+                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
+                  <span className="whitespace-nowrap">Itens por página</span>
+                  <select
+                    value={pageSize}
+                    onChange={(event) => {
+                      const value = Number(event.target.value) || DEFAULT_PAGE_SIZE;
+                      setPageSize(value);
+                      setPage(1);
+                      if (reportGenerated) {
+                        fetchReport(1);
+                      }
+                    }}
+                    className="rounded bg-transparent text-white outline-none"
+                  >
+                    {PAGE_SIZE_OPTIONS.map((option) => (
+                      <option key={option} value={option} className="bg-[#0d1117] text-white">
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <Button
+                  type="button"
+                  onClick={() => {
+                    setPage(1);
+                    fetchReport(1);
+                  }}
+                >
                   Mostrar
                 </Button>
                 <Button
@@ -710,6 +756,7 @@ export default function Events() {
                     setSelectedVehicleId("");
                     setVehicleSearch("");
                     setEventType("all");
+                    setPage(1);
                   }}
                 >
                   Limpar filtros
@@ -893,6 +940,27 @@ export default function Events() {
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="flex items-center justify-between px-2 pb-4 text-xs text-white/70">
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                disabled={currentPage <= 1 || reportLoading}
+              >
+                Anterior
+              </button>
+              <span>
+                Página {currentPage} de {totalPages} • {totalItems} itens
+              </span>
+              <button
+                type="button"
+                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages || reportLoading}
+              >
+                Próxima
+              </button>
             </div>
           </div>
         )}

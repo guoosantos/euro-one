@@ -14,6 +14,22 @@ export const EURO_PRESET_KEYS = [
   "speed",
 ];
 
+export const EURO_ANALYTIC_PRESET_KEYS = [
+  "occurredAt",
+  "event",
+  "address",
+  "ignition",
+  "geozoneInside",
+  "digitalInput2",
+  "digitalInput4",
+  "digitalInput5",
+  "digitalOutput1",
+  "digitalOutput2",
+  "speed",
+  "vehicleVoltage",
+  "geozoneId",
+];
+
 export function buildColumnPreset(columns = [], presetKeys = EURO_PRESET_KEYS) {
   const defaults = buildColumnDefaults(columns);
   const availableKeys = Array.isArray(columns) ? columns.map((column) => column.key) : [];
