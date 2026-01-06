@@ -39,7 +39,7 @@
     "ID": 6,
     "Name": "SENSOR_INSIDE_GEOZONE",
     "Description": "Status to indicate whether device is currently inside geozone",
-    "Description_ptBR": "Status para indicar whether dispositivo is atualmente inside geozone"
+    "Description_ptBR": "Status para indicar se o dispositivo está atualmente dentro da geozona"
   },
   {
     "ID": 7,
@@ -81,7 +81,7 @@
     "ID": 13,
     "Name": "SENSOR_PREFERRED_OPERATOR_ACTIVE",
     "Description": "Status to indicate whether device is currently attached to preferred operator (only active if operator list is assigned in settings)",
-    "Description_ptBR": "Status para indicar whether dispositivo is atualmente attached to preferred operator (only active if operator list is assigned in settings)"
+    "Description_ptBR": "Status para indicar se o dispositivo está atualmente conectado ao operador preferencial (somente ativo se a lista de operadoras estiver atribuída nas configurações)"
   },
   {
     "ID": 14,
@@ -99,25 +99,25 @@
     "ID": 16,
     "Name": "SENSOR_IN_2",
     "Description": "Status to indicate that IN2 has voltage above value configured through digital inputs threshold setting.",
-    "Description_ptBR": "Status para indicar that IN2 has tensão above value configured through digital inputs limiar setting."
+    "Description_ptBR": "Status para indicar que a Entrada Digital 2 está acima do valor configurado no limiar de entradas digitais."
   },
   {
     "ID": 17,
     "Name": "SENSOR_IN_3",
     "Description": "Status to indicate that IN3 has voltage above value configured through digital inputs threshold setting.",
-    "Description_ptBR": "Status para indicar that IN3 has tensão above value configured through digital inputs limiar setting."
+    "Description_ptBR": "Status para indicar que a Entrada Digital 3 está acima do valor configurado no limiar de entradas digitais."
   },
   {
     "ID": 18,
     "Name": "SENSOR_IN_4",
     "Description": "Status to indicate that IN4 has voltage above value configured through digital inputs threshold setting.",
-    "Description_ptBR": "Status para indicar that IN4 has tensão above value configured through digital inputs limiar setting."
+    "Description_ptBR": "Status para indicar que a Entrada Digital 4 está acima do valor configurado no limiar de entradas digitais."
   },
   {
     "ID": 19,
     "Name": "SENSOR_IN_5",
     "Description": "Status to indicate that IN5 has voltage above value configured through digital inputs threshold setting.",
-    "Description_ptBR": "Status para indicar that IN5 has tensão above value configured through digital inputs limiar setting."
+    "Description_ptBR": "Status para indicar que a Entrada Digital 5 está acima do valor configurado no limiar de entradas digitais."
   },
   {
     "ID": 20,
@@ -891,19 +891,19 @@
     "ID": 148,
     "Name": "SENSOR_OUT_1",
     "Description": "Returns status of OUT1",
-    "Description_ptBR": "Returns Status de OUT1"
+    "Description_ptBR": "Retorna status da Saída Digital 1"
   },
   {
     "ID": 149,
     "Name": "SENSOR_OUT_2",
     "Description": "Returns status of OUT2",
-    "Description_ptBR": "Returns Status de OUT2"
+    "Description_ptBR": "Retorna status da Saída Digital 2"
   },
   {
     "ID": 150,
     "Name": "SENSOR_OUT_3",
     "Description": "Returns status of OUT3",
-    "Description_ptBR": "Returns Status de OUT3"
+    "Description_ptBR": "Retorna status da Saída Digital 3"
   },
   {
     "ID": 151,
@@ -927,7 +927,7 @@
     "ID": 154,
     "Name": "SENSOR_OUT_4",
     "Description": "Returns status of OUT4",
-    "Description_ptBR": "Returns Status de OUT4"
+    "Description_ptBR": "Retorna status da Saída Digital 4"
   },
   {
     "ID": 155,
@@ -945,7 +945,7 @@
     "ID": 157,
     "Name": "SENSOR_CLUTCH_PEDAL_PRESSED",
     "Description": "Signal from vehicle CAN bus to indicate clutch pedal being pressed",
-    "Description_ptBR": "Sinal do vehicle barramento CAN to indicar clutch pedal being pressed"
+    "Description_ptBR": "CAN – Pedal da Embreagem Pressionado"
   },
   {
     "ID": 158,
@@ -1071,7 +1071,7 @@
     "ID": 8197,
     "Name": "SENSOR_GSM_POWER",
     "Description": "Cellular signal strength (RSSI) in dBm",
-    "Description_ptBR": "celular signal strength (RSSI) in dBm"
+    "Description_ptBR": "Intensidade do Sinal Celular (RSSI em dBm)"
   },
   {
     "ID": 8198,
@@ -1245,7 +1245,7 @@
     "ID": 8226,
     "Name": "SENSOR_TOP_SPEED",
     "Description": "Vehicle top speed",
-    "Description_ptBR": "Vehicle top velocidade"
+    "Description_ptBR": "Velocidade Máxima do Veículo"
   },
   {
     "ID": 8227,
@@ -1287,7 +1287,7 @@
     "ID": 8233,
     "Name": "SENSOR_WAKE_UP_REASON",
     "Description": "Wake up reason for script reload: 0 - Unknown, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut",
-    "Description_ptBR": "Wake up reason for script reload: 0 - desconhecido, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut"
+    "Description_ptBR": "Motivo de despertar para recarregar o script: 0 - desconhecido, 1 - Movimento, 2 - Entrada Digital 2, 3 - Entrada Digital 3, 4 - Entrada Digital 4, 5 - Entrada Digital 5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Corte de Alimentação Externa"
   },
   {
     "ID": 8234,
@@ -1749,25 +1749,25 @@
     "ID": 12322,
     "Name": "SENSOR_FREQ_IN2",
     "Description": "Sensor to indicate frequency measured on IN2 input.",
-    "Description_ptBR": "Sensor to indicar frequency measured on IN2 input."
+    "Description_ptBR": "Sensor para indicar frequência medida na Entrada Digital 2."
   },
   {
     "ID": 12323,
     "Name": "SENSOR_FREQ_IN3",
     "Description": "Sensor to indicate frequency measured on IN3 input.",
-    "Description_ptBR": "Sensor to indicar frequency measured on IN3 input."
+    "Description_ptBR": "Sensor para indicar frequência medida na Entrada Digital 3."
   },
   {
     "ID": 12324,
     "Name": "SENSOR_FREQ_IN4",
     "Description": "Sensor to indicate frequency measured on IN4 input.",
-    "Description_ptBR": "Sensor to indicar frequency measured on IN4 input."
+    "Description_ptBR": "Sensor para indicar frequência medida na Entrada Digital 4."
   },
   {
     "ID": 12325,
     "Name": "SENSOR_FREQ_IN5",
     "Description": "Sensor to indicate frequency measured on IN5 input.",
-    "Description_ptBR": "Sensor to indicar frequency measured on IN5 input."
+    "Description_ptBR": "Sensor para indicar frequência medida na Entrada Digital 5."
   },
   {
     "ID": 12326,
@@ -1929,25 +1929,25 @@
     "ID": 12352,
     "Name": "SENSOR_FREQ_IN_2_COUNT",
     "Description": "Pulse count on IN2",
-    "Description_ptBR": "Pulse count on IN2"
+    "Description_ptBR": "Contagem de pulsos na Entrada Digital 2"
   },
   {
     "ID": 12353,
     "Name": "SENSOR_FREQ_IN_3_COUNT",
     "Description": "Pulse count on IN3",
-    "Description_ptBR": "Pulse count on IN3"
+    "Description_ptBR": "Contagem de pulsos na Entrada Digital 3"
   },
   {
     "ID": 12354,
     "Name": "SENSOR_FREQ_IN_4_COUNT",
     "Description": "Pulse count on IN4",
-    "Description_ptBR": "Pulse count on IN4"
+    "Description_ptBR": "Contagem de pulsos na Entrada Digital 4"
   },
   {
     "ID": 12355,
     "Name": "SENSOR_FREQ_IN_5_COUNT",
     "Description": "Pulse count on IN5",
-    "Description_ptBR": "Pulse count on IN5"
+    "Description_ptBR": "Contagem de pulsos na Entrada Digital 5"
   },
   {
     "ID": 12356,
@@ -3297,7 +3297,7 @@
     "ID": 49173,
     "Name": "SENSOR_DTC",
     "Description": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation",
-    "Description_ptBR": "FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation"
+    "Description_ptBR": "Códigos de Falha do Veículo (DTC – FMS) preenchidos durante a geração do pacote de telemetria"
   },
   {
     "ID": 49174,

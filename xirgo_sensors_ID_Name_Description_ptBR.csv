@@ -5,20 +5,20 @@
 3,-,-,-
 4,-,-,-
 5,SENSOR_SYSTEM_TIME_PRESENT,Status to indicate whether system has a valid time,Status para indicar whether system has a valid time
-6,SENSOR_INSIDE_GEOZONE,Status to indicate whether device is currently inside geozone,Status para indicar whether dispositivo is atualmente inside geozone
+6,SENSOR_INSIDE_GEOZONE,Status to indicate whether device is currently inside geozone,Status para indicar se o dispositivo está atualmente dentro da geozona
 7,SENSOR_POOR_GNSS_SIGNAL,Set when device has GNSS fix but Satellite count and HDOP is low,Ativado quando dispositivo has GNSS fix but Satellite count and HDOP is low
 8,SENSOR_GSM_JAMMING,Status to indicate whether cellular connectivity is currently being jammed,Status para indicar whether celular connectivity is atualmente being jammed
 9,SENSOR_ROAMING,Status to indicate whether cellular connectivity is currently in roaming mode,Status para indicar whether celular connectivity is atualmente in roaming mode
 10,SENSOR_GSM_REGISTERED,Status to indicate device registration to cellular network,Status para indicar dispositivo registro to celular rede
 11,SENSOR_GPRS_REGISTERED,Status to indicate if GPRS service is currently available,Status para indicar if GPRS service is atualmente disponível
 12,SENSOR_PDP_ACTIVE,Status to indicate that device has currently active internet session (PDP),Status para indicar that dispositivo has atualmente active internet session (PDP)
-13,SENSOR_PREFERRED_OPERATOR_ACTIVE,Status to indicate whether device is currently attached to preferred operator (only active if operator list is assigned in settings),Status para indicar whether dispositivo is atualmente attached to preferred operator (only active if operator list is assigned in settings)
+13,SENSOR_PREFERRED_OPERATOR_ACTIVE,Status to indicate whether device is currently attached to preferred operator (only active if operator list is assigned in settings),Status para indicar se o dispositivo está atualmente conectado ao operador preferencial (somente ativo se a lista de operadoras estiver atribuída nas configurações)
 14,SENSOR_GNSS_SPEED_PRESENT,Status to indicate that speed value from GNSS receiver is above 0.,Status para indicar that velocidade value from GNSS receiver is above 0.
 15,SENSOR_SIGNAL_WIEGAND_ID_PRESENT,Status to indicate that card ID value has been read using Wiegand26 protocol. 4 second reset delay after removing id,Status para indicar that card ID value has been read using Wiegand26 protocol. 4 segundos reset delay após removing id
-16,SENSOR_IN_2,Status to indicate that IN2 has voltage above value configured through digital inputs threshold setting.,Status para indicar that IN2 has tensão above value configured through digital inputs limiar setting.
-17,SENSOR_IN_3,Status to indicate that IN3 has voltage above value configured through digital inputs threshold setting.,Status para indicar that IN3 has tensão above value configured through digital inputs limiar setting.
-18,SENSOR_IN_4,Status to indicate that IN4 has voltage above value configured through digital inputs threshold setting.,Status para indicar that IN4 has tensão above value configured through digital inputs limiar setting.
-19,SENSOR_IN_5,Status to indicate that IN5 has voltage above value configured through digital inputs threshold setting.,Status para indicar that IN5 has tensão above value configured through digital inputs limiar setting.
+16,SENSOR_IN_2,Status to indicate that IN2 has voltage above value configured through digital inputs threshold setting.,Status para indicar que a Entrada Digital 2 está acima do valor configurado no limiar de entradas digitais.
+17,SENSOR_IN_3,Status to indicate that IN3 has voltage above value configured through digital inputs threshold setting.,Status para indicar que a Entrada Digital 3 está acima do valor configurado no limiar de entradas digitais.
+18,SENSOR_IN_4,Status to indicate that IN4 has voltage above value configured through digital inputs threshold setting.,Status para indicar que a Entrada Digital 4 está acima do valor configurado no limiar de entradas digitais.
+19,SENSOR_IN_5,Status to indicate that IN5 has voltage above value configured through digital inputs threshold setting.,Status para indicar que a Entrada Digital 5 está acima do valor configurado no limiar de entradas digitais.
 20,SENSOR_IN_7,Status to indicate alternator voltage (virtual ignition) through power rail. 30 seconds to become 1 from 0. instantly from 0 to 1. threshold=13.2V,Status para indicar alternator tensão (virtual ignição) through energia rail. 30 segundos to become 1 from 0. instantaneamente from 0 to 1. limiar=13.2V
 21,SENSOR_IN_8,Status to indicate that selected ADC channel is above threshold set in the settings,Status para indicar that selected ADC channel is above limiar set in the settings
 22,SENSOR_ONE_HOUR_TICK,Set for 3 minutes every hour,Ativado por 3 minutos a cada horas
@@ -147,16 +147,16 @@
 145,SENSOR_RETARDER_MANUAL,Retarder state - manual [Legacy],Retarder state - manual [Legado]
 146,SENSOR_AIR_CONDITIONING,Signal from vehicle CAN bus to indicate air conditioning on,Sinal do vehicle barramento CAN to indicar air conditioning on
 147,SENSOR_WEBASTO,Signal from vehicle CAN bus to indicate webasto on,Sinal do vehicle barramento CAN to indicar webasto on
-148,SENSOR_OUT_1,Returns status of OUT1,Returns Status de OUT1
-149,SENSOR_OUT_2,Returns status of OUT2,Returns Status de OUT2
-150,SENSOR_OUT_3,Returns status of OUT3,Returns Status de OUT3
+148,SENSOR_OUT_1,Returns status of OUT1,Retorna status da Saída Digital 1
+149,SENSOR_OUT_2,Returns status of OUT2,Retorna status da Saída Digital 2
+150,SENSOR_OUT_3,Returns status of OUT3,Retorna status da Saída Digital 3
 151,SENSOR_OVERTURN,Source: Accelerometer. Start: instantly. Reset: delayed,Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso
 152,SENSOR_SHOCK_1,Source: Accelerometer. Start: instantly. Reset: delayed,Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso
 153,SENSOR_SHOCK_2,Source: Accelerometer. Start: instantly. Reset: delayed,Fonte: Acelerômetro. Início: instantaneamente. Reset: com atraso
-154,SENSOR_OUT_4,Returns status of OUT4,Returns Status de OUT4
+154,SENSOR_OUT_4,Returns status of OUT4,Retorna status da Saída Digital 4
 155,SENSOR_GNSS_JAMMING,Signal to indicate GNSS jamming,Sinal para indicar GNSS jamming
 156,SENSOR_TAMPER,Signal to indicate tamper button state (for devices equipped with tamper switch),Sinal para indicar tamper button state (for devices equipped with tamper switch)
-157,SENSOR_CLUTCH_PEDAL_PRESSED,Signal from vehicle CAN bus to indicate clutch pedal being pressed,Sinal do vehicle barramento CAN to indicar clutch pedal being pressed
+157,SENSOR_CLUTCH_PEDAL_PRESSED,Signal from vehicle CAN bus to indicate clutch pedal being pressed,CAN – Pedal da Embreagem Pressionado
 158,SENSOR_PTO_ENABLED,Signal from vehicle CAN bus to indicate PTO enabled,Sinal do vehicle barramento CAN to indicar PTO enabled
 159,SENSOR_CAN_ACTIVITY_PRESENT,CAN messages received during the last 10 seconds on CAN1 or on CAN2.,CAN messages received during the last 10 segundos on CAN1 or on CAN2.
 160,SENSOR_STATIC_SIGNAL_3,Signal that persists it’s value even after software reset. Can be controlled with TCP and SMS commands over the air or using scripts to control device functions,Signal that persists seu value even após software reset. CAN be controlled with TCP and SMS commands over the air or using scripts to control dispositivo functions
@@ -177,7 +177,7 @@
 8194,SENSOR_GNSS_H_DOP,-,-
 8195,SENSOR_MOBILE_NETWORK_CODE,Mobile network code. Available once device is connected to cellular network.,Mobile rede code. disponível once dispositivo is conectado to celular rede.
 8196,SENSOR_TIMING_ADVANCE,Timing Advance from GSM,Timing Advance from GSM
-8197,SENSOR_GSM_POWER,Cellular signal strength (RSSI) in dBm,celular signal strength (RSSI) in dBm
+8197,SENSOR_GSM_POWER,Cellular signal strength (RSSI) in dBm,Intensidade do Sinal Celular (RSSI em dBm)
 8198,SENSOR_PEDAL_POSITION,Accelerator pedal position 1: 0 to 250 % op. range,Accelerator pedal position 1: 0 to 250 % op. range
 8199,SENSOR_FUEL_LEVEL_1,"Fuel level in L or in %, 100=100% or 100L. Note: when using FMS: Fuel level 1: 0.4 %/bit, 0 offset, 0 to 250 % op. Range","combustível level in L or in %, 100=100% or 100L. Note: when using FMS: combustível level 1: 0.4 %/bit, 0 offset, 0 to 250 % op. Range"
 8200,SENSOR_ENGINE_TEMPERATURE,Engine temperature,motor temperatura
@@ -206,14 +206,14 @@
 8223,SENSOR_U8_USER_DEFINED_20,Unsigned 8 bits integer type sensor to store custom values using scripts,Unsigned 8 bits integer type sensor to store custom values using scripts
 8224,SENSOR_U8_USER_DEFINED_21,Unsigned 8 bits integer type sensor to store custom values using scripts,Unsigned 8 bits integer type sensor to store custom values using scripts
 8225,SENSOR_ADBLUE_LEVEL,"FMS Aftertreatment 1 Diesel Exhaust Fluid Tank 1 Level: 0 % = Empty, 100% = Full","FMS Aftertreatment 1 Diesel Exhaust Fluid Tank 1 Level: 0 % = Empty, 100% = Full"
-8226,SENSOR_TOP_SPEED,Vehicle top speed,Vehicle top velocidade
+8226,SENSOR_TOP_SPEED,Vehicle top speed,Velocidade Máxima do Veículo
 8227,SENSOR_GNSS_GMT_SECONDS,GMT seconds,GMT segundos
 8228,SENSOR_GNSS_GMT_MINUNTES,GMT minutes,GMT minutos
 8229,SENSOR_GNSS_GMT_HOURS,GMT hours,GMT horas
 8230,SENSOR_GNSS_GMT_DAYS,GMT day,GMT day
 8231,SENSOR_GNSS_GMT_MONTHS,GMT month,GMT month
 8232,SENSOR_GNSS_GMT_YEARS,GMT year,GMT year
-8233,SENSOR_WAKE_UP_REASON,"Wake up reason for script reload: 0 - Unknown, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut","Wake up reason for script reload: 0 - desconhecido, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut"
+8233,SENSOR_WAKE_UP_REASON,"Wake up reason for script reload: 0 - Unknown, 1 - Motion, 2 - IN2, 3 - IN3, 4 - in4, 5 - IN5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Ext. Pow. Cut","Motivo de despertar para recarregar o script: 0 - desconhecido, 1 - Movimento, 2 - Entrada Digital 2, 3 - Entrada Digital 3, 4 - Entrada Digital 4, 5 - Entrada Digital 5, 6 - RTC, 7 - Modem, 8 - CAN, 9 - Corte de Alimentação Externa"
 8234,SENSOR_FUEL_LEVEL_TYPE,"0 - N/A, 1 - 1 %/bit, 2 - 0.4 %/bit, 3 - 1 L/bit","0 - N/A, 1 - 1 %/bit, 2 - 0.4 %/bit, 3 - 1 L/bit"
 8235,SENSOR_DUMP_STATE,"Can dump status: 0 - Idle, 1 - Waiting for Bitrate, 2 - Bitrate Found, 3 - Bitrate Not Found, 4 - Reading CAN bus, 5 - CAN Read Success, 6 - Can Read Failed.","CAN dump status: 0 - Idle, 1 - Waiting for Bitrate, 2 - Bitrate Found, 3 - Bitrate Not Found, 4 - Reading barramento CAN, 5 - CAN Read Success, 6 - CAN Read Failed."
 8236,SENSOR_GEOZONE_ID,value is the last ID of geozone group that the device is currently in.,value is the last ID of geozone group that the dispositivo is atualmente in.
@@ -290,10 +290,10 @@
 12319,-,-,-
 12320,SENSOR_AGC_MONITOR,GNSS quality parameter (Automatic Gain Control),GNSS quality parameter (Automatic Gain Control)
 12321,SENSOR_FUEL_RATE,"FMS Fuel Rate:0 to 3,212.75 L/h","FMS combustível Rate:0 to 3,212.75 L/h"
-12322,SENSOR_FREQ_IN2,Sensor to indicate frequency measured on IN2 input.,Sensor to indicar frequency measured on IN2 input.
-12323,SENSOR_FREQ_IN3,Sensor to indicate frequency measured on IN3 input.,Sensor to indicar frequency measured on IN3 input.
-12324,SENSOR_FREQ_IN4,Sensor to indicate frequency measured on IN4 input.,Sensor to indicar frequency measured on IN4 input.
-12325,SENSOR_FREQ_IN5,Sensor to indicate frequency measured on IN5 input.,Sensor to indicar frequency measured on IN5 input.
+12322,SENSOR_FREQ_IN2,Sensor to indicate frequency measured on IN2 input.,Sensor para indicar frequência medida na Entrada Digital 2.
+12323,SENSOR_FREQ_IN3,Sensor to indicate frequency measured on IN3 input.,Sensor para indicar frequência medida na Entrada Digital 3.
+12324,SENSOR_FREQ_IN4,Sensor to indicate frequency measured on IN4 input.,Sensor para indicar frequência medida na Entrada Digital 4.
+12325,SENSOR_FREQ_IN5,Sensor to indicate frequency measured on IN5 input.,Sensor para indicar frequência medida na Entrada Digital 5.
 12326,SENSOR_PULSE_PERIOD_IN_2,Average time between two pulses,Average time between two pulses
 12327,SENSOR_PULSE_PERIOD_IN_3,Average time between two pulses,Average time between two pulses
 12328,SENSOR_PULSE_PERIOD_IN_4,Average time between two pulses,Average time between two pulses
@@ -320,10 +320,10 @@
 12349,SENSOR_1979_FUEL_RATE,"J1979 Engine fuel rate: Min 0, Max 3212.75 L/h","J1979 motor combustível rate: Min 0, Max 3212.75 L/h"
 12350,SENSOR_1979_RAIL_PRESSURE,"J1979 Fuel Rail Pressure: Min 0, Max 5177.265 kPa","J1979 combustível Rail Pressure: Min 0, Max 5177.265 kPa"
 12351,SENSOR_SERVICE_DELAY_OP_TIME_BASED,FMS Service Delay/Operational Time Based: -32127 to 32128 km,FMS Service Delay/Operational Time Based: -32127 to 32128 km
-12352,SENSOR_FREQ_IN_2_COUNT,Pulse count on IN2,Pulse count on IN2
-12353,SENSOR_FREQ_IN_3_COUNT,Pulse count on IN3,Pulse count on IN3
-12354,SENSOR_FREQ_IN_4_COUNT,Pulse count on IN4,Pulse count on IN4
-12355,SENSOR_FREQ_IN_5_COUNT,Pulse count on IN5,Pulse count on IN5
+12352,SENSOR_FREQ_IN_2_COUNT,Pulse count on IN2,Contagem de pulsos na Entrada Digital 2
+12353,SENSOR_FREQ_IN_3_COUNT,Pulse count on IN3,Contagem de pulsos na Entrada Digital 3
+12354,SENSOR_FREQ_IN_4_COUNT,Pulse count on IN4,Contagem de pulsos na Entrada Digital 4
+12355,SENSOR_FREQ_IN_5_COUNT,Pulse count on IN5,Contagem de pulsos na Entrada Digital 5
 12356,SENSOR_POWER_CUT_RESET,Count of power cut reset,Count of energia cut reset
 12357,SENSOR_SOFTWARE_RESET,Count of software reset,Count of software reset
 12358,SENSOR_SELF_ORIENTATION_CONFIDENCE,"Self orientation confidence, status sensor is set when confidence reaches 1200","Self orientation confidence, status sensor is Ativado quando confidence reaches 1200"
@@ -548,7 +548,7 @@
 49170,SENSOR_FIRMWARE_VERSION,-,-
 49171,SENSOR_IMSI,SIM card IMSI number. Value becomes available right after first cell module boot when SIM card is present.,SIM card IMSI number. Value becomes disponível right após first cell module boot when SIM card is present.
 49172,SENSOR_ICCID,SIM card ICCID. Value becomes available right after first cell module boot when SIM card is present.,SIM card ICCID. Value becomes disponível right após first cell module boot when SIM card is present.
-49173,SENSOR_DTC,FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation,FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation
+49173,SENSOR_DTC,FMS Diagnostic trouble codes. Buffer is filled during telemetry packet generation,Códigos de Falha do Veículo (DTC – FMS) preenchidos durante a geração do pacote de telemetria
 49174,SENSOR_DRIVER_1_ID,Card ID inserted into 1st tachograph slot,Card ID inserted into 1st tachograph slot
 49175,SENSOR_DRIVER_2_ID,Card ID inserted into 2nd tachograph slot,Card ID inserted into 2nd tachograph slot
 49176,SENSOR_ISOBUS_NAME,ISOBUS implement NAME as described in EN11783-5,ISOBUS implement NAME as described in EN11783-5
