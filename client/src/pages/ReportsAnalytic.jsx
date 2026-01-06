@@ -166,7 +166,7 @@ function normalizeColumnLabel(column) {
   if (!column) return column;
   const baseLabel = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
   const label = resolveReportColumnLabel(column.key, baseLabel);
-  const tooltip = resolveReportColumnTooltip(column.key, column.label || column.labelPt || label);
+  const tooltip = resolveReportColumnTooltip(column.key, label);
   return {
     ...column,
     label,

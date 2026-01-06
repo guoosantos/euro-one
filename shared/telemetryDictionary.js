@@ -147,6 +147,7 @@ const XIRGO_SENSOR_ENTRIES = (xirgoSensorsCatalog || [])
   .map((entry) => ({
     key: entry.key,
     labelPt: normalizeSensorLabel(entry.labelPt, entry.name || entry.key),
+    descriptionPt: entry.descriptionPt || entry.description || null,
     type: entry.type || null,
     unit: entry.unit || null,
     priority: 270,

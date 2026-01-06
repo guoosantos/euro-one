@@ -430,31 +430,41 @@ export function resolveColumn(key) {
   if (!definition && !descriptor) return null;
 
   if (descriptor && (!definition || definition.labelPt === buildFriendlyLabel(definition.key))) {
+    const resolved = resolveColumnLabel({ ...descriptor, key: descriptor.key || normalized }, "pt");
+    const resolvedPdf = resolveColumnLabel({ ...descriptor, key: descriptor.key || normalized }, "pdf");
     return {
       key: descriptor.key || normalized,
-      label: descriptor.labelPt || buildFriendlyLabel(normalized),
-      labelPt: descriptor.labelPt || buildFriendlyLabel(normalized),
-      labelPdf: descriptor.labelPt || buildFriendlyLabel(normalized),
+      label: resolved,
+      labelPt: resolved,
+      labelPdf: resolvedPdf,
       type: descriptor.type || null,
       unit: descriptor.unit || null,
       priority: descriptor.priority ?? resolveColumnGroupOrder(definition?.group),
+      descriptionPt: descriptor.descriptionPt || descriptor.description || null,
     };
   }
 
+  const resolved = definition ? resolveColumnLabel(definition, "pt") : buildFriendlyLabel(normalized);
+  const resolvedPdf = definition ? resolveColumnLabel(definition, "pdf") : buildFriendlyLabel(normalized);
   return {
     key: definition?.key || normalized,
-    label: definition ? resolveColumnLabel(definition, "pt") : buildFriendlyLabel(normalized),
-    labelPt: definition?.labelPt || definition?.label || buildFriendlyLabel(normalized),
-    labelPdf: definition?.labelPdf || definition?.labelPt || definition?.label || buildFriendlyLabel(normalized),
+    label: resolved,
+    labelPt: resolved,
+    labelPdf: resolvedPdf,
     type: definition?.type || null,
     unit: definition?.unit || null,
     priority: resolveColumnGroupOrder(definition?.group),
+    descriptionPt: definition?.descriptionPt || definition?.description || null,
   };
 }
 
 export function resolveColumnLabel(column, variant = "pt") {
   if (!column) return "[SEM TRADUÇÃO]";
-  const baseLabel = variant === "pdf" ? column.labelPdf || column.labelPt : column.labelPt;
+  const description = column.descriptionPt || column.description;
+  const baseLabel =
+    variant === "pdf"
+      ? column.labelPdf || description || column.labelPt
+      : description || column.labelPt;
   const label = baseLabel || buildFriendlyLabel(column.key);
   return withUnit(label, column.unit);
 }
@@ -466,6 +476,7 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
     return {
       key,
       labelPt: telemetryDescriptor.labelPt || buildFriendlyLabel(key),
+      descriptionPt: telemetryDescriptor.descriptionPt || telemetryDescriptor.description || null,
       type: telemetryDescriptor.type || null,
       unit: telemetryDescriptor.unit || null,
       group: telemetryDescriptor.group || "io",
