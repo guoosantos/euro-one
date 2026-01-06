@@ -124,7 +124,7 @@ function formatCellValue(key, value, definition) {
       return descriptor.unit ? `${formatted} ${descriptor.unit}`.trim() : formatted;
     }
   }
-  if (["gpsTime", "deviceTime", "serverTime"].includes(key)) return formatDate(value);
+  if (["gpsTime", "deviceTime", "serverTime", "occurredAt"].includes(key)) return formatDate(value);
   if (key === "speed") return Number.isFinite(Number(value)) ? `${Number(value)} km/h` : String(value);
   if (key === "direction") return Number.isFinite(Number(value)) ? `${Number(value)}°` : String(value);
   if (key === "accuracy") return Number.isFinite(Number(value)) ? `${Number(value)} m` : String(value);
@@ -176,12 +176,16 @@ function buildHtml({
   fontData,
   columnDefinitions = new Map(),
   chunkSize = 500,
+  options = {},
 }) {
   const columnCount = Math.max(1, columns.length);
   const density = Math.max(0.45, Math.min(1, 20 / (columnCount + 6)));
   const baseFontSize = (9 * density).toFixed(2);
   const headerFontSize = (8 * density).toFixed(2);
   const cellPadding = Math.max(2, Math.round(8 * density));
+  const reportTitle = options.title || "RELATÓRIO DE POSIÇÕES";
+  const reportSubtitle = options.subtitle || "Dados consolidados do veículo e posições georreferenciadas";
+  const summaryTitle = options.summaryTitle || "Resumo do veículo";
 
   const columnsGroup = columns?.length ? columns : [];
 
@@ -219,8 +223,8 @@ function buildHtml({
       <div class="header">
         ${logoDataUrl ? `<div class="logo"><img src="${logoDataUrl}" alt="Euro One" /></div>` : '<div class="logo fallback">EURO ONE</div>'}
         <div>
-          <div class="title">RELATÓRIO DE POSIÇÕES</div>
-          <div class="subtitle">Dados consolidados do veículo e posições georreferenciadas</div>
+          <div class="title">${escapeHtml(reportTitle)}</div>
+          <div class="subtitle">${escapeHtml(reportSubtitle)}</div>
           <div class="meta-chips">
             <div class="badge">Período: ${escapeHtml(formatDate(meta?.from))} – ${escapeHtml(formatDate(meta?.to))}</div>
             <div class="badge">Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</div>
@@ -232,11 +236,11 @@ function buildHtml({
         <div class="meta-item"><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
         <div class="meta-item"><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
         <div class="meta-item"><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
-        <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
-        <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-      </div>
-      <div class="card">
-        <div class="card-title">Resumo do veículo</div>
+      <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+      <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+    </div>
+    <div class="card">
+        <div class="card-title">${escapeHtml(summaryTitle)}</div>
         <div class="card-grid">
           <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
           <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
@@ -485,7 +489,6 @@ export function resolvePdfColumns(columns, availableColumns = null) {
   return allowed;
 }
 
-const MAX_PDF_ROWS = 5000;
 const MAX_PDF_COLUMNS = 120;
 const PDF_CHUNK_SIZE = 500;
 
@@ -495,15 +498,9 @@ export async function generatePositionsReportPdf({
   meta,
   availableColumns = null,
   columnDefinitions = [],
+  options = {},
 }) {
-  const totalRows = Array.isArray(rows) ? rows.length : 0;
   const safeColumns = resolvePdfColumns(columns, availableColumns);
-  if (totalRows > MAX_PDF_ROWS) {
-    const error = new Error(`Limite de linhas para PDF excedido (${totalRows}/${MAX_PDF_ROWS}). Utilize CSV para volumes maiores.`);
-    error.code = "PDF_ROWS_LIMIT";
-    error.status = 422;
-    throw error;
-  }
   if (safeColumns.length > MAX_PDF_COLUMNS) {
     const error = new Error(`Limite de colunas para PDF excedido (${safeColumns.length}/${MAX_PDF_COLUMNS}). Reduza as colunas.`);
     error.code = "PDF_COLUMNS_LIMIT";
@@ -555,6 +552,7 @@ export async function generatePositionsReportPdf({
       fontData,
       columnDefinitions: columnMap,
       chunkSize: PDF_CHUNK_SIZE,
+      options,
     });
 
     await page.setContent(html, { waitUntil: "networkidle" });

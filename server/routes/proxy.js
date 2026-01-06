@@ -1993,13 +1993,16 @@ async function handleEventsReport(req, res, next) {
       "from",
     );
     const to = parseDateOrThrow(req.query?.to ?? now.toISOString(), "to");
+    const page = Math.max(1, Number(req.query?.page) || 1);
     const limit = req.query?.limit ? Number(req.query.limit) : 50;
+    const pageSize = Number.isFinite(limit) && limit > 0 ? limit : 50;
 
     const devices = listDevices({ clientId });
     const metadata = await fetchDevicesMetadata();
     const lookup = buildDeviceLookup(devices, metadata);
 
-    const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, limit);
+    const fetchLimit = pageSize ? pageSize * page : pageSize;
+    const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, fetchLimit);
     const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
     const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
@@ -2063,9 +2066,30 @@ async function handleEventsReport(req, res, next) {
       return true;
     });
 
-    const data = { clientId: clientId || null, deviceIds: deviceIdsToQuery, from, to, events: filteredEvents };
+    const totalItems = filteredEvents.length;
+    const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
+    const start = pageSize ? (page - 1) * pageSize : 0;
+    const pagedEvents = pageSize ? filteredEvents.slice(start, start + pageSize) : filteredEvents;
 
-    return res.status(200).json({ data, events: filteredEvents, error: null });
+    const data = {
+      clientId: clientId || null,
+      deviceIds: deviceIdsToQuery,
+      from,
+      to,
+      events: pagedEvents,
+    };
+
+    return res.status(200).json({
+      data,
+      events: pagedEvents,
+      meta: {
+        page,
+        pageSize,
+        totalItems,
+        totalPages,
+      },
+      error: null,
+    });
   } catch (error) {
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
@@ -4047,11 +4071,27 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   }
 
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
-  const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
-  const traccarId = Number(traccarDevice?.traccarId);
+  const vehicles = listVehicles({ clientId });
+  const vehicle = vehicles.find((item) => String(item.id) === String(vehicleId));
+  if (!vehicle) {
+    throw createError(404, "Veículo não encontrado");
+  }
+
+  const devices = listDevices({ clientId });
+  const device = devices.find((item) => String(item.vehicleId) === String(vehicleId));
+  if (!device?.traccarId) {
+    throw createError(409, "Equipamento vinculado sem traccarId");
+  }
+
+  const traccarId = Number(device?.traccarId);
   if (!Number.isFinite(traccarId)) {
     throw createError(409, "Equipamento vinculado sem traccarId");
   }
+
+  const protocol =
+    device?.protocol ||
+    device?.attributes?.protocol ||
+    null;
 
   const resolveMode = req.query?.addressMode === "blocking" ? "blocking" : "async";
   const positions = await fetchPositions([traccarId], from, to);
@@ -4087,6 +4127,12 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     return list.length ? list.join(" • ") : null;
   };
 
+  const extractGeozoneInside = (attributes = {}) =>
+    attributes.geozoneInside ?? attributes.geozoneInsidePrimary ?? attributes.geofenceInside ?? null;
+
+  const extractGeozoneId = (attributes = {}) =>
+    attributes.geozoneId ?? attributes.geofenceId ?? null;
+
   const positionEntries = enrichedPositions.map((position) => {
     const attributes = position.attributes || {};
     const speedRaw = Number(position.speed ?? 0);
@@ -4107,18 +4153,25 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       longitude: position.longitude ?? null,
       speed: speedKmh,
       ignition: extractIgnition(attributes),
-      input2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
-      input4: extractDigitalChannel(attributes, { index: 4, kind: "input" }),
+      digitalInput2: extractDigitalChannel(attributes, { index: 2, kind: "input" }),
+      digitalInput4: extractDigitalChannel(attributes, { index: 4, kind: "input" }),
+      digitalInput5: extractDigitalChannel(attributes, { index: 5, kind: "input" }),
+      digitalOutput1: extractDigitalChannel(attributes, { index: 1, kind: "output" }),
+      digitalOutput2: extractDigitalChannel(attributes, { index: 2, kind: "output" }),
       ioSummary: buildIoSummary(attributes),
       geofence: attributes.geofence ?? attributes.geofenceId ?? null,
+      geozoneId: extractGeozoneId(attributes),
+      geozoneInside: extractGeozoneInside(attributes),
       jamming,
       vehicleVoltage: extractVehicleVoltage(attributes, position.protocol),
       isCritical: Boolean(jamming),
       severity: jamming ? "critical" : null,
+      protocol: position.protocol || attributes?.protocol || protocol,
+      attributes: { ...attributes },
     };
   });
 
-  const eventLimit = parsePositiveInteger(req.query?.eventLimit, 10000);
+  const eventLimit = parsePositiveInteger(req.query?.eventLimit ?? req.body?.eventLimit, 10000);
   const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
   const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
   const eventPositions = await fetchPositionsByIds(positionIds);
@@ -4128,6 +4181,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     const position = event.positionId ? positionMap.get(event.positionId) : null;
     const attributes = event.attributes || {};
     const positionAttributes = position?.attributes || {};
+    const mergedAttributes = { ...positionAttributes, ...attributes };
     const speedRaw = Number(position?.speed ?? 0);
     const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
     const ignition = extractIgnition(positionAttributes) ?? extractIgnition(attributes);
@@ -4152,12 +4206,21 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       longitude: position?.longitude ?? null,
       speed: speedKmh,
       ignition,
-      ioSummary: buildIoSummary(positionAttributes),
+      digitalInput2: extractDigitalChannel(mergedAttributes, { index: 2, kind: "input" }),
+      digitalInput4: extractDigitalChannel(mergedAttributes, { index: 4, kind: "input" }),
+      digitalInput5: extractDigitalChannel(mergedAttributes, { index: 5, kind: "input" }),
+      digitalOutput1: extractDigitalChannel(mergedAttributes, { index: 1, kind: "output" }),
+      digitalOutput2: extractDigitalChannel(mergedAttributes, { index: 2, kind: "output" }),
+      ioSummary: buildIoSummary(mergedAttributes),
       geofence: event.geofenceId || attributes.geofence || null,
-      jamming: extractJamming(positionAttributes) ?? extractJamming(attributes),
-      vehicleVoltage: extractVehicleVoltage(positionAttributes),
+      geozoneId: event.geofenceId || extractGeozoneId(mergedAttributes),
+      geozoneInside: extractGeozoneInside(mergedAttributes),
+      jamming: extractJamming(mergedAttributes),
+      vehicleVoltage: extractVehicleVoltage(mergedAttributes),
       severity,
       isCritical: severity === "critical",
+      protocol: event?.protocol || position?.protocol || mergedAttributes?.protocol || protocol,
+      attributes: { ...mergedAttributes },
     };
   });
 
@@ -4232,8 +4295,17 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
         ioSummary: nearest?.ioSummary || null,
         geofence: nearest?.geofence || null,
         vehicleVoltage: nearest?.vehicleVoltage ?? null,
+        digitalInput2: nearest?.digitalInput2 ?? null,
+        digitalInput4: nearest?.digitalInput4 ?? null,
+        digitalInput5: nearest?.digitalInput5 ?? null,
+        digitalOutput1: nearest?.digitalOutput1 ?? null,
+        digitalOutput2: nearest?.digitalOutput2 ?? null,
+        geozoneId: nearest?.geozoneId ?? null,
+        geozoneInside: nearest?.geozoneInside ?? null,
         severity: isCritical ? "critical" : null,
         auditAction: entry.type === "command" ? "Envio de comando" : "Retorno do comando",
+        protocol: nearest?.protocol || protocol,
+        attributes: nearest?.attributes ? { ...nearest.attributes } : {},
       };
     });
   });
@@ -4241,10 +4313,12 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   const futureActionEntries = [];
   const auditEntries = [];
 
-  const typeFilter = String(req.query?.type || "all").toLowerCase();
-  const criticalOnly = ["true", "1", "yes", "sim"].includes(String(req.query?.criticalOnly || "").toLowerCase());
-  const geofenceFilter = String(req.query?.geofence || "all").toLowerCase();
-  const search = String(req.query?.search || "").trim().toLowerCase();
+  const typeFilter = String(req.query?.type ?? req.body?.type ?? "all").toLowerCase();
+  const criticalOnly = ["true", "1", "yes", "sim"].includes(
+    String(req.query?.criticalOnly ?? req.body?.criticalOnly ?? "").toLowerCase(),
+  );
+  const geofenceFilter = String(req.query?.geofence ?? req.body?.geofence ?? "all").toLowerCase();
+  const search = String(req.query?.search ?? req.body?.search ?? "").trim().toLowerCase();
 
   const entries = [...positionEntries, ...eventEntries, ...commandEntries, ...futureActionEntries, ...auditEntries]
     .filter((entry) => entry.occurredAt)
@@ -4276,16 +4350,60 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     })
     .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
 
-  const page = pagination.page ?? 1;
-  const pageSize = pagination.limit ?? 1000;
-  const totalItems = entries.length;
+  let filteredEntries = entries;
+  const hasEvents = filteredEntries.some((entry) => entry.type === "event");
+  if (hasEvents && typeFilter !== "position") {
+    filteredEntries = filteredEntries.filter((entry) => entry.type !== "position");
+  }
+
+  const page = pagination?.page ?? 1;
+  const pageSize = pagination?.limit === undefined ? 1000 : pagination?.limit;
+  const totalItems = filteredEntries.length;
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
   const start = pageSize ? (page - 1) * pageSize : 0;
-  const items = pageSize ? entries.slice(start, start + pageSize) : entries;
+  const items = pageSize ? filteredEntries.slice(start, start + pageSize) : filteredEntries;
+
+  const availableColumns = new Set();
+  const skipColumns = new Set([
+    "attributes",
+    "__timestamp",
+    "type",
+    "eventType",
+    "eventDescription",
+    "commandName",
+    "commandResult",
+    "commandStatus",
+    "userName",
+    "auditAction",
+    "protocol",
+  ]);
+  const collectKeys = (entry) => {
+    Object.entries(entry || {}).forEach(([key, value]) => {
+      if (skipColumns.has(key)) return;
+      if (value === null || value === undefined || value === "") return;
+      availableColumns.add(key);
+    });
+    const attrs = entry?.attributes || {};
+    Object.entries(attrs).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === "") return;
+      availableColumns.add(key);
+    });
+  };
+  entries.forEach(collectKeys);
+
+  const latestPosition = positionEntries[positionEntries.length - 1] || null;
+  const client = vehicle?.clientId ? await getClientById(vehicle.clientId).catch(() => null) : null;
+  const ignitionLabel =
+    latestPosition?.ignition === true
+      ? "Ligada"
+      : latestPosition?.ignition === false
+        ? "Desligada"
+        : "Indisponível";
 
   return {
     items,
     meta: {
+      generatedAt: new Date().toISOString(),
       vehicleId,
       from,
       to,
@@ -4293,6 +4411,17 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
       pageSize: pageSize ?? totalItems,
       totalItems,
       totalPages,
+      vehicle: {
+        id: vehicle.id,
+        plate: vehicle.plate || null,
+        name: vehicle.name || null,
+        customer: client?.name || null,
+        status: vehicle.status || null,
+        lastCommunication: latestPosition?.occurredAt || null,
+        ignition: ignitionLabel,
+      },
+      exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
+      availableColumns: Array.from(availableColumns),
     },
   };
 }
@@ -4325,6 +4454,30 @@ function buildPositionsCsvFileName(meta, from, to) {
   const safeFrom = sanitizeFileToken(from, "from");
   const safeTo = sanitizeFileToken(to, "to");
   return `position-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
+}
+
+function buildAnalyticPdfFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "analytic";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
+}
+
+function buildAnalyticXlsxFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "analytic";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+}
+
+function buildAnalyticCsvFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "analytic";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
 }
 
 /**
@@ -4383,6 +4536,205 @@ router.get("/reports/analytic", async (req, res) => {
       return res.status(409).json({ data: [], error: { message: error.message, code: "DEVICE_MISSING" } });
     }
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
+  }
+});
+
+router.post("/reports/analytic/pdf", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/analytic/pdf] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const pagination = { page: 1, limit: null };
+
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : null;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+
+    const pdf = await generatePositionsReportPdf({
+      rows: report.items,
+      columns,
+      columnDefinitions: resolvedColumnDefinitions,
+      meta: report.meta,
+      availableColumns,
+      options: {
+        title: "RELATÓRIO ANALÍTICO",
+        subtitle: "Linha do tempo completa do veículo e auditoria de comandos",
+      },
+    });
+
+    const durationMs = Date.now() - startedAt;
+    const fileName = buildAnalyticPdfFileName(report?.meta, from, to);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/analytic/pdf] relatório analítico gerado", {
+      vehicleId,
+      rows: report.items.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
+    res.status(200).send(pdf);
+  } catch (error) {
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório analítico em PDF.";
+    const durationMs = Date.now() - startedAt;
+    console.error("[reports/analytic/pdf] erro ao exportar relatório analítico", {
+      status,
+      code: error?.code,
+      message,
+      durationMs,
+    });
+    res.status(status).json({ message, code: error?.code || "ANALYTIC_PDF_ERROR" });
+  }
+});
+
+router.post("/reports/analytic/xlsx", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/analytic/xlsx] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const pagination = { page: 1, limit: null };
+
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : null;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+
+    const xlsxBuffer = await generatePositionsReportXlsx({
+      rows: report.items,
+      columns,
+      columnDefinitions: resolvedColumnDefinitions,
+      meta: report.meta,
+      availableColumns,
+      options: {
+        sheetName: "Relatório Analítico",
+        title: "RELATÓRIO ANALÍTICO",
+      },
+    });
+
+    const durationMs = Date.now() - startedAt;
+    const fileName = buildAnalyticXlsxFileName(report?.meta, from, to);
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/analytic/xlsx] relatório analítico gerado", {
+      vehicleId,
+      rows: report.items.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
+    res.status(200).send(Buffer.from(xlsxBuffer));
+  } catch (error) {
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório analítico em Excel.";
+    const durationMs = Date.now() - startedAt;
+    console.error("[reports/analytic/xlsx] erro ao exportar relatório analítico", {
+      status,
+      code: error?.code,
+      message,
+      durationMs,
+    });
+    res.status(status).json({ message, code: error?.code || "ANALYTIC_XLSX_ERROR" });
+  }
+});
+
+router.post("/reports/analytic/csv", async (req, res) => {
+  const startedAt = Date.now();
+  let aborted = false;
+  req.on("aborted", () => {
+    aborted = true;
+    console.warn("[reports/analytic/csv] requisição abortada pelo cliente", {
+      vehicleId: req.body?.vehicleId || null,
+      columns: Array.isArray(req.body?.columns) ? req.body.columns.length : null,
+    });
+  });
+
+  try {
+    const vehicleId = req.body?.vehicleId ? String(req.body.vehicleId).trim() : "";
+    const from = parseDateOrThrow(req.body?.from, "from");
+    const to = parseDateOrThrow(req.body?.to, "to");
+    const pagination = { page: 1, limit: null };
+
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, pagination });
+    const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
+      ? req.body.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(req.body?.columnDefinitions) && req.body.columnDefinitions.length
+      ? req.body.columnDefinitions
+      : null;
+    const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+
+    const csvBuffer = generatePositionsReportCsv({
+      rows: report.items,
+      columns,
+      columnDefinitions: resolvedColumnDefinitions,
+      availableColumns,
+    });
+
+    const durationMs = Date.now() - startedAt;
+    const fileName = buildAnalyticCsvFileName(report?.meta, from, to);
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+    console.info("[reports/analytic/csv] relatório analítico gerado", {
+      vehicleId,
+      rows: report.items.length,
+      columns: columns.length,
+      durationMs,
+      clientAborted: aborted,
+    });
+    if (aborted || (res.headersSent && res.writableEnded)) {
+      return;
+    }
+    res.status(200).send(csvBuffer);
+  } catch (error) {
+    const status = resolveErrorStatusCode(error) ?? 500;
+    const message = error?.message || "Falha ao gerar relatório analítico em CSV.";
+    const durationMs = Date.now() - startedAt;
+    console.error("[reports/analytic/csv] erro ao exportar relatório analítico", {
+      status,
+      code: error?.code,
+      message,
+      durationMs,
+    });
+    res.status(status).json({ message, code: error?.code || "ANALYTIC_CSV_ERROR" });
   }
 });
 

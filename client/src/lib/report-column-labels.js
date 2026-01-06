@@ -14,9 +14,16 @@ export const REPORT_COLUMN_LABELS = {
   ioSummary: { label: "Entr/Saí", tooltip: "Entradas/Saídas" },
   input2: { label: "E2", tooltip: "Entrada 2" },
   input4: { label: "E4", tooltip: "Entrada 4" },
+  digitalInput2: { label: "E2", tooltip: "Entrada 2" },
+  digitalInput4: { label: "E4", tooltip: "Entrada 4" },
+  digitalInput5: { label: "E5", tooltip: "Entrada 5" },
+  digitalOutput1: { label: "S1", tooltip: "Saída 1" },
+  digitalOutput2: { label: "S2", tooltip: "Saída 2" },
+  geozoneInside: { label: "Geozone Inside", tooltip: "Dentro da Geozona" },
+  geozoneId: { label: "Geozone ID", tooltip: "Identificador da Geozona" },
   event: { label: "Evento", tooltip: "Evento" },
   criticality: { label: "Critic.", tooltip: "Criticidade" },
-  jamming: { label: "Jamming", tooltip: "Bloqueador" },
+  jamming: { label: "Bloqueador", tooltip: "Bloqueador" },
   audit: { label: "Auditoria", tooltip: "Ação do usuário" },
 };
 

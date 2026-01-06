@@ -89,7 +89,7 @@ export default function VehicleSelector({
   };
 
   return (
-    <div className={className} ref={containerRef}>
+    <div className={`relative ${className}`} ref={containerRef}>
       {label ? <span className="block text-xs uppercase tracking-wide text-white/60">{label}</span> : null}
       <div className="relative mt-1">
         <input
@@ -107,7 +107,7 @@ export default function VehicleSelector({
           aria-expanded={isOpen}
         />
         {isOpen && (
-          <div className="absolute z-50 mt-2 max-h-64 w-full overflow-auto rounded-lg border border-white/10 bg-[#0f141c] py-1 shadow-lg">
+          <div className="absolute z-[60] mt-2 max-h-64 w-full overflow-auto rounded-lg border border-white/10 bg-[#0f141c] py-1 shadow-lg">
             {filteredOptions.length === 0 ? (
               <div className="px-3 py-2 text-xs text-white/50">Nenhum veículo encontrado.</div>
             ) : (
