@@ -164,9 +164,10 @@ function normalizeAddressDisplay(value) {
 
 function normalizeColumnLabel(column) {
   if (!column) return column;
-  const baseLabel = resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
-  const label = resolveReportColumnLabel(column.key, baseLabel);
-  const tooltip = resolveReportColumnTooltip(column.key, label);
+  const description = column.descriptionPt || column.description;
+  const baseLabel = description || resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
+  const label = description || resolveReportColumnLabel(column.key, baseLabel);
+  const tooltip = description || resolveReportColumnTooltip(column.key, label);
   return {
     ...column,
     label,
