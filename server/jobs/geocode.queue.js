@@ -3,7 +3,6 @@ import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 
 let BullQueue = null;
-let BullQueueScheduler = null;
 let BullWorker = null;
 let IORedis = null;
 
@@ -12,7 +11,7 @@ let warnedMissingRedisUrl = false;
 let warnedMemoryDriver = false;
 
 try {
-  ({ Queue: BullQueue, QueueScheduler: BullQueueScheduler, Worker: BullWorker } = require("bullmq"));
+  ({ Queue: BullQueue, Worker: BullWorker } = require("bullmq"));
 } catch (error) {
   if (shouldLogDriverWarnings) {
     console.warn("[geocode-queue] BullMQ indisponível, ativando modo em memória.", error?.message || error);
@@ -40,11 +39,10 @@ const PRIORITY_MAP = {
 
 const state = {
   queue: null,
-  scheduler: null,
   connection: null,
   worker: null,
   driver:
-    BullQueue && BullQueueScheduler && IORedis && process.env.GEOCODE_QUEUE_DISABLED !== "true" && process.env.NODE_ENV !== "test"
+    BullQueue && BullWorker && IORedis && process.env.GEOCODE_QUEUE_DISABLED !== "true" && process.env.NODE_ENV !== "test"
       ? "bullmq"
       : "memory",
   memory: {
@@ -214,12 +212,6 @@ export function getGeocodeQueue() {
   }
 
   try {
-    state.scheduler =
-      state.scheduler ||
-      new BullQueueScheduler(GEOCODE_QUEUE_NAME, {
-        connection,
-      });
-
     state.queue =
       state.queue ||
       new BullQueue(GEOCODE_QUEUE_NAME, {
@@ -367,7 +359,6 @@ export function registerGeocodeProcessor(processor, { concurrency = 3 } = {}) {
 export function closeGeocodeQueue() {
   const tasks = [];
   if (state.queue?.close) tasks.push(state.queue.close().catch(() => {}));
-  if (state.scheduler?.close) tasks.push(state.scheduler.close().catch(() => {}));
   if (state.connection?.quit) tasks.push(state.connection.quit().catch(() => {}));
   state.memory.pending = [];
   state.memory.jobs.clear();
