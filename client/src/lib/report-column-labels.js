@@ -50,7 +50,7 @@ export const REPORT_COLUMN_LABELS = {
 export function resolveReportColumnLabel(key, fallbackLabel) {
   if (!key) return fallbackLabel;
   const entry = REPORT_COLUMN_LABELS[key];
-  return entry?.label || fallbackLabel || key;
+  return entry?.tooltip || entry?.label || fallbackLabel || key;
 }
 
 export function resolveReportColumnTooltip(key, fallbackTooltip) {
