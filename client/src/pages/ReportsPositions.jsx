@@ -704,9 +704,8 @@ export default function ReportsPositions() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <section className="card flex flex-col gap-4 p-0">
-        <form onSubmit={handleGenerate} className="flex flex-col gap-4">
-          <header className="space-y-2 px-6 pt-5">
+      <form onSubmit={handleGenerate} className="flex flex-col gap-4">
+        <header className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
@@ -801,105 +800,104 @@ export default function ReportsPositions() {
                 </span>
               </div>
             </div>
-          </header>
+        </header>
 
-          {topBarVisible ? (
-            <div className="space-y-3 px-6 pb-6">
-              <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
-                <div className="xl:col-span-4">
-                  <VehicleSelector
-                    label="Veículo"
-                    placeholder="Busque por placa, nome ou ID"
-                    className="text-sm"
-                  />
-                </div>
-                <label className="text-sm xl:col-span-4">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
-                  <input
-                    type="text"
-                    value={addressQuery}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      setAddressQuery(value);
-                      if (!value.trim()) {
-                        setAddressFilter(null);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (addressQuery.trim()) {
-                        resolveAddressFilter();
-                      }
-                    }}
-                    placeholder="Rua, cidade ou lat,lng"
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                  {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
-                  {addressFilter && (
-                    <p className="mt-1 text-xs text-white/60">
-                      Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
-                    </p>
-                  )}
-                </label>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
-                  <input
-                    type="datetime-local"
-                    value={from}
-                    onChange={(event) => setFrom(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                </label>
-                <label className="text-sm xl:col-span-2">
-                  <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
-                  <input
-                    type="datetime-local"
-                    value={to}
-                    onChange={(event) => setTo(event.target.value)}
-                    className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
-                  />
-                </label>
+        {topBarVisible ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-12">
+              <div className="xl:col-span-4">
+                <VehicleSelector
+                  label="Veículo"
+                  placeholder="Busque por placa, nome ou ID"
+                  className="text-sm"
+                />
               </div>
+              <label className="text-sm xl:col-span-4">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Endereço / Coordenada</span>
+                <input
+                  type="text"
+                  value={addressQuery}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setAddressQuery(value);
+                    if (!value.trim()) {
+                      setAddressFilter(null);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (addressQuery.trim()) {
+                      resolveAddressFilter();
+                    }
+                  }}
+                  placeholder="Rua, cidade ou lat,lng"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+                {geocoding && <p className="mt-1 text-xs text-white/60">Geocodificando endereço…</p>}
+                {addressFilter && (
+                  <p className="mt-1 text-xs text-white/60">
+                    Raio: {DEFAULT_RADIUS_METERS}m • {addressFilter.lat.toFixed(5)}, {addressFilter.lng.toFixed(5)}
+                  </p>
+                )}
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Início</span>
+                <input
+                  type="datetime-local"
+                  value={from}
+                  onChange={(event) => setFrom(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
+              <label className="text-sm xl:col-span-2">
+                <span className="block text-xs uppercase tracking-wide text-white/60">Fim</span>
+                <input
+                  type="datetime-local"
+                  value={to}
+                  onChange={(event) => setTo(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary/40 focus:outline-none"
+                />
+              </label>
             </div>
-          ) : (
-            <div className="flex items-center justify-between gap-3 px-6 pb-6">
-              <p className="text-xs text-white/60">Filtros ocultos. Clique para ajustar os critérios.</p>
-              <button
-                type="button"
-                onClick={() => setTopBarVisible(true)}
-                className="rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white"
-              >
-                Mostrar filtros
-              </button>
-            </div>
-          )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-white/60">Filtros ocultos. Clique para ajustar os critérios.</p>
+            <button
+              type="button"
+              onClick={() => setTopBarVisible(true)}
+              className="rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white"
+            >
+              Mostrar filtros
+            </button>
+          </div>
+        )}
 
-          {formError && (
-            <div className="px-6 pb-6">
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+        {formError && (
+          <div>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{formError}</div>
+          </div>
+        )}
+        {feedback && (
+          <div>
+            <div
+              className={`rounded-lg border p-3 text-sm ${
+                feedback.type === "success"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
+                  : "border-red-500/30 bg-red-500/10 text-red-200"
+              }`}
+            >
+              {feedback.message}
             </div>
-          )}
-          {feedback && (
-            <div className="px-6 pb-6">
-              <div
-                className={`rounded-lg border p-3 text-sm ${
-                  feedback.type === "success"
-                    ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-100"
-                    : "border-red-500/30 bg-red-500/10 text-red-200"
-                }`}
-              >
-                {feedback.message}
-              </div>
-            </div>
-          )}
-          {error && !feedback?.message && (
-            <div className="px-6 pb-6">
-              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
-            </div>
-          )}
-        </form>
-      </section>
+          </div>
+        )}
+        {error && !feedback?.message && (
+          <div>
+            <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
+          </div>
+        )}
+      </form>
 
-      <section className="flex-1 min-h-0 rounded-2xl border border-white/10 bg-[#0b0f17]">
+      <section className="flex-1 min-h-0">
         <MonitoringTable
           rows={filteredRows}
           columns={visibleColumnsWithWidths}

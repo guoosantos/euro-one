@@ -4093,10 +4093,8 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
     device?.attributes?.protocol ||
     null;
 
-  const resolveMode = req.query?.addressMode === "blocking" ? "blocking" : "async";
   const positions = await fetchPositions([traccarId], from, to);
-  await resolvePositionsFullAddressBatch(positions, resolveMode);
-  const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
+  const enrichedPositions = positions;
 
   const formatIoValue = (value) => {
     if (value === null || value === undefined || value === "") return null;
@@ -4175,8 +4173,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   const events = await fetchEventsWithFallback([traccarId], from, to, eventLimit);
   const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
   const eventPositions = await fetchPositionsByIds(positionIds);
-  const enrichedEventPositions = ensureCachedAddresses(eventPositions, { priority: "normal" });
-  const positionMap = new Map(enrichedEventPositions.map((position) => [position.id, position]));
+  const positionMap = new Map(eventPositions.map((position) => [position.id, position]));
   const eventEntries = events.map((event) => {
     const position = event.positionId ? positionMap.get(event.positionId) : null;
     const attributes = event.attributes || {};
@@ -4313,55 +4310,45 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, pagination })
   const futureActionEntries = [];
   const auditEntries = [];
 
-  const typeFilter = String(req.query?.type ?? req.body?.type ?? "all").toLowerCase();
-  const criticalOnly = ["true", "1", "yes", "sim"].includes(
-    String(req.query?.criticalOnly ?? req.body?.criticalOnly ?? "").toLowerCase(),
-  );
-  const geofenceFilter = String(req.query?.geofence ?? req.body?.geofence ?? "all").toLowerCase();
-  const search = String(req.query?.search ?? req.body?.search ?? "").trim().toLowerCase();
+  const rawEntries = [...positionEntries, ...eventEntries, ...commandEntries, ...futureActionEntries, ...auditEntries]
+    .filter((entry) => entry.occurredAt);
 
-  const entries = [...positionEntries, ...eventEntries, ...commandEntries, ...futureActionEntries, ...auditEntries]
-    .filter((entry) => entry.occurredAt)
-    .filter((entry) => {
-      if (typeFilter !== "all") {
-        if (typeFilter === "position" && entry.type !== "position") return false;
-        if (typeFilter === "event" && entry.type !== "event") return false;
-        if (typeFilter === "command" && entry.type !== "command") return false;
-        if (["response", "command_response"].includes(typeFilter) && entry.type !== "command_response") return false;
-        if (typeFilter === "audit" && !["command", "command_response", "action", "audit"].includes(entry.type)) return false;
-        if (typeFilter === "critical" && !entry.isCritical) return false;
-      }
-      if (criticalOnly && !entry.isCritical) return false;
-      if (geofenceFilter === "inside" && !entry.geofence) return false;
-      if (geofenceFilter === "outside" && entry.geofence) return false;
-      if (search) {
-        const haystack = [
-          entry.eventType,
-          entry.eventDescription,
-          entry.commandName,
-          entry.commandResult,
-          entry.userName,
-        ]
-          .filter(Boolean)
-          .map((value) => String(value).toLowerCase());
-        if (!haystack.some((value) => value.includes(search))) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
-
-  let filteredEntries = entries;
-  const hasEvents = filteredEntries.some((entry) => entry.type === "event");
-  if (hasEvents && typeFilter !== "position") {
-    filteredEntries = filteredEntries.filter((entry) => entry.type !== "position");
+  const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object"
+    ? req.body.addressFilter
+    : parseAddressFilterQuery(req.query);
+  let filter = null;
+  if (addressFilter?.lat != null && addressFilter?.lng != null) {
+    const lat = Number(addressFilter.lat);
+    const lng = Number(addressFilter.lng);
+    const radius = Number(addressFilter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      filter = {
+        lat,
+        lng,
+        radius: Number.isFinite(radius) && radius > 0 ? radius : DEFAULT_REPORT_RADIUS_METERS,
+      };
+    }
   }
+
+  const entries = filter
+    ? rawEntries.filter((entry) => {
+        if (entry.latitude == null || entry.longitude == null) return false;
+        const distance = computeDistanceMeters(
+          { lat: filter.lat, lng: filter.lng },
+          { lat: entry.latitude, lng: entry.longitude },
+        );
+        return distance <= (filter.radius ?? DEFAULT_REPORT_RADIUS_METERS);
+      })
+    : rawEntries;
+
+  entries.sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
 
   const page = pagination?.page ?? 1;
   const pageSize = pagination?.limit === undefined ? 1000 : pagination?.limit;
-  const totalItems = filteredEntries.length;
+  const totalItems = entries.length;
   const totalPages = pageSize ? Math.max(1, Math.ceil(totalItems / pageSize)) : 1;
   const start = pageSize ? (page - 1) * pageSize : 0;
-  const items = pageSize ? filteredEntries.slice(start, start + pageSize) : filteredEntries;
+  const items = pageSize ? entries.slice(start, start + pageSize) : entries;
 
   const availableColumns = new Set();
   const skipColumns = new Set([
