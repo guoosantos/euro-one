@@ -67,7 +67,15 @@ export const config = {
     baseUrl: normaliseBaseUrl(process.env.OSRM_BASE_URL || process.env.MAP_MATCH_BASE_URL),
   },
   geocoder: {
+    provider: process.env.GEOCODER_PROVIDER || "nominatim",
     baseUrl: normaliseBaseUrl(process.env.GEOCODER_URL || process.env.NOMINATIM_URL),
+    apiKey: process.env.GEOCODER_API_KEY || null,
+    timeoutMs: toNumber(process.env.GEOCODER_TIMEOUT_MS, 8000),
+    qpsLimit: toNumber(process.env.GEOCODER_QPS_LIMIT, 1),
+    userAgent: process.env.GEOCODER_USER_AGENT || "Euro-One Geocode Worker",
+    gridPrecision: toNumber(process.env.GEOCODER_GRID_PRECISION, 4),
+    reuseDistanceMeters: toNumber(process.env.GEOCODER_REUSE_DISTANCE_METERS, 25),
+    maxConcurrent: toNumber(process.env.GEOCODER_MAX_CONCURRENT, 3),
   },
 };
 

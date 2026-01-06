@@ -17,6 +17,22 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `TRACCAR_DB_NAME`: nome do banco Traccar.
 - `JWT_SECRET` / `JWT_EXPIRES_IN`: assinatura e expiração dos tokens.
 - `ALLOWED_ORIGINS`: lista separada por vírgulas de origens autorizadas no CORS.
+- `GEOCODER_PROVIDER`: provider de reverse geocoding (`nominatim` ou `locationiq`).
+- `GEOCODER_URL`: URL base do provider (`https://nominatim.openstreetmap.org` ou endpoint do LocationIQ).
+- `GEOCODER_API_KEY`: chave do provider (necessária para LocationIQ).
+- `GEOCODER_TIMEOUT_MS`: timeout das chamadas de geocoding (ms).
+- `GEOCODER_QPS_LIMIT`: limite de chamadas por segundo ao provider.
+- `GEOCODER_USER_AGENT`: user-agent enviado ao provider.
+- `GEOCODER_GRID_PRECISION`: precisão de grid (casas decimais) para cache persistente.
+- `GEOCODER_REUSE_DISTANCE_METERS`: distância máxima (m) para reutilizar endereço por veículo.
+- `GEOCODER_MAX_CONCURRENT`: concorrência máxima de chamadas externas de geocode.
+- `GEOCODE_QUEUE_DISABLED`: desativa BullMQ/Redis (modo memória).
+- `GEOCODE_REDIS_URL`: URL do Redis do BullMQ.
+- `GEOCODE_SCAN_INTERVAL_MS`: intervalo do scanner automático de posições sem endereço.
+- `GEOCODE_SCAN_LOOKBACK_MINUTES`: janela (min) do scanner para buscar posições recentes.
+- `GEOCODE_SCAN_BATCH`: lote máximo por varredura automática.
+- `GEOCODE_RETRY_INTERVAL_MS`: intervalo do job recorrente para reprocessar FAILED.
+- `GEOCODE_RETRY_BACKOFF_MINUTES`: cooldown mínimo (min) para reprocessar FAILED.
 - `ENABLE_DEMO_FALLBACK`: mantenha `false`/ausente em produção. Só habilite (`true`) para ambientes de demonstração sem banco, permitindo o tenant `demo-client` como último recurso.
 - `DEMO_LOGIN_ONLY`: modo de demonstração explícito. Quando `true`, a API ignora o banco e usa apenas o tenant de demo **somente se** as credenciais do usuário demo forem informadas.
 - `ALLOW_DEMO_FALLBACK_IN_PRODUCTION`: default `false`. Se `ENABLE_DEMO_FALLBACK=true` com `NODE_ENV=production`, o startup emitirá um warning; defina como `true` apenas para permitir esse modo em ambientes de produção controlados.

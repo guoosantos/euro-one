@@ -29,7 +29,10 @@ try {
 }
 
 const GEOCODE_QUEUE_NAME = "geocode";
-const DEFAULT_PRECISION = 5;
+const DEFAULT_PRECISION_RAW = Number(process.env.GEOCODER_GRID_PRECISION || 4);
+const DEFAULT_PRECISION = Number.isFinite(DEFAULT_PRECISION_RAW) ? DEFAULT_PRECISION_RAW : 4;
+const RETRY_DELAYS_MS = [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000];
+const DEFAULT_ATTEMPTS = RETRY_DELAYS_MS.length + 1;
 const PRIORITY_MAP = {
   high: 1,
   normal: 5,
@@ -106,15 +109,31 @@ export function getGeocodeQueueConnection() {
 }
 
 class MemoryJob {
-  constructor(id, data) {
+  constructor(id, data, opts = {}) {
     this.id = id;
     this.data = data;
+    this.opts = opts;
+    this.attemptsMade = 0;
   }
 
   async update(nextData) {
     this.data = { ...this.data, ...nextData };
     return this;
   }
+}
+
+function resolveBackoffDelay(attemptsMade, opts = {}) {
+  const backoffType = opts?.backoff?.type;
+  if (backoffType === "geocodeBackoff") {
+    return RETRY_DELAYS_MS[Math.max(0, attemptsMade - 1)] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
+  }
+  if (typeof opts?.backoff === "number") {
+    return opts.backoff;
+  }
+  if (opts?.backoff?.delay) {
+    return opts.backoff.delay;
+  }
+  return 0;
 }
 
 function processMemoryJobs() {
@@ -125,6 +144,16 @@ function processMemoryJobs() {
     Promise.resolve()
       .then(() => state.memory.processor(job))
       .catch((error) => {
+        const attempts = job?.opts?.attempts || 1;
+        job.attemptsMade += 1;
+        if (job.attemptsMade < attempts) {
+          const delay = resolveBackoffDelay(job.attemptsMade, job.opts);
+          setTimeout(() => {
+            state.memory.pending.push(job);
+            processMemoryJobs();
+          }, delay);
+          return;
+        }
         console.warn("[geocode-queue] Falha ao processar job em memória", error?.message || error);
       })
       .finally(() => {
@@ -136,15 +165,22 @@ function processMemoryJobs() {
 
 function createMemoryQueue() {
   return {
-    async add(_name, data, { jobId } = {}) {
+    async add(_name, data, { jobId, delay = 0, attempts, backoff } = {}) {
       const id = jobId || `${Date.now()}-${Math.random()}`;
       if (state.memory.jobs.has(id)) {
         return state.memory.jobs.get(id);
       }
-      const job = new MemoryJob(id, data);
+      const job = new MemoryJob(id, data, { attempts, backoff, delay });
       state.memory.jobs.set(id, job);
-      state.memory.pending.push(job);
-      processMemoryJobs();
+      const schedule = () => {
+        state.memory.pending.push(job);
+        processMemoryJobs();
+      };
+      if (delay > 0) {
+        setTimeout(schedule, delay);
+      } else {
+        schedule();
+      }
       return job;
     },
     async getJob(id) {
@@ -189,8 +225,8 @@ export function getGeocodeQueue() {
       new BullQueue(GEOCODE_QUEUE_NAME, {
         connection,
         defaultJobOptions: {
-          attempts: 2,
-          backoff: { type: "fixed", delay: 3000 },
+          attempts: DEFAULT_ATTEMPTS,
+          backoff: { type: "geocodeBackoff" },
           removeOnComplete: true,
           removeOnFail: false,
         },
@@ -224,6 +260,7 @@ export async function enqueueGeocodeJob({
   deviceId = null,
   reason = "warm_fill",
   priority = "normal",
+  delayMs = 0,
 } = {}) {
   const queue = getGeocodeQueue();
   if (!queue) return null;
@@ -231,6 +268,8 @@ export async function enqueueGeocodeJob({
   const gridKey = buildGridKey(lat, lng);
   if (!gridKey) return null;
 
+  const gridJobId = `geocode:grid:${gridKey}`;
+  const positionJobId = positionId ? `geocode:position:${positionId}` : null;
   const payload = {
     lat: normalizeCoordinate(lat),
     lng: normalizeCoordinate(lng),
@@ -238,12 +277,14 @@ export async function enqueueGeocodeJob({
     positionId: positionId ?? null,
     positionIds: mergePositionIds(positionIds, positionId),
     gridKey,
+    gridJobId,
+    positionJobId,
     reason,
     priority,
   };
 
   try {
-    const existing = await queue.getJob(gridKey);
+    const existing = await queue.getJob(gridJobId);
     if (existing) {
       const mergedIds = mergePositionIds(existing.data?.positionIds || [], positionId);
       await existing.update({ ...existing.data, positionIds: mergedIds });
@@ -251,8 +292,11 @@ export async function enqueueGeocodeJob({
     }
 
     return await queue.add("reverse-geocode", payload, {
-      jobId: gridKey,
+      jobId: gridJobId,
       priority: resolvePriority(priority),
+      delay: Math.max(0, Number(delayMs) || 0),
+      attempts: DEFAULT_ATTEMPTS,
+      backoff: { type: "geocodeBackoff" },
     });
   } catch (error) {
     console.warn("[geocode-queue] Failed to enqueue geocode job", {
@@ -291,6 +335,12 @@ export function registerGeocodeProcessor(processor, { concurrency = 3 } = {}) {
     new BullWorker(GEOCODE_QUEUE_NAME, processor, {
       connection,
       concurrency: Number.isFinite(concurrency) && concurrency > 0 ? concurrency : 3,
+      settings: {
+        backoffStrategies: {
+          geocodeBackoff: (attemptsMade) =>
+            RETRY_DELAYS_MS[Math.max(0, attemptsMade - 1)] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1],
+        },
+      },
     });
 
   state.worker.on("failed", (job, error) => {

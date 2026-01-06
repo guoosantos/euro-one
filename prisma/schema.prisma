@@ -163,10 +163,16 @@ model UserPreference {
 }
 
 model GeocodeCache {
-  key       String   @id
-  data      Json
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  key         String   @id
+  data        Json
+  latCenter   Float?
+  lonCenter   Float?
+  addressText String?
+  addressJson Json?
+  provider    String?
+  hitsCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 model Geofence {

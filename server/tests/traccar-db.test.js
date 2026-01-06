@@ -152,10 +152,12 @@ describe("traccar-db", () => {
     let updateCount = 0;
     const captured = [];
     const fakePool = {
-      query: async (_sql, params) => {
-        if (params?.length === 2) {
+      query: async (sql, params) => {
+        if (String(sql).toLowerCase().includes("update tc_positions")) {
           updateCount += 1;
-          captured.push(params[0]);
+          if (typeof params?.[0] === "string") {
+            captured.push(params[0]);
+          }
         }
         return [];
       },
