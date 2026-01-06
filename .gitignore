@@ -41,3 +41,6 @@ server/data/storage.json.bak_*
 tatus
 
 .pm2
+node_modules/
+.env
+.DS_Store
