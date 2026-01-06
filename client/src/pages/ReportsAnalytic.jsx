@@ -15,14 +15,14 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
-import { buildColumnPreset, EURO_ANALYTIC_PRESET_KEYS } from "../lib/report-column-presets.js";
+import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import {
   buildAddressWithLatLng,
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
-import { positionsColumns, resolveColumn, resolveColumnLabel } from "../../../shared/positionsColumns.js";
+import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 import { resolveSensorLabel } from "../i18n/sensors.ptBR.js";
 
@@ -60,14 +60,34 @@ function parseCoordinateQuery(raw) {
 
 function formatSpeed(value) {
   if (value === null || value === undefined || value === "") return "—";
-  if (!Number.isFinite(Number(value))) return String(value);
-  return `${Number(value)} km/h`;
+  return `${value} km/h`;
 }
 
-function formatBoolean(value, yesLabel, noLabel) {
+function formatDistance(value) {
   if (value === null || value === undefined || value === "") return "—";
-  if (typeof value === "string") return value;
-  return value ? yesLabel : noLabel;
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(2)} km`;
+  return String(value);
+}
+
+function formatDirection(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toFixed(0)}°`;
+}
+
+function formatHdop(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return Number(value).toFixed(2);
+}
+
+function formatAccuracy(value) {
+  if (!Number.isFinite(Number(value))) return "—";
+  return `${Number(value).toFixed(0)} m`;
+}
+
+function formatBattery(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (Number.isFinite(Number(value))) return `${Number(value).toFixed(0)}%`;
+  return String(value);
 }
 
 function formatVehicleVoltage(value) {
@@ -228,183 +248,20 @@ export default function ReportsAnalytic() {
   const entries = data?.entries || [];
   const meta = data?.meta || null;
 
-  const baseColumns = useMemo(
-    () => [
-      {
-        key: "occurredAt",
-        label: resolveReportColumnLabel("occurredAt", t("reportsAnalytic.columns.datetime")),
-        fullLabel: resolveReportColumnTooltip("occurredAt", t("reportsAnalytic.columns.datetime")),
-        width: 160,
-        minWidth: 140,
-      },
-      {
-        key: "event",
-        label: resolveReportColumnLabel("event", t("reportsAnalytic.columns.event")),
-        fullLabel: resolveReportColumnTooltip("event", t("reportsAnalytic.columns.event")),
-        width: 240,
-        minWidth: 200,
-      },
-      {
-        key: "address",
-        label: resolveReportColumnLabel("address", t("reportsAnalytic.columns.address")),
-        fullLabel: resolveReportColumnTooltip("address", t("reportsAnalytic.columns.address")),
-        width: 320,
-        minWidth: 260,
-        render: (row) => buildAddressWithLatLng(row.address, row.lat, row.lng),
-      },
-      {
-        key: "ignition",
-        label: resolveReportColumnLabel("ignition", t("reportsAnalytic.columns.ignition")),
-        fullLabel: resolveReportColumnTooltip("ignition", t("reportsAnalytic.columns.ignition")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "geozoneInside",
-        label: resolveReportColumnLabel("geozoneInside", t("reportsAnalytic.columns.geozoneInside")),
-        fullLabel: resolveReportColumnTooltip("geozoneInside", t("reportsAnalytic.columns.geozoneInside")),
-        width: 130,
-        minWidth: 120,
-      },
-      {
-        key: "digitalInput2",
-        label: resolveReportColumnLabel("digitalInput2", t("reportsAnalytic.columns.input2")),
-        fullLabel: resolveReportColumnTooltip("digitalInput2", t("reportsAnalytic.columns.input2")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "digitalInput4",
-        label: resolveReportColumnLabel("digitalInput4", t("reportsAnalytic.columns.input4")),
-        fullLabel: resolveReportColumnTooltip("digitalInput4", t("reportsAnalytic.columns.input4")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "digitalInput5",
-        label: resolveReportColumnLabel("digitalInput5", t("reportsAnalytic.columns.input5")),
-        fullLabel: resolveReportColumnTooltip("digitalInput5", t("reportsAnalytic.columns.input5")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "digitalOutput1",
-        label: resolveReportColumnLabel("digitalOutput1", t("reportsAnalytic.columns.output1")),
-        fullLabel: resolveReportColumnTooltip("digitalOutput1", t("reportsAnalytic.columns.output1")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "digitalOutput2",
-        label: resolveReportColumnLabel("digitalOutput2", t("reportsAnalytic.columns.output2")),
-        fullLabel: resolveReportColumnTooltip("digitalOutput2", t("reportsAnalytic.columns.output2")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "speed",
-        label: resolveReportColumnLabel("speed", t("reportsAnalytic.columns.speed")),
-        fullLabel: resolveReportColumnTooltip("speed", t("reportsAnalytic.columns.speed")),
-        width: 90,
-        minWidth: 80,
-      },
-      {
-        key: "vehicleVoltage",
-        label: resolveReportColumnLabel("vehicleVoltage", t("reportsAnalytic.columns.voltage")),
-        fullLabel: resolveReportColumnTooltip("vehicleVoltage", t("reportsAnalytic.columns.voltage")),
-        width: 120,
-        minWidth: 100,
-      },
-      {
-        key: "geozoneId",
-        label: resolveReportColumnLabel("geozoneId", t("reportsAnalytic.columns.geozoneId")),
-        fullLabel: resolveReportColumnTooltip("geozoneId", t("reportsAnalytic.columns.geozoneId")),
-        width: 120,
-        minWidth: 100,
-      },
-    ],
-    [t],
-  );
-
-  const extraColumns = useMemo(
-    () => [
-      {
-        key: "criticality",
-        label: resolveReportColumnLabel("criticality", "Criticidade"),
-        fullLabel: resolveReportColumnTooltip("criticality", "Criticidade"),
-        width: 110,
-        minWidth: 100,
-      },
-      {
-        key: "geofence",
-        label: resolveReportColumnLabel("geofence", t("reportsAnalytic.columns.geofence")),
-        fullLabel: resolveReportColumnTooltip("geofence", t("reportsAnalytic.columns.geofence")),
-        width: 140,
-        minWidth: 120,
-      },
-      {
-        key: "ioSummary",
-        label: resolveReportColumnLabel("ioSummary", "Entradas/Saídas"),
-        fullLabel: resolveReportColumnTooltip("ioSummary", "Entradas/Saídas"),
-        width: 160,
-        minWidth: 120,
-      },
-      {
-        key: "jamming",
-        label: resolveReportColumnLabel("jamming", t("reportsAnalytic.columns.jamming")),
-        fullLabel: resolveReportColumnTooltip("jamming", t("reportsAnalytic.columns.jamming")),
-        width: 100,
-        minWidth: 90,
-      },
-      {
-        key: "audit",
-        label: resolveReportColumnLabel("audit", "Auditoria"),
-        fullLabel: resolveReportColumnTooltip("audit", "Auditoria"),
-        width: 180,
-        minWidth: 140,
-      },
-    ],
-    [t],
-  );
-
-  const dynamicColumns = useMemo(() => {
-    const schema = entries.length ? buildPositionsSchema(entries) : [];
-    const metaKeys = Array.isArray(meta?.availableColumns) ? meta.availableColumns : [];
-    const metaColumns = metaKeys.map((key) => resolveColumn(key)).filter(Boolean);
-    const merged = [...schema, ...metaColumns];
-    if (!merged.length) {
-      return FALLBACK_COLUMNS.map(normalizeColumnLabel);
-    }
-    const seen = new Set();
-    return merged
-      .filter((column) => {
-        if (!column?.key || seen.has(column.key)) return false;
-        seen.add(column.key);
-        return true;
-      })
-      .map((column) => {
+  const availableColumns = useMemo(() => {
+    if (entries.length) {
+      const schema = buildPositionsSchema(entries);
+      return schema.map((column) => {
         const normalized = normalizeColumnLabel(column);
         return {
           ...normalized,
+          defaultVisible: normalized.defaultVisible ?? true,
           width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
         };
       });
-  }, [entries, meta]);
-
-  const availableColumns = useMemo(() => {
-    const merged = [...baseColumns, ...extraColumns, ...dynamicColumns];
-    const seen = new Set();
-    const deduped = [];
-    merged.forEach((column) => {
-      if (!column?.key || seen.has(column.key)) return;
-      seen.add(column.key);
-      deduped.push(column);
-    });
-    return deduped.map((column) => ({
-      ...column,
-      defaultVisible: EURO_ANALYTIC_PRESET_KEYS.includes(column.key),
-    }));
-  }, [baseColumns, dynamicColumns, extraColumns]);
+    }
+    return FALLBACK_COLUMNS.map(normalizeColumnLabel);
+  }, [entries]);
 
   const columnDefinitionMap = useMemo(
     () => new Map(availableColumns.map((column) => [column.key, column])),
@@ -412,7 +269,7 @@ export default function ReportsAnalytic() {
   );
 
   const defaultPrefs = useMemo(
-    () => buildColumnPreset(availableColumns, EURO_ANALYTIC_PRESET_KEYS),
+    () => buildColumnPreset(availableColumns, EURO_PRESET_KEYS),
     [availableColumns],
   );
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaultPrefs));
@@ -431,6 +288,9 @@ export default function ReportsAnalytic() {
       visibleColumns.map((column) => ({
         ...column,
         width: columnPrefs?.widths?.[column.key] ?? column.width,
+        render: column.key === "address"
+          ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
+          : column.render,
       })),
     [visibleColumns, columnPrefs],
   );
@@ -557,33 +417,69 @@ export default function ReportsAnalytic() {
         const commandStatus = entry.commandStatus ? resolveCommandStatusLabel(entry.commandStatus, t) : null;
         const commandResult = entry.commandResult ? `${commandStatus ? `${commandStatus} · ` : ""}${entry.commandResult}` : commandStatus;
         const eventLabel = resolveEventLabel(entry, t);
-        const ignitionLabel = formatIgnition(entry.ignition);
+        const gpsTime = entry.gpsTime || entry.occurredAt || null;
         const audit =
           entry.userName
             ? `${entry.userName}${entry.auditAction ? ` · ${entry.auditAction}` : ""}`
             : entry.auditSummary || "—";
         const row = {
-          key: entry.id || `${entry.type}-${entry.occurredAt}`,
-          occurredAt: formatDateTime(entry.occurredAt),
-          event: entry.type === "command_response" && commandResult ? `${eventLabel} (${commandResult})` : eventLabel,
+          key: entry.id ?? `${gpsTime}-${entry.latitude}-${entry.longitude}`,
+          deviceId: entry.id ?? gpsTime ?? Math.random(),
+
+          gpsTime: formatDateTime(gpsTime),
+          deviceTime: formatDateTime(entry.deviceTime),
+          serverTime: formatDateTime(entry.serverTime),
+          latitude: entry.latitude != null ? entry.latitude.toFixed(6) : "—",
+          longitude: entry.longitude != null ? entry.longitude.toFixed(6) : "—",
           address: normalizeAddressDisplay(entry.address),
-          rawAddress: entry.address,
-          lat: entry.latitude ?? entry.lat ?? null,
-          lng: entry.longitude ?? entry.lng ?? null,
-          criticality: resolveCriticalityLabel(entry, t),
+          lat: entry.latitude,
+          lng: entry.longitude,
+          event: entry.type === "command_response" && commandResult ? `${eventLabel} (${commandResult})` : eventLabel,
           speed: formatSpeed(entry.speed),
-          ignition: ignitionLabel,
-          ioSummary: entry.ioSummary || "—",
+          direction: formatDirection(entry.direction),
+          ignition: formatIgnition(entry.ignition),
+          vehicleState: entry.vehicleState || "Indisponível",
+          batteryLevel: formatBattery(entry.batteryLevel),
+          rssi: entry.rssi ?? "—",
+          satellites: entry.satellites ?? "—",
           geofence: entry.geofence || "—",
-          geozoneInside: formatBoolean(entry.geozoneInside, t("common.yes"), t("common.no")),
-          geozoneId: entry.geozoneId ?? entry.geofence ?? "—",
-          jamming: formatBoolean(entry.jamming, t("common.yes"), t("common.no")),
+          accuracy: formatAccuracy(entry.accuracy),
+          hdop: formatHdop(entry.hdop),
+          distance: formatDistance(entry.distance),
+          totalDistance: formatDistance(entry.totalDistance),
           vehicleVoltage: formatVehicleVoltage(entry.vehicleVoltage),
+          deviceTemp: formatByDescriptor("deviceTemp", entry.deviceTemp),
+          handBrake: formatByDescriptor("handBrake", entry.handBrake),
+          commandResponse: entry.commandResponse || "—",
+          deviceStatusEvent: entry.deviceStatusEvent || "—",
+          deviceStatus: entry.deviceStatus || "Indisponível",
+          digitalInput1: formatIoState(entry.digitalInput1),
           digitalInput2: formatIoState(entry.digitalInput2),
-          digitalInput4: formatIoState(entry.digitalInput4),
-          digitalInput5: formatIoState(entry.digitalInput5),
           digitalOutput1: formatIoState(entry.digitalOutput1),
           digitalOutput2: formatIoState(entry.digitalOutput2),
+          digitalInput3: formatIoState(entry.digitalInput3),
+          digitalInput4: formatIoState(entry.digitalInput4),
+          digitalInput5: formatIoState(entry.digitalInput5),
+          digitalInput6: formatIoState(entry.digitalInput6),
+          digitalInput7: formatIoState(entry.digitalInput7),
+          digitalInput8: formatIoState(entry.digitalInput8),
+          digitalOutput3: formatIoState(entry.digitalOutput3),
+          digitalOutput4: formatIoState(entry.digitalOutput4),
+          digitalOutput5: formatIoState(entry.digitalOutput5),
+          digitalOutput6: formatIoState(entry.digitalOutput6),
+          digitalOutput7: formatIoState(entry.digitalOutput7),
+          digitalOutput8: formatIoState(entry.digitalOutput8),
+          ioDetails:
+            Array.isArray(entry.ioDetails) && entry.ioDetails.length
+              ? entry.ioDetails
+                  .map((item) => {
+                    const label = item?.label || item?.key || "IO";
+                    const value = item?.value ?? "—";
+                    return `${label}: ${value}`;
+                  })
+                  .join(" • ")
+              : "—",
+          criticality: resolveCriticalityLabel(entry, t),
           audit,
         };
 

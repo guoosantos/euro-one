@@ -2,6 +2,7 @@ import { resolveTelemetryDescriptor } from "./telemetryDictionary.js";
 
 const BASE_COLUMNS = [
   { key: "gpsTime", labelPt: "Hora GPS", labelPdf: "Hora GPS", width: 140, defaultVisible: true, weight: 1.4, group: "base" },
+  { key: "event", labelPt: "Evento", labelPdf: "Evento", width: 200, defaultVisible: true, weight: 1.8, group: "base" },
   { key: "address", labelPt: "Endereço", labelPdf: "Endereço", width: 260, defaultVisible: true, weight: 2.6, group: "base" },
   { key: "speed", labelPt: "Velocidade", labelPdf: "Velocidade", width: 90, defaultVisible: true, weight: 0.9, group: "base" },
   { key: "ignition", labelPt: "Ignição", labelPdf: "Ignição", width: 90, defaultVisible: true, weight: 0.9, group: "base", type: "boolean" },
