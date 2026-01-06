@@ -1,5 +1,5 @@
-import deviceDiagnosticCatalog from "../../../shared/deviceDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
-import iotmDiagnosticCatalog from "../../../shared/iotmDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
+import deviceDiagnosticCatalog from "../../../shared/deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import iotmDiagnosticCatalog from "../../../shared/iotmDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
 
 const LABEL_OVERRIDES = {
   "Interferência GPS": "JAMMER GPS",

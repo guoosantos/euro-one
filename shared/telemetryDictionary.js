@@ -1,8 +1,8 @@
 import { iotmEventCatalog } from "./iotmEventCatalog.js";
-import iotmIoCatalog from "./iotmIoCatalog.pt-BR.json" assert { type: "json" };
-import iotmDiagnosticCatalog from "./iotmDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
-import deviceDiagnosticCatalog from "./deviceDiagnosticEventCatalog.pt-BR.json" assert { type: "json" };
-import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" assert { type: "json" };
+import iotmIoCatalog from "./iotmIoCatalog.pt-BR.json" with { type: "json" };
+import iotmDiagnosticCatalog from "./iotmDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import deviceDiagnosticCatalog from "./deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
 
 const BASE_TELEMETRY_ATTRIBUTES = [
   { key: "engineWorking", labelPt: "Motor em funcionamento", type: "boolean", unit: null, priority: 15 },

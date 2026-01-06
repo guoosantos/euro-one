@@ -75,6 +75,10 @@ export const API_ROUTES = {
     reminders: "reminders",
   },
   health: "health",
+  geocode: {
+    search: "geocode/search",
+    reverse: "geocode/reverse",
+  },
   traccarHealth: "health/traccar",
   traccar: {
     events: "traccar/events",

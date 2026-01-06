@@ -10,15 +10,20 @@ import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import {
-  buildColumnDefaults,
   loadColumnPreferences,
   mergeColumnPreferences,
   reorderColumns,
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
+import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
+import {
+  buildAddressWithLatLng,
+  resolveReportColumnLabel,
+  resolveReportColumnTooltip,
+} from "../lib/report-column-labels.js";
 
   const COLUMN_STORAGE_KEY = "routeReportColumns";
 
@@ -165,14 +170,16 @@ export default function ReportsRoute() {
     () => [
       {
         key: "gpsTime",
-        label: "Hora GPS",
+        label: resolveReportColumnLabel("gpsTime", "Hora GPS"),
+        fullLabel: resolveReportColumnTooltip("gpsTime", "Hora GPS"),
         defaultVisible: true,
         render: (point) => formatDateTime(parseDate(point.fixTime ?? point.deviceTime ?? point.serverTime), locale),
       },
       {
         key: "latitude",
-        label: "Latitude",
-        defaultVisible: true,
+        label: resolveReportColumnLabel("latitude", "Latitude"),
+        fullLabel: resolveReportColumnTooltip("latitude", "Latitude"),
+        defaultVisible: false,
         render: (point) => {
           const value = pickCoordinate([point.latitude, point.lat, point.lat_deg, point.attributes?.latitude]);
           return Number.isFinite(value) ? value.toFixed(5) : "—";
@@ -180,8 +187,9 @@ export default function ReportsRoute() {
       },
       {
         key: "longitude",
-        label: "Longitude",
-        defaultVisible: true,
+        label: resolveReportColumnLabel("longitude", "Longitude"),
+        fullLabel: resolveReportColumnTooltip("longitude", "Longitude"),
+        defaultVisible: false,
         render: (point) => {
           const value = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
           return Number.isFinite(value) ? value.toFixed(5) : "—";
@@ -189,7 +197,8 @@ export default function ReportsRoute() {
       },
       {
         key: "speed",
-        label: "Velocidade (km/h)",
+        label: resolveReportColumnLabel("speed", "Velocidade (km/h)"),
+        fullLabel: resolveReportColumnTooltip("speed", "Velocidade (km/h)"),
         defaultVisible: true,
         render: (point) => {
           const speed = pickSpeed(point);
@@ -198,25 +207,67 @@ export default function ReportsRoute() {
       },
       {
         key: "event",
-        label: "Evento",
+        label: resolveReportColumnLabel("event", "Evento"),
+        fullLabel: resolveReportColumnTooltip("event", "Evento"),
         defaultVisible: true,
         render: (point) => point.event || point.attributes?.event || point.type || "—",
       },
       {
         key: "address",
-        label: "Endereço",
+        label: resolveReportColumnLabel("address", "Endereço"),
+        fullLabel: resolveReportColumnTooltip("address", "Endereço"),
         defaultVisible: true,
         render: (point) => {
           const lat = pickCoordinate([point.latitude, point.lat, point.attributes?.latitude]);
           const lng = pickCoordinate([point.longitude, point.lon, point.lng, point.attributes?.longitude]);
-          return <AddressCell address={point.address || point.attributes?.address} />;
+          const text = buildAddressWithLatLng(point.address || point.attributes?.address, lat, lng);
+          return <AddressCell address={text} />;
         },
+      },
+      {
+        key: "criticality",
+        label: resolveReportColumnLabel("criticality", "Criticidade"),
+        fullLabel: resolveReportColumnTooltip("criticality", "Criticidade"),
+        defaultVisible: false,
+        render: (point) => point?.attributes?.severity || point?.severity || "—",
+      },
+      {
+        key: "geofence",
+        label: resolveReportColumnLabel("geofence", "Geozona"),
+        fullLabel: resolveReportColumnTooltip("geofence", "Geozona"),
+        defaultVisible: false,
+        render: (point) => point.geofence || point.attributes?.geofence || "—",
+      },
+      {
+        key: "ioSummary",
+        label: resolveReportColumnLabel("ioSummary", "Entradas/Saídas"),
+        fullLabel: resolveReportColumnTooltip("ioSummary", "Entradas/Saídas"),
+        defaultVisible: false,
+        render: (point) =>
+          point.attributes?.ioDetails?.map?.((item) => `${item.label || item.key}: ${item.value ?? "—"}`).join(" • ") || "—",
+      },
+      {
+        key: "ignition",
+        label: resolveReportColumnLabel("ignition", "Ignição"),
+        fullLabel: resolveReportColumnTooltip("ignition", "Ignição"),
+        defaultVisible: false,
+        render: (point) => point.attributes?.ignition ?? point.ignition ?? "—",
+      },
+      {
+        key: "vehicleVoltage",
+        label: resolveReportColumnLabel("vehicleVoltage", "Tensão"),
+        fullLabel: resolveReportColumnTooltip("vehicleVoltage", "Tensão"),
+        defaultVisible: false,
+        render: (point) => point.attributes?.vehicleVoltage ?? point.attributes?.power ?? point.vehicleVoltage ?? "—",
       },
     ],
     [locale],
   );
 
-  const defaultPreferences = useMemo(() => buildColumnDefaults(tableColumns), [tableColumns]);
+  const defaultPreferences = useMemo(
+    () => buildColumnPreset(tableColumns, EURO_PRESET_KEYS),
+    [tableColumns],
+  );
   const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
 
   useEffect(() => {
@@ -465,7 +516,7 @@ export default function ReportsRoute() {
                     className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
                     onClick={handleRestoreColumns}
                   >
-                    Restaurar padrão
+                    Padrão Euro
                   </button>
                 </div>
               )}
@@ -478,7 +529,7 @@ export default function ReportsRoute() {
             <thead className="text-left text-xs uppercase tracking-wide opacity-60">
               <tr>
                 {visibleColumns.map((column) => (
-                  <th key={column.key} className="py-2 pr-6">
+                  <th key={column.key} className="py-2 pr-6" title={column.fullLabel || column.label}>
                     {column.label}
                   </th>
                 ))}

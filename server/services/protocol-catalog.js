@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import iotmEventCatalog from "../../shared/iotmEventCatalog.pt-BR.json" assert { type: "json" };
+import iotmEventCatalog from "../../shared/iotmEventCatalog.pt-BR.json" with { type: "json" };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const catalogPath = path.join(__dirname, "..", "data", "protocol-catalog.json");
