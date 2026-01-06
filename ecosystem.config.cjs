@@ -2,8 +2,9 @@ module.exports = {
   apps: [
     {
       name: "euro-one-server",
-      cwd: "/home/ubuntu/euro-one",
-      script: "server/index.js",
+      cwd: "/home/ubuntu/euro-one/server",
+      script: "index.js",
+      interpreter: "node",
 
       env: {
         NODE_ENV: "production",
