@@ -1,29 +1,19 @@
 import { buildColumnDefaults } from "./column-preferences.js";
 
 export const EURO_PRESET_KEYS = [
-  "deviceTime",
+  "gpsTime",
   "event",
   "address",
-  "ignition",
-  "geozoneId",
-  "geozoneInside",
   "speed",
-  "topSpeed",
+  "direction",
+  "vehicleState",
+  "ignition",
   "vehicleVoltage",
-  "digitalInput2",
-  "signalIn2",
-  "in2",
-  "digitalInput4",
-  "signalIn4",
-  "in4",
-  "digitalInput5",
-  "signalIn5",
-  "in5",
-  "digitalOutput1",
-  "out1",
-  "digitalOutput2",
-  "out2",
-  "sensor_dtc",
+  "batteryLevel",
+  "distance",
+  "totalDistance",
+  "geozoneInside",
+  "geozoneId",
 ];
 
 export const EURO_IOTM_PRESET_KEYS = [

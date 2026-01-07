@@ -5,28 +5,28 @@ import deviceDiagnosticCatalog from "./deviceDiagnosticEventCatalog.pt-BR.json" 
 import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
 
 const BASE_TELEMETRY_ATTRIBUTES = [
-  { key: "engineWorking", labelPt: "CAN - Motor", type: "boolean", unit: null, priority: 15 },
+  { key: "engineWorking", labelPt: "Motor", type: "boolean", unit: null, priority: 15 },
   { key: "ignitionState", labelPt: "Ignição", type: "boolean", unit: null, priority: 16 },
-  { key: "vehicleVoltage", labelPt: "Tensão do Veículo", type: "number", unit: "V", priority: 30 },
-  { key: "batteryLevel", labelPt: "Bateria (EXCLUIR JÁ TEM TENSAO DO VEICULO)", type: "number", unit: null, priority: 40 },
-  { key: "battery", labelPt: "Bateria interna do dispositivo", type: "number", unit: "V", priority: 45 },
+  { key: "vehicleVoltage", labelPt: "Tensão do Veículo (V)", type: "number", unit: "V", priority: 30 },
+  { key: "batteryLevel", labelPt: "Nível de Bateria (%)", type: "number", unit: "%", priority: 40 },
+  { key: "battery", labelPt: "Tensão da bateria interna do dispositivo (V)", type: "number", unit: "V", priority: 45 },
   { key: "batteryCharge", labelPt: "Carga da Bateria", type: "boolean", unit: null, priority: 46 },
   { key: "vcc", labelPt: "Alimentação (VCC)", type: "number", unit: "V", priority: 47 },
   { key: "vbat", labelPt: "Bateria Veicular (VBAT)", type: "number", unit: "V", priority: 47 },
-  { key: "power", labelPt: "Bateria interna do dispositivo", type: "number", unit: "V", priority: 50 },
+  { key: "power", labelPt: "Tensão da bateria interna do dispositivo", type: "number", unit: "V", priority: 50 },
   { key: "signalIn2", labelPt: "Entrada 2", type: "boolean", unit: null, priority: 60 },
   { key: "signalIn4", labelPt: "Entrada 4", type: "boolean", unit: null, priority: 61 },
   { key: "signalIn5", labelPt: "Entrada 5", type: "boolean", unit: null, priority: 62 },
   { key: "motion", labelPt: "Veículo em movimento", type: "boolean", unit: null, priority: 63 },
-  { key: "deviceTemp", labelPt: "Temperatura do dispositivo", type: "number", unit: "°C", priority: 120 },
+  { key: "deviceTemp", labelPt: "Temperatura do dispositivo (°C)", type: "number", unit: "°C", priority: 120 },
   { key: "status", labelPt: "Status", type: "string", unit: null, priority: 121 },
   { key: "handBrake", labelPt: "Freio de mão", type: "boolean", unit: null, priority: 140 },
-  { key: "clutchPedal", labelPt: "CAN – Pedal da Embreagem Pressionado", type: "boolean", unit: null, priority: 141 },
-  { key: "highBeam", labelPt: "CAN - Farol Alto", type: "boolean", unit: null, priority: 142 },
-  { key: "lowBeam", labelPt: "CAN - Farol", type: "boolean", unit: null, priority: 143 },
-  { key: "driverSeatbelt", labelPt: "CAN - Cinto de Segurança Motorista", type: "boolean", unit: null, priority: 144 },
-  { key: "passengerSeatbelt", labelPt: "CAN - Cinto de Segurança Passageiro", type: "boolean", unit: null, priority: 145 },
-  { key: "fuelUsed", labelPt: "Uso de Combustível", type: "number", unit: "L", priority: 160 },
+  { key: "clutchPedal", labelPt: "Pedal da Embreagem Pressionado", type: "boolean", unit: null, priority: 141 },
+  { key: "highBeam", labelPt: "Farol Alto", type: "boolean", unit: null, priority: 142 },
+  { key: "lowBeam", labelPt: "Farol", type: "boolean", unit: null, priority: 143 },
+  { key: "driverSeatbelt", labelPt: "Cinto de Segurança Motorista", type: "boolean", unit: null, priority: 144 },
+  { key: "passengerSeatbelt", labelPt: "Cinto de Segurança Passageiro", type: "boolean", unit: null, priority: 145 },
+  { key: "fuelUsed", labelPt: "Uso do Combustível", type: "number", unit: "L", priority: 160 },
   { key: "fuelUsedHighRes", labelPt: "Combustível Usado (Alta Res.)", type: "number", unit: "L", priority: 161 },
   { key: "fuelLevel1", labelPt: "Nível de Combustível 1", type: "number", unit: "%", priority: 162 },
   { key: "fuelLevel2", labelPt: "Nível de Combustível 2", type: "number", unit: "%", priority: 163 },
@@ -35,7 +35,7 @@ const BASE_TELEMETRY_ATTRIBUTES = [
   { key: "fuelInstantHighRes", labelPt: "Combustível Instantâneo (Alta Res.)", type: "number", unit: "L", priority: 164 },
   { key: "acceleration", labelPt: "Aceleração", type: "number", unit: "m/s²", priority: 170 },
   { key: "wiperMode", labelPt: "Modo do Limpador", type: "string", unit: null, priority: 171 },
-  { key: "obdOdometer", labelPt: "Odometro", type: "number", unit: "km", priority: 180 },
+  { key: "obdOdometer", labelPt: "Odômetro", type: "number", unit: "km", priority: 180 },
   { key: "tachoOdometer", labelPt: "Odômetro TACO", type: "number", unit: "km", priority: 181 },
   { key: "totalDistanceHighRes", labelPt: "Distância Total (Alta Res.)", type: "number", unit: "km", priority: 182 },
   { key: "wheelSpeed", labelPt: "Velocidade da Roda", type: "number", unit: "km/h", priority: 183 },
@@ -65,25 +65,25 @@ const BASE_TELEMETRY_ATTRIBUTES = [
 ];
 
 const SENSOR_LABEL_OVERRIDES = {
-  SENSOR_ARMED: "CAN - Alarme armado",
-  SENSOR_LOCKED: "CAN - Portas travadas",
-  SENSOR_DOORS_F_L: "CAN - Porta dianteira esquerda",
-  SENSOR_DOORS_F_R: "CAN - Porta dianteira direita",
-  SENSOR_DOORS_R_L: "CAN - Porta traseira esquerda",
-  SENSOR_DOORS_R_R: "CAN - Porta traseira direita",
-  SENSOR_BONNET: "CAN - Capô aberto",
-  SENSOR_TRUNK: "CAN - Porta-malas aberto",
-  SENSOR_FACTORY_ALARM: "CAN - Alarme de fábrica",
-  SENSOR_IGNITION: "CAN - Ignição ligada",
-  SENSOR_HEADLIGHT_INDICATOR: "CAN - Farol",
-  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN - Farol Alto",
-  SENSOR_PARKING_LIGHT_INDICATOR: "CAN - Luz de posição",
-  SENSOR_DRIVER_SEATBELT_WARNING: "CAN - Cinto de Segurança Motorista",
-  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN - Cinto de Segurança Passageiro",
-  SENSOR_ENGINE_WORKING: "CAN - Motor",
-  SENSOR_HANDBRAKE: "CAN - Freio de mão",
-  SENSOR_FOOT_BRAKE: "CAN - Freio de pé",
-  SENSOR_KEY_INSERTED: "CAN - Chave inserida",
+  SENSOR_ARMED: "CAN – Alarme armado",
+  SENSOR_LOCKED: "CAN – Portas travadas",
+  SENSOR_DOORS_F_L: "CAN – Porta dianteira esquerda",
+  SENSOR_DOORS_F_R: "CAN – Porta dianteira direita",
+  SENSOR_DOORS_R_L: "CAN – Porta traseira esquerda",
+  SENSOR_DOORS_R_R: "CAN – Porta traseira direita",
+  SENSOR_BONNET: "CAN – Capô aberto",
+  SENSOR_TRUNK: "CAN – Porta-malas aberto",
+  SENSOR_FACTORY_ALARM: "CAN – Alarme de fábrica",
+  SENSOR_IGNITION: "CAN – Ignição ligada",
+  SENSOR_HEADLIGHT_INDICATOR: "CAN – Farol baixo",
+  SENSOR_HIGH_BEAM_LIGHT_INDICATOR: "CAN – Farol alto",
+  SENSOR_PARKING_LIGHT_INDICATOR: "CAN – Luz de posição",
+  SENSOR_DRIVER_SEATBELT_WARNING: "CAN – Cinto de Segurança Motorista",
+  SENSOR_PASSENGER_SEATBELT_WARNING: "CAN – Cinto de Segurança Passageiro",
+  SENSOR_ENGINE_WORKING: "CAN – Motor ligado",
+  SENSOR_HANDBRAKE: "CAN – Freio de mão",
+  SENSOR_FOOT_BRAKE: "CAN – Freio de pé",
+  SENSOR_KEY_INSERTED: "CAN – Chave inserida",
 };
 
 const SENSOR_LABEL_REPLACEMENTS = [
@@ -117,8 +117,8 @@ const normalizeSensorLabel = (label, name) => {
   if (SENSOR_LABEL_OVERRIDES[nameKey]) return SENSOR_LABEL_OVERRIDES[nameKey];
 
   let cleaned = trimmed;
-  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\\s*to\\s*indicar\\s*/i, "CAN - ");
-  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\\s*/i, "CAN - ");
+  cleaned = cleaned.replace(/Sinal do vehicle barramento CAN\\s*to\\s*indicar\\s*/i, "CAN – ");
+  cleaned = cleaned.replace(/Signal from vehicle CAN bus to indicate\\s*/i, "CAN – ");
   cleaned = cleaned.replace(/indicator on$/i, "");
   cleaned = cleaned.replace(/warning lamp on$/i, "");
 
@@ -329,15 +329,15 @@ const BASE_IO_FRIENDLY_NAMES = {
   io19: { key: "signalIn5", labelPt: "Entrada 5", type: "boolean" },
   io16: { key: "signalIn2", labelPt: "Entrada 2", type: "boolean" },
   io18: { key: "signalIn4", labelPt: "Entrada 4", type: "boolean" },
-  io148: { key: "digitalOutput1", labelPt: "Saida 1", type: "boolean" },
+  io148: { key: "digitalOutput1", labelPt: "Saída 1", type: "boolean" },
   io139: { key: "handBrake", labelPt: "Freio de mão", type: "boolean" },
-  io141: { key: "engineWorking", labelPt: "CAN - Motor", type: "boolean" },
-  io136: { key: "lowBeam", labelPt: "CAN - Farol", type: "boolean" },
-  io137: { key: "highBeam", labelPt: "CAN - Farol Alto", type: "boolean" },
+  io141: { key: "engineWorking", labelPt: "Motor", type: "boolean" },
+  io136: { key: "lowBeam", labelPt: "Farol", type: "boolean" },
+  io137: { key: "highBeam", labelPt: "Farol Alto", type: "boolean" },
   io98: { key: "doorFrontLeft", labelPt: "Porta Motorista", type: "boolean" },
   io100: { key: "doorRearRight", labelPt: "Porta Traseira Direita", type: "boolean" },
-  io133: { key: "driverSeatbelt", labelPt: "CAN - Cinto de Segurança Motorista", type: "boolean" },
-  io134: { key: "passengerSeatbelt", labelPt: "CAN - Cinto de Segurança Passageiro", type: "boolean" },
+  io133: { key: "driverSeatbelt", labelPt: "Cinto de Segurança Motorista", type: "boolean" },
+  io134: { key: "passengerSeatbelt", labelPt: "Cinto de Segurança Passageiro", type: "boolean" },
   io109: { key: "ignitionState", labelPt: "Ignição", type: "boolean" },
 };
 
