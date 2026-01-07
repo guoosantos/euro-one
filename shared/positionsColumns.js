@@ -306,6 +306,39 @@ const COLUMN_GROUP_ORDER = {
 
 const IOTM_PROTOCOL_KEY = "iotm";
 const IOTM_STATUS_EXCLUDED_KEYS = new Set(["devicestatus", "devicestatusevent", "status"]);
+const IOTM_LABEL_OVERRIDES = new Map([
+  ["freio de mão", "Freio de mão"],
+  ["in2", "Entrada 2"],
+  ["in4", "Entrada 4"],
+  ["in5", "Entrada 5"],
+  ["out1", "Saida 1"],
+  ["out2", "Saida 2"],
+  ["out3", "Saida 3"],
+  ["Ativado quando dispositivo has GNSS fix but Satellite count and HDOP is low", "HDOP"],
+  [
+    "Códigos de Falha do Veículo (DTC) preenchidos durante a geração do pacote de telemetria.",
+    "Códigos de Falha do Veículo (DTC)",
+  ],
+  ["Nome do script 1.", "Nome da Configuração"],
+  ["obdOdometer", "Odometro"],
+  [
+    "Sinal do vehicle barramento CAN to indicar driver seatbelt warning lamp on",
+    "CAN - Cinto de Segurança Motorista",
+  ],
+  ["Sinal do vehicle barramento CAN to indicar headlamp indicator on", "CAN - Farol"],
+  ["Sinal do vehicle barramento CAN to indicar high beam light indicator on", "CAN - Farol Alto"],
+  ["Sinal do vehicle barramento CAN to indicar motor on", "CAN - Motor"],
+  [
+    "Sinal do vehicle barramento CAN to indicar passenger seatbelt warning lamp on",
+    "CAN - Cinto de Segurança Passageiro",
+  ],
+  ["Status para indicar se o dispositivo está atualmente dentro da geozona", "Dentro do Itinerário"],
+  ["Tensão da bateria interna do dispositivo", "Bateria interna do dispositivo"],
+  ["fuelUsed", "Uso de Combustível"],
+  ["portaFL", "Porta Motorista"],
+  ["portaRL", "Porta Passageiro"],
+  ["ioDetails", "Detalhes IO"],
+]);
 const IOTM_DEFAULT_VISIBILITY = new Map([
   ["devicetime", true],
   ["event", true],
@@ -549,7 +582,9 @@ export function resolveColumnLabel(column, variant = "pt") {
       ? column.labelPdf || description || column.labelPt
       : description || column.labelPt;
   const label = baseLabel || buildFriendlyLabel(column.key);
-  return withUnit(label, column.unit);
+  const override =
+    column.protocol === IOTM_PROTOCOL_KEY ? IOTM_LABEL_OVERRIDES.get(label) || label : label;
+  return withUnit(override, column.unit);
 }
 
 export function resolveColumnDefinition(key, { protocol } = {}) {
@@ -569,6 +604,9 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
       unit: telemetryDescriptor.unit || null,
       group: telemetryDescriptor.group || "io",
     };
+    if (protocolKey === IOTM_PROTOCOL_KEY) {
+      base.protocol = IOTM_PROTOCOL_KEY;
+    }
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
       return { ...base, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
@@ -578,20 +616,27 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
   const base = positionsColumnMap.get(key);
   if (base && catalog) {
     const merged = { ...base, ...catalog, key };
+    if (protocolKey === IOTM_PROTOCOL_KEY) {
+      merged.protocol = IOTM_PROTOCOL_KEY;
+    }
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
       return { ...merged, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
     return merged;
   }
   if (base) {
+    const resolvedBase = protocolKey === IOTM_PROTOCOL_KEY ? { ...base, protocol: IOTM_PROTOCOL_KEY } : base;
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
-      return { ...base, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+      return { ...resolvedBase, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
-    return base;
+    return resolvedBase;
   }
   const voltagePattern = resolveVoltagePattern(key);
   if (voltagePattern) {
     const resolved = { key, ...voltagePattern };
+    if (protocolKey === IOTM_PROTOCOL_KEY) {
+      resolved.protocol = IOTM_PROTOCOL_KEY;
+    }
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
       return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
@@ -600,6 +645,9 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
   const pattern = resolveIoPattern(key);
   if (pattern) {
     const resolved = { key, ...pattern };
+    if (protocolKey === IOTM_PROTOCOL_KEY) {
+      resolved.protocol = IOTM_PROTOCOL_KEY;
+    }
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
       return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
@@ -607,6 +655,9 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
   }
   if (catalog) {
     const resolved = { key, ...catalog };
+    if (protocolKey === IOTM_PROTOCOL_KEY) {
+      resolved.protocol = IOTM_PROTOCOL_KEY;
+    }
     if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
       return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
     }
@@ -617,6 +668,9 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
     labelPt: buildFriendlyLabel(key),
     group: "other",
   };
+  if (protocolKey === IOTM_PROTOCOL_KEY) {
+    fallback.protocol = IOTM_PROTOCOL_KEY;
+  }
   if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
     return { ...fallback, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
   }
