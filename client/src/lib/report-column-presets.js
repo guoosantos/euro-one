@@ -26,6 +26,26 @@ export const EURO_PRESET_KEYS = [
   "sensor_dtc",
 ];
 
+export const EURO_IOTM_PRESET_KEYS = [
+  "deviceTime",
+  "event",
+  "address",
+  "ignition",
+  "geozoneId",
+  "geofence",
+  "geozoneInside",
+  "geozoneInsidePrimary",
+  "speed",
+  "topSpeed",
+  "vehicleVoltage",
+  "digitalInput2",
+  "digitalInput4",
+  "digitalInput5",
+  "digitalOutput1",
+  "digitalOutput2",
+  "sensor_dtc",
+];
+
 export function buildColumnPreset(columns = [], presetKeys = EURO_PRESET_KEYS) {
   const defaults = buildColumnDefaults(columns);
   const availableKeys = Array.isArray(columns) ? columns.map((column) => column.key) : [];

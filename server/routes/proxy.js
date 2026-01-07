@@ -3771,6 +3771,16 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     positions?.[0]?.protocol ||
     positions?.[0]?.attributes?.protocol ||
     null;
+  const deviceModel =
+    device?.model ||
+    device?.modelName ||
+    device?.attributes?.model ||
+    device?.attributes?.deviceModel ||
+    device?.attributes?.device_model ||
+    null;
+  const isIotm =
+    normalizeProtocolKey(protocol) === "iotm" || normalizeProtocolKey(deviceModel) === "iotm";
+  const effectiveProtocol = isIotm ? "iotm" : protocol;
   // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
   const resolveMode = req.query?.addressMode === "blocking" || req.body?.addressMode === "blocking" ? "blocking" : "async";
   await resolvePositionsFullAddressBatch(positions, resolveMode);
@@ -3811,11 +3821,11 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   const parsedEvents = parseCommandEvents(commandEvents);
   const windowMs = 10 * 60 * 1000;
 
-  const dynamicKeys = buildDynamicAttributeKeys(filteredPositions, protocol);
+  const dynamicKeys = buildDynamicAttributeKeys(filteredPositions, effectiveProtocol);
   const mappedChronological = filteredPositions
     .map((position) => {
       const attributes = position.attributes || {};
-      const protocolKey = position.protocol || attributes.protocol || null;
+      const protocolKey = position.protocol || attributes.protocol || effectiveProtocol || null;
       const gpsTime = position.fixTime || position.deviceTime || position.serverTime || null;
       const speedRaw = Number(position.speed ?? 0);
       const speedKmh = Number.isFinite(speedRaw) ? Math.round(speedRaw * 3.6) : null;
@@ -3841,7 +3851,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const resolvedFormatted = position.formattedAddress || resolvedAddress || resolvedShortAddress || fallbackShort;
 
       const dynamicValues = dynamicKeys.reduce((acc, key) => {
-        const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol }));
+        const value = normalizeDynamicValue(attributes[key], resolveColumnDefinition(key, { protocol: effectiveProtocol }));
         if (value !== undefined) acc[key] = value;
         return acc;
       }, {});
@@ -3891,16 +3901,16 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         }
       };
 
-      if (shouldExposeIoColumn("digitalInput1", protocol)) {
+      if (shouldExposeIoColumn("digitalInput1", effectiveProtocol)) {
         setIfDefined("digitalInput1", inputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "input" }));
       }
-      if (shouldExposeIoColumn("digitalInput2", protocol)) {
+      if (shouldExposeIoColumn("digitalInput2", effectiveProtocol)) {
         setIfDefined("digitalInput2", inputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "input" }));
       }
-      if (shouldExposeIoColumn("digitalOutput1", protocol)) {
+      if (shouldExposeIoColumn("digitalOutput1", effectiveProtocol)) {
         setIfDefined("digitalOutput1", outputs.get(1) ?? extractDigitalChannel(attributes, { index: 1, kind: "output" }));
       }
-      if (shouldExposeIoColumn("digitalOutput2", protocol)) {
+      if (shouldExposeIoColumn("digitalOutput2", effectiveProtocol)) {
         setIfDefined("digitalOutput2", outputs.get(2) ?? extractDigitalChannel(attributes, { index: 2, kind: "output" }));
       }
 
@@ -3992,7 +4002,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     inputs.forEach((value, index) => {
       if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
       const key = `digitalInput${index}`;
-      if (!shouldExposeIoColumn(key, protocol)) return;
+      if (!shouldExposeIoColumn(key, effectiveProtocol)) return;
       position[key] = value;
       inputIndexes.add(index);
     });
@@ -4000,7 +4010,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     outputs.forEach((value, index) => {
       if (!Number.isFinite(index) || index < 1 || index > MAX_IO_COLUMNS) return;
       const key = `digitalOutput${index}`;
-      if (!shouldExposeIoColumn(key, protocol)) return;
+      if (!shouldExposeIoColumn(key, effectiveProtocol)) return;
       position[key] = value;
       outputIndexes.add(index);
     });
@@ -4069,7 +4079,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       columnHasValue.set(key, true);
     });
   });
-  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue: columnHasValue });
+  const columns = buildReportColumns({ keys: dynamicKeys, protocol: effectiveProtocol, hasValue: columnHasValue });
 
   const totalItems = pagination ? await countPositions([traccarId], from, to) : mapped.length;
   const pageSize = limit || mapped.length || 1;
@@ -4090,6 +4100,9 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       ignition: ignitionLabel,
     },
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
+    protocol: effectiveProtocol ? normalizeProtocolKey(effectiveProtocol) : null,
+    deviceModel: deviceModel ? String(deviceModel) : null,
+    isIotm,
     availableColumns: columns.map((column) => column.key),
     totalItems,
     totalPages,
