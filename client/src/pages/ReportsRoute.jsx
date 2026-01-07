@@ -16,7 +16,7 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
-import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
+import { buildColumnPreset, EURO_IOTM_PRESET_KEYS, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
 import {
@@ -57,6 +57,29 @@ export default function ReportsRoute() {
   const lastGeneratedAt = data?.__meta?.generatedAt;
   const deviceId = deviceIdFromStore || selectedVehicle?.primaryDeviceId || "";
   const deviceUnavailable = Boolean(vehicleId) && !deviceId;
+  const isIotmReport = useMemo(() => {
+    const protocol =
+      selectedVehicle?.device?.attributes?.protocol ||
+      selectedVehicle?.primaryDevice?.attributes?.protocol ||
+      selectedVehicle?.attributes?.protocol ||
+      null;
+    const model =
+      selectedVehicle?.device?.attributes?.model ||
+      selectedVehicle?.primaryDevice?.attributes?.model ||
+      selectedVehicle?.attributes?.model ||
+      null;
+    return (
+      String(protocol || "").trim().toLowerCase() === "iotm" ||
+      String(model || "").trim().toLowerCase() === "iotm"
+    );
+  }, [
+    selectedVehicle?.attributes?.model,
+    selectedVehicle?.attributes?.protocol,
+    selectedVehicle?.device?.attributes?.model,
+    selectedVehicle?.device?.attributes?.protocol,
+    selectedVehicle?.primaryDevice?.attributes?.model,
+    selectedVehicle?.primaryDevice?.attributes?.protocol,
+  ]);
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
     vehicles.forEach((vehicle) => {
@@ -172,7 +195,7 @@ export default function ReportsRoute() {
         key: "gpsTime",
         label: resolveReportColumnLabel("gpsTime", "Hora GPS"),
         fullLabel: resolveReportColumnTooltip("gpsTime", "Hora GPS"),
-        defaultVisible: true,
+        defaultVisible: !isIotmReport,
         render: (point) => formatDateTime(parseDate(point.fixTime ?? point.deviceTime ?? point.serverTime), locale),
       },
       {
@@ -235,30 +258,30 @@ export default function ReportsRoute() {
         key: "geofence",
         label: resolveReportColumnLabel("geofence", "Itinerário"),
         fullLabel: resolveReportColumnTooltip("geofence", "Itinerário"),
-        defaultVisible: false,
+        defaultVisible: isIotmReport,
         render: (point) => point.geofence || point.attributes?.geofence || "—",
       },
       {
         key: "ignition",
         label: resolveReportColumnLabel("ignition", "Ignição"),
         fullLabel: resolveReportColumnTooltip("ignition", "Ignição"),
-        defaultVisible: false,
+        defaultVisible: isIotmReport,
         render: (point) => point.attributes?.ignition ?? point.ignition ?? "—",
       },
       {
         key: "vehicleVoltage",
         label: resolveReportColumnLabel("vehicleVoltage", "Tensão"),
         fullLabel: resolveReportColumnTooltip("vehicleVoltage", "Tensão"),
-        defaultVisible: false,
+        defaultVisible: isIotmReport,
         render: (point) => point.attributes?.vehicleVoltage ?? point.attributes?.power ?? point.vehicleVoltage ?? "—",
       },
     ],
-    [locale],
+    [isIotmReport, locale],
   );
 
   const defaultPreferences = useMemo(
-    () => buildColumnPreset(tableColumns, EURO_PRESET_KEYS),
-    [tableColumns],
+    () => buildColumnPreset(tableColumns, isIotmReport ? EURO_IOTM_PRESET_KEYS : EURO_PRESET_KEYS),
+    [isIotmReport, tableColumns],
   );
   const [columnPrefs, setColumnPrefs] = useState(defaultPreferences);
 
@@ -508,7 +531,7 @@ export default function ReportsRoute() {
                     className="mt-3 w-full rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
                     onClick={handleRestoreColumns}
                   >
-                    Padrão Euro
+                    {isIotmReport ? "Padrão Euro – IoTM" : "Padrão Euro"}
                   </button>
                 </div>
               )}

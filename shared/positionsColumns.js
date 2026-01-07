@@ -304,6 +304,64 @@ const COLUMN_GROUP_ORDER = {
   other: 90,
 };
 
+const IOTM_PROTOCOL_KEY = "iotm";
+const IOTM_STATUS_EXCLUDED_KEYS = new Set(["devicestatus", "devicestatusevent", "status"]);
+const IOTM_DEFAULT_VISIBILITY = new Map([
+  ["devicetime", true],
+  ["event", true],
+  ["address", true],
+  ["ignition", true],
+  ["geozoneid", true],
+  ["geofence", true],
+  ["geozoneinside", true],
+  ["geozoneinsideprimary", true],
+  ["speed", true],
+  ["topspeed", true],
+  ["vehiclevoltage", true],
+  ["digitalinput2", true],
+  ["digitalinput4", true],
+  ["digitalinput5", true],
+  ["digitaloutput1", true],
+  ["digitaloutput2", true],
+  ["sensor_dtc", true],
+  ["gpstime", false],
+  ["satellites", false],
+  ["sat", false],
+  ["accuracy", false],
+  ["distance", false],
+  ["totaldistance", false],
+  ["servertime", false],
+  ["latitude", false],
+  ["longitude", false],
+  ["direction", false],
+  ["handbrake", false],
+  ["hdop", false],
+  ["devicetemp", false],
+  ["digitaloutput3", false],
+  ["rssi", false],
+  ["odometer", false],
+  ["odometro", false],
+  ["obdodometer", false],
+  ["battery", false],
+  ["power", false],
+  ["batterylevel", false],
+  ["fuelused", false],
+  ["motion", false],
+  ["firmware", false],
+  ["modemfirmware", false],
+  ["doorfrontleft", false],
+  ["doorfrontright", false],
+  ["clutchpedal", false],
+  ["driverseatbelt", false],
+  ["passengerseatbelt", false],
+  ["lowbeam", false],
+  ["highbeam", false],
+  ["engineworking", false],
+  ["iodetails", false],
+  ["portafl", false],
+  ["portarl", false],
+]);
+
 const PROTOCOL_COLUMN_CATALOG = {
   default: {
     fixtime: { labelPt: "Transmissão GPS", group: "base" },
@@ -334,6 +392,21 @@ const PROTOCOL_COLUMN_CATALOG = {
     batterylevel: { labelPt: "Bateria (EXCLUIR JÁ TEM TENSAO DO VEICULO)", unit: null, type: "percent", group: "battery" },
     rssi: { labelPt: "Intensidade do Sinal Celular", group: "sensor" },
     status: { labelPt: "Status", group: "other" },
+  },
+  iotm: {
+    in2: { labelPt: "Entrada 2", type: "boolean", group: "input" },
+    in4: { labelPt: "Entrada 4", type: "boolean", group: "input" },
+    in5: { labelPt: "Entrada 5", type: "boolean", group: "input" },
+    out1: { labelPt: "Saida 1", type: "boolean", group: "output" },
+    out2: { labelPt: "Saida 2", type: "boolean", group: "output" },
+    out3: { labelPt: "Saida 3", type: "boolean", group: "output" },
+    portafl: { labelPt: "Porta Motorista", type: "boolean", group: "sensor" },
+    portarl: { labelPt: "Porta Passageiro", type: "boolean", group: "sensor" },
+    power: { labelPt: "Bateria interna do dispositivo", unit: "V", type: "number", group: "battery" },
+    fuelused: { labelPt: "Uso de Combustível", unit: "L", type: "number", group: "sensor" },
+    obdodometer: { labelPt: "Odometro", unit: "km", type: "number", group: "sensor" },
+    iodetails: { labelPt: "Detalhes IO", group: "io" },
+    geofence: { labelPt: "Itinerário", group: "other" },
   },
   gt06: {
     adc1: { labelPt: "Entrada 1", type: "boolean", group: "input" },
@@ -481,9 +554,14 @@ export function resolveColumnLabel(column, variant = "pt") {
 
 export function resolveColumnDefinition(key, { protocol } = {}) {
   if (!key) return null;
+  const protocolKey = normalizeProtocolKey(protocol);
+  const normalizedKey = normalizeKey(key).toLowerCase();
+  if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_STATUS_EXCLUDED_KEYS.has(normalizedKey)) {
+    return null;
+  }
   const telemetryDescriptor = resolveTelemetryDescriptor(key);
   if (telemetryDescriptor) {
-    return {
+    const base = {
       key,
       labelPt: telemetryDescriptor.labelPt || buildFriendlyLabel(key),
       descriptionPt: telemetryDescriptor.descriptionPt || telemetryDescriptor.description || null,
@@ -491,29 +569,58 @@ export function resolveColumnDefinition(key, { protocol } = {}) {
       unit: telemetryDescriptor.unit || null,
       group: telemetryDescriptor.group || "io",
     };
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...base, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return base;
   }
   const catalog = resolveCatalogEntry(key, protocol);
   const base = positionsColumnMap.get(key);
   if (base && catalog) {
-    return { ...base, ...catalog, key };
+    const merged = { ...base, ...catalog, key };
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...merged, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return merged;
   }
-  if (base) return base;
+  if (base) {
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...base, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return base;
+  }
   const voltagePattern = resolveVoltagePattern(key);
   if (voltagePattern) {
-    return { key, ...voltagePattern };
+    const resolved = { key, ...voltagePattern };
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return resolved;
   }
   const pattern = resolveIoPattern(key);
   if (pattern) {
-    return { key, ...pattern };
+    const resolved = { key, ...pattern };
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return resolved;
   }
   if (catalog) {
-    return { key, ...catalog };
+    const resolved = { key, ...catalog };
+    if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+      return { ...resolved, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+    }
+    return resolved;
   }
-  return {
+  const fallback = {
     key,
     labelPt: buildFriendlyLabel(key),
     group: "other",
   };
+  if (protocolKey === IOTM_PROTOCOL_KEY && IOTM_DEFAULT_VISIBILITY.has(normalizedKey)) {
+    return { ...fallback, defaultVisible: IOTM_DEFAULT_VISIBILITY.get(normalizedKey) };
+  }
+  return fallback;
 }
 
 export function resolveColumnGroupOrder(group) {

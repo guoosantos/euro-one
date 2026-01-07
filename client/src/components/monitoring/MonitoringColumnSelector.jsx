@@ -12,7 +12,15 @@ function reorder(list, fromKey, toKey) {
   return next;
 }
 
-export default function MonitoringColumnSelector({ columns, columnPrefs, defaultPrefs, onApply, onRestore, onClose }) {
+export default function MonitoringColumnSelector({
+  columns,
+  columnPrefs,
+  defaultPrefs,
+  onApply,
+  onRestore,
+  onClose,
+  restoreLabel = "Padrão Euro",
+}) {
   const defaults = useMemo(() => defaultPrefs || buildColumnDefaults(columns), [columns, defaultPrefs]);
 
   const initialState = useMemo(
@@ -132,7 +140,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
             className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold text-white/80 hover:border-white/30"
             onClick={handleRestore}
           >
-            Padrão Euro
+            {restoreLabel}
           </button>
           <div className="flex items-center gap-2">
             <button

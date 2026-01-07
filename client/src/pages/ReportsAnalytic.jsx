@@ -11,7 +11,7 @@ import {
   resolveVisibleColumns,
   saveColumnPreferences,
 } from "../lib/column-preferences.js";
-import { buildColumnPreset, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
+import { buildColumnPreset, EURO_IOTM_PRESET_KEYS, EURO_PRESET_KEYS } from "../lib/report-column-presets.js";
 import { formatAddress } from "../lib/format-address.js";
 import buildPositionsSchema from "../../../shared/buildPositionsSchema.js";
 import { positionsColumns, resolveColumnLabel } from "../../../shared/positionsColumns.js";
@@ -236,9 +236,46 @@ export default function ReportsPositions() {
   const currentPage = meta?.currentPage || page;
   const totalItems = meta?.totalItems ?? positions.length;
   const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
+  const isIotmReport = useMemo(() => {
+    const protocol =
+      meta?.protocol ||
+      selectedVehicle?.device?.attributes?.protocol ||
+      selectedVehicle?.primaryDevice?.attributes?.protocol ||
+      selectedVehicle?.attributes?.protocol ||
+      null;
+    const model =
+      meta?.deviceModel ||
+      selectedVehicle?.device?.attributes?.model ||
+      selectedVehicle?.primaryDevice?.attributes?.model ||
+      selectedVehicle?.attributes?.model ||
+      null;
+    return (
+      String(protocol || "").trim().toLowerCase() === "iotm" ||
+      String(model || "").trim().toLowerCase() === "iotm"
+    );
+  }, [
+    meta?.deviceModel,
+    meta?.protocol,
+    selectedVehicle?.attributes?.model,
+    selectedVehicle?.attributes?.protocol,
+    selectedVehicle?.device?.attributes?.model,
+    selectedVehicle?.device?.attributes?.protocol,
+    selectedVehicle?.primaryDevice?.attributes?.model,
+    selectedVehicle?.primaryDevice?.attributes?.protocol,
+  ]);
 
   const availableColumns = useMemo(() => {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
+    if (Array.isArray(meta?.columns) && meta.columns.length) {
+      return meta.columns.map((column) => {
+        const normalized = normalizeColumnLabel(column);
+        return {
+          ...normalized,
+          defaultVisible: normalized.defaultVisible ?? true,
+          width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
+        };
+      });
+    }
     if (positions.length) {
       const schema = buildPositionsSchema(positions);
       return schema.map((column) => {
@@ -251,7 +288,7 @@ export default function ReportsPositions() {
       });
     }
     return FALLBACK_COLUMNS.map(normalizeColumnLabel);
-  }, [positions]);
+  }, [meta?.columns, positions]);
 
   const availableColumnKeys = useMemo(
     () => availableColumns.map((column) => column.key),
@@ -264,8 +301,8 @@ export default function ReportsPositions() {
   );
 
   const defaults = useMemo(
-    () => buildColumnPreset(availableColumns, EURO_PRESET_KEYS),
-    [availableColumns],
+    () => buildColumnPreset(availableColumns, isIotmReport ? EURO_IOTM_PRESET_KEYS : EURO_PRESET_KEYS),
+    [availableColumns, isIotmReport],
   );
 
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
@@ -927,6 +964,7 @@ export default function ReportsPositions() {
           columns={availableColumns}
           columnPrefs={columnPrefs}
           defaultPrefs={defaults}
+          restoreLabel={isIotmReport ? "Padrão Euro – IoTM" : "Padrão Euro"}
           onApply={handleApplyColumns}
           onRestore={handleRestoreColumns}
           onClose={() => setActivePopup(null)}
