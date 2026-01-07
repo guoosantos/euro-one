@@ -233,18 +233,10 @@ export default function ReportsRoute() {
       },
       {
         key: "geofence",
-        label: resolveReportColumnLabel("geofence", "Geozona"),
-        fullLabel: resolveReportColumnTooltip("geofence", "Geozona"),
+        label: resolveReportColumnLabel("geofence", "Itinerário"),
+        fullLabel: resolveReportColumnTooltip("geofence", "Itinerário"),
         defaultVisible: false,
         render: (point) => point.geofence || point.attributes?.geofence || "—",
-      },
-      {
-        key: "ioSummary",
-        label: resolveReportColumnLabel("ioSummary", "Entradas/Saídas"),
-        fullLabel: resolveReportColumnTooltip("ioSummary", "Entradas/Saídas"),
-        defaultVisible: false,
-        render: (point) =>
-          point.attributes?.ioDetails?.map?.((item) => `${item.label || item.key}: ${item.value ?? "—"}`).join(" • ") || "—",
       },
       {
         key: "ignition",
