@@ -4781,6 +4781,8 @@ router.post("/reports/analytic/pdf", async (req, res) => {
       meta: report.meta,
       availableColumns,
       actions: report.actions,
+      entries: report.entries,
+      options: { variant: "analytic" },
     });
 
     const durationMs = Date.now() - startedAt;

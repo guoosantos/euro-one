@@ -774,54 +774,69 @@ export default function ReportsAnalytic() {
 
   );
 
+  const resolveActionStatusVariant = (status) => {
+    const normalized = String(status || "").toUpperCase();
+    if (["ENVIADO", "PENDENTE"].includes(normalized)) return "warning";
+    if (["RESPONDIDO", "GERADO", "CONFIRMADO", "SUCESSO"].includes(normalized)) return "success";
+    if (["ERRO", "FALHA", "NÃO RESPONDIDO", "NAO RESPONDIDO", "TIMEOUT"].includes(normalized)) return "danger";
+    if (["CANCELADO", "CANCELADA"].includes(normalized)) return "neutral";
+    return "neutral";
+  };
+
+  const buildActionSummary = (entry) => {
+    const details = entry?.details || {};
+    const summary =
+      details.command ||
+      details.report ||
+      details.itinerary ||
+      details.summary ||
+      details.description ||
+      entry?.summary ||
+      "";
+    const clean = String(summary || "").trim();
+    const label = String(entry?.actionLabel || "").trim();
+    if (!clean || clean.toLowerCase() === label.toLowerCase()) return "—";
+    return clean;
+  };
+
   const renderActionCard = (entry) => {
     const resolvedRespondedAt = entry?.respondedAt ? formatDateTime(entry.respondedAt) : "—";
-    const actionType = String(entry?.actionType || "Ação").toUpperCase();
+    const actionTitle = entry?.actionLabel || entry?.actionType || "Ação do usuário";
     const statusLabel = entry?.status || "—";
+    const statusVariant = resolveActionStatusVariant(statusLabel);
+    const badgeStyles = {
+      warning: "border-yellow-400/40 bg-yellow-500/15 text-yellow-100",
+      success: "border-emerald-400/40 bg-emerald-500/15 text-emerald-100",
+      danger: "border-red-400/40 bg-red-500/15 text-red-100",
+      neutral: "border-white/10 bg-white/10 text-white/60",
+    };
     const baseFields = [
       { label: "Enviado em", value: formatDateTime(entry?.sentAt) },
       { label: "Respondido em", value: resolvedRespondedAt },
       { label: "Quem enviou", value: entry?.user || "—" },
-      { label: "Endereço IP", value: entry?.ipAddress || "—" },
+      ...(entry?.ipAddress ? [{ label: "Endereço IP", value: entry.ipAddress }] : []),
     ];
-
-    const detailsFields = [{ label: "O que foi feito", value: entry?.actionLabel || "—" }];
-
-    const extraFields = [];
-    if (entry?.details?.command) {
-      extraFields.push({ label: "Comando", value: entry.details.command });
-    }
-    if (entry?.details?.report) {
-      extraFields.push({ label: "Relatório", value: entry.details.report });
-    }
-    if (entry?.details?.itinerary) {
-      extraFields.push({ label: "Itinerário", value: entry.details.itinerary });
-    }
-
-    const fields = [...detailsFields, ...extraFields];
+    const actionSummary = buildActionSummary(entry);
 
     return (
-      <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/80 shadow-sm">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">{actionType}</span>
-          <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+      <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/80 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/70">{actionTitle}</span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[statusVariant]}`}
+          >
             {statusLabel}
           </span>
         </div>
-        <div className="mt-1 text-sm font-semibold text-white">{entry?.actionLabel || "Ação do usuário"}</div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-white/70">
-          {baseFields.map((field) => (
-            <div key={field.label} className="space-y-0.5">
-              <div className="text-[9px] uppercase tracking-[0.14em] text-white/50">{field.label}</div>
-              <div className="text-xs text-white/80">{field.value || "—"}</div>
-            </div>
-          ))}
+        <div className="mt-1 text-[13px] text-white/85">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-white/50">O que foi feito</span>
+          <span className="ml-2 text-[13px] text-white/85">{actionSummary}</span>
         </div>
-        <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-white/70 md:grid-cols-2">
-          {fields.map((field) => (
-            <div key={field.label} className="space-y-0.5">
-              <div className="text-[9px] uppercase tracking-[0.14em] text-white/50">{field.label}</div>
-              <div className="text-xs text-white/80">{field.value || "—"}</div>
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/70">
+          {baseFields.map((field) => (
+            <div key={field.label} className="space-y-0.5 leading-tight">
+              <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
+              <div className="text-[13px] text-white/80">{field.value || "—"}</div>
             </div>
           ))}
         </div>

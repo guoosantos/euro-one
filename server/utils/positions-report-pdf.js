@@ -80,6 +80,31 @@ function formatDate(value) {
   return parsed.toLocaleString("pt-BR");
 }
 
+function resolveStatusVariant(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (["ENVIADO", "PENDENTE"].includes(normalized)) return "warning";
+  if (["RESPONDIDO", "GERADO", "CONFIRMADO", "SUCESSO"].includes(normalized)) return "success";
+  if (["ERRO", "FALHA", "NÃO RESPONDIDO", "NAO RESPONDIDO", "TIMEOUT"].includes(normalized)) return "danger";
+  if (["CANCELADO", "CANCELADA"].includes(normalized)) return "neutral";
+  return "neutral";
+}
+
+function buildActionSummary(action) {
+  const details = action?.details || {};
+  const summary =
+    details.command ||
+    details.report ||
+    details.itinerary ||
+    details.summary ||
+    details.description ||
+    action?.summary ||
+    "";
+  const clean = String(summary || "").trim();
+  const label = String(action?.actionLabel || "").trim();
+  if (!clean || clean.toLowerCase() === label.toLowerCase()) return "—";
+  return clean;
+}
+
 function normalizeAddress(value) {
   if (!value) return "—";
   if (typeof value === "string") return formatFullAddress(value);
@@ -173,6 +198,7 @@ function buildHtml({
   columns,
   meta,
   actions = [],
+  entries = [],
   logoDataUrl,
   fontData,
   columnDefinitions = new Map(),
@@ -184,15 +210,20 @@ function buildHtml({
   const baseFontSize = (9 * density).toFixed(2);
   const headerFontSize = (8 * density).toFixed(2);
   const cellPadding = Math.max(2, Math.round(8 * density));
-  const reportTitle = options.title || "RELATÓRIO DE POSIÇÕES";
-  const reportSubtitle = options.subtitle || "Dados consolidados do veículo e posições georreferenciadas";
+  const isAnalytic = options.variant === "analytic";
+  const reportTitle = options.title || (isAnalytic ? "RELATÓRIO ANALÍTICO" : "RELATÓRIO DE POSIÇÕES");
+  const reportSubtitle =
+    options.subtitle ||
+    (isAnalytic
+      ? "Linha do tempo completa do veículo (posições, eventos e ações do usuário)"
+      : "Dados consolidados do veículo e posições georreferenciadas");
   const summaryTitle = options.summaryTitle || "Resumo do veículo";
   const actionsTitle = options.actionsTitle || "Ações do usuário";
   const actionsSubtitle = options.actionsSubtitle || "Comandos, relatórios e auditoria do período";
 
   const columnsGroup = columns?.length ? columns : [];
 
-  const renderTable = (sliceRows, sliceIndex) => {
+  const renderTable = (sliceRows, sliceIndex, { includeHeader = true } = {}) => {
     const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
@@ -222,8 +253,8 @@ function buildHtml({
       .join("");
 
     const pageBreak = sliceIndex > 0 ? '<div class="page-break"></div>' : "";
-    return `
-      ${pageBreak}
+    const headerBlock = includeHeader
+      ? `
       <div class="header">
         ${logoDataUrl ? `<div class="logo"><img src="${logoDataUrl}" alt="Euro One" /></div>` : '<div class="logo fallback">EURO ONE</div>'}
         <div>
@@ -240,10 +271,10 @@ function buildHtml({
         <div class="meta-item"><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
         <div class="meta-item"><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
         <div class="meta-item"><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
-      <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
-      <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-    </div>
-    <div class="card">
+        <div class="meta-item"><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+        <div class="meta-item"><span>Última Comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+      </div>
+      <div class="card">
         <div class="card-title">${escapeHtml(summaryTitle)}</div>
         <div class="card-grid">
           <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
@@ -254,6 +285,11 @@ function buildHtml({
           <div><span>Ignição</span>${escapeHtml(meta?.vehicle?.ignition ?? "Dado não disponível")}</div>
         </div>
       </div>
+    `
+      : "";
+    return `
+      ${pageBreak}
+      ${headerBlock}
       <div class="table-wrapper">
         <table>
           <colgroup>${colgroup}</colgroup>
@@ -271,6 +307,101 @@ function buildHtml({
   const slices = chunkArray(rows, chunkSize);
   const tables = slices.map((slice, sliceIndex) => renderTable(slice, sliceIndex)).join("");
   const safeActions = Array.isArray(actions) ? actions : [];
+  const safeEntries = Array.isArray(entries) ? entries : [];
+
+  const renderActionCard = (action) => {
+    const statusVariant = resolveStatusVariant(action?.status);
+    const statusLabel = action?.status || "—";
+    const title = action?.actionLabel || action?.actionType || "Ação do usuário";
+    const summary = buildActionSummary(action);
+    const baseFields = [
+      { label: "Enviado em", value: formatDate(action?.sentAt) },
+      { label: "Respondido em", value: formatDate(action?.respondedAt) },
+      { label: "Quem enviou", value: action?.user || "—" },
+      ...(action?.ipAddress ? [{ label: "Endereço IP", value: action?.ipAddress }] : []),
+    ];
+    return `
+      <div class="action-card">
+        <div class="action-head">
+          <span class="action-title">${escapeHtml(title)}</span>
+          <span class="action-badge action-badge--${statusVariant}">${escapeHtml(statusLabel)}</span>
+        </div>
+        <div class="action-summary">
+          <span>O que foi feito</span>
+          ${escapeHtml(summary)}
+        </div>
+        <div class="action-meta">
+          ${baseFields
+            .map(
+              (field) => `
+            <div>
+              <span>${escapeHtml(field.label)}</span>
+              ${escapeHtml(field.value || "—")}
+            </div>
+          `,
+            )
+            .join("")}
+        </div>
+      </div>
+    `;
+  };
+
+  const renderAnalyticHeader = () => `
+    <div class="report-header">
+      <div class="report-header-top">
+        ${logoDataUrl ? `<div class="logo small"><img src="${logoDataUrl}" alt="Euro One" /></div>` : '<div class="logo fallback small">EURO ONE</div>'}
+        <div class="report-header-title">
+          <div class="title centered">${escapeHtml(reportTitle)}</div>
+          <div class="subtitle centered">${escapeHtml(reportSubtitle)}</div>
+        </div>
+      </div>
+      <div class="report-meta">
+        <div><span>VEÍCULO</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+        <div><span>PLACA</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+        <div><span>CLIENTE</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
+        <div><span>EXPORTADO POR</span>${escapeHtml(meta?.exportedBy || "—")}</div>
+        <div><span>STATUS</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+        <div><span>ÚLTIMA COMUNICAÇÃO</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+        <div class="span-2">
+          <span>PERÍODO</span>${escapeHtml(formatDate(meta?.from))} → ${escapeHtml(formatDate(meta?.to))}
+        </div>
+      </div>
+    </div>
+  `;
+
+  const renderTimeline = () => {
+    const segments = [];
+    let buffer = [];
+    safeEntries.forEach((entry) => {
+      if (entry?.type === "position" && entry.position) {
+        buffer.push(entry.position);
+        return;
+      }
+      if (buffer.length) {
+        segments.push({ type: "positions", rows: buffer });
+        buffer = [];
+      }
+      if (entry?.type === "action") {
+        segments.push({ type: "action", entry });
+      }
+    });
+    if (buffer.length) segments.push({ type: "positions", rows: buffer });
+
+    if (!segments.length) {
+      const fallbackSlices = chunkArray(rows, chunkSize);
+      return fallbackSlices.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
+    }
+
+    return segments
+      .map((segment) => {
+        if (segment.type === "positions") {
+          const chunks = chunkArray(segment.rows, chunkSize);
+          return chunks.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
+        }
+        return renderActionCard(segment.entry);
+      })
+      .join("");
+  };
 
   const actionsSection = safeActions.length
     ? `
@@ -281,34 +412,7 @@ function buildHtml({
           <div class="section-subtitle">${escapeHtml(actionsSubtitle)}</div>
         </div>
         <div class="actions-grid">
-          ${safeActions
-            .map((action) => {
-              const extraDetails = [];
-              if (action?.details?.command) extraDetails.push(`Comando: ${action.details.command}`);
-              if (action?.details?.report) extraDetails.push(`Relatório: ${action.details.report}`);
-              if (action?.details?.itinerary) extraDetails.push(`Itinerário: ${action.details.itinerary}`);
-              const detailsText = extraDetails.length ? extraDetails.join(" • ") : "—";
-              return `
-                <div class="action-card">
-                  <div class="action-head">
-                    <span class="action-type">${escapeHtml(action?.actionType || "Ação")}</span>
-                    <span class="action-status">${escapeHtml(action?.status || "—")}</span>
-                  </div>
-                  <div class="action-label">${escapeHtml(action?.actionLabel || "Ação do usuário")}</div>
-                  <div class="action-meta">
-                    <div><span>Enviado em</span>${escapeHtml(formatDate(action?.sentAt))}</div>
-                    <div><span>Respondido em</span>${escapeHtml(formatDate(action?.respondedAt))}</div>
-                    <div><span>Quem enviou</span>${escapeHtml(action?.user || "—")}</div>
-                    <div><span>Endereço IP</span>${escapeHtml(action?.ipAddress || "—")}</div>
-                  </div>
-                  <div class="action-extra">
-                    <span>Detalhes</span>
-                    ${escapeHtml(detailsText)}
-                  </div>
-                </div>
-              `;
-            })
-            .join("")}
+          ${safeActions.map((action) => renderActionCard(action)).join("")}
         </div>
       </div>
     `
@@ -371,6 +475,10 @@ function buildHtml({
         object-fit: contain;
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
       }
+      .logo.small img {
+        height: 28px;
+        filter: none;
+      }
       .logo.fallback {
         height: 48px;
         display: grid;
@@ -380,6 +488,11 @@ function buildHtml({
         border: 1px solid rgba(255,255,255,0.35);
         font-weight: 700;
         letter-spacing: 1px;
+      }
+      .logo.fallback.small {
+        height: 28px;
+        padding: 6px 10px;
+        font-size: 10px;
       }
       .title {
         font-size: 20px;
@@ -391,6 +504,53 @@ function buildHtml({
         font-size: 12px;
         color: rgba(255,255,255,0.9);
         margin-top: 4px;
+      }
+      .title.centered,
+      .subtitle.centered {
+        text-align: center;
+      }
+      .report-header {
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: #ffffff;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      .report-header-top {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 12px;
+        align-items: center;
+      }
+      .report-header-title .title {
+        font-size: 16px;
+        color: ${BRAND_COLOR};
+        letter-spacing: 0.12em;
+      }
+      .report-header-title .subtitle {
+        color: #475569;
+        margin-top: 2px;
+      }
+      .report-meta {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px 12px;
+        font-size: 10px;
+        color: #334155;
+      }
+      .report-meta span {
+        display: block;
+        font-size: 8px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #94a3b8;
+        margin-bottom: 2px;
+      }
+      .report-meta .span-2 {
+        grid-column: span 2;
       }
       .meta-grid {
         display: grid;
@@ -542,38 +702,68 @@ function buildHtml({
       .action-card {
         background: #ffffff;
         border-radius: 12px;
-        padding: 10px 12px;
+        padding: 8px 10px;
         border: 1px solid #e2e8f0;
       }
       .action-head {
         display: flex;
         justify-content: space-between;
         gap: 8px;
-        margin-bottom: 6px;
-        font-size: 9px;
+        margin-bottom: 4px;
+      }
+      .action-title {
+        font-size: 11px;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.12em;
-        color: #64748b;
-        font-weight: 700;
+        color: #334155;
       }
-      .action-status {
-        background: #eef2ff;
-        color: #3730a3;
+      .action-badge {
         border-radius: 999px;
         padding: 2px 8px;
         font-size: 8px;
-        letter-spacing: 0.1em;
-      }
-      .action-label {
-        font-size: 11px;
+        letter-spacing: 0.12em;
         font-weight: 700;
-        color: #0f172a;
+        text-transform: uppercase;
+        border: 1px solid transparent;
+      }
+      .action-badge--warning {
+        background: rgba(234, 179, 8, 0.16);
+        color: #92400e;
+        border-color: rgba(234, 179, 8, 0.4);
+      }
+      .action-badge--success {
+        background: rgba(16, 185, 129, 0.16);
+        color: #065f46;
+        border-color: rgba(16, 185, 129, 0.4);
+      }
+      .action-badge--danger {
+        background: rgba(239, 68, 68, 0.16);
+        color: #991b1b;
+        border-color: rgba(239, 68, 68, 0.4);
+      }
+      .action-badge--neutral {
+        background: rgba(148, 163, 184, 0.2);
+        color: #475569;
+        border-color: rgba(148, 163, 184, 0.4);
+      }
+      .action-summary {
+        font-size: 10px;
+        color: #334155;
         margin-bottom: 6px;
+      }
+      .action-summary span {
+        display: block;
+        font-size: 8px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 2px;
       }
       .action-meta {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 6px 12px;
+        gap: 6px 10px;
         font-size: 9px;
         color: #475569;
       }
@@ -585,28 +775,16 @@ function buildHtml({
         letter-spacing: 0.1em;
         margin-bottom: 2px;
       }
-      .action-extra {
-        margin-top: 6px;
-        font-size: 9px;
-        color: #475569;
-      }
-      .action-extra span {
-        display: block;
-        font-size: 8px;
-        color: #94a3b8;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        margin-bottom: 2px;
-      }
       @page {
-        margin: 16mm 12mm 20mm;
+        margin: 20mm 12mm 20mm;
       }
     </style>
   </head>
   <body>
     <div class="report">
-      ${tables}
-      ${actionsSection}
+      ${isAnalytic ? renderAnalyticHeader() : ""}
+      ${isAnalytic ? renderTimeline() : tables}
+      ${isAnalytic ? "" : actionsSection}
     </div>
   </body>
 </html>
@@ -632,6 +810,7 @@ export async function generatePositionsReportPdf({
   columns,
   meta,
   actions = [],
+  entries = [],
   availableColumns = null,
   columnDefinitions = [],
   options = {},
@@ -674,6 +853,7 @@ export async function generatePositionsReportPdf({
     const fontData = ensureFontData();
 
     const columnsToUse = safeColumns;
+    const isAnalytic = options?.variant === "analytic";
 
     const safeRows = Array.isArray(rows) ? rows : [];
     const columnMap = Array.isArray(columnDefinitions)
@@ -685,6 +865,7 @@ export async function generatePositionsReportPdf({
       columns: columnsToUse,
       meta,
       actions,
+      entries,
       logoDataUrl,
       fontData,
       columnDefinitions: columnMap,
@@ -694,20 +875,43 @@ export async function generatePositionsReportPdf({
 
     await page.setContent(html, { waitUntil: "networkidle" });
 
+    const headerMetaLine = `Veículo: ${meta?.vehicle?.name || "—"} | Placa: ${meta?.vehicle?.plate || "—"} | Cliente: ${meta?.vehicle?.customer || "—"} | Período: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
+    const headerTemplate = isAnalytic
+      ? `
+        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#0f172a; padding:6mm 12mm 0; display:flex; flex-direction:column; gap:4px;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
+            ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:18px; object-fit:contain;" />` : ""}
+            <span style="font-weight:700; letter-spacing:0.12em; text-transform:uppercase;">RELATÓRIO ANALÍTICO</span>
+          </div>
+          <div style="text-align:center; font-size:8px; color:#475569; text-transform:uppercase; letter-spacing:0.08em;">
+            ${escapeHtml(headerMetaLine)}
+          </div>
+        </div>
+      `
+      : "<div></div>";
+    const footerTemplate = isAnalytic
+      ? `
+        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 6mm; display:flex; justify-content:space-between;">
+          <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+          <span>Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</span>
+        </div>
+      `
+      : `
+        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm; display:flex; justify-content:space-between;">
+          <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+          <span>Gerado pelo Euro One</span>
+        </div>
+      `;
+
     return await page.pdf({
       format: needsWidePage ? "A3" : "A4",
       landscape: true,
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: { top: "16mm", right: "12mm", bottom: "20mm", left: "12mm" },
-      footerTemplate: `
-        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm; display:flex; justify-content:space-between;">
-          <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-          <span>Gerado pelo Euro One</span>
-        </div>
-      `,
-      headerTemplate: "<div></div>",
+      margin: { top: "20mm", right: "12mm", bottom: "20mm", left: "12mm" },
+      footerTemplate,
+      headerTemplate,
     });
   } catch (error) {
     const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
