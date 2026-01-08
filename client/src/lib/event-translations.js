@@ -56,6 +56,7 @@ const EVENT_LABELS = {
 };
 
 const POSITION_LABEL_PT = "Posição registrada";
+const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
 
 const EVENT_SEVERITY = {
   deviceoffline: "high",
@@ -217,6 +218,12 @@ function resolveDescriptorLabel(candidate, protocol, payload) {
   return { ...descriptor, protocol: protocolKey };
 }
 
+function shouldFallbackToPosition(label, payload) {
+  if (!label) return false;
+  if (!GENERIC_EVENT_LABELS_PT.has(label)) return false;
+  return isPositionPayload(payload);
+}
+
 function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
   if (!definition) return "";
   if (typeof fallbackTranslator === "function" && definition.labelKey) {
@@ -320,6 +327,15 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     };
   }
   if (payloadEventLabel) {
+    if (shouldFallbackToPosition(payloadEventLabel, payload)) {
+      return {
+        label: POSITION_LABEL_PT,
+        raw: candidate,
+        type: "position",
+        icon: null,
+        isNumeric: /^\d+$/.test(candidate),
+      };
+    }
     const numericCandidate = Number(candidate);
     const numericDefinition =
       Number.isFinite(numericCandidate) && String(numericCandidate) === candidate
@@ -341,6 +357,15 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     const protocolKey = normalizeProtocol(protocol);
     const descriptor = resolveDescriptorLabel(candidate, protocol, payload);
     if (descriptor?.labelPt) {
+      if (shouldFallbackToPosition(descriptor.labelPt, payload)) {
+        return {
+          label: POSITION_LABEL_PT,
+          raw: candidate,
+          type: "position",
+          icon: null,
+          isNumeric: true,
+        };
+      }
       return {
         label: descriptor.labelPt,
         raw: candidate,
@@ -433,17 +458,26 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
     return dictionary.generic;
   }
   const payloadLabel = resolvePayloadEventLabel(payload);
-  if (payloadLabel) return payloadLabel;
+  if (payloadLabel) {
+    if (shouldFallbackToPosition(payloadLabel, payload)) return POSITION_LABEL_PT;
+    return payloadLabel;
+  }
   if (/^\d+$/.test(raw)) {
     const protocolKey = normalizeProtocol(protocol);
     if (protocolKey === "iotm") {
       const descriptor = resolveDescriptorLabel(raw, protocol, payload);
-      if (descriptor?.labelPt) return descriptor.labelPt;
+      if (descriptor?.labelPt) {
+        if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
+        return descriptor.labelPt;
+      }
       return `NÃO MAPEADO (${raw})`;
     }
 
     const descriptor = resolveDescriptorLabel(raw, protocol, payload);
-    if (descriptor?.labelPt) return descriptor.labelPt;
+    if (descriptor?.labelPt) {
+      if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
+      return descriptor.labelPt;
+    }
     return `NÃO MAPEADO (${raw})`;
   }
   const normalized = normalizeType(raw);
