@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { normalizeDiagnosticKey } from "../../shared/eventTranslator.js";
 import { getProtocolEvents, normalizeProtocolKey } from "./protocol-catalog.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -51,11 +52,27 @@ function getCatalogMap(events = []) {
   );
 }
 
+function resolveCatalogEventId({ protocolKey, eventKey, payload, catalogMap }) {
+  if (!eventKey) return eventKey;
+  if (catalogMap.has(eventKey)) return eventKey;
+  if (protocolKey !== "iotm") return eventKey;
+
+  const normalized = normalizeDiagnosticKey({ payload, rawCode: eventKey });
+  const diagnosticKey = normalized?.key ? String(normalized.key).trim() : "";
+  if (diagnosticKey && catalogMap.has(diagnosticKey)) {
+    return diagnosticKey;
+  }
+  return eventKey;
+}
+
 function normalizeEntry(entry, defaults = {}) {
-  const displayName = typeof entry?.displayName === "string" ? entry.displayName.trim() : entry?.displayName ?? null;
+  const rawName =
+    entry?.customName ??
+    (typeof entry?.displayName === "string" ? entry.displayName.trim() : entry?.displayName ?? null);
+  const displayName = typeof rawName === "string" ? rawName.trim() : rawName ?? null;
   const severity = entry?.severity || defaults.severity || "info";
   const active = typeof entry?.active === "boolean" ? entry.active : defaults.active ?? true;
-  return { displayName: displayName || null, severity, active };
+  return { displayName: displayName || null, customName: displayName || null, severity, active };
 }
 
 function ensureProtocolConfig(data, clientKey, protocolKey) {
@@ -79,7 +96,7 @@ export function getEventConfig({ clientId, protocol, catalogEvents } = {}) {
     if (!eventId) return;
     const defaults = { severity: event?.defaultSeverity || event?.severity || "info", active: true };
     if (!next[eventId]) {
-      next[eventId] = { displayName: null, severity: defaults.severity, active: true };
+      next[eventId] = { displayName: null, customName: null, severity: defaults.severity, active: true };
       mutated = true;
       return;
     }
@@ -122,7 +139,12 @@ export function updateEventConfig({ clientId, protocol, items = [], catalogEvent
     };
     const normalized = normalizeEntry(
       {
-        displayName: item?.displayName ?? next?.[eventId]?.displayName ?? null,
+        displayName:
+          item?.customName ??
+          item?.displayName ??
+          next?.[eventId]?.customName ??
+          next?.[eventId]?.displayName ??
+          null,
         severity: item?.severity ?? next?.[eventId]?.severity,
         active: typeof item?.active === "boolean" ? item.active : next?.[eventId]?.active,
       },
@@ -156,6 +178,7 @@ export function ensureUnmappedEventConfig({ clientId, protocol, eventId }) {
     ...protocolEntry,
     [eventKey]: {
       displayName: `NÃO MAPEADO (${eventKey})`,
+      customName: `NÃO MAPEADO (${eventKey})`,
       severity: "warning",
       active: true,
     },
@@ -181,11 +204,12 @@ export function resolveEventConfiguration({
   logger = console,
 } = {}) {
   const protocolKey = normalizeProtocolKey(protocol);
-  const eventKey = normalizeEventId(eventId);
-  if (!eventKey) return null;
+  const rawEventKey = normalizeEventId(eventId);
+  if (!rawEventKey) return null;
 
   const events = getCatalogEvents(protocolKey, catalogEvents);
   const catalogMap = getCatalogMap(events);
+  const eventKey = resolveCatalogEventId({ protocolKey, eventKey: rawEventKey, payload, catalogMap });
   const catalogEntry = catalogMap.get(eventKey) || null;
   const config = getEventConfig({ clientId, protocol: protocolKey, catalogEvents: events });
 
@@ -201,7 +225,7 @@ export function resolveEventConfiguration({
     }
     return {
       id: eventKey,
-      label: entry?.displayName || `NÃO MAPEADO (${eventKey})`,
+      label: entry?.customName || entry?.displayName || `NÃO MAPEADO (${eventKey})`,
       severity: entry?.severity || "warning",
       active: entry?.active ?? true,
       isMapped: false,
@@ -209,7 +233,13 @@ export function resolveEventConfiguration({
   }
 
   const entry = config?.[eventKey] || {};
-  const label = entry.displayName || catalogEntry.name || catalogEntry.labelPt || catalogEntry.label || eventKey;
+  const label =
+    entry.customName ||
+    entry.displayName ||
+    catalogEntry.name ||
+    catalogEntry.labelPt ||
+    catalogEntry.label ||
+    eventKey;
   const severity = entry.severity || catalogEntry.defaultSeverity || catalogEntry.severity || "info";
   const active = typeof entry.active === "boolean" ? entry.active : true;
 

@@ -468,7 +468,7 @@ export default function Events() {
             defaultName: event.name,
             description: event.description,
             defaultSeverity: event.defaultSeverity ?? null,
-            displayName: configEntry.displayName ?? "",
+            customName: configEntry.customName ?? configEntry.displayName ?? "",
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
           };
@@ -478,10 +478,10 @@ export default function Events() {
           .map(([id, configEntry]) => ({
             id: String(id),
             code: String(id),
-            defaultName: configEntry.displayName || `NÃO MAPEADO (${id})`,
+            defaultName: configEntry.customName || configEntry.displayName || `NÃO MAPEADO (${id})`,
             description: "",
             defaultSeverity: null,
-            displayName: configEntry.displayName ?? "",
+            customName: configEntry.customName ?? configEntry.displayName ?? "",
             severity: normalizeSeverityValue(configEntry.severity ?? "warning"),
             active: configEntry.active ?? true,
             isUnmapped: true,
@@ -667,15 +667,15 @@ export default function Events() {
       return (
         event.code?.toLowerCase().includes(term) ||
         event.defaultName?.toLowerCase().includes(term) ||
-        event.displayName?.toLowerCase().includes(term) ||
+        event.customName?.toLowerCase().includes(term) ||
         event.description?.toLowerCase().includes(term)
       );
     });
   }, [eventSearch, protocolEvents]);
 
-  const handleDisplayNameChange = (eventId, value) => {
+  const handleCustomNameChange = (eventId, value) => {
     setProtocolEvents((current) =>
-      current.map((event) => (event.id === eventId ? { ...event, displayName: value } : event)),
+      current.map((event) => (event.id === eventId ? { ...event, customName: value } : event)),
     );
   };
 
@@ -698,7 +698,7 @@ export default function Events() {
     try {
       const items = protocolEvents.map((event) => ({
         id: event.id,
-        displayName: event.displayName?.trim() || null,
+        customName: event.customName?.trim() || null,
         severity: normalizeSeverityValue(event.severity || event.defaultSeverity || "info"),
         active: typeof event.active === "boolean" ? event.active : true,
       }));
@@ -710,7 +710,7 @@ export default function Events() {
           if (!configEntry) return event;
           return {
             ...event,
-            displayName: configEntry.displayName ?? "",
+            customName: configEntry.customName ?? configEntry.displayName ?? "",
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
           };
@@ -1042,7 +1042,7 @@ export default function Events() {
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-xs uppercase tracking-wide text-white/50">Eventos homologados</p>
+                    <p className="text-xs uppercase tracking-wide text-white/50">Eventos do protocolo</p>
                     <p className="text-xs text-white/60">
                       {configLoading ? "Carregando catálogo…" : `${filteredProtocolEvents.length} eventos`}
                     </p>
@@ -1072,8 +1072,8 @@ export default function Events() {
                       <label className="text-xs text-white/70">
                         <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Nome do evento</span>
                         <Input
-                          value={event.displayName ?? ""}
-                          onChange={(evt) => handleDisplayNameChange(event.id, evt.target.value)}
+                          value={event.customName ?? ""}
+                          onChange={(evt) => handleCustomNameChange(event.id, evt.target.value)}
                           placeholder={event.defaultName || "Nome do evento"}
                           className="mt-1 h-9 bg-layer text-xs md:mt-0"
                         />
