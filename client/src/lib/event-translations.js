@@ -56,6 +56,8 @@ const EVENT_LABELS = {
   "en-US": EVENT_LABELS_PT,
 };
 
+const POSITION_LABEL_PT = "Posição Registrada";
+
 const EVENT_SEVERITY = {
   deviceoffline: "high",
   deviceonline: "info",
@@ -209,9 +211,63 @@ function resolveIotmDiagnosticLabel(rawType, payload) {
   return formatIotmDiagEvent({ ...info, rawCode: rawType, payload });
 }
 
+function extractPositionAttributes(payload = {}) {
+  return payload?.attributes || payload?.position?.attributes || payload?.rawAttributes || payload?.position?.rawAttributes || {};
+}
+
+function isFiniteNumber(value) {
+  return Number.isFinite(Number(value));
+}
+
+function isPositionPayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return false;
+  const target = payload?.position || payload;
+  const attributes = extractPositionAttributes(payload);
+
+  const lat = target?.latitude ?? target?.lat ?? attributes?.latitude ?? attributes?.lat;
+  const lon =
+    target?.longitude ??
+    target?.lng ??
+    target?.lon ??
+    attributes?.longitude ??
+    attributes?.lng ??
+    attributes?.lon;
+
+  const hasCoordinates = isFiniteNumber(lat) && isFiniteNumber(lon);
+  if (hasCoordinates) return true;
+
+  const telemetrySignals = [
+    target?.speed,
+    attributes?.speed,
+    target?.course,
+    attributes?.course,
+    target?.altitude,
+    attributes?.altitude,
+    target?.sat,
+    attributes?.sat,
+    target?.hdop,
+    attributes?.hdop,
+    target?.gpsFix,
+    attributes?.gpsFix,
+    target?.valid,
+    attributes?.valid,
+  ];
+
+  const presentSignals = telemetrySignals.filter((value) => value !== null && value !== undefined).length;
+  return presentSignals >= 2;
+}
+
 export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTranslator, protocol = null, payload = null) {
   const candidate = normalizeEventCandidate(rawType);
   if (!candidate) {
+    if (isPositionPayload(payload)) {
+      return {
+        label: POSITION_LABEL_PT,
+        raw: "",
+        type: "position",
+        icon: null,
+      };
+    }
     return {
       label: translateEventType("generic", locale, fallbackTranslator),
       raw: "",
@@ -257,11 +313,30 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
       };
     }
     if (protocolKey === "iotm") {
+      if (isPositionPayload(payload)) {
+        return {
+          label: POSITION_LABEL_PT,
+          raw: candidate,
+          type: "position",
+          icon: null,
+          isNumeric: true,
+        };
+      }
       return {
         label: `Evento IOTM ${candidate}`,
         raw: candidate,
         isFallback: true,
         type: "event",
+        icon: null,
+        isNumeric: true,
+      };
+    }
+
+    if (isPositionPayload(payload)) {
+      return {
+        label: POSITION_LABEL_PT,
+        raw: candidate,
+        type: "position",
         icon: null,
         isNumeric: true,
       };

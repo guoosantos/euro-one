@@ -1,6 +1,6 @@
 import express from "express";
 import xirgoSensorsCatalog from "../../shared/xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
-import deviceDiagnosticCatalog from "../../shared/deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import diagnosticCatalog from "../../shared/eventCatalogPtBR.json" with { type: "json" };
 import { authenticate, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -55,7 +55,7 @@ router.get("/iot-sensors", requireRole("user", "manager", "admin"), (_req, res) 
 
 router.get("/iotm-diagnostic-events", requireRole("user", "manager", "admin"), (_req, res) => {
   res.json({
-    events: deviceDiagnosticCatalog,
+    catalog: diagnosticCatalog,
   });
 });
 

@@ -1,7 +1,6 @@
 import { iotmEventCatalog } from "./iotmEventCatalog.js";
 import iotmIoCatalog from "./iotmIoCatalog.pt-BR.json" with { type: "json" };
-import iotmDiagnosticCatalog from "./iotmDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
-import deviceDiagnosticCatalog from "./deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import diagnosticCatalog from "./eventCatalogPtBR.json" with { type: "json" };
 import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
 
 const BASE_TELEMETRY_ATTRIBUTES = [
@@ -410,153 +409,93 @@ const IOTM_EVENT_CODE_MAP = new Map(
 );
 
 const IOTM_DIAGNOSTIC_CODE_MAP = new Map(
-  [...(iotmDiagnosticCatalog || []), ...(deviceDiagnosticCatalog || [])].map((item) => [
+  (diagnosticCatalog?.events || []).map((item) => [
     String(item.id).toLowerCase(),
-    { key: `iotm_diag_${item.id}`, labelPt: item.labelPt, severity: item.severity, description: item.description },
+    {
+      key: `iotm_diag_${item.id}`,
+      labelPt: item.labelPt,
+      severity: item.severity || "info",
+      description: item.descriptionPt || item.description,
+    },
   ]),
 );
+
+const IOTM_DIAGNOSTIC_TEMPLATE_MAP = new Map(
+  (diagnosticCatalog?.templates || []).map((item) => [String(item.id).toLowerCase(), item]),
+);
+
+function buildTemplateContext(funId, warId) {
+  const context = {
+    fun_id: funId,
+    war_id: warId,
+    script_id: null,
+    source: null,
+    source_label: null,
+  };
+
+  if (Number.isFinite(funId)) {
+    if (funId >= 140 && funId < 145) {
+      context.script_id = funId - 140;
+    }
+    if (funId >= 180 && funId <= 182) {
+      context.source = funId - 180;
+      context.source_label = context.source === 1 ? "CAN1" : context.source === 2 ? "CAN2" : `Fonte ${context.source}`;
+    }
+    if (funId >= 240 && funId <= 241) {
+      context.source = funId - 240;
+      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
+    }
+    if (funId >= 250 && funId <= 251) {
+      context.source = funId - 250;
+      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
+    }
+  }
+
+  return context;
+}
+
+function renderTemplate(template, context) {
+  return String(template || "").replace(/\\{(\\w+)\\}/g, (match, key) => {
+    const value = context?.[key];
+    return value === null || value === undefined || value === "" ? match : String(value);
+  });
+}
 
 function resolveDiagnosticTemplate(code) {
   const normalized = String(code || "").trim().toLowerCase();
   if (!normalized) return null;
-  const matchRegister = normalized.match(/^f(2[0-7])=(.+)$/);
-  if (matchRegister) {
-    const register = matchRegister[1];
-    const value = matchRegister[2];
-    const registerMap = {
-      "20": "Bits 24-31 do registro de falhas",
-      "21": "Bits 16-23 do registro de falhas",
-      "22": "Bits 8-15 do registro de falhas",
-      "23": "Bits 0-7 do registro de falhas",
-      "24": "Bits 24-31 do registro PC",
-      "25": "Bits 16-23 do registro PC",
-      "26": "Bits 8-15 do registro PC",
-      "27": "Bits 0-7 do registro PC",
-    };
-    const label = registerMap[register];
-    if (label) {
-      return { key: `iotm_diag_f${register}`, labelPt: `${label}: ${value}`, severity: "info" };
-    }
-  }
-  const matchApn = normalized.match(/^f200=(.+)$/);
-  if (matchApn) {
-    return {
-      key: "iotm_diag_f200",
-      labelPt: `APN índice ${matchApn[1]}`,
-      severity: "info",
-    };
-  }
-  const matchScript = normalized.match(/^f(\\d+)=([0-9]+)$/);
-  if (matchScript) {
-    const funId = Number(matchScript[1]);
-    const warId = matchScript[2];
-    if (funId >= 140 && funId < 145) {
-      return { key: `iotm_diag_f${funId}`, labelPt: `Evento de script (${funId}): ${warId}`, severity: "warning" };
-    }
-  }
-  const matchPowerTime = normalized.match(/^f(240|250)\\+?source=(\\d+)$/);
-  if (matchPowerTime) {
-    const kind = matchPowerTime[1] === "240" ? "atrasada" : "adiantada";
-    const seconds = matchPowerTime[2];
-    return {
-      key: `iotm_diag_f${matchPowerTime[1]}`,
-      labelPt: `Hora do sistema ${kind}: ${seconds}s`,
-      severity: "warning",
-    };
-  }
-  const matchTacho = normalized.match(/^f104=(\\d+)$/);
-  if (matchTacho) {
-    return {
-      key: "iotm_diag_f104",
-      labelPt: `Tacógrafo digital: evento ${matchTacho[1]}`,
-      severity: "info",
-    };
-  }
-  const matchTachoExt = normalized.match(/^f11([6-9])=(\\d+)$/);
-  if (matchTachoExt) {
-    const group = Number(matchTachoExt[1]);
-    const offsetMap = { 6: "1-8", 7: "9-16", 8: "17-24", 9: "25-30" };
-    const range = offsetMap[group];
-    if (range) {
-      return {
-        key: `iotm_diag_f11${group}`,
-        labelPt: `Tacógrafo: parâmetros estendidos ${range} (${matchTachoExt[2]})`,
-        severity: "info",
-      };
-    }
-  }
-  const matchSpecial = normalized.match(/^f106=(.+)$/);
-  if (matchSpecial) {
-    return {
-      key: "iotm_diag_f106",
-      labelPt: `Sequência especial de eventos: ${matchSpecial[1]}`,
-      severity: "info",
-    };
-  }
-  const matchTachoData = normalized.match(/^f12([1-9])=(\\d+)$/);
-  if (matchTachoData) {
-    return {
-      key: `iotm_diag_f12${matchTachoData[1]}`,
-      labelPt: `Tacógrafo: byte de dados ${matchTachoData[1]} (${matchTachoData[2]})`,
-      severity: "info",
-    };
-  }
-  const matchTachoError = normalized.match(/^f12(8|9)=(\\d+)$/);
-  if (matchTachoError) {
-    const kind = matchTachoError[1] === "8" ? "subtipo" : "tipo";
-    return {
-      key: `iotm_diag_f12${matchTachoError[1]}`,
-      labelPt: `Tacógrafo: erro ${kind} ${matchTachoError[2]}`,
-      severity: "warning",
-    };
-  }
-  const matchFlashSub = normalized.match(/^f112=(\\d+)$/);
-  if (matchFlashSub) {
-    return {
-      key: "iotm_diag_f112",
-      labelPt: `Apagamento de subseção flash (1h): ${matchFlashSub[1]}`,
-      severity: "info",
-    };
-  }
-  const matchFlashSector = normalized.match(/^f113=(\\d+)$/);
-  if (matchFlashSector) {
-    return {
-      key: "iotm_diag_f113",
-      labelPt: `Apagamento de setor flash (1h): ${matchFlashSector[1]}`,
-      severity: "info",
-    };
-  }
-  const matchFileOps = normalized.match(/^f17([4-9])=(.+)$/);
-  if (matchFileOps) {
-    return {
-      key: `iotm_diag_f17${matchFileOps[1]}`,
-      labelPt: `Tacógrafo: operação ${matchFileOps[1]} (${matchFileOps[2]})`,
-      severity: "info",
-    };
-  }
-  const matchScriptDetail = normalized.match(/^f(14\\d)=(\\d+)$/);
-  if (matchScriptDetail) {
-    return {
-      key: `iotm_diag_f${matchScriptDetail[1]}`,
-      labelPt: `Script: evento ${matchScriptDetail[2]}`,
-      severity: "warning",
-    };
-  }
-  const matchCanbase = normalized.match(/^f180\\+?source=(\\d+)$/);
-  if (matchCanbase) {
-    return {
-      key: "iotm_diag_f180",
-      labelPt: `CAN base: evento de origem ${matchCanbase[1]}`,
-      severity: "warning",
-    };
-  }
-  const matchF130 = normalized.match(/^f130=(\\d+)$/);
-  if (matchF130) {
-    const id = matchF130[1];
-    if (["252", "253", "254", "255"].includes(id)) return null;
-    return { key: "iotm_diag_f130", labelPt: `Sensor Cargojot ${id}`, severity: "info" };
-  }
-  return null;
+  const match = normalized.match(/^f(\\d+)=(.+)$/);
+  if (!match) return null;
+  const funId = Number(match[1]);
+  const warId = match[2];
+  if (!Number.isFinite(funId) || !warId) return null;
+
+  const keys = [];
+  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=*`);
+  if (funId === 106) keys.push("f106=*");
+  if (funId === 112) keys.push("f112=*");
+  if (funId === 113) keys.push("f113=*");
+  if (funId === 130) keys.push("f130=*");
+  if (funId >= 140 && funId < 145) keys.push(`f140+scriptid=${warId}`);
+  if (funId === 161) keys.push("f161=*");
+  if (funId === 200) keys.push("f200=*");
+  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=*`);
+  if (funId >= 180 && funId <= 182) keys.push(`f180+source=${warId}`);
+  if (funId >= 240 && funId <= 241) keys.push("f240+source=*");
+  if (funId >= 250 && funId <= 251) keys.push("f250+source=*");
+
+  const entry = keys.map((key) => IOTM_DIAGNOSTIC_TEMPLATE_MAP.get(key)).find(Boolean);
+  if (!entry) return null;
+
+  const context = buildTemplateContext(funId, warId);
+  const label = entry.template ? renderTemplate(entry.template, context) : entry.labelPt;
+
+  return {
+    key: `iotm_diag_${entry.id}`,
+    labelPt: label,
+    severity: entry.severity || "info",
+    description: entry.descriptionPt || entry.description,
+  };
 }
 
 function normalizeProtocolKey(protocol) {
@@ -587,7 +526,7 @@ export function resolveEventDescriptor(code, { protocol } = {}) {
     const diagnostic =
       IOTM_DIAGNOSTIC_CODE_MAP.get(normalized.toLowerCase()) || resolveDiagnosticTemplate(normalized);
     if (diagnostic) return diagnostic;
-    return IOTM_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+    return IOTM_EVENT_CODE_MAP.get(normalized) || null;
   }
   if (protocolKey === "gt06") {
     return GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
