@@ -373,13 +373,17 @@ function buildHtml({
   };
 
   const renderAnalyticHeader = () => `
-    <div class="report-header">
-      <div class="report-header-top">
-        ${logoDataUrl ? `<div class="logo small"><img src="${logoDataUrl}" alt="Euro One" /></div>` : '<div class="logo fallback small">EURO ONE</div>'}
-        <div class="report-header-title">
-          <div class="title centered">${escapeHtml(reportTitle)}</div>
-          <div class="subtitle centered">${escapeHtml(reportSubtitle)}</div>
-        </div>
+    <div class="intro-card">
+      <div class="intro-title">${escapeHtml(reportTitle)}</div>
+      <div class="intro-subtitle">${escapeHtml(reportSubtitle)}</div>
+      <div class="intro-grid">
+        <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+        <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+        <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
+        <div><span>Exportado por</span>${escapeHtml(meta?.exportedBy || "—")}</div>
+        <div><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
+        <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
+        <div><span>Período</span>${escapeHtml(`${formatDate(meta?.from)} → ${formatDate(meta?.to)}`)}</div>
       </div>
     </div>
   `;
@@ -551,6 +555,42 @@ function buildHtml({
       .report-header-title .subtitle {
         color: rgba(255,255,255,0.88);
         margin-top: 2px;
+      }
+      .intro-card {
+        border-radius: 16px;
+        padding: 14px 16px 10px;
+        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
+        color: #ffffff;
+        box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
+      }
+      .intro-title {
+        font-size: 20px;
+        font-weight: 800;
+        text-align: center;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .intro-subtitle {
+        font-size: 12px;
+        text-align: center;
+        color: rgba(255, 255, 255, 0.82);
+        margin-top: 4px;
+      }
+      .intro-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px 16px;
+        font-size: 11px;
+        margin-top: 12px;
+      }
+      .intro-grid span {
+        display: block;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 3px;
       }
       .meta-grid {
         display: grid;
@@ -882,18 +922,34 @@ export async function generatePositionsReportPdf({
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    const headerMetaLine = `VEÍCULO: ${meta?.vehicle?.name || "—"} | PLACA: ${meta?.vehicle?.plate || "—"} | CLIENTE: ${meta?.vehicle?.customer || "—"} | PERÍODO: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
+    const headerMetaParts = [
+      { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
+      { label: "PLACA", value: meta?.vehicle?.plate || "—" },
+      { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
+      { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
+    ];
+    const headerMetaLine = headerMetaParts
+      .map(
+        (item, index) => `
+          <span style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
+            <span style="opacity:0.65; font-weight:600;">${escapeHtml(item.label)}:</span>
+            <span style="font-weight:700;">${escapeHtml(item.value)}</span>
+          </span>
+          ${index < headerMetaParts.length - 1 ? '<span style="opacity:0.4; margin:0 6px;">|</span>' : ""}
+        `,
+      )
+      .join("");
     const headerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 12mm; box-sizing:border-box;">
-        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 10mm; border-radius:6px; display:flex; align-items:center; gap:8px;">
+        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 9mm; border-radius:6px; display:flex; align-items:center; gap:8px;">
           ${
             logoDataUrl
               ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />`
               : `<span style="font-size:8px; font-weight:700; letter-spacing:0.08em;">EURO ONE</span>`
           }
-          <span style="font-size:8px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; line-height:1.2;">
-            ${escapeHtml(headerMetaLine)}
-          </span>
+          <div style="font-size:8px; letter-spacing:0.04em; text-transform:uppercase; line-height:1.2; display:flex; flex-wrap:wrap; gap:4px 6px;">
+            ${headerMetaLine}
+          </div>
         </div>
       </div>
     `;
