@@ -1,5 +1,4 @@
-import deviceDiagnosticCatalog from "../../../shared/deviceDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
-import iotmDiagnosticCatalog from "../../../shared/iotmDiagnosticEventCatalog.pt-BR.json" with { type: "json" };
+import diagnosticCatalog from "../../../shared/eventCatalogPtBR.json" with { type: "json" };
 
 const LABEL_OVERRIDES = {
   "Interferência GPS": "JAMMER GPS",
@@ -18,8 +17,7 @@ const toEntries = (catalog = []) =>
     .map((entry) => [String(entry.id).toLowerCase(), normalizeLabel(entry.labelPt || entry.label || "")]);
 
 export const iotmEventsPtBR = new Map([
-  ...toEntries(iotmDiagnosticCatalog),
-  ...toEntries(deviceDiagnosticCatalog),
+  ...toEntries(diagnosticCatalog?.events),
 ]);
 
 export default iotmEventsPtBR;

@@ -18,7 +18,7 @@ test("formatIotmDiagEvent resolve eventos especiais", () => {
   );
   assert.strictEqual(
     formatIotmDiagEvent({ funId: 20, warId: 12 }),
-    "Registro de falhas (bits 24–31): 12",
+    "Bits 24–31 do registro de falhas: 12",
   );
 });
 

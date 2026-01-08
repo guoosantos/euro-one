@@ -1,15 +1,9 @@
+import diagnosticCatalog from "../../../shared/eventCatalogPtBR.json" with { type: "json" };
 import iotmEventsPtBR from "../i18n/iotmEvents.ptBR.js";
 
-const REGISTER_LABELS = {
-  20: "Registro de falhas (bits 24–31)",
-  21: "Registro de falhas (bits 16–23)",
-  22: "Registro de falhas (bits 8–15)",
-  23: "Registro de falhas (bits 0–7)",
-  24: "Registro PC (bits 24–31)",
-  25: "Registro PC (bits 16–23)",
-  26: "Registro PC (bits 8–15)",
-  27: "Registro PC (bits 0–7)",
-};
+const DIAGNOSTIC_TEMPLATES = new Map(
+  (diagnosticCatalog?.templates || []).map((entry) => [String(entry.id).toLowerCase(), entry]),
+);
 
 const toNumberOrNull = (value) => {
   const parsed = Number(value);
@@ -23,6 +17,67 @@ const toTextOrNull = (value) => {
 };
 
 const pickFirst = (...values) => values.find((value) => value !== null && value !== undefined && `${value}`.trim() !== "");
+
+const buildTemplateContext = (funId, warId) => {
+  const context = {
+    fun_id: funId,
+    war_id: warId,
+    script_id: null,
+    source: null,
+    source_label: null,
+  };
+
+  if (Number.isFinite(funId)) {
+    if (funId >= 140 && funId < 145) {
+      context.script_id = funId - 140;
+    }
+    if (funId >= 180 && funId <= 182) {
+      context.source = funId - 180;
+      context.source_label = context.source === 1 ? "CAN1" : context.source === 2 ? "CAN2" : `Fonte ${context.source}`;
+    }
+    if (funId >= 240 && funId <= 241) {
+      context.source = funId - 240;
+      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
+    }
+    if (funId >= 250 && funId <= 251) {
+      context.source = funId - 250;
+      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
+    }
+  }
+
+  return context;
+};
+
+const renderTemplate = (template, context) =>
+  String(template || "").replace(/\{(\w+)\}/g, (match, key) => {
+    const value = context?.[key];
+    return value === null || value === undefined || value === "" ? match : String(value);
+  });
+
+const resolveTemplateLabel = (funId, warId) => {
+  if (!Number.isFinite(funId) || warId === null || warId === undefined || warId === "") return null;
+  const warText = String(warId);
+  const keys = [];
+
+  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=*`);
+  if (funId === 106) keys.push("f106=*");
+  if (funId === 112) keys.push("f112=*");
+  if (funId === 113) keys.push("f113=*");
+  if (funId === 130) keys.push("f130=*");
+  if (funId >= 140 && funId < 145) keys.push(`f140+scriptid=${warText}`);
+  if (funId === 161) keys.push("f161=*");
+  if (funId === 200) keys.push("f200=*");
+  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=*`);
+  if (funId >= 180 && funId <= 182) keys.push(`f180+source=${warText}`);
+  if (funId >= 240 && funId <= 241) keys.push("f240+source=*");
+  if (funId >= 250 && funId <= 251) keys.push("f250+source=*");
+
+  const entry = keys.map((key) => DIAGNOSTIC_TEMPLATES.get(key)).find(Boolean);
+  if (!entry) return null;
+
+  const context = buildTemplateContext(funId, warId);
+  return entry.template ? renderTemplate(entry.template, context) : entry.labelPt;
+};
 
 const extractFromPayload = (payload) => {
   if (!payload || typeof payload !== "object") return { funId: null, warId: null };
@@ -95,15 +150,13 @@ export function formatIotmDiagEvent({ funId, warId, rawCode, payload } = {}) {
   const resolvedWarId = toTextOrNull(info.warId);
   const raw = toTextOrNull(info.rawCode);
 
-  if (resolvedFunId !== null && resolvedWarId) {
-    const registerLabel = REGISTER_LABELS[resolvedFunId];
-    if (registerLabel) {
-      return `${registerLabel}: ${resolvedWarId}`;
-    }
-  }
-
   if (resolvedFunId === 0 && resolvedWarId === "164") {
     return "Sincronização NTP concluída";
+  }
+
+  if (resolvedFunId !== null && resolvedWarId) {
+    const templateLabel = resolveTemplateLabel(resolvedFunId, resolvedWarId);
+    if (templateLabel) return templateLabel;
   }
 
   const key =
