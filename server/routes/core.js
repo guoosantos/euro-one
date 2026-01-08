@@ -16,6 +16,7 @@ import * as traccarDbService from "../services/traccar-db.js";
 import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
+import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
@@ -82,6 +83,12 @@ function normaliseList(payload, keys = []) {
     if (Array.isArray(payload?.[key])) return payload[key];
   }
   return [];
+}
+
+function resolveAuditUser(req) {
+  const name = req.user?.name || req.user?.username || req.user?.email || req.user?.id || null;
+  if (!name) return null;
+  return { id: req.user?.id ? String(req.user.id) : null, name };
 }
 
 function isTruthyParam(value) {
@@ -1953,6 +1960,7 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
 
 router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
+    const auditSentAt = new Date().toISOString();
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const {
       name,
@@ -2010,6 +2018,18 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
     });
+    recordAuditEvent({
+      clientId,
+      vehicleId: vehicle.id,
+      category: "vehicle",
+      action: "CADASTRO DE VEÍCULO",
+      status: "Sucesso",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+      details: { plate: vehicle.plate || null },
+    });
     res.status(201).json({ vehicle: response });
   } catch (error) {
     next(error);
@@ -2018,6 +2038,7 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
 
 router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
+    const auditSentAt = new Date().toISOString();
     const { vehicleId, deviceId } = req.params;
     const clientId = deps.resolveClientId(
       req,
@@ -2036,6 +2057,18 @@ router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager"
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
     });
+    recordAuditEvent({
+      clientId: resolvedClientId,
+      vehicleId,
+      deviceId,
+      category: "vehicle",
+      action: "VINCULAR EQUIPAMENTO",
+      status: "Sucesso",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+    });
     res.status(200).json({ vehicle: response });
   } catch (error) {
     next(error);
@@ -2044,6 +2077,7 @@ router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager"
 
 router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
+    const auditSentAt = new Date().toISOString();
     const { vehicleId, deviceId } = req.params;
     const clientId = deps.resolveClientId(
       req,
@@ -2068,6 +2102,18 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
     });
+    recordAuditEvent({
+      clientId: resolvedClientId,
+      vehicleId,
+      deviceId,
+      category: "vehicle",
+      action: "DESVINCULAR EQUIPAMENTO",
+      status: "Sucesso",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+    });
     res.status(200).json({ vehicle: response });
   } catch (error) {
     next(error);
@@ -2076,6 +2122,7 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
 
 router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
+    const auditSentAt = new Date().toISOString();
     const { id } = req.params;
     const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
@@ -2105,6 +2152,18 @@ router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientM
       traccarById,
     });
 
+    recordAuditEvent({
+      clientId,
+      vehicleId: updated.id,
+      category: "vehicle",
+      action: "ATUALIZAÇÃO DE VEÍCULO",
+      status: "Sucesso",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+      details: { plate: updated.plate || vehicle?.plate || null },
+    });
     res.json({ vehicle: response });
   } catch (error) {
     next(error);
@@ -2113,6 +2172,7 @@ router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientM
 
 router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, next) => {
   try {
+    const auditSentAt = new Date().toISOString();
     const { id } = req.params;
     const vehicle = deps.getVehicleById(id);
     if (!vehicle) {
@@ -2124,6 +2184,18 @@ router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, 
       detachVehicle(clientId, id);
     }
     deps.deleteVehicle(id);
+    recordAuditEvent({
+      clientId,
+      vehicleId: id,
+      category: "vehicle",
+      action: "EXCLUSÃO DE VEÍCULO",
+      status: "Sucesso",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+      details: { plate: vehicle.plate || null },
+    });
     res.status(204).send();
   } catch (error) {
     next(error);
