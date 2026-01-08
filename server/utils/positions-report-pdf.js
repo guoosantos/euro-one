@@ -122,7 +122,31 @@ function normalizeAddress(value) {
   return formatFullAddress(String(value));
 }
 
-function formatCellValue(key, value, definition) {
+function formatCoordinate(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  return numeric.toFixed(5);
+}
+
+function resolveRowCoordinate(row, keys) {
+  for (const key of keys) {
+    const resolved = formatCoordinate(row?.[key]);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+}
+
+function formatAddressWithLatLng(value, row) {
+  const address = normalizeAddress(value);
+  const lat = resolveRowCoordinate(row, ["latitude", "lat", "addressLat"]);
+  const lng = resolveRowCoordinate(row, ["longitude", "lng", "addressLng"]);
+  if (!lat || !lng) return address;
+  const coords = `(${lat}, ${lng})`;
+  if (!address || address === "—") return coords;
+  return `${address} ${coords}`;
+}
+
+function formatCellValue(key, value, definition, row) {
   if (value === null || value === undefined || value === "") {
     if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
     return "—";
@@ -163,7 +187,7 @@ function formatCellValue(key, value, definition) {
   if (key === "batteryLevel") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (key === "ignition") return value ? "Ligada" : "Desligada";
   if (key === "vehicleState" && value === "—") return "Dado não disponível";
-  if (key === "address") return normalizeAddress(value);
+  if (key === "address") return formatAddressWithLatLng(value, row);
   if (definition?.type === "boolean") return value ? "Sim" : "Não";
   if (definition?.type === "percent") return Number.isFinite(Number(value)) ? `${Number(value)}%` : String(value);
   if (definition?.unit === "V") return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)} V` : String(value);
@@ -245,7 +269,7 @@ function buildHtml({
         const cells = columnsGroup
           .map((key) => {
             const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
-            return `<td>${escapeHtml(formatCellValue(key, row[key], definition))}</td>`;
+            return `<td>${escapeHtml(formatCellValue(key, row[key], definition, row))}</td>`;
           })
           .join("");
         return `<tr>${cells}</tr>`;
@@ -321,26 +345,28 @@ function buildHtml({
       { label: "Endereço IP", value: action?.ipAddress || "—" },
     ];
     return `
-      <div class="action-card">
-        <div class="action-head">
-          <span class="action-title">${escapeHtml(title)}</span>
-          <span class="action-badge action-badge--${statusVariant}">${escapeHtml(statusLabel)}</span>
-        </div>
-        <div class="action-summary">
-          <span>O que foi feito</span>
-          ${escapeHtml(summary)}
-        </div>
-        <div class="action-meta">
-          ${baseFields
-            .map(
-              (field) => `
-            <div>
-              <span>${escapeHtml(field.label)}</span>
-              ${escapeHtml(field.value || "—")}
-            </div>
-          `,
-            )
-            .join("")}
+      <div class="timeline-item">
+        <div class="action-card">
+          <div class="action-head">
+            <span class="action-title">${escapeHtml(title)}</span>
+            <span class="action-badge action-badge--${statusVariant}">${escapeHtml(statusLabel)}</span>
+          </div>
+          <div class="action-summary">
+            <span>O que foi feito</span>
+            ${escapeHtml(summary)}
+          </div>
+          <div class="action-meta">
+            ${baseFields
+              .map(
+                (field) => `
+              <div>
+                <span>${escapeHtml(field.label)}</span>
+                ${escapeHtml(field.value || "—")}
+              </div>
+            `,
+              )
+              .join("")}
+          </div>
         </div>
       </div>
     `;
@@ -381,13 +407,17 @@ function buildHtml({
       return fallbackSlices.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
     }
 
+    let previousType = null;
     return segments
       .map((segment) => {
         if (segment.type === "positions") {
           const chunks = chunkArray(segment.rows, chunkSize);
+          previousType = "positions";
           return chunks.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
         }
-        return renderActionCard(segment.entry);
+        const pageBreak = previousType === "positions" ? '<div class="page-break"></div>' : "";
+        previousType = "action";
+        return `${pageBreak}${renderActionCard(segment.entry)}`;
       })
       .join("");
   };
@@ -528,7 +558,7 @@ function buildHtml({
         gap: 12px;
         padding: 14px 16px;
         border-radius: 14px;
-        background: #f8fafc;
+        background: #ffffff;
         border: 1px solid #e2e8f0;
         font-size: 11px;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
@@ -645,7 +675,7 @@ function buildHtml({
         border-radius: 16px;
         border: 1px solid #e2e8f0;
         padding: 16px;
-        background: #f8fafc;
+        background: #ffffff;
       }
       .section-header {
         display: flex;
@@ -668,6 +698,11 @@ function buildHtml({
       .actions-grid {
         display: grid;
         gap: 10px;
+      }
+      .timeline-item {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        display: block;
       }
       .action-card {
         background: #ffffff;
@@ -775,7 +810,7 @@ export function resolvePdfColumns(columns, availableColumns = null) {
 }
 
 const MAX_PDF_COLUMNS = 120;
-const PDF_CHUNK_SIZE = 500;
+const PDF_CHUNK_SIZE = 250;
 
 export async function generatePositionsReportPdf({
   rows,
@@ -845,32 +880,29 @@ export async function generatePositionsReportPdf({
       options,
     });
 
-    await page.setContent(html, { waitUntil: "networkidle" });
+    await page.setContent(html, { waitUntil: "domcontentloaded" });
 
     const headerMetaLine = `VEÍCULO: ${meta?.vehicle?.name || "—"} | PLACA: ${meta?.vehicle?.plate || "—"} | CLIENTE: ${meta?.vehicle?.customer || "—"} | PERÍODO: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
-    const headerTemplate = isAnalytic
-      ? `
-        <div style="width:100%; font-family:${FONT_STACK}; background:${BRAND_COLOR}; color:#ffffff; padding:4mm 10mm; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-          ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />` : ""}
-          <span style="font-size:8.5px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase;">
+    const headerTemplate = `
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 12mm; box-sizing:border-box;">
+        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 10mm; border-radius:6px; display:flex; align-items:center; gap:8px;">
+          ${
+            logoDataUrl
+              ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />`
+              : `<span style="font-size:8px; font-weight:700; letter-spacing:0.08em;">EURO ONE</span>`
+          }
+          <span style="font-size:8px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; line-height:1.2;">
             ${escapeHtml(headerMetaLine)}
           </span>
         </div>
-      `
-      : "<div></div>";
-    const footerTemplate = isAnalytic
-      ? `
-        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 6mm; display:flex; justify-content:space-between;">
-          <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-          <span>Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}</span>
-        </div>
-      `
-      : `
-        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm; display:flex; justify-content:space-between;">
-          <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-          <span>Gerado pelo Euro One</span>
-        </div>
-      `;
+      </div>
+    `;
+    const footerTemplate = `
+      <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 4mm; display:flex; justify-content:space-between;">
+        <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
+        <span>${isAnalytic ? `Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}` : "Gerado pelo Euro One"}</span>
+      </div>
+    `;
 
     return await page.pdf({
       format: needsWidePage ? "A3" : "A4",
@@ -878,7 +910,7 @@ export async function generatePositionsReportPdf({
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: { top: "20mm", right: "12mm", bottom: "20mm", left: "12mm" },
+      margin: { top: "20mm", right: "12mm", bottom: "18mm", left: "12mm" },
       footerTemplate,
       headerTemplate,
     });
