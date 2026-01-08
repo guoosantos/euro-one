@@ -50,7 +50,11 @@ import { createTtlCache } from "../utils/ttl-cache.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import { buildCriticalVehicleSummary } from "../utils/critical-vehicles.js";
 import { generatePositionsReportPdf, resolvePdfColumns } from "../utils/positions-report-pdf.js";
-import { generatePositionsReportCsv, generatePositionsReportXlsx } from "../utils/positions-report-xlsx.js";
+import {
+  generateActionsReportCsv,
+  generatePositionsReportCsv,
+  generatePositionsReportXlsx,
+} from "../utils/positions-report-xlsx.js";
 
 import {
   positionsColumns,
@@ -4636,6 +4640,14 @@ function buildAnalyticCsvFileName(meta, from, to) {
   return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
 }
 
+function buildAnalyticActionsCsvFileName(meta, from, to) {
+  const plate = meta?.vehicle?.plate || meta?.vehicle?.name || "analytic-actions";
+  const safePlate = sanitizeFileToken(plate, "vehicle");
+  const safeFrom = sanitizeFileToken(from, "from");
+  const safeTo = sanitizeFileToken(to, "to");
+  return `analytic-actions-${safePlate}-${safeFrom}-${safeTo}.csv`;
+}
+
 /**
  * === Reports (GET no nosso backend, GET→POST no Traccar) ===
  */
@@ -4768,6 +4780,7 @@ router.post("/reports/analytic/pdf", async (req, res) => {
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
       availableColumns,
+      actions: report.actions,
     });
 
     const durationMs = Date.now() - startedAt;
@@ -4849,6 +4862,7 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
       availableColumns,
+      actions: report.actions,
     });
 
     const durationMs = Date.now() - startedAt;
@@ -4926,17 +4940,23 @@ router.post("/reports/analytic/csv", async (req, res) => {
       ? req.body.columnDefinitions
       : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
+    const exportTarget = String(req.body?.exportTarget || "positions");
 
-    const csvBuffer = generatePositionsReportCsv({
-      rows: report.positions,
-      columns,
-      columnDefinitions: resolvedColumnDefinitions,
-      availableColumns,
-      meta: report.meta,
-    });
+    const csvBuffer = exportTarget === "actions"
+      ? generateActionsReportCsv({ actions: report.actions })
+      : generatePositionsReportCsv({
+          rows: report.positions,
+          columns,
+          columnDefinitions: resolvedColumnDefinitions,
+          availableColumns,
+          meta: report.meta,
+        });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildAnalyticCsvFileName(report?.meta, from, to);
+    const fileName =
+      exportTarget === "actions"
+        ? buildAnalyticActionsCsvFileName(report?.meta, from, to)
+        : buildAnalyticCsvFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/csv] relatório analítico gerado", {
