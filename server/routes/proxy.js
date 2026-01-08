@@ -53,6 +53,8 @@ import { generatePositionsReportCsv, generatePositionsReportXlsx } from "../util
 import {
   positionsColumns,
   positionsColumnMap,
+  filterIotmStatusColumns,
+  isIotmProtocol,
   resolveColumnDefinition,
   resolveColumnGroupOrder,
   resolveColumnLabel,
@@ -1329,7 +1331,8 @@ function buildDynamicAttributeKeys(positions = [], protocol = null) {
   return Array.from(dynamicKeys);
 }
 
-function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() } = {}) {
+function buildReportColumns({ keys = [], protocol = null, deviceModel = null, hasValue = new Map() } = {}) {
+  const iotmContext = { protocol, deviceModel };
   const baseColumns = positionsColumns.filter(
     (column) => column.alwaysVisible || hasValue.get(column.key),
   );
@@ -1342,9 +1345,9 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
     .filter((column) => hasValue.get(column.key))
     .map((column) => ({
       ...column,
-      label: resolveColumnLabel(column, "pt"),
-      labelPdf: resolveColumnLabel(column, "pdf"),
-      width: column.width || Math.min(240, Math.max(120, resolveColumnLabel(column, "pt").length * 7)),
+      label: resolveColumnLabel(column, "pt", iotmContext),
+      labelPdf: resolveColumnLabel(column, "pdf", iotmContext),
+      width: column.width || Math.min(240, Math.max(120, resolveColumnLabel(column, "pt", iotmContext).length * 7)),
       weight: column.weight || 1,
       defaultVisible: column.defaultVisible ?? true,
     }));
@@ -1352,17 +1355,22 @@ function buildReportColumns({ keys = [], protocol = null, hasValue = new Map() }
   const groupedDynamic = dynamicDefinitions.sort((a, b) => {
     const groupDelta = resolveColumnGroupOrder(a.group) - resolveColumnGroupOrder(b.group);
     if (groupDelta !== 0) return groupDelta;
-    return resolveColumnLabel(a, "pt").localeCompare(resolveColumnLabel(b, "pt"), "pt-BR");
+    return resolveColumnLabel(a, "pt", iotmContext).localeCompare(resolveColumnLabel(b, "pt", iotmContext), "pt-BR");
   });
 
-  return [
+  const allColumns = [
     ...resolvedBaseColumns.map((column) => ({
       ...column,
-      label: resolveColumnLabel(column, "pt"),
-      labelPdf: resolveColumnLabel(column, "pdf"),
+      label: resolveColumnLabel(column, "pt", iotmContext),
+      labelPdf: resolveColumnLabel(column, "pdf", iotmContext),
     })),
     ...groupedDynamic,
   ];
+
+  if (!isIotmProtocol(protocol, deviceModel)) {
+    return allColumns;
+  }
+  return filterIotmStatusColumns(allColumns);
 }
 
 function parseAddressFilterQuery(query = {}) {
@@ -3771,6 +3779,12 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     positions?.[0]?.protocol ||
     positions?.[0]?.attributes?.protocol ||
     null;
+  const deviceModel =
+    device?.model ||
+    device?.modelName ||
+    device?.attributes?.model ||
+    device?.attributes?.modelName ||
+    null;
   // Relatório consome full_address persistido; geocode ocorre uma única vez na ingestão/monitoring.
   const resolveMode = req.query?.addressMode === "blocking" || req.body?.addressMode === "blocking" ? "blocking" : "async";
   await resolvePositionsFullAddressBatch(positions, resolveMode);
@@ -4069,7 +4083,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       columnHasValue.set(key, true);
     });
   });
-  const columns = buildReportColumns({ keys: dynamicKeys, protocol, hasValue: columnHasValue });
+  const columns = buildReportColumns({ keys: dynamicKeys, protocol, deviceModel, hasValue: columnHasValue });
 
   const totalItems = pagination ? await countPositions([traccarId], from, to) : mapped.length;
   const pageSize = limit || mapped.length || 1;
@@ -4090,6 +4104,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       ignition: ignitionLabel,
     },
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
+    protocol,
+    deviceModel,
     availableColumns: columns.map((column) => column.key),
     totalItems,
     totalPages,
@@ -4381,6 +4397,7 @@ router.post("/reports/analytic/csv", async (req, res) => {
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       availableColumns,
+      meta: report.meta,
     });
 
     const durationMs = Date.now() - startedAt;
@@ -4573,6 +4590,7 @@ router.post("/reports/positions/csv", async (req, res) => {
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       availableColumns,
+      meta: report.meta,
     });
 
     const durationMs = Date.now() - startedAt;

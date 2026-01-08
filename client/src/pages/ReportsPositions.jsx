@@ -162,12 +162,21 @@ function normalizeAddressDisplay(value) {
   }
 }
 
-function normalizeColumnLabel(column) {
+function resolveReportProtocol(positions = []) {
+  const list = Array.isArray(positions) ? positions : [];
+  for (const position of list) {
+    const protocol = position?.protocol || position?.attributes?.protocol;
+    if (protocol) return protocol;
+  }
+  return null;
+}
+
+function normalizeColumnLabel(column, { protocol } = {}) {
   if (!column) return column;
   const description = column.descriptionPt || column.description;
   const baseLabel = description || resolveSensorLabel({ name: column.label || column.labelPt, key: column.key });
-  const label = description || resolveReportColumnLabel(column.key, baseLabel);
-  const tooltip = description || resolveReportColumnTooltip(column.key, label);
+  const label = description || resolveReportColumnLabel(column.key, baseLabel, { protocol });
+  const tooltip = description || resolveReportColumnTooltip(column.key, label, { protocol });
   return {
     ...column,
     label,
@@ -237,12 +246,14 @@ export default function ReportsPositions() {
   const totalItems = meta?.totalItems ?? positions.length;
   const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
 
+  const reportProtocol = useMemo(() => resolveReportProtocol(positions), [positions]);
+
   const availableColumns = useMemo(() => {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
     if (positions.length) {
-      const schema = buildPositionsSchema(positions);
+      const schema = buildPositionsSchema(positions, { protocol: reportProtocol });
       return schema.map((column) => {
-        const normalized = normalizeColumnLabel(column);
+        const normalized = normalizeColumnLabel(column, { protocol: reportProtocol });
         return {
           ...normalized,
           defaultVisible: normalized.defaultVisible ?? true,
@@ -250,8 +261,8 @@ export default function ReportsPositions() {
         };
       });
     }
-    return FALLBACK_COLUMNS.map(normalizeColumnLabel);
-  }, [positions]);
+    return FALLBACK_COLUMNS.map((column) => normalizeColumnLabel(column, { protocol: reportProtocol }));
+  }, [positions, reportProtocol]);
 
   const availableColumnKeys = useMemo(
     () => availableColumns.map((column) => column.key),

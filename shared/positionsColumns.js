@@ -294,6 +294,67 @@ const COLUMN_GROUP_ORDER = {
   other: 90,
 };
 
+const IOTM_REPORT_COLUMN_LABELS = {
+  gpstime: "Transmissão GPS",
+  fixtime: "Transmissão GPS",
+  address: "Endereço",
+  iodetails: "Detalhes IO",
+  iosummary: "Detalhes IO",
+  ignition: "Ignição",
+  speed: "Velocidade",
+  satellites: "Número de satélites",
+  sat: "Número de satélites",
+  accuracy: "Precisão do posicionamento",
+  precision: "Precisão GPS",
+  distance: "Distância percorrida",
+  totaldistance: "Distância total acumulada",
+  devicetime: "Transmissão Dispositivo",
+  servertime: "Transmissão Servidor",
+  latitude: "Latitude",
+  longitude: "Longitude",
+  direction: "Direção em graus",
+  event: "Evento",
+  vehiclevoltage: "Tensão do veículo",
+  handbrake: "Freio de mão",
+  hdop: "HDOP",
+  devicetemp: "Temperatura do dispositivo",
+  clutchpedal: "Pedal da Embreagem Pressionado",
+  fuelused: "Uso do Combustível",
+  fuelusedhighres: "Uso do Combustível",
+  geofence: "Itinerário",
+  geozoneid: "Itinerário",
+  geozoneinside: "Dentro do Itinerário",
+  geozoneinsideprimary: "Dentro do Itinerário",
+  odometer: "Odômetro",
+  obdodometer: "Odômetro",
+  tachoodometer: "Odômetro",
+  rssi: "Intensidade do Sinal Celular",
+  config: "Nome da configuração",
+  configname: "Nome da configuração",
+  configurationname: "Nome da configuração",
+  driverseatbelt: "Cinto de Segurança Motorista",
+  lowbeam: "Farol",
+  highbeam: "Farol Alto",
+  engineworking: "Motor",
+  passengerseatbelt: "Cinto de Segurança Passageiro",
+  motion: "Veículo em movimento",
+  topspeed: "Velocidade Máxima do Veículo",
+  sensor_modem_firmware_version: "Versão do firmware do modem",
+  sensor_firmware_version: "Versão do firmware",
+  doorfrontleft: "Porta Motorista",
+  doorfrontright: "Porta Passageiro",
+  battery: "Tensão da bateria interna do dispositivo",
+  batteryvoltage: "Tensão da bateria interna do dispositivo",
+  power: "Tensão do Veículo",
+  externalpower: "Tensão do Veículo",
+  voltage: "Tensão do Veículo",
+  vbat: "Tensão do Veículo",
+  sensor_dtc: "Códigos de Falha do Veículo (DTC)",
+  sensor_dtc_captured: "Códigos de Falha do Veículo (DTC)",
+};
+
+const IOTM_STATUS_KEYS = new Set(["vehiclestate", "devicestatus", "status", "devicestatusevent"]);
+
 const PROTOCOL_COLUMN_CATALOG = {
   default: {
     fixtime: { labelPt: "Data/Hora", group: "base" },
@@ -342,6 +403,63 @@ function normalizeProtocolKey(protocol) {
 
 function normalizeKey(key) {
   return String(key || "").trim();
+}
+
+export function isIotmProtocol(protocol, deviceModel) {
+  const protocolKey = normalizeProtocolKey(protocol);
+  if (protocolKey === "iotm") return true;
+  const modelKey = String(deviceModel || "").trim().toLowerCase();
+  return modelKey === "iotm";
+}
+
+function resolveIotmStatusLabel(key, fallbackLabel) {
+  if (!key) return fallbackLabel;
+  const normalized = normalizeKey(key).toLowerCase();
+  if (IOTM_STATUS_KEYS.has(normalized)) return "Status";
+  return fallbackLabel;
+}
+
+function resolveIotmIoLabel(key, fallbackLabel) {
+  const normalized = normalizeKey(key);
+  if (!normalized) return fallbackLabel;
+  const inputMatch = normalized.match(/^(?:sensor_)?(?:in|input|entrada|digitalinput)_?(\d+)$/i);
+  if (inputMatch) {
+    return `Entrada ${inputMatch[1]}`;
+  }
+  const outputMatch = normalized.match(/^(?:sensor_)?(?:out|output|saida|saída|digitaloutput)_?(\d+)$/i);
+  if (outputMatch) {
+    return `Saída ${outputMatch[1]}`;
+  }
+  const ioMatch = normalized.match(/^(?:io|i\/o)[-_ ]?(\d+)$/i);
+  if (ioMatch) {
+    const descriptor = resolveTelemetryDescriptor(normalized) || resolveTelemetryDescriptor(normalized.toLowerCase());
+    if (descriptor?.labelPt) return descriptor.labelPt;
+    return `IO ${ioMatch[1]}`;
+  }
+  return fallbackLabel;
+}
+
+export function resolveIotmReportColumnLabel(key, fallbackLabel) {
+  if (!key) return fallbackLabel;
+  const normalized = normalizeKey(key).toLowerCase();
+  const mapped = IOTM_REPORT_COLUMN_LABELS[normalized];
+  if (mapped) return mapped;
+  const statusLabel = resolveIotmStatusLabel(normalized, fallbackLabel);
+  if (statusLabel !== fallbackLabel) return statusLabel;
+  const ioLabel = resolveIotmIoLabel(normalized, fallbackLabel);
+  return ioLabel || fallbackLabel;
+}
+
+export function filterIotmStatusColumns(columns = []) {
+  if (!Array.isArray(columns)) return columns;
+  let seenStatus = false;
+  return columns.filter((column) => {
+    const key = column?.key ? String(column.key).trim().toLowerCase() : "";
+    if (!IOTM_STATUS_KEYS.has(key)) return true;
+    if (seenStatus) return false;
+    seenStatus = true;
+    return true;
+  });
 }
 
 function toTitleCase(value) {
@@ -458,7 +576,7 @@ export function resolveColumn(key) {
   };
 }
 
-export function resolveColumnLabel(column, variant = "pt") {
+export function resolveColumnLabel(column, variant = "pt", options = {}) {
   if (!column) return "[SEM TRADUÇÃO]";
   const description = column.descriptionPt || column.description;
   const baseLabel =
@@ -466,6 +584,10 @@ export function resolveColumnLabel(column, variant = "pt") {
       ? column.labelPdf || description || column.labelPt
       : description || column.labelPt;
   const label = baseLabel || buildFriendlyLabel(column.key);
+  if (isIotmProtocol(options.protocol, options.deviceModel)) {
+    const resolved = resolveIotmReportColumnLabel(column.key, label);
+    return resolved || label;
+  }
   return withUnit(label, column.unit);
 }
 
