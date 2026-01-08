@@ -3,16 +3,27 @@ import safeApi from "../safe-api.js";
 import API_ROUTES from "../api-routes.js";
 
 function normalizeAnalyticPayload(payload) {
-  if (!payload) return { entries: [], meta: null };
-  const data = Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload?.items)
-      ? payload.items
+  if (!payload) return { entries: [], positions: [], actions: [], meta: null };
+  const payloadData = payload?.data ?? payload;
+  const entries = Array.isArray(payloadData?.entries)
+    ? payloadData.entries
+    : Array.isArray(payloadData?.timeline)
+      ? payloadData.timeline
       : Array.isArray(payload?.entries)
         ? payload.entries
         : [];
-  const meta = payload?.meta || payload?.__meta || null;
-  return { entries: data, meta };
+  const positions = Array.isArray(payloadData?.positions)
+    ? payloadData.positions
+    : Array.isArray(payload?.positions)
+      ? payload.positions
+      : [];
+  const actions = Array.isArray(payloadData?.actions)
+    ? payloadData.actions
+    : Array.isArray(payload?.actions)
+      ? payload.actions
+      : [];
+  const meta = payload?.meta || payloadData?.meta || payload?.__meta || null;
+  return { entries, positions, actions, meta };
 }
 
 async function resolveBlobErrorMessage(error) {
@@ -33,7 +44,7 @@ async function resolveBlobErrorMessage(error) {
 }
 
 export default function useAnalyticReport() {
-  const [data, setData] = useState({ entries: [], meta: null });
+  const [data, setData] = useState({ entries: [], positions: [], actions: [], meta: null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 

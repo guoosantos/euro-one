@@ -3,7 +3,7 @@ import VehicleSelector from "../components/VehicleSelector.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
-import usePositionsReport from "../lib/hooks/usePositionsReport.js";
+import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import {
   loadColumnPreferences,
@@ -23,7 +23,7 @@ import {
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 
-const COLUMN_STORAGE_KEY = "reports:positions:columns";
+const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 1000;
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
@@ -191,7 +191,7 @@ function buildPdfFileName(vehicle, from, to) {
   const safePlate = String(plate).replace(/\s+/g, "-");
   const safeFrom = String(from).replace(/[:\\s]/g, "-");
   const safeTo = String(to).replace(/[:\\s]/g, "-");
-  return `position-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.pdf`;
 }
 
 function buildXlsxFileName(vehicle, from, to) {
@@ -199,7 +199,7 @@ function buildXlsxFileName(vehicle, from, to) {
   const safePlate = String(plate).replace(/\s+/g, "-");
   const safeFrom = String(from).replace(/[:\\s]/g, "-");
   const safeTo = String(to).replace(/[:\\s]/g, "-");
-  return `position-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
 }
 
 function buildCsvFileName(vehicle, from, to) {
@@ -207,12 +207,12 @@ function buildCsvFileName(vehicle, from, to) {
   const safePlate = String(plate).replace(/\s+/g, "-");
   const safeFrom = String(from).replace(/[:\\s]/g, "-");
   const safeTo = String(to).replace(/[:\\s]/g, "-");
-  return `position-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
+  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
 }
 
-export default function ReportsPositions() {
+export default function ReportsAnalytic() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
-  const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = usePositionsReport();
+  const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = useAnalyticReport();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -235,6 +235,8 @@ export default function ReportsPositions() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [positions, setPositions] = useState([]);
+  const [entries, setEntries] = useState([]);
+  const [actions, setActions] = useState([]);
   const [meta, setMeta] = useState(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const baseQueryRef = useRef(null);
@@ -310,10 +312,9 @@ export default function ReportsPositions() {
     [visibleColumns, columnPrefs],
   );
 
-  const rows = useMemo(() => {
-    const list = Array.isArray(positions) ? positions : [];
-    return list.map((position) => {
-    const row = {
+  const buildPositionRow = useCallback(
+    (position) => {
+      const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
         deviceId: position.id ?? position.gpsTime ?? Math.random(),
 
@@ -382,15 +383,58 @@ export default function ReportsPositions() {
       });
 
       return row;
+    },
+    [columnDefinitionMap],
+  );
+
+  const rows = useMemo(() => {
+    const list = Array.isArray(positions) ? positions : [];
+    return list.map(buildPositionRow);
+  }, [buildPositionRow, positions]);
+
+
+  const timelineEntries = useMemo(() => {
+    if (Array.isArray(entries) && entries.length) return entries;
+    const positionEntries = (positions || []).map((position) => ({
+      id: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+      type: "position",
+      timestamp: position.serverTime || position.gpsTime || position.deviceTime || null,
+      position,
+    }));
+    const actionEntries = (actions || []).map((action) => ({
+      ...action,
+      type: "action",
+      timestamp: action.sentAt || action.respondedAt || action.timestamp || null,
+    }));
+    return [...positionEntries, ...actionEntries]
+      .filter((entry) => entry.timestamp)
+      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  }, [actions, entries, positions]);
+
+  const timelineSegments = useMemo(() => {
+    const segments = [];
+    let buffer = [];
+
+    timelineEntries.forEach((entry) => {
+      if (entry?.type === "position" && entry.position) {
+        buffer.push(buildPositionRow(entry.position));
+        return;
+      }
+      if (buffer.length) {
+        segments.push({ type: "positions", rows: buffer });
+        buffer = [];
+      }
+      if (entry?.type === "action") {
+        segments.push({ type: "action", entry });
+      }
     });
 
-  }, [columnDefinitionMap, positions]);
+    if (buffer.length) {
+      segments.push({ type: "positions", rows: buffer });
+    }
 
-
-  const filteredRows = useMemo(() => {
-    if (!hideUnavailableIgnition) return rows;
-    return rows.filter((row) => row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível");
-  }, [hideUnavailableIgnition, rows]);
+    return segments;
+  }, [buildPositionRow, timelineEntries]);
 
   const resolveAddressFilter = useCallback(async () => {
     const text = addressQuery.trim();
@@ -458,10 +502,12 @@ export default function ReportsPositions() {
         baseQueryRef.current = params;
         setPage(1);
         const normalized = await generate(params);
-        setPositions(normalized.positions);
+        setPositions(normalized.positions || []);
+        setEntries(normalized.entries || []);
+        setActions(normalized.actions || []);
         setMeta(normalized.meta);
         setHasGenerated(true);
-        setFeedback({ type: "success", message: "Relatório de posições atualizado." });
+        setFeedback({ type: "success", message: "Relatório analítico atualizado." });
       } catch (requestError) {
         setFeedback({ type: "error", message: requestError?.message ?? "Erro ao gerar relatório." });
       }
@@ -480,7 +526,9 @@ export default function ReportsPositions() {
     setPage(1);
     fetchPage(params)
       .then((normalized) => {
-        setPositions(normalized.positions);
+        setPositions(normalized.positions || []);
+        setEntries(normalized.entries || []);
+        setActions(normalized.actions || []);
         setMeta(normalized.meta);
       })
       .catch(() => {});
@@ -497,10 +545,12 @@ export default function ReportsPositions() {
       baseQueryRef.current = params;
       const normalized = await fetchPage(params);
       setPositions((prev) => [...prev, ...(normalized.positions || [])]);
+      setEntries(normalized.entries || []);
+      setActions((prev) => prev.length ? prev : (normalized.actions || []));
       setMeta(normalized.meta);
       setPage(nextPage);
     } catch (loadError) {
-      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais posições." });
+      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais registros." });
     } finally {
       setLoadingMore(false);
     }
@@ -517,7 +567,9 @@ export default function ReportsPositions() {
       baseQueryRef.current = params;
       try {
         const normalized = await generate(params);
-        setPositions(normalized.positions);
+        setPositions(normalized.positions || []);
+        setEntries(normalized.entries || []);
+        setActions(normalized.actions || []);
         setMeta(normalized.meta);
       } catch (requestError) {
         setFeedback({ type: "error", message: requestError?.message || "Erro ao aplicar paginação." });
@@ -714,13 +766,53 @@ export default function ReportsPositions() {
 
   );
 
+  const renderActionCard = (entry) => {
+    const resolvedRespondedAt = entry?.respondedAt ? formatDateTime(entry.respondedAt) : "—";
+    const baseFields = [
+      { label: "Enviado em", value: formatDateTime(entry?.sentAt) },
+      { label: "Respondido em", value: resolvedRespondedAt },
+      { label: "O que foi feito", value: entry?.actionLabel || "—" },
+      { label: "Quem enviou", value: entry?.user || "—" },
+      { label: "Status", value: entry?.status || "—" },
+      { label: "Endereço IP", value: entry?.ipAddress || "—" },
+    ];
+
+    const extraFields = [];
+    if (entry?.details?.command) {
+      extraFields.push({ label: "Comando", value: entry.details.command });
+    }
+    if (entry?.details?.report) {
+      extraFields.push({ label: "Relatório", value: entry.details.report });
+    }
+    if (entry?.details?.itinerary) {
+      extraFields.push({ label: "Itinerário", value: entry.details.itinerary });
+    }
+
+    const fields = [...baseFields, ...extraFields];
+
+    return (
+      <div className="rounded-2xl bg-white/5 p-4 text-sm text-white/80 shadow-sm">
+        <div className="text-xs uppercase tracking-[0.2em] text-white/50">{entry?.actionType || "Ação"}</div>
+        <div className="mt-1 text-sm font-semibold text-white">{entry?.actionLabel || "Ação do usuário"}</div>
+        <div className="mt-3 grid grid-cols-1 gap-3 text-xs text-white/70 md:grid-cols-2">
+          {fields.map((field) => (
+            <div key={field.label} className="space-y-1">
+              <div className="text-[10px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
+              <div className="text-sm text-white/80">{field.value || "—"}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <header className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
+                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório Analítico</p>
               </div>
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
@@ -805,7 +897,7 @@ export default function ReportsPositions() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
+              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar a linha do tempo completa.</p>
               <div className="flex items-center gap-2 text-xs text-white/70">
                 <span className="whitespace-nowrap">
                   Página {currentPage} de {totalPages} • {totalItems} itens
@@ -909,16 +1001,40 @@ export default function ReportsPositions() {
         )}
       </form>
 
-      <section className="flex-1 min-h-0">
-        <MonitoringTable
-          rows={filteredRows}
-          columns={visibleColumnsWithWidths}
-          loading={loading || loadingMore}
-          emptyText="Nenhuma posição encontrada para o período selecionado."
-          columnWidths={columnPrefs?.widths}
-          onColumnWidthChange={handleColumnWidthChange}
-          liveGeocode={false}
-        />
+      <section className="flex-1 min-h-0 space-y-4">
+        {timelineSegments.length ? (
+          timelineSegments.map((segment, index) => {
+            if (segment.type === "positions") {
+              const segmentRows = hideUnavailableIgnition
+                ? segment.rows.filter(
+                    (row) => row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível",
+                  )
+                : segment.rows;
+              return (
+                <MonitoringTable
+                  key={`segment-${index}`}
+                  rows={segmentRows}
+                  columns={visibleColumnsWithWidths}
+                  loading={loading || loadingMore}
+                  emptyText="Nenhuma posição encontrada para o período selecionado."
+                  columnWidths={columnPrefs?.widths}
+                  onColumnWidthChange={handleColumnWidthChange}
+                  liveGeocode={false}
+                />
+              );
+            }
+            if (segment.type === "action") {
+              return <div key={`segment-${index}`}>{renderActionCard(segment.entry)}</div>;
+            }
+            return null;
+          })
+        ) : (
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/60">
+            {hasGenerated
+              ? "Nenhum registro encontrado para o período selecionado."
+              : "Selecione o veículo e gere o relatório para visualizar a linha do tempo."}
+          </div>
+        )}
       </section>
       {canLoadMore && (
         <div className="flex items-center justify-center">

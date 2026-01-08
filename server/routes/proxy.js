@@ -13,6 +13,7 @@ import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../s
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
+import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import {
   fetchDevicesMetadata,
   fetchEventsWithFallback,
@@ -667,6 +668,78 @@ function mapDispatchStatusToApi(status, hasResponse) {
   if (status === "failed") return "ERROR";
   if (status === "sent") return "SENT";
   return "PENDING";
+}
+
+function mapCommandStatusToLabel(status) {
+  switch (status) {
+    case "RESPONDED":
+      return "Respondido";
+    case "ERROR":
+      return "Erro";
+    case "SENT":
+      return "Enviado";
+    case "PENDING":
+      return "Não respondido";
+    default:
+      return "Pendente";
+  }
+}
+
+function resolveAuditUser(req) {
+  const name = req.user?.name || req.user?.username || req.user?.email || req.user?.id || null;
+  if (!name) return null;
+  return { id: req.user?.id ? String(req.user.id) : null, name };
+}
+
+function recordReportAudit({
+  req,
+  reportName,
+  vehicleIds,
+  status,
+  sentAt,
+  respondedAt,
+}) {
+  const ids = Array.isArray(vehicleIds)
+    ? vehicleIds.filter(Boolean)
+    : vehicleIds
+      ? [vehicleIds]
+      : [];
+  if (!ids.length) return;
+  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  ids.forEach((vehicleId) => {
+    recordAuditEvent({
+      clientId,
+      vehicleId,
+      category: "report",
+      action: "EMISSÃO DE RELATÓRIO",
+      status,
+      sentAt,
+      respondedAt,
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+      details: { report: reportName },
+    });
+  });
+}
+
+function resolveVehicleIdsFromParams(params = {}) {
+  const values = [];
+  const pushValue = (entry) => {
+    if (entry === undefined || entry === null) return;
+    if (Array.isArray(entry)) {
+      entry.forEach(pushValue);
+      return;
+    }
+    const raw = String(entry).trim();
+    if (!raw) return;
+    raw.split(",").forEach((token) => {
+      const value = token.trim();
+      if (value) values.push(value);
+    });
+  };
+  pushValue(params.vehicleId);
+  pushValue(params.vehicleIds);
+  return values;
 }
 
 function buildDispatchMatchSignature(dispatch) {
@@ -2999,6 +3072,20 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
       source: "EURO_ONE",
       traccarCommandId,
     });
+    recordAuditEvent({
+      clientId,
+      vehicleId,
+      deviceId: resolvedDevice?.device?.id || null,
+      category: "command",
+      action: "ENVIO DE COMANDO",
+      status: mapCommandStatusToLabel(historyItem.status),
+      sentAt: historyItem.sentAt,
+      respondedAt: historyItem.respondedAt,
+      user: resolveAuditUser(req),
+      ipAddress: resolveRequestIp(req),
+      details: { command: historyItem.commandName || historyItem.command || null },
+      relatedId: requestId,
+    });
 
     if (!traccarResponse?.ok) {
       const message = warningMessage || "Falha ao enviar comando ao Traccar";
@@ -3879,6 +3966,154 @@ router.post("/maintenance/positions/full-address/backfill", requireRole("admin")
   }
 });
 
+async function fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientId }) {
+  const traccarDevice = await resolveTraccarDeviceFromVehicle(req, vehicleId);
+  const traccarId = Number(traccarDevice?.traccarId);
+  if (!Number.isFinite(traccarId)) {
+    throw createError(409, "Equipamento vinculado sem traccarId");
+  }
+
+  let dispatches = [];
+  let userLookup = new Map();
+  if (isPrismaAvailable()) {
+    try {
+      const dispatchModel = ensureCommandPrismaModel("commandDispatch");
+      dispatches = await dispatchModel.findMany({
+        where: {
+          vehicleId,
+          ...(clientId ? { clientId } : {}),
+          sentAt: {
+            gte: from,
+            lte: to,
+          },
+        },
+        orderBy: { sentAt: "asc" },
+      });
+
+      const userIds = Array.from(new Set(dispatches.map((dispatch) => dispatch.createdBy).filter(Boolean)));
+      if (userIds.length && prisma?.user?.findMany) {
+        const users = await prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: { id: true, name: true, email: true, username: true },
+        });
+        userLookup = new Map(
+          users.map((user) => [
+            user.id,
+            user.name || user.username || user.email || user.id,
+          ]),
+        );
+      }
+    } catch (error) {
+      console.warn("[commands] Falha ao buscar histórico no banco, retornando apenas Traccar", error?.message || error);
+    }
+  }
+
+  let eventItems = [];
+  try {
+    const events = await fetchCommandResultEvents(traccarId, from, to);
+    eventItems = events
+      .filter((event) => event?.type === "commandResult")
+      .map((event) => {
+        return {
+          id: event.id ?? null,
+          eventTime: event.eventTime ?? null,
+          result: resolveCommandResultText(event),
+          commandName: resolveCommandNameFromEvent(event),
+          attributes: event?.attributes || {},
+        };
+      });
+  } catch (error) {
+    console.warn("[commands] Falha ao consultar eventos do Traccar", error?.message || error);
+  }
+
+  const parsedEvents = eventItems
+    .map((event) => ({
+      ...event,
+      parsedTime: event.eventTime ? new Date(event.eventTime) : null,
+    }))
+    .filter((event) => event.parsedTime && Number.isFinite(event.parsedTime.getTime()))
+    .sort((a, b) => a.parsedTime - b.parsedTime);
+
+  const usedEventIds = new Set();
+  const fromMs = new Date(from).getTime();
+  const toMs = new Date(to).getTime();
+  const matchWindowMs = Number.isFinite(toMs - fromMs)
+    ? Math.max(toMs - fromMs, 2 * 60 * 60 * 1000)
+    : 2 * 60 * 60 * 1000;
+  const allowSkewMs = 15 * 60 * 1000;
+  const dispatchItems = dispatches.map((dispatch) => {
+    let matched = null;
+
+    if (dispatch.status !== "failed") {
+      matched = findMatchingCommandEvent({
+        dispatch,
+        parsedEvents,
+        usedEventIds,
+        matchWindowMs,
+        allowSkewMs,
+      });
+    }
+
+    if (matched?.id) {
+      usedEventIds.add(matched.id);
+    }
+
+    const userName = dispatch.createdBy ? userLookup.get(dispatch.createdBy) || null : null;
+    const payloadSummary = dispatch.payloadSummary && typeof dispatch.payloadSummary === "object" ? dispatch.payloadSummary : null;
+    const resolvedCommandName = dispatch.commandName || dispatch.commandKey || payloadSummary?.type || null;
+    const receivedAt = matched?.eventTime || null;
+    const status = mapDispatchStatusToApi(dispatch.status, Boolean(receivedAt));
+
+    return buildCommandHistoryItem({
+      id: dispatch.id,
+      vehicleId,
+      traccarId,
+      user: dispatch.createdBy ? { id: dispatch.createdBy, name: userName } : null,
+      command: resolvedCommandName,
+      commandName: resolvedCommandName,
+      payload: payloadSummary,
+      status,
+      sentAt: dispatch.sentAt?.toISOString ? dispatch.sentAt.toISOString() : dispatch.sentAt,
+      receivedAt,
+      respondedAt: receivedAt,
+      result: matched?.result || null,
+      source: "EURO_ONE",
+      traccarCommandId: dispatch.traccarCommandId || null,
+    });
+  });
+
+  const unmatchedEvents = parsedEvents
+    .filter((event) => !usedEventIds.has(event.id))
+    .map((event) => ({
+      id: event.id ? `event-${event.id}` : `event-${event.eventTime}`,
+      eventTime: event.eventTime,
+      commandName: event.commandName,
+      result: event.result,
+      attributes: event.attributes || {},
+    }));
+
+  const traccarItems = unmatchedEvents.map((event) =>
+    buildCommandHistoryItem({
+      id: event.id,
+      vehicleId,
+      traccarId,
+      user: null,
+      command: event.commandName || null,
+      commandName: event.commandName || null,
+      payload: event.attributes || null,
+      status: "RESPONDED",
+      sentAt: null,
+      receivedAt: event.eventTime,
+      respondedAt: event.eventTime,
+      result: event.result,
+      source: "TRACCAR",
+      traccarCommandId: event.id || null,
+    }),
+  );
+
+  return [...dispatchItems, ...traccarItems].filter((item) => item.sentAt || item.receivedAt);
+}
+
 async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null }) {
   if (!vehicleId) {
     throw createError(400, "vehicleId é obrigatório");
@@ -4264,8 +4499,87 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   return { positions: mapped, meta: { ...meta, columns } };
 }
 
+function resolveTimelineTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+}
+
+function resolvePositionTimestamp(position) {
+  return (
+    resolveTimelineTimestamp(position.serverTime) ||
+    resolveTimelineTimestamp(position.gpsTime) ||
+    resolveTimelineTimestamp(position.deviceTime)
+  );
+}
+
 async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination }) {
-  return buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+  const positionsReport = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const commandHistory = await fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientId }).catch(() => []);
+  const auditEvents = listAuditEvents({ clientId, vehicleId, from, to });
+
+  const auditCommandMap = new Map(
+    auditEvents
+      .filter((event) => event.category === "command" && event.relatedId)
+      .map((event) => [event.relatedId, event]),
+  );
+
+  const commandEntries = commandHistory
+    .filter((item) => item.source === "EURO_ONE")
+    .map((item) => {
+      const audit = auditCommandMap.get(item.id) || null;
+      return {
+        id: item.id,
+        type: "action",
+        actionType: "command",
+        actionLabel: "ENVIO DE COMANDO",
+        sentAt: item.sentAt || audit?.sentAt || null,
+        respondedAt: item.respondedAt || audit?.respondedAt || null,
+        status: mapCommandStatusToLabel(item.status),
+        user: item.user?.name || audit?.user?.name || null,
+        ipAddress: audit?.ipAddress || null,
+        details: {
+          command: item.commandName || item.command || null,
+        },
+        timestamp: item.sentAt || item.respondedAt || audit?.sentAt || audit?.respondedAt || null,
+      };
+    });
+
+  const auditActionEntries = auditEvents
+    .filter((event) => event.category !== "command")
+    .map((event) => ({
+      id: event.id,
+      type: "action",
+      actionType: event.category || "audit",
+      actionLabel: event.action || "AÇÃO DO USUÁRIO",
+      sentAt: event.sentAt || null,
+      respondedAt: event.respondedAt || null,
+      status: event.status || "Pendente",
+      user: event.user?.name || null,
+      ipAddress: event.ipAddress || null,
+      details: event.details || null,
+      timestamp: event.sentAt || event.respondedAt || event.createdAt || null,
+    }));
+
+  const positionEntries = positionsReport.positions.map((position) => ({
+    id: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
+    type: "position",
+    timestamp: resolvePositionTimestamp(position),
+    position,
+  }));
+
+  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries]
+    .filter((entry) => entry.timestamp)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  return {
+    positions: positionsReport.positions,
+    meta: positionsReport.meta,
+    actions: [...commandEntries, ...auditActionEntries],
+    entries,
+  };
 }
 
 function sanitizeFileToken(value, fallback) {
@@ -4327,6 +4641,7 @@ function buildAnalyticCsvFileName(meta, from, to) {
  */
 
 router.get("/reports/positions", async (req, res) => {
+  const auditSentAt = new Date().toISOString();
   try {
     const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.query?.from, "from");
@@ -4335,12 +4650,28 @@ router.get("/reports/positions", async (req, res) => {
     const pagination = normalizePagination(req.query);
 
     const report = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições",
+      vehicleIds: vehicleId,
+      status: "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     return res.status(200).json({
       data: report.positions,
       meta: report.meta,
       error: null,
     });
   } catch (error) {
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições",
+      vehicleIds: req.query?.vehicleId ? String(req.query.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
     }
@@ -4355,6 +4686,7 @@ router.get("/reports/positions", async (req, res) => {
 });
 
 router.get("/reports/analytic", async (req, res) => {
+  const auditSentAt = new Date().toISOString();
   try {
     const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
     const from = parseDateOrThrow(req.query?.from, "from");
@@ -4363,12 +4695,32 @@ router.get("/reports/analytic", async (req, res) => {
     const pagination = normalizePagination(req.query);
 
     const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico",
+      vehicleIds: vehicleId,
+      status: "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     return res.status(200).json({
-      data: report.positions,
+      data: {
+        entries: report.entries,
+        positions: report.positions,
+        actions: report.actions,
+      },
       meta: report.meta,
       error: null,
     });
   } catch (error) {
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico",
+      vehicleIds: req.query?.vehicleId ? String(req.query.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
     }
@@ -4384,6 +4736,7 @@ router.get("/reports/analytic", async (req, res) => {
 
 router.post("/reports/analytic/pdf", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4418,7 +4771,7 @@ router.post("/reports/analytic/pdf", async (req, res) => {
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildPositionsPdfFileName(report?.meta, from, to);
+    const fileName = buildAnalyticPdfFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/pdf] relatório analítico gerado", {
@@ -4427,6 +4780,14 @@ router.post("/reports/analytic/pdf", async (req, res) => {
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
+    });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (PDF)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
     });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
@@ -4442,12 +4803,21 @@ router.post("/reports/analytic/pdf", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (PDF)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "ANALYTIC_PDF_ERROR" });
   }
 });
 
 router.post("/reports/analytic/xlsx", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4482,7 +4852,7 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildPositionsXlsxFileName(report?.meta, from, to);
+    const fileName = buildAnalyticXlsxFileName(report?.meta, from, to);
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -4494,6 +4864,14 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
+    });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (Excel)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
     });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
@@ -4509,12 +4887,21 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (Excel)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "ANALYTIC_XLSX_ERROR" });
   }
 });
 
 router.post("/reports/analytic/csv", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4549,7 +4936,7 @@ router.post("/reports/analytic/csv", async (req, res) => {
     });
 
     const durationMs = Date.now() - startedAt;
-    const fileName = buildPositionsCsvFileName(report?.meta, from, to);
+    const fileName = buildAnalyticCsvFileName(report?.meta, from, to);
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/csv] relatório analítico gerado", {
@@ -4558,6 +4945,14 @@ router.post("/reports/analytic/csv", async (req, res) => {
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
+    });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (CSV)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
     });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
@@ -4573,12 +4968,21 @@ router.post("/reports/analytic/csv", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório Analítico (CSV)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "ANALYTIC_CSV_ERROR" });
   }
 });
 
 router.post("/reports/positions/pdf", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4623,6 +5027,14 @@ router.post("/reports/positions/pdf", async (req, res) => {
       durationMs,
       clientAborted: aborted,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (PDF)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
     }
@@ -4637,12 +5049,21 @@ router.post("/reports/positions/pdf", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (PDF)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "POSITIONS_PDF_ERROR" });
   }
 });
 
 router.post("/reports/positions/xlsx", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4689,6 +5110,14 @@ router.post("/reports/positions/xlsx", async (req, res) => {
       durationMs,
       clientAborted: aborted,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (Excel)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
     }
@@ -4703,12 +5132,21 @@ router.post("/reports/positions/xlsx", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (Excel)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "POSITIONS_XLSX_ERROR" });
   }
 });
 
 router.post("/reports/positions/csv", async (req, res) => {
   const startedAt = Date.now();
+  const auditSentAt = new Date().toISOString();
   let aborted = false;
   req.on("aborted", () => {
     aborted = true;
@@ -4752,6 +5190,14 @@ router.post("/reports/positions/csv", async (req, res) => {
       durationMs,
       clientAborted: aborted,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (CSV)",
+      vehicleIds: vehicleId,
+      status: aborted ? "Pendente" : "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (aborted || (res.headersSent && res.writableEnded)) {
       return;
     }
@@ -4766,22 +5212,89 @@ router.post("/reports/positions/csv", async (req, res) => {
       message,
       durationMs,
     });
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Posições (CSV)",
+      vehicleIds: req.body?.vehicleId ? String(req.body.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     res.status(status).json({ message, code: error?.code || "POSITIONS_CSV_ERROR" });
   }
 });
 
-router.get("/reports/route",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/route"));
-router.get("/reports/summary", (req, res, next) => proxyTraccarReport(req, res, next, "/reports/summary"));
-router.get("/reports/stops",   (req, res, next) => proxyTraccarReport(req, res, next, "/reports/stops"));
+router.get("/reports/route", (req, res, next) => {
+  const auditSentAt = new Date().toISOString();
+  const vehicleIds = resolveVehicleIdsFromParams(req.query || {});
+  res.on("finish", () => {
+    const status = res.statusCode >= 200 && res.statusCode < 300 ? "Gerado" : "Erro";
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Rotas",
+      vehicleIds,
+      status,
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  });
+  return proxyTraccarReport(req, res, next, "/reports/route");
+});
+router.get("/reports/summary", (req, res, next) => {
+  const auditSentAt = new Date().toISOString();
+  const vehicleIds = resolveVehicleIdsFromParams(req.query || {});
+  res.on("finish", () => {
+    const status = res.statusCode >= 200 && res.statusCode < 300 ? "Gerado" : "Erro";
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Resumo",
+      vehicleIds,
+      status,
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  });
+  return proxyTraccarReport(req, res, next, "/reports/summary");
+});
+router.get("/reports/stops", (req, res, next) => {
+  const auditSentAt = new Date().toISOString();
+  const vehicleIds = resolveVehicleIdsFromParams(req.query || {});
+  res.on("finish", () => {
+    const status = res.statusCode >= 200 && res.statusCode < 300 ? "Gerado" : "Erro";
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Paradas",
+      vehicleIds,
+      status,
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  });
+  return proxyTraccarReport(req, res, next, "/reports/stops");
+});
 router.get("/reports/trips", async (req, res) => {
   const accept = pickAccept(String(req.query?.format || ""));
   const wantsBinary = accept !== "application/json";
   if (wantsBinary) {
+    const auditSentAt = new Date().toISOString();
+    const vehicleIds = resolveVehicleIdsFromParams(req.query || {});
+    res.on("finish", () => {
+      const status = res.statusCode >= 200 && res.statusCode < 300 ? "Gerado" : "Erro";
+      recordReportAudit({
+        req,
+        reportName: "Relatório de Viagens",
+        vehicleIds,
+        status,
+        sentAt: auditSentAt,
+        respondedAt: new Date().toISOString(),
+      });
+    });
     // Exportações pesadas continuam usando a API HTTP do Traccar; leitura online usa o banco (traccarDb).
     return proxyTraccarReport(req, res, () => {}, "/reports/trips");
   }
 
   try {
+    const auditSentAt = new Date().toISOString();
     const { clientId, deviceIdsToQuery } = resolveDeviceIdsToQuery(req);
     const from = parseDateOrThrow(req.query?.from, "from");
     const to = parseDateOrThrow(req.query?.to, "to");
@@ -4801,8 +5314,25 @@ router.get("/reports/trips", async (req, res) => {
       trips: tripsPerDevice.flat(),
     };
 
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Viagens",
+      vehicleIds: resolveVehicleIdsFromParams(req.query || {}),
+      status: "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     return res.status(200).json({ data, error: null });
   } catch (error) {
+    const auditSentAt = new Date().toISOString();
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Viagens",
+      vehicleIds: resolveVehicleIdsFromParams(req.query || {}),
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
     if (error?.status === 400) {
       return respondBadRequest(res, error.message || "Parâmetros inválidos.");
     }
@@ -4964,6 +5494,19 @@ router.post("/permissions", requireRole("manager", "admin"), async (req, res, ne
  */
 
 router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, next) => {
+  const auditSentAt = new Date().toISOString();
+  const vehicleIds = resolveVehicleIdsFromParams(req.body || {});
+  res.on("finish", () => {
+    const status = res.statusCode >= 200 && res.statusCode < 300 ? "Gerado" : "Erro";
+    recordReportAudit({
+      req,
+      reportName: "Relatório de Viagens",
+      vehicleIds,
+      status,
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  });
   try {
     enforceDeviceFilterInBody(req);
     enforceClientGroupInBody(req);
