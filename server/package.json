@@ -21,7 +21,6 @@
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
-    "prisma": "^6.1.0",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.7",
@@ -30,13 +29,14 @@
     "http-errors": "^2.0.0",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.12.0",
-    "playwright": "^1.50.1",
     "pg": "^8.13.1",
+    "playwright": "^1.50.1",
+    "prisma": "^6.1.0",
     "ws": "^8.18.0"
   },
   "peerDependencies": {
-    "bullmq": "^5.0.0",
-    "ioredis": "^5.4.0"
+    "bullmq": "^5.66.4",
+    "ioredis": "^5.9.0"
   },
   "peerDependenciesMeta": {
     "bullmq": {
