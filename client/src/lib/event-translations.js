@@ -180,11 +180,11 @@ function resolveProtocolFromPayload(payload = {}) {
   );
 }
 
-function resolveDescriptorLabel(candidate, protocol) {
+function resolveDescriptorLabel(candidate, protocol, payload) {
   if (!candidate) return null;
   const protocolKey = normalizeProtocol(protocol);
   if (!protocolKey) return null;
-  const descriptor = resolveEventDescriptor(candidate, { protocol: protocolKey });
+  const descriptor = resolveEventDescriptor(candidate, { protocol: protocolKey, payload });
   if (!descriptor?.labelPt) return null;
   return { ...descriptor, protocol: protocolKey };
 }
@@ -292,7 +292,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
       }
     }
 
-    const descriptor = resolveDescriptorLabel(candidate, protocol);
+    const descriptor = resolveDescriptorLabel(candidate, protocol, payload);
     if (descriptor?.labelPt) {
       return {
         label: descriptor.labelPt,
@@ -391,12 +391,12 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
     if (protocolKey === "iotm") {
       const iotmLabel = resolveIotmDiagnosticLabel(raw, payload);
       if (iotmLabel) return iotmLabel;
-      const descriptor = resolveDescriptorLabel(raw, protocol);
+      const descriptor = resolveDescriptorLabel(raw, protocol, payload);
       if (descriptor?.labelPt) return descriptor.labelPt;
       return `Evento IOTM ${raw}`;
     }
 
-    const descriptor = resolveDescriptorLabel(raw, protocol);
+    const descriptor = resolveDescriptorLabel(raw, protocol, payload);
     if (descriptor?.labelPt) return descriptor.labelPt;
     const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
     return `Evento ${raw}${protocolLabel}`;

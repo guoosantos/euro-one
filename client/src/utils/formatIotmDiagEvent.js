@@ -59,18 +59,21 @@ const resolveTemplateLabel = (funId, warId) => {
   const warText = String(warId);
   const keys = [];
 
-  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=*`);
-  if (funId === 106) keys.push("f106=*");
-  if (funId === 112) keys.push("f112=*");
-  if (funId === 113) keys.push("f113=*");
-  if (funId === 130) keys.push("f130=*");
+  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=x`);
+  if (funId === 106) keys.push("f106=xx");
+  if (funId === 112) keys.push("f112=n");
+  if (funId === 113) keys.push("f113=n");
+  if (funId === 130) keys.push("f130=id");
+  if (funId >= 116 && funId <= 119) keys.push(`f${funId}=x`);
+  if (funId >= 121 && funId <= 129) keys.push(`f${funId}=x`);
   if (funId >= 140 && funId < 145) keys.push(`f140+scriptid=${warText}`);
-  if (funId === 161) keys.push("f161=*");
-  if (funId === 200) keys.push("f200=*");
-  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=*`);
+  if (funId === 161) keys.push("f161=xx");
+  if (funId === 200) keys.push("f200=x");
+  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=x`);
   if (funId >= 180 && funId <= 182) keys.push(`f180+source=${warText}`);
-  if (funId >= 240 && funId <= 241) keys.push("f240+source=*");
-  if (funId >= 250 && funId <= 251) keys.push("f250+source=*");
+  if (funId >= 174 && funId <= 179) keys.push(`f${funId}=x`);
+  if (funId >= 240 && funId <= 241) keys.push("f240+source=xx");
+  if (funId >= 250 && funId <= 251) keys.push("f250+source=xx");
 
   const entry = keys.map((key) => DIAGNOSTIC_TEMPLATES.get(key)).find(Boolean);
   if (!entry) return null;

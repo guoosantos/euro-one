@@ -694,59 +694,75 @@
   },
   {
     "id": "f20=x",
-    "labelPt": "Evento de diagnóstico f20=x",
+    "labelPt": "Bits 24–31 do registro de falhas",
     "severity": "info",
-    "description": "Evento de diagnóstico f20=x",
-    "descriptionEn": "X - Bits 24-31 of fault register"
+    "description": "Bits 24–31 do registro de falhas: {war_id}",
+    "descriptionEn": "X - Bits 24-31 of fault register",
+    "isTemplate": true,
+    "template": "Bits 24–31 do registro de falhas: {war_id}"
   },
   {
     "id": "f21=x",
-    "labelPt": "Evento de diagnóstico f21=x",
+    "labelPt": "Bits 16–23 do registro de falhas",
     "severity": "info",
-    "description": "Evento de diagnóstico f21=x",
-    "descriptionEn": "X - Bits 16-23 of fault register"
+    "description": "Bits 16–23 do registro de falhas: {war_id}",
+    "descriptionEn": "X - Bits 16-23 of fault register",
+    "isTemplate": true,
+    "template": "Bits 16–23 do registro de falhas: {war_id}"
   },
   {
     "id": "f22=x",
-    "labelPt": "Evento de diagnóstico f22=x",
+    "labelPt": "Bits 8–15 do registro de falhas",
     "severity": "info",
-    "description": "Evento de diagnóstico f22=x",
-    "descriptionEn": "X - Bits 8-15 of fault register"
+    "description": "Bits 8–15 do registro de falhas: {war_id}",
+    "descriptionEn": "X - Bits 8-15 of fault register",
+    "isTemplate": true,
+    "template": "Bits 8–15 do registro de falhas: {war_id}"
   },
   {
     "id": "f23=x",
-    "labelPt": "Evento de diagnóstico f23=x",
+    "labelPt": "Bits 0–7 do registro de falhas",
     "severity": "info",
-    "description": "Evento de diagnóstico f23=x",
-    "descriptionEn": "X - Bits 0-7 of fault register"
+    "description": "Bits 0–7 do registro de falhas: {war_id}",
+    "descriptionEn": "X - Bits 0-7 of fault register",
+    "isTemplate": true,
+    "template": "Bits 0–7 do registro de falhas: {war_id}"
   },
   {
     "id": "f24=x",
-    "labelPt": "Evento de diagnóstico f24=x",
+    "labelPt": "Bits 24–31 do registro do PC",
     "severity": "info",
-    "description": "Evento de diagnóstico f24=x",
-    "descriptionEn": "X - Bits 24-31 of PC register"
+    "description": "Bits 24–31 do registro do PC: {war_id}",
+    "descriptionEn": "X - Bits 24-31 of PC register",
+    "isTemplate": true,
+    "template": "Bits 24–31 do registro do PC: {war_id}"
   },
   {
     "id": "f25=x",
-    "labelPt": "Evento de diagnóstico f25=x",
+    "labelPt": "Bits 16–23 do registro do PC",
     "severity": "info",
-    "description": "Evento de diagnóstico f25=x",
-    "descriptionEn": "X - Bits 16-23 of PC register"
+    "description": "Bits 16–23 do registro do PC: {war_id}",
+    "descriptionEn": "X - Bits 16-23 of PC register",
+    "isTemplate": true,
+    "template": "Bits 16–23 do registro do PC: {war_id}"
   },
   {
     "id": "f26=x",
-    "labelPt": "Evento de diagnóstico f26=x",
+    "labelPt": "Bits 8–15 do registro do PC",
     "severity": "info",
-    "description": "Evento de diagnóstico f26=x",
-    "descriptionEn": "X - Bits 8-15 of PC register"
+    "description": "Bits 8–15 do registro do PC: {war_id}",
+    "descriptionEn": "X - Bits 8-15 of PC register",
+    "isTemplate": true,
+    "template": "Bits 8–15 do registro do PC: {war_id}"
   },
   {
     "id": "f27=x",
-    "labelPt": "Evento de diagnóstico f27=x",
+    "labelPt": "Bits 0–7 do registro do PC",
     "severity": "info",
-    "description": "Evento de diagnóstico f27=x",
-    "descriptionEn": "X - Bits 0-7 of PC register"
+    "description": "Bits 0–7 do registro do PC: {war_id}",
+    "descriptionEn": "X - Bits 0-7 of PC register",
+    "isTemplate": true,
+    "template": "Bits 0–7 do registro do PC: {war_id}"
   },
   {
     "id": "f28=1",
@@ -897,9 +913,9 @@
   },
   {
     "id": "f100=6",
-    "labelPt": "Evento de diagnóstico f100=6",
+    "labelPt": "Evento de diagnóstico não especificado",
     "severity": "info",
-    "description": "Evento de diagnóstico f100=6",
+    "description": "Evento de diagnóstico não especificado.",
     "descriptionEn": "N/A"
   },
   {
@@ -1660,9 +1676,9 @@
   },
   {
     "id": "f102=10",
-    "labelPt": "Tarefa can2_manager parada",
+    "labelPt": "Evento de diagnóstico não especificado",
     "severity": "critical",
-    "description": "Tarefa can2_manager parada.",
+    "description": "Evento de diagnóstico não especificado.",
     "descriptionEn": "N/A"
   },
   {
@@ -1716,30 +1732,30 @@
   },
   {
     "id": "f104=1",
-    "labelPt": "Evento de diagnóstico f104=1",
+    "labelPt": "SMS do cartão 1 recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f104=1",
+    "description": "SMS do cartão 1 recebido.",
     "descriptionEn": "SMS card1 received."
   },
   {
     "id": "f104=2",
-    "labelPt": "Evento de diagnóstico f104=2",
+    "labelPt": "SMS do cartão 2 recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f104=2",
+    "description": "SMS do cartão 2 recebido.",
     "descriptionEn": "SMS card2 received."
   },
   {
     "id": "f104=3",
-    "labelPt": "Evento de diagnóstico f104=3",
+    "labelPt": "SMS do tacógrafo 1 recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f104=3",
+    "description": "SMS do tacógrafo 1 recebido.",
     "descriptionEn": "SMS tacho1 received."
   },
   {
     "id": "f104=4",
-    "labelPt": "Evento de diagnóstico f104=4",
+    "labelPt": "SMS do tacógrafo 2 recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f104=4",
+    "description": "SMS do tacógrafo 2 recebido.",
     "descriptionEn": "SMS tacho2 received."
   },
   {
@@ -2611,11 +2627,13 @@
     "descriptionEn": "Service Not Supported In Active Session."
   },
   {
-    "id": "f106=XX",
-    "labelPt": "Evento de diagnóstico f106=XX",
+    "id": "f106=xx",
+    "labelPt": "Sequência de código de evento especial",
     "severity": "info",
-    "description": "Evento de diagnóstico f106=XX",
-    "descriptionEn": "Special event code sequence."
+    "description": "Sequência de código de evento especial: {war_id}",
+    "descriptionEn": "Special event code sequence.",
+    "isTemplate": true,
+    "template": "Sequência de código de evento especial: {war_id}"
   },
   {
     "id": "f107=1",
@@ -3088,9 +3106,9 @@
   },
   {
     "id": "f111=18",
-    "labelPt": "Evento de diagnóstico f111=18",
+    "labelPt": "Evento reservado",
     "severity": "info",
-    "description": "Evento de diagnóstico f111=18",
+    "description": "Evento reservado.",
     "descriptionEn": "Reserved."
   },
   {
@@ -3101,18 +3119,22 @@
     "descriptionEn": "EN15430 Front Plough and Spreader data type (Data Type 10)."
   },
   {
-    "id": "f112=N",
-    "labelPt": "Evento de diagnóstico f112=N",
+    "id": "f112=n",
+    "labelPt": "Apagamento do subsetor Flash por contador de 1h",
     "severity": "info",
-    "description": "Evento de diagnóstico f112=N",
-    "descriptionEn": "Flash sub sector erase per 1h counter."
+    "description": "Apagamento do subsetor Flash por contador de 1h: {war_id}",
+    "descriptionEn": "Flash sub sector erase per 1h counter.",
+    "isTemplate": true,
+    "template": "Apagamento do subsetor Flash por contador de 1h: {war_id}"
   },
   {
-    "id": "f113=N",
-    "labelPt": "Evento de diagnóstico f113=N",
+    "id": "f113=n",
+    "labelPt": "Apagamento do setor de flash por contador de 1h",
     "severity": "info",
-    "description": "Evento de diagnóstico f113=N",
-    "descriptionEn": "Flash sector erase per 1h counter."
+    "description": "Apagamento do setor de flash por contador de 1h: {war_id}",
+    "descriptionEn": "Flash sector erase per 1h counter.",
+    "isTemplate": true,
+    "template": "Apagamento do setor de flash por contador de 1h: {war_id}"
   },
   {
     "id": "f115=0",
@@ -3165,31 +3187,39 @@
   },
   {
     "id": "f116=x",
-    "labelPt": "Evento de diagnóstico f116=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 1–8",
     "severity": "info",
-    "description": "Evento de diagnóstico f116=x",
-    "descriptionEn": "tacho extended parameters 1-8"
+    "description": "Parâmetros estendidos do tacógrafo 1–8: {war_id}",
+    "descriptionEn": "tacho extended parameters 1-8",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 1–8: {war_id}"
   },
   {
     "id": "f117=x",
-    "labelPt": "Evento de diagnóstico f117=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 9–16",
     "severity": "info",
-    "description": "Evento de diagnóstico f117=x",
-    "descriptionEn": "tacho extended parameters 9-16"
+    "description": "Parâmetros estendidos do tacógrafo 9–16: {war_id}",
+    "descriptionEn": "tacho extended parameters 9-16",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 9–16: {war_id}"
   },
   {
     "id": "f118=x",
-    "labelPt": "Evento de diagnóstico f118=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 17–24",
     "severity": "info",
-    "description": "Evento de diagnóstico f118=x",
-    "descriptionEn": "tacho extended parameters 17-24"
+    "description": "Parâmetros estendidos do tacógrafo 17–24: {war_id}",
+    "descriptionEn": "tacho extended parameters 17-24",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 17–24: {war_id}"
   },
   {
     "id": "f119=x",
-    "labelPt": "Evento de diagnóstico f119=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 25–30",
     "severity": "info",
-    "description": "Evento de diagnóstico f119=x",
-    "descriptionEn": "tacho extended parameters 25-30"
+    "description": "Parâmetros estendidos do tacógrafo 25–30: {war_id}",
+    "descriptionEn": "tacho extended parameters 25-30",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 25–30: {war_id}"
   },
   {
     "id": "f120=0",
@@ -3242,80 +3272,93 @@
   },
   {
     "id": "f121=x",
-    "labelPt": "Evento de diagnóstico f121=x",
+    "labelPt": "Byte de dados #0",
     "severity": "info",
-    "description": "Evento de diagnóstico f121=x",
-    "descriptionEn": "data byte #0"
+    "description": "Byte de dados #0: {war_id}",
+    "descriptionEn": "data byte #0",
+    "isTemplate": true,
+    "template": "Byte de dados #0: {war_id}"
   },
   {
     "id": "f122=x",
-    "labelPt": "Evento de diagnóstico f122=x",
+    "labelPt": "Byte de dados #1",
     "severity": "info",
-    "description": "Evento de diagnóstico f122=x",
-    "descriptionEn": "data byte #1"
+    "description": "Byte de dados #1: {war_id}",
+    "descriptionEn": "data byte #1",
+    "isTemplate": true,
+    "template": "Byte de dados #1: {war_id}"
   },
   {
     "id": "f123=x",
-    "labelPt": "Evento de diagnóstico f123=x",
+    "labelPt": "Byte de dados #2",
     "severity": "info",
-    "description": "Evento de diagnóstico f123=x",
-    "descriptionEn": "data byte #2"
+    "description": "Byte de dados #2: {war_id}",
+    "descriptionEn": "data byte #2",
+    "isTemplate": true,
+    "template": "Byte de dados #2: {war_id}"
   },
   {
     "id": "f124=x",
-    "labelPt": "Evento de diagnóstico f124=x",
+    "labelPt": "Byte de dados #3",
     "severity": "info",
-    "description": "Evento de diagnóstico f124=x",
-    "descriptionEn": "data byte #3"
+    "description": "Byte de dados #3: {war_id}",
+    "descriptionEn": "data byte #3",
+    "isTemplate": true,
+    "template": "Byte de dados #3: {war_id}"
   },
   {
     "id": "f125=x",
-    "labelPt": "Evento de diagnóstico f125=x",
+    "labelPt": "Byte de dados #4",
     "severity": "info",
-    "description": "Evento de diagnóstico f125=x",
-    "descriptionEn": "data byte #4"
+    "description": "Byte de dados #4: {war_id}",
+    "descriptionEn": "data byte #4",
+    "isTemplate": true,
+    "template": "Byte de dados #4: {war_id}"
   },
   {
     "id": "f126=x",
-    "labelPt": "Evento de diagnóstico f126=x",
+    "labelPt": "Byte de dados #5",
     "severity": "info",
-    "description": "Evento de diagnóstico f126=x",
-    "descriptionEn": "data byte #5"
+    "description": "Byte de dados #5: {war_id}",
+    "descriptionEn": "data byte #5",
+    "isTemplate": true,
+    "template": "Byte de dados #5: {war_id}"
   },
   {
     "id": "f127=x",
-    "labelPt": "Evento de diagnóstico f127=x",
+    "labelPt": "Byte de dados #6",
     "severity": "info",
-    "description": "Evento de diagnóstico f127=x",
-    "descriptionEn": "data byte #6"
+    "description": "Byte de dados #6: {war_id}",
+    "descriptionEn": "data byte #6",
+    "isTemplate": true,
+    "template": "Byte de dados #6: {war_id}"
   },
   {
     "id": "f128=x",
-    "labelPt": "Evento de diagnóstico f128=x",
+    "labelPt": "Subtipo de erro de dados do tacógrafo",
     "severity": "info",
-    "description": "Evento de diagnóstico f128=x",
-    "descriptionEn": "tacho data error subtype"
+    "description": "Subtipo de erro de dados do tacógrafo: {war_id}",
+    "descriptionEn": "tacho data error subtype",
+    "isTemplate": true,
+    "template": "Subtipo de erro de dados do tacógrafo: {war_id}"
   },
   {
     "id": "f129=x",
-    "labelPt": "Evento de diagnóstico f129=x",
+    "labelPt": "Tipo de erro de dados do tacógrafo",
     "severity": "info",
-    "description": "Evento de diagnóstico f129=x",
-    "descriptionEn": "tacho data error type"
+    "description": "Tipo de erro de dados do tacógrafo: {war_id}",
+    "descriptionEn": "tacho data error type",
+    "isTemplate": true,
+    "template": "Tipo de erro de dados do tacógrafo: {war_id}"
   },
   {
-    "id": "f130=ID",
-    "labelPt": "Evento de diagnóstico f130=ID",
+    "id": "f130=id",
+    "labelPt": "Bateria do sensor Cargojot (ID {war_id})",
     "severity": "info",
-    "description": "Evento de diagnóstico f130=ID",
-    "descriptionEn": "Cargojot sensor battery fault."
-  },
-  {
-    "id": "f130=ID",
-    "labelPt": "Evento de diagnóstico f130=ID",
-    "severity": "info",
-    "description": "Evento de diagnóstico f130=ID",
-    "descriptionEn": "Cargojot sensor battery ok."
+    "description": "Bateria do sensor Cargojot (ID {war_id})",
+    "descriptionEn": "Cargojot sensor battery fault.",
+    "isTemplate": true,
+    "template": "Bateria do sensor Cargojot (ID {war_id})"
   },
   {
     "id": "f130=252",
@@ -3381,11 +3424,13 @@
     "descriptionEn": "Setting's read from flash failed."
   },
   {
-    "id": "f161=XX",
-    "labelPt": "Evento de diagnóstico f161=XX",
+    "id": "f161=xx",
+    "labelPt": "Taxa de calibração LSI",
     "severity": "info",
-    "description": "Evento de diagnóstico f161=XX",
-    "descriptionEn": "LSI calibration rate (XX-100)%."
+    "description": "Taxa de calibração LSI ({war_id}-100%).",
+    "descriptionEn": "LSI calibration rate (XX-100)%.",
+    "isTemplate": true,
+    "template": "Taxa de calibração LSI ({war_id}-100%)."
   },
   {
     "id": "f162=0",
@@ -3438,437 +3483,561 @@
   },
   {
     "id": "f174=x",
-    "labelPt": "Evento de diagnóstico f174=x",
+    "labelPt": "Abrir arquivo (openFile)",
     "severity": "info",
-    "description": "Evento de diagnóstico f174=x",
-    "descriptionEn": "openFile"
+    "description": "Abrir arquivo (openFile): {war_id}",
+    "descriptionEn": "openFile",
+    "isTemplate": true,
+    "template": "Abrir arquivo (openFile): {war_id}"
   },
   {
     "id": "f175=x",
-    "labelPt": "Evento de diagnóstico f175=x",
+    "labelPt": "Abrir cartão (openCard)",
     "severity": "info",
-    "description": "Evento de diagnóstico f175=x",
-    "descriptionEn": "openCard"
+    "description": "Abrir cartão (openCard): {war_id}",
+    "descriptionEn": "openCard",
+    "isTemplate": true,
+    "template": "Abrir cartão (openCard): {war_id}"
   },
   {
     "id": "f176=x",
-    "labelPt": "Evento de diagnóstico f176=x",
+    "labelPt": "Resposta recebida (answergot)",
     "severity": "info",
-    "description": "Evento de diagnóstico f176=x",
-    "descriptionEn": "answergot"
+    "description": "Resposta recebida (answergot): {war_id}",
+    "descriptionEn": "answergot",
+    "isTemplate": true,
+    "template": "Resposta recebida (answergot): {war_id}"
   },
   {
     "id": "f177=x",
-    "labelPt": "Evento de diagnóstico f177=x",
+    "labelPt": "Registro máximo (maxrecord)",
     "severity": "info",
-    "description": "Evento de diagnóstico f177=x",
-    "descriptionEn": "maxrecord"
+    "description": "Registro máximo (maxrecord): {war_id}",
+    "descriptionEn": "maxrecord",
+    "isTemplate": true,
+    "template": "Registro máximo (maxrecord): {war_id}"
   },
   {
     "id": "f178=x",
-    "labelPt": "Evento de diagnóstico f178=x",
+    "labelPt": "Tamanho máximo do índice (maxindexsize)",
     "severity": "info",
-    "description": "Evento de diagnóstico f178=x",
-    "descriptionEn": "maxindexsize"
+    "description": "Tamanho máximo do índice (maxindexsize): {war_id}",
+    "descriptionEn": "maxindexsize",
+    "isTemplate": true,
+    "template": "Tamanho máximo do índice (maxindexsize): {war_id}"
   },
   {
     "id": "f179=x",
-    "labelPt": "Evento de diagnóstico f179=x",
+    "labelPt": "Valor da tarefa do servidor de tacógrafo",
     "severity": "info",
-    "description": "Evento de diagnóstico f179=x",
-    "descriptionEn": "Tacho server task value"
+    "description": "Valor da tarefa do servidor de tacógrafo: {war_id}",
+    "descriptionEn": "Tacho server task value",
+    "isTemplate": true,
+    "template": "Valor da tarefa do servidor de tacógrafo: {war_id}"
   },
   {
     "id": "f180+source=0",
-    "labelPt": "Evento de diagnóstico f180+source=0",
+    "labelPt": "canbase_b inicializado e iniciado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=0",
-    "descriptionEn": "canbase_b initialized and started"
+    "description": "CAN base {source_label}: canbase_b inicializado e iniciado",
+    "descriptionEn": "canbase_b initialized and started",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: canbase_b inicializado e iniciado"
   },
   {
     "id": "f180+source=1",
-    "labelPt": "Evento de diagnóstico f180+source=1",
+    "labelPt": "PGN desconhecido",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=1",
-    "descriptionEn": "Unknown PGN"
+    "description": "CAN base {source_label}: PGN desconhecido",
+    "descriptionEn": "Unknown PGN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: PGN desconhecido"
   },
   {
     "id": "f180+source=2",
-    "labelPt": "Evento de diagnóstico f180+source=2",
+    "labelPt": "O buffer DTC está cheio",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=2",
-    "descriptionEn": "DTC buffer is full"
+    "description": "CAN base {source_label}: O buffer DTC está cheio",
+    "descriptionEn": "DTC buffer is full",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O buffer DTC está cheio"
   },
   {
     "id": "f180+source=3",
-    "labelPt": "Evento de diagnóstico f180+source=3",
+    "labelPt": "Comando de saída concluído",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=3",
-    "descriptionEn": "Output command finished"
+    "description": "CAN base {source_label}: Comando de saída concluído",
+    "descriptionEn": "Output command finished",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Comando de saída concluído"
   },
   {
     "id": "f180+source=4",
-    "labelPt": "Evento de diagnóstico f180+source=4",
+    "labelPt": "Perfil CAN não carregado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=4",
-    "descriptionEn": "CAN profile not loaded"
+    "description": "CAN base {source_label}: Perfil CAN não carregado",
+    "descriptionEn": "CAN profile not loaded",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Perfil CAN não carregado"
   },
   {
     "id": "f180+source=5",
-    "labelPt": "Evento de diagnóstico f180+source=5",
+    "labelPt": "Tabela predefinida não suportada tipo 2",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=5",
-    "descriptionEn": "Unsupported preset table 2 type"
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 2",
+    "descriptionEn": "Unsupported preset table 2 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 2"
   },
   {
     "id": "f180+source=6",
-    "labelPt": "Evento de diagnóstico f180+source=6",
+    "labelPt": "Sensor booleano/SIG não suportado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=6",
-    "descriptionEn": "Unsupported boolean/SIG sensor"
+    "description": "CAN base {source_label}: Sensor booleano/SIG não suportado",
+    "descriptionEn": "Unsupported boolean/SIG sensor",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sensor booleano/SIG não suportado"
   },
   {
     "id": "f180+source=7",
-    "labelPt": "Evento de diagnóstico f180+source=7",
+    "labelPt": "Sensor flutuante não suportado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=7",
-    "descriptionEn": "Unsupported float sensor"
+    "description": "CAN base {source_label}: Sensor flutuante não suportado",
+    "descriptionEn": "Unsupported float sensor",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sensor flutuante não suportado"
   },
   {
     "id": "f180+source=8",
-    "labelPt": "Evento de diagnóstico f180+source=8",
+    "labelPt": "Tabela predefinida não suportada tipo 7",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=8",
-    "descriptionEn": "Unsupported preset table 7 type"
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 7",
+    "descriptionEn": "Unsupported preset table 7 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 7"
   },
   {
     "id": "f180+source=9",
-    "labelPt": "Evento de diagnóstico f180+source=9",
+    "labelPt": "Tabela predefinida não utilizada 7 tipo",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=9",
-    "descriptionEn": "Unused preset table 7 type"
+    "description": "CAN base {source_label}: Tabela predefinida não utilizada 7 tipo",
+    "descriptionEn": "Unused preset table 7 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não utilizada 7 tipo"
   },
   {
     "id": "f180+source=10",
-    "labelPt": "Evento de diagnóstico f180+source=10",
+    "labelPt": "Falha na transmissão da mensagem",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=10",
-    "descriptionEn": "Message transmit failed"
+    "description": "CAN base {source_label}: Falha na transmissão da mensagem",
+    "descriptionEn": "Message transmit failed",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha na transmissão da mensagem"
   },
   {
     "id": "f180+source=11",
-    "labelPt": "Evento de diagnóstico f180+source=11",
+    "labelPt": "Tamanho do resultado não suportado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=11",
-    "descriptionEn": "Unsupported result size"
+    "description": "CAN base {source_label}: Tamanho do resultado não suportado",
+    "descriptionEn": "Unsupported result size",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tamanho do resultado não suportado"
   },
   {
     "id": "f180+source=12",
-    "labelPt": "Evento de diagnóstico f180+source=12",
+    "labelPt": "Singalo de interrupção de erro",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=12",
-    "descriptionEn": "Error interrupt flag"
+    "description": "CAN base {source_label}: Singalo de interrupção de erro",
+    "descriptionEn": "Error interrupt flag",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Singalo de interrupção de erro"
   },
   {
     "id": "f180+source=13",
-    "labelPt": "Evento de diagnóstico f180+source=13",
+    "labelPt": "O filtro BAM CAN está cheio",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=13",
-    "descriptionEn": "BAM CAN filter is full"
+    "description": "CAN base {source_label}: O filtro BAM CAN está cheio",
+    "descriptionEn": "BAM CAN filter is full",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O filtro BAM CAN está cheio"
   },
   {
     "id": "f180+source=14",
-    "labelPt": "Evento de diagnóstico f180+source=14",
+    "labelPt": "Erro de desligamento do ônibus",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=14",
-    "descriptionEn": "Bus off error"
+    "description": "CAN base {source_label}: Erro de desligamento do ônibus",
+    "descriptionEn": "Bus off error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de desligamento do ônibus"
   },
   {
     "id": "f180+source=15",
-    "labelPt": "Evento de diagnóstico f180+source=15",
+    "labelPt": "Erro de filtro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=15",
-    "descriptionEn": "CAN filter error"
+    "description": "CAN base {source_label}: Erro de filtro CAN",
+    "descriptionEn": "CAN filter error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de filtro CAN"
   },
   {
     "id": "f180+source=16",
-    "labelPt": "Evento de diagnóstico f180+source=16",
+    "labelPt": "Tabela predefinida não suportada tipo 6",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=16",
-    "descriptionEn": "Unsupported preset table 6 type"
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 6",
+    "descriptionEn": "Unsupported preset table 6 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 6"
   },
   {
     "id": "f180+source=17",
-    "labelPt": "Evento de diagnóstico f180+source=17",
+    "labelPt": "Tempo limite para recebimento de mensagem",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=17",
-    "descriptionEn": "Message receive timeout"
+    "description": "CAN base {source_label}: Tempo limite para recebimento de mensagem",
+    "descriptionEn": "Message receive timeout",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tempo limite para recebimento de mensagem"
   },
   {
     "id": "f180+source=18",
-    "labelPt": "Evento de diagnóstico f180+source=18",
+    "labelPt": "Erro de comando de saída",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=18",
-    "descriptionEn": "Output command error"
+    "description": "CAN base {source_label}: Erro de comando de saída",
+    "descriptionEn": "Output command error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de comando de saída"
   },
   {
     "id": "f180+source=19",
-    "labelPt": "Evento de diagnóstico f180+source=19",
+    "labelPt": "Tabela predefinida não suportada tipo 5",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=19",
-    "descriptionEn": "Unsupported preset table 5 type"
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 5",
+    "descriptionEn": "Unsupported preset table 5 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 5"
   },
   {
     "id": "f180+source=20",
-    "labelPt": "Evento de diagnóstico f180+source=20",
+    "labelPt": "A taxa de bits não foi encontrada",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=20",
-    "descriptionEn": "Bitrate was not found"
+    "description": "CAN base {source_label}: A taxa de bits não foi encontrada",
+    "descriptionEn": "Bitrate was not found",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: A taxa de bits não foi encontrada"
   },
   {
     "id": "f180+source=21",
-    "labelPt": "Evento de diagnóstico f180+source=21",
+    "labelPt": "CAN struct CRC é zero",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=21",
-    "descriptionEn": "CAN struct CRC is zero"
+    "description": "CAN base {source_label}: CAN struct CRC é zero",
+    "descriptionEn": "CAN struct CRC is zero",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: CAN struct CRC é zero"
   },
   {
     "id": "f180+source=22",
-    "labelPt": "Evento de diagnóstico f180+source=22",
+    "labelPt": "Tipo de tabela predefinida de comando de saída não suportada 6",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=22",
-    "descriptionEn": "Output command unsupported preset table 6 type"
+    "description": "CAN base {source_label}: Tipo de tabela predefinida de comando de saída não suportada 6",
+    "descriptionEn": "Output command unsupported preset table 6 type",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tipo de tabela predefinida de comando de saída não suportada 6"
   },
   {
     "id": "f180+source=23",
-    "labelPt": "Evento de diagnóstico f180+source=23",
+    "labelPt": "O comando de saída não foi encontrado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=23",
-    "descriptionEn": "Output command was not found"
+    "description": "CAN base {source_label}: O comando de saída não foi encontrado",
+    "descriptionEn": "Output command was not found",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O comando de saída não foi encontrado"
   },
   {
     "id": "f180+source=24",
-    "labelPt": "Evento de diagnóstico f180+source=24",
+    "labelPt": "Solicitação bloqueada quando não está em movimento",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=24",
-    "descriptionEn": "Request blocked when not in motion"
+    "description": "CAN base {source_label}: Solicitação bloqueada quando não está em movimento",
+    "descriptionEn": "Request blocked when not in motion",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação bloqueada quando não está em movimento"
   },
   {
     "id": "f180+source=25",
-    "labelPt": "Evento de diagnóstico f180+source=25",
+    "labelPt": "Solicitação: ID de serviço não compatível recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=25",
-    "descriptionEn": "Request: unsupported service ID received"
+    "description": "CAN base {source_label}: Solicitação: ID de serviço não compatível recebido",
+    "descriptionEn": "Request: unsupported service ID received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: ID de serviço não compatível recebido"
   },
   {
     "id": "f180+source=26",
-    "labelPt": "Evento de diagnóstico f180+source=26",
+    "labelPt": "Solicitação: ID de serviço negativo recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=26",
-    "descriptionEn": "Request: negative service ID received"
+    "description": "CAN base {source_label}: Solicitação: ID de serviço negativo recebido",
+    "descriptionEn": "Request: negative service ID received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: ID de serviço negativo recebido"
   },
   {
     "id": "f180+source=27",
-    "labelPt": "Evento de diagnóstico f180+source=27",
+    "labelPt": "Solicitação: protocolo não suportado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=27",
-    "descriptionEn": "Request: unsupported protocol"
+    "description": "CAN base {source_label}: Solicitação: protocolo não suportado",
+    "descriptionEn": "Request: unsupported protocol",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: protocolo não suportado"
   },
   {
     "id": "f180+source=28",
-    "labelPt": "Evento de diagnóstico f180+source=28",
+    "labelPt": "Solicitação: modo não suportado",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=28",
-    "descriptionEn": "Request: unsupported mode"
+    "description": "CAN base {source_label}: Solicitação: modo não suportado",
+    "descriptionEn": "Request: unsupported mode",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: modo não suportado"
   },
   {
     "id": "f180+source=29",
-    "labelPt": "Evento de diagnóstico f180+source=29",
+    "labelPt": "Solicitação: a resposta não foi recebida",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=29",
-    "descriptionEn": "Request: response was not received"
+    "description": "CAN base {source_label}: Solicitação: a resposta não foi recebida",
+    "descriptionEn": "Request: response was not received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: a resposta não foi recebida"
   },
   {
     "id": "f180+source=30",
-    "labelPt": "Evento de diagnóstico f180+source=30",
+    "labelPt": "Solicitação: parâmetros inválidos, solicitação não foi enviada",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=30",
-    "descriptionEn": "Request: invalid parameters, request was not sent"
+    "description": "CAN base {source_label}: Solicitação: parâmetros inválidos, solicitação não foi enviada",
+    "descriptionEn": "Request: invalid parameters, request was not sent",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: parâmetros inválidos, solicitação não foi enviada"
   },
   {
     "id": "f180+source=31",
-    "labelPt": "Evento de diagnóstico f180+source=31",
+    "labelPt": "canbase_b parou",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=31",
-    "descriptionEn": "canbase_b stopped"
+    "description": "CAN base {source_label}: canbase_b parou",
+    "descriptionEn": "canbase_b stopped",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: canbase_b parou"
   },
   {
     "id": "f180+source=32",
-    "labelPt": "Evento de diagnóstico f180+source=32",
+    "labelPt": "Falha no modo normal",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=32",
-    "descriptionEn": "Normal mode failed"
+    "description": "CAN base {source_label}: Falha no modo normal",
+    "descriptionEn": "Normal mode failed",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha no modo normal"
   },
   {
     "id": "f180+source=33",
-    "labelPt": "Evento de diagnóstico f180+source=33",
+    "labelPt": "O modo silencioso falhou",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=33",
-    "descriptionEn": "Silent mode failed"
+    "description": "CAN base {source_label}: O modo silencioso falhou",
+    "descriptionEn": "Silent mode failed",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O modo silencioso falhou"
   },
   {
     "id": "f180+source=34",
-    "labelPt": "Evento de diagnóstico f180+source=34",
+    "labelPt": "CAN Erro passivo",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=34",
-    "descriptionEn": "CAN Passive error"
+    "description": "CAN base {source_label}: CAN Erro passivo",
+    "descriptionEn": "CAN Passive error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: CAN Erro passivo"
   },
   {
     "id": "f180+source=35",
-    "labelPt": "Evento de diagnóstico f180+source=35",
+    "labelPt": "Erro de aviso CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=35",
-    "descriptionEn": "CAN Warning error"
+    "description": "CAN base {source_label}: Erro de aviso CAN",
+    "descriptionEn": "CAN Warning error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de aviso CAN"
   },
   {
     "id": "f180+source=36",
-    "labelPt": "Evento de diagnóstico f180+source=36",
+    "labelPt": "Receber buffer cheio demais",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=36",
-    "descriptionEn": "Receive buffer overfull"
+    "description": "CAN base {source_label}: Receber buffer cheio demais",
+    "descriptionEn": "Receive buffer overfull",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Receber buffer cheio demais"
   },
   {
     "id": "f180+source=37",
-    "labelPt": "Evento de diagnóstico f180+source=37",
+    "labelPt": "Novo erro de recebimento",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=37",
-    "descriptionEn": "New receive error"
+    "description": "CAN base {source_label}: Novo erro de recebimento",
+    "descriptionEn": "New receive error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Novo erro de recebimento"
   },
   {
     "id": "f180+source=38",
-    "labelPt": "Evento de diagnóstico f180+source=38",
+    "labelPt": "Novo erro de transmissão",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=38",
-    "descriptionEn": "New transmit error"
+    "description": "CAN base {source_label}: Novo erro de transmissão",
+    "descriptionEn": "New transmit error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Novo erro de transmissão"
   },
   {
     "id": "f180+source=39",
-    "labelPt": "Evento de diagnóstico f180+source=39",
+    "labelPt": "Erro de preenchimento de quadro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=39",
-    "descriptionEn": "CAN frame fill error"
+    "description": "CAN base {source_label}: Erro de preenchimento de quadro CAN",
+    "descriptionEn": "CAN frame fill error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de preenchimento de quadro CAN"
   },
   {
     "id": "f180+source=40",
-    "labelPt": "Evento de diagnóstico f180+source=40",
+    "labelPt": "Erro de formato de quadro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=40",
-    "descriptionEn": "CAN frame format error"
+    "description": "CAN base {source_label}: Erro de formato de quadro CAN",
+    "descriptionEn": "CAN frame format error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de formato de quadro CAN"
   },
   {
     "id": "f180+source=41",
-    "labelPt": "Evento de diagnóstico f180+source=41",
+    "labelPt": "Erro CAN frame ACK",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=41",
-    "descriptionEn": "CAN frame ACK error"
+    "description": "CAN base {source_label}: Erro CAN frame ACK",
+    "descriptionEn": "CAN frame ACK error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro CAN frame ACK"
   },
   {
     "id": "f180+source=42",
-    "labelPt": "Evento de diagnóstico f180+source=42",
+    "labelPt": "Erro recessivo do quadro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=42",
-    "descriptionEn": "CAN frame recessive error"
+    "description": "CAN base {source_label}: Erro recessivo do quadro CAN",
+    "descriptionEn": "CAN frame recessive error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro recessivo do quadro CAN"
   },
   {
     "id": "f180+source=43",
-    "labelPt": "Evento de diagnóstico f180+source=43",
+    "labelPt": "Erro dominante do quadro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=43",
-    "descriptionEn": "CAN frame dominant error"
+    "description": "CAN base {source_label}: Erro dominante do quadro CAN",
+    "descriptionEn": "CAN frame dominant error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro dominante do quadro CAN"
   },
   {
     "id": "f180+source=44",
-    "labelPt": "Evento de diagnóstico f180+source=44",
+    "labelPt": "Erro CRC de quadro CAN",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=44",
-    "descriptionEn": "CAN frame CRC error"
+    "description": "CAN base {source_label}: Erro CRC de quadro CAN",
+    "descriptionEn": "CAN frame CRC error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro CRC de quadro CAN"
   },
   {
     "id": "f180+source=45",
-    "labelPt": "Evento de diagnóstico f180+source=45",
+    "labelPt": "Erro de software CAN frame",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=45",
-    "descriptionEn": "CAN frame software error"
+    "description": "CAN base {source_label}: Erro de software CAN frame",
+    "descriptionEn": "CAN frame software error",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de software CAN frame"
   },
   {
     "id": "f180+source=46",
-    "labelPt": "Evento de diagnóstico f180+source=46",
+    "labelPt": "Comando de configuração remota recebido",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=46",
-    "descriptionEn": "Remote config command received"
+    "description": "CAN base {source_label}: Comando de configuração remota recebido",
+    "descriptionEn": "Remote config command received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Comando de configuração remota recebido"
   },
   {
     "id": "f180+source=47",
-    "labelPt": "Evento de diagnóstico f180+source=47",
+    "labelPt": "Inicialização da taxa de bits iniciada",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=47",
-    "descriptionEn": "Bit rate initialization started"
+    "description": "CAN base {source_label}: Inicialização da taxa de bits iniciada",
+    "descriptionEn": "Bit rate initialization started",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Inicialização da taxa de bits iniciada"
   },
   {
     "id": "f180+source=48",
-    "labelPt": "Evento de diagnóstico f180+source=48",
+    "labelPt": "Tentando iniciar no modo silencioso",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=48",
-    "descriptionEn": "Trying to start in silent mode"
+    "description": "CAN base {source_label}: Tentando iniciar no modo silencioso",
+    "descriptionEn": "Trying to start in silent mode",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tentando iniciar no modo silencioso"
   },
   {
     "id": "f180+source=49",
-    "labelPt": "Evento de diagnóstico f180+source=49",
+    "labelPt": "Tentando iniciar no modo normal",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=49",
-    "descriptionEn": "Trying to start in normal mode"
+    "description": "CAN base {source_label}: Tentando iniciar no modo normal",
+    "descriptionEn": "Trying to start in normal mode",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tentando iniciar no modo normal"
   },
   {
     "id": "f180+source=50",
-    "labelPt": "Evento de diagnóstico f180+source=50",
+    "labelPt": "Falha na validação da taxa de bits, mensagem não recebida",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=50",
-    "descriptionEn": "Bit rate validation failed, message not received"
+    "description": "CAN base {source_label}: Falha na validação da taxa de bits, mensagem não recebida",
+    "descriptionEn": "Bit rate validation failed, message not received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha na validação da taxa de bits, mensagem não recebida"
   },
   {
     "id": "f180+source=51",
-    "labelPt": "Evento de diagnóstico f180+source=51",
+    "labelPt": "Retransmissão forçada",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=51",
-    "descriptionEn": "Retransmission forced off"
+    "description": "CAN base {source_label}: Retransmissão forçada",
+    "descriptionEn": "Retransmission forced off",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Retransmissão forçada"
   },
   {
     "id": "f180+source=52",
-    "labelPt": "Evento de diagnóstico f180+source=52",
+    "labelPt": "Solicitações forçadas",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=52",
-    "descriptionEn": "Requests forced off"
+    "description": "CAN base {source_label}: Solicitações forçadas",
+    "descriptionEn": "Requests forced off",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitações forçadas"
   },
   {
     "id": "f180+source=53",
-    "labelPt": "Evento de diagnóstico f180+source=53",
+    "labelPt": "Usando o modo silencioso para inicialização",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=53",
-    "descriptionEn": "Using silent mode for startup"
+    "description": "CAN base {source_label}: Usando o modo silencioso para inicialização",
+    "descriptionEn": "Using silent mode for startup",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Usando o modo silencioso para inicialização"
   },
   {
     "id": "f180+source=54",
-    "labelPt": "Evento de diagnóstico f180+source=54",
+    "labelPt": "Sucesso na validação da taxa de bits, mensagem recebida",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=54",
-    "descriptionEn": "Bit rate validation success, message received"
+    "description": "CAN base {source_label}: Sucesso na validação da taxa de bits, mensagem recebida",
+    "descriptionEn": "Bit rate validation success, message received",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sucesso na validação da taxa de bits, mensagem recebida"
   },
   {
     "id": "f180+source=55",
-    "labelPt": "Evento de diagnóstico f180+source=55",
+    "labelPt": "Ignorando novos erros de recebimento",
     "severity": "info",
-    "description": "Evento de diagnóstico f180+source=55",
-    "descriptionEn": "Ignoring new receive errors"
+    "description": "CAN base {source_label}: Ignorando novos erros de recebimento",
+    "descriptionEn": "Ignoring new receive errors",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Ignorando novos erros de recebimento"
   },
   {
     "id": "f190=0",
@@ -3942,31 +4111,39 @@
   },
   {
     "id": "f221=x",
-    "labelPt": "Evento de diagnóstico f221=x",
+    "labelPt": "Mudança de estado Out1 (0 - OFF, 1 - ON)",
     "severity": "info",
-    "description": "Evento de diagnóstico f221=x",
-    "descriptionEn": "Out1 state change (0 - OFF, 1 - ON)"
+    "description": "Mudança de estado Out1: {war_id} (0 - OFF, 1 - ON)",
+    "descriptionEn": "Out1 state change (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out1: {war_id} (0 - OFF, 1 - ON)"
   },
   {
     "id": "f222=x",
-    "labelPt": "Evento de diagnóstico f222=x",
+    "labelPt": "Mudança de estado Out2 (0 - OFF, 1 - ON)",
     "severity": "info",
-    "description": "Evento de diagnóstico f222=x",
-    "descriptionEn": "Out2 state change (0 - OFF, 1 - ON)"
+    "description": "Mudança de estado Out2: {war_id} (0 - OFF, 1 - ON)",
+    "descriptionEn": "Out2 state change (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out2: {war_id} (0 - OFF, 1 - ON)"
   },
   {
     "id": "f223=x",
-    "labelPt": "Evento de diagnóstico f223=x",
+    "labelPt": "Mudança de estado Out3 (0 - OFF, 1 - ON)",
     "severity": "info",
-    "description": "Evento de diagnóstico f223=x",
-    "descriptionEn": "Out3 state change (0 - OFF, 1 - ON)"
+    "description": "Mudança de estado Out3: {war_id} (0 - OFF, 1 - ON)",
+    "descriptionEn": "Out3 state change (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out3: {war_id} (0 - OFF, 1 - ON)"
   },
   {
     "id": "f224=x",
-    "labelPt": "Evento de diagnóstico f224=x",
+    "labelPt": "Mudança de estado Out4 (0 - OFF, 1 - ON)",
     "severity": "info",
-    "description": "Evento de diagnóstico f224=x",
-    "descriptionEn": "Out4 state change (0 - OFF, 1 - ON)"
+    "description": "Mudança de estado Out4: {war_id} (0 - OFF, 1 - ON)",
+    "descriptionEn": "Out4 state change (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out4: {war_id} (0 - OFF, 1 - ON)"
   },
   {
     "id": "f225=0",
@@ -3983,17 +4160,21 @@
     "descriptionEn": "Output set using “output” function inside script"
   },
   {
-    "id": "f240+source=XX",
-    "labelPt": "Evento de diagnóstico f240+source=XX",
+    "id": "f240+source=xx",
+    "labelPt": "Tempo do sistema atrasado",
     "severity": "info",
-    "description": "Evento de diagnóstico f240+source=XX",
-    "descriptionEn": "System time is XX seconds late (source : 0 - GPS, 1 NTP)."
+    "description": "O tempo do sistema está {war_id} segundos atrasado (fonte: {source_label}).",
+    "descriptionEn": "System time is XX seconds late (source : 0 - GPS, 1 NTP).",
+    "isTemplate": true,
+    "template": "O tempo do sistema está {war_id} segundos atrasado (fonte: {source_label})."
   },
   {
-    "id": "f250+source=XX",
-    "labelPt": "Evento de diagnóstico f250+source=XX",
+    "id": "f250+source=xx",
+    "labelPt": "Tempo do sistema adiantado",
     "severity": "info",
-    "description": "Evento de diagnóstico f250+source=XX",
-    "descriptionEn": "System time is XX seconds ahead (source : 0 - GPS, 1 NTP)."
+    "description": "O tempo do sistema está {war_id} segundos à frente (fonte: {source_label}).",
+    "descriptionEn": "System time is XX seconds ahead (source : 0 - GPS, 1 NTP).",
+    "isTemplate": true,
+    "template": "O tempo do sistema está {war_id} segundos à frente (fonte: {source_label})."
   }
 ]

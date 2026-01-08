@@ -391,7 +391,7 @@ const DEFAULT_EVENT_CODE_MAP = new Map([
 
 const GT06_EVENT_CODE_MAP = new Map([
   ...DEFAULT_EVENT_CODE_MAP,
-  ["0", { key: "generic", labelPt: "Evento do dispositivo" }],
+  ["0", { key: "generic", labelPt: "Evento padrão" }],
   ["1", { key: "sos", labelPt: "SOS / Botão de pânico" }],
   ["2", { key: "powerCut", labelPt: "Corte de alimentação" }],
   ["5", { key: "overspeed", labelPt: "Velocidade excedida" }],
@@ -471,18 +471,21 @@ function resolveDiagnosticTemplate(code) {
   if (!Number.isFinite(funId) || !warId) return null;
 
   const keys = [];
-  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=*`);
-  if (funId === 106) keys.push("f106=*");
-  if (funId === 112) keys.push("f112=*");
-  if (funId === 113) keys.push("f113=*");
-  if (funId === 130) keys.push("f130=*");
+  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=x`);
+  if (funId === 106) keys.push("f106=xx");
+  if (funId === 112) keys.push("f112=n");
+  if (funId === 113) keys.push("f113=n");
+  if (funId === 130) keys.push("f130=id");
+  if (funId >= 116 && funId <= 119) keys.push(`f${funId}=x`);
+  if (funId >= 121 && funId <= 129) keys.push(`f${funId}=x`);
   if (funId >= 140 && funId < 145) keys.push(`f140+scriptid=${warId}`);
-  if (funId === 161) keys.push("f161=*");
-  if (funId === 200) keys.push("f200=*");
-  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=*`);
+  if (funId === 161) keys.push("f161=xx");
+  if (funId === 200) keys.push("f200=x");
+  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=x`);
   if (funId >= 180 && funId <= 182) keys.push(`f180+source=${warId}`);
-  if (funId >= 240 && funId <= 241) keys.push("f240+source=*");
-  if (funId >= 250 && funId <= 251) keys.push("f250+source=*");
+  if (funId >= 174 && funId <= 179) keys.push(`f${funId}=x`);
+  if (funId >= 240 && funId <= 241) keys.push("f240+source=xx");
+  if (funId >= 250 && funId <= 251) keys.push("f250+source=xx");
 
   const entry = keys.map((key) => IOTM_DIAGNOSTIC_TEMPLATE_MAP.get(key)).find(Boolean);
   if (!entry) return null;
@@ -517,19 +520,64 @@ export function resolveTelemetryDescriptor(key) {
   return null;
 }
 
-export function resolveEventDescriptor(code, { protocol } = {}) {
+function hasPositionPayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return false;
+  const target = payload.position || payload;
+  const attributes = target.attributes || payload.attributes || payload.rawAttributes || payload.position?.attributes || {};
+  const lat = target.latitude ?? target.lat ?? attributes.latitude ?? attributes.lat;
+  const lon = target.longitude ?? target.lng ?? attributes.longitude ?? attributes.lng;
+  if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) return true;
+  const telemetrySignals = [
+    target.speed,
+    attributes.speed,
+    target.course,
+    attributes.course,
+    target.altitude,
+    attributes.altitude,
+    target.valid,
+    attributes.valid,
+  ];
+  return telemetrySignals.some((value) => value !== null && value !== undefined);
+}
+
+export function resolveEventDescriptor(code, { protocol, payload } = {}) {
   if (code === undefined || code === null) return null;
   const normalized = String(code).trim();
   if (!normalized) return null;
   const protocolKey = normalizeProtocolKey(protocol);
   if (protocolKey === "iotm") {
+    const diagnosticKey = normalized.toLowerCase();
     const diagnostic =
-      IOTM_DIAGNOSTIC_CODE_MAP.get(normalized.toLowerCase()) || resolveDiagnosticTemplate(normalized);
+      IOTM_DIAGNOSTIC_CODE_MAP.get(diagnosticKey) || resolveDiagnosticTemplate(normalized);
     if (diagnostic) return diagnostic;
-    return IOTM_EVENT_CODE_MAP.get(normalized) || null;
+
+    const eventDescriptor = IOTM_EVENT_CODE_MAP.get(normalized);
+    if (eventDescriptor) return eventDescriptor;
+
+    if (/^\d+$/.test(normalized)) {
+      const fallbackDiagnosticKey = `f0=${normalized}`.toLowerCase();
+      const fallbackDiagnostic =
+        IOTM_DIAGNOSTIC_CODE_MAP.get(fallbackDiagnosticKey) || resolveDiagnosticTemplate(fallbackDiagnosticKey);
+      if (fallbackDiagnostic) return fallbackDiagnostic;
+    }
+
+    if (hasPositionPayload(payload)) {
+      return { labelPt: "Posição Registrada", type: "positionregistered" };
+    }
+    return null;
   }
   if (protocolKey === "gt06") {
-    return GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+    const eventDescriptor = GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+    if (eventDescriptor) return eventDescriptor;
+    if (hasPositionPayload(payload)) {
+      return { labelPt: "Posição Registrada", type: "positionregistered" };
+    }
+    return null;
   }
-  return DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+  const eventDescriptor = DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
+  if (eventDescriptor) return eventDescriptor;
+  if (hasPositionPayload(payload)) {
+    return { labelPt: "Posição Registrada", type: "positionregistered" };
+  }
+  return null;
 }
