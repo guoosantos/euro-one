@@ -7,6 +7,7 @@ import {
   listKnownEventTypes,
   normalizeEventType,
   resolveEventDefinition,
+  resolveEventDefinitionFromPayload,
 } from "../src/lib/event-translations.js";
 
 test("translateEventType retorna rótulos localizados com normalização", () => {
@@ -34,6 +35,24 @@ test("resolveEventDefinition usa rótulo de catálogo quando disponível", () =>
   const definition = resolveEventDefinition("1", "pt-BR", null, "iotm");
   assert.strictEqual(definition.label, "Ignição ligada");
   assert.ok(definition.isNumeric);
+});
+
+test("resolveEventDefinitionFromPayload aplica fallback de posição para eventos genéricos", () => {
+  const basePayload = { latitude: -23.55, longitude: -46.63, attributes: {} };
+  const noEvent = resolveEventDefinitionFromPayload(basePayload, "pt-BR");
+  assert.strictEqual(noEvent.label, "Posição registrada");
+
+  const defaultEvent = resolveEventDefinitionFromPayload(
+    { ...basePayload, attributes: { event: "0" } },
+    "pt-BR",
+  );
+  assert.strictEqual(defaultEvent.label, "Posição registrada");
+
+  const deviceEvent = resolveEventDefinitionFromPayload(
+    { ...basePayload, attributes: { event: "255" } },
+    "pt-BR",
+  );
+  assert.strictEqual(deviceEvent.label, "Posição registrada");
 });
 
 test("getEventSeverity prioriza mapeamento conhecido e aplica padrão", () => {

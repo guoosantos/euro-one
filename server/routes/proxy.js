@@ -66,7 +66,7 @@ import {
   resolveTelemetryDescriptor,
   ioFriendlyNames,
 } from "../../shared/telemetryDictionary.js";
-import { resolveEventDefinition } from "../../client/src/lib/event-translations.js";
+import { resolveEventDefinition, resolveEventDefinitionFromPayload } from "../../client/src/lib/event-translations.js";
 
 
 const router = express.Router();
@@ -1248,6 +1248,58 @@ function applyEventConfigToPosition(position, { clientId } = {}) {
     eventSeverity: resolved.severity,
     eventActive: resolved.active,
     attributes: nextAttributes,
+  };
+}
+
+const POSITION_FALLBACK_LABEL = "Posição registrada";
+const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
+
+function resolvePositionEventLabel(position, { clientId } = {}) {
+  if (!position) return { label: POSITION_FALLBACK_LABEL, severity: null, active: null };
+  const attributes = position.attributes || {};
+  const protocol = position.protocol || attributes.protocol || attributes.deviceProtocol || null;
+  const eventCode = extractEventCode(attributes);
+  let eventLabel = position.eventLabel || attributes.eventLabel || null;
+  let eventSeverity = position.eventSeverity || attributes.eventSeverity || null;
+  let eventActive =
+    position.eventActive !== undefined ? position.eventActive : attributes.eventActive !== undefined ? attributes.eventActive : null;
+
+  if (eventCode) {
+    const resolved = resolveEventConfiguration({
+      clientId,
+      protocol,
+      eventId: eventCode,
+      payload: position,
+      deviceId: position.deviceId ?? null,
+    });
+    if (resolved) {
+      eventLabel = resolved.label ?? eventLabel;
+      eventSeverity = resolved.severity ?? eventSeverity;
+      eventActive = resolved.active ?? eventActive;
+    }
+  }
+
+  const payload = {
+    ...position,
+    eventLabel,
+    eventSeverity,
+    eventActive,
+    attributes: {
+      ...attributes,
+      eventLabel,
+      eventSeverity,
+      eventActive,
+    },
+  };
+  const definition = resolveEventDefinitionFromPayload(payload, "pt-BR", null);
+  let label = definition?.label || eventLabel || POSITION_FALLBACK_LABEL;
+  if (GENERIC_EVENT_LABELS_PT.has(label)) {
+    label = POSITION_FALLBACK_LABEL;
+  }
+  return {
+    label,
+    severity: definition?.severity ?? eventSeverity ?? null,
+    active: definition?.suppressed ? false : eventActive,
   };
 }
 
@@ -3933,6 +3985,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         clientId,
         deviceId: position.deviceId ?? null,
       });
+      const eventResolution = resolvePositionEventLabel(position, { clientId });
       const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
       const resolvedAddress =
         normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
@@ -3970,6 +4023,9 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         accuracy,
         vehicleVoltage,
 
+        event: eventResolution.label,
+        eventSeverity: eventResolution.severity,
+        eventActive: eventResolution.active,
         commandResponse: commandResponse || null,
         ioDetails,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
@@ -4105,6 +4161,13 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     });
 
     extras.forEach((value, key) => {
+      if (key === "event") {
+        if (!position.event || GENERIC_EVENT_LABELS_PT.has(position.event)) {
+          position.event = value;
+        }
+        availableColumns.add("event");
+        return;
+      }
       position[key] = value;
       availableColumns.add(key);
     });
