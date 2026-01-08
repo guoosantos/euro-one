@@ -10,6 +10,8 @@ import {
 } from "../services/protocol-catalog.js";
 import { traccarProxy } from "../services/traccar.js";
 import { getProtocolSeverity, updateProtocolSeverity } from "../services/event-severity.js";
+import { getEventConfig, updateEventConfig } from "../services/event-config.js";
+import { resolveClientId } from "../middleware/client.js";
 
 const router = express.Router();
 
@@ -71,6 +73,40 @@ router.get("/protocols/:protocol/events", (req, res) => {
     return res.status(404).json({ message: "Protocolo não encontrado" });
   }
   return res.json({ protocol: protocolKey, events });
+});
+
+router.get("/protocols/:protocol/events/config", (req, res) => {
+  const protocolKey = normalizeProtocolKey(req.params.protocol);
+  const events = getProtocolEvents(protocolKey);
+  if (!events) {
+    return res.status(404).json({ message: "Protocolo não encontrado" });
+  }
+  const clientId = resolveClientId(req, req.query?.clientId, { required: false });
+  const config = getEventConfig({ clientId, protocol: protocolKey, catalogEvents: events });
+  return res.json({ protocol: protocolKey, config });
+});
+
+router.put("/protocols/:protocol/events/config", (req, res) => {
+  const protocolKey = normalizeProtocolKey(req.params.protocol);
+  const events = getProtocolEvents(protocolKey);
+  if (!events) {
+    return res.status(404).json({ message: "Protocolo não encontrado" });
+  }
+  const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const items = Array.isArray(req.body?.items) ? req.body.items : [];
+  const catalogIds = new Set(events.map((event) => String(event?.id)));
+  const invalid = items.find((item) => {
+    const id = item?.id ?? item?.eventId;
+    if (!id) return false;
+    const normalized = String(id);
+    return !catalogIds.has(normalized);
+  });
+  if (invalid && !/^\d+$/.test(String(invalid?.id ?? invalid?.eventId))) {
+    return res.status(400).json({ message: "Evento inválido para este protocolo" });
+  }
+
+  const next = updateEventConfig({ clientId, protocol: protocolKey, items, catalogEvents: events });
+  return res.json({ protocol: protocolKey, config: next });
 });
 
 router.get("/protocols/:protocol/events/severity", (req, res) => {

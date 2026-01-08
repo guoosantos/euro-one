@@ -12,7 +12,7 @@ import {
 test("translateEventType retorna rótulos localizados com normalização", () => {
   assert.strictEqual(translateEventType("ignitionOn", "pt-BR"), "Ignição ligada");
   assert.strictEqual(translateEventType("OVERSPEED", "pt-BR"), "Excesso de velocidade");
-  assert.strictEqual(translateEventType("overspeed", "en-US"), "Speeding");
+  assert.strictEqual(translateEventType("overspeed", "en-US"), "Excesso de velocidade");
 });
 
 test("translateEventType usa fallback translator quando chave não existe", () => {
@@ -23,7 +23,11 @@ test("translateEventType usa fallback translator quando chave não existe", () =
 
 test("translateEventType aplica catálogo IOTM com fallback por protocolo", () => {
   assert.strictEqual(translateEventType("1", "pt-BR", null, "iotm"), "Ignição ligada");
-  assert.strictEqual(translateEventType("164", "pt-BR", null, "iotm"), "Sincronização NTP concluída");
+  assert.strictEqual(translateEventType("164", "pt-BR", null, "iotm"), "Sincronização NTP concluída.");
+});
+
+test("translateEventType sinaliza eventos não mapeados", () => {
+  assert.strictEqual(translateEventType("999", "pt-BR", null, "gt06"), "NÃO MAPEADO (999)");
 });
 
 test("resolveEventDefinition usa rótulo de catálogo quando disponível", () => {

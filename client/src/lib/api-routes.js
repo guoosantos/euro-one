@@ -97,6 +97,7 @@ export const API_ROUTES = {
   mapRoute: "map-route",
   protocols: "protocols",
   protocolEvents: (protocol) => `protocols/${protocol}/events`,
+  protocolEventConfig: (protocol) => `protocols/${protocol}/events/config`,
   protocolEventSeverity: (protocol) => `protocols/${protocol}/events/severity`,
   protocolCommands: (protocol) => `protocols/${protocol}/commands`,
   tracker: {

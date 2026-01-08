@@ -433,6 +433,8 @@ export function resolveEventDescriptor(code, { protocol, payload } = {}) {
   if (!normalized) return null;
   const protocolKey = normalizeProtocolKey(protocol);
   if (protocolKey === "iotm") {
+    const eventDescriptor = IOTM_EVENT_CODE_MAP.get(normalized);
+    if (eventDescriptor) return eventDescriptor;
     const diagnostic = translateDiagnosticEvent({ payload, rawCode: normalized });
     if (diagnostic?.label_ptBR) {
       return {
@@ -442,9 +444,6 @@ export function resolveEventDescriptor(code, { protocol, payload } = {}) {
         isFallback: diagnostic.fallback_used,
       };
     }
-
-    const eventDescriptor = IOTM_EVENT_CODE_MAP.get(normalized);
-    if (eventDescriptor) return eventDescriptor;
     const defaultEvent = DEFAULT_EVENT_CODE_MAP.get(normalized);
     if (defaultEvent) return defaultEvent;
 

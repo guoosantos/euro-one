@@ -13,6 +13,7 @@ import {
   isTraccarDbConfigured,
 } from "../services/traccar-db.js";
 import { buildTraccarUnavailableError, traccarProxy } from "../services/traccar.js";
+import { resolveEventConfiguration } from "../services/event-config.js";
 
 const router = express.Router();
 
@@ -40,6 +41,41 @@ function parseIds(value) {
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
   if (typeof value === "string") return value.split(",").map((item) => item.trim()).filter(Boolean);
   return [];
+}
+
+function extractEventCode(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [attributes.event, attributes.eventCode, attributes.eventId, attributes.alarm];
+  const resolved = candidates.find((value) => value !== undefined && value !== null && String(value).trim());
+  return resolved !== undefined && resolved !== null ? String(resolved).trim() : null;
+}
+
+function applyEventConfigToPosition(position, clientId) {
+  if (!position) return position;
+  const attributes = position.attributes || {};
+  const eventCode = extractEventCode(attributes);
+  if (!eventCode) return position;
+  const protocol = position.protocol || attributes.protocol || attributes.deviceProtocol || null;
+  const resolved = resolveEventConfiguration({
+    clientId,
+    protocol,
+    eventId: eventCode,
+    payload: position,
+    deviceId: position.deviceId ?? null,
+  });
+  if (!resolved) return position;
+  return {
+    ...position,
+    eventLabel: resolved.label,
+    eventSeverity: resolved.severity,
+    eventActive: resolved.active,
+    attributes: {
+      ...attributes,
+      eventLabel: resolved.label,
+      eventSeverity: resolved.severity,
+      eventActive: resolved.active,
+    },
+  };
 }
 
 function parsePlates(value) {
@@ -242,13 +278,15 @@ router.get("/traccar/reports/route", resolveClientIdMiddleware, async (req, res,
 
     const positions = await fetchPositions(allowedIds, from, to);
     if (positions.length) {
-      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions }, error: null });
+      const enrichedPositions = positions.map((position) => applyEventConfigToPosition(position, clientId));
+      return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions: enrichedPositions }, error: null });
     }
 
     // fallback para API HTTP do Traccar se não houver dados no banco
     const response = await requestTraccarReport("/reports/route", { deviceId: allowedIds[0], from, to });
     const payload = Array.isArray(response?.data) ? response.data : response?.data?.data || response?.data || [];
-    return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions: payload }, error: null });
+    const enrichedPayload = (payload || []).map((position) => applyEventConfigToPosition(position, clientId));
+    return res.json({ data: { vehicleIds: resolvedVehicleIds, deviceIds: allowedIds, from, to, positions: enrichedPayload }, error: null });
   } catch (error) {
     next(error);
   }

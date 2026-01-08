@@ -563,8 +563,14 @@ function normalizeTripEvent(point, helpers = {}) {
     point?.attributes?.status ||
     point?.__label;
   if (!rawEvent) return null;
+  if (point?.eventActive === false || point?.attributes?.eventActive === false) {
+    return { type: "suppressed", label: null, icon: null, ignition: null, suppressed: true };
+  }
   const normalizedEvent = String(rawEvent).trim();
   const resolvedDefinition = resolveEventDefinitionFromPayload(point, helpers.locale, helpers.t);
+  if (resolvedDefinition?.suppressed) {
+    return { type: "suppressed", label: null, icon: null, ignition: resolvedDefinition?.ignition, suppressed: true };
+  }
   const type = resolvedDefinition?.isNumeric ? resolvedDefinition.type : normalizedEvent.toLowerCase();
   const resolvedLabel = resolvedDefinition?.isNumeric ? resolvedDefinition.label : null;
   return {
@@ -1296,15 +1302,17 @@ export default function Trips() {
         const resolvedTime = time ? time.getTime() : 0;
 
         const mappedEvent = normalizeTripEvent(point, { locale, t });
-        const translatedLabel = translateTripEvent(
-          mappedEvent?.label ||
-            point.event ||
-            point.type ||
-            point.attributes?.event ||
-            point.attributes?.alarm ||
-            point.attributes?.status ||
-            "Posição registrada",
-        );
+        const translatedLabel = mappedEvent?.suppressed
+          ? "Posição registrada"
+          : translateTripEvent(
+              mappedEvent?.label ||
+                point.event ||
+                point.type ||
+                point.attributes?.event ||
+                point.attributes?.alarm ||
+                point.attributes?.status ||
+                "Posição registrada",
+            );
 
         const heading = toFiniteNumber(
           point.course ?? point.heading ?? point.attributes?.course ?? point.attributes?.heading,
