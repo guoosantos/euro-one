@@ -432,6 +432,7 @@ function buildHtml({
   `;
 
   const renderTimeline = () => {
+    let isFirstPage = true;
     const segments = [];
     let buffer = [];
     safeEntries.forEach((entry) => {
@@ -452,13 +453,15 @@ function buildHtml({
     if (!segments.length) {
       const fallbackSlices = chunkArray(rows, chunkSize);
       return fallbackSlices
-        .map(
-          (slice, index) =>
-            `<div class="page-break"></div>${renderCompactHeader()}${renderTable(slice, index, {
-              includeHeader: false,
-              includePageBreak: false,
-            })}`,
-        )
+        .map((slice, index) => {
+          const pageBreak = index === 0 ? "" : '<div class="page-break"></div>';
+          const header = index === 0 ? "" : renderCompactHeader();
+          isFirstPage = false;
+          return `${pageBreak}${header}${renderTable(slice, index, {
+            includeHeader: false,
+            includePageBreak: false,
+          })}`;
+        })
         .join("");
     }
 
@@ -471,20 +474,28 @@ function buildHtml({
           previousType = "positions";
           isFirstSegment = false;
           return chunks
-            .map(
-              (slice) =>
-                `<div class="page-break"></div>${renderCompactHeader()}${renderTable(slice, 0, {
-                  includeHeader: false,
-                  includePageBreak: false,
-                })}`,
-            )
+            .map((slice, chunkIndex) => {
+              const needsPageBreak = !isFirstPage || chunkIndex > 0;
+              const pageBreak = needsPageBreak ? '<div class="page-break"></div>' : "";
+              const header = isFirstPage ? "" : renderCompactHeader();
+              isFirstPage = false;
+              return `${pageBreak}${header}${renderTable(slice, 0, {
+                includeHeader: false,
+                includePageBreak: false,
+              })}`;
+            })
             .join("");
         }
         const shouldStartPage = isFirstSegment || previousType === "positions";
-        const pageBreak = shouldStartPage ? '<div class="page-break"></div>' : "";
+        const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
         previousType = "action";
         isFirstSegment = false;
-        return `${pageBreak}${pageBreak ? renderCompactHeader() : ""}${renderActionCard(segment.entry)}`;
+        const header = pageBreak ? renderCompactHeader() : "";
+        if (!isFirstPage) {
+          return `${pageBreak}${header}${renderActionCard(segment.entry)}`;
+        }
+        isFirstPage = false;
+        return `${renderActionCard(segment.entry)}`;
       })
       .join("");
   };
