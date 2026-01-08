@@ -1,558 +1,4110 @@
 [
-  { "id": "f0=0", "labelPt": "Reset de software", "severity": "info", "description": "Reset de software." },
-  { "id": "f0=1", "labelPt": "Alimentação conectada", "severity": "info", "description": "Fonte de alimentação conectada." },
-  { "id": "f0=4", "labelPt": "Problema na alimentação", "severity": "warning", "description": "Problema na fonte de alimentação." },
-  { "id": "f0=5", "labelPt": "Alimentação conectada", "severity": "info", "description": "Fonte de alimentação conectada." },
-  { "id": "f0=8", "labelPt": "Reset por monitor de segurança", "severity": "warning", "description": "Reset realizado pelo monitor de segurança (após atualização de firmware)." },
-  { "id": "f0=100", "labelPt": "Erro indeterminado", "severity": "warning", "description": "Erro indeterminado." },
-  { "id": "f0=101", "labelPt": "Sem confirmação do servidor", "severity": "warning", "description": "Sem confirmação do servidor." },
-  { "id": "f0=102", "labelPt": "Sem confirmação do servidor", "severity": "warning", "description": "Sem confirmação do servidor. Conexão com o servidor perdida." },
-  { "id": "f0=103", "labelPt": "Mudança para ambiente de comandos", "severity": "info", "description": "Enquanto aguardava confirmação, mudou do servidor para o ambiente de comandos." },
-  { "id": "f0=104", "labelPt": "Dados não reconhecidos do servidor", "severity": "warning", "description": "Dados não reconhecidos do servidor." },
-  { "id": "f0=105", "labelPt": "Sem resposta válida", "severity": "warning", "description": "Sem resposta/valor válido." },
-  { "id": "f0=106", "labelPt": "Erro indeterminado", "severity": "warning", "description": "Erro indeterminado." },
-  { "id": "f0=107", "labelPt": "Assinatura do dispositivo divergente", "severity": "warning", "description": "Divergência na assinatura do dispositivo." },
-  { "id": "f0=108", "labelPt": "Confirmação não recebida", "severity": "warning", "description": "Confirmação não recebida." },
-  { "id": "f0=109", "labelPt": "Firmware: tamanho incorreto", "severity": "warning", "description": "Firmware: tamanho incorreto." },
-  { "id": "f0=110", "labelPt": "Firmware: tamanho desconhecido", "severity": "warning", "description": "Firmware: tamanho desconhecido." },
-  { "id": "f0=111", "labelPt": "Firmware: gravação incompleta", "severity": "warning", "description": "Firmware: gravação na flash não concluída com sucesso." },
-  { "id": "f0=112", "labelPt": "Firmware: arquivo incompleto", "severity": "warning", "description": "Firmware: não foi possível receber o arquivo completo." },
-  { "id": "f0=113", "labelPt": "Firmware: tamanho divergente", "severity": "warning", "description": "Firmware: tamanho divergente com o servidor." },
-  { "id": "f0=114", "labelPt": "Firmware: gravação falhou", "severity": "warning", "description": "Firmware: gravação na flash falhou." },
-  { "id": "f0=115", "labelPt": "Firmware: erro desconhecido", "severity": "warning", "description": "Firmware: erro desconhecido." },
-  { "id": "f0=116", "labelPt": "GPS travado", "severity": "warning", "description": "GPS travado." },
-  { "id": "f0=117", "labelPt": "Erro indeterminado", "severity": "warning", "description": "Erro indeterminado." },
-  { "id": "f0=118", "labelPt": "Sinal GSM fraco", "severity": "warning", "description": "Sinal GSM muito fraco." },
-  { "id": "f0=119", "labelPt": "GPRS não registrado", "severity": "warning", "description": "GPRS não registrado e não está buscando registro." },
-  { "id": "f0=120", "labelPt": "GPRS negado", "severity": "warning", "description": "Registro GPRS negado." },
-  { "id": "f0=121", "labelPt": "GSM não registrado", "severity": "warning", "description": "GSM não registrado e não está buscando registro." },
-  { "id": "f0=122", "labelPt": "GSM negado", "severity": "warning", "description": "Registro GSM negado." },
-  { "id": "f0=123", "labelPt": "NMEA insuficiente", "severity": "warning", "description": "Dados NMEA insuficientes." },
-  { "id": "f0=124", "labelPt": "Problema no servidor", "severity": "warning", "description": "Problema no servidor." },
-  { "id": "f0=125", "labelPt": "Problema no servidor/Google", "severity": "warning", "description": "Servidor e Google não respondem (possível conflito com GPRS ACT)." },
-  { "id": "f0=126", "labelPt": "Erro no banco do servidor", "severity": "warning", "description": "Erro no banco de dados do servidor." },
-  { "id": "f0=127", "labelPt": "Modem desligado", "severity": "warning", "description": "Desligamento do modem autônomo." },
-  { "id": "f0=128", "labelPt": "Tempo interno adiantado", "severity": "warning", "description": "Tempo interno adiantado mais de 20s em relação ao GPS." },
-  { "id": "f0=129", "labelPt": "Tempo interno atrasado", "severity": "warning", "description": "Tempo interno atrasado mais de 20s em relação ao GPS." },
-  { "id": "f0=130", "labelPt": "SMS de reboot", "severity": "info", "description": "Dispositivo recebeu SMS para reboot." },
-  { "id": "f0=131", "labelPt": "Limite de banda excedido", "severity": "warning", "description": "Limite de banda excedido." },
-  { "id": "f0=132", "labelPt": "Reboot controlado do monitor de segurança", "severity": "warning", "description": "Reboot controlado do monitor de segurança - dados preservados." },
-  { "id": "f0=133", "labelPt": "Sem envio por 24h", "severity": "warning", "description": "Sem envio de dados ao servidor por 24h. Reboot do modem." },
-  { "id": "f0=134", "labelPt": "Registro GSM negado (30x)", "severity": "warning", "description": "Registro GSM negado 30 vezes. Reboot do modem." },
-  { "id": "f0=135", "labelPt": "GSM em busca", "severity": "info", "description": "Registro GSM em estado de busca." },
-  { "id": "f0=136", "labelPt": "GSM desconhecido", "severity": "warning", "description": "Registro GSM em estado desconhecido." },
-  { "id": "f0=137", "labelPt": "GPRS em busca", "severity": "info", "description": "Registro GPRS em estado de busca." },
-  { "id": "f0=138", "labelPt": "GPRS desconhecido", "severity": "warning", "description": "Registro GPRS em estado desconhecido." },
-  { "id": "f0=139", "labelPt": "Reset inteligente do modem", "severity": "warning", "description": "Reset inteligente do modem." },
-  { "id": "f0=140", "labelPt": "SIM não inserido", "severity": "critical", "description": "SIM não inserido." },
-  { "id": "f0=141", "labelPt": "PIN do SIM perdido", "severity": "warning", "description": "PIN do SIM perdido durante o processo." },
-  { "id": "f0=142", "labelPt": "SIM com PUK", "severity": "critical", "description": "Problema no SIM durante o boot (PUK requerido?)." },
-  { "id": "f0=143", "labelPt": "PDP reativado", "severity": "info", "description": "Contexto PDP reativado." },
-  { "id": "f0=144", "labelPt": "Conexão perdida", "severity": "warning", "description": "Conexão perdida durante troca de dados com o servidor." },
-  { "id": "f0=145", "labelPt": "Nova conexão TCP", "severity": "info", "description": "Nova conexão TCP." },
-  { "id": "f0=146", "labelPt": "Sem resposta em modo dados", "severity": "warning", "description": "Sem resposta suportada em modo dados." },
-  { "id": "f0=147", "labelPt": "Bytes inesperados", "severity": "warning", "description": "Número inesperado de bytes (4 em vez de 2)." },
-  { "id": "f0=148", "labelPt": "Erro no servidor", "severity": "warning", "description": "Erro no servidor." },
-  { "id": "f0=149", "labelPt": "Erro indeterminado", "severity": "warning", "description": "Erro indeterminado." },
-  { "id": "f0=150", "labelPt": "DCD não recebido", "severity": "warning", "description": "DCD não recebido." },
-  { "id": "f0=151", "labelPt": "SIM não encontrado", "severity": "critical", "description": "SIM não encontrado após reset." },
-  { "id": "f0=152", "labelPt": "PUK requerido", "severity": "critical", "description": "PUK requerido." },
-  { "id": "f0=153", "labelPt": "Sinal GPS fraco", "severity": "warning", "description": "Sinal GPS muito fraco." },
-  { "id": "f0=154", "labelPt": "Modem sem resposta", "severity": "critical", "description": "Modem não respondeu; desligamento incondicional." },
-  { "id": "f0=155", "labelPt": "Falha ao ligar modem", "severity": "critical", "description": "Falha ao ligar modem." },
-  { "id": "f0=156", "labelPt": "Operadora local", "severity": "info", "description": "Registrado em operadora local." },
-  { "id": "f0=157", "labelPt": "Operadora local", "severity": "info", "description": "Registrado em operadora local." },
-  { "id": "f0=158", "labelPt": "Desconexão forçada", "severity": "warning", "description": "Desconexão forçada da internet." },
-  { "id": "f0=159", "labelPt": "Novo socket UDP", "severity": "info", "description": "Novo socket UDP para FMSet." },
-  { "id": "f0=160", "labelPt": "Novo socket server2", "severity": "info", "description": "Novo socket para server2 criado." },
-  { "id": "f0=161", "labelPt": "Novo socket opcional", "severity": "info", "description": "Novo socket opcional criado." },
-  { "id": "f0=162", "labelPt": "Socket tacógrafo", "severity": "info", "description": "Novo socket de cartão de tacógrafo criado." },
-  { "id": "f0=163", "labelPt": "Monitor de segurança do PDP", "severity": "warning", "description": "Monitor de segurança do PDP - desconectando." },
-  { "id": "f0=164", "labelPt": "Sincronização NTP", "severity": "info", "description": "Sincronização NTP concluída." },
-  { "id": "f0=165", "labelPt": "Socket do servidor de cartão OK", "severity": "info", "description": "Socket com servidor de cartão OK." },
-  { "id": "f0=166", "labelPt": "Socket do servidor de cartão falhou", "severity": "warning", "description": "Socket com servidor de cartão falhou." },
-  { "id": "f0=167", "labelPt": "Busca nova operadora", "severity": "info", "description": "Iniciando busca de nova operadora para registro." },
-  { "id": "f0=168", "labelPt": "Erro na busca de operadoras", "severity": "warning", "description": "Erro ao buscar operadoras em cobertura. Modo automático habilitado." },
-  { "id": "f0=169", "labelPt": "Operadoras encontradas", "severity": "info", "description": "Operadoras em cobertura encontradas." },
-  { "id": "f0=170", "labelPt": "Operadora preferida encontrada", "severity": "info", "description": "Operadora preferida encontrada e registro manual configurado." },
-  { "id": "f0=171", "labelPt": "Operadoras fora da lista preferida", "severity": "warning", "description": "Operadoras em cobertura não estão na lista preferida." },
-  { "id": "f0=172", "labelPt": "Operadoras banidas", "severity": "warning", "description": "Todas as operadoras estão na lista de banidas." },
-  { "id": "f0=173", "labelPt": "Selecionar operadora manualmente", "severity": "info", "description": "Selecione uma operadora em cobertura para registro manual." },
-  { "id": "f0=174", "labelPt": "Sem lista preferida", "severity": "warning", "description": "Sem lista preferida programada, modo automático ativado." },
-  { "id": "f0=175", "labelPt": "Registro manual", "severity": "info", "description": "Registro definido como manual." },
-  { "id": "f0=176", "labelPt": "Sem NTP", "severity": "warning", "description": "Nenhum servidor NTP encontrado." },
-  { "id": "f0=177", "labelPt": "Resposta incorreta AsyncStack", "severity": "warning", "description": "Resposta incorreta recebida no serviço AsyncStack." },
-  { "id": "f0=178", "labelPt": "Resposta repetida", "severity": "info", "description": "Resposta repetida recebida." },
-  { "id": "f0=179", "labelPt": "Modem desligado", "severity": "warning", "description": "Modem desligado ou IP final 255." },
-  { "id": "f0=180", "labelPt": "Operadora manual falhou", "severity": "warning", "description": "Falha ao definir operadora em modo manual." },
-  { "id": "f0=181", "labelPt": "Seleção automática habilitada", "severity": "info", "description": "Seleção automática de operadora habilitada." },
-  { "id": "f0=182", "labelPt": "Seleção automática habilitada", "severity": "info", "description": "Seleção automática de operadora habilitada." },
-  { "id": "f0=183", "labelPt": "Busca manual falhou", "severity": "warning", "description": "Busca manual falhou; modo automático habilitado." },
-  { "id": "f0=240", "labelPt": "Perda de alimentação", "severity": "critical", "description": "Perda de alimentação." },
-
-  { "id": "f8=1", "labelPt": "Sem OK no +CGATT", "severity": "warning", "description": "Sem confirmação (OK) ao executar comando +CGATT." },
-
-  { "id": "f10=1", "labelPt": "Erro ao criar PDP", "severity": "warning", "description": "Condição ERROR ao criar contexto PDP." },
-  { "id": "f10=2", "labelPt": "Sem resposta ao criar PDP", "severity": "warning", "description": "Sem resposta ao criar contexto PDP." },
-  { "id": "f10=3", "labelPt": "Sem OK ao criar PDP", "severity": "warning", "description": "OK não encontrado ao criar contexto PDP." },
-  { "id": "f10=4", "labelPt": "IP não encontrado", "severity": "warning", "description": "IP não encontrado na resposta de criação do PDP." },
-
-  { "id": "f12=1", "labelPt": "Sem resposta ao criar socket", "severity": "warning", "description": "Sem resposta ao criar socket." },
-  { "id": "f12=2", "labelPt": "NO CARRIER ao criar socket", "severity": "warning", "description": "NO CARRIER recebido ao criar socket (em vez de CONNECT)." },
-  { "id": "f12=3", "labelPt": "Erro ao criar socket", "severity": "warning", "description": "Condição ERROR ao criar socket." },
-
-  { "id": "f28=1", "labelPt": "SIM ocupado", "severity": "warning", "description": "SIM ocupado." },
-  { "id": "f43=2", "labelPt": "SIM bloqueou leitura de contatos", "severity": "warning", "description": "SIM temporariamente não permite ler contatos no boot." },
-
-  { "id": "f93=1", "labelPt": "Falha: Stack overflow", "severity": "critical", "description": "Falha: Stack overflow." },
-  { "id": "f93=2", "labelPt": "Falha: FIFO overflow", "severity": "critical", "description": "Falha: FIFO overflow." },
-  { "id": "f93=3", "labelPt": "Falha: Mailbox overflow", "severity": "critical", "description": "Falha: Mailbox overflow." },
-  { "id": "f93=4", "labelPt": "Falha: Timer overflow", "severity": "critical", "description": "Falha: Timer overflow." },
-  { "id": "f93=5", "labelPt": "Falha: Baixa VCC/Bateria", "severity": "critical", "description": "Falha: Baixa tensão VCC ou bateria." },
-  { "id": "f93=6", "labelPt": "Falha: monitor de segurança", "severity": "critical", "description": "Falha: temporizador do monitor de segurança." },
-  { "id": "f93=100", "labelPt": "Falha: Thread pausada", "severity": "warning", "description": "Falha: Thread pausada." },
-
-  { "id": "f99=1", "labelPt": "Sem resposta do módulo celular", "severity": "critical", "description": "Sem resposta do módulo celular." },
-  { "id": "f99=2", "labelPt": "Auto GNSS desativado", "severity": "info", "description": "Auto GNSS desativado." },
-  { "id": "f99=3", "labelPt": "Configuração NMEA alterada", "severity": "info", "description": "Configuração serial NMEA alterada." },
-  { "id": "f99=4", "labelPt": "Configuração GLONASS alterada", "severity": "info", "description": "Configuração do sistema GLONASS alterada." },
-  { "id": "f99=5", "labelPt": "Módulo GPS desligado", "severity": "warning", "description": "Módulo GPS desligado." },
-  { "id": "f99=6", "labelPt": "Echo mode ativado", "severity": "info", "description": "Echo mode ativado (possível reset não intencional do módulo celular)." },
-
-  { "id": "f100=0", "labelPt": "Reboot geral do modem", "severity": "warning", "description": "Reboot geral do modem ON-OFF." },
-  { "id": "f100=1", "labelPt": "Flash formatada", "severity": "warning", "description": "Memória flash formatada." },
-  { "id": "f100=2", "labelPt": "HEAP insuficiente", "severity": "critical", "description": "Memória HEAP insuficiente." },
-  { "id": "f100=3", "labelPt": "Pacote não reconhecido", "severity": "warning", "description": "Servidor confirmou pacote não reconhecido." },
-  { "id": "f100=4", "labelPt": "Reboot do modem em andamento", "severity": "info", "description": "Reboot do modem em andamento." },
-  { "id": "f100=5", "labelPt": "Sem operadora preferida", "severity": "warning", "description": "Sem operadora preferida em cobertura." },
-  { "id": "f100=7", "labelPt": "Operadora encontrada", "severity": "info", "description": "Operadora encontrada e configurada." },
-  { "id": "f100=8", "labelPt": "Busca de operadora falhou", "severity": "warning", "description": "Busca de operadora não foi bem-sucedida." },
-  { "id": "f100=9", "labelPt": "Country code não encontrado", "severity": "warning", "description": "Country code não encontrado no mode2." },
-  { "id": "f100=10", "labelPt": "Country code encontrado", "severity": "info", "description": "Country code encontrado no mode2." },
-  { "id": "f100=11", "labelPt": "Registro manual falhou", "severity": "warning", "description": "Registro manual não foi bem-sucedido." },
-  { "id": "f100=12", "labelPt": "Registro negado", "severity": "warning", "description": "Status: registro negado." },
-  { "id": "f100=13", "labelPt": "GPRS parou de registrar", "severity": "warning", "description": "CGREG indica que o modem parou de tentar registrar no GPRS." },
-  { "id": "f100=14", "labelPt": "Conexão com servidor falhou", "severity": "warning", "description": "Conexão com servidor falhou." },
-  { "id": "f100=15", "labelPt": "Reboot após falha PDP", "severity": "warning", "description": "Reboot do modem após falhas de ativação PDP." },
-  { "id": "f100=16", "labelPt": "Chamada VOICE detectada", "severity": "info", "description": "Chamada VOICE detectada." },
-  { "id": "f100=17", "labelPt": "Chamada DATA detectada", "severity": "info", "description": "Chamada DATA detectada." },
-  { "id": "f100=18", "labelPt": "Reset de socket pelo servidor", "severity": "warning", "description": "Reset de socket recebido do servidor." },
-  { "id": "f100=19", "labelPt": "Modem desligado automaticamente", "severity": "warning", "description": "Modem desligado automaticamente." },
-  { "id": "f100=20", "labelPt": "Procedimento de reset", "severity": "info", "description": "Procedimento de reset do modem." },
-  { "id": "f100=21", "labelPt": "Modem ligado", "severity": "info", "description": "Modem ligado." },
-  { "id": "f100=22", "labelPt": "Modem desligado", "severity": "info", "description": "Modem desligado." },
-  { "id": "f100=23", "labelPt": "Ciclo de energia do modem", "severity": "warning", "description": "Ciclo de energia do modem." },
-  { "id": "f100=24", "labelPt": "Atualização de firmware", "severity": "info", "description": "Comando de atualização de firmware." },
-  { "id": "f100=25", "labelPt": "Atualização negada", "severity": "warning", "description": "Atualização de firmware negada (CS inválido)." },
-  { "id": "f100=26", "labelPt": "Suspend enviado", "severity": "info", "description": "Suspend enviado." },
-  { "id": "f100=27", "labelPt": "Resume enviado", "severity": "info", "description": "Resume enviado." },
-  { "id": "f100=28", "labelPt": "Memória intermediária do socket cheia", "severity": "warning", "description": "Socket com memória intermediária estourada." },
-  { "id": "f100=29", "labelPt": "Checksum inválido", "severity": "warning", "description": "Checksum inválido do servidor." },
-  { "id": "f100=30", "labelPt": "Bytes demais", "severity": "warning", "description": "Bytes demais recebidos do servidor." },
-  { "id": "f100=31", "labelPt": "Bytes insuficientes", "severity": "warning", "description": "Bytes insuficientes recebidos do servidor." },
-  { "id": "f100=32", "labelPt": "Configuração via SMS", "severity": "info", "description": "Novas configurações recebidas por SMS." },
-  { "id": "f100=33", "labelPt": "Servidor solicitou muitos dados", "severity": "warning", "description": "Servidor solicitou muitos dados ao dispositivo." },
-  { "id": "f100=34", "labelPt": "Registro manual", "severity": "info", "description": "Tipo de registro alterado de auto para manual." },
-  { "id": "f100=35", "labelPt": "NO CARRIER ao retomar socket", "severity": "warning", "description": "NO CARRIER ao tentar retomar socket." },
-  { "id": "f100=36", "labelPt": "Sem CONNECT ao retomar socket", "severity": "warning", "description": "Sem NO CARRIER nem CONNECT ao tentar retomar socket." },
-  { "id": "f100=37", "labelPt": "Registro automático", "severity": "info", "description": "Tipo de registro alterado de manual para automático." },
-  { "id": "f100=38", "labelPt": "FOTASNAP enviado", "severity": "info", "description": "FOTASNAP enviado." },
-  { "id": "f100=39", "labelPt": "FOTA confirmação enviada", "severity": "info", "description": "Confirmação FOTA enviada." },
-  { "id": "f100=40", "labelPt": "FOTA sucesso", "severity": "info", "description": "FOTA concluído com sucesso." },
-  { "id": "f100=41", "labelPt": "FOTA falhou", "severity": "warning", "description": "FOTA não teve sucesso." },
-  { "id": "f100=42", "labelPt": "FOTA confirmação sucesso", "severity": "info", "description": "Confirmação de sucesso FOTA enviada." },
-  { "id": "f100=43", "labelPt": "Reboot automático do modem", "severity": "warning", "description": "Reboot automático do modem." },
-  { "id": "f100=44", "labelPt": "Hora ajustada pelo servidor", "severity": "info", "description": "Hora ajustada pelo servidor." },
-  { "id": "f100=45", "labelPt": "Troca de SIM detectada", "severity": "warning", "description": "Troca de SIM detectada." },
-  { "id": "f100=46", "labelPt": "Lista preferida resetada", "severity": "info", "description": "Lista de operadoras preferidas resetada." },
-  { "id": "f100=47", "labelPt": "GPS desligado por SMS", "severity": "warning", "description": "GPS desligado por comando SMS." },
-  { "id": "f100=48", "labelPt": "GPS ligado por SMS", "severity": "info", "description": "GPS ligado por comando SMS." },
-  { "id": "f100=49", "labelPt": "Desregistro automático", "severity": "warning", "description": "Desregistro automático da rede iniciado." },
-  { "id": "f100=50", "labelPt": "SMS antigo para saída", "severity": "warning", "description": "SMS antigo demais para controle de saída." },
-  { "id": "f100=51", "labelPt": "SMS de controle de saída", "severity": "info", "description": "SMS recebido para controle de saídas." },
-  { "id": "f100=52", "labelPt": "Muitas operadoras na lista", "severity": "warning", "description": "Muitas operadoras na lista; algumas foram ignoradas." },
-  { "id": "f100=53", "labelPt": "Falha ao inserir SIM", "severity": "critical", "description": "Falha na inserção do SIM." },
-  { "id": "f100=54", "labelPt": "Operadora não preferida", "severity": "warning", "description": "Operadora registrada não está na lista preferida; buscando operadoras em cobertura." },
-  { "id": "f100=55", "labelPt": "Sem operadora preferida", "severity": "warning", "description": "Sem operadora preferida em cobertura." },
-  { "id": "f100=56", "labelPt": "Busca de operadora falhou", "severity": "warning", "description": "Modem retornou resposta negativa na busca de operadora." },
-  { "id": "f100=57", "labelPt": "Registro de eventos parado", "severity": "warning", "description": "Registro de eventos interrompido." },
-  { "id": "f100=58", "labelPt": "Comando de saída recebido", "severity": "info", "description": "Comando de saída recebido." },
-  { "id": "f100=59", "labelPt": "Reboot por 28=1", "severity": "warning", "description": "Reboot do modem em caso de 28=1." },
-  { "id": "f100=60", "labelPt": "Inicialização a frio do GPS L76", "severity": "info", "description": "Inicialização a frio do GPS L76." },
-  { "id": "f100=61", "labelPt": "Timer LSI interno", "severity": "info", "description": "Timer do LSI interno." },
-  { "id": "f100=62", "labelPt": "DT7 com bytes demais", "severity": "warning", "description": "Muitos bytes na estrutura DT7." },
-  { "id": "f100=63", "labelPt": "Desligamento incondicional", "severity": "critical", "description": "Desligamento incondicional do modem." },
-  { "id": "f100=64", "labelPt": "Tempo limite do monitor de segurança do modem", "severity": "critical", "description": "Tempo limite do monitor de segurança do modem." },
-  { "id": "f100=65", "labelPt": "Poweron=0", "severity": "warning", "description": "Configuração poweron do modem = 0." },
-  { "id": "f100=66", "labelPt": "Falha de configuração", "severity": "critical", "description": "Falha na verificação de configuração." },
-  { "id": "f100=67", "labelPt": "PDP perdido", "severity": "warning", "description": "Contexto PDP perdido." },
-  { "id": "f100=68", "labelPt": "Reconexão solicitada", "severity": "info", "description": "Reconexão solicitada." },
-  { "id": "f100=69", "labelPt": "Leitura IMEI", "severity": "info", "description": "Leitura de IMEI." },
-  { "id": "f100=70", "labelPt": "Configuração alterada", "severity": "info", "description": "Configurações alteradas pelo FMSet." },
-  { "id": "f100=71", "labelPt": "Configuração do modem perdida", "severity": "warning", "description": "Configuração do modem perdida." },
-  { "id": "f100=72", "labelPt": "PDP perdido", "severity": "warning", "description": "Contexto PDP perdido." },
-  { "id": "f100=73", "labelPt": "Estouro da memória intermediária TX", "severity": "warning", "description": "Estouro da memória intermediária TX do modem." },
-  { "id": "f100=74", "labelPt": "Falha ao criar socket", "severity": "warning", "description": "Falha ao criar socket." },
-  { "id": "f100=75", "labelPt": "Falha ao configurar bearer", "severity": "warning", "description": "Falha ao configurar bearer." },
-  { "id": "f100=76", "labelPt": "Falha ao configurar APN", "severity": "warning", "description": "Falha ao definir APN." },
-  { "id": "f100=77", "labelPt": "Falha ao criar PDP", "severity": "warning", "description": "Falha ao criar contexto PDP." },
-  { "id": "f100=78", "labelPt": "Falha IP local", "severity": "warning", "description": "Falha ao receber IP local." },
-  { "id": "f100=79", "labelPt": "Falha ao desativar PDP", "severity": "warning", "description": "Falha ao desativar contexto PDP." },
-  { "id": "f100=80", "labelPt": "CRC de configuração inválido", "severity": "warning", "description": "CRC de configuração inválido." },
-  { "id": "f100=81", "labelPt": "Falha ao fechar bearer", "severity": "warning", "description": "Falha ao fechar bearer." },
-  { "id": "f100=82", "labelPt": "Reboot por software", "severity": "warning", "description": "Reboot do modem por software." },
-
-  { "id": "f101=1", "labelPt": "Envio do firmware GPS iniciado", "severity": "info", "description": "Envio do firmware GPS iniciado." },
-  { "id": "f101=2", "labelPt": "FTP falhou", "severity": "warning", "description": "Falha na conexão FTP." },
-  { "id": "f101=3", "labelPt": "Download falhou", "severity": "warning", "description": "Download de um dos dois arquivos falhou." },
-  { "id": "f101=4", "labelPt": "Envio concluído", "severity": "info", "description": "Envio de arquivo concluído com sucesso." },
-  { "id": "f101=5", "labelPt": "Atualização MTK 3333 iniciada", "severity": "info", "description": "Atualização MTK 3333 iniciada." },
-  { "id": "f101=6", "labelPt": "Atualização MTK 3333 concluída", "severity": "info", "description": "Atualização MTK 3333 concluída com sucesso." },
-  { "id": "f101=7", "labelPt": "MTK start falhou", "severity": "warning", "description": "MTK start falhou." },
-  { "id": "f101=8", "labelPt": "DA MTK falhou", "severity": "warning", "description": "DA do MTK falhou." },
-  { "id": "f101=9", "labelPt": "JUMP MTK falhou", "severity": "warning", "description": "JUMP do MTK falhou." },
-  { "id": "f101=10", "labelPt": "WRITE MTK falhou", "severity": "warning", "description": "WRITE do MTK falhou." },
-  { "id": "f101=11", "labelPt": "CRC MT3333 FW inválido", "severity": "warning", "description": "CRC do firmware MT3333 recebido via FTP inválido." },
-  { "id": "f101=12", "labelPt": "CRC MT3333 DA inválido", "severity": "warning", "description": "CRC do DA MT3333 recebido via FTP inválido." },
-  { "id": "f101=13", "labelPt": "CRC MT3333 FW na flash inválido", "severity": "warning", "description": "CRC do firmware MT3333 na flash inválido." },
-  { "id": "f101=14", "labelPt": "CRC MT3333 DA na flash inválido", "severity": "warning", "description": "CRC do DA MT3333 na flash inválido." },
-  { "id": "f101=15", "labelPt": "Bootloader 2ª tentativa", "severity": "warning", "description": "Segunda tentativa do bootloader." },
-  { "id": "f101=16", "labelPt": "Bootloader 3ª tentativa", "severity": "warning", "description": "Terceira tentativa do bootloader." },
-  { "id": "f101=18", "labelPt": "Leitura de dados não confere", "severity": "warning", "description": "Leitura de dados não confere." },
-  { "id": "f101=19", "labelPt": "Saída do procedimento FW", "severity": "info", "description": "Saída do procedimento de gravação do firmware." },
-  { "id": "f101=20", "labelPt": "Desfragmentação FW", "severity": "info", "description": "Desfragmentação de bytes do firmware." },
-  { "id": "f101=21", "labelPt": "Ublox GPS inicializado", "severity": "info", "description": "Ublox GPS encontrado e inicializado." },
-  { "id": "f101=22", "labelPt": "Quectel GPS inicializado", "severity": "info", "description": "Quectel GPS encontrado e inicializado." },
-  { "id": "f101=23", "labelPt": "GPS não encontrado", "severity": "warning", "description": "Receptor GPS não encontrado." },
-
-  { "id": "f102=0", "labelPt": "Tarefa gps_manager parada", "severity": "critical", "description": "Tarefa gps_manager parada." },
-  { "id": "f102=1", "labelPt": "Tarefa accelerometer_manager parada", "severity": "critical", "description": "Tarefa accelerometer_manager parada." },
-  { "id": "f102=2", "labelPt": "Tarefa onewire_manager parada", "severity": "critical", "description": "Tarefa onewire_manager parada." },
-  { "id": "f102=3", "labelPt": "Tarefa modem_manager parada", "severity": "critical", "description": "Tarefa modem_manager parada." },
-  { "id": "f102=4", "labelPt": "Tarefa global_manager parada", "severity": "critical", "description": "Tarefa global_manager parada." },
-  { "id": "f102=5", "labelPt": "Tarefa led_manager parada", "severity": "critical", "description": "Tarefa led_manager parada." },
-  { "id": "f102=6", "labelPt": "Tarefa rs485_manager parada", "severity": "critical", "description": "Tarefa rs485_manager parada." },
-  { "id": "f102=7", "labelPt": "Tarefa can1_manager parada", "severity": "critical", "description": "Tarefa can1_manager parada." },
-  { "id": "f102=8", "labelPt": "Tarefa rs232_manager parada", "severity": "critical", "description": "Tarefa rs232_manager parada." },
-  { "id": "f102=9", "labelPt": "Tarefa can2_manager parada", "severity": "critical", "description": "Tarefa can2_manager parada." },
-  { "id": "f102=10", "labelPt": "Tarefa can2_manager parada", "severity": "critical", "description": "Tarefa can2_manager parada." },
-  { "id": "f102=50", "labelPt": "Subtensão detectada", "severity": "warning", "description": "Subtensão detectada." },
-  { "id": "f102=100", "labelPt": "Reset do monitor de segurança", "severity": "critical", "description": "Falha ao acordar a tempo; reset do monitor de segurança." },
-
-  { "id": "f103=0", "labelPt": "Causa de reset (129)", "severity": "info", "description": "Causa do reset (129). Verificar eventos próximos." },
-  { "id": "f103=5", "labelPt": "Reset por software", "severity": "warning", "description": "Reset por software detectado." },
-  { "id": "f103=8", "labelPt": "Reset por monitor de segurança", "severity": "warning", "description": "Reset por monitor de segurança de hardware detectado." },
-  { "id": "f103=128", "labelPt": "10 reboots seguidos", "severity": "critical", "description": "10 reboots seguidos; configuração resetada para padrão." },
-  { "id": "f103=129", "labelPt": "Contador de reboot inválido", "severity": "warning", "description": "Contador de reboot inválido encontrado." },
-
-  { "id": "f105=16", "labelPt": "Rejeição geral", "severity": "warning", "description": "General Reject." },
-  { "id": "f105=17", "labelPt": "Serviço não suportado", "severity": "warning", "description": "Service Not Supported." },
-  { "id": "f105=18", "labelPt": "Subfunção não suportada", "severity": "warning", "description": "Sub Function Not Supported." },
-  { "id": "f105=19", "labelPt": "Mensagem inválida", "severity": "warning", "description": "Incorrect Message Length Or Invalid Format." },
-  { "id": "f105=33", "labelPt": "Solicitação ocupada", "severity": "warning", "description": "Busy Repeat Request." },
-  { "id": "f105=34", "labelPt": "Condições incorretas", "severity": "warning", "description": "Conditions Not Correct." },
-  { "id": "f105=36", "labelPt": "Sequência inválida", "severity": "warning", "description": "Request Sequence Error." },
-  { "id": "f105=49", "labelPt": "Fora de alcance", "severity": "warning", "description": "Request Out Of Range." },
-  { "id": "f105=113", "labelPt": "Transferência suspensa", "severity": "warning", "description": "Transfer Data Suspended." },
-  { "id": "f105=115", "labelPt": "Bloco inválido", "severity": "warning", "description": "Wrong Block Sequence Counter." },
-  { "id": "f105=120", "labelPt": "Resposta pendente", "severity": "info", "description": "Request Correctly Received / Response Pending." },
-  { "id": "f105=127", "labelPt": "Serviço não suportado na sessão", "severity": "warning", "description": "Service Not Supported In Active Session." },
-
-  { "id": "f107=1", "labelPt": "Download UCP via SMS", "severity": "info", "description": "Comando SMS para baixar arquivo UCP do DataCold." },
-  { "id": "f107=2", "labelPt": "Download iniciado", "severity": "info", "description": "Download iniciado com sucesso." },
-  { "id": "f107=3", "labelPt": "Saída sem sucesso", "severity": "warning", "description": "Saída sem sucesso da função." },
-  { "id": "f107=4", "labelPt": "Erro sensor analógico", "severity": "warning", "description": "Falha ao obter sensor analógico habilitado." },
-  { "id": "f107=5", "labelPt": "Erro sensor digital", "severity": "warning", "description": "Falha ao obter sensor digital habilitado." },
-  { "id": "f107=6", "labelPt": "Nomes analógicos inválidos", "severity": "warning", "description": "Nomes de sensores analógicos com tamanho inválido." },
-  { "id": "f107=7", "labelPt": "Erro nomes analógicos", "severity": "warning", "description": "Falha ao obter nomes de sensores analógicos." },
-  { "id": "f107=8", "labelPt": "Nomes digitais inválidos", "severity": "warning", "description": "Nomes de sensores digitais com tamanho inválido." },
-  { "id": "f107=9", "labelPt": "Erro nomes digitais", "severity": "warning", "description": "Falha ao obter nomes de sensores digitais." },
-  { "id": "f107=10", "labelPt": "Nomes digitais adicionais inválidos", "severity": "warning", "description": "Nomes de sensores digitais adicionais com tamanho inválido." },
-  { "id": "f107=11", "labelPt": "Erro nomes digitais adicionais", "severity": "warning", "description": "Falha ao obter nomes de sensores digitais adicionais." },
-  { "id": "f107=12", "labelPt": "Sem resposta de leitura", "severity": "warning", "description": "Sem resposta para leitura de registros." },
-  { "id": "f107=13", "labelPt": "Registro UCP finalizado", "severity": "info", "description": "Registro UCP finalizado." },
-  { "id": "f107=14", "labelPt": "Sem resposta PIN", "severity": "warning", "description": "Sem resposta para solicitação de PIN." },
-  { "id": "f107=15", "labelPt": "Sem resposta de informação", "severity": "warning", "description": "Sem resposta para solicitação de informação." },
-  { "id": "f107=16", "labelPt": "Info < 32 bytes", "severity": "warning", "description": "Solicitação de informação menor que 32 bytes." },
-  { "id": "f107=17", "labelPt": "Falha ao preparar registro", "severity": "warning", "description": "Não foi possível preparar novo registro na flash." },
-
-  { "id": "f108=1", "labelPt": "CAN dump sem bit rate", "severity": "warning", "description": "CAN dump: nenhum bit rate detectado." },
-  { "id": "f108=2", "labelPt": "CAN dump com bit rate", "severity": "info", "description": "CAN dump: bit rate detectado." },
-  { "id": "f108=3", "labelPt": "CAN dump finalizado", "severity": "info", "description": "CAN dump finalizado." },
-  { "id": "f108=7", "labelPt": "Detecção de bit rate CAN", "severity": "info", "description": "Detecção de bit rate CAN iniciada." },
-
-  { "id": "f109=0", "labelPt": "Entrando em sleep", "severity": "info", "description": "Indo para modo sleep." },
-  { "id": "f109=1", "labelPt": "Acordou por movimento", "severity": "info", "description": "Acordou por movimento." },
-  { "id": "f109=2", "labelPt": "Acordou por IN2", "severity": "info", "description": "Acordou por mudança no IN2." },
-  { "id": "f109=3", "labelPt": "Acordou por IN3", "severity": "info", "description": "Acordou por mudança no IN3." },
-  { "id": "f109=4", "labelPt": "Acordou por IN4", "severity": "info", "description": "Acordou por mudança no IN4." },
-  { "id": "f109=5", "labelPt": "Acordou por IN5 (Ignição)", "severity": "info", "description": "Acordou por mudança no IN5 (Ignição)." },
-  { "id": "f109=6", "labelPt": "Acordou por tempo limite", "severity": "info", "description": "Acordou por tempo limite (alarme RTC)." },
-  { "id": "f109=7", "labelPt": "Acordou por SMS/Voice/Jamming", "severity": "info", "description": "Acordou por SMS/Voice/Jamming." },
-  { "id": "f109=8", "labelPt": "Acordou por CAN", "severity": "info", "description": "Acordou por mensagem CAN." },
-  { "id": "f109=9", "labelPt": "Acordou por corte de energia", "severity": "warning", "description": "Acordou por corte de energia externo." },
-  { "id": "f109=10", "labelPt": "Acordou por 1-wire", "severity": "info", "description": "Acordou por atividade 1-wire." },
-
-  { "id": "f110=0", "labelPt": "GPS em sleep", "severity": "info", "description": "GPS colocado em modo sleep." },
-  { "id": "f110=1", "labelPt": "GPS iniciado", "severity": "info", "description": "GPS iniciado." },
-  { "id": "f110=2", "labelPt": "Falha ao iniciar GPS", "severity": "warning", "description": "Falha ao iniciar GPS." },
-  { "id": "f110=3", "labelPt": "GPS ligado", "severity": "info", "description": "GPS ligado." },
-  { "id": "f110=4", "labelPt": "Muitas correções inválidas", "severity": "warning", "description": "Mais de 30 correções GPS inválidas." },
-  { "id": "f110=5", "labelPt": "Comando de restart GPS", "severity": "info", "description": "Comando de restart GPS recebido." },
-  { "id": "f110=6", "labelPt": "Efemérides no modem", "severity": "info", "description": "Efemérides recebidas no modem." },
-  { "id": "f110=7", "labelPt": "Falha HTTP efemérides", "severity": "warning", "description": "Falha na requisição HTTP de efemérides." },
-  { "id": "f110=8", "labelPt": "Download efemérides iniciado", "severity": "info", "description": "Download de efemérides para GPS iniciado." },
-  { "id": "f110=9", "labelPt": "Download efemérides concluído", "severity": "info", "description": "Download de efemérides para GPS concluído." },
-  { "id": "f110=10", "labelPt": "Modo GPS veículo", "severity": "info", "description": "Modo GPS veículo habilitado." },
-  { "id": "f110=11", "labelPt": "Modo GPS pedestre", "severity": "info", "description": "Modo GPS pedestre habilitado." },
-  { "id": "f110=12", "labelPt": "Falha ao mudar modo GPS", "severity": "warning", "description": "Falha ao mudar modo GPS veículo/pedestre." },
-  { "id": "f110=13", "labelPt": "Coordenadas atualizadas", "severity": "info", "description": "Últimas coordenadas atualizadas 10s antes." },
-  { "id": "f110=14", "labelPt": "GPS reiniciado", "severity": "info", "description": "GPS reiniciado." },
-  { "id": "f110=15", "labelPt": "Comando PMTK remoto", "severity": "info", "description": "Comando PMTK remoto." },
-  { "id": "f110=16", "labelPt": "NMEA resetado", "severity": "warning", "description": "Configuração de saída NMEA resetada para padrão." },
-
-  { "id": "f111=0", "labelPt": "Registro por mudança de entrada", "severity": "info", "description": "Registro gerado por mudança de entradas." },
-  { "id": "f111=1", "labelPt": "Registro por tempo limite", "severity": "info", "description": "Registro gerado por tempo limite." },
-  { "id": "f111=2", "labelPt": "Registro por fonte externa", "severity": "info", "description": "Registro gerado por fonte externa." },
-  { "id": "f111=3", "labelPt": "Registro por mudança de curso", "severity": "info", "description": "Registro gerado por mudança de curso." },
-  { "id": "f111=4", "labelPt": "Registro por mudança de velocidade", "severity": "info", "description": "Registro gerado por mudança de velocidade." },
-  { "id": "f111=5", "labelPt": "Registro por limite de distância", "severity": "info", "description": "Registro gerado por limite de distância." },
-  { "id": "f111=6", "labelPt": "RS485 keypad", "severity": "info", "description": "RS485 keypad." },
-  { "id": "f111=7", "labelPt": "Envio AsyncStack", "severity": "info", "description": "Mensagem enviada fora da flash (tempo limite/entrada/etc)." },
-  { "id": "f111=8", "labelPt": "Mudança iButton", "severity": "info", "description": "Mudança de iButton." },
-  { "id": "f111=9", "labelPt": "Mudança iButton", "severity": "info", "description": "Mudança de iButton." },
-  { "id": "f111=10", "labelPt": "Matriz de condução", "severity": "info", "description": "Matriz de condução: 200s alcançados." },
-  { "id": "f111=11", "labelPt": "Mudança Mobileye", "severity": "info", "description": "Mudança de dados Mobileye." },
-  { "id": "f111=12", "labelPt": "Mudança iButton presente", "severity": "info", "description": "Mudança de presença do iButton." },
-  { "id": "f111=13", "labelPt": "Mudança FMS TCO1", "severity": "info", "description": "Mudança de estado FMS TCO1." },
-  { "id": "f111=14", "labelPt": "Mudança CIP", "severity": "info", "description": "Mudança CIP." },
-  { "id": "f111=15", "labelPt": "Mudança Wiegand26", "severity": "info", "description": "Mudança Wiegand26." },
-  { "id": "f111=16", "labelPt": "Status tacógrafo driver1", "severity": "info", "description": "Status do tacógrafo CAN-C driver1 alterado." },
-  { "id": "f111=17", "labelPt": "Status tacógrafo driver2", "severity": "info", "description": "Status do tacógrafo CAN-C driver2 alterado." },
-  { "id": "f111=19", "labelPt": "EN15430 Data Type 10", "severity": "info", "description": "EN15430 Front Plough and Spreader data type (Data Type 10)." },
-
-  { "id": "f114=0", "labelPt": "Perda de orientação", "severity": "warning", "description": "Auto-orientação perdida." },
-  { "id": "f114=1", "labelPt": "Orientação adquirida", "severity": "info", "description": "Auto-orientação adquirida." },
-
-  { "id": "f120=0", "labelPt": "Erro CREG", "severity": "warning", "description": "Erro CREG." },
-  { "id": "f120=1", "labelPt": "CREG não registrado", "severity": "warning", "description": "CREG não registrado e não está buscando operador." },
-  { "id": "f120=2", "labelPt": "CREG registrado (home)", "severity": "info", "description": "CREG registrado na rede home." },
-  { "id": "f120=3", "labelPt": "CREG buscando operador", "severity": "warning", "description": "CREG não registrado, buscando operador." },
-  { "id": "f120=4", "labelPt": "CREG negado", "severity": "warning", "description": "CREG registro negado." },
-  { "id": "f120=5", "labelPt": "CREG desconhecido", "severity": "warning", "description": "CREG desconhecido." },
-  { "id": "f120=6", "labelPt": "CREG roaming", "severity": "info", "description": "CREG registrado em roaming." },
-
-  { "id": "f130=252", "labelPt": "Reset do hub", "severity": "warning", "description": "Reset do hub detectado." },
-  { "id": "f130=253", "labelPt": "Protocolo não suportado", "severity": "warning", "description": "Versão do protocolo não suportada." },
-  { "id": "f130=254", "labelPt": "CRC inválido", "severity": "warning", "description": "10 mensagens com CRC inválido em sequência." },
-  { "id": "f130=255", "labelPt": "Tempo limite do Cargojot", "severity": "warning", "description": "Tempo limite no recebimento de mensagem Cargojot." },
-
-  { "id": "f145=0", "labelPt": "Download de script iniciado", "severity": "info", "description": "Início do download do script." },
-  { "id": "f145=1", "labelPt": "Comando de script inválido", "severity": "warning", "description": "Comando de download de script inválido." },
-  { "id": "f145=2", "labelPt": "Tempo limite no download", "severity": "warning", "description": "Tempo limite no download do script." },
-  { "id": "f145=3", "labelPt": "Checksum de script alterado", "severity": "warning", "description": "Checksum do script alterado." },
-  { "id": "f145=4", "labelPt": "Conectado ao FTP", "severity": "info", "description": "Conectado ao FTP." },
-  { "id": "f145=5", "labelPt": "Download de script falhou", "severity": "warning", "description": "Download do script falhou." },
-  { "id": "f145=6", "labelPt": "Script baixado", "severity": "info", "description": "Script baixado." },
-  { "id": "f145=7", "labelPt": "Script EEPROM apagada", "severity": "info", "description": "Script EEPROM apagada." },
-  { "id": "f145=8", "labelPt": "Script grande demais", "severity": "warning", "description": "Falha ao carregar script, tamanho excedido." },
-
-  { "id": "f150=0", "labelPt": "MQTT conectado", "severity": "info", "description": "Conectado ao broker MQTT." },
-  { "id": "f150=1", "labelPt": "MQTT desconectado", "severity": "warning", "description": "Conexão com broker MQTT perdida." },
-  { "id": "f150=2", "labelPt": "Ping MQTT ok", "severity": "info", "description": "Ping MQTT bem-sucedido." },
-  { "id": "f150=3", "labelPt": "Comando MQTT inválido", "severity": "warning", "description": "Comando MQTT inválido." },
-  { "id": "f150=4", "labelPt": "Configuração de sensores atualizada", "severity": "info", "description": "Configuração de sensores atualizada." },
-  { "id": "f150=5", "labelPt": "Criando socket TCP", "severity": "info", "description": "Tentando criar socket TCP." },
-  { "id": "f150=6", "labelPt": "Certificado enviado", "severity": "info", "description": "Upload de certificado concluído." },
-  { "id": "f150=7", "labelPt": "Falha no certificado", "severity": "warning", "description": "Falha no upload do certificado." },
-
-  { "id": "f155=1", "labelPt": "Arquivo CAN1 atualizado", "severity": "info", "description": "Arquivo CAN1 atualizado." },
-  { "id": "f155=2", "labelPt": "Arquivo CAN2 atualizado", "severity": "info", "description": "Arquivo CAN2 atualizado." },
-  { "id": "f155=3", "labelPt": "Arquivo CAN1 carregado", "severity": "info", "description": "Arquivo CAN1 carregado." },
-  { "id": "f155=4", "labelPt": "Arquivo CAN2 carregado", "severity": "info", "description": "Arquivo CAN2 carregado." },
-
-  { "id": "f160=0", "labelPt": "Leitura de config falhou", "severity": "warning", "description": "Leitura de configurações da flash falhou." },
-  { "id": "f162=0", "labelPt": "Página de registros iniciada", "severity": "info", "description": "Página de registros móveis inicializada." },
-  { "id": "f162=1", "labelPt": "Endereço de registros ajustado", "severity": "info", "description": "Endereço dos registros móveis ajustado para o início." },
-
-  { "id": "f163=0", "labelPt": "Comando FOTA recebido", "severity": "info", "description": "Comando FOTA recebido." },
-  { "id": "f163=1", "labelPt": "FOTA download OK", "severity": "info", "description": "Download FOTA HTTP bem-sucedido." },
-  { "id": "f163=2", "labelPt": "FOTA download falhou", "severity": "warning", "description": "Download FOTA HTTP falhou." },
-  { "id": "f163=3", "labelPt": "Tempo limite FOTA", "severity": "warning", "description": "Tempo limite de mudança de estado FOTA." },
-  { "id": "f163=4", "labelPt": "Tempo limite FOTA", "severity": "warning", "description": "Tempo limite de mudança de estado FOTA." },
-
-  { "id": "f170=1", "labelPt": "Falha ao adicionar sensor U8", "severity": "warning", "description": "Falha ao adicionar sensor U8." },
-  { "id": "f170=2", "labelPt": "Falha ao adicionar sensor U32", "severity": "warning", "description": "Falha ao adicionar sensor U32." },
-  { "id": "f170=3", "labelPt": "Falha ao adicionar sensor U64", "severity": "warning", "description": "Falha ao adicionar sensor U64." },
-
-  { "id": "f190=0", "labelPt": "Conectado ao DPS", "severity": "info", "description": "Conectado ao DPS." },
-  { "id": "f190=1", "labelPt": "IoT Hub atribuído", "severity": "info", "description": "IoT Hub atribuído." },
-  { "id": "f190=2", "labelPt": "DPS não autorizado", "severity": "warning", "description": "Resposta DPS não autorizada." },
-  { "id": "f190=3", "labelPt": "DPS resposta desconhecida", "severity": "warning", "description": "Resposta DPS desconhecida." },
-
-  { "id": "f201=0", "labelPt": "APN ativado", "severity": "info", "description": "APN ativado com sucesso." },
-  { "id": "f201=1", "labelPt": "APN falhou", "severity": "warning", "description": "Ativação APN falhou." },
-  { "id": "f201=2", "labelPt": "Apenas um APN", "severity": "info", "description": "Apenas um APN encontrado no template." },
-  { "id": "f201=3", "labelPt": "Alterando APN", "severity": "info", "description": "Alterando APN para o próximo da lista." },
-  { "id": "f201=5", "labelPt": "Template alterado", "severity": "info", "description": "Template de configuração alterado." },
-  { "id": "f201=6", "labelPt": "APN não encontrado", "severity": "warning", "description": "APN anterior não encontrado; reiniciando lista." },
-  { "id": "f201=7", "labelPt": "APN falhou sem resposta", "severity": "warning", "description": "APN falhou, modem não respondeu ao AT command." },
-
-  { "id": "f210=0", "labelPt": "BT iniciado", "severity": "info", "description": "Aplicação BT iniciada." },
-  { "id": "f210=1", "labelPt": "Reset do chip BT", "severity": "warning", "description": "Evento de reset do chip BT." },
-  { "id": "f210=2", "labelPt": "BT low power", "severity": "info", "description": "BT em modo low power." },
-  { "id": "f210=3", "labelPt": "BT desligado", "severity": "info", "description": "BT desligado." },
-  { "id": "f210=4", "labelPt": "Atualização BT OK", "severity": "info", "description": "Atualização de firmware BT com sucesso." },
-  { "id": "f210=5", "labelPt": "Atualização BT falhou", "severity": "warning", "description": "Atualização de firmware BT falhou." },
-  { "id": "f210=6", "labelPt": "BT GATT conectado", "severity": "info", "description": "Conexão BT GATT estabelecida." },
-  { "id": "f210=7", "labelPt": "BT GATT falhou", "severity": "warning", "description": "Conexão BT GATT falhou." },
-  { "id": "f210=8", "labelPt": "BT GATT encerrado", "severity": "info", "description": "Conexão BT GATT encerrada." },
-  { "id": "f210=9", "labelPt": "BT pareamento OK", "severity": "info", "description": "Pareamento BT GATT bem-sucedido." },
-  { "id": "f210=10", "labelPt": "BT pareamento falhou", "severity": "warning", "description": "Pareamento BT GATT falhou." },
-
-  { "id": "f211=0", "labelPt": "BT GATT comando OK", "severity": "info", "description": "Comando BT GATT OK." },
-  { "id": "f211=1", "labelPt": "BT GATT expirou", "severity": "warning", "description": "Comando BT GATT expirou." },
-  { "id": "f211=2", "labelPt": "BT GATT desconhecido", "severity": "warning", "description": "Comando BT GATT desconhecido." },
-  { "id": "f211=3", "labelPt": "BT GATT dados inválidos", "severity": "warning", "description": "Comando BT GATT com dados inválidos." },
-  { "id": "f211=4", "labelPt": "BT GATT repetido", "severity": "warning", "description": "Comando BT GATT repetido." },
-  { "id": "f211=5", "labelPt": "BT GATT tamanho inválido", "severity": "warning", "description": "Comando BT GATT com tamanho inválido." },
-  { "id": "f211=6", "labelPt": "BT GATT token inválido", "severity": "warning", "description": "Comando BT GATT com token inválido." },
-  { "id": "f211=7", "labelPt": "BT GATT ocupado", "severity": "warning", "description": "Comando BT GATT ocupado." },
-
-  { "id": "f221=0", "labelPt": "Saída Digital 1 Desligada", "severity": "info", "description": "Saída Digital 1 desligada." },
-  { "id": "f221=1", "labelPt": "Saída Digital 1 Ligada", "severity": "info", "description": "Saída Digital 1 ligada." },
-  { "id": "f222=0", "labelPt": "Saída Digital 2 Desligada", "severity": "info", "description": "Saída Digital 2 desligada." },
-  { "id": "f222=1", "labelPt": "Saída Digital 2 Ligada", "severity": "info", "description": "Saída Digital 2 ligada." },
-  { "id": "f223=0", "labelPt": "Saída Digital 3 Desligada", "severity": "info", "description": "Saída Digital 3 desligada." },
-  { "id": "f223=1", "labelPt": "Saída Digital 3 Ligada", "severity": "info", "description": "Saída Digital 3 ligada." },
-  { "id": "f224=0", "labelPt": "Saída Digital 4 Desligada", "severity": "info", "description": "Saída Digital 4 desligada." },
-  { "id": "f224=1", "labelPt": "Saída Digital 4 Ligada", "severity": "info", "description": "Saída Digital 4 ligada." },
-  { "id": "f225=0", "labelPt": "Reset de saída via script", "severity": "info", "description": "Reset de saída usando função output no script." },
-  { "id": "f225=1", "labelPt": "Saída via script", "severity": "info", "description": "Saída acionada usando função output no script." },
-
-  { "id": "f0=184", "labelPt": "Dados malformados do socket", "severity": "warning", "description": "Dados malformados recebidos do socket." },
-
-  { "id": "f104=11", "labelPt": "Tacógrafo: TCO desconhecido", "severity": "warning", "description": "Tacógrafo: TCO desconhecido." },
-  { "id": "f104=12", "labelPt": "Tacógrafo: TCO SC1 detectado", "severity": "info", "description": "Tacógrafo: TCO SC1 detectado." },
-  { "id": "f104=13", "labelPt": "Tacógrafo: TCO SC2 detectado", "severity": "info", "description": "Tacógrafo: TCO SC2 detectado." },
-  { "id": "f104=14", "labelPt": "Tacógrafo: TCO SC3 detectado", "severity": "info", "description": "Tacógrafo: TCO SC3 detectado." },
-  { "id": "f104=15", "labelPt": "Tacógrafo: TCO SC5 detectado", "severity": "info", "description": "Tacógrafo: TCO SC5 detectado." },
-  { "id": "f104=16", "labelPt": "Tacógrafo: TCO SC6 detectado", "severity": "info", "description": "Tacógrafo: TCO SC6 detectado." },
-  { "id": "f104=17", "labelPt": "Tacógrafo: TCO detectado", "severity": "info", "description": "Tacógrafo: TCO detectado." },
-  { "id": "f104=18", "labelPt": "Tacógrafo: SE5000 detectado", "severity": "info", "description": "Tacógrafo: SE5000 detectado." },
-  { "id": "f104=19", "labelPt": "Tacógrafo: DTCO 1381 detectado", "severity": "info", "description": "Tacógrafo: DTCO 1381 detectado." },
-  { "id": "f104=20", "labelPt": "Tacógrafo: TCO não detectado", "severity": "warning", "description": "Tacógrafo: TCO não detectado." },
-  { "id": "f104=21", "labelPt": "Tacógrafo: resposta inesperada", "severity": "warning", "description": "Tacógrafo: resposta inesperada." },
-  { "id": "f104=22", "labelPt": "Tacógrafo: erro de transmissão", "severity": "warning", "description": "Tacógrafo: erro de transmissão." },
-  { "id": "f104=23", "labelPt": "Tacógrafo: repetindo por tempo limite", "severity": "warning", "description": "Tacógrafo: repetindo requisição por tempo limite ou frame ausente." },
-  { "id": "f104=24", "labelPt": "Tacógrafo: RemoteCompanyCardReady falhou", "severity": "warning", "description": "Tacógrafo: RemoteCompanyCardReady falhou." },
-  { "id": "f104=25", "labelPt": "Tacógrafo: CompanyCardToVUData falhou", "severity": "warning", "description": "Tacógrafo: CompanyCardToVUData falhou." },
-  { "id": "f104=26", "labelPt": "Tacógrafo: RequestTransferExit falhou", "severity": "warning", "description": "Tacógrafo: RequestTransferExit falhou." },
-  { "id": "f104=27", "labelPt": "Tacógrafo: Card TransferData falhou", "severity": "warning", "description": "Tacógrafo: Card TransferData falhou." },
-  { "id": "f104=28", "labelPt": "Tacógrafo: RequestUpload falhou", "severity": "warning", "description": "Tacógrafo: RequestUpload falhou." },
-  { "id": "f104=29", "labelPt": "Tacógrafo: CAN comunicação OK", "severity": "info", "description": "Tacógrafo: CAN comunicação iniciada com sucesso." },
-  { "id": "f104=30", "labelPt": "Tacógrafo: ATTR aceito", "severity": "info", "description": "Tacógrafo: ATTR do cartão da empresa aceito." },
-  { "id": "f104=31", "labelPt": "Tacógrafo: ATTR rejeitado", "severity": "warning", "description": "Tacógrafo: ATTR do cartão da empresa não aceito." },
-  { "id": "f104=32", "labelPt": "Tacógrafo: APDU start OK", "severity": "info", "description": "Tacógrafo: APDU start OK." },
-  { "id": "f104=33", "labelPt": "Tacógrafo: sem APDU 60s", "severity": "warning", "description": "Tacógrafo: sem APDU do cartão por 60s." },
-  { "id": "f104=34", "labelPt": "Tacógrafo: APDU rejeitado", "severity": "warning", "description": "Tacógrafo: APDU rejeitado." },
-  { "id": "f104=35", "labelPt": "Tacógrafo: próximo APDU aceito", "severity": "info", "description": "Tacógrafo: próximo APDU aceito." },
-  { "id": "f104=36", "labelPt": "Tacógrafo: autenticação remota OK", "severity": "info", "description": "Tacógrafo: autenticação remota bem-sucedida." },
-  { "id": "f104=37", "labelPt": "Tacógrafo: download remoto liberado", "severity": "info", "description": "Tacógrafo: download remoto liberado." },
-  { "id": "f104=38", "labelPt": "Tacógrafo: download remoto negado", "severity": "warning", "description": "Tacógrafo: download remoto negado." },
-  { "id": "f104=39", "labelPt": "Tacógrafo: upload positivo", "severity": "info", "description": "Tacógrafo: resposta positiva de upload." },
-  { "id": "f104=40", "labelPt": "Tacógrafo: upload negativo", "severity": "warning", "description": "Tacógrafo: resposta negativa de upload." },
-  { "id": "f104=41", "labelPt": "Tacógrafo: resposta negativa em download", "severity": "warning", "description": "Tacógrafo: resposta negativa durante download." },
-  { "id": "f104=42", "labelPt": "Tacógrafo: download DDD OK (driver)", "severity": "info", "description": "Tacógrafo: download DDD OK (driver card)." },
-  { "id": "f104=43", "labelPt": "Tacógrafo: download DDD OK", "severity": "info", "description": "Tacógrafo: download DDD OK (driver ou VU)." },
-  { "id": "f104=44", "labelPt": "Tacógrafo: falha ao gravar DDD", "severity": "warning", "description": "Tacógrafo: falha ao gravar DDD na flash." },
-  { "id": "f104=45", "labelPt": "Tacógrafo: APDU solicitado", "severity": "warning", "description": "Tacógrafo: APDU solicitado durante download remoto." },
-  { "id": "f104=46", "labelPt": "Tacógrafo: sem ATTR do cartão", "severity": "warning", "description": "Tacógrafo: sem ATTR do cartão." },
-  { "id": "f104=47", "labelPt": "Tacógrafo: sem cartão Driver1", "severity": "warning", "description": "Tacógrafo: sem cartão Driver1." },
-  { "id": "f104=48", "labelPt": "Tacógrafo: sem cartão Driver2", "severity": "warning", "description": "Tacógrafo: sem cartão Driver2." },
-  { "id": "f104=49", "labelPt": "Tacógrafo: sem resposta (len=0)", "severity": "warning", "description": "Tacógrafo: sem resposta, len=0." },
-  { "id": "f104=50", "labelPt": "Tacógrafo: cartão aberto/ausente", "severity": "warning", "description": "Tacógrafo: cartão aberto por outro dispositivo ou ausente." },
-  { "id": "f104=51", "labelPt": "Tacógrafo: solicitação VIN", "severity": "info", "description": "Tacógrafo: solicitação de VIN enviada ao servidor." },
-  { "id": "f104=52", "labelPt": "Tacógrafo: confirmação arquivo tacho", "severity": "info", "description": "Tacógrafo: confirmação do arquivo tacho enviada ao servidor." },
-  { "id": "f104=53", "labelPt": "Tacógrafo: confirmação arquivo card1", "severity": "info", "description": "Tacógrafo: confirmação do arquivo card1 enviada ao servidor." },
-  { "id": "f104=54", "labelPt": "Tacógrafo: confirmação arquivo card2", "severity": "info", "description": "Tacógrafo: confirmação do arquivo card2 enviada ao servidor." },
-  { "id": "f104=55", "labelPt": "Tacógrafo: requisição arquivo tacho", "severity": "info", "description": "Tacógrafo: requisição de arquivo tacho recebida do servidor." },
-  { "id": "f104=56", "labelPt": "Tacógrafo: requisição arquivo card1", "severity": "info", "description": "Tacógrafo: requisição de arquivo card1 recebida do servidor." },
-  { "id": "f104=57", "labelPt": "Tacógrafo: requisição arquivo card2", "severity": "info", "description": "Tacógrafo: requisição de arquivo card2 recebida do servidor." },
-  { "id": "f104=58", "labelPt": "Tacógrafo: requisição VIN por SMS", "severity": "info", "description": "Tacógrafo: requisição VIN por SMS." },
-  { "id": "f104=59", "labelPt": "Tacógrafo: ATTR longo demais", "severity": "warning", "description": "Tacógrafo: ATTR do cartão da empresa longo demais." },
-  { "id": "f104=60", "labelPt": "Tacógrafo: CAN perdido", "severity": "warning", "description": "Tacógrafo: comunicação CAN perdida." },
-  { "id": "f104=61", "labelPt": "Tacógrafo: abrindo CARD T0", "severity": "info", "description": "Tacógrafo: abrindo protocolo CARD T0." },
-  { "id": "f104=62", "labelPt": "Tacógrafo: abrindo CARD T1", "severity": "info", "description": "Tacógrafo: abrindo protocolo CARD T1." },
-  { "id": "f104=63", "labelPt": "Tacógrafo: abrindo CARD Tx", "severity": "info", "description": "Tacógrafo: abrindo protocolo CARD Tx." },
-  { "id": "f104=64", "labelPt": "Tacógrafo: ATTR recebido", "severity": "info", "description": "Tacógrafo: ATTR recebido do cartão." },
-  { "id": "f104=65", "labelPt": "Tacógrafo: ATTR interrompido", "severity": "warning", "description": "Tacógrafo: ATTR interrompido por mudança de tarefa do servidor." },
-  { "id": "f104=66", "labelPt": "Tacógrafo: APDU sem resposta", "severity": "warning", "description": "Tacógrafo: tacógrafo parou de responder durante APDU." },
-  { "id": "f104=67", "labelPt": "Tacógrafo: requisição SA em uso", "severity": "warning", "description": "Tacógrafo: requisição em SA atualmente em uso." },
-  { "id": "f104=68", "labelPt": "Tacógrafo: NRC78 resposta pendente", "severity": "info", "description": "Tacógrafo: NRC78 resposta pendente, tempo limite estendido." },
-  { "id": "f104=69", "labelPt": "Tacógrafo: APDU rejeitado (cartão da empresa)", "severity": "warning", "description": "Tacógrafo: cartão da empresa rejeitou APDU." },
-  { "id": "f104=70", "labelPt": "Tacógrafo: resposta desconhecida (req)", "severity": "warning", "description": "Tacógrafo: resposta desconhecida (CompanyCardToVUData req)." },
-  { "id": "f104=71", "labelPt": "Tacógrafo: APDU erro VU", "severity": "warning", "description": "Tacógrafo: APDU erro respondido pelo VU." },
-  { "id": "f104=72", "labelPt": "Tacógrafo: muitas falhas de autenticação", "severity": "warning", "description": "Tacógrafo: muitas falhas de autenticação (VU)." },
-  { "id": "f104=73", "labelPt": "Tacógrafo: tamanho incorreto", "severity": "warning", "description": "Tacógrafo: tamanho de dados incorreto (CompanyCardToVUData req)." },
-  { "id": "f104=74", "labelPt": "Tacógrafo: 500 kbit/s detectado", "severity": "info", "description": "Tacógrafo: 500 kbit/s detectado (coincidindo com anterior)." },
-  { "id": "f104=75", "labelPt": "Tacógrafo: 250 kbit/s detectado", "severity": "info", "description": "Tacógrafo: 250 kbit/s detectado." },
-  { "id": "f104=76", "labelPt": "Tacógrafo: 250 kbit/s detectado", "severity": "info", "description": "Tacógrafo: 250 kbit/s detectado (coincidindo com anterior)." },
-  { "id": "f104=77", "labelPt": "Tacógrafo: 500 kbit/s detectado", "severity": "info", "description": "Tacógrafo: 500 kbit/s detectado." },
-  { "id": "f104=78", "labelPt": "Tacógrafo: 500 kbit/s selecionado", "severity": "info", "description": "Tacógrafo: 500 kbit/s selecionado (sem atividade CAN)." },
-  { "id": "f104=79", "labelPt": "Tacógrafo: 250 kbit/s selecionado", "severity": "info", "description": "Tacógrafo: 250 kbit/s selecionado (sem atividade CAN)." },
-  { "id": "f104=80", "labelPt": "Tacógrafo: NRC21 VU ocupado", "severity": "warning", "description": "Tacógrafo: NRC21 VU ocupado, repetindo requisição." },
-  { "id": "f104=81", "labelPt": "Tacógrafo: tempo limite da sessão remota", "severity": "warning", "description": "Tacógrafo: tempo limite da sessão remota; reiniciando." },
-  { "id": "f104=82", "labelPt": "Tacógrafo: resposta APDU desconhecida", "severity": "warning", "description": "Tacógrafo: resposta desconhecida ao APDU." },
-  { "id": "f104=83", "labelPt": "Tacógrafo: socket fechado", "severity": "warning", "description": "Tacógrafo: socket fechado; troca encerrada." },
-  { "id": "f104=84", "labelPt": "Tacógrafo: resposta em SA atual", "severity": "warning", "description": "Tacógrafo: resposta no SA atualmente em uso." },
-  { "id": "f104=85", "labelPt": "Tacógrafo: tempo limite do ATTR (200s)", "severity": "warning", "description": "Tacógrafo: ATTR não recebido no tempo limite (200s)." },
-  { "id": "f104=86", "labelPt": "Tacógrafo: resposta inicial ATTR desconhecida", "severity": "warning", "description": "Tacógrafo: resposta desconhecida ao ATTR inicial." },
-  { "id": "f104=87", "labelPt": "Tacógrafo: RemoteCompanyCardReady inválido", "severity": "warning", "description": "Tacógrafo: condições RemoteCompanyCardReady incorretas." },
-  { "id": "f104=88", "labelPt": "Tacógrafo: sequência RemoteCompanyCardReady inválida", "severity": "warning", "description": "Tacógrafo: sequência RemoteCompanyCardReady inválida." },
-  { "id": "f104=89", "labelPt": "Tacógrafo: falha leitura parâmetros CAN", "severity": "warning", "description": "Tacógrafo: falha leitura de parâmetros após setup CAN." },
-  { "id": "f104=90", "labelPt": "Tacógrafo: falha leitura parâmetros (autorização)", "severity": "warning", "description": "Tacógrafo: falha leitura de parâmetros após autorização do cartão da empresa." },
-  { "id": "f104=91", "labelPt": "Tacógrafo: falha leitura parâmetros (download remoto)", "severity": "warning", "description": "Tacógrafo: falha leitura de parâmetros após liberação de download remoto." },
-  { "id": "f104=92", "labelPt": "Tacógrafo: falha leitura parâmetros (restart)", "severity": "warning", "description": "Tacógrafo: falha leitura de parâmetros aguardando reinício da autorização." },
-  { "id": "f104=93", "labelPt": "Tacógrafo: falha iniciar sessão remota", "severity": "warning", "description": "Tacógrafo: falha iniciar sessão remota após setup." },
-  { "id": "f104=94", "labelPt": "Tacógrafo: falha leitura parâmetros (ATTR)", "severity": "warning", "description": "Tacógrafo: falha leitura parâmetros aguardando ATTR." },
-  { "id": "f104=95", "labelPt": "Tacógrafo: falha leitura parâmetros (APDU)", "severity": "warning", "description": "Tacógrafo: falha leitura parâmetros aguardando APDU." },
-  { "id": "f104=96", "labelPt": "Tacógrafo: tarefa mudou", "severity": "warning", "description": "Tacógrafo: tarefa do servidor mudou durante espera de APDU." },
-  { "id": "f104=97", "labelPt": "Tacógrafo: tempo limite do APDU", "severity": "warning", "description": "Tacógrafo: tempo limite do APDU." },
-  { "id": "f104=98", "labelPt": "Tacógrafo: resposta remota desconhecida", "severity": "warning", "description": "Tacógrafo: resposta desconhecida ao iniciar sessão remota." },
-  { "id": "f104=99", "labelPt": "Tacógrafo: falha na presença do tester", "severity": "warning", "description": "Tacógrafo: falha no serviço de presença do tester." },
-  { "id": "f104=100", "labelPt": "Tacógrafo: inicializado SA 0xFA", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xFA." },
-  { "id": "f104=101", "labelPt": "Tacógrafo: inicializado SA 0xFB", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xFB." },
-  { "id": "f104=102", "labelPt": "Tacógrafo: inicializado SA 0xF9", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF9." },
-  { "id": "f104=103", "labelPt": "Tacógrafo: inicializado SA 0xF8", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF8." },
-  { "id": "f104=104", "labelPt": "Tacógrafo: inicializado SA 0xF7", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF7." },
-  { "id": "f104=105", "labelPt": "Tacógrafo: inicializado SA 0xF6", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF6." },
-  { "id": "f104=106", "labelPt": "Tacógrafo: inicializado SA 0xF5", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF5." },
-  { "id": "f104=107", "labelPt": "Tacógrafo: inicializado SA 0xF4", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF4." },
-  { "id": "f104=108", "labelPt": "Tacógrafo: inicializado SA 0xF3", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF3." },
-  { "id": "f104=109", "labelPt": "Tacógrafo: inicializado SA 0xF2", "severity": "info", "description": "Tacógrafo: inicializado com SA 0xF2." },
-  { "id": "f104=110", "labelPt": "Tacógrafo: inicializado SA 0x4A", "severity": "info", "description": "Tacógrafo: inicializado com SA 0x4A." },
-  { "id": "f104=120", "labelPt": "Tacógrafo: CRC resposta inválida", "severity": "warning", "description": "Tacógrafo: CRC de resposta inválida." },
-  { "id": "f104=121", "labelPt": "Tacógrafo: tempo limite do servidor de autenticação", "severity": "warning", "description": "Tacógrafo: tempo limite do servidor de autenticação; conexão encerrada." },
-  { "id": "f104=122", "labelPt": "Tacógrafo: socket virtual fechado", "severity": "warning", "description": "Tacógrafo: socket virtual fechado." },
-  { "id": "f104=123", "labelPt": "Tacógrafo: socket virtual erro", "severity": "warning", "description": "Tacógrafo: erro ao criar socket virtual - card server não encontrado." },
-  { "id": "f104=124", "labelPt": "Tacógrafo: tamanho de resposta inválido", "severity": "warning", "description": "Tacógrafo: tamanho da resposta não suportado." },
-  { "id": "f104=125", "labelPt": "Tacógrafo: fechar cartão da empresa", "severity": "info", "description": "Tacógrafo: dispositivo solicitou fechar cartão da empresa." },
-  { "id": "f104=126", "labelPt": "Tacógrafo: tempo limite do servidor de download", "severity": "warning", "description": "Tacógrafo: tempo limite do servidor de download; conexão encerrada." },
-  { "id": "f104=127", "labelPt": "Tacógrafo: socket virtual erro", "severity": "warning", "description": "Tacógrafo: erro ao criar socket virtual." },
-  { "id": "f104=128", "labelPt": "Tacógrafo: tarefa pendente", "severity": "info", "description": "Tacógrafo: tarefa pendente; forçando início da conexão." },
-  { "id": "f104=129", "labelPt": "Tacógrafo: CAN prioridade 6", "severity": "info", "description": "Tacógrafo: inicializando comunicação CAN prioridade 6." },
-  { "id": "f104=130", "labelPt": "Tacógrafo: CAN prioridade 7", "severity": "info", "description": "Tacógrafo: inicializando comunicação CAN prioridade 7." },
-  { "id": "f104=131", "labelPt": "Tacógrafo: resposta download inesperada", "severity": "warning", "description": "Tacógrafo: resposta inesperada ao download." },
-
-  { "id": "f115=0", "labelPt": "Tacógrafo: parâmetros OK", "severity": "info", "description": "Flags de parâmetros estendidos do tacógrafo: sucesso." },
-  { "id": "f115=1", "labelPt": "Tacógrafo: parâmetros fora de alcance", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: fora de alcance." },
-  { "id": "f115=2", "labelPt": "Tacógrafo: condições incorretas", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: condições incorretas." },
-  { "id": "f115=3", "labelPt": "Tacógrafo: sem resposta", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: sem resposta." },
-  { "id": "f115=4", "labelPt": "Tacógrafo: indicador de erro", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: indicador de erro." },
-  { "id": "f115=5", "labelPt": "Tacógrafo: não disponível", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: não disponível." },
-  { "id": "f115=6", "labelPt": "Tacógrafo: resposta desconhecida", "severity": "warning", "description": "Flags de parâmetros estendidos do tacógrafo: resposta desconhecida." },
-
-  { "id": "f240=0", "labelPt": "Hora atrasada", "severity": "warning", "description": "Hora do sistema atrasada (fonte 0 GPS, 1 NTP)." },
-  { "id": "f250=0", "labelPt": "Hora adiantada", "severity": "warning", "description": "Hora do sistema adiantada (fonte 0 GPS, 1 NTP)." }
+  {
+    "id": "f0=0",
+    "labelPt": "Reset de software",
+    "severity": "info",
+    "description": "Reset de software."
+  },
+  {
+    "id": "f0=1",
+    "labelPt": "Alimentação conectada",
+    "severity": "info",
+    "description": "Fonte de alimentação conectada."
+  },
+  {
+    "id": "f0=4",
+    "labelPt": "Problema na alimentação",
+    "severity": "warning",
+    "description": "Problema na fonte de alimentação."
+  },
+  {
+    "id": "f0=5",
+    "labelPt": "Alimentação conectada",
+    "severity": "info",
+    "description": "Fonte de alimentação conectada."
+  },
+  {
+    "id": "f0=8",
+    "labelPt": "Reset por monitor de segurança",
+    "severity": "warning",
+    "description": "Reset realizado pelo monitor de segurança (após atualização de firmware)."
+  },
+  {
+    "id": "f0=100",
+    "labelPt": "Erro indeterminado",
+    "severity": "warning",
+    "description": "Erro indeterminado."
+  },
+  {
+    "id": "f0=101",
+    "labelPt": "Sem confirmação do servidor",
+    "severity": "warning",
+    "description": "Sem confirmação do servidor."
+  },
+  {
+    "id": "f0=102",
+    "labelPt": "Sem confirmação do servidor",
+    "severity": "warning",
+    "description": "Sem confirmação do servidor. Conexão com o servidor perdida."
+  },
+  {
+    "id": "f0=103",
+    "labelPt": "Mudança para ambiente de comandos",
+    "severity": "info",
+    "description": "Enquanto aguardava confirmação, mudou do servidor para o ambiente de comandos."
+  },
+  {
+    "id": "f0=104",
+    "labelPt": "Dados não reconhecidos do servidor",
+    "severity": "warning",
+    "description": "Dados não reconhecidos do servidor."
+  },
+  {
+    "id": "f0=105",
+    "labelPt": "Sem resposta válida",
+    "severity": "warning",
+    "description": "Sem resposta/valor válido."
+  },
+  {
+    "id": "f0=106",
+    "labelPt": "Erro indeterminado",
+    "severity": "warning",
+    "description": "Erro indeterminado."
+  },
+  {
+    "id": "f0=107",
+    "labelPt": "Assinatura do dispositivo divergente",
+    "severity": "warning",
+    "description": "Divergência na assinatura do dispositivo."
+  },
+  {
+    "id": "f0=108",
+    "labelPt": "Confirmação não recebida",
+    "severity": "warning",
+    "description": "Confirmação não recebida."
+  },
+  {
+    "id": "f0=109",
+    "labelPt": "Firmware: tamanho incorreto",
+    "severity": "warning",
+    "description": "Firmware: tamanho incorreto."
+  },
+  {
+    "id": "f0=110",
+    "labelPt": "Firmware: tamanho desconhecido",
+    "severity": "warning",
+    "description": "Firmware: tamanho desconhecido."
+  },
+  {
+    "id": "f0=111",
+    "labelPt": "Firmware: gravação incompleta",
+    "severity": "warning",
+    "description": "Firmware: gravação na flash não concluída com sucesso."
+  },
+  {
+    "id": "f0=112",
+    "labelPt": "Firmware: arquivo incompleto",
+    "severity": "warning",
+    "description": "Firmware: não foi possível receber o arquivo completo."
+  },
+  {
+    "id": "f0=113",
+    "labelPt": "Firmware: tamanho divergente",
+    "severity": "warning",
+    "description": "Firmware: tamanho divergente com o servidor."
+  },
+  {
+    "id": "f0=114",
+    "labelPt": "Firmware: gravação falhou",
+    "severity": "warning",
+    "description": "Firmware: gravação na flash falhou."
+  },
+  {
+    "id": "f0=115",
+    "labelPt": "Firmware: erro desconhecido",
+    "severity": "warning",
+    "description": "Firmware: erro desconhecido."
+  },
+  {
+    "id": "f0=116",
+    "labelPt": "GPS travado",
+    "severity": "warning",
+    "description": "GPS travado."
+  },
+  {
+    "id": "f0=117",
+    "labelPt": "Erro indeterminado",
+    "severity": "warning",
+    "description": "Erro indeterminado."
+  },
+  {
+    "id": "f0=118",
+    "labelPt": "Sinal GSM fraco",
+    "severity": "warning",
+    "description": "Sinal GSM muito fraco."
+  },
+  {
+    "id": "f0=119",
+    "labelPt": "GPRS não registrado",
+    "severity": "warning",
+    "description": "GPRS não registrado e não está buscando registro."
+  },
+  {
+    "id": "f0=120",
+    "labelPt": "GPRS negado",
+    "severity": "warning",
+    "description": "Registro GPRS negado."
+  },
+  {
+    "id": "f0=121",
+    "labelPt": "GSM não registrado",
+    "severity": "warning",
+    "description": "GSM não registrado e não está buscando registro."
+  },
+  {
+    "id": "f0=122",
+    "labelPt": "GSM negado",
+    "severity": "warning",
+    "description": "Registro GSM negado."
+  },
+  {
+    "id": "f0=123",
+    "labelPt": "NMEA insuficiente",
+    "severity": "warning",
+    "description": "Dados NMEA insuficientes."
+  },
+  {
+    "id": "f0=124",
+    "labelPt": "Problema no servidor",
+    "severity": "warning",
+    "description": "Problema no servidor."
+  },
+  {
+    "id": "f0=125",
+    "labelPt": "Problema no servidor/Google",
+    "severity": "warning",
+    "description": "Servidor e Google não respondem (possível conflito com GPRS ACT)."
+  },
+  {
+    "id": "f0=126",
+    "labelPt": "Erro no banco do servidor",
+    "severity": "warning",
+    "description": "Erro no banco de dados do servidor."
+  },
+  {
+    "id": "f0=127",
+    "labelPt": "Modem desligado",
+    "severity": "warning",
+    "description": "Desligamento do modem autônomo."
+  },
+  {
+    "id": "f0=128",
+    "labelPt": "Tempo interno adiantado",
+    "severity": "warning",
+    "description": "Tempo interno adiantado mais de 20s em relação ao GPS."
+  },
+  {
+    "id": "f0=129",
+    "labelPt": "Tempo interno atrasado",
+    "severity": "warning",
+    "description": "Tempo interno atrasado mais de 20s em relação ao GPS."
+  },
+  {
+    "id": "f0=130",
+    "labelPt": "SMS de reboot",
+    "severity": "info",
+    "description": "Dispositivo recebeu SMS para reboot."
+  },
+  {
+    "id": "f0=131",
+    "labelPt": "Limite de banda excedido",
+    "severity": "warning",
+    "description": "Limite de banda excedido."
+  },
+  {
+    "id": "f0=132",
+    "labelPt": "Reboot controlado do monitor de segurança",
+    "severity": "warning",
+    "description": "Reboot controlado do monitor de segurança - dados preservados."
+  },
+  {
+    "id": "f0=133",
+    "labelPt": "Sem envio por 24h",
+    "severity": "warning",
+    "description": "Sem envio de dados ao servidor por 24h. Reboot do modem."
+  },
+  {
+    "id": "f0=134",
+    "labelPt": "Registro GSM negado (30x)",
+    "severity": "warning",
+    "description": "Registro GSM negado 30 vezes. Reboot do modem."
+  },
+  {
+    "id": "f0=135",
+    "labelPt": "GSM em busca",
+    "severity": "info",
+    "description": "Registro GSM em estado de busca."
+  },
+  {
+    "id": "f0=136",
+    "labelPt": "GSM desconhecido",
+    "severity": "warning",
+    "description": "Registro GSM em estado desconhecido."
+  },
+  {
+    "id": "f0=137",
+    "labelPt": "GPRS em busca",
+    "severity": "info",
+    "description": "Registro GPRS em estado de busca."
+  },
+  {
+    "id": "f0=138",
+    "labelPt": "GPRS desconhecido",
+    "severity": "warning",
+    "description": "Registro GPRS em estado desconhecido."
+  },
+  {
+    "id": "f0=139",
+    "labelPt": "Reset inteligente do modem",
+    "severity": "warning",
+    "description": "Reset inteligente do modem."
+  },
+  {
+    "id": "f0=140",
+    "labelPt": "SIM não inserido",
+    "severity": "critical",
+    "description": "SIM não inserido."
+  },
+  {
+    "id": "f0=141",
+    "labelPt": "PIN do SIM perdido",
+    "severity": "warning",
+    "description": "PIN do SIM perdido durante o processo."
+  },
+  {
+    "id": "f0=142",
+    "labelPt": "SIM com PUK",
+    "severity": "critical",
+    "description": "Problema no SIM durante o boot (PUK requerido?)."
+  },
+  {
+    "id": "f0=143",
+    "labelPt": "PDP reativado",
+    "severity": "info",
+    "description": "Contexto PDP reativado."
+  },
+  {
+    "id": "f0=144",
+    "labelPt": "Conexão perdida",
+    "severity": "warning",
+    "description": "Conexão perdida durante troca de dados com o servidor."
+  },
+  {
+    "id": "f0=145",
+    "labelPt": "Nova conexão TCP",
+    "severity": "info",
+    "description": "Nova conexão TCP."
+  },
+  {
+    "id": "f0=146",
+    "labelPt": "Sem resposta em modo dados",
+    "severity": "warning",
+    "description": "Sem resposta suportada em modo dados."
+  },
+  {
+    "id": "f0=147",
+    "labelPt": "Bytes inesperados",
+    "severity": "warning",
+    "description": "Número inesperado de bytes (4 em vez de 2)."
+  },
+  {
+    "id": "f0=148",
+    "labelPt": "Erro no servidor",
+    "severity": "warning",
+    "description": "Erro no servidor."
+  },
+  {
+    "id": "f0=149",
+    "labelPt": "Erro indeterminado",
+    "severity": "warning",
+    "description": "Erro indeterminado."
+  },
+  {
+    "id": "f0=150",
+    "labelPt": "DCD não recebido",
+    "severity": "warning",
+    "description": "DCD não recebido."
+  },
+  {
+    "id": "f0=151",
+    "labelPt": "SIM não encontrado",
+    "severity": "critical",
+    "description": "SIM não encontrado após reset."
+  },
+  {
+    "id": "f0=152",
+    "labelPt": "PUK requerido",
+    "severity": "critical",
+    "description": "PUK requerido."
+  },
+  {
+    "id": "f0=153",
+    "labelPt": "Sinal GPS fraco",
+    "severity": "warning",
+    "description": "Sinal GPS muito fraco."
+  },
+  {
+    "id": "f0=154",
+    "labelPt": "Modem sem resposta",
+    "severity": "critical",
+    "description": "Modem não respondeu; desligamento incondicional."
+  },
+  {
+    "id": "f0=155",
+    "labelPt": "Falha ao ligar modem",
+    "severity": "critical",
+    "description": "Falha ao ligar modem."
+  },
+  {
+    "id": "f0=156",
+    "labelPt": "Operadora local",
+    "severity": "info",
+    "description": "Registrado em operadora local."
+  },
+  {
+    "id": "f0=157",
+    "labelPt": "Operadora local",
+    "severity": "info",
+    "description": "Registrado em operadora local."
+  },
+  {
+    "id": "f0=158",
+    "labelPt": "Desconexão forçada",
+    "severity": "warning",
+    "description": "Desconexão forçada da internet."
+  },
+  {
+    "id": "f0=159",
+    "labelPt": "Novo socket UDP",
+    "severity": "info",
+    "description": "Novo socket UDP para FMSet."
+  },
+  {
+    "id": "f0=160",
+    "labelPt": "Novo socket server2",
+    "severity": "info",
+    "description": "Novo socket para server2 criado."
+  },
+  {
+    "id": "f0=161",
+    "labelPt": "Novo socket opcional",
+    "severity": "info",
+    "description": "Novo socket opcional criado."
+  },
+  {
+    "id": "f0=162",
+    "labelPt": "Socket tacógrafo",
+    "severity": "info",
+    "description": "Novo socket de cartão de tacógrafo criado."
+  },
+  {
+    "id": "f0=163",
+    "labelPt": "Monitor de segurança do PDP",
+    "severity": "warning",
+    "description": "Monitor de segurança do PDP - desconectando."
+  },
+  {
+    "id": "f0=164",
+    "labelPt": "Sincronização NTP",
+    "severity": "info",
+    "description": "Sincronização NTP concluída."
+  },
+  {
+    "id": "f0=165",
+    "labelPt": "Socket do servidor de cartão OK",
+    "severity": "info",
+    "description": "Socket com servidor de cartão OK."
+  },
+  {
+    "id": "f0=166",
+    "labelPt": "Socket do servidor de cartão falhou",
+    "severity": "warning",
+    "description": "Socket com servidor de cartão falhou."
+  },
+  {
+    "id": "f0=167",
+    "labelPt": "Busca nova operadora",
+    "severity": "info",
+    "description": "Iniciando busca de nova operadora para registro."
+  },
+  {
+    "id": "f0=168",
+    "labelPt": "Erro na busca de operadoras",
+    "severity": "warning",
+    "description": "Erro ao buscar operadoras em cobertura. Modo automático habilitado."
+  },
+  {
+    "id": "f0=169",
+    "labelPt": "Operadoras encontradas",
+    "severity": "info",
+    "description": "Operadoras em cobertura encontradas."
+  },
+  {
+    "id": "f0=170",
+    "labelPt": "Operadora preferida encontrada",
+    "severity": "info",
+    "description": "Operadora preferida encontrada e registro manual configurado."
+  },
+  {
+    "id": "f0=171",
+    "labelPt": "Operadoras fora da lista preferida",
+    "severity": "warning",
+    "description": "Operadoras em cobertura não estão na lista preferida."
+  },
+  {
+    "id": "f0=172",
+    "labelPt": "Operadoras banidas",
+    "severity": "warning",
+    "description": "Todas as operadoras estão na lista de banidas."
+  },
+  {
+    "id": "f0=173",
+    "labelPt": "Selecionar operadora manualmente",
+    "severity": "info",
+    "description": "Selecione uma operadora em cobertura para registro manual."
+  },
+  {
+    "id": "f0=174",
+    "labelPt": "Sem lista preferida",
+    "severity": "warning",
+    "description": "Sem lista preferida programada, modo automático ativado."
+  },
+  {
+    "id": "f0=175",
+    "labelPt": "Registro manual",
+    "severity": "info",
+    "description": "Registro definido como manual."
+  },
+  {
+    "id": "f0=176",
+    "labelPt": "Sem NTP",
+    "severity": "warning",
+    "description": "Nenhum servidor NTP encontrado."
+  },
+  {
+    "id": "f0=177",
+    "labelPt": "Resposta incorreta AsyncStack",
+    "severity": "warning",
+    "description": "Resposta incorreta recebida no serviço AsyncStack."
+  },
+  {
+    "id": "f0=178",
+    "labelPt": "Resposta repetida",
+    "severity": "info",
+    "description": "Resposta repetida recebida."
+  },
+  {
+    "id": "f0=179",
+    "labelPt": "Modem desligado",
+    "severity": "warning",
+    "description": "Modem desligado ou IP final 255."
+  },
+  {
+    "id": "f0=180",
+    "labelPt": "Operadora manual falhou",
+    "severity": "warning",
+    "description": "Falha ao definir operadora em modo manual."
+  },
+  {
+    "id": "f0=181",
+    "labelPt": "Seleção automática habilitada",
+    "severity": "info",
+    "description": "Seleção automática de operadora habilitada."
+  },
+  {
+    "id": "f0=182",
+    "labelPt": "Seleção automática habilitada",
+    "severity": "info",
+    "description": "Seleção automática de operadora habilitada."
+  },
+  {
+    "id": "f0=183",
+    "labelPt": "Busca manual falhou",
+    "severity": "warning",
+    "description": "Busca manual falhou; modo automático habilitado."
+  },
+  {
+    "id": "f0=240",
+    "labelPt": "Perda de alimentação",
+    "severity": "critical",
+    "description": "Perda de alimentação."
+  },
+  {
+    "id": "f8=1",
+    "labelPt": "Sem OK no +CGATT",
+    "severity": "warning",
+    "description": "Sem confirmação (OK) ao executar comando +CGATT."
+  },
+  {
+    "id": "f10=1",
+    "labelPt": "Erro ao criar PDP",
+    "severity": "warning",
+    "description": "Condição ERROR ao criar contexto PDP."
+  },
+  {
+    "id": "f10=2",
+    "labelPt": "Sem resposta ao criar PDP",
+    "severity": "warning",
+    "description": "Sem resposta ao criar contexto PDP."
+  },
+  {
+    "id": "f10=3",
+    "labelPt": "Sem OK ao criar PDP",
+    "severity": "warning",
+    "description": "OK não encontrado ao criar contexto PDP."
+  },
+  {
+    "id": "f10=4",
+    "labelPt": "IP não encontrado",
+    "severity": "warning",
+    "description": "IP não encontrado na resposta de criação do PDP."
+  },
+  {
+    "id": "f12=1",
+    "labelPt": "Sem resposta ao criar socket",
+    "severity": "warning",
+    "description": "Sem resposta ao criar socket."
+  },
+  {
+    "id": "f12=2",
+    "labelPt": "NO CARRIER ao criar socket",
+    "severity": "warning",
+    "description": "NO CARRIER recebido ao criar socket (em vez de CONNECT)."
+  },
+  {
+    "id": "f12=3",
+    "labelPt": "Erro ao criar socket",
+    "severity": "warning",
+    "description": "Condição ERROR ao criar socket."
+  },
+  {
+    "id": "f28=1",
+    "labelPt": "SIM ocupado",
+    "severity": "warning",
+    "description": "SIM ocupado."
+  },
+  {
+    "id": "f43=2",
+    "labelPt": "SIM bloqueou leitura de contatos",
+    "severity": "warning",
+    "description": "SIM temporariamente não permite ler contatos no boot."
+  },
+  {
+    "id": "f93=1",
+    "labelPt": "Falha: Stack overflow",
+    "severity": "critical",
+    "description": "Falha: Stack overflow."
+  },
+  {
+    "id": "f93=2",
+    "labelPt": "Falha: FIFO overflow",
+    "severity": "critical",
+    "description": "Falha: FIFO overflow."
+  },
+  {
+    "id": "f93=3",
+    "labelPt": "Falha: Mailbox overflow",
+    "severity": "critical",
+    "description": "Falha: Mailbox overflow."
+  },
+  {
+    "id": "f93=4",
+    "labelPt": "Falha: Timer overflow",
+    "severity": "critical",
+    "description": "Falha: Timer overflow."
+  },
+  {
+    "id": "f93=5",
+    "labelPt": "Falha: Baixa VCC/Bateria",
+    "severity": "critical",
+    "description": "Falha: Baixa tensão VCC ou bateria."
+  },
+  {
+    "id": "f93=6",
+    "labelPt": "Falha: monitor de segurança",
+    "severity": "critical",
+    "description": "Falha: temporizador do monitor de segurança."
+  },
+  {
+    "id": "f93=100",
+    "labelPt": "Falha: Thread pausada",
+    "severity": "warning",
+    "description": "Falha: Thread pausada."
+  },
+  {
+    "id": "f99=1",
+    "labelPt": "Sem resposta do módulo celular",
+    "severity": "critical",
+    "description": "Sem resposta do módulo celular."
+  },
+  {
+    "id": "f99=2",
+    "labelPt": "Auto GNSS desativado",
+    "severity": "info",
+    "description": "Auto GNSS desativado."
+  },
+  {
+    "id": "f99=3",
+    "labelPt": "Configuração NMEA alterada",
+    "severity": "info",
+    "description": "Configuração serial NMEA alterada."
+  },
+  {
+    "id": "f99=4",
+    "labelPt": "Configuração GLONASS alterada",
+    "severity": "info",
+    "description": "Configuração do sistema GLONASS alterada."
+  },
+  {
+    "id": "f99=5",
+    "labelPt": "Módulo GPS desligado",
+    "severity": "warning",
+    "description": "Módulo GPS desligado."
+  },
+  {
+    "id": "f99=6",
+    "labelPt": "Echo mode ativado",
+    "severity": "info",
+    "description": "Echo mode ativado (possível reset não intencional do módulo celular)."
+  },
+  {
+    "id": "f100=0",
+    "labelPt": "Reboot geral do modem",
+    "severity": "warning",
+    "description": "Reboot geral do modem ON-OFF."
+  },
+  {
+    "id": "f100=1",
+    "labelPt": "Flash formatada",
+    "severity": "warning",
+    "description": "Memória flash formatada."
+  },
+  {
+    "id": "f100=2",
+    "labelPt": "HEAP insuficiente",
+    "severity": "critical",
+    "description": "Memória HEAP insuficiente."
+  },
+  {
+    "id": "f100=3",
+    "labelPt": "Pacote não reconhecido",
+    "severity": "warning",
+    "description": "Servidor confirmou pacote não reconhecido."
+  },
+  {
+    "id": "f100=4",
+    "labelPt": "Reboot do modem em andamento",
+    "severity": "info",
+    "description": "Reboot do modem em andamento."
+  },
+  {
+    "id": "f100=5",
+    "labelPt": "Sem operadora preferida",
+    "severity": "warning",
+    "description": "Sem operadora preferida em cobertura."
+  },
+  {
+    "id": "f100=7",
+    "labelPt": "Operadora encontrada",
+    "severity": "info",
+    "description": "Operadora encontrada e configurada."
+  },
+  {
+    "id": "f100=8",
+    "labelPt": "Busca de operadora falhou",
+    "severity": "warning",
+    "description": "Busca de operadora não foi bem-sucedida."
+  },
+  {
+    "id": "f100=9",
+    "labelPt": "Country code não encontrado",
+    "severity": "warning",
+    "description": "Country code não encontrado no mode2."
+  },
+  {
+    "id": "f100=10",
+    "labelPt": "Country code encontrado",
+    "severity": "info",
+    "description": "Country code encontrado no mode2."
+  },
+  {
+    "id": "f100=11",
+    "labelPt": "Registro manual falhou",
+    "severity": "warning",
+    "description": "Registro manual não foi bem-sucedido."
+  },
+  {
+    "id": "f100=12",
+    "labelPt": "Registro negado",
+    "severity": "warning",
+    "description": "Status: registro negado."
+  },
+  {
+    "id": "f100=13",
+    "labelPt": "GPRS parou de registrar",
+    "severity": "warning",
+    "description": "CGREG indica que o modem parou de tentar registrar no GPRS."
+  },
+  {
+    "id": "f100=14",
+    "labelPt": "Conexão com servidor falhou",
+    "severity": "warning",
+    "description": "Conexão com servidor falhou."
+  },
+  {
+    "id": "f100=15",
+    "labelPt": "Reboot após falha PDP",
+    "severity": "warning",
+    "description": "Reboot do modem após falhas de ativação PDP."
+  },
+  {
+    "id": "f100=16",
+    "labelPt": "Chamada VOICE detectada",
+    "severity": "info",
+    "description": "Chamada VOICE detectada."
+  },
+  {
+    "id": "f100=17",
+    "labelPt": "Chamada DATA detectada",
+    "severity": "info",
+    "description": "Chamada DATA detectada."
+  },
+  {
+    "id": "f100=18",
+    "labelPt": "Reset de socket pelo servidor",
+    "severity": "warning",
+    "description": "Reset de socket recebido do servidor."
+  },
+  {
+    "id": "f100=19",
+    "labelPt": "Modem desligado automaticamente",
+    "severity": "warning",
+    "description": "Modem desligado automaticamente."
+  },
+  {
+    "id": "f100=20",
+    "labelPt": "Procedimento de reset",
+    "severity": "info",
+    "description": "Procedimento de reset do modem."
+  },
+  {
+    "id": "f100=21",
+    "labelPt": "Modem ligado",
+    "severity": "info",
+    "description": "Modem ligado."
+  },
+  {
+    "id": "f100=22",
+    "labelPt": "Modem desligado",
+    "severity": "info",
+    "description": "Modem desligado."
+  },
+  {
+    "id": "f100=23",
+    "labelPt": "Ciclo de energia do modem",
+    "severity": "warning",
+    "description": "Ciclo de energia do modem."
+  },
+  {
+    "id": "f100=24",
+    "labelPt": "Atualização de firmware",
+    "severity": "info",
+    "description": "Comando de atualização de firmware."
+  },
+  {
+    "id": "f100=25",
+    "labelPt": "Atualização negada",
+    "severity": "warning",
+    "description": "Atualização de firmware negada (CS inválido)."
+  },
+  {
+    "id": "f100=26",
+    "labelPt": "Suspend enviado",
+    "severity": "info",
+    "description": "Suspend enviado."
+  },
+  {
+    "id": "f100=27",
+    "labelPt": "Resume enviado",
+    "severity": "info",
+    "description": "Resume enviado."
+  },
+  {
+    "id": "f100=28",
+    "labelPt": "Memória intermediária do socket cheia",
+    "severity": "warning",
+    "description": "Socket com memória intermediária estourada."
+  },
+  {
+    "id": "f100=29",
+    "labelPt": "Checksum inválido",
+    "severity": "warning",
+    "description": "Checksum inválido do servidor."
+  },
+  {
+    "id": "f100=30",
+    "labelPt": "Bytes demais",
+    "severity": "warning",
+    "description": "Bytes demais recebidos do servidor."
+  },
+  {
+    "id": "f100=31",
+    "labelPt": "Bytes insuficientes",
+    "severity": "warning",
+    "description": "Bytes insuficientes recebidos do servidor."
+  },
+  {
+    "id": "f100=32",
+    "labelPt": "Configuração via SMS",
+    "severity": "info",
+    "description": "Novas configurações recebidas por SMS."
+  },
+  {
+    "id": "f100=33",
+    "labelPt": "Servidor solicitou muitos dados",
+    "severity": "warning",
+    "description": "Servidor solicitou muitos dados ao dispositivo."
+  },
+  {
+    "id": "f100=34",
+    "labelPt": "Registro manual",
+    "severity": "info",
+    "description": "Tipo de registro alterado de auto para manual."
+  },
+  {
+    "id": "f100=35",
+    "labelPt": "NO CARRIER ao retomar socket",
+    "severity": "warning",
+    "description": "NO CARRIER ao tentar retomar socket."
+  },
+  {
+    "id": "f100=36",
+    "labelPt": "Sem CONNECT ao retomar socket",
+    "severity": "warning",
+    "description": "Sem NO CARRIER nem CONNECT ao tentar retomar socket."
+  },
+  {
+    "id": "f100=37",
+    "labelPt": "Registro automático",
+    "severity": "info",
+    "description": "Tipo de registro alterado de manual para automático."
+  },
+  {
+    "id": "f100=38",
+    "labelPt": "FOTASNAP enviado",
+    "severity": "info",
+    "description": "FOTASNAP enviado."
+  },
+  {
+    "id": "f100=39",
+    "labelPt": "FOTA confirmação enviada",
+    "severity": "info",
+    "description": "Confirmação FOTA enviada."
+  },
+  {
+    "id": "f100=40",
+    "labelPt": "FOTA sucesso",
+    "severity": "info",
+    "description": "FOTA concluído com sucesso."
+  },
+  {
+    "id": "f100=41",
+    "labelPt": "FOTA falhou",
+    "severity": "warning",
+    "description": "FOTA não teve sucesso."
+  },
+  {
+    "id": "f100=42",
+    "labelPt": "FOTA confirmação sucesso",
+    "severity": "info",
+    "description": "Confirmação de sucesso FOTA enviada."
+  },
+  {
+    "id": "f100=43",
+    "labelPt": "Reboot automático do modem",
+    "severity": "warning",
+    "description": "Reboot automático do modem."
+  },
+  {
+    "id": "f100=44",
+    "labelPt": "Hora ajustada pelo servidor",
+    "severity": "info",
+    "description": "Hora ajustada pelo servidor."
+  },
+  {
+    "id": "f100=45",
+    "labelPt": "Troca de SIM detectada",
+    "severity": "warning",
+    "description": "Troca de SIM detectada."
+  },
+  {
+    "id": "f100=46",
+    "labelPt": "Lista preferida resetada",
+    "severity": "info",
+    "description": "Lista de operadoras preferidas resetada."
+  },
+  {
+    "id": "f100=47",
+    "labelPt": "GPS desligado por SMS",
+    "severity": "warning",
+    "description": "GPS desligado por comando SMS."
+  },
+  {
+    "id": "f100=48",
+    "labelPt": "GPS ligado por SMS",
+    "severity": "info",
+    "description": "GPS ligado por comando SMS."
+  },
+  {
+    "id": "f100=49",
+    "labelPt": "Desregistro automático",
+    "severity": "warning",
+    "description": "Desregistro automático da rede iniciado."
+  },
+  {
+    "id": "f100=50",
+    "labelPt": "SMS antigo para saída",
+    "severity": "warning",
+    "description": "SMS antigo demais para controle de saída."
+  },
+  {
+    "id": "f100=51",
+    "labelPt": "SMS de controle de saída",
+    "severity": "info",
+    "description": "SMS recebido para controle de saídas."
+  },
+  {
+    "id": "f100=52",
+    "labelPt": "Muitas operadoras na lista",
+    "severity": "warning",
+    "description": "Muitas operadoras na lista; algumas foram ignoradas."
+  },
+  {
+    "id": "f100=53",
+    "labelPt": "Falha ao inserir SIM",
+    "severity": "critical",
+    "description": "Falha na inserção do SIM."
+  },
+  {
+    "id": "f100=54",
+    "labelPt": "Operadora não preferida",
+    "severity": "warning",
+    "description": "Operadora registrada não está na lista preferida; buscando operadoras em cobertura."
+  },
+  {
+    "id": "f100=55",
+    "labelPt": "Sem operadora preferida",
+    "severity": "warning",
+    "description": "Sem operadora preferida em cobertura."
+  },
+  {
+    "id": "f100=56",
+    "labelPt": "Busca de operadora falhou",
+    "severity": "warning",
+    "description": "Modem retornou resposta negativa na busca de operadora."
+  },
+  {
+    "id": "f100=57",
+    "labelPt": "Registro de eventos parado",
+    "severity": "warning",
+    "description": "Registro de eventos interrompido."
+  },
+  {
+    "id": "f100=58",
+    "labelPt": "Comando de saída recebido",
+    "severity": "info",
+    "description": "Comando de saída recebido."
+  },
+  {
+    "id": "f100=59",
+    "labelPt": "Reboot por 28=1",
+    "severity": "warning",
+    "description": "Reboot do modem em caso de 28=1."
+  },
+  {
+    "id": "f100=60",
+    "labelPt": "Inicialização a frio do GPS L76",
+    "severity": "info",
+    "description": "Inicialização a frio do GPS L76."
+  },
+  {
+    "id": "f100=61",
+    "labelPt": "Timer LSI interno",
+    "severity": "info",
+    "description": "Timer do LSI interno."
+  },
+  {
+    "id": "f100=62",
+    "labelPt": "DT7 com bytes demais",
+    "severity": "warning",
+    "description": "Muitos bytes na estrutura DT7."
+  },
+  {
+    "id": "f100=63",
+    "labelPt": "Desligamento incondicional",
+    "severity": "critical",
+    "description": "Desligamento incondicional do modem."
+  },
+  {
+    "id": "f100=64",
+    "labelPt": "Tempo limite do monitor de segurança do modem",
+    "severity": "critical",
+    "description": "Tempo limite do monitor de segurança do modem."
+  },
+  {
+    "id": "f100=65",
+    "labelPt": "Poweron=0",
+    "severity": "warning",
+    "description": "Configuração poweron do modem = 0."
+  },
+  {
+    "id": "f100=66",
+    "labelPt": "Falha de configuração",
+    "severity": "critical",
+    "description": "Falha na verificação de configuração."
+  },
+  {
+    "id": "f100=67",
+    "labelPt": "PDP perdido",
+    "severity": "warning",
+    "description": "Contexto PDP perdido."
+  },
+  {
+    "id": "f100=68",
+    "labelPt": "Reconexão solicitada",
+    "severity": "info",
+    "description": "Reconexão solicitada."
+  },
+  {
+    "id": "f100=69",
+    "labelPt": "Leitura IMEI",
+    "severity": "info",
+    "description": "Leitura de IMEI."
+  },
+  {
+    "id": "f100=70",
+    "labelPt": "Configuração alterada",
+    "severity": "info",
+    "description": "Configurações alteradas pelo FMSet."
+  },
+  {
+    "id": "f100=71",
+    "labelPt": "Configuração do modem perdida",
+    "severity": "warning",
+    "description": "Configuração do modem perdida."
+  },
+  {
+    "id": "f100=72",
+    "labelPt": "PDP perdido",
+    "severity": "warning",
+    "description": "Contexto PDP perdido."
+  },
+  {
+    "id": "f100=73",
+    "labelPt": "Estouro da memória intermediária TX",
+    "severity": "warning",
+    "description": "Estouro da memória intermediária TX do modem."
+  },
+  {
+    "id": "f100=74",
+    "labelPt": "Falha ao criar socket",
+    "severity": "warning",
+    "description": "Falha ao criar socket."
+  },
+  {
+    "id": "f100=75",
+    "labelPt": "Falha ao configurar bearer",
+    "severity": "warning",
+    "description": "Falha ao configurar bearer."
+  },
+  {
+    "id": "f100=76",
+    "labelPt": "Falha ao configurar APN",
+    "severity": "warning",
+    "description": "Falha ao definir APN."
+  },
+  {
+    "id": "f100=77",
+    "labelPt": "Falha ao criar PDP",
+    "severity": "warning",
+    "description": "Falha ao criar contexto PDP."
+  },
+  {
+    "id": "f100=78",
+    "labelPt": "Falha IP local",
+    "severity": "warning",
+    "description": "Falha ao receber IP local."
+  },
+  {
+    "id": "f100=79",
+    "labelPt": "Falha ao desativar PDP",
+    "severity": "warning",
+    "description": "Falha ao desativar contexto PDP."
+  },
+  {
+    "id": "f100=80",
+    "labelPt": "CRC de configuração inválido",
+    "severity": "warning",
+    "description": "CRC de configuração inválido."
+  },
+  {
+    "id": "f100=81",
+    "labelPt": "Falha ao fechar bearer",
+    "severity": "warning",
+    "description": "Falha ao fechar bearer."
+  },
+  {
+    "id": "f100=82",
+    "labelPt": "Reboot por software",
+    "severity": "warning",
+    "description": "Reboot do modem por software."
+  },
+  {
+    "id": "f101=1",
+    "labelPt": "Envio do firmware GPS iniciado",
+    "severity": "info",
+    "description": "Envio do firmware GPS iniciado."
+  },
+  {
+    "id": "f101=2",
+    "labelPt": "FTP falhou",
+    "severity": "warning",
+    "description": "Falha na conexão FTP."
+  },
+  {
+    "id": "f101=3",
+    "labelPt": "Download falhou",
+    "severity": "warning",
+    "description": "Download de um dos dois arquivos falhou."
+  },
+  {
+    "id": "f101=4",
+    "labelPt": "Envio concluído",
+    "severity": "info",
+    "description": "Envio de arquivo concluído com sucesso."
+  },
+  {
+    "id": "f101=5",
+    "labelPt": "Atualização MTK 3333 iniciada",
+    "severity": "info",
+    "description": "Atualização MTK 3333 iniciada."
+  },
+  {
+    "id": "f101=6",
+    "labelPt": "Atualização MTK 3333 concluída",
+    "severity": "info",
+    "description": "Atualização MTK 3333 concluída com sucesso."
+  },
+  {
+    "id": "f101=7",
+    "labelPt": "MTK start falhou",
+    "severity": "warning",
+    "description": "MTK start falhou."
+  },
+  {
+    "id": "f101=8",
+    "labelPt": "DA MTK falhou",
+    "severity": "warning",
+    "description": "DA do MTK falhou."
+  },
+  {
+    "id": "f101=9",
+    "labelPt": "JUMP MTK falhou",
+    "severity": "warning",
+    "description": "JUMP do MTK falhou."
+  },
+  {
+    "id": "f101=10",
+    "labelPt": "WRITE MTK falhou",
+    "severity": "warning",
+    "description": "WRITE do MTK falhou."
+  },
+  {
+    "id": "f101=11",
+    "labelPt": "CRC MT3333 FW inválido",
+    "severity": "warning",
+    "description": "CRC do firmware MT3333 recebido via FTP inválido."
+  },
+  {
+    "id": "f101=12",
+    "labelPt": "CRC MT3333 DA inválido",
+    "severity": "warning",
+    "description": "CRC do DA MT3333 recebido via FTP inválido."
+  },
+  {
+    "id": "f101=13",
+    "labelPt": "CRC MT3333 FW na flash inválido",
+    "severity": "warning",
+    "description": "CRC do firmware MT3333 na flash inválido."
+  },
+  {
+    "id": "f101=14",
+    "labelPt": "CRC MT3333 DA na flash inválido",
+    "severity": "warning",
+    "description": "CRC do DA MT3333 na flash inválido."
+  },
+  {
+    "id": "f101=15",
+    "labelPt": "Bootloader 2ª tentativa",
+    "severity": "warning",
+    "description": "Segunda tentativa do bootloader."
+  },
+  {
+    "id": "f101=16",
+    "labelPt": "Bootloader 3ª tentativa",
+    "severity": "warning",
+    "description": "Terceira tentativa do bootloader."
+  },
+  {
+    "id": "f101=18",
+    "labelPt": "Leitura de dados não confere",
+    "severity": "warning",
+    "description": "Leitura de dados não confere."
+  },
+  {
+    "id": "f101=19",
+    "labelPt": "Saída do procedimento FW",
+    "severity": "info",
+    "description": "Saída do procedimento de gravação do firmware."
+  },
+  {
+    "id": "f101=20",
+    "labelPt": "Desfragmentação FW",
+    "severity": "info",
+    "description": "Desfragmentação de bytes do firmware."
+  },
+  {
+    "id": "f101=21",
+    "labelPt": "Ublox GPS inicializado",
+    "severity": "info",
+    "description": "Ublox GPS encontrado e inicializado."
+  },
+  {
+    "id": "f101=22",
+    "labelPt": "Quectel GPS inicializado",
+    "severity": "info",
+    "description": "Quectel GPS encontrado e inicializado."
+  },
+  {
+    "id": "f101=23",
+    "labelPt": "GPS não encontrado",
+    "severity": "warning",
+    "description": "Receptor GPS não encontrado."
+  },
+  {
+    "id": "f102=0",
+    "labelPt": "Tarefa gps_manager parada",
+    "severity": "critical",
+    "description": "Tarefa gps_manager parada."
+  },
+  {
+    "id": "f102=1",
+    "labelPt": "Tarefa accelerometer_manager parada",
+    "severity": "critical",
+    "description": "Tarefa accelerometer_manager parada."
+  },
+  {
+    "id": "f102=2",
+    "labelPt": "Tarefa onewire_manager parada",
+    "severity": "critical",
+    "description": "Tarefa onewire_manager parada."
+  },
+  {
+    "id": "f102=3",
+    "labelPt": "Tarefa modem_manager parada",
+    "severity": "critical",
+    "description": "Tarefa modem_manager parada."
+  },
+  {
+    "id": "f102=4",
+    "labelPt": "Tarefa global_manager parada",
+    "severity": "critical",
+    "description": "Tarefa global_manager parada."
+  },
+  {
+    "id": "f102=5",
+    "labelPt": "Tarefa led_manager parada",
+    "severity": "critical",
+    "description": "Tarefa led_manager parada."
+  },
+  {
+    "id": "f102=6",
+    "labelPt": "Tarefa rs485_manager parada",
+    "severity": "critical",
+    "description": "Tarefa rs485_manager parada."
+  },
+  {
+    "id": "f102=7",
+    "labelPt": "Tarefa can1_manager parada",
+    "severity": "critical",
+    "description": "Tarefa can1_manager parada."
+  },
+  {
+    "id": "f102=8",
+    "labelPt": "Tarefa rs232_manager parada",
+    "severity": "critical",
+    "description": "Tarefa rs232_manager parada."
+  },
+  {
+    "id": "f102=9",
+    "labelPt": "Tarefa can2_manager parada",
+    "severity": "critical",
+    "description": "Tarefa can2_manager parada."
+  },
+  {
+    "id": "f102=10",
+    "labelPt": "Tarefa can2_manager parada",
+    "severity": "critical",
+    "description": "Tarefa can2_manager parada."
+  },
+  {
+    "id": "f102=50",
+    "labelPt": "Subtensão detectada",
+    "severity": "warning",
+    "description": "Subtensão detectada."
+  },
+  {
+    "id": "f102=100",
+    "labelPt": "Reset do monitor de segurança",
+    "severity": "critical",
+    "description": "Falha ao acordar a tempo; reset do monitor de segurança."
+  },
+  {
+    "id": "f103=0",
+    "labelPt": "Causa de reset (129)",
+    "severity": "info",
+    "description": "Causa do reset (129). Verificar eventos próximos."
+  },
+  {
+    "id": "f103=5",
+    "labelPt": "Reset por software",
+    "severity": "warning",
+    "description": "Reset por software detectado."
+  },
+  {
+    "id": "f103=8",
+    "labelPt": "Reset por monitor de segurança",
+    "severity": "warning",
+    "description": "Reset por monitor de segurança de hardware detectado."
+  },
+  {
+    "id": "f103=128",
+    "labelPt": "10 reboots seguidos",
+    "severity": "critical",
+    "description": "10 reboots seguidos; configuração resetada para padrão."
+  },
+  {
+    "id": "f103=129",
+    "labelPt": "Contador de reboot inválido",
+    "severity": "warning",
+    "description": "Contador de reboot inválido encontrado."
+  },
+  {
+    "id": "f105=16",
+    "labelPt": "Rejeição geral",
+    "severity": "warning",
+    "description": "General Reject."
+  },
+  {
+    "id": "f105=17",
+    "labelPt": "Serviço não suportado",
+    "severity": "warning",
+    "description": "Service Not Supported."
+  },
+  {
+    "id": "f105=18",
+    "labelPt": "Subfunção não suportada",
+    "severity": "warning",
+    "description": "Sub Function Not Supported."
+  },
+  {
+    "id": "f105=19",
+    "labelPt": "Mensagem inválida",
+    "severity": "warning",
+    "description": "Incorrect Message Length Or Invalid Format."
+  },
+  {
+    "id": "f105=33",
+    "labelPt": "Solicitação ocupada",
+    "severity": "warning",
+    "description": "Busy Repeat Request."
+  },
+  {
+    "id": "f105=34",
+    "labelPt": "Condições incorretas",
+    "severity": "warning",
+    "description": "Conditions Not Correct."
+  },
+  {
+    "id": "f105=36",
+    "labelPt": "Sequência inválida",
+    "severity": "warning",
+    "description": "Request Sequence Error."
+  },
+  {
+    "id": "f105=49",
+    "labelPt": "Fora de alcance",
+    "severity": "warning",
+    "description": "Request Out Of Range."
+  },
+  {
+    "id": "f105=113",
+    "labelPt": "Transferência suspensa",
+    "severity": "warning",
+    "description": "Transfer Data Suspended."
+  },
+  {
+    "id": "f105=115",
+    "labelPt": "Bloco inválido",
+    "severity": "warning",
+    "description": "Wrong Block Sequence Counter."
+  },
+  {
+    "id": "f105=120",
+    "labelPt": "Resposta pendente",
+    "severity": "info",
+    "description": "Request Correctly Received / Response Pending."
+  },
+  {
+    "id": "f105=127",
+    "labelPt": "Serviço não suportado na sessão",
+    "severity": "warning",
+    "description": "Service Not Supported In Active Session."
+  },
+  {
+    "id": "f107=1",
+    "labelPt": "Download UCP via SMS",
+    "severity": "info",
+    "description": "Comando SMS para baixar arquivo UCP do DataCold."
+  },
+  {
+    "id": "f107=2",
+    "labelPt": "Download iniciado",
+    "severity": "info",
+    "description": "Download iniciado com sucesso."
+  },
+  {
+    "id": "f107=3",
+    "labelPt": "Saída sem sucesso",
+    "severity": "warning",
+    "description": "Saída sem sucesso da função."
+  },
+  {
+    "id": "f107=4",
+    "labelPt": "Erro sensor analógico",
+    "severity": "warning",
+    "description": "Falha ao obter sensor analógico habilitado."
+  },
+  {
+    "id": "f107=5",
+    "labelPt": "Erro sensor digital",
+    "severity": "warning",
+    "description": "Falha ao obter sensor digital habilitado."
+  },
+  {
+    "id": "f107=6",
+    "labelPt": "Nomes analógicos inválidos",
+    "severity": "warning",
+    "description": "Nomes de sensores analógicos com tamanho inválido."
+  },
+  {
+    "id": "f107=7",
+    "labelPt": "Erro nomes analógicos",
+    "severity": "warning",
+    "description": "Falha ao obter nomes de sensores analógicos."
+  },
+  {
+    "id": "f107=8",
+    "labelPt": "Nomes digitais inválidos",
+    "severity": "warning",
+    "description": "Nomes de sensores digitais com tamanho inválido."
+  },
+  {
+    "id": "f107=9",
+    "labelPt": "Erro nomes digitais",
+    "severity": "warning",
+    "description": "Falha ao obter nomes de sensores digitais."
+  },
+  {
+    "id": "f107=10",
+    "labelPt": "Nomes digitais adicionais inválidos",
+    "severity": "warning",
+    "description": "Nomes de sensores digitais adicionais com tamanho inválido."
+  },
+  {
+    "id": "f107=11",
+    "labelPt": "Erro nomes digitais adicionais",
+    "severity": "warning",
+    "description": "Falha ao obter nomes de sensores digitais adicionais."
+  },
+  {
+    "id": "f107=12",
+    "labelPt": "Sem resposta de leitura",
+    "severity": "warning",
+    "description": "Sem resposta para leitura de registros."
+  },
+  {
+    "id": "f107=13",
+    "labelPt": "Registro UCP finalizado",
+    "severity": "info",
+    "description": "Registro UCP finalizado."
+  },
+  {
+    "id": "f107=14",
+    "labelPt": "Sem resposta PIN",
+    "severity": "warning",
+    "description": "Sem resposta para solicitação de PIN."
+  },
+  {
+    "id": "f107=15",
+    "labelPt": "Sem resposta de informação",
+    "severity": "warning",
+    "description": "Sem resposta para solicitação de informação."
+  },
+  {
+    "id": "f107=16",
+    "labelPt": "Info < 32 bytes",
+    "severity": "warning",
+    "description": "Solicitação de informação menor que 32 bytes."
+  },
+  {
+    "id": "f107=17",
+    "labelPt": "Falha ao preparar registro",
+    "severity": "warning",
+    "description": "Não foi possível preparar novo registro na flash."
+  },
+  {
+    "id": "f108=1",
+    "labelPt": "CAN dump sem bit rate",
+    "severity": "warning",
+    "description": "CAN dump: nenhum bit rate detectado."
+  },
+  {
+    "id": "f108=2",
+    "labelPt": "CAN dump com bit rate",
+    "severity": "info",
+    "description": "CAN dump: bit rate detectado."
+  },
+  {
+    "id": "f108=3",
+    "labelPt": "CAN dump finalizado",
+    "severity": "info",
+    "description": "CAN dump finalizado."
+  },
+  {
+    "id": "f108=7",
+    "labelPt": "Detecção de bit rate CAN",
+    "severity": "info",
+    "description": "Detecção de bit rate CAN iniciada."
+  },
+  {
+    "id": "f109=0",
+    "labelPt": "Entrando em sleep",
+    "severity": "info",
+    "description": "Indo para modo sleep."
+  },
+  {
+    "id": "f109=1",
+    "labelPt": "Acordou por movimento",
+    "severity": "info",
+    "description": "Acordou por movimento."
+  },
+  {
+    "id": "f109=2",
+    "labelPt": "Acordou por IN2",
+    "severity": "info",
+    "description": "Acordou por mudança no IN2."
+  },
+  {
+    "id": "f109=3",
+    "labelPt": "Acordou por IN3",
+    "severity": "info",
+    "description": "Acordou por mudança no IN3."
+  },
+  {
+    "id": "f109=4",
+    "labelPt": "Acordou por IN4",
+    "severity": "info",
+    "description": "Acordou por mudança no IN4."
+  },
+  {
+    "id": "f109=5",
+    "labelPt": "Acordou por IN5 (Ignição)",
+    "severity": "info",
+    "description": "Acordou por mudança no IN5 (Ignição)."
+  },
+  {
+    "id": "f109=6",
+    "labelPt": "Acordou por tempo limite",
+    "severity": "info",
+    "description": "Acordou por tempo limite (alarme RTC)."
+  },
+  {
+    "id": "f109=7",
+    "labelPt": "Acordou por SMS/Voice/Jamming",
+    "severity": "info",
+    "description": "Acordou por SMS/Voice/Jamming."
+  },
+  {
+    "id": "f109=8",
+    "labelPt": "Acordou por CAN",
+    "severity": "info",
+    "description": "Acordou por mensagem CAN."
+  },
+  {
+    "id": "f109=9",
+    "labelPt": "Acordou por corte de energia",
+    "severity": "warning",
+    "description": "Acordou por corte de energia externo."
+  },
+  {
+    "id": "f109=10",
+    "labelPt": "Acordou por 1-wire",
+    "severity": "info",
+    "description": "Acordou por atividade 1-wire."
+  },
+  {
+    "id": "f110=0",
+    "labelPt": "GPS em sleep",
+    "severity": "info",
+    "description": "GPS colocado em modo sleep."
+  },
+  {
+    "id": "f110=1",
+    "labelPt": "GPS iniciado",
+    "severity": "info",
+    "description": "GPS iniciado."
+  },
+  {
+    "id": "f110=2",
+    "labelPt": "Falha ao iniciar GPS",
+    "severity": "warning",
+    "description": "Falha ao iniciar GPS."
+  },
+  {
+    "id": "f110=3",
+    "labelPt": "GPS ligado",
+    "severity": "info",
+    "description": "GPS ligado."
+  },
+  {
+    "id": "f110=4",
+    "labelPt": "Muitas correções inválidas",
+    "severity": "warning",
+    "description": "Mais de 30 correções GPS inválidas."
+  },
+  {
+    "id": "f110=5",
+    "labelPt": "Comando de restart GPS",
+    "severity": "info",
+    "description": "Comando de restart GPS recebido."
+  },
+  {
+    "id": "f110=6",
+    "labelPt": "Efemérides no modem",
+    "severity": "info",
+    "description": "Efemérides recebidas no modem."
+  },
+  {
+    "id": "f110=7",
+    "labelPt": "Falha HTTP efemérides",
+    "severity": "warning",
+    "description": "Falha na requisição HTTP de efemérides."
+  },
+  {
+    "id": "f110=8",
+    "labelPt": "Download efemérides iniciado",
+    "severity": "info",
+    "description": "Download de efemérides para GPS iniciado."
+  },
+  {
+    "id": "f110=9",
+    "labelPt": "Download efemérides concluído",
+    "severity": "info",
+    "description": "Download de efemérides para GPS concluído."
+  },
+  {
+    "id": "f110=10",
+    "labelPt": "Modo GPS veículo",
+    "severity": "info",
+    "description": "Modo GPS veículo habilitado."
+  },
+  {
+    "id": "f110=11",
+    "labelPt": "Modo GPS pedestre",
+    "severity": "info",
+    "description": "Modo GPS pedestre habilitado."
+  },
+  {
+    "id": "f110=12",
+    "labelPt": "Falha ao mudar modo GPS",
+    "severity": "warning",
+    "description": "Falha ao mudar modo GPS veículo/pedestre."
+  },
+  {
+    "id": "f110=13",
+    "labelPt": "Coordenadas atualizadas",
+    "severity": "info",
+    "description": "Últimas coordenadas atualizadas 10s antes."
+  },
+  {
+    "id": "f110=14",
+    "labelPt": "GPS reiniciado",
+    "severity": "info",
+    "description": "GPS reiniciado."
+  },
+  {
+    "id": "f110=15",
+    "labelPt": "Comando PMTK remoto",
+    "severity": "info",
+    "description": "Comando PMTK remoto."
+  },
+  {
+    "id": "f110=16",
+    "labelPt": "NMEA resetado",
+    "severity": "warning",
+    "description": "Configuração de saída NMEA resetada para padrão."
+  },
+  {
+    "id": "f111=0",
+    "labelPt": "Registro por mudança de entrada",
+    "severity": "info",
+    "description": "Registro gerado por mudança de entradas."
+  },
+  {
+    "id": "f111=1",
+    "labelPt": "Registro por tempo limite",
+    "severity": "info",
+    "description": "Registro gerado por tempo limite."
+  },
+  {
+    "id": "f111=2",
+    "labelPt": "Registro por fonte externa",
+    "severity": "info",
+    "description": "Registro gerado por fonte externa."
+  },
+  {
+    "id": "f111=3",
+    "labelPt": "Registro por mudança de curso",
+    "severity": "info",
+    "description": "Registro gerado por mudança de curso."
+  },
+  {
+    "id": "f111=4",
+    "labelPt": "Registro por mudança de velocidade",
+    "severity": "info",
+    "description": "Registro gerado por mudança de velocidade."
+  },
+  {
+    "id": "f111=5",
+    "labelPt": "Registro por limite de distância",
+    "severity": "info",
+    "description": "Registro gerado por limite de distância."
+  },
+  {
+    "id": "f111=6",
+    "labelPt": "RS485 keypad",
+    "severity": "info",
+    "description": "RS485 keypad."
+  },
+  {
+    "id": "f111=7",
+    "labelPt": "Envio AsyncStack",
+    "severity": "info",
+    "description": "Mensagem enviada fora da flash (tempo limite/entrada/etc)."
+  },
+  {
+    "id": "f111=8",
+    "labelPt": "Mudança iButton",
+    "severity": "info",
+    "description": "Mudança de iButton."
+  },
+  {
+    "id": "f111=9",
+    "labelPt": "Mudança iButton",
+    "severity": "info",
+    "description": "Mudança de iButton."
+  },
+  {
+    "id": "f111=10",
+    "labelPt": "Matriz de condução",
+    "severity": "info",
+    "description": "Matriz de condução: 200s alcançados."
+  },
+  {
+    "id": "f111=11",
+    "labelPt": "Mudança Mobileye",
+    "severity": "info",
+    "description": "Mudança de dados Mobileye."
+  },
+  {
+    "id": "f111=12",
+    "labelPt": "Mudança iButton presente",
+    "severity": "info",
+    "description": "Mudança de presença do iButton."
+  },
+  {
+    "id": "f111=13",
+    "labelPt": "Mudança FMS TCO1",
+    "severity": "info",
+    "description": "Mudança de estado FMS TCO1."
+  },
+  {
+    "id": "f111=14",
+    "labelPt": "Mudança CIP",
+    "severity": "info",
+    "description": "Mudança CIP."
+  },
+  {
+    "id": "f111=15",
+    "labelPt": "Mudança Wiegand26",
+    "severity": "info",
+    "description": "Mudança Wiegand26."
+  },
+  {
+    "id": "f111=16",
+    "labelPt": "Status tacógrafo driver1",
+    "severity": "info",
+    "description": "Status do tacógrafo CAN-C driver1 alterado."
+  },
+  {
+    "id": "f111=17",
+    "labelPt": "Status tacógrafo driver2",
+    "severity": "info",
+    "description": "Status do tacógrafo CAN-C driver2 alterado."
+  },
+  {
+    "id": "f111=19",
+    "labelPt": "EN15430 Data Type 10",
+    "severity": "info",
+    "description": "EN15430 Front Plough and Spreader data type (Data Type 10)."
+  },
+  {
+    "id": "f114=0",
+    "labelPt": "Perda de orientação",
+    "severity": "warning",
+    "description": "Auto-orientação perdida."
+  },
+  {
+    "id": "f114=1",
+    "labelPt": "Orientação adquirida",
+    "severity": "info",
+    "description": "Auto-orientação adquirida."
+  },
+  {
+    "id": "f120=0",
+    "labelPt": "Erro CREG",
+    "severity": "warning",
+    "description": "Erro CREG."
+  },
+  {
+    "id": "f120=1",
+    "labelPt": "CREG não registrado",
+    "severity": "warning",
+    "description": "CREG não registrado e não está buscando operador."
+  },
+  {
+    "id": "f120=2",
+    "labelPt": "CREG registrado (home)",
+    "severity": "info",
+    "description": "CREG registrado na rede home."
+  },
+  {
+    "id": "f120=3",
+    "labelPt": "CREG buscando operador",
+    "severity": "warning",
+    "description": "CREG não registrado, buscando operador."
+  },
+  {
+    "id": "f120=4",
+    "labelPt": "CREG negado",
+    "severity": "warning",
+    "description": "CREG registro negado."
+  },
+  {
+    "id": "f120=5",
+    "labelPt": "CREG desconhecido",
+    "severity": "warning",
+    "description": "CREG desconhecido."
+  },
+  {
+    "id": "f120=6",
+    "labelPt": "CREG roaming",
+    "severity": "info",
+    "description": "CREG registrado em roaming."
+  },
+  {
+    "id": "f130=252",
+    "labelPt": "Reset do hub",
+    "severity": "warning",
+    "description": "Reset do hub detectado."
+  },
+  {
+    "id": "f130=253",
+    "labelPt": "Protocolo não suportado",
+    "severity": "warning",
+    "description": "Versão do protocolo não suportada."
+  },
+  {
+    "id": "f130=254",
+    "labelPt": "CRC inválido",
+    "severity": "warning",
+    "description": "10 mensagens com CRC inválido em sequência."
+  },
+  {
+    "id": "f130=255",
+    "labelPt": "Tempo limite do Cargojot",
+    "severity": "warning",
+    "description": "Tempo limite no recebimento de mensagem Cargojot."
+  },
+  {
+    "id": "f145=0",
+    "labelPt": "Download de script iniciado",
+    "severity": "info",
+    "description": "Início do download do script."
+  },
+  {
+    "id": "f145=1",
+    "labelPt": "Comando de script inválido",
+    "severity": "warning",
+    "description": "Comando de download de script inválido."
+  },
+  {
+    "id": "f145=2",
+    "labelPt": "Tempo limite no download",
+    "severity": "warning",
+    "description": "Tempo limite no download do script."
+  },
+  {
+    "id": "f145=3",
+    "labelPt": "Checksum de script alterado",
+    "severity": "warning",
+    "description": "Checksum do script alterado."
+  },
+  {
+    "id": "f145=4",
+    "labelPt": "Conectado ao FTP",
+    "severity": "info",
+    "description": "Conectado ao FTP."
+  },
+  {
+    "id": "f145=5",
+    "labelPt": "Download de script falhou",
+    "severity": "warning",
+    "description": "Download do script falhou."
+  },
+  {
+    "id": "f145=6",
+    "labelPt": "Script baixado",
+    "severity": "info",
+    "description": "Script baixado."
+  },
+  {
+    "id": "f145=7",
+    "labelPt": "Script EEPROM apagada",
+    "severity": "info",
+    "description": "Script EEPROM apagada."
+  },
+  {
+    "id": "f145=8",
+    "labelPt": "Script grande demais",
+    "severity": "warning",
+    "description": "Falha ao carregar script, tamanho excedido."
+  },
+  {
+    "id": "f150=0",
+    "labelPt": "MQTT conectado",
+    "severity": "info",
+    "description": "Conectado ao broker MQTT."
+  },
+  {
+    "id": "f150=1",
+    "labelPt": "MQTT desconectado",
+    "severity": "warning",
+    "description": "Conexão com broker MQTT perdida."
+  },
+  {
+    "id": "f150=2",
+    "labelPt": "Ping MQTT ok",
+    "severity": "info",
+    "description": "Ping MQTT bem-sucedido."
+  },
+  {
+    "id": "f150=3",
+    "labelPt": "Comando MQTT inválido",
+    "severity": "warning",
+    "description": "Comando MQTT inválido."
+  },
+  {
+    "id": "f150=4",
+    "labelPt": "Configuração de sensores atualizada",
+    "severity": "info",
+    "description": "Configuração de sensores atualizada."
+  },
+  {
+    "id": "f150=5",
+    "labelPt": "Criando socket TCP",
+    "severity": "info",
+    "description": "Tentando criar socket TCP."
+  },
+  {
+    "id": "f150=6",
+    "labelPt": "Certificado enviado",
+    "severity": "info",
+    "description": "Upload de certificado concluído."
+  },
+  {
+    "id": "f150=7",
+    "labelPt": "Falha no certificado",
+    "severity": "warning",
+    "description": "Falha no upload do certificado."
+  },
+  {
+    "id": "f155=1",
+    "labelPt": "Arquivo CAN1 atualizado",
+    "severity": "info",
+    "description": "Arquivo CAN1 atualizado."
+  },
+  {
+    "id": "f155=2",
+    "labelPt": "Arquivo CAN2 atualizado",
+    "severity": "info",
+    "description": "Arquivo CAN2 atualizado."
+  },
+  {
+    "id": "f155=3",
+    "labelPt": "Arquivo CAN1 carregado",
+    "severity": "info",
+    "description": "Arquivo CAN1 carregado."
+  },
+  {
+    "id": "f155=4",
+    "labelPt": "Arquivo CAN2 carregado",
+    "severity": "info",
+    "description": "Arquivo CAN2 carregado."
+  },
+  {
+    "id": "f160=0",
+    "labelPt": "Leitura de config falhou",
+    "severity": "warning",
+    "description": "Leitura de configurações da flash falhou."
+  },
+  {
+    "id": "f162=0",
+    "labelPt": "Página de registros iniciada",
+    "severity": "info",
+    "description": "Página de registros móveis inicializada."
+  },
+  {
+    "id": "f162=1",
+    "labelPt": "Endereço de registros ajustado",
+    "severity": "info",
+    "description": "Endereço dos registros móveis ajustado para o início."
+  },
+  {
+    "id": "f163=0",
+    "labelPt": "Comando FOTA recebido",
+    "severity": "info",
+    "description": "Comando FOTA recebido."
+  },
+  {
+    "id": "f163=1",
+    "labelPt": "FOTA download OK",
+    "severity": "info",
+    "description": "Download FOTA HTTP bem-sucedido."
+  },
+  {
+    "id": "f163=2",
+    "labelPt": "FOTA download falhou",
+    "severity": "warning",
+    "description": "Download FOTA HTTP falhou."
+  },
+  {
+    "id": "f163=3",
+    "labelPt": "Tempo limite FOTA",
+    "severity": "warning",
+    "description": "Tempo limite de mudança de estado FOTA."
+  },
+  {
+    "id": "f163=4",
+    "labelPt": "Tempo limite FOTA",
+    "severity": "warning",
+    "description": "Tempo limite de mudança de estado FOTA."
+  },
+  {
+    "id": "f170=1",
+    "labelPt": "Falha ao adicionar sensor U8",
+    "severity": "warning",
+    "description": "Falha ao adicionar sensor U8."
+  },
+  {
+    "id": "f170=2",
+    "labelPt": "Falha ao adicionar sensor U32",
+    "severity": "warning",
+    "description": "Falha ao adicionar sensor U32."
+  },
+  {
+    "id": "f170=3",
+    "labelPt": "Falha ao adicionar sensor U64",
+    "severity": "warning",
+    "description": "Falha ao adicionar sensor U64."
+  },
+  {
+    "id": "f190=0",
+    "labelPt": "Conectado ao DPS",
+    "severity": "info",
+    "description": "Conectado ao DPS."
+  },
+  {
+    "id": "f190=1",
+    "labelPt": "IoT Hub atribuído",
+    "severity": "info",
+    "description": "IoT Hub atribuído."
+  },
+  {
+    "id": "f190=2",
+    "labelPt": "DPS não autorizado",
+    "severity": "warning",
+    "description": "Resposta DPS não autorizada."
+  },
+  {
+    "id": "f190=3",
+    "labelPt": "DPS resposta desconhecida",
+    "severity": "warning",
+    "description": "Resposta DPS desconhecida."
+  },
+  {
+    "id": "f201=0",
+    "labelPt": "APN ativado",
+    "severity": "info",
+    "description": "APN ativado com sucesso."
+  },
+  {
+    "id": "f201=1",
+    "labelPt": "APN falhou",
+    "severity": "warning",
+    "description": "Ativação APN falhou."
+  },
+  {
+    "id": "f201=2",
+    "labelPt": "Apenas um APN",
+    "severity": "info",
+    "description": "Apenas um APN encontrado no template."
+  },
+  {
+    "id": "f201=3",
+    "labelPt": "Alterando APN",
+    "severity": "info",
+    "description": "Alterando APN para o próximo da lista."
+  },
+  {
+    "id": "f201=5",
+    "labelPt": "Template alterado",
+    "severity": "info",
+    "description": "Template de configuração alterado."
+  },
+  {
+    "id": "f201=6",
+    "labelPt": "APN não encontrado",
+    "severity": "warning",
+    "description": "APN anterior não encontrado; reiniciando lista."
+  },
+  {
+    "id": "f201=7",
+    "labelPt": "APN falhou sem resposta",
+    "severity": "warning",
+    "description": "APN falhou, modem não respondeu ao AT command."
+  },
+  {
+    "id": "f210=0",
+    "labelPt": "BT iniciado",
+    "severity": "info",
+    "description": "Aplicação BT iniciada."
+  },
+  {
+    "id": "f210=1",
+    "labelPt": "Reset do chip BT",
+    "severity": "warning",
+    "description": "Evento de reset do chip BT."
+  },
+  {
+    "id": "f210=2",
+    "labelPt": "BT low power",
+    "severity": "info",
+    "description": "BT em modo low power."
+  },
+  {
+    "id": "f210=3",
+    "labelPt": "BT desligado",
+    "severity": "info",
+    "description": "BT desligado."
+  },
+  {
+    "id": "f210=4",
+    "labelPt": "Atualização BT OK",
+    "severity": "info",
+    "description": "Atualização de firmware BT com sucesso."
+  },
+  {
+    "id": "f210=5",
+    "labelPt": "Atualização BT falhou",
+    "severity": "warning",
+    "description": "Atualização de firmware BT falhou."
+  },
+  {
+    "id": "f210=6",
+    "labelPt": "BT GATT conectado",
+    "severity": "info",
+    "description": "Conexão BT GATT estabelecida."
+  },
+  {
+    "id": "f210=7",
+    "labelPt": "BT GATT falhou",
+    "severity": "warning",
+    "description": "Conexão BT GATT falhou."
+  },
+  {
+    "id": "f210=8",
+    "labelPt": "BT GATT encerrado",
+    "severity": "info",
+    "description": "Conexão BT GATT encerrada."
+  },
+  {
+    "id": "f210=9",
+    "labelPt": "BT pareamento OK",
+    "severity": "info",
+    "description": "Pareamento BT GATT bem-sucedido."
+  },
+  {
+    "id": "f210=10",
+    "labelPt": "BT pareamento falhou",
+    "severity": "warning",
+    "description": "Pareamento BT GATT falhou."
+  },
+  {
+    "id": "f211=0",
+    "labelPt": "BT GATT comando OK",
+    "severity": "info",
+    "description": "Comando BT GATT OK."
+  },
+  {
+    "id": "f211=1",
+    "labelPt": "BT GATT expirou",
+    "severity": "warning",
+    "description": "Comando BT GATT expirou."
+  },
+  {
+    "id": "f211=2",
+    "labelPt": "BT GATT desconhecido",
+    "severity": "warning",
+    "description": "Comando BT GATT desconhecido."
+  },
+  {
+    "id": "f211=3",
+    "labelPt": "BT GATT dados inválidos",
+    "severity": "warning",
+    "description": "Comando BT GATT com dados inválidos."
+  },
+  {
+    "id": "f211=4",
+    "labelPt": "BT GATT repetido",
+    "severity": "warning",
+    "description": "Comando BT GATT repetido."
+  },
+  {
+    "id": "f211=5",
+    "labelPt": "BT GATT tamanho inválido",
+    "severity": "warning",
+    "description": "Comando BT GATT com tamanho inválido."
+  },
+  {
+    "id": "f211=6",
+    "labelPt": "BT GATT token inválido",
+    "severity": "warning",
+    "description": "Comando BT GATT com token inválido."
+  },
+  {
+    "id": "f211=7",
+    "labelPt": "BT GATT ocupado",
+    "severity": "warning",
+    "description": "Comando BT GATT ocupado."
+  },
+  {
+    "id": "f221=0",
+    "labelPt": "Saída Digital 1 Desligada",
+    "severity": "info",
+    "description": "Saída Digital 1 desligada."
+  },
+  {
+    "id": "f221=1",
+    "labelPt": "Saída Digital 1 Ligada",
+    "severity": "info",
+    "description": "Saída Digital 1 ligada."
+  },
+  {
+    "id": "f222=0",
+    "labelPt": "Saída Digital 2 Desligada",
+    "severity": "info",
+    "description": "Saída Digital 2 desligada."
+  },
+  {
+    "id": "f222=1",
+    "labelPt": "Saída Digital 2 Ligada",
+    "severity": "info",
+    "description": "Saída Digital 2 ligada."
+  },
+  {
+    "id": "f223=0",
+    "labelPt": "Saída Digital 3 Desligada",
+    "severity": "info",
+    "description": "Saída Digital 3 desligada."
+  },
+  {
+    "id": "f223=1",
+    "labelPt": "Saída Digital 3 Ligada",
+    "severity": "info",
+    "description": "Saída Digital 3 ligada."
+  },
+  {
+    "id": "f224=0",
+    "labelPt": "Saída Digital 4 Desligada",
+    "severity": "info",
+    "description": "Saída Digital 4 desligada."
+  },
+  {
+    "id": "f224=1",
+    "labelPt": "Saída Digital 4 Ligada",
+    "severity": "info",
+    "description": "Saída Digital 4 ligada."
+  },
+  {
+    "id": "f225=0",
+    "labelPt": "Reset de saída via script",
+    "severity": "info",
+    "description": "Reset de saída usando função output no script."
+  },
+  {
+    "id": "f225=1",
+    "labelPt": "Saída via script",
+    "severity": "info",
+    "description": "Saída acionada usando função output no script."
+  },
+  {
+    "id": "f0=184",
+    "labelPt": "Dados malformados do socket",
+    "severity": "warning",
+    "description": "Dados malformados recebidos do socket."
+  },
+  {
+    "id": "f104=11",
+    "labelPt": "Tacógrafo: TCO desconhecido",
+    "severity": "warning",
+    "description": "Tacógrafo: TCO desconhecido."
+  },
+  {
+    "id": "f104=12",
+    "labelPt": "Tacógrafo: TCO SC1 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO SC1 detectado."
+  },
+  {
+    "id": "f104=13",
+    "labelPt": "Tacógrafo: TCO SC2 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO SC2 detectado."
+  },
+  {
+    "id": "f104=14",
+    "labelPt": "Tacógrafo: TCO SC3 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO SC3 detectado."
+  },
+  {
+    "id": "f104=15",
+    "labelPt": "Tacógrafo: TCO SC5 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO SC5 detectado."
+  },
+  {
+    "id": "f104=16",
+    "labelPt": "Tacógrafo: TCO SC6 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO SC6 detectado."
+  },
+  {
+    "id": "f104=17",
+    "labelPt": "Tacógrafo: TCO detectado",
+    "severity": "info",
+    "description": "Tacógrafo: TCO detectado."
+  },
+  {
+    "id": "f104=18",
+    "labelPt": "Tacógrafo: SE5000 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: SE5000 detectado."
+  },
+  {
+    "id": "f104=19",
+    "labelPt": "Tacógrafo: DTCO 1381 detectado",
+    "severity": "info",
+    "description": "Tacógrafo: DTCO 1381 detectado."
+  },
+  {
+    "id": "f104=20",
+    "labelPt": "Tacógrafo: TCO não detectado",
+    "severity": "warning",
+    "description": "Tacógrafo: TCO não detectado."
+  },
+  {
+    "id": "f104=21",
+    "labelPt": "Tacógrafo: resposta inesperada",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta inesperada."
+  },
+  {
+    "id": "f104=22",
+    "labelPt": "Tacógrafo: erro de transmissão",
+    "severity": "warning",
+    "description": "Tacógrafo: erro de transmissão."
+  },
+  {
+    "id": "f104=23",
+    "labelPt": "Tacógrafo: repetindo por tempo limite",
+    "severity": "warning",
+    "description": "Tacógrafo: repetindo requisição por tempo limite ou frame ausente."
+  },
+  {
+    "id": "f104=24",
+    "labelPt": "Tacógrafo: RemoteCompanyCardReady falhou",
+    "severity": "warning",
+    "description": "Tacógrafo: RemoteCompanyCardReady falhou."
+  },
+  {
+    "id": "f104=25",
+    "labelPt": "Tacógrafo: CompanyCardToVUData falhou",
+    "severity": "warning",
+    "description": "Tacógrafo: CompanyCardToVUData falhou."
+  },
+  {
+    "id": "f104=26",
+    "labelPt": "Tacógrafo: RequestTransferExit falhou",
+    "severity": "warning",
+    "description": "Tacógrafo: RequestTransferExit falhou."
+  },
+  {
+    "id": "f104=27",
+    "labelPt": "Tacógrafo: Card TransferData falhou",
+    "severity": "warning",
+    "description": "Tacógrafo: Card TransferData falhou."
+  },
+  {
+    "id": "f104=28",
+    "labelPt": "Tacógrafo: RequestUpload falhou",
+    "severity": "warning",
+    "description": "Tacógrafo: RequestUpload falhou."
+  },
+  {
+    "id": "f104=29",
+    "labelPt": "Tacógrafo: CAN comunicação OK",
+    "severity": "info",
+    "description": "Tacógrafo: CAN comunicação iniciada com sucesso."
+  },
+  {
+    "id": "f104=30",
+    "labelPt": "Tacógrafo: ATTR aceito",
+    "severity": "info",
+    "description": "Tacógrafo: ATTR do cartão da empresa aceito."
+  },
+  {
+    "id": "f104=31",
+    "labelPt": "Tacógrafo: ATTR rejeitado",
+    "severity": "warning",
+    "description": "Tacógrafo: ATTR do cartão da empresa não aceito."
+  },
+  {
+    "id": "f104=32",
+    "labelPt": "Tacógrafo: APDU start OK",
+    "severity": "info",
+    "description": "Tacógrafo: APDU start OK."
+  },
+  {
+    "id": "f104=33",
+    "labelPt": "Tacógrafo: sem APDU 60s",
+    "severity": "warning",
+    "description": "Tacógrafo: sem APDU do cartão por 60s."
+  },
+  {
+    "id": "f104=34",
+    "labelPt": "Tacógrafo: APDU rejeitado",
+    "severity": "warning",
+    "description": "Tacógrafo: APDU rejeitado."
+  },
+  {
+    "id": "f104=35",
+    "labelPt": "Tacógrafo: próximo APDU aceito",
+    "severity": "info",
+    "description": "Tacógrafo: próximo APDU aceito."
+  },
+  {
+    "id": "f104=36",
+    "labelPt": "Tacógrafo: autenticação remota OK",
+    "severity": "info",
+    "description": "Tacógrafo: autenticação remota bem-sucedida."
+  },
+  {
+    "id": "f104=37",
+    "labelPt": "Tacógrafo: download remoto liberado",
+    "severity": "info",
+    "description": "Tacógrafo: download remoto liberado."
+  },
+  {
+    "id": "f104=38",
+    "labelPt": "Tacógrafo: download remoto negado",
+    "severity": "warning",
+    "description": "Tacógrafo: download remoto negado."
+  },
+  {
+    "id": "f104=39",
+    "labelPt": "Tacógrafo: upload positivo",
+    "severity": "info",
+    "description": "Tacógrafo: resposta positiva de upload."
+  },
+  {
+    "id": "f104=40",
+    "labelPt": "Tacógrafo: upload negativo",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta negativa de upload."
+  },
+  {
+    "id": "f104=41",
+    "labelPt": "Tacógrafo: resposta negativa em download",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta negativa durante download."
+  },
+  {
+    "id": "f104=42",
+    "labelPt": "Tacógrafo: download DDD OK (driver)",
+    "severity": "info",
+    "description": "Tacógrafo: download DDD OK (driver card)."
+  },
+  {
+    "id": "f104=43",
+    "labelPt": "Tacógrafo: download DDD OK",
+    "severity": "info",
+    "description": "Tacógrafo: download DDD OK (driver ou VU)."
+  },
+  {
+    "id": "f104=44",
+    "labelPt": "Tacógrafo: falha ao gravar DDD",
+    "severity": "warning",
+    "description": "Tacógrafo: falha ao gravar DDD na flash."
+  },
+  {
+    "id": "f104=45",
+    "labelPt": "Tacógrafo: APDU solicitado",
+    "severity": "warning",
+    "description": "Tacógrafo: APDU solicitado durante download remoto."
+  },
+  {
+    "id": "f104=46",
+    "labelPt": "Tacógrafo: sem ATTR do cartão",
+    "severity": "warning",
+    "description": "Tacógrafo: sem ATTR do cartão."
+  },
+  {
+    "id": "f104=47",
+    "labelPt": "Tacógrafo: sem cartão Driver1",
+    "severity": "warning",
+    "description": "Tacógrafo: sem cartão Driver1."
+  },
+  {
+    "id": "f104=48",
+    "labelPt": "Tacógrafo: sem cartão Driver2",
+    "severity": "warning",
+    "description": "Tacógrafo: sem cartão Driver2."
+  },
+  {
+    "id": "f104=49",
+    "labelPt": "Tacógrafo: sem resposta (len=0)",
+    "severity": "warning",
+    "description": "Tacógrafo: sem resposta, len=0."
+  },
+  {
+    "id": "f104=50",
+    "labelPt": "Tacógrafo: cartão aberto/ausente",
+    "severity": "warning",
+    "description": "Tacógrafo: cartão aberto por outro dispositivo ou ausente."
+  },
+  {
+    "id": "f104=51",
+    "labelPt": "Tacógrafo: solicitação VIN",
+    "severity": "info",
+    "description": "Tacógrafo: solicitação de VIN enviada ao servidor."
+  },
+  {
+    "id": "f104=52",
+    "labelPt": "Tacógrafo: confirmação arquivo tacho",
+    "severity": "info",
+    "description": "Tacógrafo: confirmação do arquivo tacho enviada ao servidor."
+  },
+  {
+    "id": "f104=53",
+    "labelPt": "Tacógrafo: confirmação arquivo card1",
+    "severity": "info",
+    "description": "Tacógrafo: confirmação do arquivo card1 enviada ao servidor."
+  },
+  {
+    "id": "f104=54",
+    "labelPt": "Tacógrafo: confirmação arquivo card2",
+    "severity": "info",
+    "description": "Tacógrafo: confirmação do arquivo card2 enviada ao servidor."
+  },
+  {
+    "id": "f104=55",
+    "labelPt": "Tacógrafo: requisição arquivo tacho",
+    "severity": "info",
+    "description": "Tacógrafo: requisição de arquivo tacho recebida do servidor."
+  },
+  {
+    "id": "f104=56",
+    "labelPt": "Tacógrafo: requisição arquivo card1",
+    "severity": "info",
+    "description": "Tacógrafo: requisição de arquivo card1 recebida do servidor."
+  },
+  {
+    "id": "f104=57",
+    "labelPt": "Tacógrafo: requisição arquivo card2",
+    "severity": "info",
+    "description": "Tacógrafo: requisição de arquivo card2 recebida do servidor."
+  },
+  {
+    "id": "f104=58",
+    "labelPt": "Tacógrafo: requisição VIN por SMS",
+    "severity": "info",
+    "description": "Tacógrafo: requisição VIN por SMS."
+  },
+  {
+    "id": "f104=59",
+    "labelPt": "Tacógrafo: ATTR longo demais",
+    "severity": "warning",
+    "description": "Tacógrafo: ATTR do cartão da empresa longo demais."
+  },
+  {
+    "id": "f104=60",
+    "labelPt": "Tacógrafo: CAN perdido",
+    "severity": "warning",
+    "description": "Tacógrafo: comunicação CAN perdida."
+  },
+  {
+    "id": "f104=61",
+    "labelPt": "Tacógrafo: abrindo CARD T0",
+    "severity": "info",
+    "description": "Tacógrafo: abrindo protocolo CARD T0."
+  },
+  {
+    "id": "f104=62",
+    "labelPt": "Tacógrafo: abrindo CARD T1",
+    "severity": "info",
+    "description": "Tacógrafo: abrindo protocolo CARD T1."
+  },
+  {
+    "id": "f104=63",
+    "labelPt": "Tacógrafo: abrindo CARD Tx",
+    "severity": "info",
+    "description": "Tacógrafo: abrindo protocolo CARD Tx."
+  },
+  {
+    "id": "f104=64",
+    "labelPt": "Tacógrafo: ATTR recebido",
+    "severity": "info",
+    "description": "Tacógrafo: ATTR recebido do cartão."
+  },
+  {
+    "id": "f104=65",
+    "labelPt": "Tacógrafo: ATTR interrompido",
+    "severity": "warning",
+    "description": "Tacógrafo: ATTR interrompido por mudança de tarefa do servidor."
+  },
+  {
+    "id": "f104=66",
+    "labelPt": "Tacógrafo: APDU sem resposta",
+    "severity": "warning",
+    "description": "Tacógrafo: tacógrafo parou de responder durante APDU."
+  },
+  {
+    "id": "f104=67",
+    "labelPt": "Tacógrafo: requisição SA em uso",
+    "severity": "warning",
+    "description": "Tacógrafo: requisição em SA atualmente em uso."
+  },
+  {
+    "id": "f104=68",
+    "labelPt": "Tacógrafo: NRC78 resposta pendente",
+    "severity": "info",
+    "description": "Tacógrafo: NRC78 resposta pendente, tempo limite estendido."
+  },
+  {
+    "id": "f104=69",
+    "labelPt": "Tacógrafo: APDU rejeitado (cartão da empresa)",
+    "severity": "warning",
+    "description": "Tacógrafo: cartão da empresa rejeitou APDU."
+  },
+  {
+    "id": "f104=70",
+    "labelPt": "Tacógrafo: resposta desconhecida (req)",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta desconhecida (CompanyCardToVUData req)."
+  },
+  {
+    "id": "f104=71",
+    "labelPt": "Tacógrafo: APDU erro VU",
+    "severity": "warning",
+    "description": "Tacógrafo: APDU erro respondido pelo VU."
+  },
+  {
+    "id": "f104=72",
+    "labelPt": "Tacógrafo: muitas falhas de autenticação",
+    "severity": "warning",
+    "description": "Tacógrafo: muitas falhas de autenticação (VU)."
+  },
+  {
+    "id": "f104=73",
+    "labelPt": "Tacógrafo: tamanho incorreto",
+    "severity": "warning",
+    "description": "Tacógrafo: tamanho de dados incorreto (CompanyCardToVUData req)."
+  },
+  {
+    "id": "f104=74",
+    "labelPt": "Tacógrafo: 500 kbit/s detectado",
+    "severity": "info",
+    "description": "Tacógrafo: 500 kbit/s detectado (coincidindo com anterior)."
+  },
+  {
+    "id": "f104=75",
+    "labelPt": "Tacógrafo: 250 kbit/s detectado",
+    "severity": "info",
+    "description": "Tacógrafo: 250 kbit/s detectado."
+  },
+  {
+    "id": "f104=76",
+    "labelPt": "Tacógrafo: 250 kbit/s detectado",
+    "severity": "info",
+    "description": "Tacógrafo: 250 kbit/s detectado (coincidindo com anterior)."
+  },
+  {
+    "id": "f104=77",
+    "labelPt": "Tacógrafo: 500 kbit/s detectado",
+    "severity": "info",
+    "description": "Tacógrafo: 500 kbit/s detectado."
+  },
+  {
+    "id": "f104=78",
+    "labelPt": "Tacógrafo: 500 kbit/s selecionado",
+    "severity": "info",
+    "description": "Tacógrafo: 500 kbit/s selecionado (sem atividade CAN)."
+  },
+  {
+    "id": "f104=79",
+    "labelPt": "Tacógrafo: 250 kbit/s selecionado",
+    "severity": "info",
+    "description": "Tacógrafo: 250 kbit/s selecionado (sem atividade CAN)."
+  },
+  {
+    "id": "f104=80",
+    "labelPt": "Tacógrafo: NRC21 VU ocupado",
+    "severity": "warning",
+    "description": "Tacógrafo: NRC21 VU ocupado, repetindo requisição."
+  },
+  {
+    "id": "f104=81",
+    "labelPt": "Tacógrafo: tempo limite da sessão remota",
+    "severity": "warning",
+    "description": "Tacógrafo: tempo limite da sessão remota; reiniciando."
+  },
+  {
+    "id": "f104=82",
+    "labelPt": "Tacógrafo: resposta APDU desconhecida",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta desconhecida ao APDU."
+  },
+  {
+    "id": "f104=83",
+    "labelPt": "Tacógrafo: socket fechado",
+    "severity": "warning",
+    "description": "Tacógrafo: socket fechado; troca encerrada."
+  },
+  {
+    "id": "f104=84",
+    "labelPt": "Tacógrafo: resposta em SA atual",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta no SA atualmente em uso."
+  },
+  {
+    "id": "f104=85",
+    "labelPt": "Tacógrafo: tempo limite do ATTR (200s)",
+    "severity": "warning",
+    "description": "Tacógrafo: ATTR não recebido no tempo limite (200s)."
+  },
+  {
+    "id": "f104=86",
+    "labelPt": "Tacógrafo: resposta inicial ATTR desconhecida",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta desconhecida ao ATTR inicial."
+  },
+  {
+    "id": "f104=87",
+    "labelPt": "Tacógrafo: RemoteCompanyCardReady inválido",
+    "severity": "warning",
+    "description": "Tacógrafo: condições RemoteCompanyCardReady incorretas."
+  },
+  {
+    "id": "f104=88",
+    "labelPt": "Tacógrafo: sequência RemoteCompanyCardReady inválida",
+    "severity": "warning",
+    "description": "Tacógrafo: sequência RemoteCompanyCardReady inválida."
+  },
+  {
+    "id": "f104=89",
+    "labelPt": "Tacógrafo: falha leitura parâmetros CAN",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura de parâmetros após setup CAN."
+  },
+  {
+    "id": "f104=90",
+    "labelPt": "Tacógrafo: falha leitura parâmetros (autorização)",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura de parâmetros após autorização do cartão da empresa."
+  },
+  {
+    "id": "f104=91",
+    "labelPt": "Tacógrafo: falha leitura parâmetros (download remoto)",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura de parâmetros após liberação de download remoto."
+  },
+  {
+    "id": "f104=92",
+    "labelPt": "Tacógrafo: falha leitura parâmetros (restart)",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura de parâmetros aguardando reinício da autorização."
+  },
+  {
+    "id": "f104=93",
+    "labelPt": "Tacógrafo: falha iniciar sessão remota",
+    "severity": "warning",
+    "description": "Tacógrafo: falha iniciar sessão remota após setup."
+  },
+  {
+    "id": "f104=94",
+    "labelPt": "Tacógrafo: falha leitura parâmetros (ATTR)",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura parâmetros aguardando ATTR."
+  },
+  {
+    "id": "f104=95",
+    "labelPt": "Tacógrafo: falha leitura parâmetros (APDU)",
+    "severity": "warning",
+    "description": "Tacógrafo: falha leitura parâmetros aguardando APDU."
+  },
+  {
+    "id": "f104=96",
+    "labelPt": "Tacógrafo: tarefa mudou",
+    "severity": "warning",
+    "description": "Tacógrafo: tarefa do servidor mudou durante espera de APDU."
+  },
+  {
+    "id": "f104=97",
+    "labelPt": "Tacógrafo: tempo limite do APDU",
+    "severity": "warning",
+    "description": "Tacógrafo: tempo limite do APDU."
+  },
+  {
+    "id": "f104=98",
+    "labelPt": "Tacógrafo: resposta remota desconhecida",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta desconhecida ao iniciar sessão remota."
+  },
+  {
+    "id": "f104=99",
+    "labelPt": "Tacógrafo: falha na presença do tester",
+    "severity": "warning",
+    "description": "Tacógrafo: falha no serviço de presença do tester."
+  },
+  {
+    "id": "f104=100",
+    "labelPt": "Tacógrafo: inicializado SA 0xFA",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xFA."
+  },
+  {
+    "id": "f104=101",
+    "labelPt": "Tacógrafo: inicializado SA 0xFB",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xFB."
+  },
+  {
+    "id": "f104=102",
+    "labelPt": "Tacógrafo: inicializado SA 0xF9",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF9."
+  },
+  {
+    "id": "f104=103",
+    "labelPt": "Tacógrafo: inicializado SA 0xF8",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF8."
+  },
+  {
+    "id": "f104=104",
+    "labelPt": "Tacógrafo: inicializado SA 0xF7",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF7."
+  },
+  {
+    "id": "f104=105",
+    "labelPt": "Tacógrafo: inicializado SA 0xF6",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF6."
+  },
+  {
+    "id": "f104=106",
+    "labelPt": "Tacógrafo: inicializado SA 0xF5",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF5."
+  },
+  {
+    "id": "f104=107",
+    "labelPt": "Tacógrafo: inicializado SA 0xF4",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF4."
+  },
+  {
+    "id": "f104=108",
+    "labelPt": "Tacógrafo: inicializado SA 0xF3",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF3."
+  },
+  {
+    "id": "f104=109",
+    "labelPt": "Tacógrafo: inicializado SA 0xF2",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0xF2."
+  },
+  {
+    "id": "f104=110",
+    "labelPt": "Tacógrafo: inicializado SA 0x4A",
+    "severity": "info",
+    "description": "Tacógrafo: inicializado com SA 0x4A."
+  },
+  {
+    "id": "f104=120",
+    "labelPt": "Tacógrafo: CRC resposta inválida",
+    "severity": "warning",
+    "description": "Tacógrafo: CRC de resposta inválida."
+  },
+  {
+    "id": "f104=121",
+    "labelPt": "Tacógrafo: tempo limite do servidor de autenticação",
+    "severity": "warning",
+    "description": "Tacógrafo: tempo limite do servidor de autenticação; conexão encerrada."
+  },
+  {
+    "id": "f104=122",
+    "labelPt": "Tacógrafo: socket virtual fechado",
+    "severity": "warning",
+    "description": "Tacógrafo: socket virtual fechado."
+  },
+  {
+    "id": "f104=123",
+    "labelPt": "Tacógrafo: socket virtual erro",
+    "severity": "warning",
+    "description": "Tacógrafo: erro ao criar socket virtual - card server não encontrado."
+  },
+  {
+    "id": "f104=124",
+    "labelPt": "Tacógrafo: tamanho de resposta inválido",
+    "severity": "warning",
+    "description": "Tacógrafo: tamanho da resposta não suportado."
+  },
+  {
+    "id": "f104=125",
+    "labelPt": "Tacógrafo: fechar cartão da empresa",
+    "severity": "info",
+    "description": "Tacógrafo: dispositivo solicitou fechar cartão da empresa."
+  },
+  {
+    "id": "f104=126",
+    "labelPt": "Tacógrafo: tempo limite do servidor de download",
+    "severity": "warning",
+    "description": "Tacógrafo: tempo limite do servidor de download; conexão encerrada."
+  },
+  {
+    "id": "f104=127",
+    "labelPt": "Tacógrafo: socket virtual erro",
+    "severity": "warning",
+    "description": "Tacógrafo: erro ao criar socket virtual."
+  },
+  {
+    "id": "f104=128",
+    "labelPt": "Tacógrafo: tarefa pendente",
+    "severity": "info",
+    "description": "Tacógrafo: tarefa pendente; forçando início da conexão."
+  },
+  {
+    "id": "f104=129",
+    "labelPt": "Tacógrafo: CAN prioridade 6",
+    "severity": "info",
+    "description": "Tacógrafo: inicializando comunicação CAN prioridade 6."
+  },
+  {
+    "id": "f104=130",
+    "labelPt": "Tacógrafo: CAN prioridade 7",
+    "severity": "info",
+    "description": "Tacógrafo: inicializando comunicação CAN prioridade 7."
+  },
+  {
+    "id": "f104=131",
+    "labelPt": "Tacógrafo: resposta download inesperada",
+    "severity": "warning",
+    "description": "Tacógrafo: resposta inesperada ao download."
+  },
+  {
+    "id": "f115=0",
+    "labelPt": "Tacógrafo: parâmetros OK",
+    "severity": "info",
+    "description": "Flags de parâmetros estendidos do tacógrafo: sucesso."
+  },
+  {
+    "id": "f115=1",
+    "labelPt": "Tacógrafo: parâmetros fora de alcance",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: fora de alcance."
+  },
+  {
+    "id": "f115=2",
+    "labelPt": "Tacógrafo: condições incorretas",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: condições incorretas."
+  },
+  {
+    "id": "f115=3",
+    "labelPt": "Tacógrafo: sem resposta",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: sem resposta."
+  },
+  {
+    "id": "f115=4",
+    "labelPt": "Tacógrafo: indicador de erro",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: indicador de erro."
+  },
+  {
+    "id": "f115=5",
+    "labelPt": "Tacógrafo: não disponível",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: não disponível."
+  },
+  {
+    "id": "f115=6",
+    "labelPt": "Tacógrafo: resposta desconhecida",
+    "severity": "warning",
+    "description": "Flags de parâmetros estendidos do tacógrafo: resposta desconhecida."
+  },
+  {
+    "id": "f240=0",
+    "labelPt": "Hora atrasada",
+    "severity": "warning",
+    "description": "Hora do sistema atrasada (fonte 0 GPS, 1 NTP)."
+  },
+  {
+    "id": "f250=0",
+    "labelPt": "Hora adiantada",
+    "severity": "warning",
+    "description": "Hora do sistema adiantada (fonte 0 GPS, 1 NTP)."
+  },
+  {
+    "id": "f20=x",
+    "labelPt": "Bits 24–31 do registro de falhas",
+    "severity": "info",
+    "description": "Bits 24–31 do registro de falhas: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 24–31 do registro de falhas: {war_id}"
+  },
+  {
+    "id": "f21=x",
+    "labelPt": "Bits 16–23 do registro de falhas",
+    "severity": "info",
+    "description": "Bits 16–23 do registro de falhas: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 16–23 do registro de falhas: {war_id}"
+  },
+  {
+    "id": "f22=x",
+    "labelPt": "Bits 8–15 do registro de falhas",
+    "severity": "info",
+    "description": "Bits 8–15 do registro de falhas: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 8–15 do registro de falhas: {war_id}"
+  },
+  {
+    "id": "f23=x",
+    "labelPt": "Bits 0–7 do registro de falhas",
+    "severity": "info",
+    "description": "Bits 0–7 do registro de falhas: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 0–7 do registro de falhas: {war_id}"
+  },
+  {
+    "id": "f24=x",
+    "labelPt": "Bits 24–31 do registro do PC",
+    "severity": "info",
+    "description": "Bits 24–31 do registro do PC: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 24–31 do registro do PC: {war_id}"
+  },
+  {
+    "id": "f25=x",
+    "labelPt": "Bits 16–23 do registro do PC",
+    "severity": "info",
+    "description": "Bits 16–23 do registro do PC: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 16–23 do registro do PC: {war_id}"
+  },
+  {
+    "id": "f26=x",
+    "labelPt": "Bits 8–15 do registro do PC",
+    "severity": "info",
+    "description": "Bits 8–15 do registro do PC: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 8–15 do registro do PC: {war_id}"
+  },
+  {
+    "id": "f27=x",
+    "labelPt": "Bits 0–7 do registro do PC",
+    "severity": "info",
+    "description": "Bits 0–7 do registro do PC: {war_id}",
+    "isTemplate": true,
+    "template": "Bits 0–7 do registro do PC: {war_id}"
+  },
+  {
+    "id": "f106=xx",
+    "labelPt": "Sequência de código de evento especial",
+    "severity": "info",
+    "description": "Sequência de código de evento especial: {war_id}",
+    "isTemplate": true,
+    "template": "Sequência de código de evento especial: {war_id}"
+  },
+  {
+    "id": "f112=n",
+    "labelPt": "Apagamento do subsetor Flash por contador de 1h",
+    "severity": "info",
+    "description": "Apagamento do subsetor Flash por contador de 1h: {war_id}",
+    "isTemplate": true,
+    "template": "Apagamento do subsetor Flash por contador de 1h: {war_id}"
+  },
+  {
+    "id": "f113=n",
+    "labelPt": "Apagamento do setor de flash por contador de 1h",
+    "severity": "info",
+    "description": "Apagamento do setor de flash por contador de 1h: {war_id}",
+    "isTemplate": true,
+    "template": "Apagamento do setor de flash por contador de 1h: {war_id}"
+  },
+  {
+    "id": "f130=id",
+    "labelPt": "Bateria do sensor Cargojot",
+    "severity": "info",
+    "description": "Bateria do sensor Cargojot (ID {war_id})",
+    "isTemplate": true,
+    "template": "Bateria do sensor Cargojot (ID {war_id})"
+  },
+  {
+    "id": "f161=xx",
+    "labelPt": "Taxa de calibração LSI",
+    "severity": "info",
+    "description": "Taxa de calibração LSI ({war_id}-100%).",
+    "isTemplate": true,
+    "template": "Taxa de calibração LSI ({war_id}-100%)."
+  },
+  {
+    "id": "f200=x",
+    "labelPt": "Índice APN do modelo de configurações",
+    "severity": "info",
+    "description": "Índice APN {war_id}",
+    "isTemplate": true,
+    "template": "Índice APN {war_id}"
+  },
+  {
+    "id": "f221=x",
+    "labelPt": "Mudança de estado Out1 (0 - OFF, 1 - ON)",
+    "severity": "info",
+    "description": "Mudança de estado Out1: {war_id} (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out1: {war_id} (0 - OFF, 1 - ON)"
+  },
+  {
+    "id": "f222=x",
+    "labelPt": "Mudança de estado Out2 (0 - OFF, 1 - ON)",
+    "severity": "info",
+    "description": "Mudança de estado Out2: {war_id} (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out2: {war_id} (0 - OFF, 1 - ON)"
+  },
+  {
+    "id": "f223=x",
+    "labelPt": "Mudança de estado Out3 (0 - OFF, 1 - ON)",
+    "severity": "info",
+    "description": "Mudança de estado Out3: {war_id} (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out3: {war_id} (0 - OFF, 1 - ON)"
+  },
+  {
+    "id": "f224=x",
+    "labelPt": "Mudança de estado Out4 (0 - OFF, 1 - ON)",
+    "severity": "info",
+    "description": "Mudança de estado Out4: {war_id} (0 - OFF, 1 - ON)",
+    "isTemplate": true,
+    "template": "Mudança de estado Out4: {war_id} (0 - OFF, 1 - ON)"
+  },
+  {
+    "id": "f240+source=xx",
+    "labelPt": "Tempo do sistema atrasado",
+    "severity": "info",
+    "description": "O tempo do sistema está {war_id} segundos atrasado (fonte: {source_label}).",
+    "isTemplate": true,
+    "template": "O tempo do sistema está {war_id} segundos atrasado (fonte: {source_label})."
+  },
+  {
+    "id": "f250+source=xx",
+    "labelPt": "Tempo do sistema adiantado",
+    "severity": "info",
+    "description": "O tempo do sistema está {war_id} segundos à frente (fonte: {source_label}).",
+    "isTemplate": true,
+    "template": "O tempo do sistema está {war_id} segundos à frente (fonte: {source_label})."
+  },
+  {
+    "id": "f140+scriptid=0",
+    "labelPt": "Script parou.",
+    "severity": "info",
+    "description": "Script {script_id}: Script parou.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Script parou."
+  },
+  {
+    "id": "f140+scriptid=1",
+    "labelPt": "O roteiro começou.",
+    "severity": "info",
+    "description": "Script {script_id}: O roteiro começou.",
+    "isTemplate": true,
+    "template": "Script {script_id}: O roteiro começou."
+  },
+  {
+    "id": "f140+scriptid=2",
+    "labelPt": "Erro nenhum.",
+    "severity": "info",
+    "description": "Script {script_id}: Erro nenhum.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Erro nenhum."
+  },
+  {
+    "id": "f140+scriptid=3",
+    "labelPt": "Saída forçada.",
+    "severity": "info",
+    "description": "Script {script_id}: Saída forçada.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Saída forçada."
+  },
+  {
+    "id": "f140+scriptid=4",
+    "labelPt": "A asserção falhou.",
+    "severity": "info",
+    "description": "Script {script_id}: A asserção falhou.",
+    "isTemplate": true,
+    "template": "Script {script_id}: A asserção falhou."
+  },
+  {
+    "id": "f140+scriptid=5",
+    "labelPt": "Colisão de pilha/pilha.",
+    "severity": "info",
+    "description": "Script {script_id}: Colisão de pilha/pilha.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Colisão de pilha/pilha."
+  },
+  {
+    "id": "f140+scriptid=6",
+    "labelPt": "Índice fora dos limites.",
+    "severity": "info",
+    "description": "Script {script_id}: Índice fora dos limites.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Índice fora dos limites."
+  },
+  {
+    "id": "f140+scriptid=7",
+    "labelPt": "Acesso à memória inválido.",
+    "severity": "info",
+    "description": "Script {script_id}: Acesso à memória inválido.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Acesso à memória inválido."
+  },
+  {
+    "id": "f140+scriptid=8",
+    "labelPt": "Instrução inválida.",
+    "severity": "info",
+    "description": "Script {script_id}: Instrução inválida.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Instrução inválida."
+  },
+  {
+    "id": "f140+scriptid=9",
+    "labelPt": "Pilhar subfluxo.",
+    "severity": "info",
+    "description": "Script {script_id}: Pilhar subfluxo.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Pilhar subfluxo."
+  },
+  {
+    "id": "f140+scriptid=10",
+    "labelPt": "Abfluxo de pilha.",
+    "severity": "info",
+    "description": "Script {script_id}: Abfluxo de pilha.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Abfluxo de pilha."
+  },
+  {
+    "id": "f140+scriptid=11",
+    "labelPt": "Nenhum retorno de chamada ou retorno de chamada inválido.",
+    "severity": "info",
+    "description": "Script {script_id}: Nenhum retorno de chamada ou retorno de chamada inválido.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Nenhum retorno de chamada ou retorno de chamada inválido."
+  },
+  {
+    "id": "f140+scriptid=12",
+    "labelPt": "Falha na função nativa.",
+    "severity": "info",
+    "description": "Script {script_id}: Falha na função nativa.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Falha na função nativa."
+  },
+  {
+    "id": "f140+scriptid=13",
+    "labelPt": "Divida por zero.",
+    "severity": "info",
+    "description": "Script {script_id}: Divida por zero.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Divida por zero."
+  },
+  {
+    "id": "f140+scriptid=14",
+    "labelPt": "Entre no modo de suspensão - o código pode ser reiniciado.",
+    "severity": "info",
+    "description": "Script {script_id}: Entre no modo de suspensão - o código pode ser reiniciado.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Entre no modo de suspensão - o código pode ser reiniciado."
+  },
+  {
+    "id": "f140+scriptid=15",
+    "labelPt": "Nenhuma implementação para este estado, nenhum back-back.",
+    "severity": "info",
+    "description": "Script {script_id}: Nenhuma implementação para este estado, nenhum back-back.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Nenhuma implementação para este estado, nenhum back-back."
+  },
+  {
+    "id": "f140+scriptid=18",
+    "labelPt": "Sem memória.",
+    "severity": "info",
+    "description": "Script {script_id}: Sem memória.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Sem memória."
+  },
+  {
+    "id": "f140+scriptid=19",
+    "labelPt": "Formato de arquivo inválido.",
+    "severity": "info",
+    "description": "Script {script_id}: Formato de arquivo inválido.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Formato de arquivo inválido."
+  },
+  {
+    "id": "f140+scriptid=20",
+    "labelPt": "O arquivo é para uma versão mais recente da VM.",
+    "severity": "info",
+    "description": "Script {script_id}: O arquivo é para uma versão mais recente da VM.",
+    "isTemplate": true,
+    "template": "Script {script_id}: O arquivo é para uma versão mais recente da VM."
+  },
+  {
+    "id": "f140+scriptid=21",
+    "labelPt": "Função não encontrada.",
+    "severity": "info",
+    "description": "Script {script_id}: Função não encontrada.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Função não encontrada."
+  },
+  {
+    "id": "f140+scriptid=22",
+    "labelPt": "Parâmetro de índice inválido (ponto de entrada ruim).",
+    "severity": "info",
+    "description": "Script {script_id}: Parâmetro de índice inválido (ponto de entrada ruim).",
+    "isTemplate": true,
+    "template": "Script {script_id}: Parâmetro de índice inválido (ponto de entrada ruim)."
+  },
+  {
+    "id": "f140+scriptid=23",
+    "labelPt": "O depurador não pode ser executado.",
+    "severity": "info",
+    "description": "Script {script_id}: O depurador não pode ser executado.",
+    "isTemplate": true,
+    "template": "Script {script_id}: O depurador não pode ser executado."
+  },
+  {
+    "id": "f140+scriptid=24",
+    "labelPt": "VM não inicializada (ou duplamente inicializada).",
+    "severity": "info",
+    "description": "Script {script_id}: VM não inicializada (ou duplamente inicializada).",
+    "isTemplate": true,
+    "template": "Script {script_id}: VM não inicializada (ou duplamente inicializada)."
+  },
+  {
+    "id": "f140+scriptid=25",
+    "labelPt": "Não é possível definir o campo de dados do usuário (tabela cheia).",
+    "severity": "info",
+    "description": "Script {script_id}: Não é possível definir o campo de dados do usuário (tabela cheia).",
+    "isTemplate": true,
+    "template": "Script {script_id}: Não é possível definir o campo de dados do usuário (tabela cheia)."
+  },
+  {
+    "id": "f140+scriptid=26",
+    "labelPt": "Não é se inicializar o JIT.",
+    "severity": "info",
+    "description": "Script {script_id}: Não é se inicializar o JIT.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Não é se inicializar o JIT."
+  },
+  {
+    "id": "f140+scriptid=27",
+    "labelPt": "Erro de parâmetro.",
+    "severity": "info",
+    "description": "Script {script_id}: Erro de parâmetro.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Erro de parâmetro."
+  },
+  {
+    "id": "f140+scriptid=31",
+    "labelPt": "Script interrompido - dormir.",
+    "severity": "info",
+    "description": "Script {script_id}: Script interrompido - dormir.",
+    "isTemplate": true,
+    "template": "Script {script_id}: Script interrompido - dormir."
+  },
+  {
+    "id": "f180+source=0",
+    "labelPt": "canbase_b inicializado e iniciado",
+    "severity": "info",
+    "description": "CAN base {source_label}: canbase_b inicializado e iniciado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: canbase_b inicializado e iniciado"
+  },
+  {
+    "id": "f180+source=1",
+    "labelPt": "PGN desconhecido",
+    "severity": "info",
+    "description": "CAN base {source_label}: PGN desconhecido",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: PGN desconhecido"
+  },
+  {
+    "id": "f180+source=2",
+    "labelPt": "O buffer DTC está cheio",
+    "severity": "info",
+    "description": "CAN base {source_label}: O buffer DTC está cheio",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O buffer DTC está cheio"
+  },
+  {
+    "id": "f180+source=3",
+    "labelPt": "Comando de saída concluído",
+    "severity": "info",
+    "description": "CAN base {source_label}: Comando de saída concluído",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Comando de saída concluído"
+  },
+  {
+    "id": "f180+source=4",
+    "labelPt": "Perfil CAN não carregado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Perfil CAN não carregado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Perfil CAN não carregado"
+  },
+  {
+    "id": "f180+source=5",
+    "labelPt": "Tabela predefinida não suportada tipo 2",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 2",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 2"
+  },
+  {
+    "id": "f180+source=6",
+    "labelPt": "Sensor booleano/SIG não suportado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Sensor booleano/SIG não suportado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sensor booleano/SIG não suportado"
+  },
+  {
+    "id": "f180+source=7",
+    "labelPt": "Sensor flutuante não suportado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Sensor flutuante não suportado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sensor flutuante não suportado"
+  },
+  {
+    "id": "f180+source=8",
+    "labelPt": "Tabela predefinida não suportada tipo 7",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 7",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 7"
+  },
+  {
+    "id": "f180+source=9",
+    "labelPt": "Tabela predefinida não utilizada 7 tipo",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tabela predefinida não utilizada 7 tipo",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não utilizada 7 tipo"
+  },
+  {
+    "id": "f180+source=10",
+    "labelPt": "Falha na transmissão da mensagem",
+    "severity": "info",
+    "description": "CAN base {source_label}: Falha na transmissão da mensagem",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha na transmissão da mensagem"
+  },
+  {
+    "id": "f180+source=11",
+    "labelPt": "Tamanho do resultado não suportado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tamanho do resultado não suportado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tamanho do resultado não suportado"
+  },
+  {
+    "id": "f180+source=12",
+    "labelPt": "Singalo de interrupção de erro",
+    "severity": "info",
+    "description": "CAN base {source_label}: Singalo de interrupção de erro",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Singalo de interrupção de erro"
+  },
+  {
+    "id": "f180+source=13",
+    "labelPt": "O filtro BAM CAN está cheio",
+    "severity": "info",
+    "description": "CAN base {source_label}: O filtro BAM CAN está cheio",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O filtro BAM CAN está cheio"
+  },
+  {
+    "id": "f180+source=14",
+    "labelPt": "Erro de desligamento do ônibus",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de desligamento do ônibus",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de desligamento do ônibus"
+  },
+  {
+    "id": "f180+source=15",
+    "labelPt": "Erro de filtro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de filtro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de filtro CAN"
+  },
+  {
+    "id": "f180+source=16",
+    "labelPt": "Tabela predefinida não suportada tipo 6",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 6",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 6"
+  },
+  {
+    "id": "f180+source=17",
+    "labelPt": "Tempo limite para recebimento de mensagem",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tempo limite para recebimento de mensagem",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tempo limite para recebimento de mensagem"
+  },
+  {
+    "id": "f180+source=18",
+    "labelPt": "Erro de comando de saída",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de comando de saída",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de comando de saída"
+  },
+  {
+    "id": "f180+source=19",
+    "labelPt": "Tabela predefinida não suportada tipo 5",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tabela predefinida não suportada tipo 5",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tabela predefinida não suportada tipo 5"
+  },
+  {
+    "id": "f180+source=20",
+    "labelPt": "A taxa de bits não foi encontrada",
+    "severity": "info",
+    "description": "CAN base {source_label}: A taxa de bits não foi encontrada",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: A taxa de bits não foi encontrada"
+  },
+  {
+    "id": "f180+source=21",
+    "labelPt": "CAN struct CRC é zero",
+    "severity": "info",
+    "description": "CAN base {source_label}: CAN struct CRC é zero",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: CAN struct CRC é zero"
+  },
+  {
+    "id": "f180+source=22",
+    "labelPt": "Tipo de tabela predefinida de comando de saída não suportada 6",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tipo de tabela predefinida de comando de saída não suportada 6",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tipo de tabela predefinida de comando de saída não suportada 6"
+  },
+  {
+    "id": "f180+source=23",
+    "labelPt": "O comando de saída não foi encontrado",
+    "severity": "info",
+    "description": "CAN base {source_label}: O comando de saída não foi encontrado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O comando de saída não foi encontrado"
+  },
+  {
+    "id": "f180+source=24",
+    "labelPt": "Solicitação bloqueada quando não está em movimento",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação bloqueada quando não está em movimento",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação bloqueada quando não está em movimento"
+  },
+  {
+    "id": "f180+source=25",
+    "labelPt": "Solicitação: ID de serviço não compatível recebido",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: ID de serviço não compatível recebido",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: ID de serviço não compatível recebido"
+  },
+  {
+    "id": "f180+source=26",
+    "labelPt": "Solicitação: ID de serviço negativo recebido",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: ID de serviço negativo recebido",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: ID de serviço negativo recebido"
+  },
+  {
+    "id": "f180+source=27",
+    "labelPt": "Solicitação: protocolo não suportado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: protocolo não suportado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: protocolo não suportado"
+  },
+  {
+    "id": "f180+source=28",
+    "labelPt": "Solicitação: modo não suportado",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: modo não suportado",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: modo não suportado"
+  },
+  {
+    "id": "f180+source=29",
+    "labelPt": "Solicitação: a resposta não foi recebida",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: a resposta não foi recebida",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: a resposta não foi recebida"
+  },
+  {
+    "id": "f180+source=30",
+    "labelPt": "Solicitação: parâmetros inválidos, solicitação não foi enviada",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitação: parâmetros inválidos, solicitação não foi enviada",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitação: parâmetros inválidos, solicitação não foi enviada"
+  },
+  {
+    "id": "f180+source=31",
+    "labelPt": "canbase_b parou",
+    "severity": "info",
+    "description": "CAN base {source_label}: canbase_b parou",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: canbase_b parou"
+  },
+  {
+    "id": "f180+source=32",
+    "labelPt": "Falha no modo normal",
+    "severity": "info",
+    "description": "CAN base {source_label}: Falha no modo normal",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha no modo normal"
+  },
+  {
+    "id": "f180+source=33",
+    "labelPt": "O modo silencioso falhou",
+    "severity": "info",
+    "description": "CAN base {source_label}: O modo silencioso falhou",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: O modo silencioso falhou"
+  },
+  {
+    "id": "f180+source=34",
+    "labelPt": "CAN Erro passivo",
+    "severity": "info",
+    "description": "CAN base {source_label}: CAN Erro passivo",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: CAN Erro passivo"
+  },
+  {
+    "id": "f180+source=35",
+    "labelPt": "Erro de aviso CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de aviso CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de aviso CAN"
+  },
+  {
+    "id": "f180+source=36",
+    "labelPt": "Receber buffer cheio demais",
+    "severity": "info",
+    "description": "CAN base {source_label}: Receber buffer cheio demais",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Receber buffer cheio demais"
+  },
+  {
+    "id": "f180+source=37",
+    "labelPt": "Novo erro de recebimento",
+    "severity": "info",
+    "description": "CAN base {source_label}: Novo erro de recebimento",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Novo erro de recebimento"
+  },
+  {
+    "id": "f180+source=38",
+    "labelPt": "Novo erro de transmissão",
+    "severity": "info",
+    "description": "CAN base {source_label}: Novo erro de transmissão",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Novo erro de transmissão"
+  },
+  {
+    "id": "f180+source=39",
+    "labelPt": "Erro de preenchimento de quadro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de preenchimento de quadro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de preenchimento de quadro CAN"
+  },
+  {
+    "id": "f180+source=40",
+    "labelPt": "Erro de formato de quadro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de formato de quadro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de formato de quadro CAN"
+  },
+  {
+    "id": "f180+source=41",
+    "labelPt": "Erro CAN frame ACK",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro CAN frame ACK",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro CAN frame ACK"
+  },
+  {
+    "id": "f180+source=42",
+    "labelPt": "Erro recessivo do quadro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro recessivo do quadro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro recessivo do quadro CAN"
+  },
+  {
+    "id": "f180+source=43",
+    "labelPt": "Erro dominante do quadro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro dominante do quadro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro dominante do quadro CAN"
+  },
+  {
+    "id": "f180+source=44",
+    "labelPt": "Erro CRC de quadro CAN",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro CRC de quadro CAN",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro CRC de quadro CAN"
+  },
+  {
+    "id": "f180+source=45",
+    "labelPt": "Erro de software CAN frame",
+    "severity": "info",
+    "description": "CAN base {source_label}: Erro de software CAN frame",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Erro de software CAN frame"
+  },
+  {
+    "id": "f180+source=46",
+    "labelPt": "Comando de configuração remota recebido",
+    "severity": "info",
+    "description": "CAN base {source_label}: Comando de configuração remota recebido",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Comando de configuração remota recebido"
+  },
+  {
+    "id": "f180+source=47",
+    "labelPt": "Inicialização da taxa de bits iniciada",
+    "severity": "info",
+    "description": "CAN base {source_label}: Inicialização da taxa de bits iniciada",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Inicialização da taxa de bits iniciada"
+  },
+  {
+    "id": "f180+source=48",
+    "labelPt": "Tentando iniciar no modo silencioso",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tentando iniciar no modo silencioso",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tentando iniciar no modo silencioso"
+  },
+  {
+    "id": "f180+source=49",
+    "labelPt": "Tentando iniciar no modo normal",
+    "severity": "info",
+    "description": "CAN base {source_label}: Tentando iniciar no modo normal",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Tentando iniciar no modo normal"
+  },
+  {
+    "id": "f180+source=50",
+    "labelPt": "Falha na validação da taxa de bits, mensagem não recebida",
+    "severity": "info",
+    "description": "CAN base {source_label}: Falha na validação da taxa de bits, mensagem não recebida",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Falha na validação da taxa de bits, mensagem não recebida"
+  },
+  {
+    "id": "f180+source=51",
+    "labelPt": "Retransmissão forçada",
+    "severity": "info",
+    "description": "CAN base {source_label}: Retransmissão forçada",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Retransmissão forçada"
+  },
+  {
+    "id": "f180+source=52",
+    "labelPt": "Solicitações forçadas",
+    "severity": "info",
+    "description": "CAN base {source_label}: Solicitações forçadas",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Solicitações forçadas"
+  },
+  {
+    "id": "f180+source=53",
+    "labelPt": "Usando o modo silencioso para inicialização",
+    "severity": "info",
+    "description": "CAN base {source_label}: Usando o modo silencioso para inicialização",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Usando o modo silencioso para inicialização"
+  },
+  {
+    "id": "f180+source=54",
+    "labelPt": "Sucesso na validação da taxa de bits, mensagem recebida",
+    "severity": "info",
+    "description": "CAN base {source_label}: Sucesso na validação da taxa de bits, mensagem recebida",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Sucesso na validação da taxa de bits, mensagem recebida"
+  },
+  {
+    "id": "f180+source=55",
+    "labelPt": "Ignorando novos erros de recebimento",
+    "severity": "info",
+    "description": "CAN base {source_label}: Ignorando novos erros de recebimento",
+    "isTemplate": true,
+    "template": "CAN base {source_label}: Ignorando novos erros de recebimento"
+  },
+  {
+    "id": "f116=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 1–8",
+    "severity": "info",
+    "description": "Parâmetros estendidos do tacógrafo 1–8: {war_id}",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 1–8: {war_id}"
+  },
+  {
+    "id": "f117=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 9–16",
+    "severity": "info",
+    "description": "Parâmetros estendidos do tacógrafo 9–16: {war_id}",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 9–16: {war_id}"
+  },
+  {
+    "id": "f118=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 17–24",
+    "severity": "info",
+    "description": "Parâmetros estendidos do tacógrafo 17–24: {war_id}",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 17–24: {war_id}"
+  },
+  {
+    "id": "f119=x",
+    "labelPt": "Parâmetros estendidos do tacógrafo 25–30",
+    "severity": "info",
+    "description": "Parâmetros estendidos do tacógrafo 25–30: {war_id}",
+    "isTemplate": true,
+    "template": "Parâmetros estendidos do tacógrafo 25–30: {war_id}"
+  },
+  {
+    "id": "f121=x",
+    "labelPt": "Byte de dados #0",
+    "severity": "info",
+    "description": "Byte de dados #0: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #0: {war_id}"
+  },
+  {
+    "id": "f122=x",
+    "labelPt": "Byte de dados #1",
+    "severity": "info",
+    "description": "Byte de dados #1: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #1: {war_id}"
+  },
+  {
+    "id": "f123=x",
+    "labelPt": "Byte de dados #2",
+    "severity": "info",
+    "description": "Byte de dados #2: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #2: {war_id}"
+  },
+  {
+    "id": "f124=x",
+    "labelPt": "Byte de dados #3",
+    "severity": "info",
+    "description": "Byte de dados #3: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #3: {war_id}"
+  },
+  {
+    "id": "f125=x",
+    "labelPt": "Byte de dados #4",
+    "severity": "info",
+    "description": "Byte de dados #4: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #4: {war_id}"
+  },
+  {
+    "id": "f126=x",
+    "labelPt": "Byte de dados #5",
+    "severity": "info",
+    "description": "Byte de dados #5: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #5: {war_id}"
+  },
+  {
+    "id": "f127=x",
+    "labelPt": "Byte de dados #6",
+    "severity": "info",
+    "description": "Byte de dados #6: {war_id}",
+    "isTemplate": true,
+    "template": "Byte de dados #6: {war_id}"
+  },
+  {
+    "id": "f128=x",
+    "labelPt": "Subtipo de erro de dados do tacógrafo",
+    "severity": "info",
+    "description": "Subtipo de erro de dados do tacógrafo: {war_id}",
+    "isTemplate": true,
+    "template": "Subtipo de erro de dados do tacógrafo: {war_id}"
+  },
+  {
+    "id": "f129=x",
+    "labelPt": "Tipo de erro de dados do tacógrafo",
+    "severity": "info",
+    "description": "Tipo de erro de dados do tacógrafo: {war_id}",
+    "isTemplate": true,
+    "template": "Tipo de erro de dados do tacógrafo: {war_id}"
+  },
+  {
+    "id": "f174=x",
+    "labelPt": "Abrir arquivo (openFile)",
+    "severity": "info",
+    "description": "Abrir arquivo (openFile): {war_id}",
+    "isTemplate": true,
+    "template": "Abrir arquivo (openFile): {war_id}"
+  },
+  {
+    "id": "f175=x",
+    "labelPt": "Abrir cartão (openCard)",
+    "severity": "info",
+    "description": "Abrir cartão (openCard): {war_id}",
+    "isTemplate": true,
+    "template": "Abrir cartão (openCard): {war_id}"
+  },
+  {
+    "id": "f176=x",
+    "labelPt": "Resposta recebida (answergot)",
+    "severity": "info",
+    "description": "Resposta recebida (answergot): {war_id}",
+    "isTemplate": true,
+    "template": "Resposta recebida (answergot): {war_id}"
+  },
+  {
+    "id": "f177=x",
+    "labelPt": "Registro máximo (maxrecord)",
+    "severity": "info",
+    "description": "Registro máximo (maxrecord): {war_id}",
+    "isTemplate": true,
+    "template": "Registro máximo (maxrecord): {war_id}"
+  },
+  {
+    "id": "f178=x",
+    "labelPt": "Tamanho máximo do índice (maxindexsize)",
+    "severity": "info",
+    "description": "Tamanho máximo do índice (maxindexsize): {war_id}",
+    "isTemplate": true,
+    "template": "Tamanho máximo do índice (maxindexsize): {war_id}"
+  },
+  {
+    "id": "f179=x",
+    "labelPt": "Valor da tarefa do servidor de tacógrafo",
+    "severity": "info",
+    "description": "Valor da tarefa do servidor de tacógrafo: {war_id}",
+    "isTemplate": true,
+    "template": "Valor da tarefa do servidor de tacógrafo: {war_id}"
+  }
 ]

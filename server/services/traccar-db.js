@@ -225,6 +225,34 @@ function normalisePositionRow(row) {
 
 function normaliseEventRow(row) {
   if (!row) return null;
+  const attributes = parseJson(row.attributes);
+  const normalizedAttributes =
+    attributes && typeof attributes === "object" ? { ...attributes } : attributes;
+
+  if (normalizedAttributes && typeof normalizedAttributes === "object") {
+    const pickFirst = (...values) => values.find((value) => value !== null && value !== undefined && `${value}` !== "");
+    const funId = pickFirst(
+      normalizedAttributes.fun_id,
+      normalizedAttributes.funId,
+      normalizedAttributes.functionId,
+      normalizedAttributes.function_id,
+    );
+    const warId = pickFirst(
+      normalizedAttributes.war_id,
+      normalizedAttributes.warId,
+      normalizedAttributes.warningId,
+      normalizedAttributes.warning_id,
+      normalizedAttributes.warnId,
+    );
+
+    if (funId !== undefined && funId !== null && normalizedAttributes.fun_id === undefined) {
+      normalizedAttributes.fun_id = funId;
+    }
+    if (warId !== undefined && warId !== null && normalizedAttributes.war_id === undefined) {
+      normalizedAttributes.war_id = warId;
+    }
+  }
+
   return {
     id: row.id,
     type: row.type ?? null,
@@ -233,7 +261,7 @@ function normaliseEventRow(row) {
     deviceId: row.deviceid ?? row.deviceId ?? null,
     positionId: row.positionid ?? row.positionId ?? null,
     geofenceId: row.geofenceid ?? row.geofenceId ?? null,
-    attributes: parseJson(row.attributes),
+    attributes: normalizedAttributes,
   };
 }
 

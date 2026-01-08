@@ -1,7 +1,7 @@
 [
   {
     "id": "0",
-    "labelPt": "Evento do dispositivo",
+    "labelPt": "Evento padrão",
     "severity": "info",
     "description": "Evento padrão emitido pelo equipamento."
   },
@@ -193,8 +193,8 @@
   },
   {
     "id": "143",
-    "labelPt": "Evento do Motor",
+    "labelPt": "Status do motor",
     "severity": "info",
-    "description": "Evento relacionado ao motor do veículo."
+    "description": "Status do motor reportado pelo dispositivo."
   }
 ]

@@ -3660,127 +3660,127 @@
     },
     {
       "id": "f100=6",
-      "labelPt": "Evento de diagnóstico f100=6",
-      "descriptionPt": "Evento de diagnóstico f100=6",
+      "labelPt": "Evento de diagnóstico não especificado",
+      "descriptionPt": "Evento de diagnóstico não especificado.",
       "severity": "info",
       "isTemplate": false
     },
     {
       "id": "f104=1",
-      "labelPt": "Evento de diagnóstico f104=1",
-      "descriptionPt": "Evento de diagnóstico f104=1",
+      "labelPt": "SMS do cartão 1 recebido",
+      "descriptionPt": "SMS do cartão 1 recebido.",
       "severity": "info",
       "isTemplate": false
     },
     {
       "id": "f104=2",
-      "labelPt": "Evento de diagnóstico f104=2",
-      "descriptionPt": "Evento de diagnóstico f104=2",
+      "labelPt": "SMS do cartão 2 recebido",
+      "descriptionPt": "SMS do cartão 2 recebido.",
       "severity": "info",
       "isTemplate": false
     },
     {
       "id": "f104=3",
-      "labelPt": "Evento de diagnóstico f104=3",
-      "descriptionPt": "Evento de diagnóstico f104=3",
+      "labelPt": "SMS do tacógrafo 1 recebido",
+      "descriptionPt": "SMS do tacógrafo 1 recebido.",
       "severity": "info",
       "isTemplate": false
     },
     {
       "id": "f104=4",
-      "labelPt": "Evento de diagnóstico f104=4",
-      "descriptionPt": "Evento de diagnóstico f104=4",
+      "labelPt": "SMS do tacógrafo 2 recebido",
+      "descriptionPt": "SMS do tacógrafo 2 recebido.",
       "severity": "info",
       "isTemplate": false
     },
     {
       "id": "f111=18",
-      "labelPt": "Evento de diagnóstico f111=18",
-      "descriptionPt": "Evento de diagnóstico f111=18",
+      "labelPt": "Evento reservado",
+      "descriptionPt": "Evento reservado.",
       "severity": "info",
       "isTemplate": false
     }
   ],
   "templates": [
     {
-      "id": "f20=*",
+      "id": "f20=x",
       "labelPt": "Bits 24–31 do registro de falhas",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 24–31 do registro de falhas: {war_id}"
     },
     {
-      "id": "f21=*",
+      "id": "f21=x",
       "labelPt": "Bits 16–23 do registro de falhas",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 16–23 do registro de falhas: {war_id}"
     },
     {
-      "id": "f22=*",
+      "id": "f22=x",
       "labelPt": "Bits 8–15 do registro de falhas",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 8–15 do registro de falhas: {war_id}"
     },
     {
-      "id": "f23=*",
+      "id": "f23=x",
       "labelPt": "Bits 0–7 do registro de falhas",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 0–7 do registro de falhas: {war_id}"
     },
     {
-      "id": "f24=*",
+      "id": "f24=x",
       "labelPt": "Bits 24–31 do registro do PC",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 24–31 do registro do PC: {war_id}"
     },
     {
-      "id": "f25=*",
+      "id": "f25=x",
       "labelPt": "Bits 16–23 do registro do PC",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 16–23 do registro do PC: {war_id}"
     },
     {
-      "id": "f26=*",
+      "id": "f26=x",
       "labelPt": "Bits 8–15 do registro do PC",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 8–15 do registro do PC: {war_id}"
     },
     {
-      "id": "f27=*",
+      "id": "f27=x",
       "labelPt": "Bits 0–7 do registro do PC",
       "severity": "info",
       "isTemplate": true,
       "template": "Bits 0–7 do registro do PC: {war_id}"
     },
     {
-      "id": "f106=*",
+      "id": "f106=xx",
       "labelPt": "Sequência de código de evento especial",
       "severity": "info",
       "isTemplate": true,
       "template": "Sequência de código de evento especial: {war_id}"
     },
     {
-      "id": "f112=*",
+      "id": "f112=n",
       "labelPt": "Apagamento do subsetor Flash por contador de 1h",
       "severity": "info",
       "isTemplate": true,
       "template": "Apagamento do subsetor Flash por contador de 1h: {war_id}"
     },
     {
-      "id": "f113=*",
+      "id": "f113=n",
       "labelPt": "Apagamento do setor de flash por contador de 1h",
       "severity": "info",
       "isTemplate": true,
       "template": "Apagamento do setor de flash por contador de 1h: {war_id}"
     },
     {
-      "id": "f130=*",
+      "id": "f130=id",
       "labelPt": "Bateria do sensor Cargojot",
       "severity": "info",
       "isTemplate": true,
@@ -3788,14 +3788,14 @@
       "descriptionPt": "Falha na bateria do sensor Cargojot ou bateria do sensor Cargojot ok."
     },
     {
-      "id": "f161=*",
+      "id": "f161=xx",
       "labelPt": "Taxa de calibração LSI",
       "severity": "info",
       "isTemplate": true,
       "template": "Taxa de calibração LSI ({war_id}-100%)."
     },
     {
-      "id": "f200=*",
+      "id": "f200=x",
       "labelPt": "Índice APN do modelo de configurações",
       "severity": "info",
       "isTemplate": true,
@@ -3803,42 +3803,42 @@
       "descriptionPt": "x é o índice APN no modelo de configurações."
     },
     {
-      "id": "f221=*",
+      "id": "f221=x",
       "labelPt": "Mudança de estado Out1 (0 - OFF, 1 - ON)",
       "severity": "info",
       "isTemplate": true,
       "template": "Mudança de estado Out1: {war_id} (0 - OFF, 1 - ON)"
     },
     {
-      "id": "f222=*",
+      "id": "f222=x",
       "labelPt": "Mudança de estado Out2 (0 - OFF, 1 - ON)",
       "severity": "info",
       "isTemplate": true,
       "template": "Mudança de estado Out2: {war_id} (0 - OFF, 1 - ON)"
     },
     {
-      "id": "f223=*",
+      "id": "f223=x",
       "labelPt": "Mudança de estado Out3 (0 - OFF, 1 - ON)",
       "severity": "info",
       "isTemplate": true,
       "template": "Mudança de estado Out3: {war_id} (0 - OFF, 1 - ON)"
     },
     {
-      "id": "f224=*",
+      "id": "f224=x",
       "labelPt": "Mudança de estado Out4 (0 - OFF, 1 - ON)",
       "severity": "info",
       "isTemplate": true,
       "template": "Mudança de estado Out4: {war_id} (0 - OFF, 1 - ON)"
     },
     {
-      "id": "f240+source=*",
+      "id": "f240+source=xx",
       "labelPt": "Tempo do sistema atrasado",
       "severity": "info",
       "isTemplate": true,
       "template": "O tempo do sistema está {war_id} segundos atrasado (fonte: {source_label})."
     },
     {
-      "id": "f250+source=*",
+      "id": "f250+source=xx",
       "labelPt": "Tempo do sistema adiantado",
       "severity": "info",
       "isTemplate": true,
@@ -4432,6 +4432,139 @@
       "severity": "info",
       "isTemplate": true,
       "template": "CAN base {source_label}: Ignorando novos erros de recebimento"
+    },
+    {
+      "id": "f116=x",
+      "labelPt": "Parâmetros estendidos do tacógrafo 1–8",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Parâmetros estendidos do tacógrafo 1–8: {war_id}"
+    },
+    {
+      "id": "f117=x",
+      "labelPt": "Parâmetros estendidos do tacógrafo 9–16",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Parâmetros estendidos do tacógrafo 9–16: {war_id}"
+    },
+    {
+      "id": "f118=x",
+      "labelPt": "Parâmetros estendidos do tacógrafo 17–24",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Parâmetros estendidos do tacógrafo 17–24: {war_id}"
+    },
+    {
+      "id": "f119=x",
+      "labelPt": "Parâmetros estendidos do tacógrafo 25–30",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Parâmetros estendidos do tacógrafo 25–30: {war_id}"
+    },
+    {
+      "id": "f121=x",
+      "labelPt": "Byte de dados #0",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #0: {war_id}"
+    },
+    {
+      "id": "f122=x",
+      "labelPt": "Byte de dados #1",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #1: {war_id}"
+    },
+    {
+      "id": "f123=x",
+      "labelPt": "Byte de dados #2",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #2: {war_id}"
+    },
+    {
+      "id": "f124=x",
+      "labelPt": "Byte de dados #3",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #3: {war_id}"
+    },
+    {
+      "id": "f125=x",
+      "labelPt": "Byte de dados #4",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #4: {war_id}"
+    },
+    {
+      "id": "f126=x",
+      "labelPt": "Byte de dados #5",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #5: {war_id}"
+    },
+    {
+      "id": "f127=x",
+      "labelPt": "Byte de dados #6",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Byte de dados #6: {war_id}"
+    },
+    {
+      "id": "f128=x",
+      "labelPt": "Subtipo de erro de dados do tacógrafo",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Subtipo de erro de dados do tacógrafo: {war_id}"
+    },
+    {
+      "id": "f129=x",
+      "labelPt": "Tipo de erro de dados do tacógrafo",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Tipo de erro de dados do tacógrafo: {war_id}"
+    },
+    {
+      "id": "f174=x",
+      "labelPt": "Abrir arquivo (openFile)",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Abrir arquivo (openFile): {war_id}"
+    },
+    {
+      "id": "f175=x",
+      "labelPt": "Abrir cartão (openCard)",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Abrir cartão (openCard): {war_id}"
+    },
+    {
+      "id": "f176=x",
+      "labelPt": "Resposta recebida (answergot)",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Resposta recebida (answergot): {war_id}"
+    },
+    {
+      "id": "f177=x",
+      "labelPt": "Registro máximo (maxrecord)",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Registro máximo (maxrecord): {war_id}"
+    },
+    {
+      "id": "f178=x",
+      "labelPt": "Tamanho máximo do índice (maxindexsize)",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Tamanho máximo do índice (maxindexsize): {war_id}"
+    },
+    {
+      "id": "f179=x",
+      "labelPt": "Valor da tarefa do servidor de tacógrafo",
+      "severity": "info",
+      "isTemplate": true,
+      "template": "Valor da tarefa do servidor de tacógrafo: {war_id}"
     }
   ]
 }
