@@ -202,12 +202,13 @@ function buildXlsxFileName(vehicle, from, to) {
   return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.xlsx`;
 }
 
-function buildCsvFileName(vehicle, from, to) {
+function buildCsvFileName(vehicle, from, to, target = "positions") {
   const plate = vehicle?.plate || vehicle?.name || "vehicle";
   const safePlate = String(plate).replace(/\s+/g, "-");
   const safeFrom = String(from).replace(/[:\\s]/g, "-");
   const safeTo = String(to).replace(/[:\\s]/g, "-");
-  return `analytic-report-${safePlate}-${safeFrom}-${safeTo}.csv`;
+  const prefix = target === "actions" ? "analytic-actions" : "analytic-report";
+  return `${prefix}-${safePlate}-${safeFrom}-${safeTo}.csv`;
 }
 
 export default function ReportsAnalytic() {
@@ -230,6 +231,7 @@ export default function ReportsAnalytic() {
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [exportFormat, setExportFormat] = useState("pdf");
+  const [csvExportTarget, setCsvExportTarget] = useState("positions");
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
@@ -247,6 +249,8 @@ export default function ReportsAnalytic() {
   const currentPage = meta?.currentPage || page;
   const totalItems = meta?.totalItems ?? positions.length;
   const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
+  const canGoPrev = currentPage > 1;
+  const canGoNext = currentPage < totalPages;
 
   const reportProtocol = useMemo(() => resolveReportProtocol(positions), [positions]);
 
@@ -623,6 +627,7 @@ export default function ReportsAnalytic() {
               radius: resolvedFilter.radius,
             }
           : null,
+        exportTarget: exportFormat === "csv" ? csvExportTarget : null,
       },
     };
   };
@@ -715,7 +720,7 @@ export default function ReportsAnalytic() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = buildCsvFileName(selectedVehicle, from, to);
+      link.download = buildCsvFileName(selectedVehicle, from, to, csvExportTarget);
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -756,6 +761,9 @@ export default function ReportsAnalytic() {
   const openPdfModal = (format = "pdf") => {
     setPdfColumns(visibleColumns.map((column) => column.key));
     setExportFormat(format);
+    if (format === "csv") {
+      setCsvExportTarget("positions");
+    }
     setPdfModalOpen(true);
   };
 
@@ -768,14 +776,16 @@ export default function ReportsAnalytic() {
 
   const renderActionCard = (entry) => {
     const resolvedRespondedAt = entry?.respondedAt ? formatDateTime(entry.respondedAt) : "—";
+    const actionType = String(entry?.actionType || "Ação").toUpperCase();
+    const statusLabel = entry?.status || "—";
     const baseFields = [
       { label: "Enviado em", value: formatDateTime(entry?.sentAt) },
       { label: "Respondido em", value: resolvedRespondedAt },
-      { label: "O que foi feito", value: entry?.actionLabel || "—" },
       { label: "Quem enviou", value: entry?.user || "—" },
-      { label: "Status", value: entry?.status || "—" },
       { label: "Endereço IP", value: entry?.ipAddress || "—" },
     ];
+
+    const detailsFields = [{ label: "O que foi feito", value: entry?.actionLabel || "—" }];
 
     const extraFields = [];
     if (entry?.details?.command) {
@@ -788,23 +798,60 @@ export default function ReportsAnalytic() {
       extraFields.push({ label: "Itinerário", value: entry.details.itinerary });
     }
 
-    const fields = [...baseFields, ...extraFields];
+    const fields = [...detailsFields, ...extraFields];
 
     return (
-      <div className="rounded-2xl bg-white/5 p-4 text-sm text-white/80 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.2em] text-white/50">{entry?.actionType || "Ação"}</div>
+      <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/80 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/50">{actionType}</span>
+          <span className="rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white/70">
+            {statusLabel}
+          </span>
+        </div>
         <div className="mt-1 text-sm font-semibold text-white">{entry?.actionLabel || "Ação do usuário"}</div>
-        <div className="mt-3 grid grid-cols-1 gap-3 text-xs text-white/70 md:grid-cols-2">
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-white/70">
+          {baseFields.map((field) => (
+            <div key={field.label} className="space-y-0.5">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-white/50">{field.label}</div>
+              <div className="text-xs text-white/80">{field.value || "—"}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-2 grid grid-cols-1 gap-2 text-[11px] text-white/70 md:grid-cols-2">
           {fields.map((field) => (
-            <div key={field.label} className="space-y-1">
-              <div className="text-[10px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
-              <div className="text-sm text-white/80">{field.value || "—"}</div>
+            <div key={field.label} className="space-y-0.5">
+              <div className="text-[9px] uppercase tracking-[0.14em] text-white/50">{field.label}</div>
+              <div className="text-xs text-white/80">{field.value || "—"}</div>
             </div>
           ))}
         </div>
       </div>
     );
   };
+
+  const handlePageChange = useCallback(
+    async (nextPage) => {
+      if (!baseQueryRef.current || loading) return;
+      const target = Math.max(1, Math.min(totalPages, nextPage));
+      if (target === currentPage) return;
+      setLoadingMore(true);
+      try {
+        const params = { ...baseQueryRef.current, page: target, limit: effectivePageSize };
+        baseQueryRef.current = params;
+        const normalized = await fetchPage(params);
+        setPositions(normalized.positions || []);
+        setEntries(normalized.entries || []);
+        setActions(normalized.actions || []);
+        setMeta(normalized.meta);
+        setPage(target);
+      } catch (loadError) {
+        setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar a página." });
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [currentPage, effectivePageSize, fetchPage, loading, totalPages],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -858,7 +905,7 @@ export default function ReportsAnalytic() {
                   disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
                   className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
                 >
-                  {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
+                  {exportingCsv ? "Exportando…" : "Exportar CSV"}
                 </button>
                 <button
                   type="button"
@@ -1036,6 +1083,40 @@ export default function ReportsAnalytic() {
           </div>
         )}
       </section>
+      {hasGenerated && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={!canGoPrev || loadingMore}
+              className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+            >
+              Anterior
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={!canGoNext || loadingMore}
+              className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+            >
+              Próximo
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <span>Ir para página</span>
+            <input
+              type="number"
+              min={1}
+              max={totalPages}
+              value={currentPage}
+              onChange={(event) => handlePageChange(Number(event.target.value || 1))}
+              className="w-20 rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 text-xs text-white/80 outline-none"
+            />
+            <span className="text-white/50">de {totalPages}</span>
+          </div>
+        </div>
+      )}
       {canLoadMore && (
         <div className="flex items-center justify-center">
           <button
@@ -1075,7 +1156,7 @@ export default function ReportsAnalytic() {
                   {exportFormat === "xlsx"
                     ? "Colunas do Excel"
                     : exportFormat === "csv"
-                      ? "Colunas do CSV (Excel)"
+                      ? "Colunas do CSV"
                       : "Colunas do PDF"}
                 </div>
                 <p className="text-xs text-white/60">Escolha as colunas para exportação.</p>
@@ -1110,6 +1191,38 @@ export default function ReportsAnalytic() {
                 </label>
               ))}
             </div>
+            {exportFormat === "csv" && (
+              <div className="mt-4 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+                <p className="text-xs font-semibold uppercase tracking-wide text-white/60">Exportação CSV</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="csvExportTarget"
+                      value="positions"
+                      checked={csvExportTarget === "positions"}
+                      onChange={() => setCsvExportTarget("positions")}
+                      className="accent-primary"
+                    />
+                    <span>Posições/Eventos</span>
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="csvExportTarget"
+                      value="actions"
+                      checked={csvExportTarget === "actions"}
+                      onChange={() => setCsvExportTarget("actions")}
+                      className="accent-primary"
+                    />
+                    <span>Ações do usuário</span>
+                  </label>
+                </div>
+                <p className="mt-2 text-[11px] text-white/50">
+                  Selecione o conteúdo desejado para o CSV.
+                </p>
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"

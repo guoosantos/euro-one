@@ -172,6 +172,7 @@ function buildHtml({
   rows,
   columns,
   meta,
+  actions = [],
   logoDataUrl,
   fontData,
   columnDefinitions = new Map(),
@@ -186,6 +187,8 @@ function buildHtml({
   const reportTitle = options.title || "RELATÓRIO DE POSIÇÕES";
   const reportSubtitle = options.subtitle || "Dados consolidados do veículo e posições georreferenciadas";
   const summaryTitle = options.summaryTitle || "Resumo do veículo";
+  const actionsTitle = options.actionsTitle || "Ações do usuário";
+  const actionsSubtitle = options.actionsSubtitle || "Comandos, relatórios e auditoria do período";
 
   const columnsGroup = columns?.length ? columns : [];
 
@@ -267,6 +270,49 @@ function buildHtml({
 
   const slices = chunkArray(rows, chunkSize);
   const tables = slices.map((slice, sliceIndex) => renderTable(slice, sliceIndex)).join("");
+  const safeActions = Array.isArray(actions) ? actions : [];
+
+  const actionsSection = safeActions.length
+    ? `
+      <div class="page-break"></div>
+      <div class="section">
+        <div class="section-header">
+          <div class="section-title">${escapeHtml(actionsTitle)}</div>
+          <div class="section-subtitle">${escapeHtml(actionsSubtitle)}</div>
+        </div>
+        <div class="actions-grid">
+          ${safeActions
+            .map((action) => {
+              const extraDetails = [];
+              if (action?.details?.command) extraDetails.push(`Comando: ${action.details.command}`);
+              if (action?.details?.report) extraDetails.push(`Relatório: ${action.details.report}`);
+              if (action?.details?.itinerary) extraDetails.push(`Itinerário: ${action.details.itinerary}`);
+              const detailsText = extraDetails.length ? extraDetails.join(" • ") : "—";
+              return `
+                <div class="action-card">
+                  <div class="action-head">
+                    <span class="action-type">${escapeHtml(action?.actionType || "Ação")}</span>
+                    <span class="action-status">${escapeHtml(action?.status || "—")}</span>
+                  </div>
+                  <div class="action-label">${escapeHtml(action?.actionLabel || "Ação do usuário")}</div>
+                  <div class="action-meta">
+                    <div><span>Enviado em</span>${escapeHtml(formatDate(action?.sentAt))}</div>
+                    <div><span>Respondido em</span>${escapeHtml(formatDate(action?.respondedAt))}</div>
+                    <div><span>Quem enviou</span>${escapeHtml(action?.user || "—")}</div>
+                    <div><span>Endereço IP</span>${escapeHtml(action?.ipAddress || "—")}</div>
+                  </div>
+                  <div class="action-extra">
+                    <span>Detalhes</span>
+                    ${escapeHtml(detailsText)}
+                  </div>
+                </div>
+              `;
+            })
+            .join("")}
+        </div>
+      </div>
+    `
+    : "";
 
   const fontFaces = fontData?.regular
     ? `
@@ -465,6 +511,93 @@ function buildHtml({
       .page-break {
         page-break-before: always;
       }
+      .section {
+        border-radius: 16px;
+        border: 1px solid #e2e8f0;
+        padding: 16px;
+        background: #f8fafc;
+      }
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-title {
+        font-size: 12px;
+        font-weight: 800;
+        color: ${BRAND_COLOR};
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+      .section-subtitle {
+        font-size: 10px;
+        color: #64748b;
+      }
+      .actions-grid {
+        display: grid;
+        gap: 10px;
+      }
+      .action-card {
+        background: #ffffff;
+        border-radius: 12px;
+        padding: 10px 12px;
+        border: 1px solid #e2e8f0;
+      }
+      .action-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 6px;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: #64748b;
+        font-weight: 700;
+      }
+      .action-status {
+        background: #eef2ff;
+        color: #3730a3;
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 8px;
+        letter-spacing: 0.1em;
+      }
+      .action-label {
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f172a;
+        margin-bottom: 6px;
+      }
+      .action-meta {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 12px;
+        font-size: 9px;
+        color: #475569;
+      }
+      .action-meta span {
+        display: block;
+        font-size: 8px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 2px;
+      }
+      .action-extra {
+        margin-top: 6px;
+        font-size: 9px;
+        color: #475569;
+      }
+      .action-extra span {
+        display: block;
+        font-size: 8px;
+        color: #94a3b8;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin-bottom: 2px;
+      }
       @page {
         margin: 16mm 12mm 20mm;
       }
@@ -473,6 +606,7 @@ function buildHtml({
   <body>
     <div class="report">
       ${tables}
+      ${actionsSection}
     </div>
   </body>
 </html>
@@ -497,6 +631,7 @@ export async function generatePositionsReportPdf({
   rows,
   columns,
   meta,
+  actions = [],
   availableColumns = null,
   columnDefinitions = [],
   options = {},
@@ -549,6 +684,7 @@ export async function generatePositionsReportPdf({
       rows: safeRows,
       columns: columnsToUse,
       meta,
+      actions,
       logoDataUrl,
       fontData,
       columnDefinitions: columnMap,

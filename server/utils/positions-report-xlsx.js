@@ -116,6 +116,7 @@ export async function generatePositionsReportXlsx({
   columnDefinitions = null,
   meta = {},
   availableColumns = null,
+  actions = [],
   options = {},
 } = {}) {
   const safeColumns = resolvePdfColumns(columns, availableColumns || columns).slice(0, MAX_XLSX_COLUMNS);
@@ -199,6 +200,57 @@ export async function generatePositionsReportXlsx({
     }
   }
 
+  const safeActions = Array.isArray(actions) ? actions : [];
+  if (safeActions.length) {
+    const actionsSheet = workbook.addWorksheet("Ações", {
+      properties: { defaultRowHeight: 18 },
+      views: [],
+    });
+    const actionHeaders = [
+      "Tipo",
+      "Enviado em",
+      "Respondido em",
+      "O que foi feito",
+      "Quem enviou",
+      "Status",
+      "Endereço IP",
+      "Comando",
+      "Relatório",
+      "Itinerário",
+    ];
+    const actionHeaderRow = actionsSheet.addRow(actionHeaders);
+    actionHeaderRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+    actionHeaderRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: `FF${BRAND_COLOR}` } };
+    actionHeaderRow.alignment = { vertical: "middle" };
+
+    const actionRows = safeActions.map((action) => [
+      action?.actionType?.toUpperCase?.() || "AÇÃO",
+      formatDate(action?.sentAt),
+      formatDate(action?.respondedAt),
+      action?.actionLabel || "—",
+      action?.user || "—",
+      action?.status || "—",
+      action?.ipAddress || "—",
+      action?.details?.command || "—",
+      action?.details?.report || "—",
+      action?.details?.itinerary || "—",
+    ]);
+
+    actionRows.forEach((values) => actionsSheet.addRow(values));
+    const actionWidths = computeColumnWidths(actionHeaders, actionRows);
+    actionsSheet.columns = actionWidths.map((width) => ({ width }));
+    actionsSheet.views = [{ state: "frozen", ySplit: actionHeaderRow.number }];
+    actionsSheet.autoFilter = {
+      from: { row: actionHeaderRow.number, column: 1 },
+      to: { row: actionHeaderRow.number, column: actionHeaders.length },
+    };
+    for (let rowIndex = actionHeaderRow.number + 1; rowIndex <= actionsSheet.rowCount; rowIndex += 1) {
+      if ((rowIndex - actionHeaderRow.number) % 2 === 0) {
+        actionsSheet.getRow(rowIndex).fill = zebraFill;
+      }
+    }
+  }
+
   return await workbook.xlsx.writeBuffer();
 }
 
@@ -230,6 +282,42 @@ export function generatePositionsReportCsv({
     lines.push(values.map(escapeCsvValue).join(";"));
   });
 
+  const content = `\ufeff${lines.join("\n")}`;
+  return Buffer.from(content, "utf8");
+}
+
+export function generateActionsReportCsv({ actions = [] } = {}) {
+  const safeActions = Array.isArray(actions) ? actions : [];
+  const headerLabels = [
+    "Tipo",
+    "Enviado em",
+    "Respondido em",
+    "O que foi feito",
+    "Quem enviou",
+    "Status",
+    "Endereço IP",
+    "Comando",
+    "Relatório",
+    "Itinerário",
+  ];
+
+  const lines = [];
+  lines.push(headerLabels.map(escapeCsvValue).join(";"));
+  safeActions.forEach((action) => {
+    const values = [
+      action?.actionType?.toUpperCase?.() || "AÇÃO",
+      formatDate(action?.sentAt),
+      formatDate(action?.respondedAt),
+      action?.actionLabel || "—",
+      action?.user || "—",
+      action?.status || "—",
+      action?.ipAddress || "—",
+      action?.details?.command || "—",
+      action?.details?.report || "—",
+      action?.details?.itinerary || "—",
+    ];
+    lines.push(values.map(escapeCsvValue).join(";"));
+  });
   const content = `\ufeff${lines.join("\n")}`;
   return Buffer.from(content, "utf8");
 }
