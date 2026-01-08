@@ -56,11 +56,12 @@ const EVENT_TYPES = [
   "media",
 ];
 const SEVERITY_LEVELS = [
-  { value: "informativa", label: "Informativa" },
-  { value: "baixa", label: "Baixa" },
-  { value: "moderada", label: "Moderada" },
-  { value: "alta", label: "Alta" },
-  { value: "critica", label: "Crítica" },
+  { value: "info", label: "Informativa" },
+  { value: "warning", label: "Alerta" },
+  { value: "critical", label: "Crítica" },
+  { value: "high", label: "Alta" },
+  { value: "medium", label: "Moderada" },
+  { value: "low", label: "Baixa" },
 ];
 
 const DEFAULT_COLUMNS = [
@@ -85,19 +86,22 @@ const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
 const DEFAULT_PAGE_SIZE = 100;
 
 const SEVERITY_LABELS = {
+  info: "Informativa",
   informativa: "Informativa",
-  baixa: "Baixa",
+  warning: "Alerta",
+  alerta: "Alerta",
   low: "Baixa",
+  baixa: "Baixa",
+  medium: "Moderada",
+  moderate: "Moderada",
   moderada: "Moderada",
   media: "Moderada",
   "média": "Moderada",
-  medium: "Moderada",
-  moderate: "Moderada",
-  alta: "Alta",
   high: "Alta",
+  alta: "Alta",
+  critical: "Crítica",
   critica: "Crítica",
   "crítica": "Crítica",
-  critical: "Crítica",
 };
 
 const CRITICAL_EVENT_TYPES = new Set(["deviceoffline", "deviceinactive", "deviceunknown", "powercut", "powerdisconnected"]);
@@ -274,10 +278,9 @@ export default function Events() {
   const [selectedProtocol, setSelectedProtocol] = useState("");
   const [protocolEvents, setProtocolEvents] = useState([]);
   const [eventSearch, setEventSearch] = useState("");
-  const [severityMap, setSeverityMap] = useState({});
-  const [severityLoading, setSeverityLoading] = useState(false);
-  const [severityError, setSeverityError] = useState(null);
-  const [savingSeverity, setSavingSeverity] = useState(false);
+  const [configLoading, setConfigLoading] = useState(false);
+  const [configError, setConfigError] = useState(null);
+  const [savingConfig, setSavingConfig] = useState(false);
 
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
@@ -445,27 +448,54 @@ export default function Events() {
     if (activeTab !== "Criticidade" || !selectedProtocol) return;
     let mounted = true;
     async function loadProtocolEvents() {
-      setSeverityLoading(true);
-      setSeverityError(null);
+      setConfigLoading(true);
+      setConfigError(null);
       try {
-        const [eventsResponse, severityResponse] = await Promise.all([
+        const [eventsResponse, configResponse] = await Promise.all([
           api.get(API_ROUTES.protocolEvents(selectedProtocol)),
-          api.get(API_ROUTES.protocolEventSeverity(selectedProtocol)),
+          api.get(API_ROUTES.protocolEventConfig(selectedProtocol)),
         ]);
         const eventsList = Array.isArray(eventsResponse?.data?.events) ? eventsResponse.data.events : [];
-        const savedSeverity = severityResponse?.data?.severity || {};
+        const savedConfig = configResponse?.data?.config || {};
+        const configMap = savedConfig && typeof savedConfig === "object" ? savedConfig : {};
+        const catalogIds = new Set(eventsList.map((event) => String(event?.id)));
+        const rows = eventsList.map((event) => {
+          const id = String(event.id);
+          const configEntry = configMap?.[id] || {};
+          return {
+            id,
+            code: id,
+            defaultName: event.name,
+            description: event.description,
+            defaultSeverity: event.defaultSeverity ?? null,
+            displayName: configEntry.displayName ?? "",
+            severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
+            active: configEntry.active ?? true,
+          };
+        });
+        const unmappedRows = Object.entries(configMap)
+          .filter(([id]) => !catalogIds.has(String(id)))
+          .map(([id, configEntry]) => ({
+            id: String(id),
+            code: String(id),
+            defaultName: configEntry.displayName || `NÃO MAPEADO (${id})`,
+            description: "",
+            defaultSeverity: null,
+            displayName: configEntry.displayName ?? "",
+            severity: normalizeSeverityValue(configEntry.severity ?? "warning"),
+            active: configEntry.active ?? true,
+            isUnmapped: true,
+          }));
         if (mounted) {
-          setProtocolEvents(eventsList);
-          setSeverityMap(savedSeverity);
+          setProtocolEvents([...rows, ...unmappedRows]);
         }
       } catch (error) {
         if (mounted) {
-          setSeverityError(error instanceof Error ? error : new Error("Erro ao carregar eventos do protocolo"));
+          setConfigError(error instanceof Error ? error : new Error("Erro ao carregar eventos do protocolo"));
           setProtocolEvents([]);
-          setSeverityMap({});
         }
       } finally {
-        if (mounted) setSeverityLoading(false);
+        if (mounted) setConfigLoading(false);
       }
     }
     loadProtocolEvents();
@@ -635,49 +665,61 @@ export default function Events() {
     if (!term) return protocolEvents;
     return protocolEvents.filter((event) => {
       return (
-        event.id?.toLowerCase().includes(term) ||
-        event.name?.toLowerCase().includes(term) ||
+        event.code?.toLowerCase().includes(term) ||
+        event.defaultName?.toLowerCase().includes(term) ||
+        event.displayName?.toLowerCase().includes(term) ||
         event.description?.toLowerCase().includes(term)
       );
     });
   }, [eventSearch, protocolEvents]);
 
+  const handleDisplayNameChange = (eventId, value) => {
+    setProtocolEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, displayName: value } : event)),
+    );
+  };
+
   const handleSeverityChange = (eventId, value) => {
-    setSeverityMap((current) => ({
-      ...current,
-      [eventId]: {
-        severity: value,
-        active: current?.[eventId]?.active ?? true,
-      },
-    }));
+    setProtocolEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, severity: value } : event)),
+    );
   };
 
   const handleActiveChange = (eventId, value) => {
-    setSeverityMap((current) => ({
-      ...current,
-      [eventId]: {
-        severity: current?.[eventId]?.severity || "informativa",
-        active: value,
-      },
-    }));
+    setProtocolEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, active: value } : event)),
+    );
   };
 
-  const handleSaveSeverity = async () => {
+  const handleSaveConfig = async () => {
     if (!selectedProtocol) return;
-    setSavingSeverity(true);
-    setSeverityError(null);
+    setSavingConfig(true);
+    setConfigError(null);
     try {
-      const updates = protocolEvents.map((event) => ({
-        eventId: event.id,
-        severity: severityMap?.[event.id]?.severity || "informativa",
-        active: typeof severityMap?.[event.id]?.active === "boolean" ? severityMap[event.id].active : true,
+      const items = protocolEvents.map((event) => ({
+        id: event.id,
+        displayName: event.displayName?.trim() || null,
+        severity: normalizeSeverityValue(event.severity || event.defaultSeverity || "info"),
+        active: typeof event.active === "boolean" ? event.active : true,
       }));
-      const response = await api.put(API_ROUTES.protocolEventSeverity(selectedProtocol), { updates });
-      setSeverityMap(response?.data?.severity || severityMap);
+      const response = await api.put(API_ROUTES.protocolEventConfig(selectedProtocol), { items });
+      const updatedConfig = response?.data?.config || {};
+      setProtocolEvents((current) =>
+        current.map((event) => {
+          const configEntry = updatedConfig?.[event.id];
+          if (!configEntry) return event;
+          return {
+            ...event,
+            displayName: configEntry.displayName ?? "",
+            severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
+            active: configEntry.active ?? true,
+          };
+        }),
+      );
     } catch (error) {
-      setSeverityError(error instanceof Error ? error : new Error("Erro ao salvar criticidades"));
+      setConfigError(error instanceof Error ? error : new Error("Erro ao salvar configurações"));
     } finally {
-      setSavingSeverity(false);
+      setSavingConfig(false);
     }
   };
 
@@ -994,7 +1036,7 @@ export default function Events() {
               </label>
             </div>
 
-            {severityError && <p className="text-xs text-red-300">{severityError.message}</p>}
+            {configError && <p className="text-xs text-red-300">{configError.message}</p>}
 
             {selectedProtocol && (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1002,52 +1044,70 @@ export default function Events() {
                   <div>
                     <p className="text-xs uppercase tracking-wide text-white/50">Eventos homologados</p>
                     <p className="text-xs text-white/60">
-                      {severityLoading ? "Carregando catálogo…" : `${filteredProtocolEvents.length} eventos`}
+                      {configLoading ? "Carregando catálogo…" : `${filteredProtocolEvents.length} eventos`}
                     </p>
                   </div>
-                  <Button type="button" onClick={handleSaveSeverity} disabled={savingSeverity || severityLoading}>
-                    {savingSeverity ? "Salvando…" : "Salvar criticidades"}
+                  <Button type="button" onClick={handleSaveConfig} disabled={savingConfig || configLoading}>
+                    {savingConfig ? "Salvando…" : "Salvar"}
                   </Button>
                 </div>
 
                 <div className="mt-3 space-y-2">
+                  <div className="hidden items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60 md:grid md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.6fr)_160px_80px]">
+                    <span>Código</span>
+                    <span>Nome do evento</span>
+                    <span>Descrição</span>
+                    <span>Criticidade</span>
+                    <span>Ativo</span>
+                  </div>
                   {filteredProtocolEvents.map((event) => (
-                    <div key={event.id} className="rounded-2xl border border-white/10 bg-neutral-900/60 p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-white">{event.name}</p>
-                          <p className="text-xs text-white/60">{event.description}</p>
-                          <p className="mt-1 text-[11px] text-white/40">Código: {event.id}</p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-3">
-                          <label className="text-[11px] uppercase tracking-wide text-white/60">
-                            Criticidade
-                            <Select
-                              value={severityMap?.[event.id]?.severity || "informativa"}
-                              onChange={(evt) => handleSeverityChange(event.id, evt.target.value)}
-                              className="mt-2 w-36 bg-layer text-xs"
-                            >
-                              {SEVERITY_LEVELS.map((level) => (
-                                <option key={level.value} value={level.value}>
-                                  {level.label}
-                                </option>
-                              ))}
-                            </Select>
-                          </label>
-                          <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/60">
-                            <input
-                              type="checkbox"
-                              checked={severityMap?.[event.id]?.active ?? true}
-                              onChange={(evt) => handleActiveChange(event.id, evt.target.checked)}
-                              className="rounded border-white/20 bg-transparent"
-                            />
-                            Ativo
-                          </label>
-                        </div>
+                    <div
+                      key={event.id}
+                      className="grid gap-3 rounded-2xl border border-white/10 bg-neutral-900/60 p-3 md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.6fr)_160px_80px] md:items-center"
+                    >
+                      <div className="text-xs text-white/70">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Código</span>
+                        <span>{event.code}</span>
                       </div>
+                      <label className="text-xs text-white/70">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Nome do evento</span>
+                        <Input
+                          value={event.displayName ?? ""}
+                          onChange={(evt) => handleDisplayNameChange(event.id, evt.target.value)}
+                          placeholder={event.defaultName || "Nome do evento"}
+                          className="mt-1 h-9 bg-layer text-xs md:mt-0"
+                        />
+                      </label>
+                      <div className="text-xs text-white/60">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Descrição</span>
+                        <p>{event.description || "—"}</p>
+                      </div>
+                      <label className="text-xs uppercase tracking-wide text-white/60">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Criticidade</span>
+                        <Select
+                          value={event.severity || "info"}
+                          onChange={(evt) => handleSeverityChange(event.id, evt.target.value)}
+                          className="mt-1 w-full bg-layer text-xs md:mt-0"
+                        >
+                          {SEVERITY_LEVELS.map((level) => (
+                            <option key={level.value} value={level.value}>
+                              {level.label}
+                            </option>
+                          ))}
+                        </Select>
+                      </label>
+                      <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/60">
+                        <input
+                          type="checkbox"
+                          checked={event.active ?? true}
+                          onChange={(evt) => handleActiveChange(event.id, evt.target.checked)}
+                          className="rounded border-white/20 bg-transparent"
+                        />
+                        Ativo
+                      </label>
                     </div>
                   ))}
-                  {!severityLoading && selectedProtocol && filteredProtocolEvents.length === 0 && (
+                  {!configLoading && selectedProtocol && filteredProtocolEvents.length === 0 && (
                     <p className="text-xs text-white/60">Nenhum evento encontrado para o protocolo.</p>
                   )}
                 </div>
@@ -1096,6 +1156,18 @@ function renderColumnValue(columnId, row, locale, t) {
     default:
       return "—";
   }
+}
+
+function normalizeSeverityValue(value, fallback = "info") {
+  if (!value) return fallback;
+  const normalized = String(value).trim().toLowerCase();
+  if (["informativa", "info"].includes(normalized)) return "info";
+  if (["alerta", "warning"].includes(normalized)) return "warning";
+  if (["critica", "crítica", "critical"].includes(normalized)) return "critical";
+  if (["alta", "high"].includes(normalized)) return "high";
+  if (["moderada", "media", "média", "medium", "moderate"].includes(normalized)) return "medium";
+  if (["baixa", "low"].includes(normalized)) return "low";
+  return normalized || fallback;
 }
 
 function resolveEventSeverity(rawSeverity, eventType) {

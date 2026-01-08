@@ -1,5 +1,4 @@
 import { resolveEventDescriptor } from "../../../shared/telemetryDictionary.js";
-import { translateDiagnosticEvent } from "../../../shared/eventTranslator.js";
 
 const EVENT_LABELS_PT = {
   generic: "Evento",
@@ -180,6 +179,35 @@ function resolveProtocolFromPayload(payload = {}) {
   );
 }
 
+function resolvePayloadEventLabel(payload = {}) {
+  const attributes = extractPositionAttributes(payload);
+  return (
+    payload?.eventLabel ||
+    payload?.position?.eventLabel ||
+    attributes?.eventLabel ||
+    payload?.position?.attributes?.eventLabel ||
+    null
+  );
+}
+
+function resolvePayloadEventSeverity(payload = {}) {
+  const attributes = extractPositionAttributes(payload);
+  return (
+    payload?.eventSeverity ||
+    payload?.position?.eventSeverity ||
+    attributes?.eventSeverity ||
+    payload?.position?.attributes?.eventSeverity ||
+    null
+  );
+}
+
+function resolvePayloadEventActive(payload = {}) {
+  const attributes = extractPositionAttributes(payload);
+  if (payload?.eventActive === false || payload?.position?.eventActive === false) return false;
+  if (attributes?.eventActive === false || payload?.position?.attributes?.eventActive === false) return false;
+  return null;
+}
+
 function resolveDescriptorLabel(candidate, protocol, payload) {
   if (!candidate) return null;
   const protocolKey = normalizeProtocol(protocol);
@@ -203,12 +231,6 @@ function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
     if (dictionary?.[key]) return dictionary[key];
   }
   return definition.defaultLabel || definition.label || "";
-}
-
-function resolveIotmDiagnosticLabel(rawType, payload) {
-  const diagnostic = translateDiagnosticEvent({ rawCode: rawType, payload });
-  if (!diagnostic?.label_ptBR) return null;
-  return diagnostic.label_ptBR;
 }
 
 function extractPositionAttributes(payload = {}) {
@@ -276,22 +298,47 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     };
   }
 
+  const payloadEventLabel = resolvePayloadEventLabel(payload);
+  const payloadEventSeverity = resolvePayloadEventSeverity(payload);
+  const payloadEventActive = resolvePayloadEventActive(payload);
+  if (payloadEventActive === false) {
+    if (isPositionPayload(payload)) {
+      return {
+        label: POSITION_LABEL_PT,
+        raw: candidate,
+        type: "position",
+        icon: null,
+        suppressed: true,
+      };
+    }
+    return {
+      label: "",
+      raw: candidate,
+      type: "event",
+      icon: null,
+      suppressed: true,
+    };
+  }
+  if (payloadEventLabel) {
+    const numericCandidate = Number(candidate);
+    const numericDefinition =
+      Number.isFinite(numericCandidate) && String(numericCandidate) === candidate
+        ? J16_EVENT_DEFINITIONS[candidate]
+        : null;
+    return {
+      label: payloadEventLabel,
+      raw: candidate,
+      type: "event",
+      icon: null,
+      isNumeric: /^\d+$/.test(candidate),
+      severity: payloadEventSeverity || undefined,
+      ...(numericDefinition?.ignition !== undefined ? { ignition: numericDefinition.ignition } : null),
+    };
+  }
+
   const numeric = Number(candidate);
   if (Number.isFinite(numeric) && String(numeric) === candidate) {
     const protocolKey = normalizeProtocol(protocol);
-    if (protocolKey === "iotm") {
-      const iotmLabel = resolveIotmDiagnosticLabel(candidate, payload);
-      if (iotmLabel) {
-        return {
-          label: iotmLabel,
-          raw: candidate,
-          type: "iotm",
-          icon: null,
-          isNumeric: true,
-        };
-      }
-    }
-
     const descriptor = resolveDescriptorLabel(candidate, protocol, payload);
     if (descriptor?.labelPt) {
       return {
@@ -323,10 +370,10 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
         };
       }
       return {
-        label: `Evento IOTM ${candidate}`,
+        label: `NÃO MAPEADO (${candidate})`,
         raw: candidate,
         isFallback: true,
-        type: "event",
+        type: "unmapped",
         icon: null,
         isNumeric: true,
       };
@@ -342,12 +389,11 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
       };
     }
 
-    const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
     return {
-      label: `Evento ${candidate}${protocolLabel}`,
+      label: `NÃO MAPEADO (${candidate})`,
       raw: candidate,
       isFallback: true,
-      type: "event",
+      type: "unmapped",
       icon: null,
       isNumeric: true,
     };
@@ -386,20 +432,19 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
     const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];
     return dictionary.generic;
   }
+  const payloadLabel = resolvePayloadEventLabel(payload);
+  if (payloadLabel) return payloadLabel;
   if (/^\d+$/.test(raw)) {
     const protocolKey = normalizeProtocol(protocol);
     if (protocolKey === "iotm") {
-      const iotmLabel = resolveIotmDiagnosticLabel(raw, payload);
-      if (iotmLabel) return iotmLabel;
       const descriptor = resolveDescriptorLabel(raw, protocol, payload);
       if (descriptor?.labelPt) return descriptor.labelPt;
-      return `Evento IOTM ${raw}`;
+      return `NÃO MAPEADO (${raw})`;
     }
 
     const descriptor = resolveDescriptorLabel(raw, protocol, payload);
     if (descriptor?.labelPt) return descriptor.labelPt;
-    const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
-    return `Evento ${raw}${protocolLabel}`;
+    return `NÃO MAPEADO (${raw})`;
   }
   const normalized = normalizeType(raw);
   const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];

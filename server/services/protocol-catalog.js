@@ -62,6 +62,7 @@ export function getProtocolEvents(protocol) {
         id: String(item.id),
         name: item.labelPt || `Evento ${item.id}`,
         description: item.description || "",
+        defaultSeverity: item.severity || null,
       }))
       .filter((item) => !seen.has(item.id));
     const merged = [...baseEvents, ...iotmEvents];

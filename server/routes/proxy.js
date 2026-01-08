@@ -11,6 +11,7 @@ import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
+import { resolveEventConfiguration } from "../services/event-config.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import {
   fetchDevicesMetadata,
@@ -63,7 +64,6 @@ import {
   telemetryAliases,
   telemetryAttributeCatalog,
   resolveTelemetryDescriptor,
-  resolveEventDescriptor,
   ioFriendlyNames,
 } from "../../shared/telemetryDictionary.js";
 import { resolveEventDefinition } from "../../client/src/lib/event-translations.js";
@@ -1123,7 +1123,11 @@ function shouldExposeIoColumn(key, protocol = null) {
   return true;
 }
 
-function collectAttributeTranslations(attributes = {}, protocol = null, { includeGenericIo = true, payload = null } = {}) {
+function collectAttributeTranslations(
+  attributes = {},
+  protocol = null,
+  { includeGenericIo = true, payload = null, clientId = null, deviceId = null } = {},
+) {
   const extras = new Map();
   const ioDetails = [];
 
@@ -1134,12 +1138,15 @@ function collectAttributeTranslations(attributes = {}, protocol = null, { includ
     if (!cleanedKey) return;
 
     if (["event", "eventcode", "eventid", "alarm"].includes(lowerKey)) {
-      const descriptor = resolveEventDescriptor(rawValue, { protocol, payload: payload || { attributes } });
-      if (descriptor?.labelPt) {
-        extras.set("event", descriptor.labelPt);
-      } else if (rawValue !== null && rawValue !== undefined) {
-        const protocolLabel = protocol ? ` (${String(protocol).toUpperCase()})` : "";
-        extras.set("event", `Evento ${rawValue}${protocolLabel}`);
+      const resolution = resolveEventConfiguration({
+        clientId: clientId ?? payload?.clientId ?? null,
+        protocol,
+        eventId: rawValue,
+        payload: payload || { attributes },
+        deviceId: deviceId ?? payload?.deviceId ?? null,
+      });
+      if (resolution?.label && resolution.active !== false) {
+        extras.set("event", resolution.label);
       }
       return;
     }
@@ -1195,6 +1202,53 @@ function normalizeIoValue(value) {
     return trimmed || null;
   }
   return value;
+}
+
+function extractEventCode(attributes = {}) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const candidates = [attributes.event, attributes.eventCode, attributes.eventId, attributes.alarm];
+  const resolved = candidates.find((value) => value !== undefined && value !== null && String(value).trim());
+  return resolved !== undefined && resolved !== null ? String(resolved).trim() : null;
+}
+
+function resolveEventIdFromPayload(payload = {}) {
+  const attributes = payload?.attributes || {};
+  return (
+    extractEventCode(attributes) ||
+    payload?.event ||
+    payload?.type ||
+    attributes?.type ||
+    null
+  );
+}
+
+function applyEventConfigToPosition(position, { clientId } = {}) {
+  if (!position) return position;
+  const attributes = position.attributes || {};
+  const eventCode = extractEventCode(attributes);
+  if (!eventCode) return position;
+  const protocol = position.protocol || attributes.protocol || attributes.deviceProtocol || null;
+  const resolved = resolveEventConfiguration({
+    clientId,
+    protocol,
+    eventId: eventCode,
+    payload: position,
+    deviceId: position.deviceId ?? null,
+  });
+  if (!resolved) return position;
+  const nextAttributes = {
+    ...attributes,
+    eventLabel: resolved.label,
+    eventSeverity: resolved.severity,
+    eventActive: resolved.active,
+  };
+  return {
+    ...position,
+    eventLabel: resolved.label,
+    eventSeverity: resolved.severity,
+    eventActive: resolved.active,
+    attributes: nextAttributes,
+  };
 }
 
 function extractDigitalChannel(attributes = {}, { index = 1, kind = "input" } = {}) {
@@ -2081,7 +2135,24 @@ async function handleEventsReport(req, res, next) {
       const lastCommunication =
         decoratedPosition?.lastCommunication || device?.lastUpdate || position?.serverTime || position?.deviceTime || null;
       const resolution = getEventResolution(event.id, { clientId });
-      const severity = resolveEventSeverity(event);
+      const protocol =
+        event?.protocol ||
+        event?.attributes?.protocol ||
+        decoratedPosition?.protocol ||
+        position?.protocol ||
+        position?.attributes?.protocol ||
+        null;
+      const eventId = resolveEventIdFromPayload(event);
+      const configuredEvent = eventId
+        ? resolveEventConfiguration({
+            clientId,
+            protocol,
+            eventId,
+            payload: event,
+            deviceId: event?.deviceId ?? null,
+          })
+        : null;
+      const severity = configuredEvent?.severity || resolveEventSeverity(event);
       return {
         ...event,
         position: decoratedPosition || position,
@@ -2094,6 +2165,10 @@ async function handleEventsReport(req, res, next) {
         batteryLevel,
         ignition,
         severity,
+        eventLabel: configuredEvent?.label || null,
+        eventSeverity: configuredEvent?.severity || null,
+        eventActive: configuredEvent?.active ?? true,
+        protocol,
         resolved: Boolean(resolution),
         resolvedAt: resolution?.resolvedAt || null,
         resolvedBy: resolution?.resolvedBy || null,
@@ -2102,6 +2177,7 @@ async function handleEventsReport(req, res, next) {
     });
 
     const filteredEvents = eventsWithAddress.filter((event) => {
+      if (event.eventActive === false) return false;
       if (resolvedFilter !== undefined) {
         const wantResolved = !["false", "0", ""].includes(String(resolvedFilter).toLowerCase());
         if (event.resolved !== wantResolved) return false;
@@ -2393,7 +2469,10 @@ router.get("/positions", async (req, res, next) => {
     const data = await enrichPositionsWithAddresses(positions);
     await persistMissingPositionFullAddresses(data, missingFullAddressIds);
 
-    const enriched = data.map((position) => decoratePositionWithDevice(position, lookup)).filter(Boolean);
+    const enriched = data
+      .map((position) => decoratePositionWithDevice(position, lookup))
+      .map((position) => applyEventConfigToPosition(position, { clientId }))
+      .filter(Boolean);
 
     return res.status(200).json({ data: enriched, positions: enriched, error: null });
   } catch (error) {
@@ -2434,6 +2513,7 @@ router.get("/positions/last", async (req, res) => {
 
     const data = enrichedPositions
       .map((position) => decoratePositionWithDevice(normalisePosition(position), lookup))
+      .map((position) => applyEventConfigToPosition(position, { clientId }))
       .filter(Boolean);
 
     return res.status(200).json({ data, positions: data, error: null });
@@ -3850,6 +3930,8 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, {
         includeGenericIo: true,
         payload: position,
+        clientId,
+        deviceId: position.deviceId ?? null,
       });
       const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
       const resolvedAddress =

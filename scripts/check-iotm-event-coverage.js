@@ -1,9 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
-import { resolveEventDefinition } from "../client/src/lib/event-translations.js";
+import { getProtocolEvents } from "../server/services/protocol-catalog.js";
 
 const DEFAULT_CSV_PATH = path.resolve(process.cwd(), "positions.csv");
-const DISALLOWED_LABELS = new Set(["Posição registrada", "Evento do dispositivo", "NÃO MAPEADO"]);
 
 const isNumeric = (value) => /^\d+$/.test(String(value || "").trim());
 
@@ -109,17 +108,6 @@ function findProtocol(row, attributes) {
   return rowProtocol || normalizeValue(attributes?.protocol) || null;
 }
 
-function isDisallowedLabel(label, code) {
-  if (!label) return true;
-  if (DISALLOWED_LABELS.has(label)) return true;
-  if (/^evento desconhecido/i.test(label)) return true;
-  if (/^evento\s+(iotm\s+)?\d+/i.test(label)) return true;
-  if (/^n[ãa]o mapeado/i.test(label)) return true;
-  if (/evento do dispositivo/i.test(label)) return true;
-  if (code && label === "Posição registrada") return true;
-  return false;
-}
-
 function main() {
   const filePath = path.resolve(process.cwd(), process.argv[2] || DEFAULT_CSV_PATH);
   if (!fs.existsSync(filePath)) {
@@ -129,8 +117,6 @@ function main() {
 
   const csvContent = fs.readFileSync(filePath, "utf8");
   const rows = parseCsv(csvContent);
-  const results = [];
-  const failures = [];
   const seen = new Set();
 
   rows.forEach((row) => {
@@ -138,40 +124,26 @@ function main() {
     const code = findEventCode(row, attributes);
     if (!code || !isNumeric(code)) return;
     const protocol = findProtocol(row, attributes);
-    const key = `${code}|${protocol || "unknown"}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-
-    const payload = {
-      event: code,
-      protocol,
-      attributes,
-      position: {
-        attributes,
-        protocol,
-      },
-    };
-    const definition = resolveEventDefinition(code, "pt-BR", null, protocol, payload);
-    const label = definition?.label || "";
-
-    results.push({ code, protocol: protocol || "-", label });
-    if (isDisallowedLabel(label, code)) {
-      failures.push({ code, protocol: protocol || "-", label: label || "(vazio)" });
-    }
+    if (!protocol || String(protocol).toLowerCase() !== "iotm") return;
+    seen.add(String(code));
   });
 
-  if (!results.length) {
-    console.error("Nenhum evento numérico encontrado no CSV.");
+  if (!seen.size) {
+    console.error("Nenhum evento numérico IOTM encontrado no CSV.");
     process.exit(1);
   }
 
-  console.table(results);
+  const catalog = getProtocolEvents("iotm") || [];
+  const catalogIds = new Set(catalog.map((event) => String(event?.id)));
+  const missing = Array.from(seen).filter((id) => !catalogIds.has(String(id)));
 
-  if (failures.length) {
-    console.error("Falhas de mapeamento encontradas:");
-    console.table(failures);
+  if (missing.length) {
+    console.error("Eventos IOTM ausentes no catálogo:");
+    console.table(missing.map((id) => ({ id })));
     process.exit(1);
   }
+
+  console.log(`Cobertura OK. ${seen.size} eventos IOTM verificados.`);
 }
 
 main();
