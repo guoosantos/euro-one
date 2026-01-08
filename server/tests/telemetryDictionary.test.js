@@ -8,6 +8,9 @@ test("resolveEventDescriptor aplica protocolo GT06 e IOTM", () => {
 
   const iotm = resolveEventDescriptor("1", { protocol: "iotm" });
   assert.equal(iotm?.labelPt, "Ignição ligada");
+
+  const iotmDefault = resolveEventDescriptor("69", { protocol: "iotm" });
+  assert.equal(iotmDefault?.labelPt, "JAMMER GSM");
 });
 
 test("resolveTelemetryDescriptor resolve IOs amigáveis e fallback numérico", () => {

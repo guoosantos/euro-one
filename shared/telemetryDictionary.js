@@ -427,26 +427,6 @@ export function resolveTelemetryDescriptor(key) {
   return null;
 }
 
-function hasPositionPayload(payload = {}) {
-  if (!payload || typeof payload !== "object") return false;
-  const target = payload.position || payload;
-  const attributes = target.attributes || payload.attributes || payload.rawAttributes || payload.position?.attributes || {};
-  const lat = target.latitude ?? target.lat ?? attributes.latitude ?? attributes.lat;
-  const lon = target.longitude ?? target.lng ?? attributes.longitude ?? attributes.lng;
-  if (Number.isFinite(Number(lat)) && Number.isFinite(Number(lon))) return true;
-  const telemetrySignals = [
-    target.speed,
-    attributes.speed,
-    target.course,
-    attributes.course,
-    target.altitude,
-    attributes.altitude,
-    target.valid,
-    attributes.valid,
-  ];
-  return telemetrySignals.some((value) => value !== null && value !== undefined);
-}
-
 export function resolveEventDescriptor(code, { protocol, payload } = {}) {
   if (code === undefined || code === null) return null;
   const normalized = String(code).trim();
@@ -465,24 +445,17 @@ export function resolveEventDescriptor(code, { protocol, payload } = {}) {
 
     const eventDescriptor = IOTM_EVENT_CODE_MAP.get(normalized);
     if (eventDescriptor) return eventDescriptor;
+    const defaultEvent = DEFAULT_EVENT_CODE_MAP.get(normalized);
+    if (defaultEvent) return defaultEvent;
 
-    if (hasPositionPayload(payload)) {
-      return { labelPt: "Posição registrada", type: "positionregistered" };
-    }
     return null;
   }
   if (protocolKey === "gt06") {
     const eventDescriptor = GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
     if (eventDescriptor) return eventDescriptor;
-    if (hasPositionPayload(payload)) {
-      return { labelPt: "Posição registrada", type: "positionregistered" };
-    }
     return null;
   }
   const eventDescriptor = DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
   if (eventDescriptor) return eventDescriptor;
-  if (hasPositionPayload(payload)) {
-    return { labelPt: "Posição registrada", type: "positionregistered" };
-  }
   return null;
 }

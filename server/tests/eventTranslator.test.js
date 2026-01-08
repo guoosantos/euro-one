@@ -29,3 +29,20 @@ test("translateDiagnosticEvent usa payload para identificar fun_id/war_id", () =
   });
   assert.equal(fromPayload?.label_ptBR, "Sincronização NTP concluída.");
 });
+
+test("translateDiagnosticEvent resolve código numérico puro com catálogo diagnóstico", () => {
+  const byRaw = translateDiagnosticEvent({ rawCode: "164" });
+  assert.equal(byRaw?.label_ptBR, "Sincronização NTP concluída.");
+  assert.equal(byRaw?.raw_code, "fun_id=0,war_id=164");
+});
+
+test("translateDiagnosticEvent usa template diagnóstico quando só existe fun_id numérico", () => {
+  const template = translateDiagnosticEvent({ rawCode: "20" });
+  assert.equal(template?.label_ptBR, "Bits 24–31 do registro de falhas");
+  assert.equal(template?.raw_code, "fun_id=20,war_id=x");
+});
+
+test("translateDiagnosticEvent lê código numérico do payload", () => {
+  const fromPayloadEvent = translateDiagnosticEvent({ payload: { attributes: { event: 164 } } });
+  assert.equal(fromPayloadEvent?.label_ptBR, "Sincronização NTP concluída.");
+});
