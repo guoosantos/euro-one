@@ -215,7 +215,7 @@ function buildHtml({
   const reportSubtitle =
     options.subtitle ||
     (isAnalytic
-      ? "Linha do tempo completa do veículo (posições, eventos e ações do usuário)"
+      ? "Linha do tempo completa do veículo com auditoria de ações (comandos, relatórios e itinerários)."
       : "Dados consolidados do veículo e posições georreferenciadas");
   const summaryTitle = options.summaryTitle || "Resumo do veículo";
   const actionsTitle = options.actionsTitle || "Ações do usuário";
@@ -318,7 +318,7 @@ function buildHtml({
       { label: "Enviado em", value: formatDate(action?.sentAt) },
       { label: "Respondido em", value: formatDate(action?.respondedAt) },
       { label: "Quem enviou", value: action?.user || "—" },
-      ...(action?.ipAddress ? [{ label: "Endereço IP", value: action?.ipAddress }] : []),
+      { label: "Endereço IP", value: action?.ipAddress || "—" },
     ];
     return `
       <div class="action-card">
@@ -353,17 +353,6 @@ function buildHtml({
         <div class="report-header-title">
           <div class="title centered">${escapeHtml(reportTitle)}</div>
           <div class="subtitle centered">${escapeHtml(reportSubtitle)}</div>
-        </div>
-      </div>
-      <div class="report-meta">
-        <div><span>VEÍCULO</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
-        <div><span>PLACA</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
-        <div><span>CLIENTE</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
-        <div><span>EXPORTADO POR</span>${escapeHtml(meta?.exportedBy || "—")}</div>
-        <div><span>STATUS</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
-        <div><span>ÚLTIMA COMUNICAÇÃO</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
-        <div class="span-2">
-          <span>PERÍODO</span>${escapeHtml(formatDate(meta?.from))} → ${escapeHtml(formatDate(meta?.to))}
         </div>
       </div>
     </div>
@@ -510,13 +499,13 @@ function buildHtml({
         text-align: center;
       }
       .report-header {
-        border: 1px solid #e2e8f0;
         border-radius: 12px;
         padding: 12px 14px;
-        background: #ffffff;
+        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         display: flex;
         flex-direction: column;
-        gap: 10px;
+        gap: 6px;
+        color: #ffffff;
       }
       .report-header-top {
         display: grid;
@@ -526,31 +515,12 @@ function buildHtml({
       }
       .report-header-title .title {
         font-size: 16px;
-        color: ${BRAND_COLOR};
+        color: #ffffff;
         letter-spacing: 0.12em;
       }
       .report-header-title .subtitle {
-        color: #475569;
+        color: rgba(255,255,255,0.88);
         margin-top: 2px;
-      }
-      .report-meta {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px 12px;
-        font-size: 10px;
-        color: #334155;
-      }
-      .report-meta span {
-        display: block;
-        font-size: 8px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.1em;
-        color: #94a3b8;
-        margin-bottom: 2px;
-      }
-      .report-meta .span-2 {
-        grid-column: span 2;
       }
       .meta-grid {
         display: grid;
@@ -704,6 +674,8 @@ function buildHtml({
         border-radius: 12px;
         padding: 8px 10px;
         border: 1px solid #e2e8f0;
+        page-break-inside: avoid;
+        break-inside: avoid;
       }
       .action-head {
         display: flex;
@@ -875,17 +847,14 @@ export async function generatePositionsReportPdf({
 
     await page.setContent(html, { waitUntil: "networkidle" });
 
-    const headerMetaLine = `Veículo: ${meta?.vehicle?.name || "—"} | Placa: ${meta?.vehicle?.plate || "—"} | Cliente: ${meta?.vehicle?.customer || "—"} | Período: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
+    const headerMetaLine = `VEÍCULO: ${meta?.vehicle?.name || "—"} | PLACA: ${meta?.vehicle?.plate || "—"} | CLIENTE: ${meta?.vehicle?.customer || "—"} | PERÍODO: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
     const headerTemplate = isAnalytic
       ? `
-        <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#0f172a; padding:6mm 12mm 0; display:flex; flex-direction:column; gap:4px;">
-          <div style="display:flex; align-items:center; justify-content:center; gap:8px;">
-            ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:18px; object-fit:contain;" />` : ""}
-            <span style="font-weight:700; letter-spacing:0.12em; text-transform:uppercase;">RELATÓRIO ANALÍTICO</span>
-          </div>
-          <div style="text-align:center; font-size:8px; color:#475569; text-transform:uppercase; letter-spacing:0.08em;">
+        <div style="width:100%; font-family:${FONT_STACK}; background:${BRAND_COLOR}; color:#ffffff; padding:4mm 10mm; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+          ${logoDataUrl ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />` : ""}
+          <span style="font-size:8.5px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase;">
             ${escapeHtml(headerMetaLine)}
-          </div>
+          </span>
         </div>
       `
       : "<div></div>";

@@ -43,6 +43,13 @@ async function resolveBlobErrorMessage(error) {
   }
 }
 
+const EXPORT_POLL_INTERVAL_MS = 2000;
+const EXPORT_MAX_WAIT_MS = 20 * 60 * 1000;
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export default function useAnalyticReport() {
   const [data, setData] = useState({ entries: [], positions: [], actions: [], meta: null });
   const [loading, setLoading] = useState(false);
@@ -69,35 +76,56 @@ export default function useAnalyticReport() {
     }
   }, [fetchPage]);
 
-  const exportPdf = useCallback(async (payload) => {
-    const { data, error: requestError, aborted, status, response } = await safeApi.post(
-      API_ROUTES.reports.analyticPdf,
-      payload,
+  const startExportJob = useCallback(async (format, payload) => {
+    const { data, error: requestError } = await safeApi.post(
+      API_ROUTES.reports.analyticExport,
+      { ...payload, format },
+    );
+    if (requestError) {
+      throw requestError;
+    }
+    return data;
+  }, []);
+
+  const waitForExportJob = useCallback(async (jobId) => {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < EXPORT_MAX_WAIT_MS) {
+      const { data, error: requestError } = await safeApi.get(API_ROUTES.reports.analyticExportStatus(jobId));
+      if (requestError) {
+        throw requestError;
+      }
+      if (data?.status === "ready") return data;
+      if (data?.status === "error") {
+        const error = new Error(data?.error?.message || "Falha ao exportar relatório.");
+        error.code = data?.error?.code;
+        throw error;
+      }
+      await delay(EXPORT_POLL_INTERVAL_MS);
+    }
+    const timeoutError = new Error("Tempo excedido ao exportar. Tente novamente.");
+    timeoutError.name = "TimeoutError";
+    throw timeoutError;
+  }, []);
+
+  const downloadExportJob = useCallback(async (jobId) => {
+    const { data, error: requestError, status, response } = await safeApi.get(
+      API_ROUTES.reports.analyticExportDownload(jobId),
       {
         responseType: "blob",
         timeout: 120_000,
       },
     );
 
-    if (aborted) {
-      const abortError = new Error("Tempo excedido ao exportar PDF. Tente novamente.");
-      abortError.name = "TimeoutError";
-      abortError.status = status ?? null;
-      abortError.aborted = true;
-      abortError.response = response || null;
-      throw abortError;
-    }
-
     if (requestError) {
       const parsedMessage = await resolveBlobErrorMessage(requestError);
-      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao exportar PDF.");
+      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao baixar exportação.");
       if (requestError?.status) friendlyError.status = requestError.status;
       friendlyError.response = requestError?.response;
       throw friendlyError;
     }
 
     if (!(data instanceof Blob) || data.size === 0) {
-      const invalidError = new Error("PDF não disponível no momento. Tente novamente em instantes.");
+      const invalidError = new Error("Exportação não disponível no momento. Tente novamente em instantes.");
       invalidError.response = response || null;
       invalidError.status = status ?? null;
       throw invalidError;
@@ -106,79 +134,43 @@ export default function useAnalyticReport() {
     return data;
   }, []);
 
-  const exportXlsx = useCallback(async (payload) => {
-    const { data, error: requestError, aborted, status, response } = await safeApi.post(
-      API_ROUTES.reports.analyticXlsx,
-      payload,
-      {
-        responseType: "blob",
-        timeout: 120_000,
-      },
-    );
+  const exportWithJob = useCallback(
+    async (format, payload, timeoutMessage) => {
+      const start = await startExportJob(format, payload);
+      const jobId = start?.jobId;
+      if (!jobId) {
+        throw new Error("Falha ao iniciar exportação. Tente novamente.");
+      }
+      try {
+        await waitForExportJob(jobId);
+      } catch (error) {
+        if (error?.name === "TimeoutError") {
+          const abortError = new Error(timeoutMessage);
+          abortError.name = "TimeoutError";
+          abortError.aborted = true;
+          throw abortError;
+        }
+        throw error;
+      }
+      return downloadExportJob(jobId);
+    },
+    [downloadExportJob, startExportJob, waitForExportJob],
+  );
 
-    if (aborted) {
-      const abortError = new Error("Tempo excedido ao exportar Excel. Tente novamente.");
-      abortError.name = "TimeoutError";
-      abortError.status = status ?? null;
-      abortError.aborted = true;
-      abortError.response = response || null;
-      throw abortError;
-    }
+  const exportPdf = useCallback(
+    (payload) => exportWithJob("pdf", payload, "Tempo excedido ao exportar PDF. Tente novamente."),
+    [exportWithJob],
+  );
 
-    if (requestError) {
-      const parsedMessage = await resolveBlobErrorMessage(requestError);
-      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao exportar Excel.");
-      if (requestError?.status) friendlyError.status = requestError.status;
-      friendlyError.response = requestError?.response;
-      throw friendlyError;
-    }
+  const exportXlsx = useCallback(
+    (payload) => exportWithJob("xlsx", payload, "Tempo excedido ao exportar Excel. Tente novamente."),
+    [exportWithJob],
+  );
 
-    if (!(data instanceof Blob) || data.size === 0) {
-      const invalidError = new Error("Excel não disponível no momento. Tente novamente em instantes.");
-      invalidError.response = response || null;
-      invalidError.status = status ?? null;
-      throw invalidError;
-    }
-
-    return data;
-  }, []);
-
-  const exportCsv = useCallback(async (payload) => {
-    const { data, error: requestError, aborted, status, response } = await safeApi.post(
-      API_ROUTES.reports.analyticCsv,
-      payload,
-      {
-        responseType: "blob",
-        timeout: 120_000,
-      },
-    );
-
-    if (aborted) {
-      const abortError = new Error("Tempo excedido ao exportar CSV. Tente novamente.");
-      abortError.name = "TimeoutError";
-      abortError.status = status ?? null;
-      abortError.aborted = true;
-      abortError.response = response || null;
-      throw abortError;
-    }
-
-    if (requestError) {
-      const parsedMessage = await resolveBlobErrorMessage(requestError);
-      const friendlyError = new Error(parsedMessage || requestError?.message || "Falha ao exportar CSV.");
-      if (requestError?.status) friendlyError.status = requestError.status;
-      friendlyError.response = requestError?.response;
-      throw friendlyError;
-    }
-
-    if (!(data instanceof Blob) || data.size === 0) {
-      const invalidError = new Error("CSV não disponível no momento. Tente novamente em instantes.");
-      invalidError.response = response || null;
-      invalidError.status = status ?? null;
-      throw invalidError;
-    }
-
-    return data;
-  }, []);
+  const exportCsv = useCallback(
+    (payload) => exportWithJob("csv", payload, "Tempo excedido ao exportar CSV. Tente novamente."),
+    [exportWithJob],
+  );
 
   return {
     data,

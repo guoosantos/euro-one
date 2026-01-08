@@ -222,7 +222,8 @@ const TRANSLATIONS = {
     "monitoring.actions.map": "Mapa",
     "monitoring.actions.replay": "Replay",
     "reportsAnalytic.title": "Relatório Analítico",
-    "reportsAnalytic.subtitle": "Linha do tempo completa do veículo e auditoria de comandos.",
+    "reportsAnalytic.subtitle":
+      "Linha do tempo completa do veículo com auditoria de ações (comandos, relatórios e itinerários).",
     "reportsAnalytic.generate": "Gerar relatório",
     "reportsAnalytic.loading": "Carregando…",
     "reportsAnalytic.loadError": "Não foi possível carregar o relatório analítico.",
@@ -542,7 +543,8 @@ const TRANSLATIONS = {
     "monitoring.actions.map": "Map",
     "monitoring.actions.replay": "Replay",
     "reportsAnalytic.title": "Relatório Analítico",
-    "reportsAnalytic.subtitle": "Linha do tempo completa do veículo e auditoria de comandos.",
+    "reportsAnalytic.subtitle":
+      "Linha do tempo completa do veículo com auditoria de ações (comandos, relatórios e itinerários).",
     "reportsAnalytic.generate": "Gerar relatório",
     "reportsAnalytic.loading": "Carregando…",
     "reportsAnalytic.loadError": "Não foi possível carregar o relatório analítico.",
