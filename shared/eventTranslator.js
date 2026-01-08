@@ -37,7 +37,7 @@ const toTextOrNull = (value) => {
 const pickFirst = (...values) => values.find((value) => value !== null && value !== undefined && `${value}`.trim() !== "");
 
 function extractFromPayload(payload) {
-  if (!payload || typeof payload !== "object") return { funId: null, warId: null };
+  if (!payload || typeof payload !== "object") return { funId: null, warId: null, eventCode: null };
   const attributes =
     payload.attributes || payload.position?.attributes || payload.rawAttributes || payload.position?.rawAttributes || {};
 
@@ -63,10 +63,23 @@ function extractFromPayload(payload) {
     attributes.warning_id,
     attributes.warnId,
   );
+  const eventRaw = pickFirst(
+    payload.event,
+    payload.eventCode,
+    payload.event_id,
+    payload.eventId,
+    payload.position?.event,
+    payload.position?.attributes?.event,
+    attributes.event,
+    attributes.eventCode,
+    attributes.event_id,
+    attributes.eventId,
+  );
 
   return {
     funId: toNumberOrNull(funIdRaw),
     warId: toTextOrNull(warIdRaw),
+    eventCode: toTextOrNull(eventRaw),
   };
 }
 
@@ -83,6 +96,11 @@ function parseRawCode(rawCode) {
   const fMatch = raw.match(/^f\s*(\d+)\s*=\s*(.+)$/i);
   if (fMatch) {
     return { funId: toNumberOrNull(fMatch[1]), warId: toTextOrNull(fMatch[2]) };
+  }
+
+  const numericMatch = raw.match(/^\d+$/);
+  if (numericMatch) {
+    return { eventCode: numericMatch[0] };
   }
 
   return null;
@@ -131,6 +149,13 @@ function resolveTemplate(funId, warId) {
   const templates = DIAGNOSTIC_TEMPLATE_BY_FUN_ID.get(funKey) || [];
   if (!templates.length) return null;
   const entry = templates[0];
+  if ((warId === null || warId === undefined || warId === "") && entry.war_id === "x") {
+    const label = entry.title || entry.template || entry.description;
+    return {
+      entry,
+      label,
+    };
+  }
   const context = buildTemplateContext(funId, warId);
   const warValue = entry.war_id === "x" ? `x=${warId}` : warId;
   const label = entry.template ? renderTemplate(entry.template, context, warValue) : entry.title;
@@ -168,18 +193,58 @@ export function normalizeDiagnosticKey({ payload, rawCode, funId, warId } = {}) 
   const resolvedFunId = toNumberOrNull(fromArgs?.funId ?? fromRaw?.funId ?? fromPayload?.funId);
   const resolvedWarId = toTextOrNull(fromArgs?.warId ?? fromRaw?.warId ?? fromPayload?.warId);
 
-  if (resolvedFunId === null || resolvedWarId === null) return null;
-  return {
-    funId: resolvedFunId,
-    warId: resolvedWarId,
-    key: `fun_id=${resolvedFunId},war_id=${resolvedWarId}`,
-    displayCode: `F${resolvedFunId}=${resolvedWarId}`,
-  };
+  if (resolvedFunId !== null && resolvedWarId !== null) {
+    return {
+      funId: resolvedFunId,
+      warId: resolvedWarId,
+      key: `fun_id=${resolvedFunId},war_id=${resolvedWarId}`,
+      displayCode: `F${resolvedFunId}=${resolvedWarId}`,
+    };
+  }
+
+  if (resolvedFunId !== null && resolvedWarId === null && DIAGNOSTIC_TEMPLATE_BY_FUN_ID.has(resolvedFunId)) {
+    return {
+      funId: resolvedFunId,
+      warId: null,
+      key: `fun_id=${resolvedFunId},war_id=x`,
+      displayCode: `F${resolvedFunId}`,
+    };
+  }
+
+  const numericCode = toTextOrNull(fromRaw?.eventCode ?? fromPayload?.eventCode);
+  if (!numericCode) return null;
+
+  const diagnosticKey = `fun_id=0,war_id=${numericCode}`;
+  if (DIAGNOSTIC_EVENT_MAP.has(diagnosticKey.toLowerCase())) {
+    return {
+      funId: 0,
+      warId: numericCode,
+      key: diagnosticKey,
+      displayCode: `F0=${numericCode}`,
+    };
+  }
+
+  const templateFunId = toNumberOrNull(numericCode);
+  if (templateFunId !== null && DIAGNOSTIC_TEMPLATE_BY_FUN_ID.has(templateFunId)) {
+    const templateWarId = toTextOrNull(fromArgs?.warId ?? fromPayload?.warId ?? fromRaw?.warId);
+    return {
+      funId: templateFunId,
+      warId: templateWarId,
+      key: templateWarId ? `fun_id=${templateFunId},war_id=${templateWarId}` : `fun_id=${templateFunId},war_id=x`,
+      displayCode: templateWarId ? `F${templateFunId}=${templateWarId}` : `F${templateFunId}`,
+    };
+  }
+
+  return null;
 }
 
 export function translateDiagnosticEvent({ payload, rawCode, funId, warId } = {}) {
   const resolved = normalizeDiagnosticKey({ payload, rawCode, funId, warId });
   if (!resolved) {
+    const rawParsed = parseRawCode(rawCode);
+    const payloadExtract = extractFromPayload(payload);
+    const rawEventCode = toTextOrNull(rawParsed?.eventCode ?? payloadExtract?.eventCode);
+    if (rawEventCode) return null;
     if (isPositionPayload(payload)) {
       return {
         label_ptBR: POSITION_LABEL_PT,

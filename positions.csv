@@ -1,0 +1,11 @@
+id,protocol,event,attributes
+1,iotm,164,"{\"event\":164}"
+2,iotm,20,"{\"event\":20}"
+3,iotm,21,"{\"event\":21}"
+4,iotm,22,"{\"event\":22}"
+5,iotm,69,"{\"event\":69}"
+6,iotm,70,"{\"event\":70}"
+7,iotm,145,"{\"event\":145}"
+8,iotm,158,"{\"event\":158}"
+9,iotm,3,"{\"event\":3}"
+10,iotm,4,"{\"event\":4}"

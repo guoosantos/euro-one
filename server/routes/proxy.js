@@ -1123,7 +1123,7 @@ function shouldExposeIoColumn(key, protocol = null) {
   return true;
 }
 
-function collectAttributeTranslations(attributes = {}, protocol = null, { includeGenericIo = true } = {}) {
+function collectAttributeTranslations(attributes = {}, protocol = null, { includeGenericIo = true, payload = null } = {}) {
   const extras = new Map();
   const ioDetails = [];
 
@@ -1134,7 +1134,7 @@ function collectAttributeTranslations(attributes = {}, protocol = null, { includ
     if (!cleanedKey) return;
 
     if (["event", "eventcode", "eventid", "alarm"].includes(lowerKey)) {
-      const descriptor = resolveEventDescriptor(rawValue, { protocol });
+      const descriptor = resolveEventDescriptor(rawValue, { protocol, payload: payload || { attributes } });
       if (descriptor?.labelPt) {
         extras.set("event", descriptor.labelPt);
       } else if (rawValue !== null && rawValue !== undefined) {
@@ -3847,7 +3847,10 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
       const motion = extractMotion(attributes, speedKmh);
       const accuracy =
         rawAccuracy != null && Number.isFinite(Number(rawAccuracy)) ? Number(rawAccuracy) : rawAccuracy ?? null;
-      const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, { includeGenericIo: true });
+      const { extras, ioDetails } = collectAttributeTranslations(attributes, protocolKey, {
+        includeGenericIo: true,
+        payload: position,
+      });
       const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
       const resolvedAddress =
         normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
