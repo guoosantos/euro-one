@@ -1,5 +1,5 @@
 import { resolveEventDescriptor } from "../../../shared/telemetryDictionary.js";
-import { formatIotmDiagEvent, resolveIotmDiagnosticInfo } from "../utils/formatIotmDiagEvent.js";
+import { translateDiagnosticEvent } from "../../../shared/eventTranslator.js";
 
 const EVENT_LABELS_PT = {
   generic: "Evento",
@@ -56,7 +56,7 @@ const EVENT_LABELS = {
   "en-US": EVENT_LABELS_PT,
 };
 
-const POSITION_LABEL_PT = "Posição Registrada";
+const POSITION_LABEL_PT = "Posição registrada";
 
 const EVENT_SEVERITY = {
   deviceoffline: "high",
@@ -206,9 +206,9 @@ function resolveDefinitionLabel(definition, locale, fallbackTranslator) {
 }
 
 function resolveIotmDiagnosticLabel(rawType, payload) {
-  const info = resolveIotmDiagnosticInfo({ rawCode: rawType, payload });
-  if (!info) return null;
-  return formatIotmDiagEvent({ ...info, rawCode: rawType, payload });
+  const diagnostic = translateDiagnosticEvent({ rawCode: rawType, payload });
+  if (!diagnostic?.label_ptBR) return null;
+  return diagnostic.label_ptBR;
 }
 
 function extractPositionAttributes(payload = {}) {

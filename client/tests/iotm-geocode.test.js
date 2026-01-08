@@ -14,11 +14,11 @@ const buildMockResponse = (status, payload = {}) => ({
 test("formatIotmDiagEvent resolve eventos especiais", () => {
   assert.strictEqual(
     formatIotmDiagEvent({ funId: 0, warId: 164 }),
-    "Sincronização NTP concluída",
+    "Sincronização NTP concluída.",
   );
   assert.strictEqual(
     formatIotmDiagEvent({ funId: 20, warId: 12 }),
-    "Bits 24–31 do registro de falhas: 12",
+    "Bits 24–31 do registro de falhas: x=12",
   );
 });
 
