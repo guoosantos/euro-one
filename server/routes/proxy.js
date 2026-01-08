@@ -77,6 +77,27 @@ import { resolveEventDefinition, resolveEventDefinitionFromPayload } from "../..
 const router = express.Router();
 router.use(authenticate);
 
+const ANALYTIC_EXPORT_JOB_TTL_MS = 30 * 60 * 1000;
+const analyticExportJobs = new Map();
+
+function resolveExportOwner(req) {
+  return req.user?.id || req.user?.email || req.user?.username || "anonymous";
+}
+
+function scheduleExportCleanup(jobId) {
+  const timeout = setTimeout(() => {
+    analyticExportJobs.delete(jobId);
+  }, ANALYTIC_EXPORT_JOB_TTL_MS);
+  if (typeof timeout.unref === "function") timeout.unref();
+}
+
+function getExportJob(jobId, owner) {
+  const job = analyticExportJobs.get(jobId);
+  if (!job) return null;
+  if (owner && job.owner !== owner) return null;
+  return job;
+}
+
 function enforceClientGroupInBody(req, target = req.body) {
   const groupId = resolveClientGroupId(req);
   if (!groupId) return;
@@ -4586,6 +4607,108 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
   };
 }
 
+async function runAnalyticExportJob({ jobId, payload, user }) {
+  const job = analyticExportJobs.get(jobId);
+  if (!job) return;
+  const auditSentAt = new Date().toISOString();
+
+  try {
+    const vehicleId = payload?.vehicleId ? String(payload.vehicleId).trim() : "";
+    const from = parseDateOrThrow(payload?.from, "from");
+    const to = parseDateOrThrow(payload?.to, "to");
+    const addressFilter = payload?.addressFilter && typeof payload.addressFilter === "object" ? payload.addressFilter : null;
+    const pagination = { page: 1, limit: null };
+    const jobReq = { user, body: payload, query: {} };
+
+    const report = await buildAnalyticReportData(jobReq, { vehicleId, from, to, addressFilter, pagination });
+    const availableColumns = Array.isArray(payload?.availableColumns) && payload.availableColumns.length
+      ? payload.availableColumns
+      : report?.meta?.availableColumns;
+    const resolvedColumnDefinitions = Array.isArray(payload?.columnDefinitions) && payload.columnDefinitions.length
+      ? payload.columnDefinitions
+      : report?.meta?.columns;
+    const columns = resolvePdfColumns(payload?.columns, availableColumns);
+
+    let buffer = null;
+    let contentType = "application/octet-stream";
+    let fileName = "export.bin";
+
+    if (job.format === "pdf") {
+      buffer = await generatePositionsReportPdf({
+        rows: report.positions,
+        columns,
+        columnDefinitions: resolvedColumnDefinitions,
+        meta: report.meta,
+        availableColumns,
+        actions: report.actions,
+        entries: report.entries,
+        options: { variant: "analytic" },
+      });
+      contentType = "application/pdf";
+      fileName = buildAnalyticPdfFileName(report?.meta, from, to);
+    } else if (job.format === "xlsx") {
+      const xlsxBuffer = await generatePositionsReportXlsx({
+        rows: report.positions,
+        columns,
+        columnDefinitions: resolvedColumnDefinitions,
+        meta: report.meta,
+        availableColumns,
+        actions: report.actions,
+        options: { sheetName: "Relatório Analítico", title: "RELATÓRIO ANALÍTICO" },
+      });
+      buffer = Buffer.from(xlsxBuffer);
+      contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+      fileName = buildAnalyticXlsxFileName(report?.meta, from, to);
+    } else {
+      const exportTarget = String(payload?.exportTarget || "positions");
+      buffer = exportTarget === "actions"
+        ? generateActionsReportCsv({ actions: report.actions })
+        : generatePositionsReportCsv({
+            rows: report.positions,
+            columns,
+            columnDefinitions: resolvedColumnDefinitions,
+            availableColumns,
+            meta: report.meta,
+          });
+      contentType = "text/csv; charset=utf-8";
+      fileName =
+        exportTarget === "actions"
+          ? buildAnalyticActionsCsvFileName(report?.meta, from, to)
+          : buildAnalyticCsvFileName(report?.meta, from, to);
+    }
+
+    job.status = "ready";
+    job.buffer = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    job.contentType = contentType;
+    job.fileName = fileName;
+    job.completedAt = Date.now();
+    job.error = null;
+
+    recordReportAudit({
+      req: jobReq,
+      reportName: `Relatório Analítico (${job.format.toUpperCase()})`,
+      vehicleIds: vehicleId,
+      status: "Gerado",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    const message = error?.message || "Falha ao exportar relatório analítico.";
+    job.status = "error";
+    job.error = { message, code: error?.code || "ANALYTIC_EXPORT_ERROR" };
+    job.completedAt = Date.now();
+
+    recordReportAudit({
+      req: { user, body: payload, query: {} },
+      reportName: `Relatório Analítico (${job.format.toUpperCase()})`,
+      vehicleIds: payload?.vehicleId ? String(payload.vehicleId).trim() : "",
+      status: "Erro",
+      sentAt: auditSentAt,
+      respondedAt: new Date().toISOString(),
+    });
+  }
+}
+
 function sanitizeFileToken(value, fallback) {
   const text = String(value ?? "").trim();
   if (!text) return fallback;
@@ -4744,6 +4867,69 @@ router.get("/reports/analytic", async (req, res) => {
     }
     return res.status(503).json(TRACCAR_DB_ERROR_PAYLOAD);
   }
+});
+
+router.post("/reports/analytic/export", async (req, res) => {
+  const format = String(req.body?.format || "pdf").toLowerCase();
+  if (!["pdf", "xlsx", "csv"].includes(format)) {
+    return respondBadRequest(res, "Formato de exportação inválido.");
+  }
+
+  const jobId = randomUUID();
+  const owner = resolveExportOwner(req);
+  const job = {
+    id: jobId,
+    owner,
+    status: "processing",
+    createdAt: Date.now(),
+    format,
+  };
+  analyticExportJobs.set(jobId, job);
+  scheduleExportCleanup(jobId);
+
+  const payload = { ...(req.body || {}) };
+  payload.format = format;
+
+  void runAnalyticExportJob({ jobId, payload, user: req.user });
+
+  return res.status(202).json({ jobId, status: "processing" });
+});
+
+router.get("/reports/analytic/export/:jobId", (req, res) => {
+  const jobId = req.params.jobId;
+  const owner = resolveExportOwner(req);
+  const job = getExportJob(jobId, owner);
+  if (!job) {
+    return res.status(404).json({ message: "Exportação não encontrada.", code: "EXPORT_NOT_FOUND" });
+  }
+  const response = {
+    jobId,
+    status: job.status,
+    format: job.format,
+    createdAt: job.createdAt,
+    completedAt: job.completedAt || null,
+    fileName: job.fileName || null,
+    error: job.error || null,
+  };
+  return res.status(200).json(response);
+});
+
+router.get("/reports/analytic/export/:jobId/download", (req, res) => {
+  const jobId = req.params.jobId;
+  const owner = resolveExportOwner(req);
+  const job = getExportJob(jobId, owner);
+  if (!job) {
+    return res.status(404).json({ message: "Exportação não encontrada.", code: "EXPORT_NOT_FOUND" });
+  }
+  if (job.status !== "ready" || !job.buffer) {
+    return res.status(409).json({ message: "Exportação ainda está em processamento.", code: "EXPORT_NOT_READY" });
+  }
+
+  res.setHeader("Content-Type", job.contentType || "application/octet-stream");
+  if (job.fileName) {
+    res.setHeader("Content-Disposition", `attachment; filename="${job.fileName}"`);
+  }
+  return res.status(200).send(job.buffer);
 });
 
 router.post("/reports/analytic/pdf", async (req, res) => {

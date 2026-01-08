@@ -814,7 +814,7 @@ export default function ReportsAnalytic() {
       { label: "Enviado em", value: formatDateTime(entry?.sentAt) },
       { label: "Respondido em", value: resolvedRespondedAt },
       { label: "Quem enviou", value: entry?.user || "—" },
-      ...(entry?.ipAddress ? [{ label: "Endereço IP", value: entry.ipAddress }] : []),
+      { label: "Endereço IP", value: entry?.ipAddress || "—" },
     ];
     const actionSummary = buildActionSummary(entry);
 
