@@ -1,50 +1,316 @@
 [
-  { "id": 6, "key": "geozoneInside", "labelPt": "Dentro da Geozona", "type": "boolean" },
-  { "id": 7, "key": "geozoneInsidePrimary", "labelPt": "Geozona Principal (Dentro)", "type": "boolean" },
-  { "id": 16, "key": "signalIn2", "labelPt": "Entrada Digital 2", "type": "boolean" },
-  { "id": 18, "key": "signalIn4", "labelPt": "Entrada Digital 4", "type": "boolean" },
-  { "id": 19, "key": "signalIn5", "labelPt": "Entrada Digital 5", "type": "boolean" },
-  { "id": 25, "key": "geozoneInsidePrimary", "labelPt": "Geozona Principal (Dentro)", "type": "boolean" },
-  { "id": 98, "key": "doorFrontLeft", "labelPt": "Porta Dianteira Esquerda", "type": "boolean" },
-  { "id": 100, "key": "doorRearRight", "labelPt": "Porta Traseira Direita", "type": "boolean" },
-  { "id": 109, "key": "ignitionState", "labelPt": "Ignição", "type": "boolean" },
-  { "id": 133, "key": "driverSeatbelt", "labelPt": "Cinto do Motorista", "type": "boolean" },
-  { "id": 134, "key": "passengerSeatbelt", "labelPt": "Cinto do Passageiro", "type": "boolean" },
-  { "id": 136, "key": "lowBeam", "labelPt": "Farol Baixo", "type": "boolean" },
-  { "id": 137, "key": "highBeam", "labelPt": "Farol Alto", "type": "boolean" },
-  { "id": 139, "key": "handBrake", "labelPt": "Freio de estacionamento", "type": "boolean" },
-  { "id": 141, "key": "engineWorking", "labelPt": "Motor em funcionamento", "type": "boolean" },
-  { "id": 148, "key": "digitalOutput1", "labelPt": "Saída Digital 1", "type": "boolean" },
-  { "id": 157, "key": "clutchPedal", "labelPt": "Pedal da Embreagem Pressionado", "type": "boolean" },
-  { "id": 8197, "key": "gsmPower", "labelPt": "Intensidade do Sinal Celular (RSSI em dBm)", "type": "number" },
-  { "id": 8198, "key": "throttlePosition", "labelPt": "Posição do Acelerador", "type": "number", "unit": "%" },
-  { "id": 8199, "key": "fuelLevel1", "labelPt": "Nível de Combustível 1", "type": "number", "unit": "%" },
-  { "id": 8200, "key": "engineTemperature", "labelPt": "Temperatura do Motor", "type": "number", "unit": "°C" },
-  { "id": 8201, "key": "fuelLevel2", "labelPt": "Nível de Combustível 2", "type": "number", "unit": "%" },
-  { "id": 8226, "key": "topSpeed", "labelPt": "Velocidade Máxima do Veículo", "type": "number", "unit": "km/h" },
-  { "id": 8236, "key": "geozoneId", "labelPt": "Geozona", "type": "string" },
-  { "id": 8253, "key": "wiperMode", "labelPt": "Modo do Limpador", "type": "string" },
-  { "id": 8257, "key": "batteryCharge", "labelPt": "Carga da Bateria", "type": "boolean" },
-  { "id": 12288, "key": "vcc", "labelPt": "Alimentação (VCC)", "type": "number", "unit": "V" },
-  { "id": 12292, "key": "vbat", "labelPt": "Bateria Veicular (VBAT)", "type": "number", "unit": "V" },
-  { "id": 12300, "key": "rpm", "labelPt": "RPM", "type": "number", "unit": "rpm" },
-  { "id": 12317, "key": "wheelSpeed", "labelPt": "Velocidade da Roda", "type": "number", "unit": "km/h" },
-  { "id": 12321, "key": "fuelRate", "labelPt": "Taxa de Combustível", "type": "number", "unit": "L/h" },
-  { "id": 12340, "key": "instantFuelEconomy", "labelPt": "Consumo Instantâneo", "type": "number", "unit": "km/L" },
-  { "id": 12342, "key": "transmissionTemperature", "labelPt": "Temperatura da Transmissão", "type": "number", "unit": "°C" },
-  { "id": 12344, "key": "serviceDistance", "labelPt": "Distância para Revisão", "type": "number", "unit": "km" },
-  { "id": 12346, "key": "rangeKm", "labelPt": "Autonomia Estimada", "type": "number", "unit": "km" },
-  { "id": 16385, "key": "fuelUsed", "labelPt": "Combustível Consumido", "type": "number", "unit": "L" },
-  { "id": 16386, "key": "totalEngineHours", "labelPt": "Horas de Motor Totais", "type": "number", "unit": "h" },
-  { "id": 16387, "key": "obdOdometer", "labelPt": "Hodômetro do Veículo (OBD)", "type": "number", "unit": "km" },
-  { "id": 16470, "key": "receivedCan", "labelPt": "Quadros CAN Recebidos", "type": "number" },
-  { "id": 16474, "key": "fuelInstantHighRes", "labelPt": "Combustível Instantâneo (Alta Res.)", "type": "number", "unit": "L" },
-  { "id": 16475, "key": "tachoOdometer", "labelPt": "Odômetro TACO", "type": "number", "unit": "km" },
-  { "id": 16478, "key": "slot1Distance", "labelPt": "Distância Slot 1", "type": "number", "unit": "km" },
-  { "id": 16479, "key": "slot2Distance", "labelPt": "Distância Slot 2", "type": "number", "unit": "km" },
-  { "id": 16482, "key": "totalDistanceHighRes", "labelPt": "Distância Total (Alta Res.)", "type": "number", "unit": "km" },
-  { "id": 40960, "key": "temperature", "labelPt": "Temperatura", "type": "number", "unit": "°C" },
-  { "id": 40961, "key": "acceleration", "labelPt": "Aceleração", "type": "number", "unit": "m/s²" },
-  { "id": 40987, "key": "fuelInstant", "labelPt": "Combustível Instantâneo", "type": "number", "unit": "L" },
-  { "id": 45058, "key": "distance", "labelPt": "Distância", "type": "number", "unit": "km" }
+  {
+    "id": 6,
+    "key": "geozoneInside",
+    "labelPt": "Dentro do Itinerário",
+    "type": "boolean"
+  },
+  {
+    "id": 7,
+    "key": "geozoneInsidePrimary",
+    "labelPt": "Dentro do Itinerário",
+    "type": "boolean"
+  },
+  {
+    "id": 16,
+    "key": "signalIn2",
+    "labelPt": "Entrada 2",
+    "type": "boolean"
+  },
+  {
+    "id": 18,
+    "key": "signalIn4",
+    "labelPt": "Entrada 4",
+    "type": "boolean"
+  },
+  {
+    "id": 19,
+    "key": "signalIn5",
+    "labelPt": "Entrada 5",
+    "type": "boolean"
+  },
+  {
+    "id": 25,
+    "key": "geozoneInsidePrimary",
+    "labelPt": "Dentro do Itinerário",
+    "type": "boolean"
+  },
+  {
+    "id": 98,
+    "key": "doorFrontLeft",
+    "labelPt": "Porta Dianteira Esquerda",
+    "type": "boolean"
+  },
+  {
+    "id": 100,
+    "key": "doorRearRight",
+    "labelPt": "Porta Traseira Direita",
+    "type": "boolean"
+  },
+  {
+    "id": 109,
+    "key": "ignitionState",
+    "labelPt": "Ignição",
+    "type": "boolean"
+  },
+  {
+    "id": 133,
+    "key": "driverSeatbelt",
+    "labelPt": "Cinto do Motorista",
+    "type": "boolean"
+  },
+  {
+    "id": 134,
+    "key": "passengerSeatbelt",
+    "labelPt": "Cinto do Passageiro",
+    "type": "boolean"
+  },
+  {
+    "id": 136,
+    "key": "lowBeam",
+    "labelPt": "Farol",
+    "type": "boolean"
+  },
+  {
+    "id": 137,
+    "key": "highBeam",
+    "labelPt": "Farol Alto",
+    "type": "boolean"
+  },
+  {
+    "id": 139,
+    "key": "handBrake",
+    "labelPt": "Freio de Estacionamento",
+    "type": "boolean"
+  },
+  {
+    "id": 141,
+    "key": "engineWorking",
+    "labelPt": "Motor",
+    "type": "boolean"
+  },
+  {
+    "id": 148,
+    "key": "digitalOutput1",
+    "labelPt": "Saída 1",
+    "type": "boolean"
+  },
+  {
+    "id": 157,
+    "key": "clutchPedal",
+    "labelPt": "Pedal da Embreagem",
+    "type": "boolean"
+  },
+  {
+    "id": 8197,
+    "key": "gsmPower",
+    "labelPt": "Sinal Celular",
+    "type": "number"
+  },
+  {
+    "id": 8198,
+    "key": "throttlePosition",
+    "labelPt": "Posição do Acelerador",
+    "type": "number",
+    "unit": "%"
+  },
+  {
+    "id": 8199,
+    "key": "fuelLevel1",
+    "labelPt": "Nível de Combustível 1",
+    "type": "number",
+    "unit": "%"
+  },
+  {
+    "id": 8200,
+    "key": "engineTemperature",
+    "labelPt": "Temperatura do Motor",
+    "type": "number",
+    "unit": "°C"
+  },
+  {
+    "id": 8201,
+    "key": "fuelLevel2",
+    "labelPt": "Nível de Combustível 2",
+    "type": "number",
+    "unit": "%"
+  },
+  {
+    "id": 8226,
+    "key": "topSpeed",
+    "labelPt": "Velocidade Máxima",
+    "type": "number",
+    "unit": "km/h"
+  },
+  {
+    "id": 8236,
+    "key": "geozoneId",
+    "labelPt": "Itinerário",
+    "type": "string"
+  },
+  {
+    "id": 8253,
+    "key": "wiperMode",
+    "labelPt": "Modo do Limpador",
+    "type": "string"
+  },
+  {
+    "id": 8257,
+    "key": "batteryCharge",
+    "labelPt": "Carga da Bateria",
+    "type": "boolean"
+  },
+  {
+    "id": 12288,
+    "key": "vcc",
+    "labelPt": "Alimentação (VCC)",
+    "type": "number",
+    "unit": "V"
+  },
+  {
+    "id": 12292,
+    "key": "vbat",
+    "labelPt": "Bateria Veicular (VBAT)",
+    "type": "number",
+    "unit": "V"
+  },
+  {
+    "id": 12300,
+    "key": "rpm",
+    "labelPt": "RPM",
+    "type": "number",
+    "unit": "rpm"
+  },
+  {
+    "id": 12317,
+    "key": "wheelSpeed",
+    "labelPt": "Velocidade da Roda",
+    "type": "number",
+    "unit": "km/h"
+  },
+  {
+    "id": 12321,
+    "key": "fuelRate",
+    "labelPt": "Taxa de Combustível",
+    "type": "number",
+    "unit": "L/h"
+  },
+  {
+    "id": 12340,
+    "key": "instantFuelEconomy",
+    "labelPt": "Consumo Instantâneo",
+    "type": "number",
+    "unit": "km/L"
+  },
+  {
+    "id": 12342,
+    "key": "transmissionTemperature",
+    "labelPt": "Temperatura da Transmissão",
+    "type": "number",
+    "unit": "°C"
+  },
+  {
+    "id": 12344,
+    "key": "serviceDistance",
+    "labelPt": "Distância para Revisão",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 12346,
+    "key": "rangeKm",
+    "labelPt": "Autonomia Estimada",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 16385,
+    "key": "fuelUsed",
+    "labelPt": "Uso do Combustível",
+    "type": "number",
+    "unit": "L"
+  },
+  {
+    "id": 16386,
+    "key": "totalEngineHours",
+    "labelPt": "Horas de Motor Totais",
+    "type": "number",
+    "unit": "h"
+  },
+  {
+    "id": 16387,
+    "key": "obdOdometer",
+    "labelPt": "Odometro",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 16470,
+    "key": "receivedCan",
+    "labelPt": "Quadros CAN Recebidos",
+    "type": "number"
+  },
+  {
+    "id": 16474,
+    "key": "fuelInstantHighRes",
+    "labelPt": "Combustível Instantâneo (Alta Res.)",
+    "type": "number",
+    "unit": "L"
+  },
+  {
+    "id": 16475,
+    "key": "tachoOdometer",
+    "labelPt": "Odômetro TACO",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 16478,
+    "key": "slot1Distance",
+    "labelPt": "Distância Slot 1",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 16479,
+    "key": "slot2Distance",
+    "labelPt": "Distância Slot 2",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 16482,
+    "key": "totalDistanceHighRes",
+    "labelPt": "Distância Total (Alta Res.)",
+    "type": "number",
+    "unit": "km"
+  },
+  {
+    "id": 40960,
+    "key": "temperature",
+    "labelPt": "Temperatura",
+    "type": "number",
+    "unit": "°C"
+  },
+  {
+    "id": 40961,
+    "key": "acceleration",
+    "labelPt": "Aceleração",
+    "type": "number",
+    "unit": "m/s²"
+  },
+  {
+    "id": 40987,
+    "key": "fuelInstant",
+    "labelPt": "Combustível Instantâneo",
+    "type": "number",
+    "unit": "L"
+  },
+  {
+    "id": 45058,
+    "key": "distance",
+    "labelPt": "Distância",
+    "type": "number",
+    "unit": "km"
+  }
 ]

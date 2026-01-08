@@ -26,6 +26,21 @@ const EXCLUDED_KEYS = new Set([
   "shortaddress",
   "formatted_address",
   "short_address",
+  "digitalinput2",
+  "digitalinput4",
+  "digitalinput5",
+  "digitalinput6",
+  "digitalinput7",
+  "digitaloutput1",
+  "digitaloutput2",
+  "input2",
+  "input4",
+  "input5",
+  "signalin2",
+  "signalin4",
+  "signalin5",
+  "satellites",
+  "power",
 ]);
 
 const LATITUDE_ALIASES = new Set(["lat", "latitude"]);
