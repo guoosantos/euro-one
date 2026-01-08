@@ -12,6 +12,7 @@ export const EURO_PRESET_KEYS = [
   "batteryLevel",
   "distance",
   "totalDistance",
+  "ioDetails",
   "geozoneInside",
   "geozoneId",
 ];

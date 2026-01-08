@@ -1,25 +1,25 @@
 import { resolveTelemetryDescriptor } from "./telemetryDictionary.js";
 
 const BASE_COLUMNS = [
-  { key: "gpsTime", labelPt: "Transmissão GPS", labelPdf: "Transmissão GPS", width: 160, defaultVisible: true, weight: 1.4, group: "base" },
+  { key: "gpsTime", labelPt: "Data/Hora", labelPdf: "Data/Hora", width: 140, defaultVisible: true, weight: 1.4, group: "base" },
   { key: "event", labelPt: "Evento", labelPdf: "Evento", width: 200, defaultVisible: true, weight: 1.8, group: "base" },
   {
     key: "address",
-    labelPt: "Endereço",
-    labelPdf: "Endereço",
-    width: 220,
+    labelPt: "Endereço (Latitude / Longitude)",
+    labelPdf: "Endereço (Latitude / Longitude)",
+    width: 280,
     defaultVisible: true,
     weight: 2.8,
     group: "base",
   },
   { key: "speed", labelPt: "Velocidade", labelPdf: "Velocidade", width: 90, defaultVisible: true, weight: 0.9, group: "base" },
   { key: "ignition", labelPt: "Ignição", labelPdf: "Ignição", width: 90, defaultVisible: true, weight: 0.9, group: "base", type: "boolean" },
-  { key: "vehicleState", labelPt: "Status", labelPdf: "Status", width: 120, defaultVisible: true, weight: 1.4, group: "base" },
+  { key: "vehicleState", labelPt: "Estado do Veículo", labelPdf: "Estado do Veículo", width: 150, defaultVisible: true, weight: 1.4, group: "base" },
   {
     key: "vehicleVoltage",
-    labelPt: "Tensão do Veículo",
-    labelPdf: "Tensão do Veículo",
-    width: 140,
+    labelPt: "Tensão da Bateria do Veículo",
+    labelPdf: "Tensão da Bateria do Veículo",
+    width: 150,
     defaultVisible: true,
     weight: 1.3,
     group: "voltage",
@@ -30,8 +30,8 @@ const BASE_COLUMNS = [
 
   {
     key: "digitalInput1",
-    labelPt: "Entrada 1",
-    labelPdf: "Entrada 1",
+    labelPt: "Entrada Digital 1",
+    labelPdf: "Entrada Digital 1",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -40,8 +40,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput2",
-    labelPt: "Entrada 2",
-    labelPdf: "Entrada 2",
+    labelPt: "Entrada Digital 2",
+    labelPdf: "Entrada Digital 2",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -50,8 +50,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput3",
-    labelPt: "Entrada 3",
-    labelPdf: "Entrada 3",
+    labelPt: "Entrada Digital 3",
+    labelPdf: "Entrada Digital 3",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -60,8 +60,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput4",
-    labelPt: "Entrada 4",
-    labelPdf: "Entrada 4",
+    labelPt: "Entrada Digital 4",
+    labelPdf: "Entrada Digital 4",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -70,8 +70,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput5",
-    labelPt: "Entrada 5",
-    labelPdf: "Entrada 5",
+    labelPt: "Entrada Digital 5",
+    labelPdf: "Entrada Digital 5",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -80,8 +80,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput6",
-    labelPt: "Entrada 6",
-    labelPdf: "Entrada 6",
+    labelPt: "Entrada Digital 6",
+    labelPdf: "Entrada Digital 6",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -90,8 +90,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput7",
-    labelPt: "Entrada 7",
-    labelPdf: "Entrada 7",
+    labelPt: "Entrada Digital 7",
+    labelPdf: "Entrada Digital 7",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -100,8 +100,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalInput8",
-    labelPt: "Entrada 8",
-    labelPdf: "Entrada 8",
+    labelPt: "Entrada Digital 8",
+    labelPdf: "Entrada Digital 8",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -111,8 +111,8 @@ const BASE_COLUMNS = [
 
   {
     key: "digitalOutput1",
-    labelPt: "Saída 1",
-    labelPdf: "Saída 1",
+    labelPt: "Saída Digital 1",
+    labelPdf: "Saída Digital 1",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -121,8 +121,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput2",
-    labelPt: "Saída 2",
-    labelPdf: "Saída 2",
+    labelPt: "Saída Digital 2",
+    labelPdf: "Saída Digital 2",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -131,8 +131,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput3",
-    labelPt: "Saída 3",
-    labelPdf: "Saída 3",
+    labelPt: "Saída Digital 3",
+    labelPdf: "Saída Digital 3",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -141,8 +141,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput4",
-    labelPt: "Saída 4",
-    labelPdf: "Saída 4",
+    labelPt: "Saída Digital 4",
+    labelPdf: "Saída Digital 4",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -151,8 +151,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput5",
-    labelPt: "Saída 5",
-    labelPdf: "Saída 5",
+    labelPt: "Saída Digital 5",
+    labelPdf: "Saída Digital 5",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -161,8 +161,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput6",
-    labelPt: "Saída 6",
-    labelPdf: "Saída 6",
+    labelPt: "Saída Digital 6",
+    labelPdf: "Saída Digital 6",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -171,8 +171,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput7",
-    labelPt: "Saída 7",
-    labelPdf: "Saída 7",
+    labelPt: "Saída Digital 7",
+    labelPdf: "Saída Digital 7",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -181,8 +181,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "digitalOutput8",
-    labelPt: "Saída 8",
-    labelPdf: "Saída 8",
+    labelPt: "Saída Digital 8",
+    labelPdf: "Saída Digital 8",
     width: 140,
     defaultVisible: false,
     weight: 1.2,
@@ -202,18 +202,18 @@ const BASE_COLUMNS = [
   },
   {
     key: "rssi",
-    labelPt: "Intensidade do Sinal Celular",
-    labelPdf: "Intensidade do Sinal Celular",
-    width: 150,
+    labelPt: "Intensidade do Sinal Celular (RSSI em dBm)",
+    labelPdf: "Intensidade do Sinal Celular (RSSI em dBm)",
+    width: 160,
     defaultVisible: false,
     weight: 1.2,
     group: "sensor",
   },
   {
     key: "hdop",
-    labelPt: "Precisão GPS",
-    labelPdf: "Precisão GPS",
-    width: 140,
+    labelPt: "Precisão horizontal do GPS",
+    labelPdf: "Precisão horizontal do GPS",
+    width: 170,
     defaultVisible: false,
     weight: 1.4,
     group: "sensor",
@@ -243,8 +243,8 @@ const BASE_COLUMNS = [
   },
   {
     key: "handBrake",
-    labelPt: "Freio de mão",
-    labelPdf: "Freio de mão",
+    labelPt: "Freio de estacionamento",
+    labelPdf: "Freio de estacionamento",
     width: 150,
     defaultVisible: false,
     weight: 1.1,
@@ -252,33 +252,35 @@ const BASE_COLUMNS = [
     type: "boolean",
   },
 
-  { key: "distance", labelPt: "Distância percorrida", labelPdf: "Distância percorrida", width: 160, defaultVisible: true, weight: 1, group: "other", unit: "km", type: "number" },
-  { key: "totalDistance", labelPt: "Distância total acumulada", labelPdf: "Distância total acumulada", width: 190, defaultVisible: true, weight: 1.2, group: "other", unit: "km", type: "number" },
+  { key: "distance", labelPt: "Distância", labelPdf: "Distância", width: 110, defaultVisible: true, weight: 1, group: "other", unit: "km", type: "number" },
+  { key: "totalDistance", labelPt: "Distância Total", labelPdf: "Distância Total", width: 140, defaultVisible: true, weight: 1.2, group: "other", unit: "km", type: "number" },
+
+  { key: "ioDetails", labelPt: "Entradas/Saídas", labelPdf: "Entradas/Saídas", width: 220, defaultVisible: false, weight: 2.2, group: "io" },
 
   {
     key: "deviceStatus",
-    labelPt: "Status",
-    labelPdf: "Status",
-    width: 120,
+    labelPt: "Status Operacional do Dispositivo",
+    labelPdf: "Status Operacional do Dispositivo",
+    width: 180,
     defaultVisible: true,
     weight: 1.6,
     group: "other",
   },
   {
     key: "deviceStatusEvent",
-    labelPt: "Status",
-    labelPdf: "Status",
-    width: 120,
+    labelPt: "Transição de Status",
+    labelPdf: "Transição de Status",
+    width: 200,
     defaultVisible: true,
     weight: 1.8,
     group: "other",
   },
 
-  { key: "deviceTime", labelPt: "Transmissão Dispositivo", labelPdf: "Transmissão Dispositivo", width: 170, defaultVisible: false, weight: 1.4, group: "other" },
-  { key: "serverTime", labelPt: "Transmissão Servidor", labelPdf: "Transmissão Servidor", width: 170, defaultVisible: false, weight: 1.4, group: "other" },
+  { key: "deviceTime", labelPt: "Hora do Dispositivo", labelPdf: "Hora do Dispositivo", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
+  { key: "serverTime", labelPt: "Hora do Servidor", labelPdf: "Hora do Servidor", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
   { key: "latitude", labelPt: "Latitude", labelPdf: "Latitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
   { key: "longitude", labelPt: "Longitude", labelPdf: "Longitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
-  { key: "direction", labelPt: "Direção em graus", labelPdf: "Direção em graus", width: 140, defaultVisible: false, weight: 1.1, group: "other" },
+  { key: "direction", labelPt: "Direção do Veículo", labelPdf: "Direção do Veículo", width: 140, defaultVisible: false, weight: 1.1, group: "other" },
 ];
 
 const COLUMN_GROUP_ORDER = {
@@ -294,43 +296,43 @@ const COLUMN_GROUP_ORDER = {
 
 const PROTOCOL_COLUMN_CATALOG = {
   default: {
-    fixtime: { labelPt: "Transmissão GPS", group: "base" },
+    fixtime: { labelPt: "Data/Hora", group: "base" },
     valid: { labelPt: "GPS com sinal válido", type: "boolean", group: "base" },
     latitude: { labelPt: "Latitude", group: "other" },
     longitude: { labelPt: "Longitude", group: "other" },
     altitude: { labelPt: "Altitude", group: "other", unit: "m", type: "number" },
     speed: { labelPt: "Velocidade", group: "base" },
-    course: { labelPt: "Direção em graus", group: "other" },
-    address: { labelPt: "Endereço", group: "base" },
+    course: { labelPt: "Direção do Veículo", group: "other" },
+    address: { labelPt: "Endereço (Latitude / Longitude)", group: "base" },
     accuracy: { labelPt: "Precisão do posicionamento", unit: "m", type: "number", group: "sensor" },
     network: { labelPt: "Rede", group: "other" },
-    geofenceids: { labelPt: "Itinerário", group: "other" },
-    obdodometer: { labelPt: "Odômetro", unit: "km", type: "number", group: "sensor" },
-    power: { labelPt: "Tensão da bateria interna do dispositivo", unit: "V", type: "number", group: "battery" },
-    battery: { labelPt: "Tensão da bateria interna do dispositivo", unit: "V", type: "number", group: "battery" },
-    fuelused: { labelPt: "Uso do Combustível", unit: "L", type: "number", group: "sensor" },
+    geofenceids: { labelPt: "Geozonas", group: "other" },
+    obdodometer: { labelPt: "Hodômetro do Veículo (OBD)", unit: "km", type: "number", group: "sensor" },
+    power: { labelPt: "Tensão da Alimentação do Dispositivo", unit: "V", type: "number", group: "voltage" },
+    battery: { labelPt: "Tensão da Bateria Interna do Dispositivo", unit: "V", type: "number", group: "battery" },
+    fuelused: { labelPt: "Combustível Consumido", unit: "L", type: "number", group: "sensor" },
     devicetemp: { labelPt: "Temperatura do dispositivo", unit: "°C", type: "number", group: "sensor" },
     acceleration: { labelPt: "Aceleração", unit: "m/s²", type: "number", group: "sensor" },
-    hdop: { labelPt: "Precisão GPS", type: "number", group: "sensor" },
+    hdop: { labelPt: "Precisão horizontal do GPS", type: "number", group: "sensor" },
     sat: { labelPt: "Número de satélites", type: "number", group: "sensor" },
     ignition: { labelPt: "Ignição", type: "boolean", group: "base" },
     motion: { labelPt: "Veículo em movimento", type: "boolean", group: "base" },
-    distance: { labelPt: "Distância percorrida", unit: "km", type: "number", group: "other" },
-    totaldistance: { labelPt: "Distância total acumulada", unit: "km", type: "number", group: "other" },
+    distance: { labelPt: "Distância", unit: "km", type: "number", group: "other" },
+    totaldistance: { labelPt: "Distância Total", unit: "km", type: "number", group: "other" },
     hours: { labelPt: "Horas de Motor", unit: "h", type: "number", group: "other" },
     charge: { labelPt: "Carga da Bateria", type: "boolean", group: "battery" },
     batterylevel: { labelPt: "Nível da Bateria", unit: "%", type: "percent", group: "battery" },
-    rssi: { labelPt: "Intensidade do Sinal Celular", group: "sensor" },
-    status: { labelPt: "Status", group: "other" },
+    rssi: { labelPt: "Intensidade do Sinal Celular (RSSI em dBm)", group: "sensor" },
+    status: { labelPt: "Status Operacional do Dispositivo", group: "other" },
   },
   gt06: {
-    adc1: { labelPt: "Entrada 1", type: "boolean", group: "input" },
-    blocked: { labelPt: "Saída 1", type: "boolean", group: "output" },
+    adc1: { labelPt: "Entrada Digital 1", type: "boolean", group: "input" },
+    blocked: { labelPt: "Saída Digital 1", type: "boolean", group: "output" },
     type: { labelPt: "Tipo do Evento", group: "other" },
     charge: { labelPt: "Carga Ativa", type: "boolean", group: "battery" },
     batterylevel: { labelPt: "Nível de Bateria", unit: "%", type: "percent", group: "battery" },
-    rssi: { labelPt: "Intensidade do Sinal Celular", group: "sensor" },
-    digitaloutput1: { labelPt: "Saída 1", type: "boolean", group: "output" },
+    rssi: { labelPt: "Intensidade do Sinal Celular (RSSI em dBm)", group: "sensor" },
+    digitaloutput1: { labelPt: "Saída Digital 1", type: "boolean", group: "output" },
   },
 };
 
@@ -389,11 +391,11 @@ function resolveIoPattern(key) {
   if (!normalized) return null;
   const inputMatch = normalized.match(/^(?:sensor_)?(?:in|input|entrada|digitalinput)_?(\d+)$/i);
   if (inputMatch) {
-    return { labelPt: `Entrada ${inputMatch[1]}`, type: "boolean", group: "input" };
+    return { labelPt: `Entrada Digital ${inputMatch[1]}`, type: "boolean", group: "input" };
   }
   const outputMatch = normalized.match(/^(?:sensor_)?(?:out|output|saida|digitaloutput)_?(\d+)$/i);
   if (outputMatch) {
-    return { labelPt: `Saída ${outputMatch[1]}`, type: "boolean", group: "output" };
+    return { labelPt: `Saída Digital ${outputMatch[1]}`, type: "boolean", group: "output" };
   }
   const ioMatch = normalized.match(/^(?:io|i\/o)[-_ ]?(\d+)$/i);
   if (ioMatch) {
@@ -406,10 +408,10 @@ function resolveVoltagePattern(key) {
   const normalized = normalizeKey(key).toLowerCase();
   if (!normalized) return null;
   if (["power", "externalpower", "powervoltage", "voltage", "vehiclevoltage"].includes(normalized)) {
-    return { labelPt: "Tensão do Veículo", unit: "V", type: "number", group: "voltage" };
+    return { labelPt: "Tensão da Bateria do Veículo", unit: "V", type: "number", group: "voltage" };
   }
   if (["batteryvoltage", "battery_voltage"].includes(normalized)) {
-    return { labelPt: "Tensão da bateria interna do dispositivo", unit: "V", type: "number", group: "battery" };
+    return { labelPt: "Tensão da Bateria Interna do Dispositivo", unit: "V", type: "number", group: "battery" };
   }
   return null;
 }
