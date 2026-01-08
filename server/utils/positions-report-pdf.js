@@ -247,7 +247,7 @@ function buildHtml({
 
   const columnsGroup = columns?.length ? columns : [];
 
-  const renderTable = (sliceRows, sliceIndex, { includeHeader = true } = {}) => {
+  const renderTable = (sliceRows, sliceIndex, { includeHeader = true, includePageBreak = true } = {}) => {
     const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
@@ -276,7 +276,7 @@ function buildHtml({
       })
       .join("");
 
-    const pageBreak = sliceIndex > 0 ? '<div class="page-break"></div>' : "";
+    const pageBreak = includePageBreak && sliceIndex > 0 ? '<div class="page-break"></div>' : "";
     const headerBlock = includeHeader
       ? `
       <div class="header">
@@ -374,7 +374,17 @@ function buildHtml({
 
   const renderAnalyticHeader = () => `
     <div class="intro-card">
-      <div class="intro-title">${escapeHtml(reportTitle)}</div>
+      <div class="intro-title-row">
+        <div class="intro-logo">
+          ${
+            logoDataUrl
+              ? `<img src="${logoDataUrl}" alt="Euro One" />`
+              : `<span class="intro-logo-fallback">EURO ONE</span>`
+          }
+        </div>
+        <div class="intro-title">${escapeHtml(reportTitle)}</div>
+        <div class="intro-title-spacer"></div>
+      </div>
       <div class="intro-subtitle">${escapeHtml(reportSubtitle)}</div>
       <div class="intro-grid">
         <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
@@ -384,6 +394,39 @@ function buildHtml({
         <div><span>Status</span>${escapeHtml(meta?.vehicle?.status || "—")}</div>
         <div><span>Última comunicação</span>${escapeHtml(formatDate(meta?.vehicle?.lastCommunication))}</div>
         <div><span>Período</span>${escapeHtml(`${formatDate(meta?.from)} → ${formatDate(meta?.to)}`)}</div>
+      </div>
+    </div>
+  `;
+
+  const headerMetaParts = [
+    { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
+    { label: "PLACA", value: meta?.vehicle?.plate || "—" },
+    { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
+    { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
+  ];
+  const headerMetaLine = headerMetaParts
+    .map(
+      (item, index) => `
+          <span class="compact-meta-item">
+            <span class="compact-meta-label">${escapeHtml(item.label)}:</span>
+            <span class="compact-meta-value">${escapeHtml(item.value)}</span>
+          </span>
+          ${index < headerMetaParts.length - 1 ? '<span class="compact-meta-separator">|</span>' : ""}
+        `,
+    )
+    .join("");
+
+  const renderCompactHeader = () => `
+    <div class="compact-header">
+      <div class="compact-header-logo">
+        ${
+          logoDataUrl
+            ? `<img src="${logoDataUrl}" alt="Euro One" />`
+            : `<span class="compact-logo-fallback">EURO ONE</span>`
+        }
+      </div>
+      <div class="compact-header-meta">
+        ${headerMetaLine}
       </div>
     </div>
   `;
@@ -408,20 +451,40 @@ function buildHtml({
 
     if (!segments.length) {
       const fallbackSlices = chunkArray(rows, chunkSize);
-      return fallbackSlices.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
+      return fallbackSlices
+        .map(
+          (slice, index) =>
+            `<div class="page-break"></div>${renderCompactHeader()}${renderTable(slice, index, {
+              includeHeader: false,
+              includePageBreak: false,
+            })}`,
+        )
+        .join("");
     }
 
     let previousType = null;
+    let isFirstSegment = true;
     return segments
       .map((segment) => {
         if (segment.type === "positions") {
           const chunks = chunkArray(segment.rows, chunkSize);
           previousType = "positions";
-          return chunks.map((slice, index) => renderTable(slice, index, { includeHeader: false })).join("");
+          isFirstSegment = false;
+          return chunks
+            .map(
+              (slice) =>
+                `<div class="page-break"></div>${renderCompactHeader()}${renderTable(slice, 0, {
+                  includeHeader: false,
+                  includePageBreak: false,
+                })}`,
+            )
+            .join("");
         }
-        const pageBreak = previousType === "positions" ? '<div class="page-break"></div>' : "";
+        const shouldStartPage = isFirstSegment || previousType === "positions";
+        const pageBreak = shouldStartPage ? '<div class="page-break"></div>' : "";
         previousType = "action";
-        return `${pageBreak}${renderActionCard(segment.entry)}`;
+        isFirstSegment = false;
+        return `${pageBreak}${pageBreak ? renderCompactHeader() : ""}${renderActionCard(segment.entry)}`;
       })
       .join("");
   };
@@ -563,6 +626,31 @@ function buildHtml({
         color: #ffffff;
         box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
       }
+      .intro-title-row {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        align-items: center;
+        gap: 12px;
+      }
+      .intro-logo img {
+        height: 36px;
+        object-fit: contain;
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
+      }
+      .intro-logo-fallback {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(255,255,255,0.4);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .intro-title-spacer {
+        width: 36px;
+      }
       .intro-title {
         font-size: 20px;
         font-weight: 800;
@@ -591,6 +679,51 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.04em;
         margin-bottom: 3px;
+      }
+      .compact-header {
+        border-radius: 12px;
+        padding: 8px 12px;
+        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
+        color: #ffffff;
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 10px;
+        align-items: center;
+        box-shadow: 0 8px 16px rgba(1, 42, 88, 0.2);
+      }
+      .compact-header-logo img {
+        height: 20px;
+        object-fit: contain;
+      }
+      .compact-logo-fallback {
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+      .compact-header-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 8px;
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        line-height: 1.3;
+      }
+      .compact-meta-item {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+      .compact-meta-label {
+        opacity: 0.6;
+        font-weight: 600;
+      }
+      .compact-meta-value {
+        font-weight: 700;
+      }
+      .compact-meta-separator {
+        opacity: 0.35;
       }
       .meta-grid {
         display: grid;
@@ -829,8 +962,8 @@ function buildHtml({
   </head>
   <body>
     <div class="report">
-      ${isAnalytic ? renderAnalyticHeader() : ""}
-      ${isAnalytic ? renderTimeline() : tables}
+      ${isAnalytic ? `${renderAnalyticHeader()}${renderTimeline()}` : ""}
+      ${isAnalytic ? "" : tables}
       ${isAnalytic ? "" : actionsSection}
     </div>
   </body>
@@ -939,7 +1072,9 @@ export async function generatePositionsReportPdf({
         `,
       )
       .join("");
-    const headerTemplate = `
+    const headerTemplate = isAnalytic
+      ? "<div></div>"
+      : `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 12mm; box-sizing:border-box;">
         <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 9mm; border-radius:6px; display:flex; align-items:center; gap:8px;">
           ${
