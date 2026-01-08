@@ -94,9 +94,9 @@ function formatCellValue(key, value, definition) {
   return typeof value === "object" ? normalizeAddress(value) : String(value);
 }
 
-function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf") {
+function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf", options = {}) {
   const column = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
-  return resolveColumnLabel(column, variant);
+  return resolveColumnLabel(column, variant, options);
 }
 
 function computeColumnWidths(headerLabels, rows) {
@@ -148,7 +148,8 @@ export async function generatePositionsReportXlsx({
   const infoRow = worksheet.addRow([]);
   const detailRow = worksheet.addRow([]);
 
-  const headerLabels = safeColumns.map((key) => resolveColumnLabelByKey(key, definitionsMap, "pt"));
+  const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
+  const headerLabels = safeColumns.map((key) => resolveColumnLabelByKey(key, definitionsMap, "pt", labelOptions));
   const headerRow = worksheet.addRow(headerLabels);
 
   const headerRowIndex = headerRow.number;
@@ -214,10 +215,12 @@ export function generatePositionsReportCsv({
   columns = [],
   columnDefinitions = null,
   availableColumns = null,
+  meta = {},
 } = {}) {
   const safeColumns = resolvePdfColumns(columns, availableColumns || columns);
   const definitionsMap = new Map((columnDefinitions || []).map((column) => [column.key, column]));
-  const headerLabels = safeColumns.map((key) => resolveColumnLabelByKey(key, definitionsMap, "pt"));
+  const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
+  const headerLabels = safeColumns.map((key) => resolveColumnLabelByKey(key, definitionsMap, "pt", labelOptions));
 
   const lines = [];
   lines.push(headerLabels.map(escapeCsvValue).join(";"));

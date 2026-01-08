@@ -154,9 +154,9 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
-function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf") {
+function resolveColumnLabelByKey(key, columnDefinitions, variant = "pdf", options = {}) {
   const column = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
-  return resolveColumnLabel(column, variant);
+  return resolveColumnLabel(column, variant, options);
 }
 
 function chunkArray(list = [], size = 500) {
@@ -190,8 +190,9 @@ function buildHtml({
   const columnsGroup = columns?.length ? columns : [];
 
   const renderTable = (sliceRows, sliceIndex) => {
+    const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
-      .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf"))}</th>`)
+      .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
       .join("");
     const totalWeight =
       columnsGroup.reduce((sum, key) => {

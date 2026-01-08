@@ -1,3 +1,5 @@
+import { isIotmProtocol, resolveIotmReportColumnLabel } from "../../../shared/positionsColumns.js";
+
 export const REPORT_COLUMN_LABELS = {
   gpsTime: { label: "Data/Hora", tooltip: "Data e hora do evento" },
   occurredAt: { label: "Data/Hora", tooltip: "Data e hora do evento" },
@@ -47,14 +49,22 @@ export const REPORT_COLUMN_LABELS = {
   audit: { label: "Auditoria", tooltip: "Ação do usuário" },
 };
 
-export function resolveReportColumnLabel(key, fallbackLabel) {
+export function resolveReportColumnLabel(key, fallbackLabel, options = {}) {
   if (!key) return fallbackLabel;
+  if (isIotmProtocol(options.protocol, options.deviceModel)) {
+    const iotmLabel = resolveIotmReportColumnLabel(key, fallbackLabel);
+    if (iotmLabel) return iotmLabel;
+  }
   const entry = REPORT_COLUMN_LABELS[key];
   return entry?.tooltip || entry?.label || fallbackLabel || key;
 }
 
-export function resolveReportColumnTooltip(key, fallbackTooltip) {
+export function resolveReportColumnTooltip(key, fallbackTooltip, options = {}) {
   if (!key) return fallbackTooltip;
+  if (isIotmProtocol(options.protocol, options.deviceModel)) {
+    const iotmLabel = resolveIotmReportColumnLabel(key, fallbackTooltip);
+    if (iotmLabel) return iotmLabel;
+  }
   const entry = REPORT_COLUMN_LABELS[key];
   return entry?.tooltip || fallbackTooltip || entry?.label || key;
 }

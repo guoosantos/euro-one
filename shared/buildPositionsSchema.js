@@ -1,4 +1,4 @@
-import { resolveColumn } from "./positionsColumns.js";
+import { filterIotmStatusColumns, isIotmProtocol, resolveColumn } from "./positionsColumns.js";
 
 // O relatório precisa refletir tudo que chegou do backend, inclusive attributes dinâmicos.
 // O monitoring continua com colunas opinadas; aqui o schema é sempre derivado das chaves reais.
@@ -78,7 +78,7 @@ function resolveBaseOrder(key) {
   return index === -1 ? baseOrder.length + 1 : index;
 }
 
-export default function buildPositionsSchema(positions = []) {
+export default function buildPositionsSchema(positions = [], options = {}) {
   const keys = new Set();
   const keysWithValue = new Set();
   (positions || []).forEach((position) => collectKeys(position, keys, keysWithValue));
@@ -131,11 +131,16 @@ export default function buildPositionsSchema(positions = []) {
     .map((key) => resolveColumn(key))
     .filter(Boolean);
 
-  return columns.sort((a, b) => {
+  const sorted = columns.sort((a, b) => {
     const baseDelta = resolveBaseOrder(a.key) - resolveBaseOrder(b.key);
     if (baseDelta !== 0) return baseDelta;
     const priorityDelta = (a.priority ?? 0) - (b.priority ?? 0);
     if (priorityDelta !== 0) return priorityDelta;
     return a.label.localeCompare(b.label, "pt-BR");
   });
+
+  if (!isIotmProtocol(options.protocol, options.deviceModel)) {
+    return sorted;
+  }
+  return filterIotmStatusColumns(sorted);
 }
