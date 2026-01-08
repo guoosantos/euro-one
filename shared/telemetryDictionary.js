@@ -1,6 +1,6 @@
 import { iotmEventCatalog } from "./iotmEventCatalog.js";
 import iotmIoCatalog from "./iotmIoCatalog.pt-BR.json" with { type: "json" };
-import diagnosticCatalog from "./eventCatalogPtBR.json" with { type: "json" };
+import { translateDiagnosticEvent } from "./eventTranslator.js";
 import xirgoSensorsCatalog from "./xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
 
 const BASE_TELEMETRY_ATTRIBUTES = [
@@ -408,99 +408,6 @@ const IOTM_EVENT_CODE_MAP = new Map(
   ]),
 );
 
-const IOTM_DIAGNOSTIC_CODE_MAP = new Map(
-  (diagnosticCatalog?.events || []).map((item) => [
-    String(item.id).toLowerCase(),
-    {
-      key: `iotm_diag_${item.id}`,
-      labelPt: item.labelPt,
-      severity: item.severity || "info",
-      description: item.descriptionPt || item.description,
-    },
-  ]),
-);
-
-const IOTM_DIAGNOSTIC_TEMPLATE_MAP = new Map(
-  (diagnosticCatalog?.templates || []).map((item) => [String(item.id).toLowerCase(), item]),
-);
-
-function buildTemplateContext(funId, warId) {
-  const context = {
-    fun_id: funId,
-    war_id: warId,
-    script_id: null,
-    source: null,
-    source_label: null,
-  };
-
-  if (Number.isFinite(funId)) {
-    if (funId >= 140 && funId < 145) {
-      context.script_id = funId - 140;
-    }
-    if (funId >= 180 && funId <= 182) {
-      context.source = funId - 180;
-      context.source_label = context.source === 1 ? "CAN1" : context.source === 2 ? "CAN2" : `Fonte ${context.source}`;
-    }
-    if (funId >= 240 && funId <= 241) {
-      context.source = funId - 240;
-      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
-    }
-    if (funId >= 250 && funId <= 251) {
-      context.source = funId - 250;
-      context.source_label = context.source === 0 ? "GPS" : context.source === 1 ? "NTP" : `Fonte ${context.source}`;
-    }
-  }
-
-  return context;
-}
-
-function renderTemplate(template, context) {
-  return String(template || "").replace(/\\{(\\w+)\\}/g, (match, key) => {
-    const value = context?.[key];
-    return value === null || value === undefined || value === "" ? match : String(value);
-  });
-}
-
-function resolveDiagnosticTemplate(code) {
-  const normalized = String(code || "").trim().toLowerCase();
-  if (!normalized) return null;
-  const match = normalized.match(/^f(\\d+)=(.+)$/);
-  if (!match) return null;
-  const funId = Number(match[1]);
-  const warId = match[2];
-  if (!Number.isFinite(funId) || !warId) return null;
-
-  const keys = [];
-  if (funId >= 20 && funId <= 27) keys.push(`f${funId}=x`);
-  if (funId === 106) keys.push("f106=xx");
-  if (funId === 112) keys.push("f112=n");
-  if (funId === 113) keys.push("f113=n");
-  if (funId === 130) keys.push("f130=id");
-  if (funId >= 116 && funId <= 119) keys.push(`f${funId}=x`);
-  if (funId >= 121 && funId <= 129) keys.push(`f${funId}=x`);
-  if (funId >= 140 && funId < 145) keys.push(`f140+scriptid=${warId}`);
-  if (funId === 161) keys.push("f161=xx");
-  if (funId === 200) keys.push("f200=x");
-  if ([221, 222, 223, 224].includes(funId)) keys.push(`f${funId}=x`);
-  if (funId >= 180 && funId <= 182) keys.push(`f180+source=${warId}`);
-  if (funId >= 174 && funId <= 179) keys.push(`f${funId}=x`);
-  if (funId >= 240 && funId <= 241) keys.push("f240+source=xx");
-  if (funId >= 250 && funId <= 251) keys.push("f250+source=xx");
-
-  const entry = keys.map((key) => IOTM_DIAGNOSTIC_TEMPLATE_MAP.get(key)).find(Boolean);
-  if (!entry) return null;
-
-  const context = buildTemplateContext(funId, warId);
-  const label = entry.template ? renderTemplate(entry.template, context) : entry.labelPt;
-
-  return {
-    key: `iotm_diag_${entry.id}`,
-    labelPt: label,
-    severity: entry.severity || "info",
-    description: entry.descriptionPt || entry.description,
-  };
-}
-
 function normalizeProtocolKey(protocol) {
   return String(protocol || "").trim().toLowerCase();
 }
@@ -546,23 +453,21 @@ export function resolveEventDescriptor(code, { protocol, payload } = {}) {
   if (!normalized) return null;
   const protocolKey = normalizeProtocolKey(protocol);
   if (protocolKey === "iotm") {
-    const diagnosticKey = normalized.toLowerCase();
-    const diagnostic =
-      IOTM_DIAGNOSTIC_CODE_MAP.get(diagnosticKey) || resolveDiagnosticTemplate(normalized);
-    if (diagnostic) return diagnostic;
+    const diagnostic = translateDiagnosticEvent({ payload, rawCode: normalized });
+    if (diagnostic?.label_ptBR) {
+      return {
+        key: diagnostic.raw_code ? `iotm_diag_${diagnostic.raw_code}` : "iotm_diag",
+        labelPt: diagnostic.label_ptBR,
+        severity: diagnostic.fallback_used ? "warning" : "info",
+        isFallback: diagnostic.fallback_used,
+      };
+    }
 
     const eventDescriptor = IOTM_EVENT_CODE_MAP.get(normalized);
     if (eventDescriptor) return eventDescriptor;
 
-    if (/^\d+$/.test(normalized)) {
-      const fallbackDiagnosticKey = `f0=${normalized}`.toLowerCase();
-      const fallbackDiagnostic =
-        IOTM_DIAGNOSTIC_CODE_MAP.get(fallbackDiagnosticKey) || resolveDiagnosticTemplate(fallbackDiagnosticKey);
-      if (fallbackDiagnostic) return fallbackDiagnostic;
-    }
-
     if (hasPositionPayload(payload)) {
-      return { labelPt: "Posição Registrada", type: "positionregistered" };
+      return { labelPt: "Posição registrada", type: "positionregistered" };
     }
     return null;
   }
@@ -570,14 +475,14 @@ export function resolveEventDescriptor(code, { protocol, payload } = {}) {
     const eventDescriptor = GT06_EVENT_CODE_MAP.get(normalized) || DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
     if (eventDescriptor) return eventDescriptor;
     if (hasPositionPayload(payload)) {
-      return { labelPt: "Posição Registrada", type: "positionregistered" };
+      return { labelPt: "Posição registrada", type: "positionregistered" };
     }
     return null;
   }
   const eventDescriptor = DEFAULT_EVENT_CODE_MAP.get(normalized) || null;
   if (eventDescriptor) return eventDescriptor;
   if (hasPositionPayload(payload)) {
-    return { labelPt: "Posição Registrada", type: "positionregistered" };
+    return { labelPt: "Posição registrada", type: "positionregistered" };
   }
   return null;
 }

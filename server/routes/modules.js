@@ -1,6 +1,6 @@
 import express from "express";
 import xirgoSensorsCatalog from "../../shared/xirgoSensorsCatalog.pt-BR.json" with { type: "json" };
-import diagnosticCatalog from "../../shared/eventCatalogPtBR.json" with { type: "json" };
+import diagnosticCatalog from "../../shared/deviceDiagnosticEvents.pt-BR.json" with { type: "json" };
 import { authenticate, requireRole } from "../middleware/auth.js";
 
 const router = express.Router();
