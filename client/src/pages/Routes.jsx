@@ -796,7 +796,7 @@ export default function RoutesPage() {
         if (graphhopperPath?.length) path = graphhopperPath;
       }
       if (!path?.length) {
-        showToast(\"Não foi possível calcular a rota agora. Verifique conexão e tente novamente.\", \"warning\");
+        showToast("Não foi possível calcular a rota agora. Verifique conexão e tente novamente.", "warning");
         return;
       }
       const simplified = simplifyPath(deduplicatePath(path), 0.00005);
