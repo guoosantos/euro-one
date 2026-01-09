@@ -58,8 +58,6 @@ export const REPORT_COLUMN_LABELS = {
   portaFL: { label: "CAN - Porta Motorista", tooltip: "CAN - Porta Motorista" },
   portaRL: { label: "CAN - Porta Passageiro", tooltip: "CAN - Porta Passageiro" },
   obdOdometer: { label: "CAN - Odômetro", tooltip: "CAN - Odômetro" },
-  fuelUsed: { label: "CAN - Uso do Combustível", tooltip: "CAN - Uso do Combustível" },
-  fuelUsedHighRes: { label: "CAN - Uso do Combustível", tooltip: "CAN - Uso do Combustível" },
 };
 
 export function resolveReportColumnLabel(key, fallbackLabel, options = {}) {

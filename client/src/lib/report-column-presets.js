@@ -1,18 +1,20 @@
 import { buildColumnDefaults } from "./column-preferences.js";
 
 export const EURO_PRESET_KEYS = [
-  "deviceTime",
-  "serverTime",
+  "gpsTime",
   "event",
-  "eventSeverity",
   "address",
-  "ignition",
-  "geofence",
-  "geozoneInside",
-  "digitalInput2",
-  "digitalInput4",
   "speed",
+  "direction",
+  "vehicleState",
+  "ignition",
   "vehicleVoltage",
+  "batteryLevel",
+  "distance",
+  "totalDistance",
+  "ioDetails",
+  "geozoneInside",
+  "geozoneId",
 ];
 
 export function buildColumnPreset(columns = [], presetKeys = EURO_PRESET_KEYS) {
