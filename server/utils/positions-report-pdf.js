@@ -146,6 +146,34 @@ function formatAddressWithLatLng(value, row) {
   return `${address} ${coords}`;
 }
 
+function normalizeSeverityToken(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "info";
+  if (["informativa", "info"].includes(normalized)) return "info";
+  if (["alerta", "warning"].includes(normalized)) return "warning";
+  if (["critica", "crítica", "critical"].includes(normalized)) return "critical";
+  if (["alta", "high"].includes(normalized)) return "high";
+  if (["moderada", "media", "média", "medium", "moderate"].includes(normalized)) return "medium";
+  if (["baixa", "low"].includes(normalized)) return "low";
+  return normalized;
+}
+
+function buildSeverityBadge(value) {
+  if (!value) return "—";
+  const label = String(value);
+  const token = normalizeSeverityToken(label);
+  const labels = {
+    info: "Informativa",
+    warning: "Alerta",
+    low: "Baixa",
+    medium: "Moderada",
+    high: "Alta",
+    critical: "Crítica",
+  };
+  const display = labels[token] || label;
+  return `<span class="severity-badge severity-badge--${token}">${escapeHtml(display)}</span>`;
+}
+
 function formatCellValue(key, value, definition, row) {
   if (value === null || value === undefined || value === "") {
     if (key === "ignition" || key === "vehicleState") return "Dado não disponível";
@@ -269,7 +297,13 @@ function buildHtml({
         const cells = columnsGroup
           .map((key) => {
             const definition = columnDefinitions?.get?.(key) || positionsColumnMap.get(key);
-            return `<td>${escapeHtml(formatCellValue(key, row[key], definition, row))}</td>`;
+            const formatted = formatCellValue(key, row[key], definition, row);
+            const normalizedKey = String(key || "").toLowerCase();
+            if (["eventseverity", "criticality", "severity"].includes(normalizedKey)) {
+              if (formatted === "—") return "<td>—</td>";
+              return `<td>${buildSeverityBadge(formatted)}</td>`;
+            }
+            return `<td>${escapeHtml(formatted)}</td>`;
           })
           .join("");
         return `<tr>${cells}</tr>`;
@@ -800,6 +834,48 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
+      .severity-badge {
+        display: inline-flex;
+        align-items: center;
+        border-radius: 999px;
+        border: 1px solid transparent;
+        padding: 2px 8px;
+        font-size: 9px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        line-height: 1.2;
+      }
+      .severity-badge--info {
+        background: #ffffff;
+        border-color: #e2e8f0;
+        color: #1f2937;
+      }
+      .severity-badge--warning {
+        background: rgba(147, 51, 234, 0.18);
+        border-color: rgba(147, 51, 234, 0.55);
+        color: #6b21a8;
+      }
+      .severity-badge--low {
+        background: rgba(22, 163, 74, 0.18);
+        border-color: rgba(22, 163, 74, 0.6);
+        color: #166534;
+      }
+      .severity-badge--medium {
+        background: rgba(234, 179, 8, 0.2);
+        border-color: rgba(234, 179, 8, 0.6);
+        color: #92400e;
+      }
+      .severity-badge--high {
+        background: rgba(249, 115, 22, 0.2);
+        border-color: rgba(249, 115, 22, 0.6);
+        color: #9a3412;
+      }
+      .severity-badge--critical {
+        background: rgba(220, 38, 38, 0.2);
+        border-color: rgba(220, 38, 38, 0.6);
+        color: #991b1b;
+      }
       table {
         width: 100%;
         border-collapse: collapse;
@@ -967,7 +1043,7 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 20mm 12mm 20mm;
+        margin: 24mm 12mm 20mm;
       }
     </style>
   </head>
@@ -1083,11 +1159,9 @@ export async function generatePositionsReportPdf({
         `,
       )
       .join("");
-    const headerTemplate = isAnalytic
-      ? "<div></div>"
-      : `
+    const headerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 12mm; box-sizing:border-box;">
-        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 9mm; border-radius:6px; display:flex; align-items:center; gap:8px;">
+        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 9mm; border-radius:6px; display:flex; align-items:center; gap:8px; min-height:12mm;">
           ${
             logoDataUrl
               ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />`
@@ -1112,7 +1186,7 @@ export async function generatePositionsReportPdf({
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: { top: "20mm", right: "12mm", bottom: "18mm", left: "12mm" },
+      margin: { top: "24mm", right: "12mm", bottom: "20mm", left: "12mm" },
       footerTemplate,
       headerTemplate,
     });

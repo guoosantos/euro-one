@@ -231,6 +231,8 @@ export default function ReportsAnalytic() {
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [exportFormat, setExportFormat] = useState("pdf");
+  const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
   const [csvExportTarget, setCsvExportTarget] = useState("positions");
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
@@ -297,6 +299,14 @@ export default function ReportsAnalytic() {
       console.debug("[reports/positions] positions", positionsCount, "columns", availableColumns.length);
     }
   }, [availableColumns.length, positions.length]);
+
+  const showToast = useCallback((message, type = "success") => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
 
 
   const visibleColumns = useMemo(
@@ -633,16 +643,14 @@ export default function ReportsAnalytic() {
   };
 
   const handleExportPdf = async () => {
+    setPdfModalOpen(false);
     const resolvedPayload = await resolveExportPayload();
     if (!resolvedPayload) return;
     setExportingPdf(true);
     try {
       const blob = await exportPdf(resolvedPayload.payload);
       if (!(blob instanceof Blob) || blob.size === 0) {
-        setFeedback({
-          type: "error",
-          message: "PDF não foi recebido. Tente novamente em instantes.",
-        });
+        showToast("Erro ao solicitar exportação do PDF.", "error");
         return;
       }
       const url = URL.createObjectURL(blob);
@@ -653,16 +661,9 @@ export default function ReportsAnalytic() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setPdfModalOpen(false);
+      showToast("Exportação do PDF solicitada com sucesso.");
     } catch (requestError) {
-      const abortedMessage =
-        requestError?.aborted || requestError?.name === "TimeoutError"
-          ? "A exportação demorou mais que o esperado. Tente novamente."
-          : null;
-      setFeedback({
-        type: "error",
-        message: abortedMessage || requestError?.message || "Falha ao exportar PDF.",
-      });
+      showToast("Erro ao solicitar exportação do PDF.", "error");
     } finally {
       setExportingPdf(false);
     }
@@ -773,6 +774,10 @@ export default function ReportsAnalytic() {
     [availableColumns],
 
   );
+  const toastClassName =
+    toast?.type === "error"
+      ? "border-red-500/30 bg-red-500/15 text-red-100"
+      : "border-emerald-500/30 bg-emerald-500/15 text-emerald-100";
 
   const resolveActionStatusVariant = (status) => {
     const normalized = String(status || "").toUpperCase();
@@ -1248,7 +1253,8 @@ export default function ReportsAnalytic() {
               </button>
               <button
                 type="button"
-                className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
+                className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={(exportFormat === "pdf" && exportingPdf) || exportingXlsx || exportingCsv}
                 onClick={
                   exportFormat === "xlsx"
                     ? handleExportXlsx
@@ -1257,10 +1263,15 @@ export default function ReportsAnalytic() {
                       : handleExportPdf
                 }
               >
-                Confirmar
+                {exportFormat === "pdf" && exportingPdf ? "Solicitando..." : "Confirmar"}
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[9999] rounded-xl border px-4 py-3 text-sm shadow-lg ${toastClassName}`}>
+          {toast.message}
         </div>
       )}
     </div>
