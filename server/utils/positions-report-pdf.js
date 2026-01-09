@@ -1138,16 +1138,18 @@ export async function generatePositionsReportPdf({
     // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-          ${
-            logoDataUrl
-              ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
-              : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
-          }
-          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
-            <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              ${headerMetaLine}
-            </span>
+        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:8px; max-width:100%;">
+            ${
+              logoDataUrl
+                ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
+                : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
+            }
+            <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; text-align:center;">
+              <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center;">
+                ${headerMetaLine}
+              </span>
+            </div>
           </div>
         </div>
       </div>
