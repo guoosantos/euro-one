@@ -24,7 +24,7 @@ export default function MonitoringTable({
 }) {
   const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
-    const list = Array.isArray(columns) ? columns.filter(Boolean) : [];
+    const list = Array.isArray(columns) ? columns : [];
     if (list.length) return list;
     return [{ key: "placeholder", label: "—", width: DEFAULT_COLUMN_WIDTH, minWidth: DEFAULT_MIN_WIDTH, fixed: true }];
   }, [columns]);
@@ -182,50 +182,25 @@ export default function MonitoringTable({
     return value;
   };
 
-  const safeRenderCell = (col, row) => {
-    try {
-      return col.render ? col.render(row) : row?.[col.key];
-    } catch (error) {
-      console.error("[monitoring-table] falha ao renderizar célula", error);
-      return "—";
-    }
-  };
-
-  const safeTooltipValue = (col, row, value) => {
-    try {
-      return col.tooltipValue
-        ? col.tooltipValue(row)
-        : col.key === "vehicle"
-          ? row?.deviceName
-          : typeof value === "string" || typeof value === "number"
-            ? String(value)
-            : undefined;
-    } catch (error) {
-      console.error("[monitoring-table] falha ao calcular tooltip", error);
-      return undefined;
-    }
-  };
-
   return (
     <div ref={containerRef} className="h-full min-h-[260px] min-w-0 w-full overflow-auto bg-[#0b0f17]">
       <table className="min-w-full w-full table-fixed border-collapse text-left" style={{ tableLayout: "fixed" }}>
 
         <thead className="sticky top-0 z-10 border-b border-white/10 bg-[#0f141c] shadow-sm">
           <tr>
-            {normalizedColumns.map((col, index) => {
-              const safeLabel = col?.label || col?.title || col?.fullLabel || "—";
-              const columnTitle = col?.title || col?.fullLabel || safeLabel;
+            {normalizedColumns.map((col) => {
+              const columnTitle = col.title || col.fullLabel || col.label;
               return (
               <th
-                key={col?.key || `col-${index}`}
-                style={getWidthStyle(col?.key)}
+                key={col.key}
+                style={getWidthStyle(col.key)}
 
                 className="relative border-r border-white/5 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/60 last:border-r-0"
                 title={columnTitle}
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
-                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={columnTitle}>{safeLabel}</span>
+                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={columnTitle}>{col.label}</span>
 
                   <span
                     role="separator"
@@ -266,8 +241,8 @@ export default function MonitoringTable({
                 }}
                 className={`group cursor-pointer border-l-2 border-transparent transition-colors hover:bg-white/[0.03] ${selectedDeviceId === row.deviceId ? "border-primary bg-primary/5" : ""} ${row.isNearby ? "bg-cyan-500/5" : ""}`}
               >
-                {normalizedColumns.map((col, index) => {
-                  let cellValue = safeRenderCell(col, row);
+                {normalizedColumns.map((col) => {
+                  let cellValue = col.render ? col.render(row) : row[col.key];
 
                   const isAddressColumn = col.key === "address" || col.key === "endereco";
 
@@ -291,7 +266,13 @@ export default function MonitoringTable({
                   }
 
                   const isElement = React.isValidElement(cellValue);
-                  const tooltipValue = safeTooltipValue(col, row, cellValue);
+                  const tooltipValue = col.tooltipValue
+                    ? col.tooltipValue(row)
+                    : col.key === "vehicle"
+                      ? row.deviceName
+                      : typeof cellValue === "string" || typeof cellValue === "number"
+                        ? String(cellValue)
+                        : undefined;
                   const displayValue = formatCompactValue(col, cellValue);
                   const contentClass = isAddressColumn
                     ? "flex min-w-0 items-center gap-1 overflow-hidden"
@@ -301,8 +282,8 @@ export default function MonitoringTable({
 
                   return (
                     <td
-                      key={`${row.key}-${col?.key ?? index}`}
-                      style={getWidthStyle(col?.key)}
+                      key={`${row.key}-${col.key}`}
+                      style={getWidthStyle(col.key)}
 
                       className="border-r border-white/5 px-2 py-1 text-[11px] leading-tight text-white/80 last:border-r-0"
                     >

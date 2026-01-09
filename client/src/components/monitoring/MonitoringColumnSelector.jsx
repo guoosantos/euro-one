@@ -34,7 +34,6 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
   }, [columns, working.order]);
 
   const toggleVisibility = (key) => {
-    if (!key) return;
     setWorking((prev) => ({
       ...prev,
       visible: { ...prev.visible, [key]: prev.visible?.[key] === false },
@@ -93,9 +92,9 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
         </div>
 
         <div className="mt-4 max-h-[60vh] space-y-2 overflow-y-auto pr-1">
-          {orderedColumns.map((column, index) => (
+          {orderedColumns.map((column) => (
             <div
-              key={column?.key || `column-${index}`}
+              key={column.key}
               className={`flex items-center justify-between gap-3 rounded-lg border border-white/10 px-3 py-2 hover:border-white/30 ${column.fixed ? "opacity-80" : ""}`}
               draggable={!column.fixed}
               onDragOver={(event) => event.preventDefault()}
@@ -106,22 +105,22 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
                   handleDrop(fromKey, column.key);
                 }
               }}
-              data-drag-key={column?.key}
+              data-drag-key={column.key}
               onDragStartCapture={(event) => {
                 if (column.fixed) return;
-                event.dataTransfer?.setData("text/column-key", column?.key || "");
+                event.dataTransfer?.setData("text/column-key", column.key);
               }}
             >
               <div className="flex items-center gap-3 text-sm text-white/80">
                 {!column.fixed ? <span className="text-xs text-white/50">☰</span> : null}
-                <span className="text-white/80">{column.label || "—"}</span>
+                <span className="text-white/80">{column.label}</span>
               </div>
               <input
                 type="checkbox"
                 className="accent-primary"
-                checked={working.visible?.[column?.key] !== false}
+                checked={working.visible?.[column.key] !== false}
                 disabled={column.fixed}
-                onChange={() => toggleVisibility(column?.key)}
+                onChange={() => toggleVisibility(column.key)}
               />
             </div>
           ))}
