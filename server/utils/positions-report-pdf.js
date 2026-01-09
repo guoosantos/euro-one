@@ -432,6 +432,25 @@ function buildHtml({
     </div>
   `;
 
+  const renderPdfHeaderBar = () => {
+    const headerText = `VEÍCULO: ${meta?.vehicle?.name || "—"} | PLACA: ${meta?.vehicle?.plate || "—"} | CLIENTE: ${
+      meta?.vehicle?.customer || "—"
+    } | PERÍODO: ${formatDate(meta?.from)} → ${formatDate(meta?.to)}`;
+    return `
+      <div class="page-header-card">
+        <div class="page-header-logo">
+          ${
+            logoDataUrl
+              ? `<img src="${logoDataUrl}" alt="Euro One" />`
+              : `<span class="page-header-fallback">EURO ONE</span>`
+          }
+        </div>
+        <div class="page-header-text">${escapeHtml(headerText)}</div>
+        <div aria-hidden="true"></div>
+      </div>
+    `;
+  };
+
   const renderTimeline = () => {
     let isFirstPage = true;
     const segments = [];
@@ -550,7 +569,7 @@ function buildHtml({
         background: #ffffff;
       }
       .report {
-        padding: 24px 28px 12px;
+        padding: 20px 20px 12px;
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -689,6 +708,49 @@ function buildHtml({
         letter-spacing: 0.04em;
         margin-bottom: 3px;
       }
+      .page-header-table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      .page-header-table thead {
+        display: table-header-group;
+      }
+      .page-header-table th {
+        padding: 0 0 12px;
+      }
+      .page-header-table td {
+        padding: 0;
+      }
+      .page-header-card {
+        border-radius: 12px;
+        padding: 10px 14px;
+        background: ${BRAND_COLOR};
+        color: #ffffff;
+        display: grid;
+        grid-template-columns: 48px 1fr 48px;
+        align-items: center;
+        gap: 10px;
+      }
+      .page-header-logo img {
+        height: 16px;
+        width: auto;
+        object-fit: contain;
+      }
+      .page-header-fallback {
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+      .page-header-text {
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .meta-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -758,9 +820,9 @@ function buildHtml({
         align-items: center;
         border-radius: 999px;
         border: 1px solid transparent;
-        padding: 2px 8px;
-        font-size: 9px;
-        font-weight: 700;
+        padding: 1px 6px;
+        font-size: 8px;
+        font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.08em;
         line-height: 1.2;
@@ -962,13 +1024,30 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 24mm 12mm 20mm;
+        margin: 18mm 10mm 16mm;
       }
     </style>
   </head>
   <body>
     <div class="report">
-      ${isAnalytic ? `${renderAnalyticHeader()}${renderTimeline()}` : ""}
+      ${
+        isAnalytic
+          ? `${renderAnalyticHeader()}
+      <div class="page-break"></div>
+      <table class="page-header-table">
+        <thead>
+          <tr>
+            <th>${renderPdfHeaderBar()}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>${renderTimeline()}</td>
+          </tr>
+        </tbody>
+      </table>`
+          : ""
+      }
       ${isAnalytic ? "" : tables}
       ${isAnalytic ? "" : actionsSection}
     </div>
@@ -1061,41 +1140,11 @@ export async function generatePositionsReportPdf({
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    const headerMetaParts = [
-      { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
-      { label: "PLACA", value: meta?.vehicle?.plate || "—" },
-      { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
-      { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
-    ];
-    const headerMetaLine = headerMetaParts
-      .map(
-        (item, index) => `
-          <span style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
-            <span style="opacity:0.65; font-weight:600;">${escapeHtml(item.label)}:</span>
-            <span style="font-weight:700;">${escapeHtml(item.value)}</span>
-          </span>
-          ${index < headerMetaParts.length - 1 ? '<span style="opacity:0.4; margin:0 6px;">|</span>' : ""}
-        `,
-      )
-      .join("");
-    const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + 28px); box-sizing:border-box;">
-        <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
-          ${
-            logoDataUrl
-              ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
-              : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
-          }
-          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
-            <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              ${headerMetaLine}
-            </span>
-          </div>
-        </div>
-      </div>
-    `;
+    const sideMargin = "10mm";
+    const topMargin = "18mm";
+    const bottomMargin = "16mm";
     const footerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 4mm; display:flex; justify-content:space-between;">
+      <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 ${sideMargin} 4mm; display:flex; justify-content:space-between;">
         <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
         <span>${isAnalytic ? `Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}` : "Gerado pelo Euro One"}</span>
       </div>
@@ -1107,9 +1156,9 @@ export async function generatePositionsReportPdf({
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: { top: "24mm", right: "12mm", bottom: "20mm", left: "12mm" },
+      headerTemplate: "<div></div>",
       footerTemplate,
-      headerTemplate,
+      margin: { top: topMargin, right: sideMargin, bottom: bottomMargin, left: sideMargin },
     });
   } catch (error) {
     const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
