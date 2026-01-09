@@ -6,9 +6,9 @@ export const EURO_PRESET_KEYS = [
   "event",
   ["eventSeverity", "criticality"],
   "address",
-  ["geofence", "geozoneId", "geozoneid"],
-  ["geozoneinside", "geozoneInside", "geozoneInsidePrimary"],
   "ignition",
+  ["geofence", "geozoneId"],
+  "geozoneInside",
   ["input2", "digitalInput2", "signalIn2", "in2"],
   ["input4", "digitalInput4", "signalIn4", "in4"],
   "speed",
@@ -29,19 +29,6 @@ export function buildColumnPreset(columns = [], presetKeys = EURO_PRESET_KEYS) {
       resolvedPresetKeys.push(resolved);
     }
   });
-  if (!resolvedPresetKeys.length && availableKeys.length) {
-    const fallbackKeys = ["event", "deviceTime", "address"];
-    fallbackKeys.forEach((key) => {
-      if (availableSet.has(key) && !preset.has(key)) {
-        preset.add(key);
-        resolvedPresetKeys.push(key);
-      }
-    });
-    if (!resolvedPresetKeys.length) {
-      resolvedPresetKeys.push(...availableKeys.slice(0, 3));
-      resolvedPresetKeys.forEach((key) => preset.add(key));
-    }
-  }
   const visible = Object.fromEntries(availableKeys.map((key) => [key, preset.has(key)]));
   const order = [
     ...resolvedPresetKeys,

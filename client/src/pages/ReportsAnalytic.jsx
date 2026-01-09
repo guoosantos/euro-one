@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
+import HeaderBar from "../components/reports/HeaderBar.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
@@ -323,48 +324,11 @@ export default function ReportsAnalytic() {
     [availableColumns],
   );
 
-  const fallbackColumnKeys = useMemo(() => {
-    const safeKeys = ["event", "deviceTime", "address"];
-    const availableKeys = availableColumns.map((column) => column.key);
-    const fallback = safeKeys.filter((key) => availableKeys.includes(key));
-    if (fallback.length) return fallback;
-    return availableKeys.slice(0, 3);
-  }, [availableColumns]);
-
-  const sanitizeColumnPrefs = useCallback(
-    (prefs) => {
-      const availableKeys = availableColumns.map((column) => column.key);
-      const availableSet = new Set(availableKeys);
-      const basePrefs = mergeColumnPreferences(defaults, prefs);
-      const ordered = (basePrefs.order || []).filter((key) => availableSet.has(key));
-      const missing = availableKeys.filter((key) => !ordered.includes(key));
-      const nextVisible = {};
-      availableKeys.forEach((key) => {
-        nextVisible[key] = basePrefs?.visible?.[key] !== false;
-      });
-      const hasVisible = availableKeys.some((key) => nextVisible[key]);
-      if (!hasVisible) {
-        fallbackColumnKeys.forEach((key) => {
-          if (availableSet.has(key)) {
-            nextVisible[key] = true;
-          }
-        });
-      }
-      return {
-        ...basePrefs,
-        visible: nextVisible,
-        order: [...ordered, ...missing],
-        widths: { ...(basePrefs?.widths || {}) },
-      };
-    },
-    [availableColumns, defaults, fallbackColumnKeys],
-  );
-
   const [columnPrefs, setColumnPrefs] = useState(() => loadColumnPreferences(COLUMN_STORAGE_KEY, defaults));
 
   useEffect(() => {
-    setColumnPrefs((prev) => sanitizeColumnPrefs(prev));
-  }, [sanitizeColumnPrefs]);
+    setColumnPrefs((prev) => mergeColumnPreferences(defaults, prev));
+  }, [defaults]);
 
   useEffect(() => {
     const positionsCount = positions.length;
@@ -382,12 +346,10 @@ export default function ReportsAnalytic() {
   }, []);
 
 
-  const visibleColumns = useMemo(() => {
-    const resolved = resolveVisibleColumns(availableColumns, columnPrefs);
-    if (resolved.length) return resolved;
-    const fallback = availableColumns.filter((column) => fallbackColumnKeys.includes(column.key));
-    return fallback.length ? fallback : availableColumns.slice(0, 3);
-  }, [availableColumns, columnPrefs, fallbackColumnKeys]);
+  const visibleColumns = useMemo(
+    () => resolveVisibleColumns(availableColumns, columnPrefs),
+    [availableColumns, columnPrefs],
+  );
 
   const visibleColumnsWithWidths = useMemo(
     () =>
@@ -872,15 +834,13 @@ export default function ReportsAnalytic() {
   };
 
   const handleApplyColumns = (prefs) => {
-    const sanitized = sanitizeColumnPrefs(prefs);
-    setColumnPrefs(sanitized);
-    saveColumnPreferences(COLUMN_STORAGE_KEY, sanitized);
+    setColumnPrefs(prefs);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, prefs);
   };
 
   const handleRestoreColumns = () => {
-    const sanitized = sanitizeColumnPrefs(defaults);
-    setColumnPrefs(sanitized);
-    saveColumnPreferences(COLUMN_STORAGE_KEY, sanitized);
+    setColumnPrefs(defaults);
+    saveColumnPreferences(COLUMN_STORAGE_KEY, defaults);
   };
 
   const handleColumnWidthChange = (key, width) => {
@@ -966,22 +926,22 @@ export default function ReportsAnalytic() {
     return (
       <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/80 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70">{actionTitle}</span>
+          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/70">{actionTitle}</span>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${badgeStyles[statusVariant]}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[statusVariant]}`}
           >
             {statusLabel}
           </span>
         </div>
-        <div className="mt-1 text-[12px] text-white/85">
-          <span className="text-[10px] uppercase tracking-[0.18em] text-white/50">O que foi feito</span>
-          <span className="ml-2 text-[12px] text-white/85">{actionSummary}</span>
+        <div className="mt-1 text-[13px] text-white/85">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-white/50">O que foi feito</span>
+          <span className="ml-2 text-[13px] text-white/85">{actionSummary}</span>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-white/70">
+        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/70">
           {baseFields.map((field) => (
             <div key={field.label} className="space-y-0.5 leading-tight">
-              <div className="text-[10px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
-              <div className="text-[12px] text-white/80">{field.value || "—"}</div>
+              <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
+              <div className="text-[13px] text-white/80">{field.value || "—"}</div>
             </div>
           ))}
         </div>
@@ -1001,28 +961,28 @@ export default function ReportsAnalytic() {
     return (
       <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-white/85 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">
+          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/80">
             {entry?.title || "Entrada"}
           </span>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
           >
             {criticalityLabel}
           </span>
         </div>
-        <div className="mt-2 grid grid-cols-2 gap-3 text-[11px] text-white/70">
+        <div className="mt-2 grid grid-cols-2 gap-3 text-[12px] text-white/70">
           <div>
-            <div className="text-[9px] uppercase tracking-[0.18em] text-white/50">Horário</div>
-            <div className="text-[12px] text-white/85">{eventTime}</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Horário</div>
+            <div className="text-[13px] text-white/85">{eventTime}</div>
           </div>
           <div>
-            <div className="text-[9px] uppercase tracking-[0.18em] text-white/50">Status</div>
-            <div className="text-[12px] text-white/85">{entry?.statusText || "—"}</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Status</div>
+            <div className="text-[13px] text-white/85">{entry?.statusText || "—"}</div>
           </div>
         </div>
-        <div className="mt-2 text-[11px] text-white/70">
-          <div className="text-[9px] uppercase tracking-[0.18em] text-white/50">Local</div>
-          <div className="text-[12px] text-white/85">{entry?.address || "—"}</div>
+        <div className="mt-2 text-[12px] text-white/70">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Local</div>
+          <div className="text-[13px] text-white/85">{entry?.address || "—"}</div>
         </div>
       </div>
     );
@@ -1246,6 +1206,14 @@ export default function ReportsAnalytic() {
           </div>
         )}
       </form>
+      <HeaderBar
+        vehicleName={meta?.vehicle?.name || selectedVehicle?.name || "—"}
+        plate={meta?.vehicle?.plate || selectedVehicle?.plate || "—"}
+        client={meta?.vehicle?.customer || selectedVehicle?.customer || "—"}
+        from={from}
+        to={to}
+      />
+
       <section className="flex-1 min-h-0 space-y-4">
         {timelineSegments.length ? (
           timelineSegments.map((segment, index) => {
