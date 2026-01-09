@@ -406,6 +406,35 @@ function buildHtml({
     `;
   };
 
+  const renderIoEventCard = (entry) => {
+    const severity = String(entry?.severity || "info").toLowerCase();
+    const label = entry?.title || entry?.label || `Entrada ${entry?.ioIndex || ""}`.trim() || "Evento IO";
+    const statusText = entry?.statusText || (entry?.active ? "Entrada ativada" : "Veículo voltou ao normal");
+    const timestamp = formatDate(entry?.timestamp || entry?.time || entry?.eventTime);
+    const address = entry?.address || entry?.position?.address || "—";
+    const severityClass =
+      severity === "critical" || severity === "critica" || severity === "crítica"
+        ? "critical"
+        : severity === "warning" || severity === "alta" || severity === "high"
+          ? "warning"
+          : "info";
+    return `
+      <div class="timeline-item">
+        <div class="io-event io-event--${severityClass}">
+          <div class="io-event-head">
+            <span class="io-event-title">${escapeHtml(label)}</span>
+            <span class="io-event-badge">${escapeHtml(entry?.severity || "Info")}</span>
+          </div>
+          <div class="io-event-meta">
+            <span>Recebido em</span>${escapeHtml(timestamp || "—")}
+          </div>
+          <div class="io-event-status">${escapeHtml(statusText)}</div>
+          <div class="io-event-address">${escapeHtml(address || "—")}</div>
+        </div>
+      </div>
+    `;
+  };
+
   const renderAnalyticHeader = () => `
     <div class="intro-card">
       <div class="intro-title-row">
@@ -480,6 +509,10 @@ function buildHtml({
       }
       if (entry?.type === "action") {
         segments.push({ type: "action", entry });
+        return;
+      }
+      if (entry?.type === "io-event") {
+        segments.push({ type: "io-event", entry });
       }
     });
     if (buffer.length) segments.push({ type: "positions", rows: buffer });
@@ -489,7 +522,7 @@ function buildHtml({
       return fallbackSlices
         .map((slice, index) => {
           const pageBreak = index === 0 ? "" : '<div class="page-break"></div>';
-          const header = index === 0 ? "" : renderCompactHeader();
+          const header = renderCompactHeader();
           isFirstPage = false;
           return `${pageBreak}${header}${renderTable(slice, index, {
             includeHeader: false,
@@ -511,7 +544,7 @@ function buildHtml({
             .map((slice, chunkIndex) => {
               const needsPageBreak = !isFirstPage || chunkIndex > 0;
               const pageBreak = needsPageBreak ? '<div class="page-break"></div>' : "";
-              const header = isFirstPage ? "" : renderCompactHeader();
+              const header = renderCompactHeader();
               isFirstPage = false;
               return `${pageBreak}${header}${renderTable(slice, 0, {
                 includeHeader: false,
@@ -522,14 +555,15 @@ function buildHtml({
         }
         const shouldStartPage = isFirstSegment || previousType === "positions";
         const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
-        previousType = "action";
+        previousType = segment.type;
         isFirstSegment = false;
-        const header = pageBreak ? renderCompactHeader() : "";
+        const header = shouldStartPage ? renderCompactHeader() : "";
+        const card = segment.type === "io-event" ? renderIoEventCard(segment.entry) : renderActionCard(segment.entry);
         if (!isFirstPage) {
-          return `${pageBreak}${header}${renderActionCard(segment.entry)}`;
+          return `${pageBreak}${header}${card}`;
         }
         isFirstPage = false;
-        return `${renderActionCard(segment.entry)}`;
+        return `${header}${card}`;
       })
       .join("");
   };
@@ -747,12 +781,13 @@ function buildHtml({
       }
       .compact-header-meta {
         display: flex;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
         gap: 4px 8px;
         font-size: 9px;
         text-transform: uppercase;
         letter-spacing: 0.05em;
         line-height: 1.3;
+        white-space: nowrap;
       }
       .compact-meta-item {
         display: inline-flex;
@@ -1041,6 +1076,68 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.1em;
         margin-bottom: 2px;
+      }
+      .io-event {
+        border-radius: 14px;
+        padding: 10px 12px;
+        border: 1px solid rgba(15, 23, 42, 0.15);
+        background: #f8fafc;
+        box-shadow: 0 8px 16px rgba(15, 23, 42, 0.08);
+      }
+      .io-event--critical {
+        border-color: rgba(239, 68, 68, 0.4);
+        background: rgba(239, 68, 68, 0.08);
+      }
+      .io-event--warning {
+        border-color: rgba(234, 179, 8, 0.35);
+        background: rgba(234, 179, 8, 0.08);
+      }
+      .io-event-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .io-event-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: ${BRAND_COLOR};
+      }
+      .io-event-badge {
+        font-size: 8px;
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(15, 23, 42, 0.08);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-weight: 700;
+        color: #334155;
+      }
+      .io-event-meta {
+        margin-top: 4px;
+        font-size: 8px;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .io-event-meta span {
+        display: block;
+        font-weight: 600;
+        color: #94a3b8;
+        margin-bottom: 2px;
+      }
+      .io-event-status {
+        margin-top: 4px;
+        font-size: 10px;
+        color: #1f2937;
+        font-weight: 600;
+      }
+      .io-event-address {
+        margin-top: 4px;
+        font-size: 9px;
+        color: #475569;
       }
       @page {
         margin: 24mm 12mm 20mm;

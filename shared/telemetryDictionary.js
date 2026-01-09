@@ -25,8 +25,8 @@ const BASE_TELEMETRY_ATTRIBUTES = [
   { key: "lowBeam", labelPt: "CAN - Farol", type: "boolean", unit: null, priority: 143 },
   { key: "driverSeatbelt", labelPt: "CAN - Cinto do Motorista", type: "boolean", unit: null, priority: 144 },
   { key: "passengerSeatbelt", labelPt: "CAN - Cinto do Passageiro", type: "boolean", unit: null, priority: 145 },
-  { key: "fuelUsed", labelPt: "Uso do Combustível", type: "number", unit: "L", priority: 160 },
-  { key: "fuelUsedHighRes", labelPt: "Uso do Combustível", type: "number", unit: "L", priority: 161 },
+  { key: "fuelUsed", labelPt: "CAN - Uso do Combustível", type: "number", unit: "L", priority: 160 },
+  { key: "fuelUsedHighRes", labelPt: "CAN - Uso do Combustível", type: "number", unit: "L", priority: 161 },
   { key: "fuelLevel1", labelPt: "Nível de Combustível 1", type: "number", unit: "%", priority: 162 },
   { key: "fuelLevel2", labelPt: "Nível de Combustível 2", type: "number", unit: "%", priority: 163 },
   { key: "fuelRate", labelPt: "Taxa de Combustível", type: "number", unit: "L/h", priority: 162 },
@@ -116,6 +116,7 @@ const SENSOR_LABEL_TEXT_OVERRIDES = {
   "motor": "CAN - Motor",
   "porta motorista": "CAN - Porta Motorista",
   "porta passageiro": "CAN - Porta Passageiro",
+  "uso do combustível": "CAN - Uso do Combustível",
 };
 
 const truncateLabel = (value, maxLength = 42) => {
