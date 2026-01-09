@@ -30,10 +30,32 @@ import AppMap from "../components/map/AppMap.jsx";
 import MapToolbar from "../components/map/MapToolbar.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
+import Select from "../ui/Select";
 
 const COLOR_PALETTE = ["#22c55e", "#38bdf8", "#f97316", "#a855f7", "#eab308", "#ef4444"];
 const DEFAULT_CENTER = [-23.55052, -46.633308];
 const DEFAULT_ZOOM = 12;
+const DEFAULT_CONFIG = "entry";
+const DEFAULT_ACTION = "block";
+const TARGET_ACTIONS = ["unlock", "unlink_itinerary"];
+
+function normalizeConfig(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["entrada", "entry", "enter", "in"].includes(normalized)) return "entry";
+  if (["saida", "saída", "exit", "out"].includes(normalized)) return "exit";
+  return null;
+}
+
+function deriveActionFromConfig(config) {
+  if (config === "exit") return "block";
+  return "block";
+}
+
+function ensureConfigDefaults(geo) {
+  const config = normalizeConfig(geo?.config) || DEFAULT_CONFIG;
+  const action = deriveActionFromConfig(config) || DEFAULT_ACTION;
+  return { ...geo, config, action };
+}
 
 const vertexIcon = L.divIcon({
   html: '<span style="display:block;width:14px;height:14px;border-radius:9999px;border:2px solid #0f172a;background:#22c55e;box-shadow:0 0 0 2px #e2e8f0;"></span>',
@@ -253,6 +275,9 @@ function ToolbarButton({ icon: Icon, active = false, title, className = "", ...p
 function GeofencePanel({
   open,
   geofences,
+  entityLabelPlural,
+  searchPlaceholder,
+  emptyText,
   searchTerm,
   onSearch,
   hiddenIds,
@@ -268,7 +293,7 @@ function GeofencePanel({
     <div className="geofence-panel">
       <div className="flex items-center justify-between gap-2">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">Cercas</p>
+          <p className="text-[11px] uppercase tracking-[0.12em] text-white/60">{entityLabelPlural}</p>
           <h2 className="text-base font-semibold text-white">Painel</h2>
         </div>
         <div className="flex items-center gap-1">
@@ -281,7 +306,7 @@ function GeofencePanel({
         <Input
           value={searchTerm}
           onChange={(event) => onSearch(event.target.value)}
-          placeholder="Buscar cerca"
+          placeholder={searchPlaceholder}
           className="map-compact-input"
         />
         <div className="geofence-panel-list">
@@ -319,14 +344,23 @@ function GeofencePanel({
               </div>
             );
           })}
-          {geofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca carregada.</p>}
+          {geofences.length === 0 && <p className="text-xs text-white/60">{emptyText}</p>}
         </div>
       </div>
     </div>
   );
 }
 
-export default function Geofences() {
+export default function Geofences({ variant = "geofences" }) {
+  const isTargetView = variant === "targets";
+  const entityLabel = isTargetView ? "Alvo" : "Cerca";
+  const entityLabelPlural = isTargetView ? "Alvos" : "Cercas";
+  const entityLabelLower = entityLabel.toLowerCase();
+  const entityLabelPluralLower = entityLabelPlural.toLowerCase();
+  const entityArticle = isTargetView ? "o" : "a";
+  const emptyPanelText = isTargetView ? "Nenhum alvo carregado." : "Nenhuma cerca carregada.";
+  const searchPlaceholder = `Buscar ${entityLabelLower}`;
+  const savedVerb = isTargetView ? "salvos" : "salvas";
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
   const importInputRef = useRef(null);
@@ -354,7 +388,7 @@ export default function Geofences() {
   const setGeofencesTopbarVisible = useUI((state) => state.setGeofencesTopbarVisible);
   const [searchMarker, setSearchMarker] = useState(null);
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef });
-  const { registerMap, focusDevice, focusGeometry } = useMapController({ page: "Geofences" });
+  const { registerMap, focusDevice, focusGeometry } = useMapController({ page: isTargetView ? "Targets" : "Geofences" });
   const handleMapReady = useCallback(
     (event) => {
       const map = event?.target || event;
@@ -383,6 +417,13 @@ export default function Geofences() {
     updateGeofence,
     deleteGeofence,
   } = useGeofences({ autoRefreshMs: 0 });
+
+  const scopedGeofences = useMemo(() => {
+    const filtered = (Array.isArray(remoteGeofences) ? remoteGeofences : []).filter((geo) =>
+      isTargetView ? geo.isTarget : !geo.isTarget,
+    );
+    return filtered.map((geo) => (isTargetView ? geo : ensureConfigDefaults(geo)));
+  }, [isTargetView, remoteGeofences]);
 
   const [localGeofences, setLocalGeofences] = useState([]);
   const [baselineGeofences, setBaselineGeofences] = useState([]);
@@ -429,11 +470,11 @@ export default function Geofences() {
 
   useEffect(() => {
     if (hasUnsavedChanges) return;
-    setLocalGeofences(remoteGeofences);
-    setBaselineGeofences(remoteGeofences);
+    setLocalGeofences(scopedGeofences);
+    setBaselineGeofences(scopedGeofences);
     setHiddenIds(new Set());
-    setSelectedId((current) => current || remoteGeofences[0]?.id || null);
-  }, [remoteGeofences, hasUnsavedChanges]);
+    setSelectedId((current) => current || scopedGeofences[0]?.id || null);
+  }, [scopedGeofences, hasUnsavedChanges]);
 
   const resetDrafts = useCallback(() => {
     setDrawMode(null);
@@ -458,7 +499,16 @@ export default function Geofences() {
     const next = [...draftPolygon];
     setLocalGeofences((current) => [
       ...current,
-      { id: newId, name: `Cerca ${current.length + 1}`, type: "polygon", points: next, color, center: next[0], radius: null, isTarget: false },
+      ensureConfigDefaults({
+        id: newId,
+        name: `${entityLabel} ${current.length + 1}`,
+        type: "polygon",
+        points: next,
+        color,
+        center: next[0],
+        radius: null,
+        isTarget: isTargetView,
+      }),
     ]);
     setColorSeed((value) => value + 1);
     setSelectedId(newId);
@@ -492,7 +542,16 @@ export default function Geofences() {
         const color = COLOR_PALETTE[(localGeofences.length + colorSeed) % COLOR_PALETTE.length];
         setLocalGeofences((current) => [
           ...current,
-          { id: newId, name: `Círculo ${current.length + 1}`, type: "circle", center: draftCircle.center, radius: Math.max(25, radius), color, points: [], isTarget: false },
+          ensureConfigDefaults({
+            id: newId,
+            name: `Círculo ${current.length + 1}`,
+            type: "circle",
+            center: draftCircle.center,
+            radius: Math.max(25, radius),
+            color,
+            points: [],
+            isTarget: isTargetView,
+          }),
         ]);
         setColorSeed((value) => value + 1);
         setSelectedId(newId);
@@ -538,7 +597,7 @@ export default function Geofences() {
     async (target = null) => {
       const geofence = target || selectedGeofence;
       if (!geofence) return;
-      const confirmed = window.confirm(`Excluir a cerca "${geofence.name}"?`);
+      const confirmed = window.confirm(`Excluir ${entityArticle} ${entityLabelLower} "${geofence.name}"?`);
       if (!confirmed) return;
 
       const isLocal = !geofence.id || geofence.id.startsWith("local-") || geofence.id.startsWith("kml-");
@@ -551,16 +610,16 @@ export default function Geofences() {
 
       setSaving(true);
       setUiError(null);
-      setStatus("Removendo cerca...");
+      setStatus(`Removendo ${entityLabelLower}...`);
       try {
         await deleteGeofence(geofence.id);
         setLocalGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
         setBaselineGeofences((current) => current.filter((geo) => geo.id !== geofence.id));
         setSelectedId((current) => (current === geofence.id ? null : current));
-        setStatus("Cerca excluída.");
+        setStatus(`${entityLabel} ${isTargetView ? "excluído" : "excluída"}.`);
       } catch (error) {
         setUiError(error);
-        setStatus(error?.message || "Não foi possível excluir a cerca.");
+        setStatus(error?.message || `Não foi possível excluir ${entityArticle} ${entityLabelLower}.`);
       } finally {
         setSaving(false);
       }
@@ -600,13 +659,25 @@ export default function Geofences() {
   const buildPayload = useCallback((geo) => {
     const name = String(geo?.name || "").trim();
     if (!name) {
-      throw new Error("Informe um nome para a cerca.");
+      throw new Error(`Informe um nome para ${entityArticle} ${entityLabelLower}.`);
     }
+    const config = normalizeConfig(geo?.config) || DEFAULT_CONFIG;
+    const action = deriveActionFromConfig(config) || DEFAULT_ACTION;
+    const metadata = isTargetView
+      ? { targetActions: TARGET_ACTIONS }
+      : { config, action };
+    const existingMetadata = geo?.geometryJson?.metadata || geo?.raw?.geometryJson?.metadata || {};
     if (geo.type === "polygon") {
       const sanitized = sanitizePolygon(geo.points);
       if (sanitized.length < 3) {
         throw new Error("Polígono precisa de pelo menos 3 vértices válidos.");
       }
+      const geometryJson = {
+        ...(geo.geometryJson || {}),
+        type: "polygon",
+        points: sanitized,
+        metadata: { ...existingMetadata, ...metadata },
+      };
       return {
         name,
         description: geo.description || "",
@@ -615,7 +686,8 @@ export default function Geofences() {
         points: sanitized,
         center: null,
         radius: null,
-        isTarget: Boolean(geo.isTarget),
+        isTarget: isTargetView,
+        geometryJson,
       };
     }
 
@@ -623,6 +695,13 @@ export default function Geofences() {
     if (!circle) {
       throw new Error("Defina centro e raio válidos para o círculo.");
     }
+    const geometryJson = {
+      ...(geo.geometryJson || {}),
+      type: "circle",
+      center: [circle.center[0], circle.center[1]],
+      radius: circle.radius,
+      metadata: { ...existingMetadata, ...metadata },
+    };
 
     return {
       name,
@@ -634,19 +713,20 @@ export default function Geofences() {
       centerLat: circle.center[0],
       centerLng: circle.center[1],
       radius: circle.radius,
-      isTarget: Boolean(geo.isTarget),
+      isTarget: isTargetView,
+      geometryJson,
     };
-  }, []);
+  }, [entityArticle, entityLabelLower, isTargetView]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
     setUiError(null);
-    setStatus("Sincronizando cercas...");
+    setStatus(`Sincronizando ${entityLabelPluralLower}...`);
     try {
       for (const geo of activeGeofences) {
         const clientId = tenantId || user?.clientId || null;
         if (!clientId) {
-          throw new Error("Selecione um cliente antes de salvar a cerca.");
+          throw new Error(`Selecione um cliente antes de salvar ${entityArticle} ${entityLabelLower}.`);
         }
 
         const payload = { ...buildPayload(geo), clientId };
@@ -660,21 +740,35 @@ export default function Geofences() {
       await refresh();
       setBaselineGeofences(activeGeofences);
       setHasUnsavedChanges(false);
-      setStatus("Cercas salvas com sucesso.");
+      setStatus(`${entityLabelPlural} ${savedVerb} com sucesso.`);
       resetDrafts();
     } catch (error) {
-      const message = error?.response?.data?.message || error?.message || "Falha ao salvar cercas.";
+      const message = error?.response?.data?.message || error?.message || `Falha ao salvar ${entityLabelPluralLower}.`;
       setUiError(error);
       setStatus(message);
     } finally {
       setSaving(false);
     }
-  }, [activeGeofences, buildPayload, createGeofence, refresh, resetDrafts, tenantId, updateGeofence, user?.clientId]);
+  }, [
+    activeGeofences,
+    buildPayload,
+    createGeofence,
+    entityArticle,
+    entityLabelLower,
+    entityLabelPluralLower,
+    entityLabelPlural,
+    refresh,
+    resetDrafts,
+    savedVerb,
+    tenantId,
+    updateGeofence,
+    user?.clientId,
+  ]);
 
   const handleExport = useCallback(() => {
     const kml = geofencesToKml(activeGeofences);
-    downloadKml("geofences.kml", kml);
-  }, [activeGeofences]);
+    downloadKml(isTargetView ? "targets.kml" : "geofences.kml", kml);
+  }, [activeGeofences, isTargetView]);
 
   const handleImportFile = useCallback(
     async (event) => {
@@ -685,7 +779,7 @@ export default function Geofences() {
       const mapped = parsed.map((item, index) => {
         const id = generateLocalId("kml");
         const center = item.center || item.points?.[0] || null;
-        return {
+        return ensureConfigDefaults({
           id,
           name: item.name || `KML ${index + 1}`,
           type: item.type === "circle" ? "circle" : "polygon",
@@ -693,8 +787,8 @@ export default function Geofences() {
           center,
           radius: item.radius || null,
           color: item.color || COLOR_PALETTE[(localGeofences.length + colorSeed + index) % COLOR_PALETTE.length],
-          isTarget: false,
-        };
+          isTarget: isTargetView,
+        });
       });
       setLocalGeofences((current) => [...current, ...mapped]);
       setColorSeed((value) => value + mapped.length);
@@ -948,7 +1042,7 @@ export default function Geofences() {
               </label>
               <label className="layout-toggle">
                 <input type="checkbox" checked={panelOpen} onChange={handleTogglePanel} />
-                <span>Mostrar painel de cercas</span>
+                <span>Mostrar painel de {entityLabelPluralLower}</span>
               </label>
             </div>
           )}
@@ -973,7 +1067,7 @@ export default function Geofences() {
           className="disabled:cursor-not-allowed disabled:opacity-50"
           onClick={handleSave}
           disabled={!hasUnsavedChanges || isBusy}
-          title="Salvar cercas"
+          title={`Salvar ${entityLabelPluralLower}`}
         />
         <ToolbarButton
           icon={Undo2}
@@ -998,7 +1092,7 @@ export default function Geofences() {
       <div className="geofence-status-stack">
         <span className="map-status-pill map-status-pill--emphasis">
           <span className="dot" />
-          {activeGeofences.length} cercas
+          {activeGeofences.length} {entityLabelPluralLower}
         </span>
         {hasUnsavedChanges && <span className="map-status-pill border-amber-400/60 bg-amber-500/10 text-amber-100">Alterações pendentes</span>}
         {drawMode && (
@@ -1014,6 +1108,9 @@ export default function Geofences() {
       <GeofencePanel
         open={panelOpen}
         geofences={panelGeofences}
+        entityLabelPlural={entityLabelPlural}
+        searchPlaceholder={searchPlaceholder}
+        emptyText={emptyPanelText}
         searchTerm={geofenceFilter}
         onSearch={setGeofenceFilter}
         hiddenIds={hiddenIds}
@@ -1040,21 +1137,44 @@ export default function Geofences() {
             value={selectedGeofence.name}
             onChange={(event) => handleRenameSelected(event.target.value)}
           />
-          <label className="flex items-center gap-2 text-xs text-white/70">
-            <input
-              type="checkbox"
-              checked={Boolean(selectedGeofence.isTarget)}
-              onChange={(event) => {
-                const checked = event.target.checked;
-                setLocalGeofences((current) =>
-                  current.map((geo) => (geo.id === selectedGeofence.id ? { ...geo, isTarget: checked } : geo)),
-                );
-                setHasUnsavedChanges(true);
-              }}
-              className="rounded border-white/30 bg-transparent"
-            />
-            Marcar como Alvo
-          </label>
+          {!isTargetView && (
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="text-xs text-white/70">
+                <span className="block text-[11px] uppercase tracking-[0.12em] text-white/50">Configuração</span>
+                <Select
+                  value={normalizeConfig(selectedGeofence.config) || DEFAULT_CONFIG}
+                  onChange={(event) => {
+                    const config = normalizeConfig(event.target.value) || DEFAULT_CONFIG;
+                    setLocalGeofences((current) =>
+                      current.map((geo) => (geo.id === selectedGeofence.id ? ensureConfigDefaults({ ...geo, config }) : geo)),
+                    );
+                    setHasUnsavedChanges(true);
+                  }}
+                  className="mt-1 w-full"
+                >
+                  <option value="entry">Entrada</option>
+                  <option value="exit">Saída</option>
+                </Select>
+              </label>
+              <label className="text-xs text-white/70">
+                <span className="block text-[11px] uppercase tracking-[0.12em] text-white/50">Ação</span>
+                <Input
+                  value={selectedGeofence.action === "unblock" ? "Desbloquear" : "Bloquear"}
+                  readOnly
+                  className="mt-1"
+                />
+              </label>
+            </div>
+          )}
+          {isTargetView && (
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Ações do alvo</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-[12px] text-white/80">
+                <li>Desbloquear</li>
+                <li>Desvincular itinerário do equipamento</li>
+              </ul>
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-white/70">
             <span>
               {selectedGeofence.type === "circle"

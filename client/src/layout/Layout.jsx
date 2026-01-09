@@ -12,7 +12,10 @@ export default function Layout({ children, title, hideTitle = false }) {
   const location = useLocation();
 
   const isMonitoringPage = location.pathname.startsWith("/monitoring");
-  const isGeofencesPage = location.pathname.startsWith("/geofences");
+  const isGeofencesPage =
+    location.pathname.startsWith("/geofences") ||
+    location.pathname.startsWith("/targets") ||
+    location.pathname.startsWith("/alvos");
   const isRoutesPage = location.pathname.startsWith("/routes");
   const isEventsPage = location.pathname.startsWith("/events");
   // Rotas fullscreen (sem container / sem padding)

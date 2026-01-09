@@ -22,6 +22,7 @@ import Services from "./pages/Services";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
 import Geofences from "./pages/Geofences.jsx";
+import Targets from "./pages/Targets.jsx";
 import Events from "./pages/Events";
 import Videos from "./pages/Videos";
 import Face from "./pages/Face";
@@ -86,6 +87,8 @@ export const routeConfig = [
   { path: "/tasks/:id", element: TaskDetails, title: "Detalhes da task", requireTenant: true },
   { path: "/geofences", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/cercas", element: Geofences, title: "Cercas", requireTenant: true },
+  { path: "/targets", element: Targets, title: "Alvos", requireTenant: true },
+  { path: "/alvos", element: Targets, title: "Alvos", requireTenant: true },
   { path: "/itineraries", element: Itineraries, title: "Itinerários", requireTenant: true },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },

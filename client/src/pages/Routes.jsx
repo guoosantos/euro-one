@@ -599,7 +599,11 @@ export default function RoutesPage() {
       }
       setSaving(true);
       try {
-        const shouldUpdate = payload.id !== null && payload.id !== undefined && String(payload.id).trim() !== "";
+        const shouldUpdate =
+          payload.id !== null &&
+          payload.id !== undefined &&
+          String(payload.id).trim() !== "" &&
+          routes.some((route) => String(route.id) === String(payload.id));
         const response = shouldUpdate
           ? await api.put(`${API_ROUTES.routes}/${payload.id}`, payload)
           : await api.post(API_ROUTES.routes, payload);
@@ -617,7 +621,7 @@ export default function RoutesPage() {
         setSaving(false);
       }
     },
-    [draftRoute, waypoints],
+    [draftRoute, routes, showToast, waypoints],
   );
 
   const handleSave = async () => {
@@ -625,7 +629,7 @@ export default function RoutesPage() {
       await persistRoute();
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível salvar a rota");
+      showToast(error?.response?.data?.message || error?.message || "Não foi possível salvar a rota.", "warning");
     }
   };
 
@@ -654,7 +658,7 @@ export default function RoutesPage() {
       }
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível remover a rota.");
+      showToast(error?.message || "Não foi possível remover a rota.", "warning");
     }
   };
 
@@ -743,7 +747,7 @@ export default function RoutesPage() {
   const buildRouteFromWaypoints = async () => {
     const ordered = normalizeRoutingWaypoints([origin, ...stops, destination].filter(Boolean));
     if (ordered.length < 2) {
-      alert("Defina origem e destino para gerar a rota.");
+      showToast("Defina origem e destino para gerar a rota.", "warning");
       return;
     }
     setIsRouting(true);
@@ -776,7 +780,7 @@ export default function RoutesPage() {
       handleExportSingle(nextRoute);
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Falha ao gerar rota.");
+      showToast(error?.message || "Falha ao gerar rota.", "warning");
     } finally {
       setIsRouting(false);
     }
@@ -785,11 +789,11 @@ export default function RoutesPage() {
   const handleHistoryRoute = async (event) => {
     event.preventDefault();
     if (!draftRoute.name || !draftRoute.name.trim()) {
-      alert("Informe um nome para a rota antes de salvar.");
+      showToast("Informe um nome para a rota antes de salvar.", "warning");
       return;
     }
     if (!historyDeviceId || !historyForm.from || !historyForm.to) {
-      alert("Selecione um veículo com equipamento vinculado e informe o período.");
+      showToast("Selecione um veículo com equipamento vinculado e informe o período.", "warning");
       return;
     }
     setLoadingHistory(true);
@@ -843,7 +847,7 @@ export default function RoutesPage() {
       handleExportSingle(historyRoute);
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível gerar a rota do histórico.");
+      showToast(error?.message || "Não foi possível gerar a rota do histórico.", "warning");
     } finally {
       setLoadingHistory(false);
     }
@@ -855,7 +859,7 @@ export default function RoutesPage() {
     const text = await file.text();
     const placemarks = parseKmlPlacemarks(text).filter((item) => item.type === "polyline");
     if (!placemarks.length) {
-      alert("Nenhuma rota encontrada no KML");
+      showToast("Nenhuma rota encontrada no KML", "warning");
       return;
     }
     for (const item of placemarks) {
@@ -986,8 +990,8 @@ export default function RoutesPage() {
         <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
             <SidebarCard className="w-[440px] md:w-[460px]">
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-[240px] flex-1 items-center gap-2">
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
@@ -1043,16 +1047,16 @@ export default function RoutesPage() {
           )}
 
           {showEditorCard && (
-            <SidebarCard className="w-[440px] md:w-[460px]">
+            <SidebarCard className="w-[440px] md:w-[460px] min-h-[calc(100vh-8rem)]">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas embarcadas</p>
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas</p>
                   <h2 className="text-sm font-semibold text-white">{editorTitle}</h2>
                   <p className="text-[11px] text-white/60">{editorDescription}</p>
                 </div>
               </div>
 
-              <div className="mt-3 max-h-[70vh] overflow-y-auto pr-1">
+              <div className="mt-3 max-h-[calc(100vh-20rem)] overflow-y-auto pr-1">
                 {editorMode === "history" ? (
                   <form className="space-y-3" onSubmit={handleHistoryRoute}>
                     <Input
