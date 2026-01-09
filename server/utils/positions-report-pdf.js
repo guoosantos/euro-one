@@ -8,6 +8,7 @@ const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-20
 const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
 const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
+const CONTENT_GUTTER_PX = 8;
 
 let cachedLogoDataUrl = null;
 let cachedFontRegular = null;
@@ -575,7 +576,7 @@ function buildHtml({
         background: #ffffff;
       }
       .report {
-        padding: 24px 28px 12px;
+        padding: 24px ${CONTENT_GUTTER_PX}px 12px;
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -1022,7 +1023,7 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 24mm 12mm 20mm;
+        margin: 0;
       }
     </style>
   </head>
@@ -1138,8 +1139,9 @@ export async function generatePositionsReportPdf({
         `,
       )
       .join("");
+    // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + 28px); box-sizing:border-box;">
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box;">
         <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
           ${
             logoDataUrl
