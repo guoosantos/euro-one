@@ -1160,14 +1160,14 @@ export async function generatePositionsReportPdf({
       )
       .join("");
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 12mm; box-sizing:border-box;">
-        <div style="background:${BRAND_COLOR}; color:#ffffff; padding:3mm 9mm; border-radius:6px; display:flex; align-items:center; gap:8px; min-height:12mm;">
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 28px; box-sizing:border-box;">
+        <div style="background:linear-gradient(90deg,#0a3e78 0%,#0a3a6b 60%,#072b59 100%); color:#ffffff; padding:2.5mm 6mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:10mm;">
           ${
             logoDataUrl
-              ? `<img src="${logoDataUrl}" style="height:16px; object-fit:contain;" />`
-              : `<span style="font-size:8px; font-weight:700; letter-spacing:0.08em;">EURO ONE</span>`
+              ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
+              : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
           }
-          <div style="font-size:8px; letter-spacing:0.04em; text-transform:uppercase; line-height:1.2; display:flex; flex-wrap:wrap; gap:4px 6px;">
+          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; flex-wrap:nowrap; gap:4px 6px; white-space:nowrap;">
             ${headerMetaLine}
           </div>
         </div>

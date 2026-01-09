@@ -1,10 +1,11 @@
 import { isIotmProtocol, resolveIotmReportColumnLabel } from "../../../shared/positionsColumns.js";
+import { resolveReportColumnLabelOverride } from "../../../shared/reportColumnLabels.js";
 
 export const REPORT_COLUMN_LABELS = {
   gpsTime: { label: "Hora do Evento", tooltip: "Hora do Evento" },
   occurredAt: { label: "Hora do Evento", tooltip: "Hora do Evento" },
   deviceTime: { label: "Hora do Dispositivo", tooltip: "Hora do Dispositivo" },
-  serverTime: { label: "Hora Servidor", tooltip: "Hora Servidor" },
+  serverTime: { label: "Hora do Servidor", tooltip: "Hora do Servidor" },
   latitude: { label: "Latitude", tooltip: "Latitude" },
   longitude: { label: "Longitude", tooltip: "Longitude" },
   address: { label: "Endereço", tooltip: "Endereço" },
@@ -66,7 +67,10 @@ export function resolveReportColumnLabel(key, fallbackLabel, options = {}) {
     const iotmLabel = resolveIotmReportColumnLabel(key, fallbackLabel);
     if (iotmLabel) return iotmLabel;
   }
-  const entry = REPORT_COLUMN_LABELS[key];
+  const override = resolveReportColumnLabelOverride(key, fallbackLabel);
+  if (override) return override;
+  const normalizedKey = String(key || "").trim();
+  const entry = REPORT_COLUMN_LABELS[normalizedKey] || REPORT_COLUMN_LABELS[normalizedKey.toLowerCase()];
   return entry?.tooltip || entry?.label || fallbackLabel || key;
 }
 
@@ -76,7 +80,10 @@ export function resolveReportColumnTooltip(key, fallbackTooltip, options = {}) {
     const iotmLabel = resolveIotmReportColumnLabel(key, fallbackTooltip);
     if (iotmLabel) return iotmLabel;
   }
-  const entry = REPORT_COLUMN_LABELS[key];
+  const override = resolveReportColumnLabelOverride(key, fallbackTooltip);
+  if (override) return override;
+  const normalizedKey = String(key || "").trim();
+  const entry = REPORT_COLUMN_LABELS[normalizedKey] || REPORT_COLUMN_LABELS[normalizedKey.toLowerCase()];
   return entry?.tooltip || fallbackTooltip || entry?.label || key;
 }
 
