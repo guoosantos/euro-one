@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { PDFDocument } from "pdf-lib";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../shared/telemetryDictionary.js";
 import { formatFullAddress } from "./address.js";
@@ -602,7 +603,7 @@ function buildHtml({
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
       }
       .logo.small img {
-        height: 36px;
+        height: 40px;
         filter: none;
       }
       .logo.fallback {
@@ -616,9 +617,9 @@ function buildHtml({
         letter-spacing: 1px;
       }
       .logo.fallback.small {
-        height: 36px;
-        padding: 7px 12px;
-        font-size: 11px;
+        height: 40px;
+        padding: 8px 12px;
+        font-size: 12px;
       }
       .title {
         font-size: 20px;
@@ -1139,12 +1140,12 @@ export async function generatePositionsReportPdf({
     // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(8mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2.4mm 5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:10mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-          <div style="display:flex; align-items:center; justify-content:center; gap:8px; max-width:100%;">
+        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:3mm 5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:13mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+          <div style="display:flex; align-items:center; justify-content:center; gap:10px; max-width:100%;">
             ${
               logoDataUrl
-                ? `<img src="${logoDataUrl}" style="height:18px; object-fit:contain;" />`
-                : `<span style="font-size:9px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
+                ? `<img src="${logoDataUrl}" style="height:36px; object-fit:contain;" />`
+                : `<span style="font-size:11px; font-weight:700; letter-spacing:0.12em; padding:2px 6px; border:1px solid rgba(255,255,255,0.55); border-radius:6px;">EURO ONE</span>`
             }
             <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; text-align:center;">
               <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center;">
@@ -1169,14 +1170,36 @@ export async function generatePositionsReportPdf({
       margin: { top: "24mm", right: "8mm", bottom: "14mm", left: "8mm" },
     };
 
-    const pdfWithHeader = await page.pdf({
-      ...pdfOptions,
-      displayHeaderFooter: true,
-      footerTemplate,
-      headerTemplate,
-    });
+    const [pdfWithoutHeader, pdfWithHeader] = await Promise.all([
+      page.pdf({
+        ...pdfOptions,
+        displayHeaderFooter: false,
+      }),
+      page.pdf({
+        ...pdfOptions,
+        displayHeaderFooter: true,
+        footerTemplate,
+        headerTemplate,
+      }),
+    ]);
 
-    return pdfWithHeader;
+    const headerDoc = await PDFDocument.load(pdfWithHeader);
+    const totalPages = headerDoc.getPageCount();
+    if (totalPages <= 1) {
+      return pdfWithoutHeader;
+    }
+
+    const noHeaderDoc = await PDFDocument.load(pdfWithoutHeader);
+    const mergedDoc = await PDFDocument.create();
+    const [firstPage] = await mergedDoc.copyPages(noHeaderDoc, [0]);
+    mergedDoc.addPage(firstPage);
+
+    const remainingIndices = Array.from({ length: totalPages - 1 }, (_value, index) => index + 1);
+    const remainingPages = await mergedDoc.copyPages(headerDoc, remainingIndices);
+    remainingPages.forEach((pageToAdd) => mergedDoc.addPage(pageToAdd));
+
+    const mergedBytes = await mergedDoc.save();
+    return Buffer.from(mergedBytes);
   } catch (error) {
     const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
     normalized.code = error?.code || "POSITIONS_PDF_ERROR";
