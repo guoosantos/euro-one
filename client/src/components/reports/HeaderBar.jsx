@@ -27,8 +27,7 @@ export default function HeaderBar({
 
   return (
     <div
-      className={`flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-white/10 px-4 py-2 text-white shadow-glass ${className}`}
-      style={{ background: "linear-gradient(135deg, var(--accent-color, #001F3F) 0%, #012a58 100%)" }}
+      className={`flex min-h-[44px] w-full items-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-r from-[#0a3e78] via-[#0a3a6b] to-[#072b59] px-4 py-2 text-white shadow-glass ${className}`}
     >
       <div className="flex h-7 w-16 items-center justify-center rounded-md bg-white/10 px-2">
         {logoUrl ? (
