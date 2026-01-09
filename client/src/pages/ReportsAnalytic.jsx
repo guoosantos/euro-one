@@ -27,7 +27,6 @@ const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 1000;
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
-const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -54,13 +53,6 @@ function formatDateTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
-}
-
-function formatHeaderDate(value) {
-  if (!value) return "—";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "—";
-  return parsed.toLocaleString();
 }
 
 function formatSpeed(value) {
@@ -448,10 +440,6 @@ export default function ReportsAnalytic() {
       }
       if (entry?.type === "action") {
         segments.push({ type: "action", entry });
-        return;
-      }
-      if (entry?.type === "io-event") {
-        segments.push({ type: "io-event", entry });
       }
     });
 
@@ -861,52 +849,6 @@ export default function ReportsAnalytic() {
     );
   };
 
-  const renderIoEventCard = (entry) => {
-    const severity = String(entry?.severity || "info").toLowerCase();
-    const badgeStyles = {
-      critical: "border-red-400/40 bg-red-500/15 text-red-100",
-      warning: "border-yellow-400/40 bg-yellow-500/15 text-yellow-100",
-      info: "border-sky-400/40 bg-sky-500/10 text-sky-100",
-    };
-    const severityKey =
-      severity === "critical" || severity === "critica" || severity === "crítica"
-        ? "critical"
-        : severity === "warning" || severity === "alta" || severity === "high"
-          ? "warning"
-          : "info";
-    const title = entry?.title || entry?.label || "Evento de Entrada";
-    const statusText = entry?.statusText || (entry?.active ? "Entrada ativada" : "Veículo voltou ao normal");
-    const timestamp = formatDateTime(entry?.timestamp || entry?.time || entry?.eventTime);
-    const address = entry?.address || entry?.position?.address || "—";
-
-    return (
-      <div className="rounded-xl border border-white/10 bg-gradient-to-r from-[#0b2447] via-[#0e2d5a] to-[#0b2447] p-3 text-white/90 shadow-lg">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/80">{title}</span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[severityKey]}`}
-          >
-            {entry?.severity || "Info"}
-          </span>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-4 text-[12px] text-white/70">
-          <div>
-            <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Recebido em</span>
-            <span className="text-[12px] text-white/80">{timestamp}</span>
-          </div>
-          <div>
-            <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Status</span>
-            <span className="text-[12px] text-white/85">{statusText}</span>
-          </div>
-        </div>
-        <div className="mt-2 text-[12px] text-white/70">
-          <span className="block text-[10px] uppercase tracking-[0.16em] text-white/50">Local</span>
-          <span className="text-[12px] text-white/80">{address}</span>
-        </div>
-      </div>
-    );
-  };
-
   const handlePageChange = useCallback(
     async (nextPage) => {
       if (!baseQueryRef.current || loading) return;
@@ -933,30 +875,6 @@ export default function ReportsAnalytic() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[#0b2e57] bg-gradient-to-r from-[#002750] via-[#003367] to-[#002750] px-4 py-2 text-white shadow-lg">
-        <div className="flex items-center gap-3">
-          <img src={LOGO_URL} alt="Euro One" className="h-7 w-auto object-contain" />
-        </div>
-        <div className="min-w-0 flex-1 text-[11px] uppercase tracking-[0.18em] text-white/80">
-          <span className="inline-flex items-center gap-1 whitespace-nowrap overflow-hidden text-ellipsis">
-            <span className="text-white/70">VEÍCULO:</span>
-            <span className="font-semibold text-white">
-              {selectedVehicle?.name || meta?.vehicle?.name || "—"}
-            </span>
-            <span className="text-white/40">|</span>
-            <span className="text-white/70">PLACA:</span>
-            <span className="font-semibold text-white">{selectedVehicle?.plate || meta?.vehicle?.plate || "—"}</span>
-            <span className="text-white/40">|</span>
-            <span className="text-white/70">CLIENTE:</span>
-            <span className="font-semibold text-white">{meta?.vehicle?.customer || "—"}</span>
-            <span className="text-white/40">|</span>
-            <span className="text-white/70">PERÍODO:</span>
-            <span className="font-semibold text-white">
-              {formatHeaderDate(from)} → {formatHeaderDate(to)}
-            </span>
-          </span>
-        </div>
-      </div>
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <header className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1174,9 +1092,6 @@ export default function ReportsAnalytic() {
             }
             if (segment.type === "action") {
               return <div key={`segment-${index}`}>{renderActionCard(segment.entry)}</div>;
-            }
-            if (segment.type === "io-event") {
-              return <div key={`segment-${index}`}>{renderIoEventCard(segment.entry)}</div>;
             }
             return null;
           })

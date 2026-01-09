@@ -53,7 +53,6 @@ const SENSOR_LABEL_TEXT_OVERRIDES = {
   "motor": "CAN - Motor",
   "porta motorista": "CAN - Porta Motorista",
   "porta passageiro": "CAN - Porta Passageiro",
-  "uso do combustível": "CAN - Uso do Combustível",
 };
 
 const truncateLabel = (value, maxLength = 42) => {
