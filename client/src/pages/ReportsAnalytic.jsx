@@ -24,6 +24,7 @@ import {
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
+import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 
 const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -120,6 +121,19 @@ function formatByDescriptor(key, value) {
 function formatIgnition(value) {
   if (value === null || value === undefined) return "Dado não disponível";
   return value ? "Ligada" : "Desligada";
+}
+
+function renderSeverityBadge(value) {
+  if (!value) return "—";
+  const label = String(value);
+  const display = resolveSeverityLabel(label);
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-1.5 py-0 text-[9px] font-semibold leading-[14px] ${getSeverityBadgeClassName(label)}`}
+    >
+      {display}
+    </span>
+  );
 }
 
 function formatIoState(value) {
@@ -356,9 +370,12 @@ export default function ReportsAnalytic() {
       visibleColumns.map((column) => ({
         ...column,
         width: columnPrefs?.widths?.[column.key] ?? column.width,
-        render: column.key === "address"
-          ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
-          : column.render,
+        render:
+          column.key === "address"
+            ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
+            : ["eventSeverity", "criticality"].includes(column.key)
+              ? (row) => renderSeverityBadge(row[column.key])
+              : column.render,
       })),
     [visibleColumns, columnPrefs],
   );
@@ -1014,7 +1031,8 @@ export default function ReportsAnalytic() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
-      <form onSubmit={handleGenerate} className="flex flex-col gap-4">
+      <div className="flex w-full flex-col gap-4">
+        <form onSubmit={handleGenerate} className="flex w-full flex-col gap-4">
         <header className="space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -1205,16 +1223,16 @@ export default function ReportsAnalytic() {
             <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">{error.message}</div>
           </div>
         )}
-      </form>
-      <HeaderBar
-        vehicleName={meta?.vehicle?.name || selectedVehicle?.name || "—"}
-        plate={meta?.vehicle?.plate || selectedVehicle?.plate || "—"}
-        client={meta?.vehicle?.customer || selectedVehicle?.customer || "—"}
-        from={from}
-        to={to}
-      />
+        </form>
+        <HeaderBar
+          vehicleName={meta?.vehicle?.name || selectedVehicle?.name || "—"}
+          plate={meta?.vehicle?.plate || selectedVehicle?.plate || "—"}
+          client={meta?.vehicle?.customer || selectedVehicle?.customer || "—"}
+          from={from}
+          to={to}
+        />
 
-      <section className="flex-1 min-h-0 space-y-4">
+        <section className="flex-1 min-h-0 w-full space-y-4">
         {timelineSegments.length ? (
           timelineSegments.map((segment, index) => {
             if (segment.type === "positions") {
@@ -1251,53 +1269,54 @@ export default function ReportsAnalytic() {
               : "Selecione o veículo e gere o relatório para visualizar a linha do tempo."}
           </div>
         )}
-      </section>
-      {hasGenerated && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-          <div className="flex items-center gap-2">
+        </section>
+        {hasGenerated && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage - 1)}
+                disabled={!canGoPrev || loadingMore}
+                className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+              >
+                Anterior
+              </button>
+              <button
+                type="button"
+                onClick={() => handlePageChange(currentPage + 1)}
+                disabled={!canGoNext || loadingMore}
+                className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+              >
+                Próximo
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Ir para página</span>
+              <input
+                type="number"
+                min={1}
+                max={totalPages}
+                value={currentPage}
+                onChange={(event) => handlePageChange(Number(event.target.value || 1))}
+                className="w-20 rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 text-xs text-white/80 outline-none"
+              />
+              <span className="text-white/50">de {totalPages}</span>
+            </div>
+          </div>
+        )}
+        {canLoadMore && (
+          <div className="flex items-center justify-center">
             <button
               type="button"
-              onClick={() => handlePageChange(currentPage - 1)}
-              disabled={!canGoPrev || loadingMore}
-              className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
             >
-              Anterior
-            </button>
-            <button
-              type="button"
-              onClick={() => handlePageChange(currentPage + 1)}
-              disabled={!canGoNext || loadingMore}
-              className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
-            >
-              Próximo
+              {loadingMore ? "Carregando..." : "Carregar mais"}
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <span>Ir para página</span>
-            <input
-              type="number"
-              min={1}
-              max={totalPages}
-              value={currentPage}
-              onChange={(event) => handlePageChange(Number(event.target.value || 1))}
-              className="w-20 rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 text-xs text-white/80 outline-none"
-            />
-            <span className="text-white/50">de {totalPages}</span>
-          </div>
-        </div>
-      )}
-      {canLoadMore && (
-        <div className="flex items-center justify-center">
-          <button
-            type="button"
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
-          >
-            {loadingMore ? "Carregando..." : "Carregar mais"}
-          </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {activePopup === "columns" && (
         <MonitoringColumnSelector
