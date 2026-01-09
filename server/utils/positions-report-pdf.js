@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { PDFDocument } from "pdf-lib";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../shared/telemetryDictionary.js";
 import { formatFullAddress } from "./address.js";
@@ -603,7 +602,7 @@ function buildHtml({
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
       }
       .logo.small img {
-        height: 28px;
+        height: 36px;
         filter: none;
       }
       .logo.fallback {
@@ -617,9 +616,9 @@ function buildHtml({
         letter-spacing: 1px;
       }
       .logo.fallback.small {
-        height: 28px;
-        padding: 6px 10px;
-        font-size: 10px;
+        height: 36px;
+        padding: 7px 12px;
+        font-size: 11px;
       }
       .title {
         font-size: 20px;
@@ -638,7 +637,7 @@ function buildHtml({
       }
       .report-header {
         border-radius: 12px;
-        padding: 12px 14px;
+        padding: 14px 16px;
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         display: flex;
         flex-direction: column;
@@ -897,6 +896,8 @@ function buildHtml({
         overflow: hidden;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
         width: 100%;
+        max-width: none;
+        margin: 0;
       }
       .meta-chips {
         display: flex;
@@ -1019,7 +1020,7 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 24mm 12mm 20mm 12mm;
+        margin: 24mm 8mm 14mm 8mm;
       }
     </style>
   </head>
@@ -1137,13 +1138,13 @@ export async function generatePositionsReportPdf({
       .join("");
     // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(8mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2.4mm 5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:10mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
           <div style="display:flex; align-items:center; justify-content:center; gap:8px; max-width:100%;">
             ${
               logoDataUrl
-                ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
-                : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
+                ? `<img src="${logoDataUrl}" style="height:18px; object-fit:contain;" />`
+                : `<span style="font-size:9px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
             }
             <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; text-align:center;">
               <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center;">
@@ -1155,9 +1156,8 @@ export async function generatePositionsReportPdf({
       </div>
     `;
     const footerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 4mm; display:flex; justify-content:space-between;">
+      <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#475569; padding:0 8mm 4mm; display:flex; justify-content:flex-end;">
         <span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span>
-        <span>${isAnalytic ? `Gerado em ${escapeHtml(formatDate(meta?.generatedAt))}` : "Gerado pelo Euro One"}</span>
       </div>
     `;
 
@@ -1166,7 +1166,7 @@ export async function generatePositionsReportPdf({
       landscape: true,
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
-      margin: { top: "24mm", right: "12mm", bottom: "20mm", left: "12mm" },
+      margin: { top: "24mm", right: "8mm", bottom: "14mm", left: "8mm" },
     };
 
     const pdfWithHeader = await page.pdf({
@@ -1176,25 +1176,7 @@ export async function generatePositionsReportPdf({
       headerTemplate,
     });
 
-    const pdfWithoutHeader = await page.pdf({
-      ...pdfOptions,
-      displayHeaderFooter: false,
-      pageRanges: "1",
-    });
-
-    const headerDoc = await PDFDocument.load(pdfWithHeader);
-    if (headerDoc.getPageCount() <= 1) {
-      return pdfWithoutHeader;
-    }
-
-    const firstPageDoc = await PDFDocument.load(pdfWithoutHeader);
-    const mergedDoc = await PDFDocument.create();
-    const [firstPage] = await mergedDoc.copyPages(firstPageDoc, [0]);
-    mergedDoc.addPage(firstPage);
-    const remainingPages = Array.from({ length: headerDoc.getPageCount() - 1 }, (_, index) => index + 1);
-    const copiedRemaining = await mergedDoc.copyPages(headerDoc, remainingPages);
-    copiedRemaining.forEach((page) => mergedDoc.addPage(page));
-    return await mergedDoc.save();
+    return pdfWithHeader;
   } catch (error) {
     const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
     normalized.code = error?.code || "POSITIONS_PDF_ERROR";
