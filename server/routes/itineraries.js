@@ -6,6 +6,7 @@ import { resolveClientId } from "../middleware/client.js";
 import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
 import { listRoutes } from "../models/route.js";
+import { getVehicleById, listVehicles } from "../models/vehicle.js";
 import {
   listItineraries,
   getItineraryById,
@@ -13,6 +14,7 @@ import {
   updateItinerary,
   deleteItinerary,
 } from "../models/itinerary.js";
+import { addEmbarkEntries, getEmbarkPairIndex, listEmbarkHistory } from "../models/itinerary-embark.js";
 
 const router = express.Router();
 
@@ -34,6 +36,17 @@ function ensureSameClient(user, clientId) {
   if (!user.clientId || String(user.clientId) !== String(clientId)) {
     throw createError(403, "Operação não permitida para este cliente");
   }
+}
+
+function resolveRequestIp(req) {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (typeof forwarded === "string" && forwarded.length) {
+    return forwarded.split(",")[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length) {
+    return forwarded[0];
+  }
+  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
 }
 
 router.get("/itineraries", async (req, res, next) => {
@@ -129,6 +142,94 @@ router.get("/itineraries/:id/export/kml", async (req, res, next) => {
 
     res.setHeader("Content-Type", "application/vnd.google-earth.kml+xml");
     return res.send(kml);
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/itineraries/embark/history", async (req, res, next) => {
+  try {
+    const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const history = listEmbarkHistory(clientId ? { clientId } : {});
+    return res.json({ data: history, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
+    const itineraryIds = Array.isArray(req.body?.itineraryIds) ? req.body.itineraryIds.map(String) : [];
+    if (!vehicleIds.length || !itineraryIds.length) {
+      throw createError(400, "Informe veículos e itinerários para embarcar");
+    }
+
+    const ipAddress = resolveRequestIp(req);
+    const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
+
+    const vehicles = listVehicles(clientId ? { clientId } : {}).reduce((acc, vehicle) => {
+      acc.set(String(vehicle.id), vehicle);
+      return acc;
+    }, new Map());
+
+    const historyIndex = getEmbarkPairIndex();
+    const entries = [];
+    let success = 0;
+    let failed = 0;
+
+    vehicleIds.forEach((vehicleId) => {
+      const vehicle = vehicles.get(String(vehicleId)) || getVehicleById(vehicleId);
+      itineraryIds.forEach((itineraryId) => {
+        const itinerary = getItineraryById(itineraryId);
+        const entryBase = {
+          clientId: String(clientId),
+          itineraryId: String(itineraryId),
+          itineraryName: itinerary?.name || null,
+          vehicleId: String(vehicleId),
+          vehicleName: vehicle?.name || null,
+          plate: vehicle?.plate || null,
+          brand: vehicle?.brand || null,
+          model: vehicle?.model || null,
+          sentAt: new Date().toISOString(),
+          receivedAt: null,
+          sentBy: req.user?.id || null,
+          sentByName: userLabel,
+          ipAddress,
+        };
+
+        if (!itinerary) {
+          failed += 1;
+          entries.push({ ...entryBase, status: "Falhou", result: "Itinerário não encontrado" });
+          return;
+        }
+        if (String(itinerary.clientId) !== String(clientId)) {
+          failed += 1;
+          entries.push({ ...entryBase, status: "Falhou", result: "Itinerário não pertence ao cliente" });
+          return;
+        }
+        if (!vehicle || String(vehicle.clientId) !== String(clientId)) {
+          failed += 1;
+          entries.push({ ...entryBase, status: "Falhou", result: "Veículo não encontrado para o cliente" });
+          return;
+        }
+
+        const pairKey = `${itineraryId}:${vehicleId}`;
+        if (historyIndex.has(pairKey)) {
+          failed += 1;
+          entries.push({ ...entryBase, status: "Falhou", result: "Embarque já enviado para este veículo" });
+          return;
+        }
+
+        success += 1;
+        entries.push({ ...entryBase, status: "Enviado", result: "Embarque enviado" });
+        historyIndex.add(pairKey);
+      });
+    });
+
+    const stored = addEmbarkEntries(entries);
+    return res.status(201).json({ data: { entries: stored, summary: { success, failed } }, error: null });
   } catch (error) {
     return next(error);
   }

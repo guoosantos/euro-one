@@ -35,7 +35,7 @@ function normalizeItems(items = []) {
     .map((item) => {
       if (!item || typeof item !== "object") return null;
       const type = String(item.type || "").toLowerCase();
-      if (type !== "geofence" && type !== "route") return null;
+      if (type !== "geofence" && type !== "route" && type !== "target") return null;
       if (!item.id) return null;
       return { type, id: String(item.id) };
     })
