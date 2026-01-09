@@ -6,7 +6,7 @@ export const EURO_PRESET_KEYS = [
   "event",
   ["eventSeverity", "criticality"],
   "address",
-  ["geofence", "geozoneId", "geozoneid"],
+  ["geofence", "geozoneId"],
   ["geozoneinside", "geozoneInside", "geozoneInsidePrimary"],
   "ignition",
   ["input2", "digitalInput2", "signalIn2", "in2"],

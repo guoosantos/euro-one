@@ -388,7 +388,7 @@ function buildHtml({
       ${headerBlock}
       ${pageHeaderBlock}
       <div class="table-wrapper">
-        <table class="pdf-table">
+        <table>
           <colgroup>${colgroup}</colgroup>
           <thead>
             <tr>${tableHeaders}</tr>
@@ -580,27 +580,25 @@ function buildHtml({
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       ${fontFaces}
-      .pdf-root {
+      * { box-sizing: border-box; }
+      :root {
         --cell-padding: ${cellPadding}px;
         --font-size: ${baseFontSize}px;
         --header-font-size: ${headerFontSize}px;
-        --pdf-bg: #ffffff;
-        --pdf-text: #0b1b2b;
-        --pdf-table-header-bg: #f1f5f9;
-        --pdf-table-row-alt-bg: #f8fafc;
-        background: var(--pdf-bg, #ffffff);
-        color: var(--pdf-text, #0b1b2b);
-        font-family: ${FONT_STACK};
-        min-height: 100%;
       }
-      .pdf-root * { box-sizing: border-box; }
-      .pdf-root .report {
+      body {
+        margin: 0;
+        font-family: ${FONT_STACK};
+        color: #0f172a;
+        background: #ffffff;
+      }
+      .report {
         padding: 20px 16px 12px;
         display: flex;
         flex-direction: column;
         gap: 16px;
       }
-      .pdf-root .header {
+      .header {
         padding: 18px 20px;
         border-radius: 14px;
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
@@ -610,16 +608,16 @@ function buildHtml({
         gap: 14px 18px;
         align-items: center;
       }
-      .pdf-root .logo img {
+      .logo img {
         height: 48px;
         object-fit: contain;
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
       }
-      .pdf-root .logo.small img {
+      .logo.small img {
         height: 28px;
         filter: none;
       }
-      .pdf-root .logo.fallback {
+      .logo.fallback {
         height: 48px;
         display: grid;
         place-items: center;
@@ -629,27 +627,27 @@ function buildHtml({
         font-weight: 700;
         letter-spacing: 1px;
       }
-      .pdf-root .logo.fallback.small {
+      .logo.fallback.small {
         height: 28px;
         padding: 6px 10px;
         font-size: 10px;
       }
-      .pdf-root .title {
+      .title {
         font-size: 20px;
         font-weight: 700;
         letter-spacing: 0.6px;
         text-transform: uppercase;
       }
-      .pdf-root .subtitle {
+      .subtitle {
         font-size: 12px;
         color: rgba(255,255,255,0.9);
         margin-top: 4px;
       }
-      .pdf-root .title.centered,
-      .pdf-root .subtitle.centered {
+      .title.centered,
+      .subtitle.centered {
         text-align: center;
       }
-      .pdf-root .report-header {
+      .report-header {
         border-radius: 12px;
         padding: 12px 14px;
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
@@ -658,22 +656,22 @@ function buildHtml({
         gap: 6px;
         color: #ffffff;
       }
-      .pdf-root .report-header-top {
+      .report-header-top {
         display: grid;
         grid-template-columns: auto 1fr;
         gap: 12px;
         align-items: center;
       }
-      .pdf-root .report-header-title .title {
+      .report-header-title .title {
         font-size: 16px;
         color: #ffffff;
         letter-spacing: 0.12em;
       }
-      .pdf-root .report-header-title .subtitle {
+      .report-header-title .subtitle {
         color: rgba(255,255,255,0.88);
         margin-top: 2px;
       }
-      .pdf-root .page-header {
+      .page-header {
         border-radius: 12px;
         padding: 6px 10px;
         background: ${BRAND_COLOR};
@@ -684,16 +682,16 @@ function buildHtml({
         align-items: center;
         box-shadow: 0 6px 12px rgba(1, 42, 88, 0.18);
       }
-      .pdf-root .page-header-logo img {
+      .page-header-logo img {
         height: 18px;
         object-fit: contain;
       }
-      .pdf-root .page-header-fallback {
+      .page-header-fallback {
         font-size: 8px;
         font-weight: 700;
         letter-spacing: 0.12em;
       }
-      .pdf-root .page-header-content {
+      .page-header-content {
         display: flex;
         flex-wrap: wrap;
         justify-content: center;
@@ -705,35 +703,35 @@ function buildHtml({
         text-transform: uppercase;
         text-align: center;
       }
-      .pdf-root .page-header-item span:first-child {
+      .page-header-item span:first-child {
         opacity: 0.65;
         margin-right: 4px;
       }
-      .pdf-root .page-header-divider {
+      .page-header-divider {
         opacity: 0.4;
       }
-      .pdf-root .page-header-spacer {
+      .page-header-spacer {
         width: 18px;
       }
-      .pdf-root .intro-card {
+      .intro-card {
         border-radius: 16px;
         padding: 14px 16px 10px;
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         color: #ffffff;
         box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
       }
-      .pdf-root .intro-title-row {
+      .intro-title-row {
         display: grid;
         grid-template-columns: auto 1fr auto;
         align-items: center;
         gap: 12px;
       }
-      .pdf-root .intro-logo img {
+      .intro-logo img {
         height: 36px;
         object-fit: contain;
         filter: drop-shadow(0 4px 8px rgba(0,0,0,0.2));
       }
-      .pdf-root .intro-logo-fallback {
+      .intro-logo-fallback {
         display: inline-flex;
         align-items: center;
         justify-content: center;
@@ -744,30 +742,30 @@ function buildHtml({
         font-weight: 700;
         letter-spacing: 0.08em;
       }
-      .pdf-root .intro-title-spacer {
+      .intro-title-spacer {
         width: 36px;
       }
-      .pdf-root .intro-title {
+      .intro-title {
         font-size: 20px;
         font-weight: 800;
         text-align: center;
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
-      .pdf-root .intro-subtitle {
+      .intro-subtitle {
         font-size: 12px;
         text-align: center;
         color: rgba(255, 255, 255, 0.82);
         margin-top: 4px;
       }
-      .pdf-root .intro-grid {
+      .intro-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px 16px;
         font-size: 11px;
         margin-top: 12px;
       }
-      .pdf-root .intro-grid span {
+      .intro-grid span {
         display: block;
         font-weight: 600;
         color: rgba(255, 255, 255, 0.7);
@@ -776,7 +774,7 @@ function buildHtml({
         letter-spacing: 0.04em;
         margin-bottom: 3px;
       }
-      .pdf-root .meta-grid {
+      .meta-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 12px;
@@ -787,7 +785,7 @@ function buildHtml({
         font-size: 11px;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
       }
-      .pdf-root .meta-item span {
+      .meta-item span {
         display: block;
         font-weight: 600;
         color: #475569;
@@ -796,14 +794,14 @@ function buildHtml({
         letter-spacing: 0.04em;
         font-size: 9px;
       }
-      .pdf-root .card {
+      .card {
         border: 1px solid #e2e8f0;
         border-radius: 16px;
         padding: 16px 16px 6px;
         background: #ffffff;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
       }
-      .pdf-root .card-title {
+      .card-title {
         font-size: 13px;
         font-weight: 800;
         color: ${BRAND_COLOR};
@@ -811,13 +809,13 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
-      .pdf-root .card-grid {
+      .card-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 10px 18px;
         font-size: 11px;
       }
-      .pdf-root .card-grid span {
+      .card-grid span {
         display: block;
         font-weight: 600;
         color: #64748b;
@@ -826,7 +824,7 @@ function buildHtml({
         letter-spacing: 0.04em;
         margin-bottom: 4px;
       }
-      .pdf-root .badge {
+      .badge {
         display: inline-flex;
         align-items: center;
         gap: 6px;
@@ -840,7 +838,7 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
-      .pdf-root .severity-badge {
+      .severity-badge {
         display: inline-flex;
         align-items: center;
         border-radius: 999px;
@@ -852,59 +850,56 @@ function buildHtml({
         letter-spacing: 0.08em;
         line-height: 1.2;
       }
-      .pdf-root .severity-badge--info {
+      .severity-badge--info {
         background: #ffffff;
         border-color: #e2e8f0;
         color: #1f2937;
       }
-      .pdf-root .severity-badge--warning {
+      .severity-badge--warning {
         background: rgba(147, 51, 234, 0.18);
         border-color: rgba(147, 51, 234, 0.55);
         color: #6b21a8;
       }
-      .pdf-root .severity-badge--low {
+      .severity-badge--low {
         background: rgba(22, 163, 74, 0.18);
         border-color: rgba(22, 163, 74, 0.6);
         color: #166534;
       }
-      .pdf-root .severity-badge--medium {
+      .severity-badge--medium {
         background: rgba(234, 179, 8, 0.2);
         border-color: rgba(234, 179, 8, 0.6);
         color: #92400e;
       }
-      .pdf-root .severity-badge--high {
+      .severity-badge--high {
         background: rgba(249, 115, 22, 0.2);
         border-color: rgba(249, 115, 22, 0.6);
         color: #9a3412;
       }
-      .pdf-root .severity-badge--critical {
+      .severity-badge--critical {
         background: rgba(220, 38, 38, 0.2);
         border-color: rgba(220, 38, 38, 0.6);
         color: #991b1b;
       }
-      .pdf-root .pdf-table {
+      table {
         width: 100%;
         border-collapse: collapse;
         margin-top: 4px;
         font-size: var(--font-size);
         table-layout: fixed;
-        color: var(--pdf-text, #0b1b2b);
-        background: var(--pdf-bg, #ffffff);
       }
-      .pdf-root .pdf-table th,
-      .pdf-root .pdf-table td {
+      th, td {
         word-break: break-word;
         overflow-wrap: anywhere;
         hyphens: auto;
         line-height: 1.45;
       }
-      .pdf-root .pdf-table thead {
+      thead {
         display: table-header-group;
-        background: var(--pdf-table-header-bg, #f1f5f9);
-        color: var(--pdf-text, #0b1b2b);
+        background: ${BRAND_COLOR};
+        color: #ffffff;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
       }
-      .pdf-root .pdf-table thead th {
+      thead th {
         padding: calc(var(--cell-padding) * 0.75) var(--cell-padding);
         text-align: left;
         font-weight: 700;
@@ -913,67 +908,67 @@ function buildHtml({
         letter-spacing: 0.05em;
         white-space: normal;
       }
-      .pdf-root .pdf-table tbody td {
+      tbody td {
         padding: calc(var(--cell-padding) * 0.75) var(--cell-padding);
         border-bottom: 1px solid #e2e8f0;
-        color: var(--pdf-text, #0b1b2b);
+        color: #1f2937;
         white-space: normal;
       }
-      .pdf-root .pdf-table tbody tr:nth-child(even) {
-        background: var(--pdf-table-row-alt-bg, #f8fafc);
+      tbody tr:nth-child(even) {
+        background: #f8fafc;
       }
-      .pdf-root .pdf-table tr {
+      tr {
         page-break-inside: avoid;
       }
-      .pdf-root .table-wrapper {
+      .table-wrapper {
         border: 1px solid #e2e8f0;
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
       }
-      .pdf-root .meta-chips {
+      .meta-chips {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
         margin-top: 4px;
       }
-      .pdf-root .page-break {
+      .page-break {
         page-break-before: always;
       }
-      .pdf-root .section {
+      .section {
         border-radius: 16px;
         border: 1px solid #e2e8f0;
         padding: 16px;
         background: #ffffff;
       }
-      .pdf-root .section-header {
+      .section-header {
         display: flex;
         justify-content: space-between;
         align-items: baseline;
         gap: 12px;
         margin-bottom: 12px;
       }
-      .pdf-root .section-title {
+      .section-title {
         font-size: 12px;
         font-weight: 800;
         color: ${BRAND_COLOR};
         text-transform: uppercase;
         letter-spacing: 0.12em;
       }
-      .pdf-root .section-subtitle {
+      .section-subtitle {
         font-size: 10px;
         color: #64748b;
       }
-      .pdf-root .actions-grid {
+      .actions-grid {
         display: grid;
         gap: 10px;
       }
-      .pdf-root .timeline-item {
+      .timeline-item {
         break-inside: avoid;
         page-break-inside: avoid;
         display: block;
       }
-      .pdf-root .action-card {
+      .action-card {
         background: #ffffff;
         border-radius: 12px;
         padding: 8px 10px;
@@ -981,20 +976,20 @@ function buildHtml({
         page-break-inside: avoid;
         break-inside: avoid;
       }
-      .pdf-root .action-head {
+      .action-head {
         display: flex;
         justify-content: space-between;
         gap: 8px;
         margin-bottom: 4px;
       }
-      .pdf-root .action-title {
+      .action-title {
         font-size: 11px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.12em;
         color: #334155;
       }
-      .pdf-root .action-badge {
+      .action-badge {
         border-radius: 999px;
         padding: 2px 8px;
         font-size: 8px;
@@ -1003,32 +998,32 @@ function buildHtml({
         text-transform: uppercase;
         border: 1px solid transparent;
       }
-      .pdf-root .action-badge--warning {
+      .action-badge--warning {
         background: rgba(234, 179, 8, 0.16);
         color: #92400e;
         border-color: rgba(234, 179, 8, 0.4);
       }
-      .pdf-root .action-badge--success {
+      .action-badge--success {
         background: rgba(16, 185, 129, 0.16);
         color: #065f46;
         border-color: rgba(16, 185, 129, 0.4);
       }
-      .pdf-root .action-badge--danger {
+      .action-badge--danger {
         background: rgba(239, 68, 68, 0.16);
         color: #991b1b;
         border-color: rgba(239, 68, 68, 0.4);
       }
-      .pdf-root .action-badge--neutral {
+      .action-badge--neutral {
         background: rgba(148, 163, 184, 0.2);
         color: #475569;
         border-color: rgba(148, 163, 184, 0.4);
       }
-      .pdf-root .action-summary {
+      .action-summary {
         font-size: 10px;
         color: #334155;
         margin-bottom: 6px;
       }
-      .pdf-root .action-summary span {
+      .action-summary span {
         display: block;
         font-size: 8px;
         color: #94a3b8;
@@ -1036,14 +1031,14 @@ function buildHtml({
         letter-spacing: 0.1em;
         margin-bottom: 2px;
       }
-      .pdf-root .action-meta {
+      .action-meta {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 6px 10px;
         font-size: 9px;
         color: #475569;
       }
-      .pdf-root .action-meta span {
+      .action-meta span {
         display: block;
         font-size: 8px;
         color: #94a3b8;
@@ -1057,12 +1052,10 @@ function buildHtml({
     </style>
   </head>
   <body>
-    <div class="pdf-root">
-      <div class="report">
-        ${isAnalytic ? `${renderAnalyticHeader()}${renderTimeline()}` : ""}
-        ${isAnalytic ? "" : tables}
-        ${isAnalytic ? "" : actionsSection}
-      </div>
+    <div class="report">
+      ${isAnalytic ? `${renderAnalyticHeader()}${renderTimeline()}` : ""}
+      ${isAnalytic ? "" : tables}
+      ${isAnalytic ? "" : actionsSection}
     </div>
   </body>
 </html>
