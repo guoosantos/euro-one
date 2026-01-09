@@ -5,7 +5,9 @@ import { formatFullAddress } from "./address.js";
 
 const BRAND_COLOR = "#001F3F";
 const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
-const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
+const FONT_STACK = '"Rajdhani", "DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
+const FONT_WEB_IMPORT =
+  "@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&display=swap');";
 const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
@@ -406,6 +408,37 @@ function buildHtml({
     `;
   };
 
+  const headerMetaParts = [
+    { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
+    { label: "PLACA", value: meta?.vehicle?.plate || "—" },
+    { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
+    { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
+  ];
+  const headerMetaLine = headerMetaParts
+    .map(
+      (item, index) => `
+        <span class="analytic-page-meta">
+          <span class="analytic-page-label">${escapeHtml(item.label)}:</span>
+          <span class="analytic-page-value">${escapeHtml(item.value)}</span>
+        </span>
+        ${index < headerMetaParts.length - 1 ? '<span class="analytic-page-separator">|</span>' : ""}
+      `,
+    )
+    .join("");
+  const renderAnalyticPageHeader = () => `
+    <div class="analytic-page-header">
+      <div class="analytic-page-logo">
+        ${
+          logoDataUrl
+            ? `<img src="${logoDataUrl}" alt="Euro One" />`
+            : `<span class="analytic-page-logo-fallback">EURO ONE</span>`
+        }
+      </div>
+      <div class="analytic-page-text">${headerMetaLine}</div>
+      <div class="analytic-page-spacer"></div>
+    </div>
+  `;
+
   const renderAnalyticHeader = () => `
     <div class="intro-card">
       <div class="intro-title-row">
@@ -436,6 +469,7 @@ function buildHtml({
     let isFirstPage = true;
     const segments = [];
     let buffer = [];
+    const analyticPageHeader = renderAnalyticPageHeader();
     safeEntries.forEach((entry) => {
       if (entry?.type === "position" && entry.position) {
         buffer.push(entry.position);
@@ -456,8 +490,9 @@ function buildHtml({
       return fallbackSlices
         .map((slice, index) => {
           const pageBreak = index === 0 ? "" : '<div class="page-break"></div>';
+          const headerBlock = index === 0 ? "" : analyticPageHeader;
           isFirstPage = false;
-          return `${pageBreak}${renderTable(slice, index, {
+          return `${pageBreak}${headerBlock}${renderTable(slice, index, {
             includeHeader: false,
             includePageBreak: false,
           })}`;
@@ -477,8 +512,9 @@ function buildHtml({
             .map((slice, chunkIndex) => {
               const needsPageBreak = !isFirstPage || chunkIndex > 0;
               const pageBreak = needsPageBreak ? '<div class="page-break"></div>' : "";
+              const headerBlock = needsPageBreak ? analyticPageHeader : "";
               isFirstPage = false;
-              return `${pageBreak}${renderTable(slice, 0, {
+              return `${pageBreak}${headerBlock}${renderTable(slice, 0, {
                 includeHeader: false,
                 includePageBreak: false,
               })}`;
@@ -487,10 +523,11 @@ function buildHtml({
         }
         const shouldStartPage = isFirstSegment || previousType === "positions";
         const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
+        const headerBlock = pageBreak ? analyticPageHeader : "";
         previousType = "action";
         isFirstSegment = false;
         if (!isFirstPage) {
-          return `${pageBreak}${renderActionCard(segment.entry)}`;
+          return `${pageBreak}${headerBlock}${renderActionCard(segment.entry)}`;
         }
         isFirstPage = false;
         return `${renderActionCard(segment.entry)}`;
@@ -536,6 +573,7 @@ function buildHtml({
   <head>
     <meta charset="utf-8" />
     <style>
+      ${FONT_WEB_IMPORT}
       ${fontFaces}
       * { box-sizing: border-box; }
       :root {
@@ -554,6 +592,73 @@ function buildHtml({
         display: flex;
         flex-direction: column;
         gap: 16px;
+        width: 100%;
+      }
+      .analytic-page-header {
+        border-radius: 12px;
+        padding: 8px 12px;
+        background: ${BRAND_COLOR};
+        color: #ffffff;
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: center;
+        gap: 10px;
+        min-height: 9mm;
+        box-shadow: 0 8px 16px rgba(1, 31, 63, 0.22);
+        width: 100%;
+      }
+      .analytic-page-logo {
+        justify-self: start;
+      }
+      .analytic-page-logo img {
+        height: 14px;
+        object-fit: contain;
+        filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2));
+      }
+      .analytic-page-logo-fallback {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 8px;
+        border-radius: 6px;
+        border: 1px solid rgba(255,255,255,0.4);
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+      }
+      .analytic-page-text {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        justify-self: center;
+        flex-wrap: nowrap;
+        gap: 6px;
+        font-size: 7.5px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        line-height: 1.2;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        min-width: 0;
+      }
+      .analytic-page-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .analytic-page-value {
+        font-weight: 700;
+      }
+      .analytic-page-separator {
+        opacity: 0.6;
+      }
+      .analytic-page-spacer {
+        width: 14px;
+        justify-self: end;
       }
       .header {
         padding: 18px 20px;
@@ -634,6 +739,7 @@ function buildHtml({
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         color: #ffffff;
         box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
+        width: 100%;
       }
       .intro-title-row {
         display: grid;
@@ -840,6 +946,7 @@ function buildHtml({
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        width: 100%;
       }
       .meta-chips {
         display: flex;
@@ -1078,7 +1185,9 @@ export async function generatePositionsReportPdf({
         `,
       )
       .join("");
-    const headerTemplate = `
+    const headerTemplate = isAnalytic
+      ? "<div></div>"
+      : `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + 28px); box-sizing:border-box;">
         <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
           ${
@@ -1086,7 +1195,7 @@ export async function generatePositionsReportPdf({
               ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
               : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
           }
-          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
+          <div style="font-size:7.5px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
             <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
               ${headerMetaLine}
             </span>
