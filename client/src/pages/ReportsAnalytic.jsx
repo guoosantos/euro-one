@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
+import HeaderBar from "../components/reports/HeaderBar.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
@@ -964,7 +965,7 @@ export default function ReportsAnalytic() {
             {entry?.title || "Entrada"}
           </span>
           <span
-            className={`rounded-full border px-1.5 py-0 text-[9px] font-medium uppercase tracking-wide ${badgeStyles[variant]}`}
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
           >
             {criticalityLabel}
           </span>
@@ -1205,6 +1206,14 @@ export default function ReportsAnalytic() {
           </div>
         )}
       </form>
+      <HeaderBar
+        vehicleName={meta?.vehicle?.name || selectedVehicle?.name || "—"}
+        plate={meta?.vehicle?.plate || selectedVehicle?.plate || "—"}
+        client={meta?.vehicle?.customer || selectedVehicle?.customer || "—"}
+        from={from}
+        to={to}
+      />
+
       <section className="flex-1 min-h-0 space-y-4">
         {timelineSegments.length ? (
           timelineSegments.map((segment, index) => {
