@@ -13,6 +13,7 @@ import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.j
 import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 
 const EVENT_TABS = ["Relatório", "Criticidade"];
 const EVENT_TYPES = [
@@ -173,49 +174,6 @@ function normalizeEventTypeKey(value) {
     .trim()
     .replace(/[^a-z0-9]+/gi, "")
     .toLowerCase();
-}
-
-function normalizeSeverityToken(value) {
-  const normalized = String(value || "").trim().toLowerCase();
-  if (!normalized) return "";
-  if (["critica", "crítica", "critical"].includes(normalized)) return "critical";
-  if (["alta", "high"].includes(normalized)) return "high";
-  if (["moderada", "media", "média", "medium"].includes(normalized)) return "medium";
-  if (["baixa", "low"].includes(normalized)) return "low";
-  if (["informativa", "info"].includes(normalized)) return "info";
-  return normalized;
-}
-
-function getSeverityStyle(severity) {
-  const token = normalizeSeverityToken(severity);
-  const palette = {
-    critical: {
-      backgroundColor: "rgba(185, 28, 28, 0.4)",
-      borderColor: "rgba(248, 113, 113, 0.8)",
-      color: "#fee2e2",
-    },
-    high: {
-      backgroundColor: "rgba(194, 65, 12, 0.35)",
-      borderColor: "rgba(251, 146, 60, 0.85)",
-      color: "#ffedd5",
-    },
-    medium: {
-      backgroundColor: "rgba(202, 138, 4, 0.35)",
-      borderColor: "rgba(253, 224, 71, 0.85)",
-      color: "#fef9c3",
-    },
-    low: {
-      backgroundColor: "rgba(21, 128, 61, 0.35)",
-      borderColor: "rgba(74, 222, 128, 0.85)",
-      color: "#dcfce7",
-    },
-    info: {
-      backgroundColor: "rgba(148, 163, 184, 0.2)",
-      borderColor: "rgba(226, 232, 240, 0.4)",
-      color: "#e2e8f0",
-    },
-  };
-  return palette[token] || palette.info;
 }
 
 function isPowerDisconnectedType(value) {
@@ -1191,12 +1149,10 @@ function normalizeTitle(value) {
 
 function renderSeverityBadge(severity) {
   if (!severity) return "—";
-  const label = String(severity);
-  const style = getSeverityStyle(label);
+  const label = resolveSeverityLabel(severity);
   return (
     <span
-      className="inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold"
-      style={style}
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getSeverityBadgeClassName(label)}`}
     >
       {label}
     </span>

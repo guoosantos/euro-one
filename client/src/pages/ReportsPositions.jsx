@@ -22,6 +22,7 @@ import {
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
+import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -112,6 +113,19 @@ function formatByDescriptor(key, value) {
   }
   return value ?? "—";
 
+}
+
+function renderSeverityBadge(value) {
+  if (!value) return "—";
+  const label = String(value);
+  const display = resolveSeverityLabel(label);
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getSeverityBadgeClassName(label)}`}
+    >
+      {display}
+    </span>
+  );
 }
 
 function formatIgnition(value) {
@@ -230,6 +244,8 @@ export default function ReportsPositions() {
   const [exportingXlsx, setExportingXlsx] = useState(false);
   const [exportingCsv, setExportingCsv] = useState(false);
   const [exportFormat, setExportFormat] = useState("pdf");
+  const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
   const [hideUnavailableIgnition, setHideUnavailableIgnition] = useState(false);
   const lastFilterKeyRef = useRef("");
   const [page, setPage] = useState(1);
@@ -292,6 +308,14 @@ export default function ReportsPositions() {
     }
   }, [availableColumns.length, positions.length]);
 
+  const showToast = useCallback((message, type = "success") => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
+
 
   const visibleColumns = useMemo(
     () => resolveVisibleColumns(availableColumns, columnPrefs),
@@ -303,9 +327,12 @@ export default function ReportsPositions() {
       visibleColumns.map((column) => ({
         ...column,
         width: columnPrefs?.widths?.[column.key] ?? column.width,
-        render: column.key === "address"
-          ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
-          : column.render,
+        render:
+          column.key === "address"
+            ? (row) => buildAddressWithLatLng(row.address, row.lat, row.lng)
+            : ["eventSeverity", "criticality"].includes(column.key)
+              ? (row) => renderSeverityBadge(row[column.key])
+              : column.render,
       })),
     [visibleColumns, columnPrefs],
   );
@@ -576,16 +603,14 @@ export default function ReportsPositions() {
   };
 
   const handleExportPdf = async () => {
+    setPdfModalOpen(false);
     const resolvedPayload = await resolveExportPayload();
     if (!resolvedPayload) return;
     setExportingPdf(true);
     try {
       const blob = await exportPdf(resolvedPayload.payload);
       if (!(blob instanceof Blob) || blob.size === 0) {
-        setFeedback({
-          type: "error",
-          message: "PDF não foi recebido. Tente novamente em instantes.",
-        });
+        showToast("Erro ao solicitar exportação do PDF.", "error");
         return;
       }
       const url = URL.createObjectURL(blob);
@@ -596,16 +621,9 @@ export default function ReportsPositions() {
       link.click();
       link.remove();
       URL.revokeObjectURL(url);
-      setPdfModalOpen(false);
+      showToast("Exportação do PDF solicitada com sucesso.");
     } catch (requestError) {
-      const abortedMessage =
-        requestError?.aborted || requestError?.name === "TimeoutError"
-          ? "A exportação demorou mais que o esperado. Tente novamente."
-          : null;
-      setFeedback({
-        type: "error",
-        message: abortedMessage || requestError?.message || "Falha ao exportar PDF.",
-      });
+      showToast("Erro ao solicitar exportação do PDF.", "error");
     } finally {
       setExportingPdf(false);
     }
@@ -713,6 +731,10 @@ export default function ReportsPositions() {
     [availableColumns],
 
   );
+  const toastClassName =
+    toast?.type === "error"
+      ? "border-red-500/30 bg-red-500/15 text-red-100"
+      : "border-emerald-500/30 bg-emerald-500/15 text-emerald-100";
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
@@ -1004,7 +1026,8 @@ export default function ReportsPositions() {
               </button>
               <button
                 type="button"
-                className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60"
+                className="rounded-md border border-primary/40 bg-primary/20 px-3 py-2 text-[11px] font-semibold text-white hover:border-primary/60 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={(exportFormat === "pdf" && exportingPdf) || exportingXlsx || exportingCsv}
                 onClick={
                   exportFormat === "xlsx"
                     ? handleExportXlsx
@@ -1013,10 +1036,15 @@ export default function ReportsPositions() {
                       : handleExportPdf
                 }
               >
-                Confirmar
+                {exportFormat === "pdf" && exportingPdf ? "Solicitando..." : "Confirmar"}
               </button>
             </div>
           </div>
+        </div>
+      )}
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-[9999] rounded-xl border px-4 py-3 text-sm shadow-lg ${toastClassName}`}>
+          {toast.message}
         </div>
       )}
     </div>

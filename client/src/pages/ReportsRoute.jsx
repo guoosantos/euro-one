@@ -24,6 +24,7 @@ import {
   resolveReportColumnLabel,
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
+import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 
   const COLUMN_STORAGE_KEY = "routeReportColumns";
 
@@ -229,7 +230,19 @@ export default function ReportsRoute() {
         label: resolveReportColumnLabel("criticality", "Criticidade"),
         fullLabel: resolveReportColumnTooltip("criticality", "Criticidade"),
         defaultVisible: false,
-        render: (point) => point?.attributes?.severity || point?.severity || "—",
+        render: (point) => {
+          const severity = point?.attributes?.severity || point?.severity;
+          if (!severity) return "—";
+          const label = String(severity);
+          const display = resolveSeverityLabel(label);
+          return (
+            <span
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getSeverityBadgeClassName(label)}`}
+            >
+              {display}
+            </span>
+          );
+        },
       },
       {
         key: "geofence",
