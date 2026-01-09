@@ -634,6 +634,7 @@ function buildHtml({
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         color: #ffffff;
         box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
+        width: 100%;
       }
       .intro-title-row {
         display: grid;
@@ -758,12 +759,12 @@ function buildHtml({
         align-items: center;
         border-radius: 999px;
         border: 1px solid transparent;
-        padding: 2px 8px;
-        font-size: 9px;
+        padding: 1px 6px;
+        font-size: 8px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        line-height: 1.2;
+        line-height: 1.1;
       }
       .severity-badge--info {
         background: #ffffff;
@@ -840,6 +841,7 @@ function buildHtml({
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        width: 100%;
       }
       .meta-chips {
         display: flex;
