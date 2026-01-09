@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import { PDFDocument } from "pdf-lib";
 import { positionsColumnMap, positionsColumns, resolveColumnLabel } from "../../shared/positionsColumns.js";
 import { resolveTelemetryDescriptor } from "../../shared/telemetryDictionary.js";
 import { formatFullAddress } from "./address.js";
@@ -510,7 +511,7 @@ function buildHtml({
             })
             .join("");
         }
-        const shouldStartPage = isFirstSegment || previousType === "positions";
+        const shouldStartPage = isFirstSegment;
         const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
         const metaHeader = pageBreak ? renderReportMetaHeader() : "";
         previousType = "action";
@@ -1023,7 +1024,7 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 0;
+        margin: 24mm 12mm 20mm 12mm;
       }
     </style>
   </head>
@@ -1163,16 +1164,40 @@ export async function generatePositionsReportPdf({
       </div>
     `;
 
-    return await page.pdf({
+    const pdfOptions = {
       format: needsWidePage ? "A3" : "A4",
       landscape: true,
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
-      displayHeaderFooter: true,
       margin: { top: "24mm", right: "12mm", bottom: "20mm", left: "12mm" },
+    };
+
+    const pdfWithHeader = await page.pdf({
+      ...pdfOptions,
+      displayHeaderFooter: true,
       footerTemplate,
       headerTemplate,
     });
+
+    const pdfWithoutHeader = await page.pdf({
+      ...pdfOptions,
+      displayHeaderFooter: false,
+      pageRanges: "1",
+    });
+
+    const headerDoc = await PDFDocument.load(pdfWithHeader);
+    if (headerDoc.getPageCount() <= 1) {
+      return pdfWithoutHeader;
+    }
+
+    const firstPageDoc = await PDFDocument.load(pdfWithoutHeader);
+    const mergedDoc = await PDFDocument.create();
+    const [firstPage] = await mergedDoc.copyPages(firstPageDoc, [0]);
+    mergedDoc.addPage(firstPage);
+    const remainingPages = Array.from({ length: headerDoc.getPageCount() - 1 }, (_, index) => index + 1);
+    const copiedRemaining = await mergedDoc.copyPages(headerDoc, remainingPages);
+    copiedRemaining.forEach((page) => mergedDoc.addPage(page));
+    return await mergedDoc.save();
   } catch (error) {
     const normalized = new Error(error?.message || "Falha ao gerar PDF de posições.");
     normalized.code = error?.code || "POSITIONS_PDF_ERROR";
