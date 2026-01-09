@@ -1,4 +1,5 @@
 import { resolveTelemetryDescriptor } from "./telemetryDictionary.js";
+import { resolveReportColumnLabelOverride } from "./reportColumnLabels.js";
 
 const BASE_COLUMNS = [
   { key: "gpsTime", labelPt: "Hora do Evento", labelPdf: "Hora do Evento", width: 140, defaultVisible: true, weight: 1.4, group: "base" },
@@ -207,7 +208,7 @@ const BASE_COLUMNS = [
   },
 
   { key: "deviceTime", labelPt: "Hora do Dispositivo", labelPdf: "Hora do Dispositivo", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
-  { key: "serverTime", labelPt: "Hora Servidor", labelPdf: "Hora Servidor", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
+  { key: "serverTime", labelPt: "Hora do Servidor", labelPdf: "Hora do Servidor", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
   { key: "latitude", labelPt: "Latitude", labelPdf: "Latitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
   { key: "longitude", labelPt: "Longitude", labelPdf: "Longitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
   { key: "direction", labelPt: "Direção em graus", labelPdf: "Direção em graus", width: 140, defaultVisible: false, weight: 1.1, group: "other" },
@@ -239,7 +240,7 @@ const IOTM_REPORT_COLUMN_LABELS = {
   distance: "Distância",
   totaldistance: "Distância Total",
   devicetime: "Hora do Dispositivo",
-  servertime: "Hora Servidor",
+  servertime: "Hora do Servidor",
   latitude: "Latitude",
   longitude: "Longitude",
   direction: "Direção em graus",
@@ -524,7 +525,8 @@ export function resolveColumnLabel(column, variant = "pt", options = {}) {
     const resolved = resolveIotmReportColumnLabel(column.key, label);
     return resolved || label;
   }
-  return withUnit(label, column.unit);
+  const override = resolveReportColumnLabelOverride(column.key, label);
+  return withUnit(override || label, column.unit);
 }
 
 export function resolveColumnDefinition(key, { protocol } = {}) {

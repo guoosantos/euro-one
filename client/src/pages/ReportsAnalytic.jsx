@@ -2,8 +2,10 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import VehicleSelector from "../components/VehicleSelector.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
+import HeaderBar from "../components/reports/HeaderBar.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
+import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import {
   loadColumnPreferences,
@@ -27,6 +29,8 @@ const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 1000;
 const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
+const IO_EVENT_INPUTS = [2, 4];
+const IO_EVENT_STATUS_RESET = "Veículo voltou ao normal";
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -111,7 +115,6 @@ function formatByDescriptor(key, value) {
     return text || "—";
   }
   return value ?? "—";
-
 }
 
 function formatIgnition(value) {
@@ -123,6 +126,39 @@ function formatIoState(value) {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Sim" : "Não";
   return value;
+}
+
+function normalizeIoValue(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  if (typeof value === "string") {
+    const trimmed = value.trim().toLowerCase();
+    if (["sim", "ativo", "ligado", "on", "1"].includes(trimmed)) return true;
+    if (["não", "nao", "inativo", "desligado", "off", "0"].includes(trimmed)) return false;
+  }
+  return null;
+}
+
+function resolveInputState(position, inputIndex) {
+  if (!position) return null;
+  const lowerMap = Object.entries(position).reduce((acc, [key, value]) => {
+    acc[String(key).toLowerCase()] = value;
+    return acc;
+  }, {});
+  const candidates = [
+    `digitalinput${inputIndex}`,
+    `input${inputIndex}`,
+    `in${inputIndex}`,
+    `signalin${inputIndex}`,
+  ];
+  for (const key of candidates) {
+    if (Object.prototype.hasOwnProperty.call(lowerMap, key)) {
+      const normalized = normalizeIoValue(lowerMap[key]);
+      if (normalized !== null) return normalized;
+    }
+  }
+  return null;
 }
 
 function formatDynamicValue(key, value, definition) {
@@ -214,6 +250,7 @@ function buildCsvFileName(vehicle, from, to, target = "positions") {
 export default function ReportsAnalytic() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
   const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = useAnalyticReport();
+  const { portsIndex } = useModelPorts();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -406,9 +443,55 @@ export default function ReportsAnalytic() {
     return list.map(buildPositionRow);
   }, [buildPositionRow, positions]);
 
+  const ioEventEntries = useMemo(() => {
+    if (!Array.isArray(positions) || positions.length === 0) return [];
+    const events = [];
+    const lastState = new Map();
+    const protocol = meta?.protocol || positions?.[0]?.protocol || null;
+    const deviceModel = meta?.deviceModel || positions?.[0]?.deviceModel || null;
+    positions.forEach((position) => {
+      const timestamp = position?.deviceTime || position?.serverTime || position?.gpsTime || null;
+      if (!timestamp) return;
+      IO_EVENT_INPUTS.forEach((inputIndex) => {
+        const currentState = resolveInputState(position, inputIndex);
+        if (currentState === null) return;
+        const previousState = lastState.get(inputIndex);
+        if (previousState === null || previousState === undefined) {
+          lastState.set(inputIndex, currentState);
+          return;
+        }
+        if (previousState === currentState) return;
+        lastState.set(inputIndex, currentState);
+        const title = resolvePortLabel(portsIndex, {
+          protocol,
+          model: deviceModel,
+          index: inputIndex,
+          fallback: `Entrada ${inputIndex}`,
+        });
+        const severity = position?.eventSeverity || position?.criticality || "Normal";
+        const address = buildAddressWithLatLng(
+          position?.address || position?.formattedAddress || position?.shortAddress,
+          position?.latitude,
+          position?.longitude,
+        );
+        events.push({
+          id: `${position?.id || timestamp}-input-${inputIndex}-${currentState ? "on" : "off"}`,
+          type: "io-event",
+          timestamp,
+          title,
+          criticality: severity,
+          statusText: currentState ? "Entrada ativada" : IO_EVENT_STATUS_RESET,
+          address,
+          deviceTime: position?.deviceTime || null,
+          serverTime: position?.serverTime || null,
+        });
+      });
+    });
+    return events;
+  }, [meta?.deviceModel, meta?.protocol, portsIndex, positions]);
+
 
   const timelineEntries = useMemo(() => {
-    if (Array.isArray(entries) && entries.length) return entries;
     const positionEntries = (positions || []).map((position) => ({
       id: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
       type: "position",
@@ -420,10 +503,19 @@ export default function ReportsAnalytic() {
       type: "action",
       timestamp: action.sentAt || action.respondedAt || action.timestamp || null,
     }));
-    return [...positionEntries, ...actionEntries]
+    const baseEntries = Array.isArray(entries) && entries.length ? entries : [...positionEntries, ...actionEntries];
+    const merged = [...baseEntries, ...ioEventEntries];
+    return merged
       .filter((entry) => entry.timestamp)
-      .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  }, [actions, entries, positions]);
+      .sort((a, b) => {
+        const timeDelta = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+        if (timeDelta !== 0) return timeDelta;
+        const priority = { "io-event": 0, position: 1, action: 2 };
+        const aRank = priority[a.type] ?? 3;
+        const bRank = priority[b.type] ?? 3;
+        return aRank - bRank;
+      });
+  }, [actions, entries, ioEventEntries, positions]);
 
   const timelineSegments = useMemo(() => {
     const segments = [];
@@ -438,8 +530,8 @@ export default function ReportsAnalytic() {
         segments.push({ type: "positions", rows: buffer });
         buffer = [];
       }
-      if (entry?.type === "action") {
-        segments.push({ type: "action", entry });
+      if (entry?.type === "action" || entry?.type === "io-event") {
+        segments.push({ type: entry.type, entry });
       }
     });
 
@@ -788,6 +880,14 @@ export default function ReportsAnalytic() {
     return "neutral";
   };
 
+  const resolveCriticalityVariant = (criticality) => {
+    const normalized = String(criticality || "").toUpperCase();
+    if (["ALTA", "CRÍTICA", "CRITICA", "ALERT", "ALERTA", "HIGH"].includes(normalized)) return "danger";
+    if (["MÉDIA", "MEDIA", "WARN", "WARNING", "ATENÇÃO", "ATENCAO"].includes(normalized)) return "warning";
+    if (["BAIXA", "LOW", "INFO", "INFORMATIVO", "NORMAL"].includes(normalized)) return "neutral";
+    return "neutral";
+  };
+
   const buildActionSummary = (entry) => {
     const details = entry?.details || {};
     const summary =
@@ -844,6 +944,45 @@ export default function ReportsAnalytic() {
               <div className="text-[13px] text-white/80">{field.value || "—"}</div>
             </div>
           ))}
+        </div>
+      </div>
+    );
+  };
+
+  const renderIoEventCard = (entry) => {
+    const eventTime = formatDateTime(entry?.deviceTime || entry?.serverTime || entry?.timestamp);
+    const criticalityLabel = entry?.criticality || "Normal";
+    const variant = resolveCriticalityVariant(criticalityLabel);
+    const badgeStyles = {
+      warning: "border-yellow-400/40 bg-yellow-500/15 text-yellow-100",
+      danger: "border-red-400/40 bg-red-500/15 text-red-100",
+      neutral: "border-white/10 bg-white/10 text-white/60",
+    };
+    return (
+      <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-white/85 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/80">
+            {entry?.title || "Entrada"}
+          </span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
+          >
+            {criticalityLabel}
+          </span>
+        </div>
+        <div className="mt-2 grid grid-cols-2 gap-3 text-[12px] text-white/70">
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Horário</div>
+            <div className="text-[13px] text-white/85">{eventTime}</div>
+          </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Status</div>
+            <div className="text-[13px] text-white/85">{entry?.statusText || "—"}</div>
+          </div>
+        </div>
+        <div className="mt-2 text-[12px] text-white/70">
+          <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Local</div>
+          <div className="text-[13px] text-white/85">{entry?.address || "—"}</div>
         </div>
       </div>
     );
@@ -1067,6 +1206,13 @@ export default function ReportsAnalytic() {
           </div>
         )}
       </form>
+      <HeaderBar
+        vehicleName={meta?.vehicle?.name || selectedVehicle?.name || "—"}
+        plate={meta?.vehicle?.plate || selectedVehicle?.plate || "—"}
+        client={meta?.vehicle?.customer || selectedVehicle?.customer || "—"}
+        from={from}
+        to={to}
+      />
 
       <section className="flex-1 min-h-0 space-y-4">
         {timelineSegments.length ? (
@@ -1092,6 +1238,9 @@ export default function ReportsAnalytic() {
             }
             if (segment.type === "action") {
               return <div key={`segment-${index}`}>{renderActionCard(segment.entry)}</div>;
+            }
+            if (segment.type === "io-event") {
+              return <div key={`segment-${index}`}>{renderIoEventCard(segment.entry)}</div>;
             }
             return null;
           })
