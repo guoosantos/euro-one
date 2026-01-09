@@ -9,7 +9,7 @@ const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-20
 const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
 const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
-const CONTENT_GUTTER_PX = 8;
+const CONTENT_GUTTER_PX = 0;
 
 let cachedLogoDataUrl = null;
 let cachedFontRegular = null;
@@ -296,6 +296,7 @@ function buildHtml({
       wrapContainer = true,
     } = {},
   ) => {
+    if (!Array.isArray(sliceRows) || sliceRows.length === 0) return "";
     const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
@@ -391,7 +392,18 @@ function buildHtml({
   const safeActions = Array.isArray(actions) ? actions : [];
   const safeEntries = Array.isArray(entries) ? entries : [];
 
+  const hasActionContent = (action) => {
+    if (!action || typeof action !== "object") return false;
+    const title = String(action?.actionLabel || action?.actionType || "").trim();
+    const status = String(action?.status || "").trim();
+    const summary = buildActionSummary(action);
+    const hasSummary = summary && summary !== "—";
+    const hasMeta = [action?.sentAt, action?.respondedAt, action?.user, action?.ipAddress].some(Boolean);
+    return Boolean(title || status || hasSummary || hasMeta);
+  };
+
   const renderActionCard = (action) => {
+    if (!hasActionContent(action)) return "";
     const statusVariant = resolveStatusVariant(action?.status);
     const statusLabel = action?.status || "—";
     const title = action?.actionLabel || action?.actionType || "Ação do usuário";
@@ -457,7 +469,6 @@ function buildHtml({
   `;
 
   const renderTimeline = () => {
-    let isFirstPage = true;
     const segments = [];
     let buffer = [];
     safeEntries.forEach((entry) => {
@@ -478,54 +489,38 @@ function buildHtml({
     if (!segments.length) {
       const fallbackSlices = chunkArray(rows, chunkSize);
       return fallbackSlices
-        .map((slice, index) => {
-          const pageBreak = index === 0 ? "" : '<div class="page-break"></div>';
-          isFirstPage = false;
-          return `${pageBreak}${renderTable(slice, index, {
+        .map((slice, index) =>
+          renderTable(slice, index, {
             includeHeader: false,
             includePageBreak: false,
-            includeMetaHeader: index > 0,
-          })}`;
-        })
+            includeMetaHeader: false,
+          }),
+        )
+        .filter(Boolean)
         .join("");
     }
 
-    let previousType = null;
-    let isFirstSegment = true;
     return segments
-      .map((segment) => {
+      .flatMap((segment) => {
         if (segment.type === "positions") {
-          const chunks = chunkArray(segment.rows, chunkSize);
-          previousType = "positions";
-          isFirstSegment = false;
-          return chunks
-            .map((slice, chunkIndex) => {
-              const needsPageBreak = !isFirstPage || chunkIndex > 0;
-              const pageBreak = needsPageBreak ? '<div class="page-break"></div>' : "";
-              isFirstPage = false;
-              return `${pageBreak}${renderTable(slice, 0, {
+          return chunkArray(segment.rows, chunkSize)
+            .map((slice, index) =>
+              renderTable(slice, index, {
                 includeHeader: false,
                 includePageBreak: false,
-                includeMetaHeader: needsPageBreak,
-              })}`;
-            })
-            .join("");
+                includeMetaHeader: false,
+              }),
+            )
+            .filter(Boolean);
         }
-        const shouldStartPage = isFirstSegment;
-        const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
-        const metaHeader = pageBreak ? renderReportMetaHeader() : "";
-        previousType = "action";
-        isFirstSegment = false;
-        if (!isFirstPage) {
-          return `${pageBreak}${metaHeader}${renderActionCard(segment.entry)}`;
-        }
-        isFirstPage = false;
-        return `${renderActionCard(segment.entry)}`;
+        const card = renderActionCard(segment.entry);
+        return card ? [card] : [];
       })
       .join("");
   };
 
-  const actionsSection = safeActions.length
+  const validActions = safeActions.filter(hasActionContent);
+  const actionsSection = validActions.length
     ? `
       <div class="page-break"></div>
       <div class="section">
@@ -534,7 +529,7 @@ function buildHtml({
           <div class="section-subtitle">${escapeHtml(actionsSubtitle)}</div>
         </div>
         <div class="actions-grid">
-          ${safeActions.map((action) => renderActionCard(action)).join("")}
+          ${validActions.map((action) => renderActionCard(action)).join("")}
         </div>
       </div>
     `
@@ -1142,8 +1137,8 @@ export async function generatePositionsReportPdf({
       .join("");
     // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box;">
-        <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
           ${
             logoDataUrl
               ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
