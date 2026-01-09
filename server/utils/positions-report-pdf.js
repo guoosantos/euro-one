@@ -638,7 +638,7 @@ function buildHtml({
       }
       .report-header {
         border-radius: 12px;
-        padding: 14px 16px;
+        padding: 10px 16px;
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         display: flex;
         flex-direction: column;
@@ -655,10 +655,12 @@ function buildHtml({
         font-size: 16px;
         color: #ffffff;
         letter-spacing: 0.12em;
+        line-height: 1.1;
       }
       .report-header-title .subtitle {
         color: rgba(255,255,255,0.88);
         margin-top: 2px;
+        line-height: 1.1;
       }
       .intro-card {
         border-radius: 16px;
@@ -1140,14 +1142,14 @@ export async function generatePositionsReportPdf({
     // Keep header gutters aligned with .report padding (CONTENT_GUTTER_PX).
     const headerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(8mm + ${CONTENT_GUTTER_PX}px); box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact;">
-        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:3mm 5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:13mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
+        <div style="background-color:${BRAND_COLOR}; background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 5mm; border-radius:10px; display:flex; align-items:center; justify-content:center; min-height:11mm; box-shadow:0 6px 12px rgba(1,42,88,0.18); -webkit-print-color-adjust:exact; print-color-adjust:exact;">
           <div style="display:flex; align-items:center; justify-content:center; gap:10px; max-width:100%;">
             ${
               logoDataUrl
-                ? `<img src="${logoDataUrl}" style="height:36px; object-fit:contain;" />`
+                ? `<img src="${logoDataUrl}" style="height:34px; object-fit:contain;" />`
                 : `<span style="font-size:11px; font-weight:700; letter-spacing:0.12em; padding:2px 6px; border:1px solid rgba(255,255,255,0.55); border-radius:6px;">EURO ONE</span>`
             }
-            <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; text-align:center;">
+            <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.1; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; text-align:center;">
               <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:center;">
                 ${headerMetaLine}
               </span>
@@ -1180,6 +1182,7 @@ export async function generatePositionsReportPdf({
         displayHeaderFooter: true,
         footerTemplate,
         headerTemplate,
+        margin: { ...pdfOptions.margin, top: "30mm" },
       }),
     ]);
 
