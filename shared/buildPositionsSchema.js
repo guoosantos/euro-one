@@ -26,8 +26,6 @@ const EXCLUDED_KEYS = new Set([
   "shortaddress",
   "formatted_address",
   "short_address",
-  "digitalinput2",
-  "digitalinput4",
   "digitalinput5",
   "digitalinput6",
   "digitalinput7",

@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
+import { getModelById } from "../models/model.js";
 import { listVehicles } from "../models/vehicle.js";
 import { getClientById } from "../models/client.js";
 import { getEventResolution, markEventResolved } from "../models/resolved-event.js";
@@ -4160,6 +4161,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
   if (!device?.traccarId) {
     throw createError(409, "Equipamento vinculado sem traccarId");
   }
+  const deviceModelRecord = device?.modelId ? getModelById(device.modelId) : null;
 
   const traccarId = String(device.traccarId);
   const page = pagination?.page || 1;
@@ -4515,6 +4517,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
     exportedBy: req.user?.name || req.user?.username || req.user?.email || req.user?.id || null,
     protocol,
     deviceModel,
+    modelPorts: deviceModelRecord?.ports || [],
     availableColumns: columns.map((column) => column.key),
     totalItems,
     totalPages,
@@ -4538,6 +4541,78 @@ function resolvePositionTimestamp(position) {
     resolveTimelineTimestamp(position.gpsTime) ||
     resolveTimelineTimestamp(position.deviceTime)
   );
+}
+
+function normalizeIoState(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value > 0;
+  const text = String(value).trim().toLowerCase();
+  if (!text) return null;
+  if (["1", "true", "sim", "ativo", "ligado", "on"].includes(text)) return true;
+  if (["0", "false", "nao", "não", "inativo", "desligado", "off"].includes(text)) return false;
+  return null;
+}
+
+function resolveIoValue(position, index) {
+  const direct = position[`digitalInput${index}`];
+  if (direct !== undefined) return direct;
+  const alt = position[`input${index}`] ?? position[`in${index}`] ?? position[`signalIn${index}`];
+  if (alt !== undefined) return alt;
+  return null;
+}
+
+function resolveIoStatusText(label, active) {
+  const normalized = String(label || "").toLowerCase();
+  if (active) {
+    if (normalized.includes("bloque")) return "Veículo bloqueado";
+    return "Entrada ativada";
+  }
+  return "Veículo voltou ao normal";
+}
+
+function buildIoEventEntries(positions = [], modelPorts = []) {
+  const sorted = [...positions].sort(
+    (a, b) => new Date(resolvePositionTimestamp(a) || 0).getTime() - new Date(resolvePositionTimestamp(b) || 0).getTime(),
+  );
+  const events = [];
+  const lastState = new Map();
+  [2, 4].forEach((index) => lastState.set(index, null));
+
+  sorted.forEach((position) => {
+    const timestamp = resolvePositionTimestamp(position);
+    if (!timestamp) return;
+    [2, 4].forEach((index) => {
+      const raw = resolveIoValue(position, index);
+      const state = normalizeIoState(raw);
+      if (state === null) return;
+      const previous = lastState.get(index);
+      if (previous === null) {
+        lastState.set(index, state);
+        return;
+      }
+      if (previous === state) return;
+      lastState.set(index, state);
+      const portLabel = modelPorts?.[index - 1]?.label;
+      const title = portLabel && String(portLabel).trim() ? String(portLabel).trim() : `Entrada ${index}`;
+      events.push({
+        id: `io-${index}-${position.id ?? timestamp}`,
+        type: "io-event",
+        ioIndex: index,
+        title,
+        severity: position.eventSeverity || "info",
+        active: state,
+        statusText: resolveIoStatusText(title, state),
+        timestamp,
+        address: position.formattedAddress || position.address || null,
+        latitude: position.latitude ?? null,
+        longitude: position.longitude ?? null,
+        position,
+      });
+    });
+  });
+
+  return events;
 }
 
 async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination }) {
@@ -4596,9 +4671,23 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
     position,
   }));
 
-  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries]
+  const ioEntries = buildIoEventEntries(positionsReport.positions, positionsReport.meta?.modelPorts);
+  const priorityByType = new Map([
+    ["io-event", 0],
+    ["position", 1],
+    ["action", 2],
+  ]);
+
+  const entries = [...ioEntries, ...positionEntries, ...commandEntries, ...auditActionEntries]
     .filter((entry) => entry.timestamp)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    .sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      if (timeA !== timeB) return timeA - timeB;
+      const priorityA = priorityByType.get(a.type) ?? 99;
+      const priorityB = priorityByType.get(b.type) ?? 99;
+      return priorityA - priorityB;
+    });
 
   return {
     positions: positionsReport.positions,
