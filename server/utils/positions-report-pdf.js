@@ -275,7 +275,25 @@ function buildHtml({
 
   const columnsGroup = columns?.length ? columns : [];
 
-  const renderTable = (sliceRows, sliceIndex, { includeHeader = true, includePageBreak = true } = {}) => {
+  const renderReportMetaHeader = () => `
+      <div class="report-meta">
+        <div><span>Veículo</span>${escapeHtml(meta?.vehicle?.name || "—")}</div>
+        <div><span>Placa</span>${escapeHtml(meta?.vehicle?.plate || "—")}</div>
+        <div><span>Cliente</span>${escapeHtml(meta?.vehicle?.customer || "—")}</div>
+        <div><span>Período</span>${escapeHtml(`${formatDate(meta?.from)} → ${formatDate(meta?.to)}`)}</div>
+      </div>
+    `;
+
+  const renderTable = (
+    sliceRows,
+    sliceIndex,
+    {
+      includeHeader = true,
+      includePageBreak = true,
+      includeMetaHeader = false,
+      wrapContainer = true,
+    } = {},
+  ) => {
     const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
@@ -345,20 +363,24 @@ function buildHtml({
       </div>
     `
       : "";
+    const metaHeaderBlock = includeMetaHeader ? renderReportMetaHeader() : "";
     return `
       ${pageBreak}
-      ${headerBlock}
-      <div class="table-wrapper">
-        <table>
-          <colgroup>${colgroup}</colgroup>
-          <thead>
-            <tr>${tableHeaders}</tr>
-          </thead>
-          <tbody>
-            ${tableRows || `<tr><td colspan="${columnsGroup.length}">—</td></tr>`}
-          </tbody>
-        </table>
-      </div>
+      ${wrapContainer ? '<div class="report-content">' : ""}
+        ${headerBlock}
+        ${metaHeaderBlock}
+        <div class="table-wrapper">
+          <table>
+            <colgroup>${colgroup}</colgroup>
+            <thead>
+              <tr>${tableHeaders}</tr>
+            </thead>
+            <tbody>
+              ${tableRows || `<tr><td colspan="${columnsGroup.length}">—</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      ${wrapContainer ? "</div>" : ""}
     `;
   };
 
@@ -460,6 +482,7 @@ function buildHtml({
           return `${pageBreak}${renderTable(slice, index, {
             includeHeader: false,
             includePageBreak: false,
+            includeMetaHeader: index > 0,
           })}`;
         })
         .join("");
@@ -481,16 +504,18 @@ function buildHtml({
               return `${pageBreak}${renderTable(slice, 0, {
                 includeHeader: false,
                 includePageBreak: false,
+                includeMetaHeader: needsPageBreak,
               })}`;
             })
             .join("");
         }
         const shouldStartPage = isFirstSegment || previousType === "positions";
         const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
+        const metaHeader = pageBreak ? renderReportMetaHeader() : "";
         previousType = "action";
         isFirstSegment = false;
         if (!isFirstPage) {
-          return `${pageBreak}${renderActionCard(segment.entry)}`;
+          return `${pageBreak}${metaHeader}${renderActionCard(segment.entry)}`;
         }
         isFirstPage = false;
         return `${renderActionCard(segment.entry)}`;
@@ -554,6 +579,16 @@ function buildHtml({
         display: flex;
         flex-direction: column;
         gap: 16px;
+        width: 100%;
+      }
+      .report-content {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        width: 100%;
+      }
+      .report-content > * {
+        width: 100%;
       }
       .header {
         padding: 18px 20px;
@@ -634,6 +669,7 @@ function buildHtml({
         background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
         color: #ffffff;
         box-shadow: 0 10px 18px rgba(1, 42, 88, 0.24);
+        width: 100%;
       }
       .intro-title-row {
         display: grid;
@@ -699,6 +735,27 @@ function buildHtml({
         border: 1px solid #e2e8f0;
         font-size: 11px;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        width: 100%;
+      }
+      .report-meta {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px 16px;
+        padding: 12px 16px;
+        border-radius: 12px;
+        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
+        color: #ffffff;
+        font-size: 11px;
+        width: 100%;
+      }
+      .report-meta span {
+        display: block;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 9px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 3px;
       }
       .meta-item span {
         display: block;
@@ -715,6 +772,7 @@ function buildHtml({
         padding: 16px 16px 6px;
         background: #ffffff;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        width: 100%;
       }
       .card-title {
         font-size: 13px;
@@ -756,14 +814,15 @@ function buildHtml({
       .severity-badge {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         border-radius: 999px;
         border: 1px solid transparent;
-        padding: 2px 8px;
-        font-size: 9px;
+        padding: 1px 6px;
+        font-size: 8px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.08em;
-        line-height: 1.2;
+        line-height: 1.1;
       }
       .severity-badge--info {
         background: #ffffff;
@@ -840,6 +899,7 @@ function buildHtml({
         border-radius: 14px;
         overflow: hidden;
         box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+        width: 100%;
       }
       .meta-chips {
         display: flex;
