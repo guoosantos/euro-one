@@ -199,6 +199,16 @@ async function bootstrapServer() {
       }
     }
 
+    let stopXdmPoller = () => {};
+    const xdmPollerModule = await importWithLog("./jobs/xdm-deployments-poller.js");
+    if (xdmPollerModule?.startXdmDeploymentsPoller) {
+      try {
+        stopXdmPoller = xdmPollerModule.startXdmDeploymentsPoller();
+      } catch (error) {
+        console.warn("[startup] Falha ao iniciar poller XDM", error?.message || error);
+      }
+    }
+
     const appModule = await importWithLog("./app.js", { required: true });
     const realApp = appModule?.default;
     if (!realApp) {
@@ -424,6 +434,7 @@ async function bootstrapServer() {
       wss.close();
       stopGeocodeWorker();
       stopGeocodeMonitor();
+      stopXdmPoller();
     };
 
     process.on("SIGTERM", shutdown);

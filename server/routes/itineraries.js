@@ -14,7 +14,8 @@ import {
   updateItinerary,
   deleteItinerary,
 } from "../models/itinerary.js";
-import { addEmbarkEntries, getEmbarkPairIndex, listEmbarkHistory } from "../models/itinerary-embark.js";
+import { listDeployments, toHistoryEntries, getDeploymentById } from "../models/xdm-deployment.js";
+import { queueDeployment } from "../services/xdm/deployment-service.js";
 
 const router = express.Router();
 
@@ -150,7 +151,42 @@ router.get("/itineraries/:id/export/kml", async (req, res, next) => {
 router.get("/itineraries/embark/history", async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
-    const history = listEmbarkHistory(clientId ? { clientId } : {});
+    const deployments = listDeployments(clientId ? { clientId } : {});
+    const vehicles = listVehicles(clientId ? { clientId } : {}).reduce((acc, vehicle) => {
+      acc.set(String(vehicle.id), vehicle);
+      return acc;
+    }, new Map());
+    const itineraries = listItineraries(clientId ? { clientId } : {}).reduce((acc, itinerary) => {
+      acc.set(String(itinerary.id), itinerary);
+      return acc;
+    }, new Map());
+
+    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
+      .map((entry) => {
+        const status = entry.status || "SYNCING";
+        const statusLabel =
+          status === "DEPLOYED"
+            ? "Deployed"
+            : status === "DEPLOYING"
+              ? "Deploying"
+              : status === "FAILED"
+                ? "Failed"
+                : status === "TIMEOUT"
+                  ? "Timeout"
+                  : "Enviado";
+        const result =
+          status === "DEPLOYED"
+            ? entry.result || "Aplicado com sucesso"
+            : status === "DEPLOYING"
+              ? "Deploy disparado"
+              : status === "FAILED"
+                ? entry.result || "Falha no deploy"
+                : status === "TIMEOUT"
+                  ? "Timeout ao aplicar configuração"
+                  : "Sincronizando cercas";
+        return { ...entry, status: statusLabel, result };
+      });
+
     return res.json({ data: history, error: null });
   } catch (error) {
     return next(error);
@@ -174,7 +210,6 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
       return acc;
     }, new Map());
 
-    const historyIndex = getEmbarkPairIndex();
     const entries = [];
     let success = 0;
     let failed = 0;
@@ -215,21 +250,44 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
           return;
         }
 
-        const pairKey = `${itineraryId}:${vehicleId}`;
-        if (historyIndex.has(pairKey)) {
-          failed += 1;
-          entries.push({ ...entryBase, status: "Falhou", result: "Embarque já enviado para este veículo" });
-          return;
-        }
+        const { deployment, status } = queueDeployment({
+          clientId,
+          itineraryId,
+          vehicleId,
+          deviceImei: vehicle.deviceImei,
+          requestedByUserId: req.user?.id || null,
+          requestedByName: userLabel,
+          ipAddress,
+        });
 
         success += 1;
-        entries.push({ ...entryBase, status: "Enviado", result: "Embarque enviado" });
-        historyIndex.add(pairKey);
+        entries.push({
+          ...entryBase,
+          status: status === "ACTIVE" ? "Deploying" : status === "ALREADY_DEPLOYED" ? "Deployed" : "Enviado",
+          result:
+            status === "ACTIVE"
+              ? "Deploy em andamento"
+              : status === "ALREADY_DEPLOYED"
+                ? "Já embarcado"
+                : "Deploy enfileirado",
+          deploymentId: deployment?.id || null,
+        });
       });
     });
+    return res.status(201).json({ data: { entries, summary: { success, failed } }, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
 
-    const stored = addEmbarkEntries(entries);
-    return res.status(201).json({ data: { entries: stored, summary: { success, failed } }, error: null });
+router.get("/deployments/:id", async (req, res, next) => {
+  try {
+    const deployment = getDeploymentById(req.params.id);
+    if (!deployment) {
+      throw createError(404, "Deploy não encontrado");
+    }
+    ensureSameClient(req.user, deployment.clientId);
+    return res.json({ data: deployment, error: null });
   } catch (error) {
     return next(error);
   }

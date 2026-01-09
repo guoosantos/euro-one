@@ -205,6 +205,8 @@ export function createVehicle({
   status = "ativo",
   notes = "",
   deviceId = null,
+  deviceImei = null,
+  xdmDeviceUid = null,
 }) {
   if (!clientId) {
     throw createError(400, "clientId é obrigatório");
@@ -256,6 +258,8 @@ export function createVehicle({
     status: status ? String(status).trim() : "ativo",
     notes: notes ? String(notes).trim() : "",
     deviceId: deviceId ? String(deviceId) : null,
+    deviceImei: deviceImei ? String(deviceImei).trim() : null,
+    xdmDeviceUid: xdmDeviceUid ? String(xdmDeviceUid).trim() : null,
     createdAt: now,
     updatedAt: now,
   };
@@ -359,6 +363,12 @@ export function updateVehicle(id, updates = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "deviceId")) {
     record.deviceId = updates.deviceId ? String(updates.deviceId) : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "deviceImei")) {
+    record.deviceImei = updates.deviceImei ? String(updates.deviceImei).trim() : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "xdmDeviceUid")) {
+    record.xdmDeviceUid = updates.xdmDeviceUid ? String(updates.xdmDeviceUid).trim() : null;
   }
   record.updatedAt = new Date().toISOString();
   const stored = persist(record);
