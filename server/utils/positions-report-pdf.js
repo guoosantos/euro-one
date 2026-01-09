@@ -432,39 +432,6 @@ function buildHtml({
     </div>
   `;
 
-  const headerMetaParts = [
-    { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
-    { label: "PLACA", value: meta?.vehicle?.plate || "—" },
-    { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
-    { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
-  ];
-  const headerMetaLine = headerMetaParts
-    .map(
-      (item, index) => `
-          <span class="compact-meta-item">
-            <span class="compact-meta-label">${escapeHtml(item.label)}:</span>
-            <span class="compact-meta-value">${escapeHtml(item.value)}</span>
-          </span>
-          ${index < headerMetaParts.length - 1 ? '<span class="compact-meta-separator">|</span>' : ""}
-        `,
-    )
-    .join("");
-
-  const renderCompactHeader = () => `
-    <div class="compact-header">
-      <div class="compact-header-logo">
-        ${
-          logoDataUrl
-            ? `<img src="${logoDataUrl}" alt="Euro One" />`
-            : `<span class="compact-logo-fallback">EURO ONE</span>`
-        }
-      </div>
-      <div class="compact-header-meta">
-        ${headerMetaLine}
-      </div>
-    </div>
-  `;
-
   const renderTimeline = () => {
     let isFirstPage = true;
     const segments = [];
@@ -489,9 +456,8 @@ function buildHtml({
       return fallbackSlices
         .map((slice, index) => {
           const pageBreak = index === 0 ? "" : '<div class="page-break"></div>';
-          const header = index === 0 ? "" : renderCompactHeader();
           isFirstPage = false;
-          return `${pageBreak}${header}${renderTable(slice, index, {
+          return `${pageBreak}${renderTable(slice, index, {
             includeHeader: false,
             includePageBreak: false,
           })}`;
@@ -511,9 +477,8 @@ function buildHtml({
             .map((slice, chunkIndex) => {
               const needsPageBreak = !isFirstPage || chunkIndex > 0;
               const pageBreak = needsPageBreak ? '<div class="page-break"></div>' : "";
-              const header = isFirstPage ? "" : renderCompactHeader();
               isFirstPage = false;
-              return `${pageBreak}${header}${renderTable(slice, 0, {
+              return `${pageBreak}${renderTable(slice, 0, {
                 includeHeader: false,
                 includePageBreak: false,
               })}`;
@@ -524,9 +489,8 @@ function buildHtml({
         const pageBreak = shouldStartPage && !isFirstPage ? '<div class="page-break"></div>' : "";
         previousType = "action";
         isFirstSegment = false;
-        const header = pageBreak ? renderCompactHeader() : "";
         if (!isFirstPage) {
-          return `${pageBreak}${header}${renderActionCard(segment.entry)}`;
+          return `${pageBreak}${renderActionCard(segment.entry)}`;
         }
         isFirstPage = false;
         return `${renderActionCard(segment.entry)}`;
@@ -724,51 +688,6 @@ function buildHtml({
         text-transform: uppercase;
         letter-spacing: 0.04em;
         margin-bottom: 3px;
-      }
-      .compact-header {
-        border-radius: 12px;
-        padding: 8px 12px;
-        background: linear-gradient(135deg, ${BRAND_COLOR} 0%, #012a58 100%);
-        color: #ffffff;
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 10px;
-        align-items: center;
-        box-shadow: 0 8px 16px rgba(1, 42, 88, 0.2);
-      }
-      .compact-header-logo img {
-        height: 20px;
-        object-fit: contain;
-      }
-      .compact-logo-fallback {
-        font-size: 8px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-      }
-      .compact-header-meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 4px 8px;
-        font-size: 9px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        line-height: 1.3;
-      }
-      .compact-meta-item {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        white-space: nowrap;
-      }
-      .compact-meta-label {
-        opacity: 0.6;
-        font-weight: 600;
-      }
-      .compact-meta-value {
-        font-weight: 700;
-      }
-      .compact-meta-separator {
-        opacity: 0.35;
       }
       .meta-grid {
         display: grid;
@@ -1160,15 +1079,17 @@ export async function generatePositionsReportPdf({
       )
       .join("");
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 28px; box-sizing:border-box;">
-        <div style="background:linear-gradient(90deg,#0a3e78 0%,#0a3a6b 60%,#072b59 100%); color:#ffffff; padding:2.5mm 6mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:10mm;">
+      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + 28px); box-sizing:border-box;">
+        <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
           ${
             logoDataUrl
               ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
               : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
           }
-          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; flex-wrap:nowrap; gap:4px 6px; white-space:nowrap;">
-            ${headerMetaLine}
+          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
+            <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+              ${headerMetaLine}
+            </span>
           </div>
         </div>
       </div>
