@@ -7,6 +7,31 @@ import { useTenant } from "../tenant-context.jsx";
 
 const DEFAULT_COLOR = "#3b82f6";
 
+function normalizeConfig(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["entrada", "entry", "enter", "in"].includes(normalized)) return "entry";
+  if (["saida", "saída", "exit", "out"].includes(normalized)) return "exit";
+  return null;
+}
+
+function normalizeAction(value) {
+  const normalized = String(value || "").toLowerCase();
+  if (["bloquear", "block", "lock"].includes(normalized)) return "block";
+  if (["desbloquear", "unblock", "unlock"].includes(normalized)) return "unblock";
+  return null;
+}
+
+function normalizeTargetActions(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+  return null;
+}
+
 function normalisePoint(raw) {
   if (!raw) return null;
   if (Array.isArray(raw) && raw.length >= 2) {
@@ -39,6 +64,16 @@ function normaliseGeofence(item) {
   const center = normalisePoint(item.center || [item.latitude, item.longitude]) || points[0] || null;
   const radiusValue = item.radius ?? item.area ?? null;
   const radius = radiusValue === null || radiusValue === undefined ? null : Number(radiusValue);
+  const metadata =
+    item?.geometryJson?.metadata ||
+    item?.geometryJson?.meta ||
+    item?.metadata ||
+    item?.attributes ||
+    item?.attributes?.metadata ||
+    {};
+  const config = normalizeConfig(metadata.config ?? metadata.configuration ?? metadata.entryExit ?? metadata.trigger);
+  const action = normalizeAction(metadata.action ?? metadata.geofenceAction ?? metadata.blockAction);
+  const targetActions = normalizeTargetActions(metadata.targetActions ?? metadata.actions);
 
   const coordinates =
     type === "circle" && center && Number.isFinite(radius) && radius > 0
@@ -53,10 +88,14 @@ function normaliseGeofence(item) {
     type,
     color: item.color || DEFAULT_COLOR,
     isTarget: Boolean(item?.isTarget ?? item?.attributes?.isTarget),
+    config,
+    action,
+    targetActions,
     points,
     center,
     radius: Number.isFinite(radius) ? radius : null,
     coordinates,
+    geometryJson: item?.geometryJson || null,
     raw: item,
   };
 }

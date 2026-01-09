@@ -25,6 +25,7 @@ import {
   Package,
   Radio,
   ShieldCheck,
+  Target,
   Settings,
   Terminal,
   User,
@@ -193,8 +194,9 @@ export default function Sidebar() {
         { to: "/tasks", label: "Agendamentos", icon: CalendarClock },
       ],
     },
-    { to: "/routes", label: "Rota Embarcada", icon: Map },
+    { to: "/routes", label: "Rotas", icon: Map },
     { to: "/geofences", label: "Cercas", icon: Map },
+    { to: "/targets", label: "Alvos", icon: Target },
     { to: "/itineraries", label: "Itinerários", icon: Map },
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
