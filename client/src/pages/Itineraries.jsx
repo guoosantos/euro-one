@@ -669,6 +669,18 @@ export default function Itineraries() {
   }, [activeTab, loadHistory]);
 
   useEffect(() => {
+    if (activeTab !== "historico") return;
+    const hasPending = historyEntries.some((entry) =>
+      ["Deploying", "Enviado"].includes(entry.status || ""),
+    );
+    if (!hasPending) return;
+    const interval = setInterval(() => {
+      void loadHistory();
+    }, 8000);
+    return () => clearInterval(interval);
+  }, [activeTab, historyEntries, loadHistory]);
+
+  useEffect(() => {
     if (activeTab === "historico") {
       setHistoryPage(1);
     }

@@ -37,6 +37,31 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
 - `DEMO_LOGIN_ONLY`: modo de demonstração explícito. Quando `true`, a API ignora o banco e usa apenas o tenant de demo **somente se** as credenciais do usuário demo forem informadas.
 - `ALLOW_DEMO_FALLBACK_IN_PRODUCTION`: default `false`. Se `ENABLE_DEMO_FALLBACK=true` com `NODE_ENV=production`, o startup emitirá um warning; defina como `true` apenas para permitir esse modo em ambientes de produção controlados.
 - `FAIL_ON_DEMO_FALLBACK_IN_PRODUCTION`: default `false`. Quando `true`, o startup aborta se `ENABLE_DEMO_FALLBACK=true` em ambiente de produção sem a permissão explícita acima.
+- **Integração XDM (Embarque de Itinerário):**
+  - `XDM_AUTH_URL`: endpoint OAuth2 (client_credentials) do XDM.
+  - `XDM_BASE_URL`: base URL da API XDM (sem `/` no final).
+  - `XDM_CLIENT_ID` / `XDM_CLIENT_SECRET`: credenciais do client OAuth2.
+  - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
+  - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
+  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave de override usada para aplicar o Geozone Group no settingsOverrides.
+  - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
+  - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
+  - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).
+  - `XDM_DEPLOYMENT_POLL_INTERVAL_MS`: intervalo de polling do status (ms).
+  - `XDM_DEPLOYMENT_TIMEOUT_MS`: timeout máximo do deploy antes de marcar `TIMEOUT` (ms).
+  - `XDM_GEOFENCE_MAX_POINTS`: limite máximo de pontos enviados por geofence.
+
+## Fluxo de Embarque (EuroOne → XDM → Device)
+
+1. O usuário confirma o embarque em **Itinerários** no front-end.
+2. O backend cria um deployment por par `itineraryId + vehicleId` e inicia o processamento assíncrono.
+3. Para cada deployment:
+   - Sincroniza as cercas do itinerário com o XDM (geozones).
+   - Garante que o Geozone Group do itinerário exista e esteja atualizado.
+   - Aplica o Geozone Group via `settingsOverrides` (XDM) usando `XDM_GEOZONE_GROUP_OVERRIDE_KEY`.
+   - Cria um rollout de configuração para o device usando `serializedConfigId`.
+4. Um poller periódico consulta o rollout e atualiza o status para `DEPLOYED`, `FAILED` ou `TIMEOUT`.
+5. A aba **Histórico** do front reflete o status atual (Enviado/Deploying/Deployed/Failed/Timeout).
 
 ## Diferença entre leitura via DB e escrita via API
 
