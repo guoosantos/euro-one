@@ -5,7 +5,7 @@ import { formatFullAddress } from "./address.js";
 
 const BRAND_COLOR = "#001F3F";
 const LOGO_URL = "https://eurosolucoes.tech/wp-content/uploads/2024/10/logo-3-2048x595.png";
-const FONT_STACK = '"DejaVu Sans", "Inter", "Roboto", "Noto Sans", "Segoe UI", Arial, sans-serif';
+const FONT_STACK = '"Inter", "Space Grotesk", "Sora", "Montserrat", "DejaVu Sans", "Noto Sans", "Segoe UI", Arial, sans-serif';
 const FONT_PATH_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 const FONT_PATH_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
 
@@ -275,7 +275,44 @@ function buildHtml({
 
   const columnsGroup = columns?.length ? columns : [];
 
-  const renderTable = (sliceRows, sliceIndex, { includeHeader = true, includePageBreak = true } = {}) => {
+  const renderPageHeader = () => {
+    const headerMetaParts = [
+      { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
+      { label: "PLACA", value: meta?.vehicle?.plate || "—" },
+      { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
+      { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
+    ];
+    const headerMetaLine = headerMetaParts
+      .map(
+        (item, index) => `
+          <span class="page-header-item">
+            <span>${escapeHtml(item.label)}:</span>
+            <span>${escapeHtml(item.value)}</span>
+          </span>
+          ${index < headerMetaParts.length - 1 ? '<span class="page-header-divider">|</span>' : ""}
+        `,
+      )
+      .join("");
+    return `
+      <div class="page-header">
+        <div class="page-header-logo">
+          ${
+            logoDataUrl
+              ? `<img src="${logoDataUrl}" alt="Euro One" />`
+              : `<span class="page-header-fallback">EURO ONE</span>`
+          }
+        </div>
+        <div class="page-header-content">${headerMetaLine}</div>
+        <div class="page-header-spacer"></div>
+      </div>
+    `;
+  };
+
+  const renderTable = (
+    sliceRows,
+    sliceIndex,
+    { includeHeader = true, includePageBreak = true, includePageHeader = false } = {},
+  ) => {
     const labelOptions = { protocol: meta?.protocol, deviceModel: meta?.deviceModel };
     const tableHeaders = columnsGroup
       .map((key) => `<th>${escapeHtml(resolveColumnLabelByKey(key, columnDefinitions, "pdf", labelOptions))}</th>`)
@@ -345,9 +382,11 @@ function buildHtml({
       </div>
     `
       : "";
+    const pageHeaderBlock = includePageHeader && isAnalytic ? renderPageHeader() : "";
     return `
       ${pageBreak}
       ${headerBlock}
+      ${pageHeaderBlock}
       <div class="table-wrapper">
         <table>
           <colgroup>${colgroup}</colgroup>
@@ -460,6 +499,7 @@ function buildHtml({
           return `${pageBreak}${renderTable(slice, index, {
             includeHeader: false,
             includePageBreak: false,
+            includePageHeader: index > 0,
           })}`;
         })
         .join("");
@@ -481,6 +521,7 @@ function buildHtml({
               return `${pageBreak}${renderTable(slice, 0, {
                 includeHeader: false,
                 includePageBreak: false,
+                includePageHeader: needsPageBreak,
               })}`;
             })
             .join("");
@@ -490,7 +531,8 @@ function buildHtml({
         previousType = "action";
         isFirstSegment = false;
         if (!isFirstPage) {
-          return `${pageBreak}${renderActionCard(segment.entry)}`;
+          const pageHeader = pageBreak ? renderPageHeader() : "";
+          return `${pageBreak}${pageHeader}${renderActionCard(segment.entry)}`;
         }
         isFirstPage = false;
         return `${renderActionCard(segment.entry)}`;
@@ -536,6 +578,7 @@ function buildHtml({
   <head>
     <meta charset="utf-8" />
     <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
       ${fontFaces}
       * { box-sizing: border-box; }
       :root {
@@ -550,7 +593,7 @@ function buildHtml({
         background: #ffffff;
       }
       .report {
-        padding: 24px 28px 12px;
+        padding: 20px 16px 12px;
         display: flex;
         flex-direction: column;
         gap: 16px;
@@ -627,6 +670,48 @@ function buildHtml({
       .report-header-title .subtitle {
         color: rgba(255,255,255,0.88);
         margin-top: 2px;
+      }
+      .page-header {
+        border-radius: 12px;
+        padding: 6px 10px;
+        background: ${BRAND_COLOR};
+        color: #ffffff;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 10px;
+        align-items: center;
+        box-shadow: 0 6px 12px rgba(1, 42, 88, 0.18);
+      }
+      .page-header-logo img {
+        height: 18px;
+        object-fit: contain;
+      }
+      .page-header-fallback {
+        font-size: 8px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+      }
+      .page-header-content {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: 4px 6px;
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        text-align: center;
+      }
+      .page-header-item span:first-child {
+        opacity: 0.65;
+        margin-right: 4px;
+      }
+      .page-header-divider {
+        opacity: 0.4;
+      }
+      .page-header-spacer {
+        width: 18px;
       }
       .intro-card {
         border-radius: 16px;
@@ -962,7 +1047,7 @@ function buildHtml({
         margin-bottom: 2px;
       }
       @page {
-        margin: 24mm 12mm 20mm;
+        margin: 18mm 10mm 18mm;
       }
     </style>
   </head>
@@ -1061,38 +1146,8 @@ export async function generatePositionsReportPdf({
 
     await page.setContent(html, { waitUntil: "domcontentloaded" });
 
-    const headerMetaParts = [
-      { label: "VEÍCULO", value: meta?.vehicle?.name || "—" },
-      { label: "PLACA", value: meta?.vehicle?.plate || "—" },
-      { label: "CLIENTE", value: meta?.vehicle?.customer || "—" },
-      { label: "PERÍODO", value: `${formatDate(meta?.from)} → ${formatDate(meta?.to)}` },
-    ];
-    const headerMetaLine = headerMetaParts
-      .map(
-        (item, index) => `
-          <span style="display:inline-flex; align-items:center; gap:4px; white-space:nowrap;">
-            <span style="opacity:0.65; font-weight:600;">${escapeHtml(item.label)}:</span>
-            <span style="font-weight:700;">${escapeHtml(item.value)}</span>
-          </span>
-          ${index < headerMetaParts.length - 1 ? '<span style="opacity:0.4; margin:0 6px;">|</span>' : ""}
-        `,
-      )
-      .join("");
     const headerTemplate = `
-      <div style="width:100%; font-family:${FONT_STACK}; padding:0 calc(12mm + 28px); box-sizing:border-box;">
-        <div style="background:linear-gradient(135deg,${BRAND_COLOR} 0%,#012a58 100%); color:#ffffff; padding:2mm 4.5mm; border-radius:10px; display:flex; align-items:center; gap:8px; min-height:9mm; box-shadow:0 6px 12px rgba(1,42,88,0.18);">
-          ${
-            logoDataUrl
-              ? `<img src="${logoDataUrl}" style="height:12px; object-fit:contain;" />`
-              : `<span style="font-size:7px; font-weight:700; letter-spacing:0.12em;">EURO ONE</span>`
-          }
-          <div style="font-size:8px; letter-spacing:0.08em; text-transform:uppercase; line-height:1.2; display:flex; align-items:center; gap:4px 6px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; flex:1;">
-            <span style="display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
-              ${headerMetaLine}
-            </span>
-          </div>
-        </div>
-      </div>
+      <div style="width:100%; font-family:${FONT_STACK}; font-size:1px; visibility:hidden;">.</div>
     `;
     const footerTemplate = `
       <div style="width:100%; font-family:${FONT_STACK}; font-size:9px; color:#64748b; padding:0 12mm 4mm; display:flex; justify-content:space-between;">
@@ -1107,7 +1162,7 @@ export async function generatePositionsReportPdf({
       scale: needsWidePage ? 0.9 : 1,
       printBackground: true,
       displayHeaderFooter: true,
-      margin: { top: "24mm", right: "12mm", bottom: "20mm", left: "12mm" },
+      margin: { top: "18mm", right: "10mm", bottom: "18mm", left: "10mm" },
       footerTemplate,
       headerTemplate,
     });
