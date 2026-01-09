@@ -965,7 +965,7 @@ export default function ReportsAnalytic() {
             {entry?.title || "Entrada"}
           </span>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
+            className={`rounded-full border px-1.5 py-0 text-[9px] font-semibold uppercase leading-4 tracking-wide ${badgeStyles[variant]}`}
           >
             {criticalityLabel}
           </span>
@@ -1016,10 +1016,7 @@ export default function ReportsAnalytic() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <header className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório Analítico</p>
-              </div>
+            <div className="flex flex-wrap items-center justify-end gap-3">
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
                   <span className="whitespace-nowrap">Itens por página</span>
