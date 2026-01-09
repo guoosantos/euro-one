@@ -1,7 +1,18 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Download, Map as MapIcon, Pencil, Plus, Route, Save, Target, Trash2, X } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Download,
+  Map as MapIcon,
+  Pencil,
+  Plus,
+  Route,
+  Save,
+  Target,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import useGeofences from "../lib/hooks/useGeofences.js";
+import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -9,7 +20,8 @@ import Button from "../ui/Button";
 import Input from "../ui/Input";
 import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
-import Select from "../ui/Select.jsx";
+
+const HISTORY_PAGE_SIZE = 10;
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
@@ -27,6 +39,21 @@ function resolveLastEmbark(itinerary) {
   return itinerary?.lastEmbark || itinerary?.lastEmbarked || itinerary?.embark || null;
 }
 
+function resolveVehicleStatus(vehicle) {
+  return vehicle?.status || vehicle?.state || vehicle?.condition || "—";
+}
+
+function resolveVehicleLastUpdate(vehicle) {
+  return (
+    vehicle?.lastUpdate ||
+    vehicle?.lastSeen ||
+    vehicle?.lastTransmission ||
+    vehicle?.updatedAt ||
+    vehicle?.updated_at ||
+    null
+  );
+}
+
 function ItineraryModal({
   open,
   onClose,
@@ -37,24 +64,389 @@ function ItineraryModal({
   onDelete,
   form,
   onChange,
-  panelTab,
+  activeTab,
   onTabChange,
   geofences,
   routes,
   targetGeofences,
-  onAddItem,
+  onLinkItem,
   onRemoveItem,
 }) {
+  const [selectedGeofenceId, setSelectedGeofenceId] = useState(null);
+  const [selectedRouteId, setSelectedRouteId] = useState(null);
+  const [selectedTargetId, setSelectedTargetId] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setSelectedGeofenceId(null);
+    setSelectedRouteId(null);
+    setSelectedTargetId(null);
+  }, [open]);
+
   if (!open) return null;
+
+  const linkedItems = form.items || [];
+  const linkedSet = new Set(linkedItems.map((item) => `${item.type}:${item.id}`));
+  const clientGeofences = geofences.filter((geo) => !geo.isTarget);
+  const selectedGeofence = clientGeofences.find((geo) => String(geo.id) === String(selectedGeofenceId)) || null;
+  const selectedRoute = routes.find((route) => String(route.id) === String(selectedRouteId)) || null;
+  const selectedTarget = targetGeofences.find((target) => String(target.id) === String(selectedTargetId)) || null;
+
+  const renderLinkStatus = (type, id) => {
+    if (!id) return null;
+    return linkedSet.has(`${type}:${id}`) ? (
+      <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-emerald-200">
+        Já vinculada
+      </span>
+    ) : (
+      <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/60">
+        Disponível
+      </span>
+    );
+  };
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="relative w-full max-w-4xl rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
+      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
         <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
           <div>
             <p className="text-xs uppercase tracking-[0.12em] text-white/50">Editor de itinerários</p>
             <h2 className="text-xl font-semibold text-white">{title}</h2>
             {description && <p className="text-sm text-white/60">{description}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            {onDelete && (
+              <Button size="sm" variant="ghost" onClick={onDelete} icon={Trash2}>
+                Excluir
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+              aria-label="Fechar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="border-b border-white/10 px-6 py-3">
+          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+            {[
+              { key: "detalhes", label: "Detalhes" },
+              { key: "cercas", label: "Cercas" },
+              { key: "rotas", label: "Rotas" },
+              { key: "alvos", label: "Alvos" },
+              { key: "itens", label: "Itens vinculados" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => onTabChange(tab.key)}
+                className={`rounded-md px-3 py-2 transition ${
+                  activeTab === tab.key
+                    ? "border border-primary/40 bg-primary/20 text-white"
+                    : "border border-transparent hover:border-white/20"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="max-h-[70vh] flex-1 overflow-y-auto px-6 py-5">
+          {activeTab === "detalhes" && (
+            <div className="space-y-4">
+              <Input
+                placeholder="Nome do itinerário"
+                value={form.name}
+                onChange={(event) => onChange({ ...form, name: event.target.value })}
+              />
+              <LTextArea
+                placeholder="Descrição"
+                value={form.description}
+                onChange={(event) => onChange({ ...form, description: event.target.value })}
+                rows={3}
+              />
+            </div>
+          )}
+
+          {activeTab === "cercas" && (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Cercas disponíveis</p>
+                  <span className="text-[11px] text-white/60">{clientGeofences.length} disponíveis</span>
+                </div>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                  {clientGeofences.map((geo) => (
+                    <button
+                      key={geo.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                        String(selectedGeofenceId) === String(geo.id)
+                          ? "bg-primary/10 text-white"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => setSelectedGeofenceId(geo.id)}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full" style={{ background: geo.color || "#22c55e" }} />
+                        {geo.name}
+                      </span>
+                      <span className="text-[11px] text-white/50">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
+                    </button>
+                  ))}
+                  {clientGeofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca disponível.</p>}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                {selectedGeofence ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{selectedGeofence.name}</p>
+                        <p className="text-xs text-white/60">{selectedGeofence.description || "Sem descrição"}</p>
+                      </div>
+                      {renderLinkStatus("geofence", selectedGeofence.id)}
+                    </div>
+                    <div className="grid gap-3 text-xs text-white/70 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Tipo</p>
+                        <p>{selectedGeofence.type === "circle" ? "Círculo" : "Polígono"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Configuração</p>
+                        <p>{selectedGeofence.config === "exit" ? "Saída" : "Entrada"}</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => onLinkItem({ type: "geofence", id: selectedGeofence.id })}
+                      disabled={linkedSet.has(`geofence:${selectedGeofence.id}`)}
+                    >
+                      Vincular
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/60">Selecione uma cerca para ver detalhes.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "rotas" && (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Rotas disponíveis</p>
+                  <span className="text-[11px] text-white/60">{routes.length} disponíveis</span>
+                </div>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                  {routes.map((route) => (
+                    <button
+                      key={route.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                        String(selectedRouteId) === String(route.id)
+                          ? "bg-primary/10 text-white"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => setSelectedRouteId(route.id)}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Route size={14} />
+                        {route.name}
+                      </span>
+                      <span className="text-[11px] text-white/50">{route.points?.length || 0} pts</span>
+                    </button>
+                  ))}
+                  {routes.length === 0 && <p className="text-xs text-white/60">Nenhuma rota disponível.</p>}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                {selectedRoute ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{selectedRoute.name}</p>
+                        <p className="text-xs text-white/60">Atualizada em {formatDateTime(selectedRoute.updatedAt)}</p>
+                      </div>
+                      {renderLinkStatus("route", selectedRoute.id)}
+                    </div>
+                    <div className="grid gap-3 text-xs text-white/70 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Pontos</p>
+                        <p>{selectedRoute.points?.length || 0} pontos</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modo</p>
+                        <p>{selectedRoute.mode || "car"}</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => onLinkItem({ type: "route", id: selectedRoute.id })}
+                      disabled={linkedSet.has(`route:${selectedRoute.id}`)}
+                    >
+                      Vincular
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/60">Selecione uma rota para ver detalhes.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "alvos" && (
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+              <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-white">Alvos disponíveis</p>
+                  <span className="text-[11px] text-white/60">{targetGeofences.length} disponíveis</span>
+                </div>
+                <div className="max-h-64 space-y-1 overflow-y-auto">
+                  {targetGeofences.map((target) => (
+                    <button
+                      key={target.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-lg px-2 py-2 text-left text-sm transition ${
+                        String(selectedTargetId) === String(target.id)
+                          ? "bg-primary/10 text-white"
+                          : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => setSelectedTargetId(target.id)}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Target size={14} />
+                        {target.name || `Alvo ${target.id}`}
+                      </span>
+                      <span className="text-[11px] text-white/50">{target.type === "circle" ? "Círculo" : `${target.points?.length || 0} pts`}</span>
+                    </button>
+                  ))}
+                  {targetGeofences.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                {selectedTarget ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{selectedTarget.name}</p>
+                        <p className="text-xs text-white/60">{selectedTarget.description || "Sem descrição"}</p>
+                      </div>
+                      {renderLinkStatus("target", selectedTarget.id)}
+                    </div>
+                    <div className="grid gap-3 text-xs text-white/70 sm:grid-cols-2">
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Tipo</p>
+                        <p>{selectedTarget.type === "circle" ? "Círculo" : "Polígono"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Vértices</p>
+                        <p>{selectedTarget.points?.length || 0}</p>
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => onLinkItem({ type: "target", id: selectedTarget.id })}
+                      disabled={linkedSet.has(`target:${selectedTarget.id}`)}
+                    >
+                      Vincular
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/60">Selecione um alvo para ver detalhes.</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {activeTab === "itens" && (
+            <div className="space-y-3">
+              <div className="space-y-2">
+                {(form.items || []).map((item) => {
+                  const key = `${item.type}:${item.id}`;
+                  const label =
+                    item.type === "geofence"
+                      ? geofences.find((geo) => String(geo.id) === String(item.id))?.name || `Cerca ${item.id}`
+                      : item.type === "route"
+                        ? routes.find((route) => String(route.id) === String(item.id))?.name || `Rota ${item.id}`
+                        : targetGeofences.find((target) => String(target.id) === String(item.id))?.name || `Alvo ${item.id}`;
+                  const Icon = item.type === "geofence" ? MapIcon : item.type === "route" ? Route : Target;
+                  return (
+                    <div
+                      key={key}
+                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-white"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Icon size={14} />
+                        {label}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-xs text-red-200 hover:text-red-100"
+                        onClick={() => onRemoveItem(item)}
+                      >
+                        Remover vínculo
+                      </button>
+                    </div>
+                  );
+                })}
+                {(form.items || []).length === 0 && <p className="text-xs text-white/60">Nenhum item adicionado.</p>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
+          <Button onClick={onSave} disabled={saving} icon={Save}>
+            {saving ? "Salvando..." : "Salvar"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmbarkModal({
+  open,
+  onClose,
+  vehicles,
+  itineraries,
+  vehicleQuery,
+  onVehicleQueryChange,
+  selectedVehicleIds,
+  onToggleVehicle,
+  selectedItineraryIds,
+  onToggleItinerary,
+  onRemoveVehicle,
+  sending,
+  onSubmit,
+  resultSummary,
+}) {
+  if (!open) return null;
+
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const term = vehicleQuery.trim().toLowerCase();
+    if (!term) return true;
+    return [vehicle.name, vehicle.plate, vehicle.brand, vehicle.model]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term));
+  });
+
+  const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
+
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Embarque de itinerários</p>
+            <h2 className="text-xl font-semibold text-white">Enviar embarque</h2>
+            <p className="text-sm text-white/60">Selecione veículos e itinerários para embarcar em lote.</p>
           </div>
           <button
             type="button"
@@ -65,164 +457,113 @@ function ItineraryModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto px-6 py-5">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-white">Detalhes</h3>
-              {onDelete && (
-                <Button size="sm" variant="ghost" onClick={onDelete} icon={Trash2}>
-                  Excluir
-                </Button>
-              )}
-            </div>
-            <Input
-              placeholder="Nome do itinerário"
-              value={form.name}
-              onChange={(event) => onChange({ ...form, name: event.target.value })}
-            />
-            <LTextArea
-              placeholder="Descrição"
-              value={form.description}
-              onChange={(event) => onChange({ ...form, description: event.target.value })}
-              rows={3}
-            />
 
-            <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Itens vinculados</p>
-                <Button size="xs" onClick={onSave} disabled={saving} icon={Save}>
-                  {saving ? "Salvando..." : "Salvar"}
-                </Button>
-              </div>
-              <div className="space-y-2">
-                {(form.items || []).map((item) => {
-                  const key = `${item.type}:${item.id}`;
-                  const label =
-                    item.type === "geofence"
-                      ? geofences.find((geo) => String(geo.id) === String(item.id))?.name || `Cerca ${item.id}`
-                      : item.type === "route"
-                      ? routes.find((route) => String(route.id) === String(item.id))?.name || `Rota ${item.id}`
-                      : targetGeofences.find((target) => String(target.id) === String(item.id))?.name || `Alvo ${item.id}`;
-                  const Icon = item.type === "geofence" ? MapIcon : item.type === "route" ? Route : Target;
+        <div className="max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <div className="space-y-3">
+            <Input
+              placeholder="Buscar veículo"
+              value={vehicleQuery}
+              onChange={(event) => onVehicleQueryChange(event.target.value)}
+            />
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                {filteredVehicles.map((vehicle) => {
+                  const isSelected = selectedVehicleIds.includes(String(vehicle.id));
                   return (
-                    <div key={key} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-sm text-white">
-                      <span className="flex items-center gap-2">
-                        <Icon size={14} />
-                        {label}
+                    <button
+                      key={vehicle.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                        isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => onToggleVehicle(String(vehicle.id))}
+                    >
+                      <span>
+                        {vehicle.name || "Veículo"}
+                        {vehicle.plate ? ` · ${vehicle.plate}` : ""}
                       </span>
-                      <button
-                        type="button"
-                        className="text-white/60 hover:text-white"
-                        onClick={() => onRemoveItem(item)}
-                        title="Remover"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
+                      <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
+                    </button>
                   );
                 })}
-                {(form.items || []).length === 0 && <p className="text-xs text-white/60">Nenhum item adicionado.</p>}
+                {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
               </div>
             </div>
 
-            <div>
-              <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-                {[
-                  { key: "cercas", label: "Cercas" },
-                  { key: "rotas", label: "Rotas" },
-                  { key: "alvos", label: "Alvos" },
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    onClick={() => onTabChange(tab.key)}
-                    className={`rounded-md px-3 py-2 transition ${
-                      panelTab === tab.key ? "border border-primary/40 bg-primary/20 text-white" : "border border-transparent hover:border-white/20"
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-
-              {panelTab === "cercas" && (
-                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">Veículos selecionados</p>
+              {selectedVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo selecionado.</p>}
+              {selectedVehicles.map((vehicle) => (
+                <div key={vehicle.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Cercas disponíveis</p>
-                    <span className="text-[11px] text-white/60">{geofences.length} disponíveis</span>
+                    <div>
+                      <p className="text-sm font-semibold text-white">{vehicle.name || "Veículo"}</p>
+                      <p className="text-xs text-white/60">{vehicle.plate || "—"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-red-200 hover:text-red-100"
+                      onClick={() => onRemoveVehicle(String(vehicle.id))}
+                    >
+                      Remover
+                    </button>
                   </div>
-                  <div className="max-h-56 space-y-1 overflow-y-auto">
-                    {geofences.map((geo) => (
-                      <button
-                        key={geo.id}
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                        onClick={() => onAddItem({ type: "geofence", id: geo.id })}
-                      >
-                        <span className="flex items-center gap-2">
-                          <span className="h-2 w-2 rounded-full" style={{ background: geo.color || "#22c55e" }} />
-                          {geo.name}
-                        </span>
-                        <span className="text-[11px] text-white/50">{geo.type === "circle" ? "Círculo" : `${geo.points?.length || 0} pts`}</span>
-                      </button>
-                    ))}
-                    {geofences.length === 0 && <p className="text-xs text-white/60">Nenhuma cerca disponível.</p>}
+                  <div className="mt-3 grid gap-2 text-xs text-white/70 sm:grid-cols-2 lg:grid-cols-3">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Marca</p>
+                      <p>{vehicle.brand || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modelo</p>
+                      <p>{vehicle.model || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status</p>
+                      <p>{resolveVehicleStatus(vehicle)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Última transmissão</p>
+                      <p>{formatDateTime(resolveVehicleLastUpdate(vehicle))}</p>
+                    </div>
                   </div>
                 </div>
-              )}
-
-              {panelTab === "rotas" && (
-                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Rotas disponíveis</p>
-                    <span className="text-[11px] text-white/60">{routes.length} disponíveis</span>
-                  </div>
-                  <div className="max-h-56 space-y-1 overflow-y-auto">
-                    {routes.map((route) => (
-                      <button
-                        key={route.id}
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                        onClick={() => onAddItem({ type: "route", id: route.id })}
-                      >
-                        <span className="flex items-center gap-2">
-                          <Route size={14} />
-                          {route.name}
-                        </span>
-                        <span className="text-[11px] text-white/50">{route.points?.length || 0} pts</span>
-                      </button>
-                    ))}
-                    {routes.length === 0 && <p className="text-xs text-white/60">Nenhuma rota disponível.</p>}
-                  </div>
-                </div>
-              )}
-
-              {panelTab === "alvos" && (
-                <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Alvos disponíveis</p>
-                    <span className="text-[11px] text-white/60">{targetGeofences.length} disponíveis</span>
-                  </div>
-                  <div className="max-h-56 space-y-1 overflow-y-auto">
-                    {targetGeofences.map((target) => (
-                      <button
-                        key={target.id}
-                        type="button"
-                        className="flex w-full items-center justify-between rounded-lg px-2 py-1 text-left text-sm text-white/80 hover:bg-white/5"
-                        onClick={() => onAddItem({ type: "target", id: target.id })}
-                      >
-                        <span className="flex items-center gap-2">
-                          <Target size={14} />
-                          {target.name || `Alvo ${target.id}`}
-                        </span>
-                        <span className="text-[11px] text-white/50">{target.type === "circle" ? "Círculo" : `${target.points?.length || 0} pts`}</span>
-                      </button>
-                    ))}
-                    {targetGeofences.length === 0 && <p className="text-xs text-white/60">Nenhum alvo disponível.</p>}
-                  </div>
-                </div>
-              )}
+              ))}
             </div>
           </div>
+
+          <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">Itinerários do cliente</p>
+              <span className="text-[11px] text-white/60">{itineraries.length} disponíveis</span>
+            </div>
+            <div className="max-h-64 space-y-2 overflow-y-auto">
+              {itineraries.map((itinerary) => (
+                <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={selectedItineraryIds.includes(String(itinerary.id))}
+                    onChange={() => onToggleItinerary(String(itinerary.id))}
+                  />
+                  <span>{itinerary.name}</span>
+                </label>
+              ))}
+              {itineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário disponível.</p>}
+            </div>
+          </div>
+
+          {resultSummary && (
+            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+              {resultSummary}
+            </div>
+          )}
+        </div>
+
+        <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
+          <Button onClick={onSubmit} disabled={sending}>
+            {sending ? "Embarcando..." : "Embarcar"}
+          </Button>
         </div>
       </div>
     </div>
@@ -231,24 +572,50 @@ function ItineraryModal({
 
 export default function Itineraries() {
   const { geofences } = useGeofences({ autoRefreshMs: 0 });
-  const { tenants } = useTenant();
+  const { tenants, tenantId } = useTenant();
+  const { vehicles } = useVehicles();
   const [routes, setRoutes] = useState([]);
   const [itineraries, setItineraries] = useState([]);
+  const [historyEntries, setHistoryEntries] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState({ name: "", description: "", items: [] });
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [panelTab, setPanelTab] = useState("cercas");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [editorTab, setEditorTab] = useState("detalhes");
+  const [activeTab, setActiveTab] = useState("embarcado");
   const [editorOpen, setEditorOpen] = useState(false);
+  const [embarkOpen, setEmbarkOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [embarkedFilter, setEmbarkedFilter] = useState("all");
+  const [historyPage, setHistoryPage] = useState(1);
   const [kmlSizes, setKmlSizes] = useState(() => new Map());
+  const [vehicleQuery, setVehicleQuery] = useState("");
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
+  const [selectedItineraryIds, setSelectedItineraryIds] = useState([]);
+  const [embarkSending, setEmbarkSending] = useState(false);
+  const [embarkSummary, setEmbarkSummary] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimeoutRef = useRef(null);
 
   const clientNameById = useMemo(
     () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
     [tenants],
   );
   const targetGeofences = useMemo(() => geofences.filter((geo) => geo.isTarget), [geofences]);
+
+  useEffect(() => () => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+  }, []);
+
+  const showToast = useCallback((message, type = "success") => {
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+    }
+    setToast({ message, type });
+    toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
+  }, []);
 
   const loadRoutes = useCallback(async () => {
     try {
@@ -257,8 +624,9 @@ export default function Itineraries() {
       setRoutes(list);
     } catch (error) {
       console.error("[itineraries] Falha ao carregar rotas salvas", error);
+      showToast("Não foi possível carregar as rotas salvas.", "warning");
     }
-  }, []);
+  }, [showToast]);
 
   const loadItineraries = useCallback(async () => {
     setLoading(true);
@@ -266,20 +634,57 @@ export default function Itineraries() {
       const response = await api.get(API_ROUTES.itineraries);
       const list = response?.data?.data || [];
       setItineraries(list);
+    } catch (error) {
+      console.error("[itineraries] Falha ao carregar itinerários", error);
+      showToast("Não foi possível carregar os itinerários.", "warning");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
+
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const response = await api.get(API_ROUTES.itineraryEmbarkHistory, {
+        params: tenantId ? { clientId: tenantId } : undefined,
+      });
+      const list = response?.data?.data || response?.data?.history || [];
+      setHistoryEntries(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error("[itineraries] Falha ao carregar histórico de embarques", error);
+      showToast("Não foi possível carregar o histórico de embarques.", "warning");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [showToast, tenantId]);
 
   useEffect(() => {
     void loadRoutes();
     void loadItineraries();
   }, [loadRoutes, loadItineraries]);
 
+  useEffect(() => {
+    if (activeTab !== "historico") return;
+    void loadHistory();
+  }, [activeTab, loadHistory]);
+
+  useEffect(() => {
+    if (activeTab === "historico") {
+      setHistoryPage(1);
+    }
+  }, [activeTab, query]);
+
   const resetForm = () => {
     setForm({ name: "", description: "", items: [] });
     setSelectedId(null);
   };
+
+  const resetEmbarkForm = useCallback(() => {
+    setVehicleQuery("");
+    setSelectedVehicleIds([]);
+    setSelectedItineraryIds([]);
+    setEmbarkSummary(null);
+  }, []);
 
   const openEditor = (itinerary = null) => {
     if (itinerary) {
@@ -292,20 +697,29 @@ export default function Itineraries() {
     } else {
       resetForm();
     }
-    setPanelTab("cercas");
+    setEditorTab("detalhes");
     setEditorOpen(true);
   };
 
-  const handleAddItem = (item) => {
-    if (!item) return;
-    setForm((current) => {
-      const exists = (current.items || []).some((entry) => entry.type === item.type && String(entry.id) === String(item.id));
-      if (exists) return current;
-      return { ...current, items: [...(current.items || []), { type: item.type, id: String(item.id) }] };
-    });
-  };
+  const handleLinkItem = useCallback(
+    (item) => {
+      if (!item) return;
+      const exists = (form.items || []).some((entry) => entry.type === item.type && String(entry.id) === String(item.id));
+      if (exists) {
+        showToast("Item já vinculado.", "warning");
+        return;
+      }
+      setForm((current) => ({
+        ...current,
+        items: [...(current.items || []), { type: item.type, id: String(item.id) }],
+      }));
+      const label = item.type === "geofence" ? "Cerca" : item.type === "route" ? "Rota" : "Alvo";
+      showToast(`${label} vinculada com sucesso.`);
+    },
+    [form.items, showToast],
+  );
 
-  const handleRemoveItem = (item) => {
+  const handleRemoveItem = useCallback((item) => {
     if (!item) return;
     setForm((current) => {
       const nextItems = (current.items || []).filter(
@@ -313,11 +727,11 @@ export default function Itineraries() {
       );
       return { ...current, items: nextItems };
     });
-  };
+  }, []);
 
   const handleSave = async () => {
     if (!form.name.trim()) {
-      alert("Informe um nome para o itinerário.");
+      showToast("Informe um nome para o itinerário.", "warning");
       return;
     }
     setSaving(true);
@@ -330,9 +744,10 @@ export default function Itineraries() {
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
       setEditorOpen(false);
+      showToast("Itinerário salvo com sucesso.");
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível salvar o itinerário.");
+      showToast(error?.message || "Não foi possível salvar o itinerário.", "warning");
     } finally {
       setSaving(false);
     }
@@ -345,9 +760,10 @@ export default function Itineraries() {
       await api.delete(`${API_ROUTES.itineraries}/${id}`);
       setItineraries((current) => current.filter((item) => item.id !== id));
       if (selectedId === id) resetForm();
+      showToast("Itinerário removido.");
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível remover.");
+      showToast(error?.message || "Não foi possível remover.", "warning");
     }
   };
 
@@ -369,7 +785,7 @@ export default function Itineraries() {
       });
     } catch (error) {
       console.error(error);
-      alert(error?.message || "Não foi possível exportar o KML.");
+      showToast(error?.message || "Não foi possível exportar o KML.", "warning");
     }
   };
 
@@ -378,20 +794,95 @@ export default function Itineraries() {
     return itineraries.filter((item) => {
       const name = item.name?.toLowerCase() || "";
       if (term && !name.includes(term)) return false;
-      const lastEmbark = resolveLastEmbark(item);
-      const isEmbarked = Boolean(item.isEmbarked ?? item.embarked ?? lastEmbark?.embarkedAt);
-      if (embarkedFilter === "yes" && !isEmbarked) return false;
-      if (embarkedFilter === "no" && isEmbarked) return false;
       return true;
     });
-  }, [embarkedFilter, itineraries, query]);
+  }, [itineraries, query]);
+
+  const filteredHistory = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    const list = historyEntries.filter((entry) => {
+      if (!term) return true;
+      return [entry.itineraryName, entry.vehicleName, entry.plate, entry.model, entry.brand, entry.sentByName]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+    return list;
+  }, [historyEntries, query]);
+
+  const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE));
+  const safeHistoryPage = Math.min(historyPage, historyTotalPages);
+  const historyStart = (safeHistoryPage - 1) * HISTORY_PAGE_SIZE;
+  const paginatedHistory = filteredHistory.slice(historyStart, historyStart + HISTORY_PAGE_SIZE);
 
   const selected = useMemo(() => itineraries.find((item) => item.id === selectedId) || null, [itineraries, selectedId]);
 
+  const handleToggleVehicle = (vehicleId) => {
+    setSelectedVehicleIds((current) =>
+      current.includes(vehicleId) ? current.filter((id) => id !== vehicleId) : [...current, vehicleId],
+    );
+  };
+
+  const handleToggleItinerary = (itineraryId) => {
+    setSelectedItineraryIds((current) =>
+      current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
+    );
+  };
+
+  const handleRemoveVehicle = (vehicleId) => {
+    setSelectedVehicleIds((current) => current.filter((id) => id !== vehicleId));
+  };
+
+  const handleEmbarkSubmit = async () => {
+    if (!selectedVehicleIds.length || !selectedItineraryIds.length) {
+      showToast("Selecione veículos e itinerários para embarcar.", "warning");
+      return;
+    }
+    setEmbarkSending(true);
+    try {
+      const response = await api.post(API_ROUTES.itineraryEmbark, {
+        vehicleIds: selectedVehicleIds,
+        itineraryIds: selectedItineraryIds,
+        clientId: tenantId ?? undefined,
+      });
+      const summary = response?.data?.data?.summary || response?.data?.summary || null;
+      const okCount = Number(summary?.success || 0);
+      const failedCount = Number(summary?.failed || 0);
+      if (failedCount > 0) {
+        showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+        setEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+      } else {
+        showToast("Embarque enviado com sucesso.");
+        setEmbarkSummary("Embarque enviado com sucesso.");
+        setEmbarkOpen(false);
+        resetEmbarkForm();
+      }
+      await loadHistory();
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Não foi possível enviar o embarque.", "warning");
+    } finally {
+      setEmbarkSending(false);
+    }
+  };
+
   const tableColCount = 8;
+  const historyColCount = 10;
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+      {toast && (
+        <div
+          className={
+            "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+            (toast.type === "warning"
+              ? "border-amber-500/40 bg-amber-500/20 text-amber-50"
+              : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50")
+          }
+        >
+          {toast.message}
+        </div>
+      )}
+
       <div className="-mx-4 space-y-4 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
         <PageHeader
           eyebrow="Itinerários"
@@ -404,126 +895,226 @@ export default function Itineraries() {
                 {itineraries.length} itinerários
               </span>
               {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-              <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
-                Criar novo
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="secondary" onClick={() => setEmbarkOpen(true)}>
+                  Embarcar
+                </Button>
+                <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
+                  Criar novo
+                </Button>
+              </div>
             </>
           )}
         />
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="w-full md:max-w-xs">
-            <Input
-              placeholder="Buscar itinerário"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          <div className="flex flex-1 flex-wrap items-center gap-3 md:justify-end">
-            <div className="min-w-[200px]">
-              <Select
-                value={embarkedFilter}
-                onChange={(event) => setEmbarkedFilter(event.target.value)}
-                className="w-full text-sm text-white/80"
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+            {[
+              { key: "embarcado", label: "Embarcado" },
+              { key: "historico", label: "Histórico" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`rounded-md px-3 py-2 transition ${
+                  activeTab === tab.key
+                    ? "border border-primary/40 bg-primary/20 text-white"
+                    : "border border-transparent hover:border-white/20"
+                }`}
               >
-                <option value="all">Embarcados: Todos</option>
-                <option value="yes">Embarcados: Sim</option>
-                <option value="no">Embarcados: Não</option>
-              </Select>
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="w-full md:max-w-xs">
+              <Input
+                placeholder={activeTab === "historico" ? "Buscar histórico" : "Buscar itinerário"}
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
             </div>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-white/80">
-            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
-              <tr>
-                <th className="px-4 py-3 text-left">Nome</th>
-                <th className="px-4 py-3 text-left">Cliente</th>
-                <th className="px-4 py-3 text-left">Cercas</th>
-                <th className="px-4 py-3 text-left">Rotas</th>
-                <th className="px-4 py-3 text-left">Alvos</th>
-                <th className="px-4 py-3 text-left">Tamanho do arquivo</th>
-                <th className="px-4 py-3 text-left">Último embarque</th>
-                <th className="px-4 py-3 text-right">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {loading && (
+      {activeTab === "embarcado" && (
+        <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm text-white/80">
+              <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
                 <tr>
-                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
-                    Carregando itinerários…
-                  </td>
+                  <th className="px-4 py-3 text-left">Nome</th>
+                  <th className="px-4 py-3 text-left">Cliente</th>
+                  <th className="px-4 py-3 text-left">Cercas</th>
+                  <th className="px-4 py-3 text-left">Rotas</th>
+                  <th className="px-4 py-3 text-left">Alvos</th>
+                  <th className="px-4 py-3 text-left">Tamanho do arquivo</th>
+                  <th className="px-4 py-3 text-left">Último embarque</th>
+                  <th className="px-4 py-3 text-right">Ações</th>
                 </tr>
-              )}
-              {!loading && filteredItineraries.length === 0 && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-10 text-center text-white/60">
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-white">Nenhum itinerário encontrado</p>
-                      <p className="text-xs text-white/60">Ajuste os filtros ou crie um novo itinerário.</p>
-                      <div className="flex justify-center gap-2 text-xs">
-                        <Button
-                          variant="ghost"
-                          className="inline-flex items-center gap-2"
-                          onClick={() => {
-                            setEmbarkedFilter("all");
-                            setQuery("");
-                          }}
-                        >
-                          Limpar filtros
-                        </Button>
-                        <Button className="inline-flex items-center gap-2" onClick={() => openEditor(null)}>
-                          <Plus className="h-4 w-4" />
-                          Criar novo
-                        </Button>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                filteredItineraries.map((item) => {
-                  const items = item.items || [];
-                  const geofenceCount = items.filter((entry) => entry.type === "geofence").length;
-                  const routeCount = items.filter((entry) => entry.type === "route").length;
-                  const targetCount = items.filter((entry) => entry.type === "target").length;
-                  const lastEmbark = resolveLastEmbark(item);
-                  const lastEmbarkLabel = lastEmbark
-                    ? `${lastEmbark.vehicleName || lastEmbark.plate || "Veículo"} · ${formatDateTime(lastEmbark.embarkedAt || lastEmbark.at)}`
-                    : "—";
-                  return (
-                    <tr key={item.id}>
-                      <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
-                      <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
-                      <td className="px-4 py-3">{geofenceCount}</td>
-                      <td className="px-4 py-3">{routeCount}</td>
-                      <td className="px-4 py-3">{targetCount}</td>
-                      <td className="px-4 py-3">{formatBytes(kmlSizes.get(item.id))}</td>
-                      <td className="px-4 py-3">{lastEmbarkLabel}</td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
-                            Exportar KML
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {loading && (
+                  <tr>
+                    <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
+                      Carregando itinerários…
+                    </td>
+                  </tr>
+                )}
+                {!loading && filteredItineraries.length === 0 && (
+                  <tr>
+                    <td colSpan={tableColCount} className="px-4 py-10 text-center text-white/60">
+                      <div className="space-y-2">
+                        <p className="text-sm font-semibold text-white">Nenhum itinerário encontrado</p>
+                        <p className="text-xs text-white/60">Ajuste a busca ou crie um novo itinerário.</p>
+                        <div className="flex justify-center gap-2 text-xs">
+                          <Button
+                            variant="ghost"
+                            className="inline-flex items-center gap-2"
+                            onClick={() => setQuery("")}
+                          >
+                            Limpar busca
                           </Button>
-                          <Button size="xs" variant="ghost" onClick={() => openEditor(item)} icon={Pencil}>
-                            Editar
-                          </Button>
-                          <Button size="xs" variant="ghost" onClick={() => handleDelete(item.id)} icon={Trash2}>
-                            Excluir
+                          <Button className="inline-flex items-center gap-2" onClick={() => openEditor(null)}>
+                            <Plus className="h-4 w-4" />
+                            Criar novo
                           </Button>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </table>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  filteredItineraries.map((item) => {
+                    const items = item.items || [];
+                    const geofenceCount = items.filter((entry) => entry.type === "geofence").length;
+                    const routeCount = items.filter((entry) => entry.type === "route").length;
+                    const targetCount = items.filter((entry) => entry.type === "target").length;
+                    const lastEmbark = resolveLastEmbark(item);
+                    const lastEmbarkLabel = lastEmbark
+                      ? `${lastEmbark.vehicleName || lastEmbark.plate || "Veículo"} · ${formatDateTime(lastEmbark.embarkedAt || lastEmbark.at)}`
+                      : "—";
+                    return (
+                      <tr key={item.id}>
+                        <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
+                        <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
+                        <td className="px-4 py-3">{geofenceCount}</td>
+                        <td className="px-4 py-3">{routeCount}</td>
+                        <td className="px-4 py-3">{targetCount}</td>
+                        <td className="px-4 py-3">{formatBytes(kmlSizes.get(item.id))}</td>
+                        <td className="px-4 py-3">{lastEmbarkLabel}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex flex-wrap justify-end gap-2">
+                            <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
+                              Exportar KML
+                            </Button>
+                            <Button size="xs" variant="ghost" onClick={() => openEditor(item)} icon={Pencil}>
+                              Editar
+                            </Button>
+                            <Button size="xs" variant="ghost" onClick={() => handleDelete(item.id)} icon={Trash2}>
+                              Excluir
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* TODO: preencher último embarque quando API disponibilizar */}
+      {activeTab === "historico" && (
+        <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm text-white/80">
+              <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+                <tr>
+                  <th className="px-4 py-3 text-left">Enviado em</th>
+                  <th className="px-4 py-3 text-left">Recebido em</th>
+                  <th className="px-4 py-3 text-left">Quem enviou</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Veículo</th>
+                  <th className="px-4 py-3 text-left">Placa</th>
+                  <th className="px-4 py-3 text-left">Marca</th>
+                  <th className="px-4 py-3 text-left">Modelo</th>
+                  <th className="px-4 py-3 text-left">Resultado</th>
+                  <th className="px-4 py-3 text-left">IP/Endereço</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {historyLoading && (
+                  <tr>
+                    <td colSpan={historyColCount} className="px-4 py-6 text-center text-white/60">
+                      Carregando histórico…
+                    </td>
+                  </tr>
+                )}
+                {!historyLoading && paginatedHistory.length === 0 && (
+                  <tr>
+                    <td colSpan={historyColCount} className="px-4 py-10 text-center text-white/60">
+                      Nenhum embarque encontrado.
+                    </td>
+                  </tr>
+                )}
+                {!historyLoading &&
+                  paginatedHistory.map((entry) => (
+                    <tr key={entry.id}>
+                      <td className="px-4 py-3">{formatDateTime(entry.sentAt)}</td>
+                      <td className="px-4 py-3">{formatDateTime(entry.receivedAt)}</td>
+                      <td className="px-4 py-3">{entry.sentByName || entry.sentBy || "—"}</td>
+                      <td className="px-4 py-3">{entry.status || "—"}</td>
+                      <td className="px-4 py-3">{entry.vehicleName || "—"}</td>
+                      <td className="px-4 py-3">{entry.plate || "—"}</td>
+                      <td className="px-4 py-3">{entry.brand || "—"}</td>
+                      <td className="px-4 py-3">{entry.model || "—"}</td>
+                      <td className="px-4 py-3">{entry.result || "—"}</td>
+                      <td className="px-4 py-3">{entry.ipAddress || "—"}</td>
+                    </tr>
+                  ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-white/10 px-4 py-3 text-xs text-white/60">
+            <span>
+              Página {safeHistoryPage} de {historyTotalPages}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button size="xs" variant="ghost" onClick={() => setHistoryPage(1)} disabled={safeHistoryPage === 1}>
+                Primeiro
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}
+                disabled={safeHistoryPage === 1}
+              >
+                Anterior
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setHistoryPage((page) => Math.min(historyTotalPages, page + 1))}
+                disabled={safeHistoryPage === historyTotalPages}
+              >
+                Próxima
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setHistoryPage(historyTotalPages)}
+                disabled={safeHistoryPage === historyTotalPages}
+              >
+                Última
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <ItineraryModal
         open={editorOpen}
         onClose={() => setEditorOpen(false)}
@@ -534,13 +1125,33 @@ export default function Itineraries() {
         onDelete={selected ? () => handleDelete(selected.id) : null}
         form={form}
         onChange={setForm}
-        panelTab={panelTab}
-        onTabChange={setPanelTab}
+        activeTab={editorTab}
+        onTabChange={setEditorTab}
         geofences={geofences}
         routes={routes}
         targetGeofences={targetGeofences}
-        onAddItem={handleAddItem}
+        onLinkItem={handleLinkItem}
         onRemoveItem={handleRemoveItem}
+      />
+
+      <EmbarkModal
+        open={embarkOpen}
+        onClose={() => {
+          setEmbarkOpen(false);
+          resetEmbarkForm();
+        }}
+        vehicles={vehicles}
+        itineraries={itineraries}
+        vehicleQuery={vehicleQuery}
+        onVehicleQueryChange={setVehicleQuery}
+        selectedVehicleIds={selectedVehicleIds}
+        onToggleVehicle={handleToggleVehicle}
+        onRemoveVehicle={handleRemoveVehicle}
+        selectedItineraryIds={selectedItineraryIds}
+        onToggleItinerary={handleToggleItinerary}
+        sending={embarkSending}
+        onSubmit={handleEmbarkSubmit}
+        resultSummary={embarkSummary}
       />
     </div>
   );

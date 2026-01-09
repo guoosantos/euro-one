@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
-import { createRoute, deleteRoute, getRouteById, listRoutes } from "../models/route.js";
+import { createRoute, deleteRoute, getRouteById, listRoutes, updateRoute } from "../models/route.js";
 
 const router = express.Router();
 
@@ -40,6 +40,23 @@ router.post("/euro/routes", requireRole("manager", "admin"), async (req, res, ne
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const route = await createRoute({ ...req.body, clientId });
     return res.status(201).json({ data: route, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.put("/euro/routes/:id", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const existing = getRouteById(req.params.id);
+    if (!existing) {
+      throw createError(404, "Rota não encontrada");
+    }
+    const clientId = resolveClientId(req, req.body?.clientId || existing.clientId, { required: true });
+    if (clientId && String(existing.clientId) !== String(clientId) && req.user.role !== "admin") {
+      throw createError(403, "Rota não pertence ao cliente informado");
+    }
+    const updated = await updateRoute(req.params.id, { ...req.body, clientId: existing.clientId });
+    return res.json({ data: updated, error: null });
   } catch (error) {
     return next(error);
   }

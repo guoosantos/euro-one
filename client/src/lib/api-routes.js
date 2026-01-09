@@ -12,6 +12,8 @@ export const API_ROUTES = {
   routing: "routing",
   routes: "euro/routes",
   itineraries: "itineraries",
+  itineraryEmbark: "itineraries/embark",
+  itineraryEmbarkHistory: "itineraries/embark/history",
   compliance: "compliance",
   iotSensors: "iot-sensors",
   videoTelematics: "video-telematics",

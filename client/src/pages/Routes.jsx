@@ -21,8 +21,24 @@ import { useUI } from "../lib/store.js";
 import AppMap from "../components/map/AppMap.jsx";
 
 const DEFAULT_CENTER = [-23.55052, -46.633308];
-const GRAPH_HOPPER_URL = (import.meta?.env?.VITE_GRAPHHOPPER_URL || import.meta?.env?.VITE_GRAPH_HOPPER_URL || "").replace(/\/$/, "");
+function alignUrlProtocol(rawUrl) {
+  if (!rawUrl) return "";
+  try {
+    const url = new URL(rawUrl);
+    if (typeof window !== "undefined" && window.location?.protocol === "https:" && url.protocol === "http:") {
+      url.protocol = "https:";
+    }
+    return url.toString().replace(/\/$/, "");
+  } catch (_error) {
+    return rawUrl.replace(/\/$/, "");
+  }
+}
+
+const GRAPH_HOPPER_URL = alignUrlProtocol(
+  import.meta?.env?.VITE_GRAPHHOPPER_URL || import.meta?.env?.VITE_GRAPH_HOPPER_URL || "",
+);
 const GRAPH_HOPPER_KEY = import.meta?.env?.VITE_GRAPHHOPPER_KEY || import.meta?.env?.VITE_GRAPH_HOPPER_KEY || "";
+const OSRM_BASE_URL = alignUrlProtocol(import.meta?.env?.VITE_OSRM_URL || "https://router.project-osrm.org");
 
 const emptyRoute = () => ({
   id: null,
@@ -129,6 +145,8 @@ function splitWaypoints(waypoints) {
   return { origin, destination, stops };
 }
 
+const osrmCache = new Map();
+
 function normalizeRoutingWaypoints(rawWaypoints) {
   return (Array.isArray(rawWaypoints) ? rawWaypoints : [])
     .map((point) => {
@@ -145,20 +163,35 @@ async function buildOsrmPath(waypoints) {
   const normalized = normalizeRoutingWaypoints(waypoints);
   if (normalized.length < 2) return [];
   const coordinates = normalized.map((point) => `${point.lng},${point.lat}`).join(";");
-  const url = new URL(`https://router.project-osrm.org/route/v1/driving/${coordinates}`);
+  const cacheKey = coordinates;
+  if (osrmCache.has(cacheKey)) {
+    return osrmCache.get(cacheKey);
+  }
+  const url = new URL(`${OSRM_BASE_URL}/route/v1/driving/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
   url.searchParams.set("annotations", "false");
 
-  const response = await fetch(url.toString());
-  if (!response.ok) {
-    throw new Error("OSRM indisponível para gerar rota agora.");
-  }
-  const payload = await response.json().catch(() => null);
-  const geometry = payload?.routes?.[0]?.geometry;
-  const coords = geometry?.coordinates || payload?.routes?.[0]?.geometry?.coordinates || [];
-  if (!Array.isArray(coords) || !coords.length) return [];
-  return coords.map(([lon, lat]) => [lat, lon]);
+  const request = fetch(url.toString())
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error("OSRM indisponível para gerar rota agora.");
+      }
+      return response.json().catch(() => null);
+    })
+    .then((payload) => {
+      const geometry = payload?.routes?.[0]?.geometry;
+      const coords = geometry?.coordinates || payload?.routes?.[0]?.geometry?.coordinates || [];
+      if (!Array.isArray(coords) || !coords.length) return [];
+      return coords.map(([lon, lat]) => [lat, lon]);
+    })
+    .catch((error) => {
+      osrmCache.delete(cacheKey);
+      throw error;
+    });
+
+  osrmCache.set(cacheKey, request);
+  return request;
 }
 
 async function buildGraphHopperPath(waypoints) {
@@ -763,7 +796,8 @@ export default function RoutesPage() {
         if (graphhopperPath?.length) path = graphhopperPath;
       }
       if (!path?.length) {
-        path = ordered.map((point) => [point.lat, point.lng]);
+        showToast(\"Não foi possível calcular a rota agora. Verifique conexão e tente novamente.\", \"warning\");
+        return;
       }
       const simplified = simplifyPath(deduplicatePath(path), 0.00005);
       const nextRoute = {
