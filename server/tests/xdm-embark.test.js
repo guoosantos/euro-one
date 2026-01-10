@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import http from "node:http";
 import test from "node:test";
 
@@ -86,16 +87,26 @@ function createMockServer() {
   });
 }
 
+async function waitFor(predicate, { timeoutMs = 200, intervalMs = 5 } = {}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+}
+
 const server = await createMockServer();
 const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 
+process.env.NODE_ENV = "test";
 process.env.XDM_AUTH_URL = `${baseUrl}/oauth/token`;
 process.env.XDM_BASE_URL = baseUrl;
 process.env.XDM_CLIENT_ID = "client";
 process.env.XDM_CLIENT_SECRET = "secret";
 process.env.XDM_DEALER_ID = "10";
 process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = "geoGroup";
+process.env.ENABLE_DEMO_FALLBACK = "true";
 
 await initStorage();
 
@@ -105,7 +116,12 @@ const { normalizePolygon, buildGeometryHash, syncGeofence } = await import(
 const { syncGeozoneGroup } = await import("../services/xdm/geozone-group-sync-service.js");
 const { createItinerary } = await import("../models/itinerary.js");
 const { queueDeployment, embarkItinerary } = await import("../services/xdm/deployment-service.js");
-const { createVehicle } = await import("../models/vehicle.js");
+const { getDeploymentById } = await import("../models/xdm-deployment.js");
+const { clearGeofenceMappings } = await import("../models/xdm-geofence.js");
+const { clearGeozoneGroupMappings } = await import("../models/xdm-geozone-group.js");
+const { createDevice } = await import("../models/device.js");
+const { createVehicle, buildVehicleRecordFromPrisma } = await import("../models/vehicle.js");
+const { resolveVehicleDeviceUid } = await import("../services/xdm/resolve-vehicle-device-uid.js");
 
 const samplePoints = [
   [-23.55, -46.63],
@@ -135,6 +151,7 @@ test("normalizePolygon fecha o polígono e mantém hash determinístico", () => 
 
 test("syncGeofence é idempotente para a mesma geometria", async () => {
   importCalls = 0;
+  clearGeofenceMappings();
   await syncGeofence(geofenceFixture.id, { clientId: geofenceFixture.clientId, geofence: geofenceFixture });
   await syncGeofence(geofenceFixture.id, { clientId: geofenceFixture.clientId, geofence: geofenceFixture });
   assert.equal(importCalls, 1);
@@ -142,6 +159,8 @@ test("syncGeofence é idempotente para a mesma geometria", async () => {
 
 test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
   groupCreateCalls = 0;
+  clearGeofenceMappings();
+  clearGeozoneGroupMappings();
   const itinerary = createItinerary({
     clientId: geofenceFixture.clientId,
     name: "Itinerário",
@@ -177,6 +196,42 @@ test("queueDeployment evita duplicidade quando já há deploy ativo", () => {
   assert.equal(second.deployment.id, first.deployment.id);
 });
 
+test("resolveVehicleDeviceUid usa uniqueId do device associado", () => {
+  const device = createDevice({
+    clientId: geofenceFixture.clientId,
+    name: "Device Teste",
+    uniqueId: `imei-assoc-${randomUUID()}`,
+  });
+  const vehicle = createVehicle({
+    clientId: geofenceFixture.clientId,
+    name: "Carro com Device",
+    plate: "JKL-1234",
+    model: "Modelo D",
+    type: "carro",
+    deviceId: device.id,
+  });
+
+  const resolved = resolveVehicleDeviceUid(vehicle);
+  assert.equal(resolved, device.uniqueId);
+});
+
+test("buildVehicleRecordFromPrisma preenche deviceImei com uniqueId do device", () => {
+  const record = buildVehicleRecordFromPrisma({
+    id: "veh-prisma-1",
+    clientId: geofenceFixture.clientId,
+    name: "Veículo Prisma",
+    plate: "MNO-1234",
+    model: "Modelo E",
+    type: "carro",
+    devices: [{ id: "dev-1", uniqueId: "imei-from-device" }],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  assert.equal(record.deviceId, "dev-1");
+  assert.equal(record.deviceImei, "imei-from-device");
+});
+
 test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
   rolloutCalls = 0;
   overrideCalls = 0;
@@ -202,7 +257,11 @@ test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
     plate: "DEF-5678",
     model: "Modelo B",
     type: "caminhao",
-    deviceImei: "imei-2",
+    deviceId: createDevice({
+      clientId: geofenceFixture.clientId,
+      name: "Device B",
+      uniqueId: `imei-2-${randomUUID()}`,
+    }).id,
   });
 
   const response = await embarkItinerary({
@@ -215,7 +274,10 @@ test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
 
   assert.equal(response.xdmGeozoneGroupId, 555);
 
-  await new Promise((resolve) => setTimeout(resolve, 10));
+  const deploymentB = getDeploymentById(response.vehicles[1].deploymentId);
+  assert.match(deploymentB.deviceImei, /imei-2-/);
+
+  await waitFor(() => overrideCalls === 2 && rolloutCalls === 2);
 
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);

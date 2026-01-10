@@ -98,6 +98,42 @@ function remove(record) {
   syncStorage();
 }
 
+export function buildVehicleRecordFromPrisma(record) {
+  if (!record) return null;
+  const primaryDevice = Array.isArray(record.devices) && record.devices.length ? record.devices[0] : null;
+  const existingDeviceImei = record.deviceImei ? String(record.deviceImei).trim() : null;
+  const resolvedDeviceImei = existingDeviceImei || (primaryDevice?.uniqueId ? String(primaryDevice.uniqueId) : null);
+
+  return {
+    id: record.id,
+    clientId: String(record.clientId),
+    name: record.name || "",
+    item: record.item || "",
+    plate: record.plate,
+    identifier: record.identifier || "",
+    model: record.model || record.name || "",
+    brand: record.brand || "",
+    chassis: record.chassis || "",
+    renavam: record.renavam || "",
+    color: record.color || "",
+    modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
+    manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
+    fipeCode: record.fipeCode || "",
+    fipeValue: Number.isFinite(record.fipeValue) ? record.fipeValue : null,
+    zeroKm: Boolean(record.zeroKm),
+    driver: record.driver || "",
+    group: record.group || "",
+    type: record.type || "",
+    status: record.status || "",
+    notes: record.notes || "",
+    deviceId: primaryDevice?.id ? String(primaryDevice.id) : null,
+    deviceImei: resolvedDeviceImei,
+    xdmDeviceUid: record.xdmDeviceUid ? String(record.xdmDeviceUid).trim() : null,
+    createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
+    updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : new Date().toISOString(),
+  };
+}
+
 async function hydrateVehiclesFromPrisma() {
   if (!isPrismaReady()) return;
   try {
@@ -106,36 +142,9 @@ async function hydrateVehiclesFromPrisma() {
       vehicles.clear();
       byPlate.clear();
       vehiclesFromDb.forEach((record) => {
-        const primaryDevice = Array.isArray(record.devices) && record.devices.length ? record.devices[0] : null;
-        persist(
-          {
-            id: record.id,
-            clientId: String(record.clientId),
-            name: record.name || "",
-            item: record.item || "",
-            plate: record.plate,
-            identifier: record.identifier || "",
-            model: record.model || record.name || "",
-            brand: record.brand || "",
-            chassis: record.chassis || "",
-            renavam: record.renavam || "",
-            color: record.color || "",
-            modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
-            manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
-            fipeCode: record.fipeCode || "",
-            fipeValue: Number.isFinite(record.fipeValue) ? record.fipeValue : null,
-            zeroKm: Boolean(record.zeroKm),
-            driver: record.driver || "",
-            group: record.group || "",
-            type: record.type || "",
-            status: record.status || "",
-            notes: record.notes || "",
-            deviceId: primaryDevice?.id ? String(primaryDevice.id) : null,
-            createdAt: record.createdAt ? new Date(record.createdAt).toISOString() : new Date().toISOString(),
-            updatedAt: record.updatedAt ? new Date(record.updatedAt).toISOString() : new Date().toISOString(),
-          },
-          { skipSync: true },
-        );
+        const hydrated = buildVehicleRecordFromPrisma(record);
+        if (!hydrated) return;
+        persist(hydrated, { skipSync: true });
       });
       syncStorage();
       console.info("[vehicles] hidratados veículos do banco", { count: vehiclesFromDb.length });

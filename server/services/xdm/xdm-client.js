@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 const TOKEN_SAFETY_WINDOW_MS = 60_000;
+const missingBaseUrlLogged = { value: false };
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -14,6 +15,12 @@ function hashValue(value) {
 function withTrailingSlashRemoved(value) {
   if (!value) return null;
   return String(value).trim().replace(/\/+$/, "") || null;
+}
+
+function logMissingBaseUrl() {
+  if (missingBaseUrlLogged.value) return;
+  missingBaseUrlLogged.value = true;
+  console.warn("[xdm] integração XDM desativada (XDM_BASE_URL não configurado)");
 }
 
 export class XdmClient {
@@ -41,6 +48,9 @@ export class XdmClient {
 
   ensureConfigured() {
     if (!this.authUrl || !this.baseUrl || !this.clientId || !this.clientSecret) {
+      if (!this.baseUrl) {
+        logMissingBaseUrl();
+      }
       throw new Error("XDM não configurado (verifique XDM_AUTH_URL, XDM_BASE_URL, XDM_CLIENT_ID, XDM_CLIENT_SECRET)");
     }
   }

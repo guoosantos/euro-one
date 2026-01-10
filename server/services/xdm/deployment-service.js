@@ -14,6 +14,7 @@ import {
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup } from "./geozone-group-sync-service.js";
+import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 
@@ -26,8 +27,25 @@ function getOverrideKey() {
   return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || null;
 }
 
-function resolveDeviceUid(vehicle) {
-  return vehicle?.xdmDeviceUid || vehicle?.deviceImei || vehicle?.device_imei || vehicle?.imei || null;
+function ensureOverrideKeyConfigured() {
+  const overrideKey = getOverrideKey();
+  if (!overrideKey) {
+    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de GEOFENCES");
+  }
+}
+
+function persistVehicleDeviceUid(vehicle, deviceUid) {
+  if (!vehicle || !deviceUid) return;
+  const updates = {};
+  if (!vehicle.deviceImei) {
+    updates.deviceImei = deviceUid;
+  }
+  if (!vehicle.xdmDeviceUid) {
+    updates.xdmDeviceUid = deviceUid;
+  }
+  if (Object.keys(updates).length) {
+    updateVehicle(vehicle.id, updates);
+  }
 }
 
 function buildVehicleStatus({ status, message, deviceUid, rolloutId }) {
@@ -78,13 +96,15 @@ async function resolveConfigId({ deviceUid, correlationId }) {
     return Number(configs[0].id);
   }
 
-  throw new Error("Não foi possível determinar a configuração do XDM para o dispositivo");
+  throw new Error(
+    "Não foi possível determinar a configuração do XDM para o dispositivo (configure XDM_CONFIG_ID ou XDM_CONFIG_NAME)",
+  );
 }
 
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
   const overrideKey = getOverrideKey();
   if (!overrideKey) {
-    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de geozone");
+    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de GEOFENCES");
   }
   const xdmClient = new XdmClient();
   await xdmClient.request(
@@ -144,7 +164,7 @@ async function processDeployment(deploymentId) {
     return;
   }
 
-  const deviceUid = resolveDeviceUid(vehicle);
+  const deviceUid = resolveVehicleDeviceUid(vehicle);
   if (!deviceUid) {
     updateDeployment(deploymentId, {
       status: "FAILED",
@@ -154,8 +174,12 @@ async function processDeployment(deploymentId) {
     return;
   }
 
-  if (!vehicle.xdmDeviceUid && deviceUid) {
-    updateVehicle(vehicle.id, { xdmDeviceUid: deviceUid, deviceImei: vehicle.deviceImei || deviceUid });
+  if (deployment.deviceImei !== deviceUid) {
+    updateDeployment(deploymentId, { deviceImei: deviceUid });
+  }
+
+  if ((!vehicle.xdmDeviceUid || !vehicle.deviceImei) && deviceUid) {
+    persistVehicleDeviceUid(vehicle, deviceUid);
   }
 
   try {
@@ -326,6 +350,10 @@ export async function embarkItinerary({
     throw new Error("Itinerário não possui cercas para sincronizar");
   }
 
+  if (!dryRun) {
+    ensureOverrideKeyConfigured();
+  }
+
   const resolvedGeofencesById =
     geofencesById instanceof Map
       ? geofencesById
@@ -345,12 +373,16 @@ export async function embarkItinerary({
       };
     }
 
-    const deviceUid = resolveDeviceUid(vehicle);
+    const deviceUid = resolveVehicleDeviceUid(vehicle);
     if (!deviceUid) {
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
       };
+    }
+
+    if ((!vehicle.xdmDeviceUid || !vehicle.deviceImei) && deviceUid) {
+      persistVehicleDeviceUid(vehicle, deviceUid);
     }
 
     if (dryRun) {
@@ -364,7 +396,7 @@ export async function embarkItinerary({
       clientId: itinerary.clientId,
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
-      deviceImei: vehicle.deviceImei,
+      deviceImei: deviceUid,
       requestedByUserId,
       requestedByName,
       ipAddress,
