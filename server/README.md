@@ -41,6 +41,8 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_AUTH_URL`: endpoint OAuth2 (client_credentials) do XDM.
   - `XDM_BASE_URL`: base URL da API XDM (sem `/` no final).
   - `XDM_CLIENT_ID` / `XDM_CLIENT_SECRET`: credenciais do client OAuth2.
+  - `XDM_OAUTH_SCOPE`: escopo OAuth2 opcional (enviado no token request).
+  - `XDM_OAUTH_AUDIENCE`: audience OAuth2 opcional (enviado no token request).
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
   - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave de override usada para aplicar o Geozone Group no settingsOverrides.
@@ -49,7 +51,7 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).
   - `XDM_DEPLOYMENT_POLL_INTERVAL_MS`: intervalo de polling do status (ms).
   - `XDM_DEPLOYMENT_TIMEOUT_MS`: timeout máximo do deploy antes de marcar `TIMEOUT` (ms).
-  - `XDM_GEOFENCE_MAX_POINTS`: limite máximo de pontos enviados por geofence.
+  - `XDM_GEOFENCE_MAX_POINTS`: limite máximo de pontos enviados por geofence. Se vazio/`0`, não limita (com guard automático por tamanho ~500KiB).
 
 ## Fluxo de Embarque (EuroOne → XDM → Device)
 
@@ -107,3 +109,13 @@ npm test
 ```
 
 Eles cobrem rotas críticas (CRM, telemetria) e a integração de leitura com o banco do Traccar mockado.
+
+## Smoke test de autenticação XDM
+
+Para diagnosticar `invalid_client` (401) no OAuth2 do XDM, execute:
+
+```bash
+node scripts/xdm-auth-smoke.js
+```
+
+O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (com `XDM_OAUTH_SCOPE`/`XDM_OAUTH_AUDIENCE` opcionais) e imprime status/preview do token sem expor o secret.

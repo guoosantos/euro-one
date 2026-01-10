@@ -29,6 +29,8 @@ export class XdmClient {
     baseUrl = process.env.XDM_BASE_URL,
     clientId = process.env.XDM_CLIENT_ID,
     clientSecret = process.env.XDM_CLIENT_SECRET,
+    scope = process.env.XDM_OAUTH_SCOPE,
+    audience = process.env.XDM_OAUTH_AUDIENCE,
     timeoutMs = Number(process.env.XDM_TIMEOUT_MS) || 15_000,
     maxRetries = Number(process.env.XDM_MAX_RETRIES) || 3,
     retryBaseMs = Number(process.env.XDM_RETRY_BASE_MS) || 500,
@@ -37,6 +39,8 @@ export class XdmClient {
     this.baseUrl = withTrailingSlashRemoved(baseUrl);
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.scope = scope;
+    this.audience = audience;
     this.timeoutMs = timeoutMs;
     this.maxRetries = maxRetries;
     this.retryBaseMs = retryBaseMs;
@@ -68,6 +72,13 @@ export class XdmClient {
       client_secret: this.clientSecret,
     });
 
+    if (this.scope && String(this.scope).trim()) {
+      body.set("scope", String(this.scope).trim());
+    }
+    if (this.audience && String(this.audience).trim()) {
+      body.set("audience", String(this.audience).trim());
+    }
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(new Error("XDM auth timeout")), this.timeoutMs);
 
@@ -81,6 +92,11 @@ export class XdmClient {
 
       if (!response.ok) {
         const message = await response.text();
+        console.error("[xdm] auth failed", {
+          correlationId,
+          status: response.status,
+          body: message,
+        });
         throw new Error(`Falha ao autenticar no XDM: ${response.status} ${message}`);
       }
 
