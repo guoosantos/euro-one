@@ -41,6 +41,7 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_AUTH_URL`: endpoint OAuth2 (client_credentials) do XDM.
   - `XDM_BASE_URL`: base URL da API XDM (sem `/` no final).
   - `XDM_CLIENT_ID` / `XDM_CLIENT_SECRET`: credenciais do client OAuth2.
+  - `XDM_AUTH_MODE`: `post` (default) usa `client_secret_post`; `basic` usa `client_secret_basic`.
   - `XDM_OAUTH_SCOPE`: escopo OAuth2 opcional (enviado no token request).
   - `XDM_OAUTH_AUDIENCE`: audience OAuth2 opcional (enviado no token request).
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
@@ -82,6 +83,25 @@ npm run start
 
 A API ficará disponível em `http://localhost:3001` (ou porta configurada) e servirá as rotas com prefixo `/api`.
 
+## Execução em produção com PM2
+
+1. Edite `ecosystem.config.cjs` e preencha **todas** as variáveis necessárias (incluindo `XDM_*` e `GEOCODE_REDIS_URL`).
+2. Inicie o backend com PM2:
+
+   ```bash
+   pm2 start ecosystem.config.cjs
+   pm2 save
+   ```
+
+3. Verifique se as variáveis foram aplicadas:
+
+   ```bash
+   pm2 show euro-one-server
+   pm2 logs euro-one-server --lines 200
+   ```
+
+4. Para confirmar que o backend carregou as variáveis corretas, procure no log por mensagens `[startup]` e pelos diagnósticos `[xdm]`.
+
 ### Smoke rápido de autenticação/tenant
 
 ```bash
@@ -118,4 +138,4 @@ Para diagnosticar `invalid_client` (401) no OAuth2 do XDM, execute:
 node scripts/xdm-auth-smoke.js
 ```
 
-O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (com `XDM_OAUTH_SCOPE`/`XDM_OAUTH_AUDIENCE` opcionais) e imprime status/preview do token sem expor o secret.
+O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (com `XDM_OAUTH_SCOPE`/`XDM_OAUTH_AUDIENCE` opcionais) e testa automaticamente os modos `post` e `basic`, imprimindo status/preview do token sem expor o secret.

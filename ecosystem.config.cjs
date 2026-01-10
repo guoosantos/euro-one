@@ -32,6 +32,26 @@ module.exports = {
 
         ALLOWED_ORIGINS:
           "http://3.19.229.124:5189,http://localhost:5189,http://127.0.0.1:5189,http://localhost:5173,http://127.0.0.1:5173",
+
+        GEOCODE_REDIS_URL: process.env.GEOCODE_REDIS_URL,
+
+        XDM_AUTH_URL: process.env.XDM_AUTH_URL,
+        XDM_BASE_URL: process.env.XDM_BASE_URL,
+        XDM_CLIENT_ID: process.env.XDM_CLIENT_ID,
+        XDM_CLIENT_SECRET: process.env.XDM_CLIENT_SECRET,
+        XDM_AUTH_MODE: process.env.XDM_AUTH_MODE,
+        XDM_OAUTH_SCOPE: process.env.XDM_OAUTH_SCOPE,
+        XDM_OAUTH_AUDIENCE: process.env.XDM_OAUTH_AUDIENCE,
+        XDM_DEALER_ID: process.env.XDM_DEALER_ID,
+        XDM_CONFIG_ID: process.env.XDM_CONFIG_ID,
+        XDM_CONFIG_NAME: process.env.XDM_CONFIG_NAME,
+        XDM_GEOZONE_GROUP_OVERRIDE_KEY: process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY,
+        XDM_TIMEOUT_MS: process.env.XDM_TIMEOUT_MS,
+        XDM_MAX_RETRIES: process.env.XDM_MAX_RETRIES,
+        XDM_RETRY_BASE_MS: process.env.XDM_RETRY_BASE_MS,
+        XDM_DEPLOYMENT_POLL_INTERVAL_MS: process.env.XDM_DEPLOYMENT_POLL_INTERVAL_MS,
+        XDM_DEPLOYMENT_TIMEOUT_MS: process.env.XDM_DEPLOYMENT_TIMEOUT_MS,
+        XDM_GEOFENCE_MAX_POINTS: process.env.XDM_GEOFENCE_MAX_POINTS,
       },
     },
   ],

@@ -30,7 +30,14 @@ function applyEnv(content) {
       ) {
         value = value.slice(1, -1);
       }
-      if (!(key in process.env)) {
+      const existing = process.env[key];
+      const shouldOverride =
+        !(key in process.env) ||
+        String(existing ?? "")
+          .trim()
+          .toLowerCase()
+          .match(/^(undefined|null)?$/);
+      if (shouldOverride) {
         process.env[key] = value;
       }
     });

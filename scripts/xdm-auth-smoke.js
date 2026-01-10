@@ -1,3 +1,7 @@
+import { loadEnv } from "../server/utils/env.js";
+
+await loadEnv();
+
 const authUrl = process.env.XDM_AUTH_URL;
 const clientId = process.env.XDM_CLIENT_ID;
 const clientSecret = process.env.XDM_CLIENT_SECRET;
@@ -9,52 +13,90 @@ if (!authUrl || !clientId || !clientSecret) {
   process.exit(1);
 }
 
-const body = new URLSearchParams({
-  grant_type: "client_credentials",
-  client_id: clientId,
-  client_secret: clientSecret,
-});
+async function requestToken(authMode) {
+  const body = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: clientId,
+  });
 
-if (scope && String(scope).trim()) {
-  body.set("scope", String(scope).trim());
-}
+  if (authMode === "post") {
+    body.set("client_secret", clientSecret);
+  }
 
-if (audience && String(audience).trim()) {
-  body.set("audience", String(audience).trim());
-}
+  if (scope && String(scope).trim()) {
+    body.set("scope", String(scope).trim());
+  }
 
-try {
+  if (audience && String(audience).trim()) {
+    body.set("audience", String(audience).trim());
+  }
+
+  const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+  if (authMode === "basic") {
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
+    headers.Authorization = `Basic ${credentials}`;
+  }
+
   const response = await fetch(authUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers,
     body,
   });
 
   if (!response.ok) {
     const message = await response.text();
-    console.error("[xdm-auth-smoke] auth failed", {
+    return {
+      ok: false,
       status: response.status,
       body: message,
-      clientId,
-      authUrl,
-    });
-    process.exit(1);
+    };
   }
 
   const payload = await response.json();
   const token = payload?.access_token || "";
   const tokenPreview = token ? `${token.slice(0, 20)}...` : null;
 
-  console.log("[xdm-auth-smoke] auth ok", {
+  return {
+    ok: true,
     status: response.status,
     tokenPreview,
     expiresIn: payload?.expires_in ?? null,
-  });
-} catch (error) {
-  console.error("[xdm-auth-smoke] request error", {
-    message: error?.message || error,
-    clientId,
-    authUrl,
-  });
+  };
+}
+
+const modes = ["post", "basic"];
+let anySuccess = false;
+
+for (const mode of modes) {
+  try {
+    const result = await requestToken(mode);
+    if (result.ok) {
+      anySuccess = true;
+      console.log("[xdm-auth-smoke] auth ok", {
+        mode,
+        status: result.status,
+        tokenPreview: result.tokenPreview,
+        expiresIn: result.expiresIn,
+      });
+    } else {
+      console.error("[xdm-auth-smoke] auth failed", {
+        mode,
+        status: result.status,
+        body: result.body,
+        clientId,
+        authUrl,
+      });
+    }
+  } catch (error) {
+    console.error("[xdm-auth-smoke] request error", {
+      mode,
+      message: error?.message || error,
+      clientId,
+      authUrl,
+    });
+  }
+}
+
+if (!anySuccess) {
   process.exit(1);
 }
