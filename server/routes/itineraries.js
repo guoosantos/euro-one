@@ -15,7 +15,7 @@ import {
   deleteItinerary,
 } from "../models/itinerary.js";
 import { listDeployments, toHistoryEntries, getDeploymentById } from "../models/xdm-deployment.js";
-import { queueDeployment } from "../services/xdm/deployment-service.js";
+import { queueDeployment, embarkItinerary } from "../services/xdm/deployment-service.js";
 
 const router = express.Router();
 
@@ -188,6 +188,66 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
       });
 
     return res.json({ data: history, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/itineraries/:id/embark/history", async (req, res, next) => {
+  try {
+    const itinerary = getItineraryById(req.params.id);
+    if (!itinerary) {
+      throw createError(404, "Itinerário não encontrado");
+    }
+    ensureSameClient(req.user, itinerary.clientId);
+
+    const deployments = listDeployments({ clientId: itinerary.clientId }).filter(
+      (deployment) => String(deployment.itineraryId) === String(itinerary.id),
+    );
+    const vehicles = listVehicles({ clientId: itinerary.clientId }).reduce((acc, vehicle) => {
+      acc.set(String(vehicle.id), vehicle);
+      return acc;
+    }, new Map());
+    const itineraries = new Map([[String(itinerary.id), itinerary]]);
+
+    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries });
+    return res.json({ data: history, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const itineraryId = req.params.itineraryId;
+    const itinerary = getItineraryById(itineraryId);
+    if (!itinerary) {
+      throw createError(404, "Itinerário não encontrado");
+    }
+    const clientId = resolveTargetClient(req, req.body?.clientId || itinerary.clientId, { required: true });
+    ensureSameClient(req.user, clientId);
+
+    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
+    if (!vehicleIds.length) {
+      throw createError(400, "Informe veículos para embarcar");
+    }
+
+    const dryRun = Boolean(req.body?.dryRun);
+    const configId = req.body?.configId ?? null;
+
+    const response = await embarkItinerary({
+      clientId,
+      itineraryId,
+      vehicleIds,
+      configId,
+      dryRun,
+      correlationId: req.headers["x-correlation-id"] || null,
+      requestedByUserId: req.user?.id || null,
+      requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
+      ipAddress: resolveRequestIp(req),
+    });
+
+    return res.status(201).json({ data: response, error: null });
   } catch (error) {
     return next(error);
   }

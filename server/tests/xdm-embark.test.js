@@ -6,6 +6,8 @@ import { initStorage } from "../services/storage.js";
 
 let importCalls = 0;
 let groupCreateCalls = 0;
+let rolloutCalls = 0;
+let overrideCalls = 0;
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -64,6 +66,18 @@ function createMockServer() {
         return;
       }
 
+      if (/^\/api\/external\/v3\/settingsOverrides\//.test(req.url) && req.method === "PUT") {
+        overrideCalls += 1;
+        sendJson(res, {});
+        return;
+      }
+
+      if (req.url === "/api/external/v1/rollouts/create" && req.method === "POST") {
+        rolloutCalls += 1;
+        sendJson(res, { rolloutId: `rollout-${rolloutCalls}` });
+        return;
+      }
+
       res.writeHead(404);
       res.end();
     });
@@ -81,6 +95,7 @@ process.env.XDM_BASE_URL = baseUrl;
 process.env.XDM_CLIENT_ID = "client";
 process.env.XDM_CLIENT_SECRET = "secret";
 process.env.XDM_DEALER_ID = "10";
+process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = "geoGroup";
 
 await initStorage();
 
@@ -89,7 +104,8 @@ const { normalizePolygon, buildGeometryHash, syncGeofence } = await import(
 );
 const { syncGeozoneGroup } = await import("../services/xdm/geozone-group-sync-service.js");
 const { createItinerary } = await import("../models/itinerary.js");
-const { queueDeployment } = await import("../services/xdm/deployment-service.js");
+const { queueDeployment, embarkItinerary } = await import("../services/xdm/deployment-service.js");
+const { createVehicle } = await import("../models/vehicle.js");
 
 const samplePoints = [
   [-23.55, -46.63],
@@ -159,4 +175,75 @@ test("queueDeployment evita duplicidade quando já há deploy ativo", () => {
   assert.equal(first.status, "QUEUED");
   assert.equal(second.status, "ACTIVE");
   assert.equal(second.deployment.id, first.deployment.id);
+});
+
+test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
+  rolloutCalls = 0;
+  overrideCalls = 0;
+
+  const itinerary = createItinerary({
+    clientId: geofenceFixture.clientId,
+    name: "Itinerário Multi",
+    items: [{ type: "geofence", id: geofenceFixture.id }],
+  });
+
+  const vehicleA = createVehicle({
+    clientId: geofenceFixture.clientId,
+    name: "Caminhão A",
+    plate: "ABC-1234",
+    model: "Modelo A",
+    type: "caminhao",
+    deviceImei: "imei-1",
+  });
+
+  const vehicleB = createVehicle({
+    clientId: geofenceFixture.clientId,
+    name: "Caminhão B",
+    plate: "DEF-5678",
+    model: "Modelo B",
+    type: "caminhao",
+    deviceImei: "imei-2",
+  });
+
+  const response = await embarkItinerary({
+    clientId: geofenceFixture.clientId,
+    itineraryId: itinerary.id,
+    vehicleIds: [vehicleA.id, vehicleB.id],
+    configId: 42,
+    geofencesById: new Map([[geofenceFixture.id, geofenceFixture]]),
+  });
+
+  assert.equal(response.xdmGeozoneGroupId, 555);
+
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(overrideCalls, 2);
+  assert.equal(rolloutCalls, 2);
+});
+
+test("embark falha para veículo sem IMEI/deviceUid", async () => {
+  const itinerary = createItinerary({
+    clientId: geofenceFixture.clientId,
+    name: "Itinerário Sem IMEI",
+    items: [{ type: "geofence", id: geofenceFixture.id }],
+  });
+
+  const vehicle = createVehicle({
+    clientId: geofenceFixture.clientId,
+    name: "Carro",
+    plate: "GHI-0001",
+    model: "Modelo C",
+    type: "carro",
+  });
+
+  const response = await embarkItinerary({
+    clientId: geofenceFixture.clientId,
+    itineraryId: itinerary.id,
+    vehicleIds: [vehicle.id],
+    configId: 42,
+    geofencesById: new Map([[geofenceFixture.id, geofenceFixture]]),
+  });
+
+  assert.equal(response.vehicles[0].status, "failed");
+  assert.match(response.vehicles[0].message, /IMEI/i);
 });

@@ -56,7 +56,7 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
 1. O usuário confirma o embarque em **Itinerários** no front-end.
 2. O backend cria um deployment por par `itineraryId + vehicleId` e inicia o processamento assíncrono.
 3. Para cada deployment:
-   - Sincroniza as cercas do itinerário com o XDM (geozones).
+   - Sincroniza as geofences (cercas/rotas/alvos) no XDM via endpoints `geozones`.
    - Garante que o Geozone Group do itinerário exista e esteja atualizado.
    - Aplica o Geozone Group via `settingsOverrides` (XDM) usando `XDM_GEOZONE_GROUP_OVERRIDE_KEY`.
    - Cria um rollout de configuração para o device usando `serializedConfigId`.

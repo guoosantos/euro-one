@@ -24,6 +24,9 @@ export function createDeployment({
   requestedByUserId,
   requestedByName,
   ipAddress,
+  xdmGeozoneGroupId = null,
+  groupHash = null,
+  configId = null,
 }) {
   const now = new Date().toISOString();
   const record = {
@@ -32,6 +35,9 @@ export function createDeployment({
     itineraryId: String(itineraryId),
     vehicleId: String(vehicleId),
     deviceImei: deviceImei || null,
+    xdmGeozoneGroupId: xdmGeozoneGroupId || null,
+    groupHash: groupHash || null,
+    configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
     status: "SYNCING",
     xdmDeploymentId: null,
     requestHash: null,

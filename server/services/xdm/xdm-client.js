@@ -114,6 +114,7 @@ export class XdmClient {
         ...(isFormData ? {} : { "Content-Type": "application/json" }),
         ...headers,
       };
+      const tokenHash = hashValue(token);
 
       const startedAt = Date.now();
 
@@ -138,6 +139,7 @@ export class XdmClient {
             status: response.status,
             attempt,
             waitMs,
+            tokenHash,
           });
           await delay(waitMs);
           continue;
@@ -154,6 +156,7 @@ export class XdmClient {
             status: response.status,
             durationMs,
             errorHash: hashValue(message),
+            tokenHash,
           });
           throw new Error(`XDM error ${response.status} ${message}`);
         }
@@ -167,6 +170,7 @@ export class XdmClient {
           path,
           status: response.status,
           durationMs,
+          tokenHash,
         });
 
         return responseBody;
