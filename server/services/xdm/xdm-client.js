@@ -29,6 +29,7 @@ export class XdmClient {
     baseUrl = process.env.XDM_BASE_URL,
     clientId = process.env.XDM_CLIENT_ID,
     clientSecret = process.env.XDM_CLIENT_SECRET,
+    authMode = process.env.XDM_AUTH_MODE,
     scope = process.env.XDM_OAUTH_SCOPE,
     audience = process.env.XDM_OAUTH_AUDIENCE,
     timeoutMs = Number(process.env.XDM_TIMEOUT_MS) || 15_000,
@@ -39,6 +40,7 @@ export class XdmClient {
     this.baseUrl = withTrailingSlashRemoved(baseUrl);
     this.clientId = clientId;
     this.clientSecret = clientSecret;
+    this.authMode = authMode;
     this.scope = scope;
     this.audience = audience;
     this.timeoutMs = timeoutMs;
@@ -66,11 +68,20 @@ export class XdmClient {
       return this.tokenCache.token;
     }
 
+    const normalizedAuthMode = String(this.authMode || "post").trim().toLowerCase();
+    const useBasic =
+      normalizedAuthMode === "basic" ||
+      normalizedAuthMode === "client_secret_basic" ||
+      normalizedAuthMode === "basic_auth";
+    const authMode = useBasic ? "basic" : "post";
+
     const body = new URLSearchParams({
       grant_type: "client_credentials",
       client_id: this.clientId,
-      client_secret: this.clientSecret,
     });
+    if (!useBasic) {
+      body.set("client_secret", this.clientSecret);
+    }
 
     if (this.scope && String(this.scope).trim()) {
       body.set("scope", String(this.scope).trim());
@@ -79,13 +90,27 @@ export class XdmClient {
       body.set("audience", String(this.audience).trim());
     }
 
+    console.info("[xdm] auth request", {
+      correlationId,
+      clientId: this.clientId,
+      authUrl: this.authUrl,
+      authMode,
+      hasScope: Boolean(this.scope && String(this.scope).trim()),
+      hasAudience: Boolean(this.audience && String(this.audience).trim()),
+    });
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(new Error("XDM auth timeout")), this.timeoutMs);
 
     try {
+      const headers = { "Content-Type": "application/x-www-form-urlencoded" };
+      if (useBasic) {
+        const credentials = Buffer.from(`${this.clientId}:${this.clientSecret}`).toString("base64");
+        headers.Authorization = `Basic ${credentials}`;
+      }
       const response = await fetch(this.authUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers,
         body,
         signal: controller.signal,
       });
@@ -96,6 +121,11 @@ export class XdmClient {
           correlationId,
           status: response.status,
           body: message,
+          clientId: this.clientId,
+          authUrl: this.authUrl,
+          authMode,
+          hasScope: Boolean(this.scope && String(this.scope).trim()),
+          hasAudience: Boolean(this.audience && String(this.audience).trim()),
         });
         throw new Error(`Falha ao autenticar no XDM: ${response.status} ${message}`);
       }

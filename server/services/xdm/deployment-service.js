@@ -252,6 +252,10 @@ async function processDeployment(deploymentId) {
       xdmDeploymentId: rollout?.rolloutId || null,
       configId,
     });
+    logStep(deploymentId, "STATUS_UPDATE", {
+      status: "DEPLOYING",
+      rolloutId: rollout?.rolloutId || null,
+    });
     logStep(deploymentId, "DEPLOY", {
       status: "ok",
       rolloutId: rollout?.rolloutId || null,
