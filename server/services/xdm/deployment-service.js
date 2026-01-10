@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 import { getVehicleById, updateVehicle } from "../../models/vehicle.js";
 import { getItineraryById } from "../../models/itinerary.js";
+import { listGeofences } from "../../models/geofence.js";
 import {
   appendDeploymentLog,
   createDeployment,
@@ -27,6 +28,31 @@ function getOverrideKey() {
 
 function resolveDeviceUid(vehicle) {
   return vehicle?.xdmDeviceUid || vehicle?.deviceImei || vehicle?.device_imei || vehicle?.imei || null;
+}
+
+function buildVehicleStatus({ status, message, deviceUid, rolloutId }) {
+  return {
+    status,
+    message,
+    deviceUid,
+    rolloutId: rolloutId || null,
+  };
+}
+
+async function loadGeofencesById({ clientId, geofenceIds }) {
+  const geofences = await listGeofences({ clientId });
+  const geofencesById = new Map();
+  geofences.forEach((geofence) => {
+    geofencesById.set(String(geofence.id), geofence);
+  });
+
+  geofenceIds.forEach((geofenceId) => {
+    if (!geofencesById.has(String(geofenceId))) {
+      throw new Error("Geofence não encontrada para o itinerário");
+    }
+  });
+
+  return geofencesById;
 }
 
 async function resolveConfigId({ deviceUid, correlationId }) {
@@ -133,19 +159,29 @@ async function processDeployment(deploymentId) {
   }
 
   try {
-    const syncStart = Date.now();
-    logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
-    const { xdmGeozoneGroupId, groupHash } = await syncGeozoneGroup(itinerary.id, {
-      clientId: deployment.clientId,
-      correlationId,
-    });
-    logStep(deploymentId, "SYNC_GEOFENCES", {
-      status: "ok",
-      xdmGeozoneGroupId,
-      durationMs: Date.now() - syncStart,
-    });
+    let xdmGeozoneGroupId = deployment.xdmGeozoneGroupId || null;
+    let groupHash = deployment.groupHash || null;
 
-    const configId = await resolveConfigId({ deviceUid, correlationId });
+    if (!xdmGeozoneGroupId || !groupHash) {
+      const syncStart = Date.now();
+      logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
+      const synced = await syncGeozoneGroup(itinerary.id, {
+        clientId: deployment.clientId,
+        correlationId,
+      });
+      xdmGeozoneGroupId = synced.xdmGeozoneGroupId;
+      groupHash = synced.groupHash;
+      updateDeployment(deploymentId, { xdmGeozoneGroupId, groupHash });
+      logStep(deploymentId, "SYNC_GEOFENCES", {
+        status: "ok",
+        xdmGeozoneGroupId,
+        durationMs: Date.now() - syncStart,
+      });
+    } else {
+      logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", xdmGeozoneGroupId });
+    }
+
+    const configId = deployment.configId ? Number(deployment.configId) : await resolveConfigId({ deviceUid, correlationId });
     const requestHash = buildRequestHash({
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
@@ -161,7 +197,11 @@ async function processDeployment(deploymentId) {
       clientId: deployment.clientId,
     });
 
-    if (lastDeployment?.id !== deploymentId && lastDeployment?.status === "DEPLOYED" && lastDeployment?.requestHash === requestHash) {
+    if (
+      lastDeployment?.id !== deploymentId &&
+      lastDeployment?.status === "DEPLOYED" &&
+      lastDeployment?.requestHash === requestHash
+    ) {
       updateDeployment(deploymentId, {
         status: "DEPLOYED",
         finishedAt: new Date().toISOString(),
@@ -186,6 +226,7 @@ async function processDeployment(deploymentId) {
     updateDeployment(deploymentId, {
       status: "DEPLOYING",
       xdmDeploymentId: rollout?.rolloutId || null,
+      configId,
     });
     logStep(deploymentId, "DEPLOY", {
       status: "ok",
@@ -211,6 +252,9 @@ export function queueDeployment({
   requestedByUserId,
   requestedByName,
   ipAddress,
+  xdmGeozoneGroupId = null,
+  groupHash = null,
+  configId = null,
 }) {
   const active = findActiveDeploymentByPair({ itineraryId, vehicleId, clientId });
   if (active) {
@@ -218,19 +262,22 @@ export function queueDeployment({
   }
 
   const latest = findLatestDeploymentByPair({ itineraryId, vehicleId, clientId });
-  const configuredId = process.env.XDM_CONFIG_ID ? Number(process.env.XDM_CONFIG_ID) : null;
-  if (latest?.status === "DEPLOYED" && latest?.requestHash && Number.isFinite(configuredId)) {
-    const mapping = getGeozoneGroupMapping({ itineraryId, clientId });
-    if (mapping?.groupHash) {
-      const expectedHash = buildRequestHash({
-        itineraryId,
-        vehicleId,
-        groupHash: mapping.groupHash,
-        configId: configuredId,
-      });
-      if (expectedHash === latest.requestHash) {
-        return { deployment: latest, status: "ALREADY_DEPLOYED" };
-      }
+  const configuredId = Number.isFinite(Number(configId))
+    ? Number(configId)
+    : process.env.XDM_CONFIG_ID
+      ? Number(process.env.XDM_CONFIG_ID)
+      : null;
+  const knownGroupHash = groupHash || getGeozoneGroupMapping({ itineraryId, clientId })?.groupHash || null;
+
+  if (latest?.status === "DEPLOYED" && latest?.requestHash && Number.isFinite(configuredId) && knownGroupHash) {
+    const expectedHash = buildRequestHash({
+      itineraryId,
+      vehicleId,
+      groupHash: knownGroupHash,
+      configId: configuredId,
+    });
+    if (expectedHash === latest.requestHash) {
+      return { deployment: latest, status: "ALREADY_DEPLOYED" };
     }
   }
 
@@ -242,6 +289,9 @@ export function queueDeployment({
     requestedByUserId,
     requestedByName,
     ipAddress,
+    xdmGeozoneGroupId,
+    groupHash,
+    configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
   });
 
   setImmediate(() => {
@@ -251,6 +301,109 @@ export function queueDeployment({
   return { deployment, status: "QUEUED" };
 }
 
+export async function embarkItinerary({
+  clientId,
+  itineraryId,
+  vehicleIds = [],
+  configId = null,
+  dryRun = false,
+  correlationId = null,
+  requestedByUserId = null,
+  requestedByName = null,
+  ipAddress = null,
+  geofencesById = null,
+}) {
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) {
+    throw new Error("Itinerário não encontrado");
+  }
+  if (clientId && String(itinerary.clientId) !== String(clientId)) {
+    throw new Error("Itinerário não pertence ao cliente");
+  }
+
+  const geofenceIds = (itinerary.items || []).filter((item) => item.type === "geofence").map((item) => item.id);
+  if (!geofenceIds.length) {
+    throw new Error("Itinerário não possui cercas para sincronizar");
+  }
+
+  const resolvedGeofencesById =
+    geofencesById instanceof Map
+      ? geofencesById
+      : await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds });
+  const { xdmGeozoneGroupId, groupHash } = await syncGeozoneGroup(itinerary.id, {
+    clientId: itinerary.clientId,
+    correlationId,
+    geofencesById: resolvedGeofencesById,
+  });
+
+  const results = vehicleIds.map((vehicleId) => {
+    const vehicle = getVehicleById(vehicleId);
+    if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "failed", message: "Veículo não encontrado para o cliente" }),
+      };
+    }
+
+    const deviceUid = resolveDeviceUid(vehicle);
+    if (!deviceUid) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
+      };
+    }
+
+    if (dryRun) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "ok", message: "Dry-run: deploy não executado", deviceUid }),
+      };
+    }
+
+    const { deployment, status } = queueDeployment({
+      clientId: itinerary.clientId,
+      itineraryId: itinerary.id,
+      vehicleId: vehicle.id,
+      deviceImei: vehicle.deviceImei,
+      requestedByUserId,
+      requestedByName,
+      ipAddress,
+      xdmGeozoneGroupId,
+      groupHash,
+      configId,
+    });
+
+    const mappedStatus =
+      status === "ALREADY_DEPLOYED" ? "ok" : status === "ACTIVE" || status === "QUEUED" ? "queued" : "failed";
+    const message =
+      status === "ALREADY_DEPLOYED"
+        ? "Já embarcado"
+        : status === "ACTIVE"
+          ? "Deploy em andamento"
+          : status === "QUEUED"
+            ? "Deploy enfileirado"
+            : "Falha ao enfileirar deploy";
+
+    return {
+      vehicleId: String(vehicle.id),
+      deploymentId: deployment?.id || null,
+      ...buildVehicleStatus({
+        status: mappedStatus,
+        message,
+        deviceUid,
+        rolloutId: deployment?.xdmDeploymentId || null,
+      }),
+    };
+  });
+
+  return {
+    itineraryId: itinerary.id,
+    xdmGeozoneGroupId,
+    vehicles: results,
+  };
+}
+
 export default {
   queueDeployment,
+  embarkItinerary,
 };

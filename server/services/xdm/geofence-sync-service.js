@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 
 import { buildGeofencesKml, approximateCirclePoints } from "../../utils/kml.js";
+import { getClientById } from "../../models/client.js";
 import { getGeofenceById } from "../../models/geofence.js";
 import { getGeofenceMapping, upsertGeofenceMapping } from "../../models/xdm-geofence.js";
 import XdmClient from "./xdm-client.js";
@@ -56,6 +57,19 @@ function buildGeofenceKml({ name, points }) {
   ]);
 }
 
+async function resolveClientLabel(clientId) {
+  if (!clientId) return null;
+  const client = await getClientById(clientId);
+  const name = client?.name ? String(client.name).trim() : "";
+  return name || null;
+}
+
+function buildXdmName({ clientLabel, name }) {
+  const trimmed = String(name || "").trim();
+  if (!clientLabel) return trimmed;
+  return `${clientLabel} - ${trimmed || "Geofence"}`;
+}
+
 export async function syncGeofence(geofenceId, { clientId, correlationId, geofence: geofenceOverride } = {}) {
   const geofence = geofenceOverride || (await getGeofenceById(geofenceId));
   if (!geofence) {
@@ -82,10 +96,13 @@ export async function syncGeofence(geofenceId, { clientId, correlationId, geofen
     return mapping.xdmGeofenceId;
   }
 
+  const clientLabel = await resolveClientLabel(geofence.clientId);
+  const xdmName = buildXdmName({ clientLabel, name: geofence.name });
+
   const xdmClient = new XdmClient();
-  const kml = buildGeofenceKml({ name: geofence.name, points: normalizedPoints });
+  const kml = buildGeofenceKml({ name: xdmName, points: normalizedPoints });
   const form = new FormData();
-  form.append("files", new Blob([kml], { type: "application/vnd.google-earth.kml+xml" }), `${geofence.name}.kml`);
+  form.append("files", new Blob([kml], { type: "application/vnd.google-earth.kml+xml" }), `${xdmName}.kml`);
 
   if (mapping?.xdmGeofenceId && mapping.geometryHash !== geometryHash) {
     try {
@@ -112,7 +129,7 @@ export async function syncGeofence(geofenceId, { clientId, correlationId, geofen
   upsertGeofenceMapping({
     geofenceId,
     clientId: geofence.clientId,
-    name: geofence.name,
+    name: xdmName,
     geometry: normalizedPoints,
     kmlOriginal: kml,
     geometryHash,
