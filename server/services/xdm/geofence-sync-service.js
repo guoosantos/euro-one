@@ -110,7 +110,7 @@ export async function syncGeofence(geofenceId, { clientId, correlationId, geofen
         correlationId,
       });
     } catch (error) {
-      console.warn("[xdm] falha ao remover geozone anterior", {
+      console.warn("[xdm] falha ao remover GEOFENCE anterior", {
         correlationId,
         geofenceId,
         xdmGeofenceId: mapping.xdmGeofenceId,
@@ -123,7 +123,7 @@ export async function syncGeofence(geofenceId, { clientId, correlationId, geofen
   const xdmGeofenceId = Array.isArray(createdIds) ? createdIds[0] : null;
 
   if (!xdmGeofenceId) {
-    throw new Error("XDM não retornou id da geozone criada");
+    throw new Error("XDM não retornou id da GEOFENCE criada");
   }
 
   upsertGeofenceMapping({

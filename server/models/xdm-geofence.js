@@ -59,8 +59,14 @@ export function listGeofenceMappings({ clientId } = {}) {
     .map(clone);
 }
 
+export function clearGeofenceMappings() {
+  geofences.length = 0;
+  persist();
+}
+
 export default {
   getGeofenceMapping,
   upsertGeofenceMapping,
   listGeofenceMappings,
+  clearGeofenceMappings,
 };

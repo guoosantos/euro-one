@@ -19,7 +19,7 @@ function getDealerId() {
   const raw = process.env.XDM_DEALER_ID;
   const dealerId = raw != null ? Number(raw) : null;
   if (!Number.isFinite(dealerId)) {
-    throw new Error("XDM_DEALER_ID é obrigatório para criar grupos de geozone");
+    throw new Error("XDM_DEALER_ID é obrigatório para criar grupos de GEOFENCES");
   }
   return dealerId;
 }

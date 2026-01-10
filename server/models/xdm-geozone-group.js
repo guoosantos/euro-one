@@ -47,8 +47,14 @@ export function listGeozoneGroupMappings({ clientId } = {}) {
   return groups.filter((item) => (!clientId ? true : String(item.clientId) === String(clientId))).map(clone);
 }
 
+export function clearGeozoneGroupMappings() {
+  groups.length = 0;
+  persist();
+}
+
 export default {
   getGeozoneGroupMapping,
   upsertGeozoneGroupMapping,
   listGeozoneGroupMappings,
+  clearGeozoneGroupMappings,
 };
