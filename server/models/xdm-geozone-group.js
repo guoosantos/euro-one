@@ -86,11 +86,45 @@ export function clearGeozoneGroupMappings() {
   persist();
 }
 
+export function removeGeozoneGroupMapping({ itineraryId, clientId }) {
+  const before = groups.length;
+  const next = groups.filter(
+    (item) =>
+      !(
+        String(item.id) === String(itineraryId) &&
+        (!clientId || String(item.clientId) === String(clientId))
+      ),
+  );
+  groups.length = 0;
+  groups.push(...next);
+  if (before !== groups.length) {
+    persist();
+  }
+}
+
+export function removeGeozoneGroupMappingByScope({ scopeKey, clientId }) {
+  const before = groups.length;
+  const next = groups.filter(
+    (item) =>
+      !(
+        String(item.scopeKey) === String(scopeKey) &&
+        (!clientId || String(item.clientId) === String(clientId))
+      ),
+  );
+  groups.length = 0;
+  groups.push(...next);
+  if (before !== groups.length) {
+    persist();
+  }
+}
+
 export default {
   getGeozoneGroupMapping,
   getGeozoneGroupMappingByScope,
   upsertGeozoneGroupMapping,
   upsertGeozoneGroupMappingByScope,
   listGeozoneGroupMappings,
+  removeGeozoneGroupMapping,
+  removeGeozoneGroupMappingByScope,
   clearGeozoneGroupMappings,
 };

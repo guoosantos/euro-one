@@ -16,6 +16,12 @@ import {
 } from "../models/itinerary.js";
 import { listDeployments, toHistoryEntries, getDeploymentById } from "../models/xdm-deployment.js";
 import { queueDeployment, embarkItinerary } from "../services/xdm/deployment-service.js";
+import {
+  cleanupGeozoneForItem,
+  deleteItineraryGeozoneGroup,
+  diffRemovedItems,
+  syncItineraryXdm,
+} from "../services/xdm/itinerary-sync-service.js";
 
 const router = express.Router();
 
@@ -77,7 +83,11 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
     const itinerary = createItinerary({ ...req.body, clientId });
-    return res.status(201).json({ data: itinerary, error: null });
+    const synced = await syncItineraryXdm(itinerary.id, {
+      clientId,
+      correlationId: req.headers["x-correlation-id"] || null,
+    });
+    return res.status(201).json({ data: synced.itinerary, error: null });
   } catch (error) {
     return next(error);
   }
@@ -92,7 +102,60 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
     const clientId = resolveTargetClient(req, req.body?.clientId || existing.clientId, { required: true });
     ensureSameClient(req.user, clientId);
     const updated = updateItinerary(req.params.id, { ...req.body, clientId: existing.clientId });
-    return res.json({ data: updated, error: null });
+
+    const synced = await syncItineraryXdm(updated.id, {
+      clientId,
+      correlationId: req.headers["x-correlation-id"] || null,
+    });
+
+    const removedItems = diffRemovedItems(existing.items || [], synced.itinerary.items || []);
+    await Promise.all(
+      removedItems.map((item) =>
+        cleanupGeozoneForItem({
+          item,
+          clientId,
+          correlationId: req.headers["x-correlation-id"] || null,
+          excludeItineraryId: updated.id,
+        }),
+      ),
+    );
+
+    const deployments = listDeployments({ clientId }).filter(
+      (deployment) => String(deployment.itineraryId) === String(updated.id),
+    );
+    const vehicles = listVehicles({ clientId }).reduce((acc, vehicle) => {
+      acc.set(String(vehicle.id), vehicle);
+      return acc;
+    }, new Map());
+    const latestByVehicle = new Map();
+    deployments.forEach((deployment) => {
+      const vehicleKey = String(deployment.vehicleId);
+      const current = latestByVehicle.get(vehicleKey);
+      const currentDate = current ? new Date(current.startedAt || 0).getTime() : 0;
+      const nextDate = new Date(deployment.startedAt || 0).getTime();
+      if (!current || nextDate > currentDate) {
+        latestByVehicle.set(vehicleKey, deployment);
+      }
+    });
+
+    latestByVehicle.forEach((deployment) => {
+      if (deployment.status !== "DEPLOYED") return;
+      const vehicle = vehicles.get(String(deployment.vehicleId));
+      if (!vehicle) return;
+      queueDeployment({
+        clientId,
+        itineraryId: updated.id,
+        vehicleId: vehicle.id,
+        deviceImei: vehicle.deviceImei || vehicle.xdmDeviceUid || null,
+        requestedByUserId: req.user?.id || null,
+        requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
+        ipAddress: resolveRequestIp(req),
+        xdmGeozoneGroupId: synced.xdmGeozoneGroupId,
+        groupHash: synced.groupHash,
+      });
+    });
+
+    return res.json({ data: synced.itinerary, error: null });
   } catch (error) {
     return next(error);
   }
@@ -105,6 +168,32 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       throw createError(404, "Itinerário não encontrado");
     }
     ensureSameClient(req.user, existing.clientId);
+    const deployments = listDeployments({ clientId: existing.clientId }).filter(
+      (deployment) => String(deployment.itineraryId) === String(existing.id),
+    );
+    const activeStatuses = new Set(["DEPLOYED", "DEPLOYING", "QUEUED", "SYNCING"]);
+    if (deployments.some((deployment) => activeStatuses.has(deployment.status))) {
+      throw createError(409, "Há dispositivos embarcados neste itinerário. Faça o desembarque antes de excluir.");
+    }
+
+    await deleteItineraryGeozoneGroup({
+      itineraryId: existing.id,
+      clientId: existing.clientId,
+      correlationId: req.headers["x-correlation-id"] || null,
+    });
+
+    const items = existing.items || [];
+    await Promise.all(
+      items.map((item) =>
+        cleanupGeozoneForItem({
+          item,
+          clientId: existing.clientId,
+          correlationId: req.headers["x-correlation-id"] || null,
+          excludeItineraryId: existing.id,
+        }),
+      ),
+    );
+
     await deleteItinerary(req.params.id);
     return res.status(204).send();
   } catch (error) {

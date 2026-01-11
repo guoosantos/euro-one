@@ -65,7 +65,7 @@ export function buildGeometryHash(points = []) {
   return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
-function buildGeofenceKml({ name, points }) {
+export function buildGeofenceKml({ name, points }) {
   return buildGeofencesKml([
     {
       name,
@@ -185,6 +185,7 @@ export async function syncGeofence(
 }
 
 export default {
+  buildGeofenceKml,
   normalizePolygon,
   buildGeometryHash,
   syncGeofence,

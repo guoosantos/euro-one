@@ -11,6 +11,7 @@ import {
 } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
+import { syncRouteGeozone } from "./route-geozone-sync-service.js";
 import { normalizeXdmId } from "./xdm-utils.js";
 
 const HASH_VERSION = "v1";
@@ -58,14 +59,34 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   }
 
   const items = Array.isArray(itinerary.items) ? itinerary.items : [];
-  const geofenceIds = items.filter((item) => item.type === "geofence").map((item) => item.id);
-  if (!geofenceIds.length) {
-    throw new Error("Itinerário não possui cercas para sincronizar");
+  const selectedItems = items.filter((item) => ["geofence", "target", "route"].includes(item.type));
+  if (!selectedItems.length) {
+    throw new Error("Itinerário não possui itens para sincronizar");
   }
 
   const xdmGeozoneIds = [];
   const geofenceEntries = [];
-  for (const geofenceId of geofenceIds) {
+  const itemMappings = [];
+  for (const item of selectedItems) {
+    if (item.type === "route") {
+      const routeResult = await syncRouteGeozone(item.id, {
+        clientId: itinerary.clientId,
+        correlationId,
+      });
+      xdmGeozoneIds.push(routeResult.xdmGeozoneId);
+      geofenceEntries.push({
+        type: item.type,
+        geometryHash: routeResult.geometryHash,
+      });
+      itemMappings.push({
+        type: item.type,
+        id: item.id,
+        xdmGeozoneId: routeResult.xdmGeozoneId,
+      });
+      continue;
+    }
+
+    const geofenceId = item.id;
     const geofenceOverride = geofencesById ? geofencesById.get(String(geofenceId)) : null;
     const geofenceRecord = geofenceOverride || (await getGeofenceById(geofenceId));
     if (!geofenceRecord) {
@@ -95,8 +116,13 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
       );
 
     geofenceEntries.push({
-      type: geofenceRecord.type || "geofence",
+      type: item.type,
       geometryHash,
+    });
+    itemMappings.push({
+      type: item.type,
+      id: geofenceId,
+      xdmGeozoneId: xdmGeofenceId,
     });
   }
 
@@ -189,7 +215,7 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
     xdmGeozoneGroupId,
   });
 
-  return { xdmGeozoneGroupId, groupHash };
+  return { xdmGeozoneGroupId, groupHash, itemMappings };
 }
 
 export async function syncGeozoneGroupForGeofences({

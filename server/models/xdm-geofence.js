@@ -64,9 +64,26 @@ export function clearGeofenceMappings() {
   persist();
 }
 
+export function removeGeofenceMapping({ geofenceId, clientId }) {
+  const before = geofences.length;
+  const next = geofences.filter(
+    (item) =>
+      !(
+        String(item.id) === String(geofenceId) &&
+        (!clientId || String(item.clientId) === String(clientId))
+      ),
+  );
+  geofences.length = 0;
+  geofences.push(...next);
+  if (before !== geofences.length) {
+    persist();
+  }
+}
+
 export default {
   getGeofenceMapping,
   upsertGeofenceMapping,
   listGeofenceMappings,
+  removeGeofenceMapping,
   clearGeofenceMappings,
 };
