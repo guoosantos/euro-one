@@ -9,6 +9,7 @@ let importCalls = 0;
 let groupCreateCalls = 0;
 let rolloutCalls = 0;
 let overrideCalls = 0;
+let lastGroupPayload = null;
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -42,8 +43,15 @@ function createMockServer() {
       }
 
       if (req.url === "/api/external/v1/geozonegroups" && req.method === "POST") {
-        groupCreateCalls += 1;
-        sendJson(res, 555);
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          lastGroupPayload = body ? JSON.parse(body) : null;
+          groupCreateCalls += 1;
+          sendJson(res, 555);
+        });
         return;
       }
 
@@ -159,6 +167,7 @@ test("syncGeofence é idempotente para a mesma geometria", async () => {
 
 test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
   groupCreateCalls = 0;
+  lastGroupPayload = null;
   clearGeofenceMappings();
   clearGeozoneGroupMappings();
   const itinerary = createItinerary({
@@ -170,6 +179,13 @@ test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
   await syncGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId, geofencesById });
   await syncGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId, geofencesById });
   assert.equal(groupCreateCalls, 1);
+  const safeClient = geofenceFixture.clientId.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const safeItineraryId = String(itinerary.id || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const safeName = String(itinerary.name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  assert.equal(
+    lastGroupPayload?.name,
+    `EUROONE_${safeClient}_${safeItineraryId || "ITINERARY"}_GROUP_${safeName || "ITINERARIO"}`,
+  );
 });
 
 test("queueDeployment evita duplicidade quando já há deploy ativo", () => {

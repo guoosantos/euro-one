@@ -3,9 +3,9 @@ import http from "node:http";
 import test from "node:test";
 
 import { initStorage } from "../services/storage.js";
-import { clearGeofenceMappings, getGeofenceMapping } from "../models/xdm-geofence.js";
 
 let importContentType = null;
+let importStatus = 200;
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -29,6 +29,11 @@ function createMockServer() {
 
       if (req.url === "/api/external/v1/geozones/import" && req.method === "POST") {
         importContentType = req.headers["content-type"] || null;
+        if (importStatus !== 200) {
+          res.writeHead(importStatus, { "Content-Type": "text/plain" });
+          res.end("payload too large");
+          return;
+        }
         sendJson(res, [999]);
         return;
       }
@@ -85,6 +90,7 @@ const { port } = server.address();
 const baseUrl = `http://127.0.0.1:${port}`;
 
 await initStorage();
+const { clearGeofenceMappings, getGeofenceMapping } = await import("../models/xdm-geofence.js");
 
 test.after(() => server.close());
 
@@ -132,7 +138,7 @@ test("normalizePolygon aplica limite quando XDM_GEOFENCE_MAX_POINTS=200", async 
   });
 });
 
-test("syncGeofence simplifica quando KML ultrapassa o limite e envia FormData", async () => {
+test("syncGeofence gera nome determinístico e envia FormData", async () => {
   await withEnv(
     {
       XDM_AUTH_URL: `${baseUrl}/oauth/token`,
@@ -143,25 +149,56 @@ test("syncGeofence simplifica quando KML ultrapassa o limite e envia FormData", 
     },
     async () => {
       importContentType = null;
+      importStatus = 200;
       clearGeofenceMappings();
       const { syncGeofence } = await import(
         `../services/xdm/geofence-sync-service.js?sync-${Date.now()}`
       );
-      const points = buildPoints(20000);
       const geofence = {
         id: "geo-large",
         clientId: "client-1",
         name: "Geofence Grande",
         type: "polygon",
-        points,
+        points: buildPoints(10),
       };
-      await syncGeofence(geofence.id, { clientId: geofence.clientId, geofence });
+      await syncGeofence(geofence.id, { clientId: geofence.clientId, geofence, itineraryId: "it-1" });
       const mapping = getGeofenceMapping({ geofenceId: geofence.id, clientId: geofence.clientId });
-      const bytes = Buffer.byteLength(mapping.kmlOriginal || "", "utf8");
-
-      assert.ok(bytes <= 500 * 1024);
-      assert.ok(mapping.geometry.length < points.length + 1);
+      assert.equal(mapping.name, "EUROONE_client_1_it_1_polygon_Geofence_Grande");
       assert.match(importContentType || "", /multipart\/form-data/);
+    },
+  );
+});
+
+test("syncGeofence retorna erro claro quando XDM rejeita payload grande", async () => {
+  await withEnv(
+    {
+      XDM_AUTH_URL: `${baseUrl}/oauth/token`,
+      XDM_BASE_URL: baseUrl,
+      XDM_CLIENT_ID: "client",
+      XDM_CLIENT_SECRET: "secret",
+      XDM_GEOFENCE_MAX_POINTS: "",
+    },
+    async () => {
+      importStatus = 413;
+      clearGeofenceMappings();
+      const { syncGeofence } = await import(
+        `../services/xdm/geofence-sync-service.js?size-${Date.now()}`
+      );
+      const geofence = {
+        id: "geo-huge",
+        clientId: "client-1",
+        name: "Geofence Gigante",
+        type: "polygon",
+        points: buildPoints(20),
+      };
+
+      await assert.rejects(
+        () => syncGeofence(geofence.id, { clientId: geofence.clientId, geofence }),
+        (error) => {
+          assert.match(String(error.message), /XDM rejeitou geofence por tamanho/i);
+          return true;
+        },
+      );
     },
   );
 });

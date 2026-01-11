@@ -23,6 +23,26 @@ function logMissingBaseUrl() {
   console.warn("[xdm] integração XDM desativada (XDM_BASE_URL não configurado)");
 }
 
+function parseResponseBody(text) {
+  if (!text) return { text: "", parsed: null };
+  const trimmed = String(text).trim();
+  if (!trimmed) return { text: "", parsed: null };
+  try {
+    return { text: trimmed, parsed: JSON.parse(trimmed) };
+  } catch (_error) {
+    return { text: trimmed, parsed: null };
+  }
+}
+
+function buildHttpError(message, { status, code, details, expose = false } = {}) {
+  const error = new Error(message);
+  if (status) error.status = status;
+  if (code) error.code = code;
+  if (details) error.details = details;
+  if (expose) error.expose = true;
+  return error;
+}
+
 export class XdmClient {
   constructor({
     authUrl = process.env.XDM_AUTH_URL,
@@ -116,18 +136,52 @@ export class XdmClient {
       });
 
       if (!response.ok) {
-        const message = await response.text();
+        const responseText = await response.text();
+        const { parsed } = parseResponseBody(responseText);
+        const responseCode = parsed?.error || parsed?.code || null;
+        const responseMessage = parsed?.error_description || parsed?.message || responseText;
         console.error("[xdm] auth failed", {
           correlationId,
           status: response.status,
-          body: message,
+          body: responseText,
           clientId: this.clientId,
           authUrl: this.authUrl,
           authMode,
           hasScope: Boolean(this.scope && String(this.scope).trim()),
           hasAudience: Boolean(this.audience && String(this.audience).trim()),
         });
-        throw new Error(`Falha ao autenticar no XDM: ${response.status} ${message}`);
+        if (
+          response.status === 401 &&
+          String(responseCode || responseText)
+            .toLowerCase()
+            .includes("invalid_client")
+        ) {
+          throw buildHttpError(
+            "Credenciais OAuth do XDM recusadas (invalid_client). Verifique se o client permite client_credentials e se o secret é válido/atual.",
+            {
+              status: response.status,
+              code: "invalid_client",
+              expose: true,
+              details: {
+                authUrl: this.authUrl,
+                clientId: this.clientId,
+                authMode,
+                response: responseMessage,
+              },
+            },
+          );
+        }
+        throw buildHttpError(`Falha ao autenticar no XDM: ${response.status} ${responseMessage}`, {
+          status: response.status,
+          code: responseCode || "XDM_AUTH_FAILED",
+          expose: true,
+          details: {
+            authUrl: this.authUrl,
+            clientId: this.clientId,
+            authMode,
+            response: responseMessage,
+          },
+        });
       }
 
       const payload = await response.json();
@@ -204,17 +258,28 @@ export class XdmClient {
         const durationMs = Date.now() - startedAt;
 
         if (!response.ok) {
-          const message = await response.text();
+          const responseText = await response.text();
+          const { parsed } = parseResponseBody(responseText);
+          const responseCode = parsed?.error || parsed?.code || null;
+          const responseMessage = parsed?.message || parsed?.error_description || responseText;
           console.error("[xdm] request failed", {
             correlationId,
             method,
             path,
             status: response.status,
             durationMs,
-            errorHash: hashValue(message),
+            errorHash: hashValue(responseText),
             tokenHash,
           });
-          throw new Error(`XDM error ${response.status} ${message}`);
+          throw buildHttpError(`XDM error ${response.status} ${responseMessage}`, {
+            status: response.status,
+            code: responseCode || "XDM_REQUEST_FAILED",
+            details: {
+              method,
+              path,
+              response: responseMessage,
+            },
+          });
         }
 
         const contentType = response.headers.get("content-type") || "";

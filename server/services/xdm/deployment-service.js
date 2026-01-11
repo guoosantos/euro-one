@@ -24,7 +24,7 @@ function buildRequestHash({ itineraryId, vehicleId, groupHash, configId }) {
 }
 
 function getOverrideKey() {
-  return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || null;
+  return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || "geoGroup";
 }
 
 function ensureOverrideKeyConfigured() {
