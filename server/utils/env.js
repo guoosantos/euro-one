@@ -3,6 +3,7 @@ import { dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
 let loaded = false;
+const envLog = { value: false };
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 const productionEnvPath = "/home/ubuntu/euro-one/server/.env";
@@ -14,7 +15,7 @@ const envSearchPaths = [
   resolve(process.cwd(), "..", ".env"),
 ];
 
-function applyEnv(content) {
+function applyEnv(content, { override = false } = {}) {
   content
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -33,6 +34,7 @@ function applyEnv(content) {
       }
       const existing = process.env[key];
       const shouldOverride =
+        override ||
         !(key in process.env) ||
         String(existing ?? "")
           .trim()
@@ -42,6 +44,19 @@ function applyEnv(content) {
         process.env[key] = value;
       }
     });
+}
+
+function shouldOverrideEnv(envPath) {
+  if (process.env.NODE_ENV !== "production") return false;
+  if (!envPath || envPath !== productionEnvPath) return false;
+
+  if (process.env.DOTENV_OVERRIDE != null) {
+    const flag = String(process.env.DOTENV_OVERRIDE).trim().toLowerCase();
+    if (["0", "false", "no", "off"].includes(flag)) return false;
+    if (["1", "true", "yes", "on"].includes(flag)) return true;
+  }
+
+  return true;
 }
 
 function resolveEnvPath() {
@@ -71,13 +86,21 @@ export function validateEnv(requiredKeys = [], { optional = false } = {}) {
 export async function loadEnv() {
   if (loaded) return;
   const envPath = resolveEnvPath();
+  const override = shouldOverrideEnv(envPath);
+  if (!envLog.value) {
+    console.info("[startup] env carregado", {
+      envPath: envPath || null,
+      override,
+    });
+    envLog.value = true;
+  }
   try {
     const dotenv = await import("dotenv");
     if (dotenv?.config) {
       if (envPath) {
-        dotenv.config({ path: envPath, override: false });
+        dotenv.config({ path: envPath, override });
       } else {
-        dotenv.config({ override: false });
+        dotenv.config({ override });
       }
       loaded = true;
       return;
@@ -93,6 +116,6 @@ export async function loadEnv() {
     return;
   }
   const raw = readFileSync(envPath, "utf-8");
-  applyEnv(raw);
+  applyEnv(raw, { override });
   loaded = true;
 }

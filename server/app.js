@@ -32,6 +32,8 @@ import euroRoutes from "./routes/euro-routes.js";
 import trackerMappingRoutes from "./routes/tracker-mappings.js";
 import mapMatchingRoutes from "./routes/map-matching.js";
 import protocolRoutes from "./routes/protocols.js";
+import xdmRoutes from "./routes/xdm.js";
+import xdmAdminRoutes from "./routes/xdm-admin.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -109,6 +111,8 @@ app.use("/api", itineraryRoutes);
 app.use("/api", euroRoutes);
 app.use("/api", mapMatchingRoutes);
 app.use("/api", protocolRoutes);
+app.use("/api", xdmRoutes);
+app.use("/api/admin", xdmAdminRoutes);
 
 if (fs.existsSync(clientDistPath)) {
   app.use(express.static(clientDistPath));
