@@ -348,9 +348,12 @@ export async function embarkItinerary({
     throw new Error("Itinerário não pertence ao cliente");
   }
 
-  const geofenceIds = (itinerary.items || []).filter((item) => item.type === "geofence").map((item) => item.id);
-  if (!geofenceIds.length) {
-    throw new Error("Itinerário não possui cercas para sincronizar");
+  const geofenceIds = (itinerary.items || [])
+    .filter((item) => item.type === "geofence" || item.type === "target")
+    .map((item) => item.id);
+  const routeIds = (itinerary.items || []).filter((item) => item.type === "route").map((item) => item.id);
+  if (!geofenceIds.length && !routeIds.length) {
+    throw new Error("Itinerário não possui itens para sincronizar");
   }
 
   if (!dryRun) {
@@ -360,7 +363,9 @@ export async function embarkItinerary({
   const resolvedGeofencesById =
     geofencesById instanceof Map
       ? geofencesById
-      : await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds });
+      : geofenceIds.length
+        ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
+        : new Map();
   const { xdmGeozoneGroupId, groupHash } = await syncGeozoneGroup(itinerary.id, {
     clientId: itinerary.clientId,
     correlationId,

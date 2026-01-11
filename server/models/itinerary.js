@@ -37,9 +37,26 @@ function normalizeItems(items = []) {
       const type = String(item.type || "").toLowerCase();
       if (type !== "geofence" && type !== "route" && type !== "target") return null;
       if (!item.id) return null;
-      return { type, id: String(item.id) };
+      const xdmGeozoneId =
+        Object.prototype.hasOwnProperty.call(item, "xdmGeozoneId") && item.xdmGeozoneId !== undefined
+          ? item.xdmGeozoneId ?? null
+          : null;
+      return { type, id: String(item.id), xdmGeozoneId };
     })
     .filter(Boolean);
+}
+
+function mergeItemMappings(currentItems = [], nextItems = []) {
+  if (!Array.isArray(nextItems) || !nextItems.length) return [];
+  const byKey = new Map(
+    (currentItems || []).map((item) => [`${item.type}:${item.id}`, item?.xdmGeozoneId ?? null]),
+  );
+  return nextItems.map((item) => {
+    if (item.xdmGeozoneId != null) return item;
+    const mapped = byKey.get(`${item.type}:${item.id}`);
+    if (mapped == null) return item;
+    return { ...item, xdmGeozoneId: mapped };
+  });
 }
 
 const persisted = loadCollection(STORAGE_KEY, []);
@@ -68,6 +85,7 @@ export function createItinerary({ clientId, name, description = "", items = [] }
     name: ensureName(name),
     description: description || "",
     items: normalizeItems(items),
+    xdmGeozoneGroupId: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -87,7 +105,11 @@ export function updateItinerary(id, updates = {}) {
       Object.prototype.hasOwnProperty.call(updates, "description") && updates.description !== undefined
         ? updates.description || ""
         : existing.description,
-    items: updates.items ? normalizeItems(updates.items) : existing.items,
+    items: updates.items ? mergeItemMappings(existing.items, normalizeItems(updates.items)) : existing.items,
+    xdmGeozoneGroupId:
+      Object.prototype.hasOwnProperty.call(updates, "xdmGeozoneGroupId") && updates.xdmGeozoneGroupId !== undefined
+        ? updates.xdmGeozoneGroupId
+        : existing.xdmGeozoneGroupId ?? null,
     updatedAt: new Date().toISOString(),
   };
 
