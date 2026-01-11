@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
+import {
+  ensureGeozoneGroupOverrideId,
+  normalizeXdmDeviceUid,
+  normalizeXdmId,
+} from "./xdm-utils.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 
@@ -10,23 +15,15 @@ function buildCorrelationId({ deviceUid, groupHash }) {
   return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 20);
 }
 
-function getOverrideKey() {
-  return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || "geoGroup";
-}
-
-function ensureOverrideKeyConfigured() {
-  const overrideKey = getOverrideKey();
-  if (!overrideKey) {
-    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de GEOFENCES");
-  }
-  return overrideKey;
-}
-
 async function resolveConfigId({ deviceUid, correlationId }) {
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "resolveConfigId" });
   const xdmClient = new XdmClient();
-  const configs = await xdmClient.request("POST", "/api/external/v3/configs/forDevices", { uids: [deviceUid] }, {
-    correlationId,
-  });
+  const configs = await xdmClient.request(
+    "POST",
+    "/api/external/v3/configs/forDevices",
+    { uids: [normalizedDeviceUid] },
+    { correlationId },
+  );
 
   const configuredId = process.env.XDM_CONFIG_ID ? Number(process.env.XDM_CONFIG_ID) : null;
   if (Number.isFinite(configuredId)) {
@@ -51,14 +48,16 @@ async function resolveConfigId({ deviceUid, correlationId }) {
 }
 
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideKey = ensureOverrideKeyConfigured();
+  const overrideConfig = ensureGeozoneGroupOverrideId();
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
+  const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
   await xdmClient.request(
     "PUT",
-    `/api/external/v3/settingsOverrides/${deviceUid}`,
+    `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
     {
       overrides: {
-        [overrideKey]: String(xdmGeozoneGroupId),
+        [overrideConfig.overrideId]: normalizedGeozoneGroupId,
       },
     },
     { correlationId },
@@ -66,6 +65,7 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
 }
 
 async function createRollout({ deviceUid, configId, correlationId }) {
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "createRollout" });
   const xdmClient = new XdmClient();
   const title = `EuroOne deploy ${new Date().toISOString()}`;
   return xdmClient.request(
@@ -75,7 +75,7 @@ async function createRollout({ deviceUid, configId, correlationId }) {
       type: DEFAULT_ROLLOUT_TYPE,
       title,
       autoRelease: true,
-      deviceUids: [deviceUid],
+      deviceUids: [normalizedDeviceUid],
       serializedConfigId: configId,
     },
     { correlationId },
@@ -98,9 +98,10 @@ export async function applyGeozoneGroupToDevice({
     throw new Error("deviceUid é obrigatório");
   }
 
-  const resolvedCorrelationId = correlationId || buildCorrelationId({ deviceUid });
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyGeozoneGroupToDevice" });
+  const resolvedCorrelationId = correlationId || buildCorrelationId({ deviceUid: normalizedDeviceUid });
 
-  const groupScopeId = groupName || deviceUid;
+  const groupScopeId = groupName || normalizedDeviceUid;
   const groupSyncResult = itineraryId
     ? await syncGeozoneGroup(itineraryId, {
         clientId,
@@ -111,7 +112,7 @@ export async function applyGeozoneGroupToDevice({
         clientId,
         geofenceIds,
         groupName,
-        scopeKey: groupName || deviceUid,
+        scopeKey: groupName || normalizedDeviceUid,
         scopeId: groupScopeId,
         correlationId: resolvedCorrelationId,
         geofencesById,
@@ -122,12 +123,20 @@ export async function applyGeozoneGroupToDevice({
     throw new Error("Falha ao obter geozone group no XDM");
   }
 
-  const configId = await resolveConfigId({ deviceUid, correlationId: resolvedCorrelationId });
-  await applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId: resolvedCorrelationId });
-  const rollout = await createRollout({ deviceUid, configId, correlationId: resolvedCorrelationId });
+  const configId = await resolveConfigId({ deviceUid: normalizedDeviceUid, correlationId: resolvedCorrelationId });
+  await applyOverrides({
+    deviceUid: normalizedDeviceUid,
+    xdmGeozoneGroupId,
+    correlationId: resolvedCorrelationId,
+  });
+  const rollout = await createRollout({
+    deviceUid: normalizedDeviceUid,
+    configId,
+    correlationId: resolvedCorrelationId,
+  });
 
   return {
-    deviceUid,
+    deviceUid: normalizedDeviceUid,
     configId,
     xdmGeozoneGroupId,
     groupName: groupSyncResult?.groupName || groupName || null,

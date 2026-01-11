@@ -117,7 +117,7 @@ process.env.XDM_BASE_URL = baseUrl;
 process.env.XDM_CLIENT_ID = "client";
 process.env.XDM_CLIENT_SECRET = "secret";
 process.env.XDM_DEALER_ID = "10";
-process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = "geoGroup";
+process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "1234";
 process.env.ENABLE_DEMO_FALLBACK = "true";
 
 await initStorage();

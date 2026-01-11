@@ -49,7 +49,7 @@ before(async () => {
   process.env.XDM_CLIENT_SECRET = "secret";
   process.env.XDM_DEALER_ID = "123";
   process.env.XDM_CONFIG_NAME = "Config XDM";
-  process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = "geoGroup";
+  process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "1234";
   process.env.XDM_DIAGNOSTICS_ENABLED = "true";
 
   server = app.listen(0);
@@ -73,5 +73,6 @@ it("GET /api/admin/xdm/diagnostics retorna tokenOk true", async () => {
   assert.equal(response.status, 200);
   assert.equal(body.tokenOk, true);
   assert.equal(body.clientId, "client");
-  assert.equal(body.overrideKey, "geoGroup");
+  assert.equal(body.overrideId, "1234");
+  assert.equal(body.overrideIdValid, true);
 });

@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
+import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-utils.js";
 import { extractToken } from "./middleware/auth.js";
 
 const logErrorStack = (label, error) => {
@@ -87,6 +88,18 @@ async function bootstrapServer() {
     configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
     secretLen: process.env.XDM_CLIENT_SECRET ? String(process.env.XDM_CLIENT_SECRET).length : 0,
   });
+  const overrideConfig = getGeozoneGroupOverrideConfig();
+  const overrideLogPayload = {
+    overrideId: overrideConfig.overrideId,
+    overrideIdValid: overrideConfig.isValid,
+    overrideSource: overrideConfig.source,
+    overrideRaw: overrideConfig.rawValue,
+  };
+  if (overrideConfig.isValid) {
+    console.info("[startup] XDM override config", overrideLogPayload);
+  } else {
+    console.warn("[startup] XDM override config inválido", overrideLogPayload);
+  }
 
   const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
   if (missing.length) {

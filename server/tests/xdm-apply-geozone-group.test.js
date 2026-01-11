@@ -13,6 +13,7 @@ let importCalls = 0;
 let groupCreateCalls = 0;
 let rolloutCalls = 0;
 let overrideCalls = 0;
+let lastOverridePayload = null;
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -57,8 +58,15 @@ function createMockServer() {
       }
 
       if (/^\/api\/external\/v3\/settingsOverrides\//.test(req.url) && req.method === "PUT") {
-        overrideCalls += 1;
-        sendJson(res, {});
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          overrideCalls += 1;
+          lastOverridePayload = body ? JSON.parse(body) : null;
+          sendJson(res, {});
+        });
         return;
       }
 
@@ -108,7 +116,7 @@ before(async () => {
   process.env.XDM_CLIENT_ID = "client";
   process.env.XDM_CLIENT_SECRET = "secret";
   process.env.XDM_DEALER_ID = "10";
-  process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = "geoGroup";
+  process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "1234";
   process.env.XDM_CONFIG_NAME = "Config XDM";
   process.env.ENABLE_DEMO_FALLBACK = "true";
 
@@ -130,6 +138,7 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   groupCreateCalls = 0;
   rolloutCalls = 0;
   overrideCalls = 0;
+  lastOverridePayload = null;
   clearGeofenceMappings();
   clearGeozoneGroupMappings();
 
@@ -170,4 +179,45 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   assert.equal(groupCreateCalls, 1);
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);
+  assert.deepEqual(lastOverridePayload?.overrides, { "1234": 555 });
+});
+
+it("falha quando override id não é numérico", async () => {
+  const previousOverrideId = process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
+  const previousOverrideKey = process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "geoGroup";
+  delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  overrideCalls = 0;
+
+  const token = signSession({ id: "admin-1", role: "admin", clientId: "client-1" });
+  const payload = {
+    clientId: "client-1",
+    deviceUid: "imei-123",
+    geofenceIds: ["geo-1"],
+    geofences: [geofenceFixture],
+    groupName: "GROUP-TEST",
+  };
+
+  const response = await fetch(`${baseUrl}/api/xdm/geozone-group/apply`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  assert.equal(response.status, 500);
+  assert.equal(overrideCalls, 0);
+
+  if (previousOverrideId === undefined) {
+    delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
+  } else {
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = previousOverrideId;
+  }
+  if (previousOverrideKey === undefined) {
+    delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  } else {
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = previousOverrideKey;
+  }
 });
