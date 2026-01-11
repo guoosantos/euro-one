@@ -46,7 +46,8 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_OAUTH_AUDIENCE`: audience OAuth2 opcional (enviado no token request).
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
   - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
-  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave de override usada para aplicar o Geozone Group no settingsOverrides (default `geoGroup`).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: **obrigatório**. ID numérico (int32) do override que aponta para o Geozone Group (ex.: `1234`).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`; o valor **precisa** ser numérico.
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
   - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).
@@ -61,7 +62,7 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
 3. Para cada deployment:
    - Sincroniza as geofences (cercas/rotas/alvos) no XDM via endpoints `geozones`.
    - Garante que o Geozone Group do itinerário exista e esteja atualizado.
-   - Aplica o Geozone Group via `settingsOverrides` (XDM) usando `XDM_GEOZONE_GROUP_OVERRIDE_KEY`.
+  - Aplica o Geozone Group via `settingsOverrides` (XDM) usando `XDM_GEOZONE_GROUP_OVERRIDE_ID`.
    - Cria um rollout de configuração para o device usando `serializedConfigId`.
 4. Um poller periódico consulta o rollout e atualiza o status para `DEPLOYED`, `FAILED` ou `TIMEOUT`.
 5. A aba **Histórico** do front reflete o status atual (Enviado/Deploying/Deployed/Failed/Timeout).
@@ -151,5 +152,15 @@ O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (co
 - Verifique se `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` correspondem ao client OAuth informado no XDM.
 - Teste ambos os modos:
   - `XDM_AUTH_MODE=post` (client_secret_post)
-  - `XDM_AUTH_MODE=basic` (client_secret_basic)
+- `XDM_AUTH_MODE=basic` (client_secret_basic)
+
+### Descobrir o ID do override de Geozone Group
+
+Use o script abaixo para encontrar o ID numérico do override associado ao geozone group no XDM:
+
+```bash
+node scripts/xdm-discover-geoGroup-override-id.js <IMEI>
+```
+
+O script consulta `/api/external/v1/devicesSdk/{imei}/details`, tenta localizar estruturas relacionadas a geozone/geo group e imprime candidatos. Se existir, também exibe overrides já configurados via `/api/external/v3/settingsOverrides/{deviceUid}`.
 - Garanta que não há espaços/aspas extras no `.env` (o backend remove aspas automaticamente).

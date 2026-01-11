@@ -45,6 +45,7 @@ module.exports = {
         XDM_DEALER_ID: process.env.XDM_DEALER_ID,
         XDM_CONFIG_ID: process.env.XDM_CONFIG_ID,
         XDM_CONFIG_NAME: process.env.XDM_CONFIG_NAME,
+        XDM_GEOZONE_GROUP_OVERRIDE_ID: process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID,
         XDM_GEOZONE_GROUP_OVERRIDE_KEY: process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY,
         XDM_TIMEOUT_MS: process.env.XDM_TIMEOUT_MS,
         XDM_MAX_RETRIES: process.env.XDM_MAX_RETRIES,

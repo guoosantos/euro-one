@@ -3,6 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import XdmClient from "../services/xdm/xdm-client.js";
+import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-utils.js";
 
 const router = express.Router();
 
@@ -22,15 +23,12 @@ function truncate(value, maxLength = 300) {
   return `${text.slice(0, maxLength)}…`;
 }
 
-function getOverrideKey() {
-  return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || "geoGroup";
-}
-
 router.get("/xdm/diagnostics", async (_req, res, next) => {
   if (!isDiagnosticsEnabled()) {
     return next(createError(404, "Rota não encontrada"));
   }
 
+  const overrideConfig = getGeozoneGroupOverrideConfig();
   const xdmClient = new XdmClient();
   const payload = {
     authUrl: xdmClient.authUrl || null,
@@ -38,7 +36,9 @@ router.get("/xdm/diagnostics", async (_req, res, next) => {
     clientId: xdmClient.clientId || null,
     dealerId: process.env.XDM_DEALER_ID || null,
     configName: process.env.XDM_CONFIG_NAME || null,
-    overrideKey: getOverrideKey(),
+    overrideId: overrideConfig.overrideId,
+    overrideIdValid: overrideConfig.isValid,
+    overrideSource: overrideConfig.source,
     tokenOk: false,
   };
 

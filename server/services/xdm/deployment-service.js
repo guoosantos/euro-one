@@ -14,6 +14,11 @@ import {
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup } from "./geozone-group-sync-service.js";
+import {
+  ensureGeozoneGroupOverrideId,
+  normalizeXdmDeviceUid,
+  normalizeXdmId,
+} from "./xdm-utils.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
@@ -21,17 +26,6 @@ const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 function buildRequestHash({ itineraryId, vehicleId, groupHash, configId }) {
   const payload = `${itineraryId}|${vehicleId}|${groupHash}|${configId}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
-}
-
-function getOverrideKey() {
-  return process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || "geoGroup";
-}
-
-function ensureOverrideKeyConfigured() {
-  const overrideKey = getOverrideKey();
-  if (!overrideKey) {
-    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de GEOFENCES");
-  }
 }
 
 function persistVehicleDeviceUid(vehicle, deviceUid) {
@@ -74,10 +68,14 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
 }
 
 async function resolveConfigId({ deviceUid, correlationId }) {
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "resolveConfigId" });
   const xdmClient = new XdmClient();
-  const configs = await xdmClient.request("POST", "/api/external/v3/configs/forDevices", { uids: [deviceUid] }, {
-    correlationId,
-  });
+  const configs = await xdmClient.request(
+    "POST",
+    "/api/external/v3/configs/forDevices",
+    { uids: [normalizedDeviceUid] },
+    { correlationId },
+  );
 
   const configuredId = process.env.XDM_CONFIG_ID ? Number(process.env.XDM_CONFIG_ID) : null;
   if (Number.isFinite(configuredId)) {
@@ -102,17 +100,16 @@ async function resolveConfigId({ deviceUid, correlationId }) {
 }
 
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideKey = getOverrideKey();
-  if (!overrideKey) {
-    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEY não configurado para aplicar o grupo de GEOFENCES");
-  }
+  const overrideConfig = ensureGeozoneGroupOverrideId();
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
+  const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
   await xdmClient.request(
     "PUT",
-    `/api/external/v3/settingsOverrides/${deviceUid}`,
+    `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
     {
       overrides: {
-        [overrideKey]: String(xdmGeozoneGroupId),
+        [overrideConfig.overrideId]: normalizedGeozoneGroupId,
       },
     },
     { correlationId },
@@ -120,6 +117,7 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
 }
 
 async function createRollout({ deviceUid, configId, correlationId }) {
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "createRollout" });
   const xdmClient = new XdmClient();
   const title = `EuroOne deploy ${new Date().toISOString()}`;
   return xdmClient.request(
@@ -129,7 +127,7 @@ async function createRollout({ deviceUid, configId, correlationId }) {
       type: DEFAULT_ROLLOUT_TYPE,
       title,
       autoRelease: true,
-      deviceUids: [deviceUid],
+      deviceUids: [normalizedDeviceUid],
       serializedConfigId: configId,
     },
     { correlationId },
@@ -164,8 +162,8 @@ async function processDeployment(deploymentId) {
     return;
   }
 
-  const deviceUid = resolveVehicleDeviceUid(vehicle);
-  if (!deviceUid) {
+  const resolvedDeviceUid = resolveVehicleDeviceUid(vehicle);
+  if (!resolvedDeviceUid) {
     updateDeployment(deploymentId, {
       status: "FAILED",
       finishedAt: new Date().toISOString(),
@@ -173,6 +171,7 @@ async function processDeployment(deploymentId) {
     });
     return;
   }
+  const deviceUid = normalizeXdmDeviceUid(resolvedDeviceUid, { context: "deployment deviceUid" });
 
   if (deployment.deviceImei !== deviceUid) {
     updateDeployment(deploymentId, { deviceImei: deviceUid });
@@ -355,7 +354,7 @@ export async function embarkItinerary({
   }
 
   if (!dryRun) {
-    ensureOverrideKeyConfigured();
+    ensureGeozoneGroupOverrideId();
   }
 
   const resolvedGeofencesById =
@@ -377,13 +376,14 @@ export async function embarkItinerary({
       };
     }
 
-    const deviceUid = resolveVehicleDeviceUid(vehicle);
-    if (!deviceUid) {
+    const resolvedDeviceUid = resolveVehicleDeviceUid(vehicle);
+    if (!resolvedDeviceUid) {
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
       };
     }
+    const deviceUid = normalizeXdmDeviceUid(resolvedDeviceUid, { context: "embark deviceUid" });
 
     if ((!vehicle.xdmDeviceUid || !vehicle.deviceImei) && deviceUid) {
       persistVehicleDeviceUid(vehicle, deviceUid);
