@@ -11,6 +11,7 @@ import {
 } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
+import { normalizeXdmId } from "./xdm-utils.js";
 
 const HASH_VERSION = "v1";
 
@@ -101,8 +102,20 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
 
   const groupHash = buildGroupHash(geofenceEntries);
   const mapping = getGeozoneGroupMapping({ itineraryId, clientId: itinerary.clientId });
-  if (mapping?.xdmGeozoneGroupId && mapping.groupHash === groupHash) {
-    return { xdmGeozoneGroupId: mapping.xdmGeozoneGroupId, groupHash };
+  let mappedId = null;
+  if (mapping?.xdmGeozoneGroupId != null) {
+    mappedId = normalizeXdmId(mapping.xdmGeozoneGroupId, { context: "mapping geozonegroup" });
+    if (mappedId !== mapping.xdmGeozoneGroupId) {
+      upsertGeozoneGroupMapping({
+        itineraryId: itinerary.id,
+        clientId: itinerary.clientId,
+        groupHash: mapping.groupHash,
+        xdmGeozoneGroupId: mappedId,
+      });
+    }
+  }
+  if (mappedId && mapping.groupHash === groupHash) {
+    return { xdmGeozoneGroupId: mappedId, groupHash };
   }
 
   const xdmClient = new XdmClient();
@@ -115,17 +128,24 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   });
   const notes = `itineraryId=${itinerary.id}, hash=${groupHash}`;
 
-  let xdmGeozoneGroupId = mapping?.xdmGeozoneGroupId || null;
+  let xdmGeozoneGroupId = mappedId || null;
 
   if (!xdmGeozoneGroupId) {
-    xdmGeozoneGroupId = await xdmClient.request("POST", "/api/external/v1/geozonegroups", {
-      name: groupName,
-      dealerId,
-      notes,
-    }, {
-      correlationId,
-    });
+    const created = await xdmClient.request(
+      "POST",
+      "/api/external/v1/geozonegroups",
+      {
+        name: groupName,
+        dealerId,
+        notes,
+      },
+      {
+        correlationId,
+      },
+    );
+    xdmGeozoneGroupId = normalizeXdmId(created, { context: "create geozonegroup" });
   } else {
+    xdmGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "update geozonegroup" });
     await xdmClient.request("PUT", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, {
       id: Number(xdmGeozoneGroupId),
       name: groupName,
@@ -236,25 +256,45 @@ export async function syncGeozoneGroupForGeofences({
   const resolvedName = groupName || buildScopedGroupName({ clientId, scopeId: resolvedScopeId });
 
   const mapping = getGeozoneGroupMappingByScope({ scopeKey: mappingKey, clientId });
-  if (mapping?.xdmGeozoneGroupId && mapping.groupHash === groupHash) {
-    return { xdmGeozoneGroupId: mapping.xdmGeozoneGroupId, groupHash, groupName: resolvedName };
+  let mappedId = null;
+  if (mapping?.xdmGeozoneGroupId != null) {
+    mappedId = normalizeXdmId(mapping.xdmGeozoneGroupId, { context: "mapping geozonegroup scope" });
+    if (mappedId !== mapping.xdmGeozoneGroupId) {
+      upsertGeozoneGroupMappingByScope({
+        scopeKey: mappingKey,
+        clientId,
+        groupHash: mapping.groupHash,
+        xdmGeozoneGroupId: mappedId,
+        groupName: mapping.groupName || resolvedName,
+      });
+    }
+  }
+  if (mappedId && mapping.groupHash === groupHash) {
+    return { xdmGeozoneGroupId: mappedId, groupHash, groupName: resolvedName };
   }
 
   const xdmClient = new XdmClient();
   const dealerId = getDealerId();
   const notes = `scope=${resolvedScopeId}, hash=${groupHash}`;
 
-  let xdmGeozoneGroupId = mapping?.xdmGeozoneGroupId || null;
+  let xdmGeozoneGroupId = mappedId || null;
 
   if (!xdmGeozoneGroupId) {
-    xdmGeozoneGroupId = await xdmClient.request("POST", "/api/external/v1/geozonegroups", {
-      name: resolvedName,
-      dealerId,
-      notes,
-    }, {
-      correlationId,
-    });
+    const created = await xdmClient.request(
+      "POST",
+      "/api/external/v1/geozonegroups",
+      {
+        name: resolvedName,
+        dealerId,
+        notes,
+      },
+      {
+        correlationId,
+      },
+    );
+    xdmGeozoneGroupId = normalizeXdmId(created, { context: "create geozonegroup" });
   } else {
+    xdmGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "update geozonegroup scope" });
     await xdmClient.request("PUT", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, {
       id: Number(xdmGeozoneGroupId),
       name: resolvedName,
