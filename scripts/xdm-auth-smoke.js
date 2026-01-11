@@ -7,6 +7,13 @@ const clientId = process.env.XDM_CLIENT_ID;
 const clientSecret = process.env.XDM_CLIENT_SECRET;
 const scope = process.env.XDM_OAUTH_SCOPE;
 const audience = process.env.XDM_OAUTH_AUDIENCE;
+const secretLen = clientSecret ? String(clientSecret).length : 0;
+
+console.log("[xdm-auth-smoke] env", {
+  authUrl,
+  clientId,
+  secretLen,
+});
 
 if (!authUrl || !clientId || !clientSecret) {
   console.error("Missing required env vars: XDM_AUTH_URL, XDM_CLIENT_ID, XDM_CLIENT_SECRET");
@@ -59,8 +66,10 @@ async function requestToken(authMode) {
   return {
     ok: true,
     status: response.status,
-    tokenPreview,
-    expiresIn: payload?.expires_in ?? null,
+    body: {
+      access_token: tokenPreview,
+      expires_in: payload?.expires_in ?? null,
+    },
   };
 }
 
@@ -75,8 +84,10 @@ for (const mode of modes) {
       console.log("[xdm-auth-smoke] auth ok", {
         mode,
         status: result.status,
-        tokenPreview: result.tokenPreview,
-        expiresIn: result.expiresIn,
+        body: result.body,
+        clientId,
+        authUrl,
+        secretLen,
       });
     } else {
       console.error("[xdm-auth-smoke] auth failed", {
@@ -85,6 +96,7 @@ for (const mode of modes) {
         body: result.body,
         clientId,
         authUrl,
+        secretLen,
       });
     }
   } catch (error) {
@@ -93,6 +105,7 @@ for (const mode of modes) {
       message: error?.message || error,
       clientId,
       authUrl,
+      secretLen,
     });
   }
 }

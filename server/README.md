@@ -46,13 +46,13 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_OAUTH_AUDIENCE`: audience OAuth2 opcional (enviado no token request).
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
   - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
-  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave de override usada para aplicar o Geozone Group no settingsOverrides.
+  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave de override usada para aplicar o Geozone Group no settingsOverrides (default `geoGroup`).
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
   - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).
   - `XDM_DEPLOYMENT_POLL_INTERVAL_MS`: intervalo de polling do status (ms).
   - `XDM_DEPLOYMENT_TIMEOUT_MS`: timeout máximo do deploy antes de marcar `TIMEOUT` (ms).
-  - `XDM_GEOFENCE_MAX_POINTS`: limite máximo de pontos enviados por geofence. Se vazio/`0`, não limita (com guard automático por tamanho ~500KiB).
+  - `XDM_GEOFENCE_MAX_POINTS`: limite máximo de pontos enviados por geofence. Se vazio/`0`, não limita. Se o XDM rejeitar payload grande, ajuste os pontos ou configure este limite.
 
 ## Fluxo de Embarque (EuroOne → XDM → Device)
 
@@ -101,6 +101,11 @@ A API ficará disponível em `http://localhost:3001` (ou porta configurada) e se
    ```
 
 4. Para confirmar que o backend carregou as variáveis corretas, procure no log por mensagens `[startup]` e pelos diagnósticos `[xdm]`.
+5. Em produção (`NODE_ENV=production`), o backend carrega automaticamente `/home/ubuntu/euro-one/server/.env` sem precisar de `source`. Sempre reinicie com:
+
+   ```bash
+   pm2 restart --update-env
+   ```
 
 ### Smoke rápido de autenticação/tenant
 
@@ -139,3 +144,12 @@ node scripts/xdm-auth-smoke.js
 ```
 
 O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (com `XDM_OAUTH_SCOPE`/`XDM_OAUTH_AUDIENCE` opcionais) e testa automaticamente os modos `post` e `basic`, imprimindo status/preview do token sem expor o secret.
+
+### Checklist de troubleshooting para `401 invalid_client`
+
+- Confirme se o client permite o grant `client_credentials` no realm correto (`XDM_AUTH_URL`).
+- Verifique se `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` correspondem ao client OAuth informado no XDM.
+- Teste ambos os modos:
+  - `XDM_AUTH_MODE=post` (client_secret_post)
+  - `XDM_AUTH_MODE=basic` (client_secret_basic)
+- Garanta que não há espaços/aspas extras no `.env` (o backend remove aspas automaticamente).

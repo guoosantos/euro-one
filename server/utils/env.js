@@ -5,6 +5,7 @@ import { fileURLToPath } from "url";
 let loaded = false;
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
+const productionEnvPath = "/home/ubuntu/euro-one/server/.env";
 const envSearchPaths = [
   resolve(moduleDir, "..", ".env"),
   resolve(moduleDir, "..", "..", ".env"),
@@ -44,6 +45,9 @@ function applyEnv(content) {
 }
 
 function resolveEnvPath() {
+  if (process.env.NODE_ENV === "production" && existsSync(productionEnvPath)) {
+    return productionEnvPath;
+  }
   return envSearchPaths.find((candidate) => existsSync(candidate));
 }
 
@@ -71,9 +75,9 @@ export async function loadEnv() {
     const dotenv = await import("dotenv");
     if (dotenv?.config) {
       if (envPath) {
-        dotenv.config({ path: envPath });
+        dotenv.config({ path: envPath, override: false });
       } else {
-        dotenv.config();
+        dotenv.config({ override: false });
       }
       loaded = true;
       return;

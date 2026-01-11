@@ -79,6 +79,15 @@ async function bootstrapServer() {
     });
   }
 
+  console.info("[startup] XDM env loaded", {
+    authUrl: process.env.XDM_AUTH_URL || null,
+    baseUrl: process.env.XDM_BASE_URL || null,
+    clientId: process.env.XDM_CLIENT_ID || null,
+    dealerId: process.env.XDM_DEALER_ID || null,
+    configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
+    secretLen: process.env.XDM_CLIENT_SECRET ? String(process.env.XDM_CLIENT_SECRET).length : 0,
+  });
+
   const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
   if (missing.length) {
     console.warn(
