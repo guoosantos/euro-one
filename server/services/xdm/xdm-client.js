@@ -262,6 +262,7 @@ export class XdmClient {
           const { parsed } = parseResponseBody(responseText);
           const responseCode = parsed?.error || parsed?.code || null;
           const responseMessage = parsed?.message || parsed?.error_description || responseText;
+          const responseSample = responseText ? responseText.slice(0, 500) : "";
           console.error("[xdm] request failed", {
             correlationId,
             method,
@@ -269,15 +270,18 @@ export class XdmClient {
             status: response.status,
             durationMs,
             errorHash: hashValue(responseText),
+            responseSample,
             tokenHash,
           });
           throw buildHttpError(`XDM error ${response.status} ${responseMessage}`, {
             status: response.status,
             code: responseCode || "XDM_REQUEST_FAILED",
             details: {
+              correlationId,
               method,
               path,
               response: responseMessage,
+              responseSample,
             },
           });
         }

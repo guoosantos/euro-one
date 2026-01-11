@@ -50,7 +50,11 @@ function createMockServer() {
         req.on("end", () => {
           lastGroupPayload = body ? JSON.parse(body) : null;
           groupCreateCalls += 1;
-          sendJson(res, 555);
+          if (lastGroupPayload?.name?.includes("DATA_ID")) {
+            sendJson(res, { data: { id: 555 } });
+            return;
+          }
+          sendJson(res, { id: 555 });
         });
         return;
       }
@@ -121,7 +125,9 @@ await initStorage();
 const { normalizePolygon, buildGeometryHash, syncGeofence } = await import(
   "../services/xdm/geofence-sync-service.js"
 );
-const { syncGeozoneGroup } = await import("../services/xdm/geozone-group-sync-service.js");
+const { syncGeozoneGroup, syncGeozoneGroupForGeofences } = await import(
+  "../services/xdm/geozone-group-sync-service.js",
+);
 const { createItinerary } = await import("../models/itinerary.js");
 const { queueDeployment, embarkItinerary } = await import("../services/xdm/deployment-service.js");
 const { getDeploymentById } = await import("../models/xdm-deployment.js");
@@ -186,6 +192,20 @@ test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
     lastGroupPayload?.name,
     `EUROONE_${safeClient}_${safeItineraryId || "ITINERARY"}_GROUP_${safeName || "ITINERARIO"}`,
   );
+});
+
+test("syncGeozoneGroup normaliza id criado com wrapper data", async () => {
+  groupCreateCalls = 0;
+  clearGeofenceMappings();
+  clearGeozoneGroupMappings();
+  const response = await syncGeozoneGroupForGeofences({
+    clientId: geofenceFixture.clientId,
+    geofenceIds: [geofenceFixture.id],
+    groupName: "DATA_ID_GROUP",
+    scopeKey: "data-id",
+    geofencesById: new Map([[geofenceFixture.id, geofenceFixture]]),
+  });
+  assert.equal(response.xdmGeozoneGroupId, 555);
 });
 
 test("queueDeployment evita duplicidade quando já há deploy ativo", () => {
