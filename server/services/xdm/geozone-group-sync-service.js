@@ -3,7 +3,12 @@ import crypto from "node:crypto";
 import { getItineraryById } from "../../models/itinerary.js";
 import { getGeofenceById } from "../../models/geofence.js";
 import { getGeofenceMapping } from "../../models/xdm-geofence.js";
-import { getGeozoneGroupMapping, upsertGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
+import {
+  getGeozoneGroupMapping,
+  getGeozoneGroupMappingByScope,
+  upsertGeozoneGroupMapping,
+  upsertGeozoneGroupMappingByScope,
+} from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
 
@@ -20,6 +25,12 @@ function buildGroupName({ clientId, itineraryId, itineraryName }) {
   const safeItineraryId = sanitizeName(itineraryId) || "ITINERARY";
   const safeItinerary = sanitizeName(itineraryName) || "ITINERARIO";
   return `EUROONE_${safeClient}_${safeItineraryId}_GROUP_${safeItinerary}`;
+}
+
+function buildScopedGroupName({ clientId, scopeId }) {
+  const safeClient = sanitizeName(clientId) || "CLIENT";
+  const safeScope = sanitizeName(scopeId) || "SCOPE";
+  return `EUROONE_${safeClient}_${safeScope}_GEOZONEGROUP`;
 }
 
 function buildGroupHash(geofenceEntries = []) {
@@ -161,6 +172,137 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   return { xdmGeozoneGroupId, groupHash };
 }
 
+export async function syncGeozoneGroupForGeofences({
+  clientId,
+  geofenceIds = [],
+  groupName,
+  scopeKey,
+  scopeId,
+  correlationId,
+  geofencesById,
+} = {}) {
+  if (!clientId) {
+    throw new Error("clientId é obrigatório para sincronizar geozones");
+  }
+
+  const ids = Array.isArray(geofenceIds) ? geofenceIds : [];
+  if (!ids.length) {
+    throw new Error("geofenceIds é obrigatório para sincronizar geozones");
+  }
+
+  const xdmGeozoneIds = [];
+  const geofenceEntries = [];
+
+  for (const geofenceId of ids) {
+    const geofenceOverride = geofencesById ? geofencesById.get(String(geofenceId)) : null;
+    const geofenceRecord = geofenceOverride || (await getGeofenceById(geofenceId));
+    if (!geofenceRecord) {
+      throw new Error("Geofence não encontrada para sincronização");
+    }
+    if (String(geofenceRecord.clientId) !== String(clientId)) {
+      throw new Error("Geofence não pertence ao cliente");
+    }
+
+    const xdmGeofenceId = await syncGeofence(geofenceId, {
+      clientId,
+      correlationId,
+      geofence: geofenceRecord,
+    });
+    xdmGeozoneIds.push(xdmGeofenceId);
+
+    const mapping = getGeofenceMapping({ geofenceId, clientId });
+    const geometryHash =
+      mapping?.geometryHash ||
+      buildGeometryHash(
+        normalizePolygon({
+          type: geofenceRecord.type,
+          points: geofenceRecord.points,
+          radius: geofenceRecord.radius,
+          latitude: geofenceRecord.latitude,
+          longitude: geofenceRecord.longitude,
+          center: geofenceRecord.center,
+        }),
+      );
+
+    geofenceEntries.push({
+      type: geofenceRecord.type || "geofence",
+      geometryHash,
+    });
+  }
+
+  const groupHash = buildGroupHash(geofenceEntries);
+  const resolvedScopeId = scopeId || scopeKey || `${clientId}:${ids.join(",")}`;
+  const mappingKey = scopeKey || resolvedScopeId;
+  const resolvedName = groupName || buildScopedGroupName({ clientId, scopeId: resolvedScopeId });
+
+  const mapping = getGeozoneGroupMappingByScope({ scopeKey: mappingKey, clientId });
+  if (mapping?.xdmGeozoneGroupId && mapping.groupHash === groupHash) {
+    return { xdmGeozoneGroupId: mapping.xdmGeozoneGroupId, groupHash, groupName: resolvedName };
+  }
+
+  const xdmClient = new XdmClient();
+  const dealerId = getDealerId();
+  const notes = `scope=${resolvedScopeId}, hash=${groupHash}`;
+
+  let xdmGeozoneGroupId = mapping?.xdmGeozoneGroupId || null;
+
+  if (!xdmGeozoneGroupId) {
+    xdmGeozoneGroupId = await xdmClient.request("POST", "/api/external/v1/geozonegroups", {
+      name: resolvedName,
+      dealerId,
+      notes,
+    }, {
+      correlationId,
+    });
+  } else {
+    await xdmClient.request("PUT", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, {
+      id: Number(xdmGeozoneGroupId),
+      name: resolvedName,
+      dealerId,
+      notes,
+    }, {
+      correlationId,
+    });
+  }
+
+  const groupInfo = await xdmClient.request("GET", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, null, {
+    correlationId,
+  });
+  const existingIds = Array.isArray(groupInfo?.geozoneIds) ? groupInfo.geozoneIds.map((id) => Number(id)) : [];
+  const desiredIds = Array.from(new Set(xdmGeozoneIds.map((id) => Number(id))));
+
+  const toRemove = existingIds.filter((id) => !desiredIds.includes(id));
+  const toAdd = desiredIds.filter((id) => !existingIds.includes(id));
+
+  if (toRemove.length) {
+    await xdmClient.request(
+      "DELETE",
+      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+      { geozoneIds: toRemove },
+      { correlationId },
+    );
+  }
+  if (toAdd.length) {
+    await xdmClient.request(
+      "POST",
+      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+      { geozoneIds: toAdd },
+      { correlationId },
+    );
+  }
+
+  upsertGeozoneGroupMappingByScope({
+    scopeKey: mappingKey,
+    clientId,
+    groupHash,
+    xdmGeozoneGroupId,
+    groupName: resolvedName,
+  });
+
+  return { xdmGeozoneGroupId, groupHash, groupName: resolvedName };
+}
+
 export default {
   syncGeozoneGroup,
+  syncGeozoneGroupForGeofences,
 };

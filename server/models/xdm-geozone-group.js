@@ -19,6 +19,14 @@ export function getGeozoneGroupMapping({ itineraryId, clientId }) {
   return clone(record);
 }
 
+export function getGeozoneGroupMappingByScope({ scopeKey, clientId }) {
+  const record = groups.find(
+    (item) =>
+      String(item.scopeKey) === String(scopeKey) && (!clientId || String(item.clientId) === String(clientId)),
+  );
+  return clone(record);
+}
+
 export function upsertGeozoneGroupMapping({ itineraryId, clientId, groupHash, xdmGeozoneGroupId }) {
   const now = new Date().toISOString();
   const index = groups.findIndex(
@@ -28,6 +36,32 @@ export function upsertGeozoneGroupMapping({ itineraryId, clientId, groupHash, xd
     id: String(itineraryId),
     clientId: String(clientId),
     itineraryId: String(itineraryId),
+    groupHash: groupHash || null,
+    xdmGeozoneGroupId: xdmGeozoneGroupId ?? null,
+    updatedAt: now,
+  };
+
+  if (index >= 0) {
+    groups[index] = { ...groups[index], ...payload };
+  } else {
+    groups.push(payload);
+  }
+
+  persist();
+  return clone(payload);
+}
+
+export function upsertGeozoneGroupMappingByScope({ scopeKey, clientId, groupHash, xdmGeozoneGroupId, groupName }) {
+  const now = new Date().toISOString();
+  const scopeId = String(scopeKey);
+  const index = groups.findIndex(
+    (item) => String(item.scopeKey) === scopeId && String(item.clientId) === String(clientId),
+  );
+  const payload = {
+    id: scopeId,
+    scopeKey: scopeId,
+    clientId: String(clientId),
+    groupName: groupName || null,
     groupHash: groupHash || null,
     xdmGeozoneGroupId: xdmGeozoneGroupId ?? null,
     updatedAt: now,
@@ -54,7 +88,9 @@ export function clearGeozoneGroupMappings() {
 
 export default {
   getGeozoneGroupMapping,
+  getGeozoneGroupMappingByScope,
   upsertGeozoneGroupMapping,
+  upsertGeozoneGroupMappingByScope,
   listGeozoneGroupMappings,
   clearGeozoneGroupMappings,
 };

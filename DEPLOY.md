@@ -16,7 +16,9 @@ Guia rápido para subir e validar o backend do Euro One (PM2 + geração de rela
 
 ## Variáveis de ambiente
 
-O PM2 lê o arquivo `.env` na raiz (via `env_file` no `ecosystem.config.cjs`). As variáveis `PORT`, `HOST` e `NODE_ENV` são propagadas para o processo. Para ambientes em que o PM2 interpreta números de forma inconsistente, defina `PORT` como string (`PORT="5189"`).
+O backend carrega variáveis do `.env` localizado em `/home/ubuntu/euro-one/server/.env` quando `NODE_ENV=production`. Para evitar drift, deixe os `XDM_*` apenas no arquivo `.env` (ou configure `env_file` no PM2 apontando para esse caminho) e evite duplicar essas chaves em `ecosystem.config.cjs`. Se precisar priorizar o ambiente do processo, defina `DOTENV_OVERRIDE=false`.
+
+As variáveis `PORT`, `HOST` e `NODE_ENV` são propagadas para o processo. Para ambientes em que o PM2 interpreta números de forma inconsistente, defina `PORT` como string (`PORT="5189"`).
 
 ## Subir com PM2
 
