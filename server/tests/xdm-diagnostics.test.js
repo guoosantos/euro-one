@@ -73,6 +73,6 @@ it("GET /api/admin/xdm/diagnostics retorna tokenOk true", async () => {
   assert.equal(response.status, 200);
   assert.equal(body.tokenOk, true);
   assert.equal(body.clientId, "client");
-  assert.equal(body.overrideId, "1234");
+  assert.equal(body.overrideId, 1234);
   assert.equal(body.overrideIdValid, true);
 });

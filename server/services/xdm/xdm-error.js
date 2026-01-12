@@ -27,6 +27,9 @@ export function wrapXdmError(error, { step, correlationId, payloadSample, status
     correlationId: correlationId || null,
     payloadSample: normalizePayloadSample(payloadSample),
     cause: error?.message || null,
+    status: error?.details?.status || error?.status || null,
+    method: error?.details?.method || null,
+    url: error?.details?.url || null,
     response: error?.details?.response || null,
     responseSample: error?.details?.responseSample || null,
   };
@@ -37,6 +40,9 @@ export function wrapXdmError(error, { step, correlationId, payloadSample, status
     status: resolvedStatus || 502,
     message: error?.message || error,
     payloadSample: normalizePayloadSample(payloadSample),
+    responseSample: error?.details?.responseSample || null,
+    method: error?.details?.method || null,
+    url: error?.details?.url || null,
   });
 
   return wrapped;
