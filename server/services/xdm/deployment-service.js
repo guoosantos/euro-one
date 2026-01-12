@@ -92,7 +92,7 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
       throw deviceError;
     }
     throw wrapXdmError(error, {
-      step: "applyOverrides",
+      step: "updateDeviceSdk",
       correlationId,
       payloadSample: {
         deviceUid: normalizedDeviceUid,

@@ -4,6 +4,7 @@ import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
 import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
+import { wrapXdmError } from "./xdm-error.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 
@@ -49,16 +50,28 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
-  await xdmClient.request(
-    "PUT",
-    `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
-    {
-      overrides: buildOverridesDto({
-        [overrideConfig.overrideId]: normalizedGeozoneGroupId,
-      }),
-    },
-    { correlationId },
-  );
+  try {
+    await xdmClient.request(
+      "PUT",
+      `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
+      {
+        overrides: buildOverridesDto({
+          [overrideConfig.overrideId]: normalizedGeozoneGroupId,
+        }),
+      },
+      { correlationId },
+    );
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "updateDeviceSdk",
+      correlationId,
+      payloadSample: {
+        deviceUid: normalizedDeviceUid,
+        overrideId: overrideConfig.overrideId,
+        groupId: normalizedGeozoneGroupId,
+      },
+    });
+  }
 }
 
 async function createRollout({ deviceUid, configId, correlationId }) {

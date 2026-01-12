@@ -13,6 +13,7 @@ const hasDatabase = false;
 
 let snapshot = null;
 let flushTimer = null;
+let autoInitWarned = false;
 
 function cloneValue(value) {
   if (value === undefined) return undefined;
@@ -97,6 +98,16 @@ async function initSnapshot() {
   return snapshot;
 }
 
+function autoInitSnapshot(origin) {
+  if (snapshot) return snapshot;
+  snapshot = SHOULD_PERSIST ? loadSnapshotFromFile() : {};
+  if (!autoInitWarned) {
+    autoInitWarned = true;
+    console.warn("[storage] auto-init snapshot", { origin });
+  }
+  return snapshot;
+}
+
 export async function initStorage() {
   try {
     await initSnapshot();
@@ -126,9 +137,7 @@ function scheduleFlush() {
 }
 
 export function loadCollection(name, fallback = []) {
-  if (!snapshot) {
-    throw new Error("Storage não inicializado");
-  }
+  autoInitSnapshot("loadCollection");
   if (!Object.prototype.hasOwnProperty.call(snapshot, name)) {
     snapshot[name] = cloneValue(fallback);
     scheduleFlush();
@@ -137,9 +146,7 @@ export function loadCollection(name, fallback = []) {
 }
 
 export function saveCollection(name, value) {
-  if (!snapshot) {
-    throw new Error("Storage não inicializado");
-  }
+  autoInitSnapshot("saveCollection");
   snapshot[name] = cloneValue(value);
   scheduleFlush();
   return snapshot[name];
@@ -151,4 +158,13 @@ export function exportStorage() {
 
 export function getStoragePath() {
   return hasDatabase ? "database" : DATA_FILE;
+}
+
+export function __resetStorageForTests() {
+  if (flushTimer) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
+  snapshot = null;
+  autoInitWarned = false;
 }

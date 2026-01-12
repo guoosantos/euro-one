@@ -11,7 +11,7 @@ import {
   removeRouteGeozoneMapping,
 } from "../../models/xdm-route-geozone.js";
 import { normalizeXdmId } from "./xdm-utils.js";
-import { wrapXdmError } from "./xdm-error.js";
+import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
 
 function buildItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -48,7 +48,21 @@ async function deleteGeozone({ xdmGeozoneId, correlationId }) {
   const xdmClient = new XdmClient();
   try {
     await xdmClient.request("DELETE", `/api/external/v1/geozones/${normalized}`, null, { correlationId });
+    return { warning: false };
   } catch (error) {
+    if (isNoPermissionError(error)) {
+      console.warn("[xdm] NO_PERMISSION deleteGeozone", {
+        correlationId,
+        xdmGeozoneId: normalized,
+      });
+      logNoPermissionDiagnostics({
+        error,
+        correlationId,
+        method: "DELETE",
+        path: `/api/external/v1/geozones/${normalized}`,
+      });
+      return { warning: true, reason: "NO_PERMISSION" };
+    }
     throw wrapXdmError(error, {
       step: "deleteGeozone",
       correlationId,
@@ -57,7 +71,17 @@ async function deleteGeozone({ xdmGeozoneId, correlationId }) {
   }
 }
 
-export async function cleanupGeozoneForItem({ item, clientId, correlationId, excludeItineraryId }) {
+function markItineraryWarning({ itineraryId, message }) {
+  if (!itineraryId) return;
+  updateItinerary(itineraryId, {
+    xdmSyncStatus: "SYNCED_WITH_WARNINGS",
+    xdmLastSyncError: message || "XDM sem permissão para gerenciar geozones",
+    xdmLastError: message || "XDM sem permissão para gerenciar geozones",
+    xdmLastSyncedAt: new Date().toISOString(),
+  });
+}
+
+export async function cleanupGeozoneForItem({ item, clientId, correlationId, excludeItineraryId, itineraryId }) {
   if (!item) return;
   if (isItemUsedElsewhere({ item, clientId, excludeItineraryId })) {
     return;
@@ -66,14 +90,20 @@ export async function cleanupGeozoneForItem({ item, clientId, correlationId, exc
   if (item.type === "route") {
     const mapping = getRouteGeozoneMapping({ routeId: item.id, clientId });
     const xdmGeozoneId = mapping?.xdmGeozoneId || item.xdmGeozoneId || null;
-    await deleteGeozone({ xdmGeozoneId, correlationId });
+    const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+    if (result?.warning && itineraryId) {
+      markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+    }
     removeRouteGeozoneMapping({ routeId: item.id, clientId });
     return;
   }
 
   const mapping = getGeofenceMapping({ geofenceId: item.id, clientId });
   const xdmGeozoneId = mapping?.xdmGeofenceId || item.xdmGeozoneId || null;
-  await deleteGeozone({ xdmGeozoneId, correlationId });
+  const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+  if (result?.warning && itineraryId) {
+    markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+  }
   removeGeofenceMapping({ geofenceId: item.id, clientId });
 }
 
@@ -85,12 +115,14 @@ export async function syncItineraryXdm(itineraryId, { clientId, correlationId, g
   }
 
   const mergedItems = applyItemMappings(itinerary.items || [], syncResult.itemMappings || []);
+  const hasWarnings = Array.isArray(syncResult.warnings) && syncResult.warnings.length > 0;
   const updated = updateItinerary(itinerary.id, {
     items: mergedItems,
     xdmGeozoneGroupId: syncResult.xdmGeozoneGroupId,
-    xdmSyncStatus: "OK",
-    xdmLastSyncError: null,
-    xdmLastError: null,
+    xdmGeozoneIds: syncResult.xdmGeozoneIds || itinerary.xdmGeozoneIds || null,
+    xdmSyncStatus: hasWarnings ? "SYNCED_WITH_WARNINGS" : "OK",
+    xdmLastSyncError: hasWarnings ? syncResult.warnings.join("; ") : null,
+    xdmLastError: hasWarnings ? syncResult.warnings.join("; ") : null,
     xdmLastSyncedAt: new Date().toISOString(),
   });
 

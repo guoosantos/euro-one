@@ -169,6 +169,7 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
           clientId,
           correlationId: req.headers["x-correlation-id"] || null,
           excludeItineraryId: updated.id,
+          itineraryId: updated.id,
         }),
       ),
     );
