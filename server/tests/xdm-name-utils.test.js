@@ -3,6 +3,8 @@ import test from "node:test";
 
 import {
   buildFriendlyName,
+  buildFriendlyNameWithSuffix,
+  buildShortIdSuffix,
   sanitizeFriendlyName,
   truncateName,
 } from "../services/xdm/xdm-name-utils.js";
@@ -17,6 +19,16 @@ test("buildFriendlyName aplica truncamento", () => {
   const name = buildFriendlyName(["Cliente Muito Grande", "Geofence"], { maxLen: 18 });
   assert.equal(name, "Cliente Muito Gran");
   assert.equal(truncateName("ABCDE", 3), "ABC");
+});
+
+test("buildFriendlyNameWithSuffix preserva sufixo e aplica elipse", () => {
+  const suffix = buildShortIdSuffix("123e4567-e89b-12d3-a456-426614174000");
+  assert.equal(suffix, "74000");
+  const name = buildFriendlyNameWithSuffix(["Cliente Muito Grande", "Itinerário Base"], {
+    maxLen: 24,
+    suffix,
+  });
+  assert.equal(name, "Cliente Muito G… (74000)");
 });
 
 test("selectGeozoneGroupMatch usa notes para desambiguar", () => {

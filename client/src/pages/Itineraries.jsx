@@ -594,6 +594,7 @@ export default function Itineraries() {
   const [selectedItineraryIds, setSelectedItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
   const [embarkSummary, setEmbarkSummary] = useState(null);
+  const [disembarkSending, setDisembarkSending] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
 
@@ -609,11 +610,11 @@ export default function Itineraries() {
     }
   }, []);
 
-  const showToast = useCallback((message, type = "success") => {
+  const showToast = useCallback((message, type = "success", action = null) => {
     if (toastTimeoutRef.current) {
       clearTimeout(toastTimeoutRef.current);
     }
-    setToast({ message, type });
+    setToast({ message, type, action });
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
@@ -775,6 +776,17 @@ export default function Itineraries() {
       showToast("Itinerário removido.");
     } catch (error) {
       console.error(error);
+      if (error?.response?.status === 409) {
+        showToast(
+          "Há dispositivos embarcados. Clique em Desembarcar para remover do veículo e depois excluir.",
+          "warning",
+          {
+            label: "Desembarcar",
+            onClick: () => handleDisembark(id),
+          },
+        );
+        return;
+      }
       showToast(error?.message || "Não foi possível remover.", "warning");
     }
   };
@@ -877,6 +889,24 @@ export default function Itineraries() {
     }
   };
 
+  const handleDisembark = async (itineraryId) => {
+    if (!itineraryId || disembarkSending) return;
+    if (!window.confirm("Desembarcar os veículos deste itinerário?")) return;
+    setDisembarkSending(true);
+    try {
+      await api.post(API_ROUTES.itineraryDisembark(itineraryId), {
+        clientId: tenantId ?? undefined,
+      });
+      showToast("Desembarque enviado com sucesso.");
+      await loadHistory();
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Não foi possível desembarcar.", "warning");
+    } finally {
+      setDisembarkSending(false);
+    }
+  };
+
   const tableColCount = 8;
   const historyColCount = 10;
 
@@ -891,7 +921,25 @@ export default function Itineraries() {
               : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50")
           }
         >
-          {toast.message}
+          <div className="flex items-center gap-3">
+            <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                type="button"
+                onClick={() => {
+                  const action = toast.action;
+                  setToast(null);
+                  if (toastTimeoutRef.current) {
+                    clearTimeout(toastTimeoutRef.current);
+                  }
+                  action.onClick?.();
+                }}
+                className="rounded-full border border-white/40 px-2 py-0.5 text-[11px] uppercase tracking-[0.12em] text-white/90 transition hover:border-white/70"
+              >
+                {toast.action.label}
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -1020,6 +1068,9 @@ export default function Itineraries() {
                           <div className="flex flex-wrap justify-end gap-2">
                             <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
                               Exportar KML
+                            </Button>
+                            <Button size="xs" variant="ghost" onClick={() => handleDisembark(item.id)} disabled={disembarkSending}>
+                              Desembarcar
                             </Button>
                             <Button size="xs" variant="ghost" onClick={() => openEditor(item)} icon={Pencil}>
                               Editar

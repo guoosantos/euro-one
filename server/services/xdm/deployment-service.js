@@ -10,6 +10,7 @@ import {
   findActiveDeploymentByPair,
   findLatestDeploymentByPair,
   getDeploymentById,
+  listLatestDeploymentsByItinerary,
   updateDeployment,
 } from "../../models/xdm-deployment.js";
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
@@ -21,8 +22,8 @@ import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
 import { fallbackClientDisplayName } from "./xdm-name-utils.js";
 
-function buildRequestHash({ itineraryId, vehicleId, groupHash }) {
-  const payload = `${itineraryId}|${vehicleId}|${groupHash}`;
+function buildRequestHash({ itineraryId, vehicleId, groupHash, action }) {
+  const payload = `${itineraryId}|${vehicleId}|${action || "EMBARK"}|${groupHash || ""}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
@@ -82,7 +83,10 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
   const overrideConfig = await ensureGeozoneGroupOverrideId({ correlationId });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
-  const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
+  const normalizedGeozoneGroupId =
+    xdmGeozoneGroupId == null
+      ? null
+      : normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
   try {
     await xdmClient.request(
@@ -168,33 +172,40 @@ async function processDeployment(deploymentId) {
   }
 
   try {
-    let xdmGeozoneGroupId = deployment.xdmGeozoneGroupId || null;
-    let groupHash = deployment.groupHash || null;
+    const action = deployment.action || "EMBARK";
+    let xdmGeozoneGroupId = deployment.xdmGeozoneGroupId ?? null;
+    let groupHash = deployment.groupHash ?? null;
 
-    if (!xdmGeozoneGroupId || !groupHash) {
-      const syncStart = Date.now();
-      logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
-      const synced = await syncGeozoneGroup(itinerary.id, {
-        clientId: deployment.clientId,
-        clientDisplayName,
-        correlationId,
-      });
-      xdmGeozoneGroupId = synced.xdmGeozoneGroupId;
-      groupHash = synced.groupHash;
-      updateDeployment(deploymentId, { xdmGeozoneGroupId, groupHash });
-      logStep(deploymentId, "SYNC_GEOFENCES", {
-        status: "ok",
-        xdmGeozoneGroupId,
-        durationMs: Date.now() - syncStart,
-      });
+    if (action !== "DISEMBARK") {
+      if (!xdmGeozoneGroupId || !groupHash) {
+        const syncStart = Date.now();
+        logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
+        const synced = await syncGeozoneGroup(itinerary.id, {
+          clientId: deployment.clientId,
+          clientDisplayName,
+          correlationId,
+        });
+        xdmGeozoneGroupId = synced.xdmGeozoneGroupId;
+        groupHash = synced.groupHash;
+        updateDeployment(deploymentId, { xdmGeozoneGroupId, groupHash });
+        logStep(deploymentId, "SYNC_GEOFENCES", {
+          status: "ok",
+          xdmGeozoneGroupId,
+          durationMs: Date.now() - syncStart,
+        });
+      } else {
+        logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", xdmGeozoneGroupId });
+      }
     } else {
-      logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", xdmGeozoneGroupId });
+      xdmGeozoneGroupId = null;
+      logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", reason: "disembark" });
     }
 
     const requestHash = buildRequestHash({
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
       groupHash,
+      action,
     });
 
     updateDeployment(deploymentId, { requestHash });
@@ -208,12 +219,13 @@ async function processDeployment(deploymentId) {
     if (
       lastDeployment?.id !== deploymentId &&
       lastDeployment?.status === "DEPLOYED" &&
+      (lastDeployment?.action || "EMBARK") === action &&
       lastDeployment?.requestHash === requestHash
     ) {
       updateDeployment(deploymentId, {
-        status: "DEPLOYED",
+        status: action === "DISEMBARK" ? "CLEARED" : "DEPLOYED",
         finishedAt: new Date().toISOString(),
-        errorMessage: "Já embarcado com o mesmo itinerário",
+        errorMessage: action === "DISEMBARK" ? "Já desembarcado" : "Já embarcado com o mesmo itinerário",
       });
       return;
     }
@@ -227,11 +239,11 @@ async function processDeployment(deploymentId) {
     });
 
     updateDeployment(deploymentId, {
-      status: "DEPLOYED",
+      status: action === "DISEMBARK" ? "CLEARED" : "DEPLOYED",
       finishedAt: new Date().toISOString(),
     });
     logStep(deploymentId, "STATUS_UPDATE", {
-      status: "DEPLOYED",
+      status: action === "DISEMBARK" ? "CLEARED" : "DEPLOYED",
     });
   } catch (error) {
     updateDeployment(deploymentId, {
@@ -255,6 +267,7 @@ export function queueDeployment({
   xdmGeozoneGroupId = null,
   groupHash = null,
   configId = null,
+  action = "EMBARK",
 }) {
   const active = findActiveDeploymentByPair({ itineraryId, vehicleId, clientId });
   if (active) {
@@ -264,14 +277,27 @@ export function queueDeployment({
   const latest = findLatestDeploymentByPair({ itineraryId, vehicleId, clientId });
   const knownGroupHash = groupHash || getGeozoneGroupMapping({ itineraryId, clientId })?.groupHash || null;
 
-  if (latest?.status === "DEPLOYED" && latest?.requestHash && knownGroupHash) {
+  const normalizedAction = action || "EMBARK";
+  if (latest?.status === "DEPLOYED" && latest?.requestHash && knownGroupHash && normalizedAction === "EMBARK") {
     const expectedHash = buildRequestHash({
       itineraryId,
       vehicleId,
       groupHash: knownGroupHash,
+      action: normalizedAction,
     });
     if (expectedHash === latest.requestHash) {
       return { deployment: latest, status: "ALREADY_DEPLOYED" };
+    }
+  }
+  if (latest?.status === "CLEARED" && latest?.requestHash && normalizedAction === "DISEMBARK") {
+    const expectedHash = buildRequestHash({
+      itineraryId,
+      vehicleId,
+      groupHash,
+      action: normalizedAction,
+    });
+    if (expectedHash === latest.requestHash) {
+      return { deployment: latest, status: "ALREADY_CLEARED" };
     }
   }
 
@@ -286,6 +312,7 @@ export function queueDeployment({
     xdmGeozoneGroupId,
     groupHash,
     configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
+    action: normalizedAction,
   });
 
   setImmediate(() => {
@@ -415,7 +442,126 @@ export async function embarkItinerary({
   };
 }
 
+export async function disembarkItinerary({
+  clientId,
+  itineraryId,
+  vehicleIds = [],
+  dryRun = false,
+  correlationId = null,
+  requestedByUserId = null,
+  requestedByName = null,
+  ipAddress = null,
+} = {}) {
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) {
+    throw new Error("Itinerário não encontrado");
+  }
+  if (clientId && String(itinerary.clientId) !== String(clientId)) {
+    throw new Error("Itinerário não pertence ao cliente");
+  }
+
+  const resolvedClientId = clientId || itinerary.clientId;
+  const clientDisplayName = await resolveClientDisplayName(resolvedClientId);
+
+  let targetVehicleIds = Array.isArray(vehicleIds) ? vehicleIds.map(String) : [];
+  if (!targetVehicleIds.length) {
+    const latestDeployments = listLatestDeploymentsByItinerary({
+      clientId: itinerary.clientId,
+      itineraryId: itinerary.id,
+    });
+    targetVehicleIds = latestDeployments
+      .filter((deployment) => (deployment.action || "EMBARK") === "EMBARK" && deployment.status === "DEPLOYED")
+      .map((deployment) => String(deployment.vehicleId));
+  }
+
+  if (!targetVehicleIds.length) {
+    throw new Error("Nenhum veículo embarcado para desembarque");
+  }
+
+  if (!dryRun) {
+    await ensureGeozoneGroupOverrideId({ correlationId });
+  }
+
+  const results = targetVehicleIds.map((vehicleId) => {
+    const vehicle = getVehicleById(vehicleId);
+    if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "failed", message: "Veículo não encontrado para o cliente" }),
+      };
+    }
+
+    const resolvedDeviceUid = resolveVehicleDeviceUid(vehicle);
+    if (!resolvedDeviceUid) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
+      };
+    }
+    const deviceUid = normalizeXdmDeviceUid(resolvedDeviceUid, { context: "disembark deviceUid" });
+
+    if ((!vehicle.xdmDeviceUid || !vehicle.deviceImei) && deviceUid) {
+      persistVehicleDeviceUid(vehicle, deviceUid);
+    }
+
+    if (dryRun) {
+      return {
+        vehicleId: String(vehicleId),
+        ...buildVehicleStatus({ status: "ok", message: "Dry-run: desembarque não executado", deviceUid }),
+      };
+    }
+
+    const lastDeployment = findLatestDeploymentByPair({
+      clientId: itinerary.clientId,
+      itineraryId: itinerary.id,
+      vehicleId: vehicle.id,
+    });
+
+    const { deployment, status } = queueDeployment({
+      clientId: itinerary.clientId,
+      itineraryId: itinerary.id,
+      vehicleId: vehicle.id,
+      deviceImei: deviceUid,
+      requestedByUserId,
+      requestedByName,
+      ipAddress,
+      xdmGeozoneGroupId: null,
+      groupHash: lastDeployment?.groupHash || null,
+      action: "DISEMBARK",
+    });
+
+    const mappedStatus =
+      status === "ALREADY_CLEARED" ? "ok" : status === "ACTIVE" || status === "QUEUED" ? "queued" : "failed";
+    const message =
+      status === "ALREADY_CLEARED"
+        ? "Já desembarcado"
+        : status === "ACTIVE"
+          ? "Desembarque em andamento"
+          : status === "QUEUED"
+            ? "Desembarque enfileirado"
+            : "Falha ao enfileirar desembarque";
+
+    return {
+      vehicleId: String(vehicle.id),
+      deploymentId: deployment?.id || null,
+      ...buildVehicleStatus({
+        status: mappedStatus,
+        message,
+        deviceUid,
+        rolloutId: deployment?.xdmDeploymentId || null,
+      }),
+    };
+  });
+
+  return {
+    itineraryId: itinerary.id,
+    clientDisplayName,
+    vehicles: results,
+  };
+}
+
 export default {
   queueDeployment,
   embarkItinerary,
+  disembarkItinerary,
 };

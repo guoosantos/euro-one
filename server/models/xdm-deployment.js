@@ -27,6 +27,7 @@ export function createDeployment({
   xdmGeozoneGroupId = null,
   groupHash = null,
   configId = null,
+  action = "EMBARK",
 }) {
   const now = new Date().toISOString();
   const record = {
@@ -38,6 +39,7 @@ export function createDeployment({
     xdmGeozoneGroupId: xdmGeozoneGroupId || null,
     groupHash: groupHash || null,
     configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
+    action: action || "EMBARK",
     status: "SYNCING",
     xdmDeploymentId: null,
     requestHash: null,
@@ -61,6 +63,11 @@ export function listDeployments({ clientId, status } = {}) {
     .filter((item) => (!clientId ? true : String(item.clientId) === String(clientId)))
     .filter((item) => (!status ? true : item.status === status))
     .map(clone);
+}
+
+export function clearDeployments() {
+  deployments.length = 0;
+  persist();
 }
 
 export function getDeploymentById(id) {
@@ -114,6 +121,23 @@ export function findLatestDeploymentByPair({ itineraryId, vehicleId, clientId })
   );
 }
 
+export function listLatestDeploymentsByItinerary({ itineraryId, clientId } = {}) {
+  const latestByVehicle = new Map();
+  deployments
+    .filter((item) => (!clientId ? true : String(item.clientId) === String(clientId)))
+    .filter((item) => (!itineraryId ? true : String(item.itineraryId) === String(itineraryId)))
+    .forEach((deployment) => {
+      const vehicleKey = String(deployment.vehicleId);
+      const current = latestByVehicle.get(vehicleKey);
+      const currentTime = current ? new Date(current.startedAt || 0).getTime() : 0;
+      const nextTime = new Date(deployment.startedAt || 0).getTime();
+      if (!current || nextTime > currentTime) {
+        latestByVehicle.set(vehicleKey, deployment);
+      }
+    });
+  return Array.from(latestByVehicle.values()).map(clone);
+}
+
 export function listDeploymentsByStatus(statuses = []) {
   const statusSet = new Set(statuses);
   return deployments.filter((item) => statusSet.has(item.status)).map(clone);
@@ -140,6 +164,7 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
         sentByName: deployment.requestedByName || null,
         ipAddress: deployment.ipAddress || null,
         status: deployment.status,
+        action: deployment.action || "EMBARK",
         result: deployment.errorMessage || null,
       };
     })
@@ -149,11 +174,13 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
 export default {
   createDeployment,
   listDeployments,
+  clearDeployments,
   getDeploymentById,
   updateDeployment,
   appendDeploymentLog,
   findActiveDeploymentByPair,
   findLatestDeploymentByPair,
+  listLatestDeploymentsByItinerary,
   listDeploymentsByStatus,
   toHistoryEntries,
 };
