@@ -5,6 +5,13 @@ import { getGeofenceById } from "../../models/geofence.js";
 import { getGeofenceMapping, upsertGeofenceMapping } from "../../models/xdm-geofence.js";
 import XdmClient from "./xdm-client.js";
 import { wrapXdmError } from "./xdm-error.js";
+import {
+  buildFriendlyName,
+  resolveClientDisplayName,
+  resolveXdmNameConfig,
+  sanitizeFriendlyName,
+  truncateName,
+} from "./xdm-name-utils.js";
 
 const MIN_POINTS = 4;
 
@@ -66,10 +73,11 @@ export function buildGeometryHash(points = []) {
   return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
-export function buildGeofenceKml({ name, points }) {
+export function buildGeofenceKml({ name, description = "", points }) {
   return buildGeofencesKml([
     {
       name,
+      description,
       type: "polygon",
       points,
     },
@@ -82,12 +90,36 @@ function sanitizeName(value) {
   return trimmed.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function buildXdmName({ clientId, itineraryId, geofenceId, type, name }) {
+function buildXdmName({ clientId, clientDisplayName, itineraryId, itineraryName, geofenceId, type, name }) {
+  const { friendlyNamesEnabled, maxNameLength, geozoneNameMode } = resolveXdmNameConfig();
+  if (friendlyNamesEnabled) {
+    const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
+    const resolvedGeofence = sanitizeFriendlyName(name) || "Geofence";
+    const parts = [resolvedClient];
+    if (geozoneNameMode === "client_itinerary_geofence" && itineraryName) {
+      const resolvedItinerary = sanitizeFriendlyName(itineraryName);
+      if (resolvedItinerary) {
+        parts.push(resolvedItinerary);
+      }
+    }
+    parts.push(resolvedGeofence);
+    const friendly = buildFriendlyName(parts, { maxLen: maxNameLength });
+    if (friendly) return friendly;
+  }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const scopeId = sanitizeName(itineraryId || geofenceId) || "GEOFENCE";
   const safeType = sanitizeName(type) || "GEOFENCE";
   const safeName = sanitizeName(name) || "GEOFENCE";
   return `EUROONE_${safeClient}_${scopeId}_${safeType}_${safeName}`;
+}
+
+function buildGeofenceDescription({ clientId, geofenceId, itineraryId, geometryHash }) {
+  const entries = [];
+  if (clientId) entries.push(`clientId=${clientId}`);
+  if (geofenceId) entries.push(`geofenceId=${geofenceId}`);
+  if (itineraryId) entries.push(`itineraryId=${itineraryId}`);
+  if (geometryHash) entries.push(`hash=${geometryHash}`);
+  return truncateName(entries.join(", "), 512);
 }
 
 function isPayloadTooLargeError(error) {
@@ -99,7 +131,14 @@ function isPayloadTooLargeError(error) {
 
 export async function syncGeofence(
   geofenceId,
-  { clientId, correlationId, geofence: geofenceOverride, itineraryId = null } = {},
+  {
+    clientId,
+    correlationId,
+    geofence: geofenceOverride,
+    itineraryId = null,
+    itineraryName = null,
+    clientDisplayName = null,
+  } = {},
 ) {
   const geofence = geofenceOverride || (await getGeofenceById(geofenceId));
   if (!geofence) {
@@ -121,7 +160,9 @@ export async function syncGeofence(
   const normalizedPoints = normalizePolygon(geometry, { geofenceId, clientId: geofence.clientId });
   const xdmName = buildXdmName({
     clientId: geofence.clientId,
+    clientDisplayName,
     itineraryId,
+    itineraryName,
     geofenceId: geofence.id,
     type: geofence.type,
     name: geofence.name,
@@ -133,7 +174,16 @@ export async function syncGeofence(
   }
 
   const xdmClient = new XdmClient();
-  const kml = buildGeofenceKml({ name: xdmName, points: normalizedPoints });
+  const kml = buildGeofenceKml({
+    name: xdmName,
+    description: buildGeofenceDescription({
+      clientId: geofence.clientId,
+      geofenceId: geofence.id,
+      itineraryId,
+      geometryHash,
+    }),
+    points: normalizedPoints,
+  });
   const form = new FormData();
   form.append("files", new Blob([kml], { type: "application/vnd.google-earth.kml+xml" }), `${xdmName}.kml`);
 

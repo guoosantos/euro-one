@@ -5,12 +5,28 @@ import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-
 import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
 import { wrapXdmError } from "./xdm-error.js";
+import { getClientById } from "../../models/client.js";
+import { fallbackClientDisplayName } from "./xdm-name-utils.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 
 function buildCorrelationId({ deviceUid, groupHash }) {
   const payload = `${deviceUid || ""}|${groupHash || ""}|${Date.now()}`;
   return crypto.createHash("sha256").update(payload).digest("hex").slice(0, 20);
+}
+
+async function resolveClientDisplayName(clientId) {
+  if (!clientId) return fallbackClientDisplayName(clientId);
+  try {
+    const client = await getClientById(clientId);
+    return client?.name || fallbackClientDisplayName(clientId);
+  } catch (error) {
+    console.warn("[xdm] falha ao carregar cliente para nome amigável", {
+      clientId,
+      message: error?.message || error,
+    });
+    return fallbackClientDisplayName(clientId);
+  }
 }
 
 async function resolveConfigId({ deviceUid, correlationId }) {
@@ -110,16 +126,19 @@ export async function applyGeozoneGroupToDevice({
 
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyGeozoneGroupToDevice" });
   const resolvedCorrelationId = correlationId || buildCorrelationId({ deviceUid: normalizedDeviceUid });
+  const clientDisplayName = await resolveClientDisplayName(clientId);
 
   const groupScopeId = groupName || normalizedDeviceUid;
   const groupSyncResult = itineraryId
     ? await syncGeozoneGroup(itineraryId, {
         clientId,
+        clientDisplayName,
         correlationId: resolvedCorrelationId,
         geofencesById,
       })
     : await syncGeozoneGroupForGeofences({
         clientId,
+        clientDisplayName,
         geofenceIds,
         groupName,
         scopeKey: groupName || normalizedDeviceUid,

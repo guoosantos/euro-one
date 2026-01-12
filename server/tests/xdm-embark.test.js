@@ -190,16 +190,18 @@ test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
     items: [{ type: "geofence", id: geofenceFixture.id }],
   });
   const geofencesById = new Map([[geofenceFixture.id, geofenceFixture]]);
-  await syncGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId, geofencesById });
-  await syncGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId, geofencesById });
+  await syncGeozoneGroup(itinerary.id, {
+    clientId: geofenceFixture.clientId,
+    clientDisplayName: "Cliente Teste",
+    geofencesById,
+  });
+  await syncGeozoneGroup(itinerary.id, {
+    clientId: geofenceFixture.clientId,
+    clientDisplayName: "Cliente Teste",
+    geofencesById,
+  });
   assert.equal(groupCreateCalls, 1);
-  const safeClient = geofenceFixture.clientId.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  const safeItineraryId = String(itinerary.id || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  const safeName = String(itinerary.name || "").replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-  assert.equal(
-    lastGroupPayload?.name,
-    `EUROONE_${safeClient}_${safeItineraryId || "ITINERARY"}_GROUP_${safeName || "ITINERARIO"}`,
-  );
+  assert.equal(lastGroupPayload?.name, "Cliente Teste - Itinerário");
 });
 
 test("syncGeozoneGroup normaliza id criado com wrapper data", async () => {
