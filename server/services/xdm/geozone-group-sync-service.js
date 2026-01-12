@@ -1,7 +1,9 @@
 import crypto from "node:crypto";
+import createError from "http-errors";
 
 import { getItineraryById, updateItinerary } from "../../models/itinerary.js";
 import { getGeofenceById } from "../../models/geofence.js";
+import { getRouteById } from "../../models/route.js";
 import { getGeofenceMapping } from "../../models/xdm-geofence.js";
 import {
   getGeozoneGroupMapping,
@@ -13,7 +15,8 @@ import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
 import { syncRouteGeozone } from "./route-geozone-sync-service.js";
 import { normalizeGeozoneGroupIdResponse, normalizeXdmId } from "./xdm-utils.js";
-import { wrapXdmError } from "./xdm-error.js";
+import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
+import { buildItineraryKml } from "../../utils/kml.js";
 
 const HASH_VERSION = "v1";
 
@@ -103,6 +106,85 @@ function persistItineraryGroupId({ itineraryId, xdmGeozoneGroupId }) {
   updateItinerary(itineraryId, { xdmGeozoneGroupId });
 }
 
+function markItineraryWarning({ itineraryId, message }) {
+  if (!itineraryId) return;
+  updateItinerary(itineraryId, {
+    xdmSyncStatus: "SYNCED_WITH_WARNINGS",
+    xdmLastSyncError: message || "XDM sem permissão para gerenciar geozones",
+    xdmLastError: message || "XDM sem permissão para gerenciar geozones",
+    xdmLastSyncedAt: new Date().toISOString(),
+  });
+}
+
+function buildGroupImportName({ itinerary, groupName }) {
+  const base = itinerary?.name || groupName || `Itinerário ${itinerary?.id || "grupo"}`;
+  return sanitizeName(base) || "GEOZONE_GROUP";
+}
+
+async function importGeozonesToGroup({
+  itinerary,
+  groupName,
+  geofences = [],
+  routes = [],
+  xdmGeozoneGroupId,
+  correlationId,
+  xdmClient,
+}) {
+  const kml = buildItineraryKml({
+    name: itinerary?.name || groupName || "Itinerário",
+    geofences,
+    routes,
+  });
+  const importName = buildGroupImportName({ itinerary, groupName });
+  const form = new FormData();
+  form.append(
+    "files",
+    new Blob([kml], { type: "application/vnd.google-earth.kml+xml" }),
+    `${importName}.kml`,
+  );
+
+  try {
+    const response = await xdmClient.request(
+      "POST",
+      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/importGeozones`,
+      form,
+      { correlationId },
+    );
+    if (Array.isArray(response)) {
+      return response.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    }
+    if (response?.geozoneIds && Array.isArray(response.geozoneIds)) {
+      return response.geozoneIds.map((id) => Number(id)).filter((id) => Number.isFinite(id));
+    }
+    if (Number.isFinite(Number(response))) {
+      return [Number(response)];
+    }
+    return [];
+  } catch (error) {
+    if (isNoPermissionError(error)) {
+      console.warn("[xdm] NO_PERMISSION importGeozones", {
+        correlationId,
+        itineraryId: itinerary?.id || null,
+        xdmGeozoneGroupId,
+      });
+      logNoPermissionDiagnostics({
+        error,
+        correlationId,
+        method: "POST",
+        path: `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/importGeozones`,
+      });
+    }
+    throw wrapXdmError(error, {
+      step: "importGeozones",
+      correlationId,
+      payloadSample: {
+        itineraryId: itinerary?.id || null,
+        xdmGeozoneGroupId,
+      },
+    });
+  }
+}
+
 export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
@@ -120,9 +202,15 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
 
   const xdmGeozoneIds = [];
   const geofenceEntries = [];
+  const geofenceRecords = [];
   const itemMappings = [];
+  const routeRecords = [];
   for (const item of selectedItems) {
     if (item.type === "route") {
+      const routeRecord = await getRouteById(item.id);
+      if (routeRecord) {
+        routeRecords.push(routeRecord);
+      }
       const routeResult = await syncRouteGeozone(item.id, {
         clientId: itinerary.clientId,
         correlationId,
@@ -146,6 +234,8 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
     if (!geofenceRecord) {
       throw new Error("Geofence não encontrada para o itinerário");
     }
+
+    geofenceRecords.push(geofenceRecord);
 
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId: itinerary.clientId,
@@ -281,6 +371,8 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
 
   const toRemove = existingIds.filter((id) => !desiredIds.includes(id));
   const toAdd = desiredIds.filter((id) => !existingIds.includes(id));
+  const warnings = [];
+  let importedGeozoneIds = null;
 
   if (toRemove.length) {
     try {
@@ -291,11 +383,30 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
         { correlationId },
       );
     } catch (error) {
-      throw wrapXdmError(error, {
-        step: "removeGeozones",
-        correlationId,
-        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toRemove },
-      });
+      if (isNoPermissionError(error)) {
+        warnings.push("NO_PERMISSION removeGeozones");
+        console.warn("[xdm] NO_PERMISSION removeGeozones", {
+          correlationId,
+          itineraryId: itinerary.id,
+          xdmGeozoneGroupId,
+        });
+        logNoPermissionDiagnostics({
+          error,
+          correlationId,
+          method: "DELETE",
+          path: `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        });
+        markItineraryWarning({
+          itineraryId: itinerary.id,
+          message: "Sem permissão para remover geozones do grupo no XDM",
+        });
+      } else {
+        throw wrapXdmError(error, {
+          step: "removeGeozones",
+          correlationId,
+          payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toRemove },
+        });
+      }
     }
   }
   if (toAdd.length) {
@@ -307,11 +418,46 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
         { correlationId },
       );
     } catch (error) {
-      throw wrapXdmError(error, {
-        step: "addGeozones",
-        correlationId,
-        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toAdd },
-      });
+      if (isNoPermissionError(error)) {
+        warnings.push("NO_PERMISSION addGeozones");
+        console.warn("[xdm] NO_PERMISSION addGeozones", {
+          correlationId,
+          itineraryId: itinerary.id,
+          xdmGeozoneGroupId,
+        });
+        logNoPermissionDiagnostics({
+          error,
+          correlationId,
+          method: "POST",
+          path: `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        });
+
+        try {
+          importedGeozoneIds = await importGeozonesToGroup({
+            itinerary,
+            groupName,
+            geofences: geofenceRecords,
+            routes: routeRecords,
+            xdmGeozoneGroupId,
+            correlationId,
+            xdmClient,
+          });
+        } catch (importError) {
+          if (isNoPermissionError(importError)) {
+            throw createError(
+              403,
+              "Token sem permissão para gerenciar geozones/geozonegroups. Verifique roles do client no XDM",
+            );
+          }
+          throw importError;
+        }
+      } else {
+        throw wrapXdmError(error, {
+          step: "addGeozones",
+          correlationId,
+          payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toAdd },
+        });
+      }
     }
   }
 
@@ -323,7 +469,19 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   });
   persistItineraryGroupId({ itineraryId: itinerary.id, xdmGeozoneGroupId });
 
-  return { xdmGeozoneGroupId, groupHash, itemMappings };
+  if (Array.isArray(importedGeozoneIds) && importedGeozoneIds.length) {
+    updateItinerary(itinerary.id, {
+      xdmGeozoneIds: importedGeozoneIds,
+    });
+  }
+
+  return {
+    xdmGeozoneGroupId,
+    groupHash,
+    itemMappings,
+    xdmGeozoneIds: importedGeozoneIds,
+    warnings,
+  };
 }
 
 export async function syncGeozoneGroupForGeofences({
@@ -346,6 +504,7 @@ export async function syncGeozoneGroupForGeofences({
 
   const xdmGeozoneIds = [];
   const geofenceEntries = [];
+  const geofenceRecords = [];
 
   for (const geofenceId of ids) {
     const geofenceOverride = geofencesById ? geofencesById.get(String(geofenceId)) : null;
@@ -356,6 +515,8 @@ export async function syncGeozoneGroupForGeofences({
     if (String(geofenceRecord.clientId) !== String(clientId)) {
       throw new Error("Geofence não pertence ao cliente");
     }
+
+    geofenceRecords.push(geofenceRecord);
 
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId,
@@ -484,6 +645,7 @@ export async function syncGeozoneGroupForGeofences({
 
   const toRemove = existingIds.filter((id) => !desiredIds.includes(id));
   const toAdd = desiredIds.filter((id) => !existingIds.includes(id));
+  const warnings = [];
 
   if (toRemove.length) {
     try {
@@ -494,11 +656,26 @@ export async function syncGeozoneGroupForGeofences({
         { correlationId },
       );
     } catch (error) {
-      throw wrapXdmError(error, {
-        step: "removeGeozones",
-        correlationId,
-        payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toRemove },
-      });
+      if (isNoPermissionError(error)) {
+        warnings.push("NO_PERMISSION removeGeozones");
+        console.warn("[xdm] NO_PERMISSION removeGeozones", {
+          correlationId,
+          scopeKey: mappingKey,
+          xdmGeozoneGroupId,
+        });
+        logNoPermissionDiagnostics({
+          error,
+          correlationId,
+          method: "DELETE",
+          path: `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        });
+      } else {
+        throw wrapXdmError(error, {
+          step: "removeGeozones",
+          correlationId,
+          payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toRemove },
+        });
+      }
     }
   }
   if (toAdd.length) {
@@ -510,11 +687,45 @@ export async function syncGeozoneGroupForGeofences({
         { correlationId },
       );
     } catch (error) {
-      throw wrapXdmError(error, {
-        step: "addGeozones",
-        correlationId,
-        payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toAdd },
-      });
+      if (isNoPermissionError(error)) {
+        warnings.push("NO_PERMISSION addGeozones");
+        console.warn("[xdm] NO_PERMISSION addGeozones", {
+          correlationId,
+          scopeKey: mappingKey,
+          xdmGeozoneGroupId,
+        });
+        logNoPermissionDiagnostics({
+          error,
+          correlationId,
+          method: "POST",
+          path: `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        });
+        try {
+          await importGeozonesToGroup({
+            itinerary: null,
+            groupName: resolvedName,
+            geofences: geofenceRecords,
+            routes: [],
+            xdmGeozoneGroupId,
+            correlationId,
+            xdmClient,
+          });
+        } catch (importError) {
+          if (isNoPermissionError(importError)) {
+            throw createError(
+              403,
+              "Token sem permissão para gerenciar geozones/geozonegroups. Verifique roles do client no XDM",
+            );
+          }
+          throw importError;
+        }
+      } else {
+        throw wrapXdmError(error, {
+          step: "addGeozones",
+          correlationId,
+          payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toAdd },
+        });
+      }
     }
   }
 
@@ -526,7 +737,7 @@ export async function syncGeozoneGroupForGeofences({
     groupName: resolvedName,
   });
 
-  return { xdmGeozoneGroupId, groupHash, groupName: resolvedName };
+  return { xdmGeozoneGroupId, groupHash, groupName: resolvedName, warnings };
 }
 
 export async function ensureGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {

@@ -3,7 +3,12 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import XdmClient from "../services/xdm/xdm-client.js";
-import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-override-resolver.js";
+import {
+  discoverGeozoneGroupOverrideElementId,
+  getGeozoneGroupOverrideConfig,
+  resolveGeozoneGroupOverrideElementId,
+} from "../services/xdm/xdm-override-resolver.js";
+import { initStorage } from "../services/storage.js";
 
 const router = express.Router();
 
@@ -54,6 +59,90 @@ router.get("/xdm/diagnostics", async (_req, res, next) => {
       error: error?.message || "Falha ao autenticar no XDM",
       body,
     });
+  }
+});
+
+router.get("/xdm/override-elements", async (_req, res, next) => {
+  if (!isDiagnosticsEnabled()) {
+    return next(createError(404, "Rota não encontrada"));
+  }
+
+  await initStorage();
+  const overrideConfig = getGeozoneGroupOverrideConfig();
+  const { listOverrideElements } = await import("../models/xdm-override-element.js");
+  const stored = listOverrideElements();
+
+  const resolvedFromStorage = (() => {
+    const dealerId = process.env.XDM_DEALER_ID || null;
+    const configName = process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null;
+    const overrideKey = process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY || "geoGroup";
+    if (!dealerId || !configName) return null;
+    return stored.find(
+      (item) =>
+        String(item?.dealerId) === String(dealerId) &&
+        String(item?.configName || "").trim().toLowerCase() === String(configName).trim().toLowerCase() &&
+        String(item?.overrideKey || "").trim().toLowerCase() === String(overrideKey).trim().toLowerCase(),
+    );
+  })();
+
+  const resolved =
+    overrideConfig.isValid
+      ? {
+          dealerId: process.env.XDM_DEALER_ID || null,
+          configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
+          overrideKey: overrideConfig.overrideKey,
+          overrideElementId: Number(overrideConfig.overrideId),
+          source: "env",
+        }
+      : resolvedFromStorage
+        ? {
+            dealerId: resolvedFromStorage.dealerId,
+            configName: resolvedFromStorage.configName,
+            overrideKey: resolvedFromStorage.overrideKey,
+            overrideElementId: resolvedFromStorage.overrideElementId,
+            source: "storage",
+          }
+        : null;
+
+  return res.status(200).json({
+    env: {
+      rawValue: overrideConfig.rawValue,
+      overrideElementId: overrideConfig.overrideId,
+      overrideIdValid: overrideConfig.isValid,
+      overrideKey: overrideConfig.overrideKey,
+      source: overrideConfig.source,
+    },
+    resolved,
+    stored: stored.map((item) => ({
+      dealerId: item.dealerId,
+      configName: item.configName,
+      overrideKey: item.overrideKey,
+      overrideElementId: item.overrideElementId,
+      source: item.source || "storage",
+      updatedAt: item.updatedAt || null,
+    })),
+  });
+});
+
+router.post("/xdm/override-elements/discover", async (req, res, next) => {
+  if (!isDiagnosticsEnabled()) {
+    return next(createError(404, "Rota não encontrada"));
+  }
+
+  try {
+    await initStorage();
+    const resolved = await discoverGeozoneGroupOverrideElementId({
+      correlationId: req.headers["x-correlation-id"] || "xdm-override-discovery",
+    });
+    return res.status(200).json({
+      dealerId: resolved.dealerId,
+      configName: resolved.configName,
+      overrideKey: resolved.overrideKey,
+      overrideElementId: resolved.overrideNumber,
+      source: resolved.source,
+    });
+  } catch (error) {
+    return next(error);
   }
 });
 

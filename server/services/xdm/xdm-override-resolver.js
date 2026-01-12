@@ -1,4 +1,5 @@
 import XdmClient from "./xdm-client.js";
+import { initStorage } from "../storage.js";
 
 const DEFAULT_OVERRIDE_KEY = "geoGroup";
 const INT32_MIN = -2147483648;
@@ -250,6 +251,7 @@ export async function resolveGeozoneGroupOverrideElementId({ correlationId } = {
   }
 
   const pending = (async () => {
+    await initStorage();
     const { getOverrideElement, upsertOverrideElement } = await import(
       "../../models/xdm-override-element.js"
     );
@@ -311,6 +313,7 @@ export async function discoverGeozoneGroupOverrideElementId({ correlationId } = 
     correlationId,
   });
 
+  await initStorage();
   const { upsertOverrideElement } = await import("../../models/xdm-override-element.js");
   const persisted = upsertOverrideElement({
     dealerId,
