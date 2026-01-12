@@ -142,7 +142,7 @@ export function errorHandler(err, req, res, _next) {
   payload.error = code || err?.code || message;
   if (code) payload.code = code;
 
-  const shouldExposeDetails = process.env.NODE_ENV !== "production" || status < 500;
+  const shouldExposeDetails = process.env.NODE_ENV !== "production" || status < 500 || err?.expose;
   if (details && shouldExposeDetails) {
     const safeDetails = sanitizeDetails(details);
     if (safeDetails !== undefined) {

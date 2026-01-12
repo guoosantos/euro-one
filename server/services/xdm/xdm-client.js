@@ -280,6 +280,8 @@ export class XdmClient {
               correlationId,
               method,
               path,
+              url,
+              status: response.status,
               response: responseMessage,
               responseSample,
             },

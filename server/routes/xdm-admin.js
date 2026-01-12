@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import XdmClient from "../services/xdm/xdm-client.js";
-import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-utils.js";
+import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-override-resolver.js";
 
 const router = express.Router();
 
@@ -37,6 +37,7 @@ router.get("/xdm/diagnostics", async (_req, res, next) => {
     dealerId: process.env.XDM_DEALER_ID || null,
     configName: process.env.XDM_CONFIG_NAME || null,
     overrideId: overrideConfig.overrideId,
+    overrideKey: overrideConfig.overrideKey,
     overrideIdValid: overrideConfig.isValid,
     overrideSource: overrideConfig.source,
     tokenOk: false,

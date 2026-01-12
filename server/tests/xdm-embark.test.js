@@ -11,6 +11,10 @@ let rolloutCalls = 0;
 let overrideCalls = 0;
 let lastGroupPayload = null;
 let overridePayloads = [];
+let geozoneAddPayloads = [];
+let geozoneRemovePayloads = [];
+let groupInfoGeozoneIds = [];
+let importQueue = [];
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -34,7 +38,8 @@ function createMockServer() {
 
       if (req.url === "/api/external/v1/geozones/import" && req.method === "POST") {
         importCalls += 1;
-        sendJson(res, [123]);
+        const id = importQueue.length ? importQueue.shift() : 123;
+        sendJson(res, [id]);
         return;
       }
 
@@ -66,17 +71,31 @@ function createMockServer() {
       }
 
       if (/^\/api\/external\/v1\/geozonegroups\/\d+$/.test(req.url) && req.method === "GET") {
-        sendJson(res, { id: 555, geozoneIds: [] });
+        sendJson(res, { id: 555, geozoneIds: groupInfoGeozoneIds });
         return;
       }
 
       if (req.url.endsWith("/geozones") && req.method === "POST") {
-        sendJson(res, 1);
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          geozoneAddPayloads.push(body ? JSON.parse(body) : null);
+          sendJson(res, 1);
+        });
         return;
       }
 
       if (req.url.endsWith("/geozones") && req.method === "DELETE") {
-        sendJson(res, 1);
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          geozoneRemovePayloads.push(body ? JSON.parse(body) : null);
+          sendJson(res, 1);
+        });
         return;
       }
 
@@ -173,6 +192,7 @@ test("normalizePolygon fecha o polígono e mantém hash determinístico", () => 
 
 test("syncGeofence é idempotente para a mesma geometria", async () => {
   importCalls = 0;
+  importQueue = [];
   clearGeofenceMappings();
   await syncGeofence(geofenceFixture.id, { clientId: geofenceFixture.clientId, geofence: geofenceFixture });
   await syncGeofence(geofenceFixture.id, { clientId: geofenceFixture.clientId, geofence: geofenceFixture });
@@ -182,6 +202,8 @@ test("syncGeofence é idempotente para a mesma geometria", async () => {
 test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
   groupCreateCalls = 0;
   lastGroupPayload = null;
+  importQueue = [];
+  groupInfoGeozoneIds = [];
   clearGeofenceMappings();
   clearGeozoneGroupMappings();
   const itinerary = createItinerary({
@@ -204,6 +226,8 @@ test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
 
 test("syncGeozoneGroup normaliza id criado com wrapper data", async () => {
   groupCreateCalls = 0;
+  importQueue = [];
+  groupInfoGeozoneIds = [];
   clearGeofenceMappings();
   clearGeozoneGroupMappings();
   const response = await syncGeozoneGroupForGeofences({
@@ -238,6 +262,41 @@ test("queueDeployment evita duplicidade quando já há deploy ativo", () => {
   assert.equal(first.status, "QUEUED");
   assert.equal(second.status, "ACTIVE");
   assert.equal(second.deployment.id, first.deployment.id);
+});
+
+test("syncGeozoneGroup atualiza membership via add/remove", async () => {
+  importCalls = 0;
+  importQueue = [123, 222];
+  geozoneAddPayloads = [];
+  geozoneRemovePayloads = [];
+  groupInfoGeozoneIds = [111, 222];
+  clearGeofenceMappings();
+  clearGeozoneGroupMappings();
+
+  const itinerary = createItinerary({
+    clientId: geofenceFixture.clientId,
+    name: "Itinerário Membership",
+    items: [
+      { type: "geofence", id: geofenceFixture.id },
+      { type: "geofence", id: "geo-2" },
+    ],
+  });
+  const geofencesById = new Map([
+    [geofenceFixture.id, geofenceFixture],
+    [
+      "geo-2",
+      {
+        ...geofenceFixture,
+        id: "geo-2",
+        name: "Teste 2",
+      },
+    ],
+  ]);
+
+  await syncGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId, geofencesById });
+
+  assert.deepEqual(geozoneRemovePayloads, [{ geozoneIds: [111] }]);
+  assert.deepEqual(geozoneAddPayloads, [{ geozoneIds: [123] }]);
 });
 
 test("resolveVehicleDeviceUid usa uniqueId do device associado", () => {
@@ -326,7 +385,7 @@ test("embark múltiplos veículos aplica overrides por deviceUid", async () => {
 
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 0);
-  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: 555 } });
+  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: "555" } });
 });
 
 test("embark falha para veículo sem IMEI/deviceUid", async () => {

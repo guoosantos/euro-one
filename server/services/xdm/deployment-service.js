@@ -12,16 +12,11 @@ import {
   updateDeployment,
 } from "../../models/xdm-deployment.js";
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
-import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, ensureGeozoneGroup } from "./geozone-group-sync-service.js";
-import {
-  ensureGeozoneGroupOverrideId,
-  buildOverridesDto,
-  normalizeXdmDeviceUid,
-  normalizeXdmId,
-} from "./xdm-utils.js";
+import { normalizeXdmDeviceUid } from "./xdm-utils.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
-import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
+import { applyGeozoneGroupOverride } from "./device-overrides-service.js";
+import { resolveGeozoneGroupOverrideElementId } from "./xdm-override-resolver.js";
 
 function buildRequestHash({ itineraryId, vehicleId, groupHash }) {
   const payload = `${itineraryId}|${vehicleId}|${groupHash}`;
@@ -65,46 +60,6 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
   });
 
   return geofencesById;
-}
-
-async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideConfig = ensureGeozoneGroupOverrideId();
-  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
-  const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
-  const xdmClient = new XdmClient();
-  try {
-    await xdmClient.request(
-      "PUT",
-      `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
-      {
-        overrides: buildOverridesDto({
-          [overrideConfig.overrideId]: normalizedGeozoneGroupId,
-        }),
-      },
-      { correlationId },
-    );
-  } catch (error) {
-    if (isDeviceNotFoundError(error)) {
-      const deviceError = new Error("Device UID not found");
-      deviceError.status = 424;
-      deviceError.expose = true;
-      deviceError.code = "XDM_DEVICE_NOT_FOUND";
-      deviceError.details = {
-        correlationId,
-        deviceUid: normalizedDeviceUid,
-      };
-      throw deviceError;
-    }
-    throw wrapXdmError(error, {
-      step: "applyOverrides",
-      correlationId,
-      payloadSample: {
-        deviceUid: normalizedDeviceUid,
-        overrideId: overrideConfig.overrideId,
-        groupId: normalizedGeozoneGroupId,
-      },
-    });
-  }
 }
 
 function logStep(deploymentId, step, meta = {}) {
@@ -206,7 +161,12 @@ async function processDeployment(deploymentId) {
 
     const updateStart = Date.now();
     logStep(deploymentId, "APPLY_OVERRIDES", { status: "started" });
-    await applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId });
+    await applyGeozoneGroupOverride({
+      deviceUid,
+      xdmGeozoneGroupId,
+      correlationId,
+      configId: deployment.configId,
+    });
     logStep(deploymentId, "APPLY_OVERRIDES", {
       status: "ok",
       durationMs: Date.now() - updateStart,
@@ -310,7 +270,7 @@ export async function embarkItinerary({
   }
 
   if (!dryRun) {
-    ensureGeozoneGroupOverrideId();
+    await resolveGeozoneGroupOverrideElementId({ correlationId });
   }
 
   const resolvedGeofencesById =
