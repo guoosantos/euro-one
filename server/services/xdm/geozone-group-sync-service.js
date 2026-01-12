@@ -12,7 +12,7 @@ import {
 import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
 import { syncRouteGeozone } from "./route-geozone-sync-service.js";
-import { normalizeXdmId } from "./xdm-utils.js";
+import { normalizeGeozoneGroupIdResponse, normalizeXdmId } from "./xdm-utils.js";
 import { wrapXdmError } from "./xdm-error.js";
 
 const HASH_VERSION = "v1";
@@ -75,7 +75,7 @@ async function resolveGeozoneGroupId({
   payloadSample,
 } = {}) {
   try {
-    return normalizeXdmId(created, { context: "create geozonegroup" });
+    return normalizeGeozoneGroupIdResponse(created, { context: "create geozonegroup" });
   } catch (error) {
     try {
       const discovered = await findGeozoneGroupByName({ name: groupName, correlationId, xdmClient });

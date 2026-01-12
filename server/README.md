@@ -158,11 +158,11 @@ O script usa `XDM_AUTH_URL`, `XDM_CLIENT_ID` e `XDM_CLIENT_SECRET` do `.env` (co
 
 ### Descobrir o ID do override de Geozone Group
 
-Use o script abaixo para encontrar o ID numérico do override associado ao geozone group no XDM:
+Use o script abaixo para encontrar o ID numérico do override associado ao geozone group no XDM (via configuração/Template) e salvar no storage local:
 
 ```bash
-node scripts/xdm-discover-geoGroup-override-id.js <IMEI>
+node scripts/xdm-discover-override-element.js
 ```
 
-O script consulta `/api/external/v1/devicesSdk/{imei}/details`, tenta localizar estruturas relacionadas a geozone/geo group e imprime candidatos. Se existir, também exibe overrides já configurados via `/api/external/v3/settingsOverrides/{deviceUid}`.
-- Garanta que não há espaços/aspas extras no `.env` (o backend remove aspas automaticamente).
+O script consulta o template configurado em `XDM_CONFIG_NAME`, percorre categorias/elementos e persiste o `userElementId` encontrado para o override `XDM_GEOZONE_GROUP_OVERRIDE_KEY` (padrão `geoGroup`).
+- Garanta que `XDM_DEALER_ID` e `XDM_CONFIG_NAME` estejam configurados no `.env`.

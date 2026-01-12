@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
-import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-utils.js";
+import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
 import { extractToken } from "./middleware/auth.js";
 
 const logErrorStack = (label, error) => {

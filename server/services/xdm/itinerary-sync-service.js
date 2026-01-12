@@ -90,6 +90,7 @@ export async function syncItineraryXdm(itineraryId, { clientId, correlationId, g
     xdmGeozoneGroupId: syncResult.xdmGeozoneGroupId,
     xdmSyncStatus: "OK",
     xdmLastSyncError: null,
+    xdmLastError: null,
     xdmLastSyncedAt: new Date().toISOString(),
   });
 

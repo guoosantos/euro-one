@@ -14,12 +14,8 @@ import {
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, ensureGeozoneGroup } from "./geozone-group-sync-service.js";
-import {
-  ensureGeozoneGroupOverrideId,
-  buildOverridesDto,
-  normalizeXdmDeviceUid,
-  normalizeXdmId,
-} from "./xdm-utils.js";
+import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
+import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
 
@@ -68,7 +64,7 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
 }
 
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideConfig = ensureGeozoneGroupOverrideId();
+  const overrideConfig = await ensureGeozoneGroupOverrideId({ correlationId });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
@@ -310,7 +306,7 @@ export async function embarkItinerary({
   }
 
   if (!dryRun) {
-    ensureGeozoneGroupOverrideId();
+    await ensureGeozoneGroupOverrideId({ correlationId });
   }
 
   const resolvedGeofencesById =

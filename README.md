@@ -44,7 +44,14 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - `JWT_SECRET` e `JWT_EXPIRES_IN`: chaves para assinar e expirar os tokens emitidos pelo backend.
 - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
 - `ENABLE_DEMO_FALLBACK`: defina como `true` **apenas** em ambientes de demonstração sem banco para liberar os dados `demo-client`. Em produção, deixe ausente/false para evitar quedas silenciosas para o tenant demo.
-- `XDM_GEOZONE_GROUP_OVERRIDE_ID`: ID numérico (int32) do override do XDM usado para aplicar o Geozone Group em deploys. Descubra com `node scripts/xdm-discover-geoGroup-override-id.js <IMEI>`.
+- `XDM_GEOZONE_GROUP_OVERRIDE_ID`: ID numérico (int32) do override do XDM usado para aplicar o Geozone Group em deploys. Se ausente, o backend tenta descobrir e persistir automaticamente (ou use o script abaixo).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave/nome do override a ser descoberto (padrão `geoGroup`).
+  - Para descobrir e salvar manualmente no storage local:
+
+    ```bash
+    node server/scripts/xdm-discover-override-element.js
+    ```
+
   - O `overrideId` é o campo/override na configuração base do XDM (normalmente comum entre devices).
   - O `geozoneGroupId` é o valor aplicado no override (ID do grupo no XDM) e muda conforme o itinerário.
 

@@ -22,6 +22,7 @@ import {
   diffRemovedItems,
   syncItineraryXdm,
 } from "../services/xdm/itinerary-sync-service.js";
+import { isNoPermissionError, logNoPermissionDiagnostics } from "../services/xdm/xdm-error.js";
 
 const router = express.Router();
 
@@ -102,9 +103,30 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
       });
       return res.status(201).json({ data: withSyncStatus(synced.itinerary), error: null });
     } catch (error) {
+      if (isNoPermissionError(error)) {
+        const updated = updateItinerary(itinerary.id, {
+          xdmSyncStatus: "failed",
+          xdmLastSyncError: "NO_PERMISSION",
+          xdmLastError: "NO_PERMISSION",
+          xdmLastSyncedAt: new Date().toISOString(),
+        });
+        logNoPermissionDiagnostics({
+          error,
+          correlationId: req.headers["x-correlation-id"] || null,
+          method: req.method,
+          path: req.originalUrl,
+        });
+        return res.status(201).json({
+          data: withSyncStatus(updated),
+          error: null,
+          xdm: { ok: false, reason: "NO_PERMISSION" },
+        });
+      }
+
       updateItinerary(itinerary.id, {
         xdmSyncStatus: "ERROR",
         xdmLastSyncError: error?.message || "Falha ao sincronizar no XDM",
+        xdmLastError: error?.message || "Falha ao sincronizar no XDM",
         xdmLastSyncedAt: new Date().toISOString(),
       });
       throw error;
@@ -207,25 +229,59 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       throw createError(409, "Há dispositivos embarcados neste itinerário. Faça o desembarque antes de excluir.");
     }
 
-    await deleteItineraryGeozoneGroup({
-      itineraryId: existing.id,
-      clientId: existing.clientId,
-      correlationId: req.headers["x-correlation-id"] || null,
-    });
+    const correlationId = req.headers["x-correlation-id"] || null;
+    let xdmWarning = null;
+
+    try {
+      await deleteItineraryGeozoneGroup({
+        itineraryId: existing.id,
+        clientId: existing.clientId,
+        correlationId,
+      });
+    } catch (error) {
+      if (isNoPermissionError(error)) {
+        xdmWarning = { ok: false, reason: "NO_PERMISSION" };
+        logNoPermissionDiagnostics({
+          error,
+          correlationId,
+          method: req.method,
+          path: req.originalUrl,
+        });
+      } else {
+        throw error;
+      }
+    }
 
     const items = existing.items || [];
     await Promise.all(
-      items.map((item) =>
-        cleanupGeozoneForItem({
-          item,
-          clientId: existing.clientId,
-          correlationId: req.headers["x-correlation-id"] || null,
-          excludeItineraryId: existing.id,
-        }),
-      ),
+      items.map(async (item) => {
+        try {
+          await cleanupGeozoneForItem({
+            item,
+            clientId: existing.clientId,
+            correlationId,
+            excludeItineraryId: existing.id,
+          });
+        } catch (error) {
+          if (isNoPermissionError(error)) {
+            xdmWarning = xdmWarning || { ok: false, reason: "NO_PERMISSION" };
+            logNoPermissionDiagnostics({
+              error,
+              correlationId,
+              method: req.method,
+              path: req.originalUrl,
+            });
+            return;
+          }
+          throw error;
+        }
+      }),
     );
 
     await deleteItinerary(req.params.id);
+    if (xdmWarning) {
+      return res.status(200).json({ ok: true, xdm: xdmWarning });
+    }
     return res.status(204).send();
   } catch (error) {
     return next(error);
