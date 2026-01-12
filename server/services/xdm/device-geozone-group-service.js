@@ -2,12 +2,8 @@ import crypto from "node:crypto";
 
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
-import {
-  ensureGeozoneGroupOverrideId,
-  buildOverridesDto,
-  normalizeXdmDeviceUid,
-  normalizeXdmId,
-} from "./xdm-utils.js";
+import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
+import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
 
 const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
 
@@ -49,7 +45,7 @@ async function resolveConfigId({ deviceUid, correlationId }) {
 }
 
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideConfig = ensureGeozoneGroupOverrideId();
+  const overrideConfig = await ensureGeozoneGroupOverrideId({ correlationId });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();

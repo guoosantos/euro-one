@@ -42,6 +42,36 @@ export function wrapXdmError(error, { step, correlationId, payloadSample, status
   return wrapped;
 }
 
+export function isNoPermissionError(error) {
+  const haystack = [
+    error?.code,
+    error?.details?.code,
+    error?.details?.response,
+    error?.details?.responseSample,
+    error?.message,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes("no_permission");
+}
+
+export function logNoPermissionDiagnostics({ error, correlationId, method, path } = {}) {
+  console.warn("[xdm] NO_PERMISSION", {
+    authUrl: process.env.XDM_AUTH_URL || null,
+    baseUrl: process.env.XDM_BASE_URL || null,
+    dealerId: process.env.XDM_DEALER_ID || null,
+    configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
+    correlationId: correlationId || error?.details?.correlationId || null,
+    requestMethod: method || null,
+    requestPath: path || null,
+    xdmMethod: error?.details?.method || null,
+    xdmPath: error?.details?.path || null,
+    response: error?.details?.response || null,
+    responseSample: error?.details?.responseSample || null,
+  });
+}
+
 export function isDeviceNotFoundError(error) {
   const status = Number(error?.status || error?.statusCode);
   if (status === 404) return true;
@@ -51,5 +81,7 @@ export function isDeviceNotFoundError(error) {
 
 export default {
   wrapXdmError,
+  isNoPermissionError,
+  logNoPermissionDiagnostics,
   isDeviceNotFoundError,
 };

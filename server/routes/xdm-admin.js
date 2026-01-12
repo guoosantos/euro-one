@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import XdmClient from "../services/xdm/xdm-client.js";
-import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-utils.js";
+import { getGeozoneGroupOverrideConfig } from "../services/xdm/xdm-override-resolver.js";
 
 const router = express.Router();
 
