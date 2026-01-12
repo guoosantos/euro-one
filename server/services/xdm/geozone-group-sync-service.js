@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 import createError from "http-errors";
 
-import { getItineraryById, updateItinerary } from "../../models/itinerary.js";
+import { getItineraryById, listItineraries, updateItinerary } from "../../models/itinerary.js";
 import { getGeofenceById } from "../../models/geofence.js";
 import { getRouteById } from "../../models/route.js";
 import { getGeofenceMapping } from "../../models/xdm-geofence.js";
@@ -17,7 +17,14 @@ import { syncRouteGeozone } from "./route-geozone-sync-service.js";
 import { normalizeGeozoneGroupIdResponse, normalizeXdmId } from "./xdm-utils.js";
 import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
 import { buildItineraryKml } from "../../utils/kml.js";
-import { buildFriendlyName, resolveClientDisplayName, resolveXdmNameConfig, sanitizeFriendlyName } from "./xdm-name-utils.js";
+import {
+  buildFriendlyName,
+  buildFriendlyNameWithSuffix,
+  buildShortIdSuffix,
+  resolveClientDisplayName,
+  resolveXdmNameConfig,
+  sanitizeFriendlyName,
+} from "./xdm-name-utils.js";
 
 const HASH_VERSION = "v1";
 
@@ -27,20 +34,37 @@ function sanitizeName(value) {
   return trimmed.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function buildGroupName({ clientId, clientDisplayName, itineraryId, itineraryName }) {
+function shouldAddItinerarySuffix({ clientId, itineraryId, itineraryName }) {
+  if (!clientId || !itineraryName) return false;
+  const normalizedName = sanitizeFriendlyName(itineraryName).toLowerCase();
+  if (!normalizedName) return false;
+  const duplicates = listItineraries({ clientId }).filter((item) => {
+    if (!item?.name) return false;
+    if (String(item.id) === String(itineraryId)) return false;
+    return sanitizeFriendlyName(item.name).toLowerCase() === normalizedName;
+  });
+  return duplicates.length > 0;
+}
+
+function buildGroupName({ clientId, clientDisplayName, itineraryId, itineraryName, withSuffix = false }) {
   const { friendlyNamesEnabled, maxNameLength } = resolveXdmNameConfig();
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const fallbackItinerary =
       itineraryId != null ? `Itinerário ${String(itineraryId).slice(0, 8)}` : "Itinerário";
     const resolvedItinerary = sanitizeFriendlyName(itineraryName) || fallbackItinerary;
-    const friendly = buildFriendlyName([resolvedClient, resolvedItinerary], { maxLen: maxNameLength });
+    const suffix = withSuffix ? buildShortIdSuffix(itineraryId) : "";
+    const friendly = buildFriendlyNameWithSuffix([resolvedClient, resolvedItinerary], {
+      maxLen: maxNameLength,
+      suffix,
+    });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const safeItineraryId = sanitizeName(itineraryId) || "ITINERARY";
   const safeItinerary = sanitizeName(itineraryName) || "ITINERARIO";
-  return `EUROONE_${safeClient}_${safeItineraryId}_GROUP_${safeItinerary}`;
+  const suffix = withSuffix ? buildShortIdSuffix(itineraryId) : "";
+  return `EUROONE_${safeClient}_${safeItineraryId}_GROUP_${safeItinerary}${suffix ? `_${suffix}` : ""}`;
 }
 
 function buildScopedGroupName({ clientId, scopeId }) {
@@ -283,6 +307,7 @@ export async function syncGeozoneGroup(
       const routeResult = await syncRouteGeozone(item.id, {
         clientId: itinerary.clientId,
         correlationId,
+        clientDisplayName,
       });
       xdmGeozoneIds.push(routeResult.xdmGeozoneId);
       geofenceEntries.push({
@@ -342,6 +367,19 @@ export async function syncGeozoneGroup(
   }
 
   const groupHash = buildGroupHash(geofenceEntries);
+  const itineraryName = itinerary.name || `Itinerário ${itinerary.id}`;
+  const withSuffix = shouldAddItinerarySuffix({
+    clientId: itinerary.clientId,
+    itineraryId: itinerary.id,
+    itineraryName,
+  });
+  const groupName = buildGroupName({
+    clientId: itinerary.clientId,
+    clientDisplayName,
+    itineraryId: itinerary.id,
+    itineraryName,
+    withSuffix,
+  });
   const mapping = getGeozoneGroupMapping({ itineraryId, clientId: itinerary.clientId });
   let mappedId = null;
   if (mapping?.xdmGeozoneGroupId != null) {
@@ -352,22 +390,49 @@ export async function syncGeozoneGroup(
         clientId: itinerary.clientId,
         groupHash: mapping.groupHash,
         xdmGeozoneGroupId: mappedId,
+        groupName: mapping.groupName || groupName,
       });
     }
   }
   if (mappedId && mapping.groupHash === groupHash) {
-    return { xdmGeozoneGroupId: mappedId, groupHash };
+    if (mapping.groupName !== groupName) {
+      const xdmClient = new XdmClient();
+      const dealerId = getDealerId();
+      const notes = `itineraryId=${itinerary.id}, clientId=${itinerary.clientId}, hash=${groupHash}`;
+      try {
+        await xdmClient.request(
+          "PUT",
+          `/api/external/v1/geozonegroups/${mappedId}`,
+          {
+            id: Number(mappedId),
+            name: groupName,
+            dealerId,
+            notes,
+          },
+          {
+            correlationId,
+          },
+        );
+      } catch (error) {
+        throw wrapXdmError(error, {
+          step: "renameGroup",
+          correlationId,
+          payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, groupName, xdmGeozoneGroupId: mappedId },
+        });
+      }
+      upsertGeozoneGroupMapping({
+        itineraryId: itinerary.id,
+        clientId: itinerary.clientId,
+        groupHash,
+        xdmGeozoneGroupId: mappedId,
+        groupName,
+      });
+    }
+    return { xdmGeozoneGroupId: mappedId, groupHash, groupName };
   }
 
   const xdmClient = new XdmClient();
   const dealerId = getDealerId();
-  const itineraryName = itinerary.name || `Itinerário ${itinerary.id}`;
-  const groupName = buildGroupName({
-    clientId: itinerary.clientId,
-    clientDisplayName,
-    itineraryId: itinerary.id,
-    itineraryName,
-  });
   const notes = `itineraryId=${itinerary.id}, clientId=${itinerary.clientId}, hash=${groupHash}`;
 
   let xdmGeozoneGroupId = mappedId || null;
@@ -540,6 +605,7 @@ export async function syncGeozoneGroup(
     clientId: itinerary.clientId,
     groupHash,
     xdmGeozoneGroupId,
+    groupName,
   });
   persistItineraryGroupId({ itineraryId: itinerary.id, xdmGeozoneGroupId });
 
@@ -641,6 +707,37 @@ export async function syncGeozoneGroupForGeofences({
     }
   }
   if (mappedId && mapping.groupHash === groupHash) {
+    if (mapping.groupName !== resolvedName) {
+      const xdmClient = new XdmClient();
+      const dealerId = getDealerId();
+      const notes = `scope=${resolvedScopeId}, clientId=${clientId}, hash=${groupHash}`;
+      try {
+        await xdmClient.request(
+          "PUT",
+          `/api/external/v1/geozonegroups/${mappedId}`,
+          {
+            id: Number(mappedId),
+            name: resolvedName,
+            dealerId,
+            notes,
+          },
+          { correlationId },
+        );
+      } catch (error) {
+        throw wrapXdmError(error, {
+          step: "renameGroup",
+          correlationId,
+          payloadSample: { scopeKey: mappingKey, clientId, groupName: resolvedName, xdmGeozoneGroupId: mappedId },
+        });
+      }
+      upsertGeozoneGroupMappingByScope({
+        scopeKey: mappingKey,
+        clientId,
+        groupHash,
+        xdmGeozoneGroupId: mappedId,
+        groupName: resolvedName,
+      });
+    }
     return { xdmGeozoneGroupId: mappedId, groupHash, groupName: resolvedName };
   }
 

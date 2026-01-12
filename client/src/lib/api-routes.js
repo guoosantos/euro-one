@@ -14,6 +14,7 @@ export const API_ROUTES = {
   itineraries: "itineraries",
   itineraryEmbark: "itineraries/embark",
   itineraryEmbarkHistory: "itineraries/embark/history",
+  itineraryDisembark: (id) => `itineraries/${id}/disembark`,
   compliance: "compliance",
   iotSensors: "iot-sensors",
   videoTelematics: "video-telematics",

@@ -27,7 +27,7 @@ export function getGeozoneGroupMappingByScope({ scopeKey, clientId }) {
   return clone(record);
 }
 
-export function upsertGeozoneGroupMapping({ itineraryId, clientId, groupHash, xdmGeozoneGroupId }) {
+export function upsertGeozoneGroupMapping({ itineraryId, clientId, groupHash, xdmGeozoneGroupId, groupName }) {
   const now = new Date().toISOString();
   const index = groups.findIndex(
     (item) => String(item.id) === String(itineraryId) && String(item.clientId) === String(clientId),
@@ -36,6 +36,7 @@ export function upsertGeozoneGroupMapping({ itineraryId, clientId, groupHash, xd
     id: String(itineraryId),
     clientId: String(clientId),
     itineraryId: String(itineraryId),
+    groupName: groupName || null,
     groupHash: groupHash || null,
     xdmGeozoneGroupId: xdmGeozoneGroupId ?? null,
     updatedAt: now,

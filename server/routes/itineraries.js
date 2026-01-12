@@ -14,8 +14,13 @@ import {
   updateItinerary,
   deleteItinerary,
 } from "../models/itinerary.js";
-import { listDeployments, toHistoryEntries, getDeploymentById } from "../models/xdm-deployment.js";
-import { queueDeployment, embarkItinerary } from "../services/xdm/deployment-service.js";
+import {
+  listDeployments,
+  listLatestDeploymentsByItinerary,
+  toHistoryEntries,
+  getDeploymentById,
+} from "../models/xdm-deployment.js";
+import { queueDeployment, embarkItinerary, disembarkItinerary } from "../services/xdm/deployment-service.js";
 import {
   cleanupGeozoneForItem,
   deleteItineraryGeozoneGroup,
@@ -55,6 +60,18 @@ function resolveRequestIp(req) {
     return forwarded[0];
   }
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
+}
+
+function normalizeDeploymentAction(action) {
+  return action || "EMBARK";
+}
+
+export function __resolveBlockingEmbarkDeployments(deployments = []) {
+  const activeStatuses = new Set(["DEPLOYED", "DEPLOYING", "QUEUED", "SYNCING"]);
+  return (Array.isArray(deployments) ? deployments : []).filter(
+    (deployment) =>
+      normalizeDeploymentAction(deployment.action) === "EMBARK" && activeStatuses.has(deployment.status),
+  );
 }
 
 function withSyncStatus(itinerary) {
@@ -222,11 +239,12 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       throw createError(404, "Itinerário não encontrado");
     }
     ensureSameClient(req.user, existing.clientId);
-    const deployments = listDeployments({ clientId: existing.clientId }).filter(
-      (deployment) => String(deployment.itineraryId) === String(existing.id),
-    );
-    const activeStatuses = new Set(["DEPLOYED", "DEPLOYING", "QUEUED", "SYNCING"]);
-    if (deployments.some((deployment) => activeStatuses.has(deployment.status))) {
+    const latestDeployments = listLatestDeploymentsByItinerary({
+      clientId: existing.clientId,
+      itineraryId: existing.id,
+    });
+    const blockingDeployments = __resolveBlockingEmbarkDeployments(latestDeployments);
+    if (blockingDeployments.length) {
       throw createError(409, "Há dispositivos embarcados neste itinerário. Faça o desembarque antes de excluir.");
     }
 
@@ -344,6 +362,8 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
         const statusLabel =
           status === "DEPLOYED"
             ? "Deployed"
+            : status === "CLEARED"
+              ? "Desembarcado"
             : status === "DEPLOYING"
               ? "Deploying"
               : status === "FAILED"
@@ -354,6 +374,8 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
         const result =
           status === "DEPLOYED"
             ? entry.result || "Aplicado com sucesso"
+            : status === "CLEARED"
+              ? entry.result || "Desembarque concluído"
             : status === "DEPLOYING"
               ? "Deploy disparado"
               : status === "FAILED"
@@ -417,6 +439,36 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
       itineraryId,
       vehicleIds,
       configId,
+      dryRun,
+      correlationId: req.headers["x-correlation-id"] || null,
+      requestedByUserId: req.user?.id || null,
+      requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
+      ipAddress: resolveRequestIp(req),
+    });
+
+    return res.status(201).json({ data: response, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const itineraryId = req.params.itineraryId;
+    const itinerary = getItineraryById(itineraryId);
+    if (!itinerary) {
+      throw createError(404, "Itinerário não encontrado");
+    }
+    const clientId = resolveTargetClient(req, req.body?.clientId || itinerary.clientId, { required: true });
+    ensureSameClient(req.user, clientId);
+
+    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
+    const dryRun = Boolean(req.body?.dryRun);
+
+    const response = await disembarkItinerary({
+      clientId,
+      itineraryId,
+      vehicleIds,
       dryRun,
       correlationId: req.headers["x-correlation-id"] || null,
       requestedByUserId: req.user?.id || null,

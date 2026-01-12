@@ -49,12 +49,39 @@ export function truncateName(value, maxLen) {
   return normalized.slice(0, maxLen).trimEnd();
 }
 
+export function buildShortIdSuffix(value, { length = 5 } = {}) {
+  const trimmed = String(value || "").replace(/-/g, "").trim();
+  if (!trimmed) return "";
+  const safeLength = Number.isFinite(length) && length > 0 ? Math.floor(length) : 5;
+  return trimmed.slice(Math.max(0, trimmed.length - safeLength));
+}
+
 export function buildFriendlyName(parts = [], { maxLen } = {}) {
   const cleaned = (Array.isArray(parts) ? parts : [])
     .map((part) => sanitizeFriendlyName(part))
     .filter(Boolean);
   if (!cleaned.length) return "";
   return truncateName(cleaned.join(" - "), maxLen);
+}
+
+export function buildFriendlyNameWithSuffix(parts = [], { maxLen, suffix } = {}) {
+  const base = buildFriendlyName(parts, { maxLen: Infinity });
+  const trimmedSuffix = String(suffix || "").trim();
+  if (!trimmedSuffix) return truncateName(base, maxLen);
+  const suffixToken = ` (${trimmedSuffix})`;
+  if (!Number.isFinite(maxLen) || maxLen <= 0) {
+    return `${base}${suffixToken}`;
+  }
+  if (base.length + suffixToken.length <= maxLen) {
+    return `${base}${suffixToken}`;
+  }
+  const ellipsis = "…";
+  const available = maxLen - suffixToken.length - ellipsis.length;
+  if (available <= 0) {
+    return truncateName(`${ellipsis}${suffixToken}`, maxLen);
+  }
+  const truncatedBase = base.slice(0, available).trimEnd();
+  return `${truncatedBase}${ellipsis}${suffixToken}`;
 }
 
 export function fallbackClientDisplayName(clientId) {
@@ -74,6 +101,8 @@ export default {
   sanitizeFriendlyName,
   truncateName,
   buildFriendlyName,
+  buildFriendlyNameWithSuffix,
+  buildShortIdSuffix,
   resolveClientDisplayName,
   fallbackClientDisplayName,
 };

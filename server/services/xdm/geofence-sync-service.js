@@ -12,6 +12,7 @@ import {
   sanitizeFriendlyName,
   truncateName,
 } from "./xdm-name-utils.js";
+import { normalizeXdmId } from "./xdm-utils.js";
 
 const MIN_POINTS = 4;
 
@@ -82,6 +83,26 @@ export function buildGeofenceKml({ name, description = "", points }) {
       points,
     },
   ]);
+}
+
+async function updateGeozoneName({ xdmGeofenceId, name, correlationId }) {
+  if (!xdmGeofenceId) return;
+  const normalizedId = normalizeXdmId(xdmGeofenceId, { context: "update geozone name" });
+  const xdmClient = new XdmClient();
+  try {
+    await xdmClient.request(
+      "PUT",
+      `/api/external/v1/geozones/${normalizedId}`,
+      { id: Number(normalizedId), name },
+      { correlationId },
+    );
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "updateGeofenceName",
+      correlationId,
+      payloadSample: { xdmGeofenceId: normalizedId, name },
+    });
+  }
 }
 
 function sanitizeName(value) {
@@ -170,7 +191,18 @@ export async function syncGeofence(
   const geometryHash = buildGeometryHash(normalizedPoints);
   const mapping = getGeofenceMapping({ geofenceId, clientId: geofence.clientId });
   if (mapping?.xdmGeofenceId && mapping.geometryHash === geometryHash) {
-    return mapping.xdmGeofenceId;
+    const normalizedId = normalizeXdmId(mapping.xdmGeofenceId, { context: "mapping geofence" });
+    if (mapping.name !== xdmName) {
+      await updateGeozoneName({ xdmGeofenceId: normalizedId, name: xdmName, correlationId });
+      upsertGeofenceMapping({
+        geofenceId: geofence.id,
+        clientId: geofence.clientId,
+        geometryHash,
+        xdmGeofenceId: normalizedId,
+        name: xdmName,
+      });
+    }
+    return normalizedId;
   }
 
   const xdmClient = new XdmClient();

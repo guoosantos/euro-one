@@ -137,7 +137,7 @@ const { syncGeozoneGroup, syncGeozoneGroupForGeofences, ensureGeozoneGroup } = a
   "../services/xdm/geozone-group-sync-service.js",
 );
 const { createItinerary } = await import("../models/itinerary.js");
-const { queueDeployment, embarkItinerary } = await import("../services/xdm/deployment-service.js");
+const { queueDeployment, embarkItinerary, disembarkItinerary } = await import("../services/xdm/deployment-service.js");
 const { getDeploymentById } = await import("../models/xdm-deployment.js");
 const { clearGeofenceMappings } = await import("../models/xdm-geofence.js");
 const { clearGeozoneGroupMappings } = await import("../models/xdm-geozone-group.js");
@@ -201,7 +201,7 @@ test("syncGeozoneGroup evita recriar grupo quando hash não muda", async () => {
     geofencesById,
   });
   assert.equal(groupCreateCalls, 1);
-  assert.equal(lastGroupPayload?.name, "Cliente Teste - Itinerário");
+  assert.ok(lastGroupPayload?.name?.startsWith("Cliente Teste - Itinerário"));
 });
 
 test("syncGeozoneGroup normaliza id criado com wrapper data", async () => {
@@ -356,6 +356,38 @@ test("embark falha para veículo sem IMEI/deviceUid", async () => {
 
   assert.equal(response.vehicles[0].status, "failed");
   assert.match(response.vehicles[0].message, /IMEI/i);
+});
+
+test("disembark limpa override do device", async () => {
+  overrideCalls = 0;
+  overridePayloads = [];
+
+  const itinerary = createItinerary({
+    clientId: geofenceFixture.clientId,
+    name: "Itinerário Desembarque",
+    items: [{ type: "geofence", id: geofenceFixture.id }],
+  });
+
+  const vehicle = createVehicle({
+    clientId: geofenceFixture.clientId,
+    name: "Carro Desembarque",
+    plate: "ZZZ-0001",
+    model: "Modelo Z",
+    type: "carro",
+    deviceImei: "imei-disembark",
+  });
+
+  const response = await disembarkItinerary({
+    clientId: geofenceFixture.clientId,
+    itineraryId: itinerary.id,
+    vehicleIds: [vehicle.id],
+  });
+
+  await waitFor(() => overrideCalls === 1);
+
+  assert.equal(response.vehicles[0].status, "queued");
+  assert.equal(overrideCalls, 1);
+  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: null } });
 });
 
 test("ensureGeozoneGroup reutiliza mapeamento salvo", async () => {
