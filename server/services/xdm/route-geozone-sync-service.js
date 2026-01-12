@@ -5,6 +5,7 @@ import {
   getRouteGeozoneMapping,
   upsertRouteGeozoneMapping,
 } from "../../models/xdm-route-geozone.js";
+import { wrapXdmError } from "./xdm-error.js";
 
 const DEFAULT_BUFFER_METERS = 50;
 
@@ -98,7 +99,20 @@ export async function syncRouteGeozone(
     }
   }
 
-  const createdIds = await xdmClient.request("POST", "/api/external/v1/geozones/import", form, { correlationId });
+  let createdIds;
+  try {
+    createdIds = await xdmClient.request("POST", "/api/external/v1/geozones/import", form, { correlationId });
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "createRouteGeozone",
+      correlationId,
+      payloadSample: {
+        routeId: route.id,
+        clientId: route.clientId,
+        name: xdmName,
+      },
+    });
+  }
   const xdmGeozoneId = Array.isArray(createdIds) ? createdIds[0] : null;
 
   if (!xdmGeozoneId) {

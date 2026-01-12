@@ -27,6 +27,12 @@ pm2 start ecosystem.config.cjs --only euro-one-server --update-env --time
 pm2 logs euro-one-server --lines 200
 ```
 
+Para reiniciar após alterações:
+
+```bash
+pm2 restart ecosystem.config.cjs --only euro-one-server --update-env --time
+```
+
 No startup, os logs devem exibir:
 
 - `[startup] env PORT=... HOST=... NODE_ENV=...`

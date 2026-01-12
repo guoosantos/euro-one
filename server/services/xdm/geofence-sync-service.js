@@ -4,6 +4,7 @@ import { buildGeofencesKml, approximateCirclePoints } from "../../utils/kml.js";
 import { getGeofenceById } from "../../models/geofence.js";
 import { getGeofenceMapping, upsertGeofenceMapping } from "../../models/xdm-geofence.js";
 import XdmClient from "./xdm-client.js";
+import { wrapXdmError } from "./xdm-error.js";
 
 const MIN_POINTS = 4;
 
@@ -163,7 +164,16 @@ export async function syncGeofence(
       sizeError.expose = true;
       throw sizeError;
     }
-    throw error;
+    throw wrapXdmError(error, {
+      step: "createGeofence",
+      correlationId,
+      payloadSample: {
+        geofenceId,
+        clientId: geofence.clientId,
+        itineraryId,
+        name: xdmName,
+      },
+    });
   }
   const xdmGeofenceId = Array.isArray(createdIds) ? createdIds[0] : null;
 

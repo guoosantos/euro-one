@@ -13,7 +13,7 @@ import {
 } from "../../models/xdm-deployment.js";
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
-import { syncGeozoneGroup } from "./geozone-group-sync-service.js";
+import { syncGeozoneGroup, ensureGeozoneGroup } from "./geozone-group-sync-service.js";
 import {
   ensureGeozoneGroupOverrideId,
   buildOverridesDto,
@@ -21,11 +21,10 @@ import {
   normalizeXdmId,
 } from "./xdm-utils.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
+import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
 
-const DEFAULT_ROLLOUT_TYPE = 0; // XT_CONFIG
-
-function buildRequestHash({ itineraryId, vehicleId, groupHash, configId }) {
-  const payload = `${itineraryId}|${vehicleId}|${groupHash}|${configId}`;
+function buildRequestHash({ itineraryId, vehicleId, groupHash }) {
+  const payload = `${itineraryId}|${vehicleId}|${groupHash}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
 }
 
@@ -68,71 +67,44 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
   return geofencesById;
 }
 
-async function resolveConfigId({ deviceUid, correlationId }) {
-  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "resolveConfigId" });
-  const xdmClient = new XdmClient();
-  const configs = await xdmClient.request(
-    "POST",
-    "/api/external/v3/configs/forDevices",
-    { uids: [normalizedDeviceUid] },
-    { correlationId },
-  );
-
-  const configuredId = process.env.XDM_CONFIG_ID ? Number(process.env.XDM_CONFIG_ID) : null;
-  if (Number.isFinite(configuredId)) {
-    return configuredId;
-  }
-
-  const configuredName = process.env.XDM_CONFIG_NAME ? String(process.env.XDM_CONFIG_NAME).trim().toLowerCase() : null;
-  if (configuredName) {
-    const matched = (configs || []).find((item) => String(item.name || "").toLowerCase() === configuredName);
-    if (matched?.id != null) {
-      return Number(matched.id);
-    }
-  }
-
-  if (Array.isArray(configs) && configs.length === 1 && configs[0]?.id != null) {
-    return Number(configs[0].id);
-  }
-
-  throw new Error(
-    "Não foi possível determinar a configuração do XDM para o dispositivo (configure XDM_CONFIG_ID ou XDM_CONFIG_NAME)",
-  );
-}
-
 async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
   const overrideConfig = ensureGeozoneGroupOverrideId();
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const normalizedGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
   const xdmClient = new XdmClient();
-  await xdmClient.request(
-    "PUT",
-    `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
-    {
-      overrides: buildOverridesDto({
-        [overrideConfig.overrideId]: normalizedGeozoneGroupId,
-      }),
-    },
-    { correlationId },
-  );
-}
-
-async function createRollout({ deviceUid, configId, correlationId }) {
-  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "createRollout" });
-  const xdmClient = new XdmClient();
-  const title = `EuroOne deploy ${new Date().toISOString()}`;
-  return xdmClient.request(
-    "POST",
-    "/api/external/v1/rollouts/create",
-    {
-      type: DEFAULT_ROLLOUT_TYPE,
-      title,
-      autoRelease: true,
-      deviceUids: [normalizedDeviceUid],
-      serializedConfigId: configId,
-    },
-    { correlationId },
-  );
+  try {
+    await xdmClient.request(
+      "PUT",
+      `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
+      {
+        overrides: buildOverridesDto({
+          [overrideConfig.overrideId]: normalizedGeozoneGroupId,
+        }),
+      },
+      { correlationId },
+    );
+  } catch (error) {
+    if (isDeviceNotFoundError(error)) {
+      const deviceError = new Error("Device UID not found");
+      deviceError.status = 424;
+      deviceError.expose = true;
+      deviceError.code = "XDM_DEVICE_NOT_FOUND";
+      deviceError.details = {
+        correlationId,
+        deviceUid: normalizedDeviceUid,
+      };
+      throw deviceError;
+    }
+    throw wrapXdmError(error, {
+      step: "applyOverrides",
+      correlationId,
+      payloadSample: {
+        deviceUid: normalizedDeviceUid,
+        overrideId: overrideConfig.overrideId,
+        groupId: normalizedGeozoneGroupId,
+      },
+    });
+  }
 }
 
 function logStep(deploymentId, step, meta = {}) {
@@ -205,12 +177,10 @@ async function processDeployment(deploymentId) {
       logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", xdmGeozoneGroupId });
     }
 
-    const configId = deployment.configId ? Number(deployment.configId) : await resolveConfigId({ deviceUid, correlationId });
     const requestHash = buildRequestHash({
       itineraryId: itinerary.id,
       vehicleId: vehicle.id,
       groupHash,
-      configId,
     });
 
     updateDeployment(deploymentId, { requestHash });
@@ -235,31 +205,19 @@ async function processDeployment(deploymentId) {
     }
 
     const updateStart = Date.now();
-    logStep(deploymentId, "UPDATE_CONFIG", { status: "started", configId });
+    logStep(deploymentId, "APPLY_OVERRIDES", { status: "started" });
     await applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId });
-    logStep(deploymentId, "UPDATE_CONFIG", {
+    logStep(deploymentId, "APPLY_OVERRIDES", {
       status: "ok",
-      configId,
       durationMs: Date.now() - updateStart,
     });
 
-    const deployStart = Date.now();
-    logStep(deploymentId, "DEPLOY", { status: "started" });
-    const rollout = await createRollout({ deviceUid, configId, correlationId });
-
     updateDeployment(deploymentId, {
-      status: "DEPLOYING",
-      xdmDeploymentId: rollout?.rolloutId || null,
-      configId,
+      status: "DEPLOYED",
+      finishedAt: new Date().toISOString(),
     });
     logStep(deploymentId, "STATUS_UPDATE", {
-      status: "DEPLOYING",
-      rolloutId: rollout?.rolloutId || null,
-    });
-    logStep(deploymentId, "DEPLOY", {
-      status: "ok",
-      rolloutId: rollout?.rolloutId || null,
-      durationMs: Date.now() - deployStart,
+      status: "DEPLOYED",
     });
   } catch (error) {
     updateDeployment(deploymentId, {
@@ -290,19 +248,13 @@ export function queueDeployment({
   }
 
   const latest = findLatestDeploymentByPair({ itineraryId, vehicleId, clientId });
-  const configuredId = Number.isFinite(Number(configId))
-    ? Number(configId)
-    : process.env.XDM_CONFIG_ID
-      ? Number(process.env.XDM_CONFIG_ID)
-      : null;
   const knownGroupHash = groupHash || getGeozoneGroupMapping({ itineraryId, clientId })?.groupHash || null;
 
-  if (latest?.status === "DEPLOYED" && latest?.requestHash && Number.isFinite(configuredId) && knownGroupHash) {
+  if (latest?.status === "DEPLOYED" && latest?.requestHash && knownGroupHash) {
     const expectedHash = buildRequestHash({
       itineraryId,
       vehicleId,
       groupHash: knownGroupHash,
-      configId: configuredId,
     });
     if (expectedHash === latest.requestHash) {
       return { deployment: latest, status: "ALREADY_DEPLOYED" };
@@ -367,7 +319,7 @@ export async function embarkItinerary({
       : geofenceIds.length
         ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
         : new Map();
-  const { xdmGeozoneGroupId, groupHash } = await syncGeozoneGroup(itinerary.id, {
+  const { xdmGeozoneGroupId, groupHash } = await ensureGeozoneGroup(itinerary.id, {
     clientId: itinerary.clientId,
     correlationId,
     geofencesById: resolvedGeofencesById,

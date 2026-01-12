@@ -56,10 +56,22 @@ function resolveRequestIp(req) {
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
 }
 
+function withSyncStatus(itinerary) {
+  const syncStatus =
+    itinerary?.xdmSyncStatus ||
+    (itinerary?.xdmGeozoneGroupId != null ? "OK" : "PENDING");
+  return {
+    ...itinerary,
+    syncStatus,
+    lastSyncError: itinerary?.xdmLastSyncError || null,
+  };
+}
+
 router.get("/itineraries", async (req, res, next) => {
   try {
     const targetClientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
-    const itineraries = listItineraries(targetClientId ? { clientId: targetClientId } : {});
+    const itineraries = listItineraries(targetClientId ? { clientId: targetClientId } : {})
+      .map(withSyncStatus);
     return res.json({ data: itineraries, error: null });
   } catch (error) {
     return next(error);
@@ -73,7 +85,7 @@ router.get("/itineraries/:id", async (req, res, next) => {
       throw createError(404, "Itinerário não encontrado");
     }
     ensureSameClient(req.user, itinerary.clientId);
-    return res.json({ data: itinerary, error: null });
+    return res.json({ data: withSyncStatus(itinerary), error: null });
   } catch (error) {
     return next(error);
   }
@@ -83,11 +95,20 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
     const itinerary = createItinerary({ ...req.body, clientId });
-    const synced = await syncItineraryXdm(itinerary.id, {
-      clientId,
-      correlationId: req.headers["x-correlation-id"] || null,
-    });
-    return res.status(201).json({ data: synced.itinerary, error: null });
+    try {
+      const synced = await syncItineraryXdm(itinerary.id, {
+        clientId,
+        correlationId: req.headers["x-correlation-id"] || null,
+      });
+      return res.status(201).json({ data: withSyncStatus(synced.itinerary), error: null });
+    } catch (error) {
+      updateItinerary(itinerary.id, {
+        xdmSyncStatus: "ERROR",
+        xdmLastSyncError: error?.message || "Falha ao sincronizar no XDM",
+        xdmLastSyncedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
   } catch (error) {
     return next(error);
   }
@@ -103,10 +124,20 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
     ensureSameClient(req.user, clientId);
     const updated = updateItinerary(req.params.id, { ...req.body, clientId: existing.clientId });
 
-    const synced = await syncItineraryXdm(updated.id, {
-      clientId,
-      correlationId: req.headers["x-correlation-id"] || null,
-    });
+    let synced;
+    try {
+      synced = await syncItineraryXdm(updated.id, {
+        clientId,
+        correlationId: req.headers["x-correlation-id"] || null,
+      });
+    } catch (error) {
+      updateItinerary(updated.id, {
+        xdmSyncStatus: "ERROR",
+        xdmLastSyncError: error?.message || "Falha ao sincronizar no XDM",
+        xdmLastSyncedAt: new Date().toISOString(),
+      });
+      throw error;
+    }
 
     const removedItems = diffRemovedItems(existing.items || [], synced.itinerary.items || []);
     await Promise.all(
@@ -155,7 +186,7 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
       });
     });
 
-    return res.json({ data: synced.itinerary, error: null });
+    return res.json({ data: withSyncStatus(synced.itinerary), error: null });
   } catch (error) {
     return next(error);
   }

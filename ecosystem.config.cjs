@@ -6,6 +6,7 @@ module.exports = {
       script: "index.js",
       interpreter: "node",
       time: true,
+      env_file: "/home/ubuntu/euro-one/server/.env",
       env: {
         NODE_ENV: "production",
       },
