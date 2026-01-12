@@ -161,9 +161,14 @@ test("syncGeofence gera nome determinístico e envia FormData", async () => {
         type: "polygon",
         points: buildPoints(10),
       };
-      await syncGeofence(geofence.id, { clientId: geofence.clientId, geofence, itineraryId: "it-1" });
+      await syncGeofence(geofence.id, {
+        clientId: geofence.clientId,
+        clientDisplayName: "Cliente 1",
+        geofence,
+        itineraryId: "it-1",
+      });
       const mapping = getGeofenceMapping({ geofenceId: geofence.id, clientId: geofence.clientId });
-      assert.equal(mapping.name, "EUROONE_client_1_it_1_polygon_Geofence_Grande");
+      assert.equal(mapping.name, "Cliente 1 - Geofence Grande");
       assert.match(importContentType || "", /multipart\/form-data/);
     },
   );

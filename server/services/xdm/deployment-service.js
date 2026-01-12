@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getVehicleById, updateVehicle } from "../../models/vehicle.js";
 import { getItineraryById } from "../../models/itinerary.js";
 import { listGeofences } from "../../models/geofence.js";
+import { getClientById } from "../../models/client.js";
 import {
   appendDeploymentLog,
   createDeployment,
@@ -18,10 +19,25 @@ import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-
 import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
+import { fallbackClientDisplayName } from "./xdm-name-utils.js";
 
 function buildRequestHash({ itineraryId, vehicleId, groupHash }) {
   const payload = `${itineraryId}|${vehicleId}|${groupHash}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
+}
+
+async function resolveClientDisplayName(clientId) {
+  if (!clientId) return fallbackClientDisplayName(clientId);
+  try {
+    const client = await getClientById(clientId);
+    return client?.name || fallbackClientDisplayName(clientId);
+  } catch (error) {
+    console.warn("[xdm] falha ao carregar cliente para nome amigável", {
+      clientId,
+      message: error?.message || error,
+    });
+    return fallbackClientDisplayName(clientId);
+  }
 }
 
 function persistVehicleDeviceUid(vehicle, deviceUid) {
@@ -121,6 +137,7 @@ async function processDeployment(deploymentId) {
 
   const vehicle = getVehicleById(deployment.vehicleId);
   const itinerary = getItineraryById(deployment.itineraryId);
+  const clientDisplayName = await resolveClientDisplayName(deployment.clientId);
 
   if (!vehicle || !itinerary) {
     updateDeployment(deploymentId, {
@@ -159,6 +176,7 @@ async function processDeployment(deploymentId) {
       logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
       const synced = await syncGeozoneGroup(itinerary.id, {
         clientId: deployment.clientId,
+        clientDisplayName,
         correlationId,
       });
       xdmGeozoneGroupId = synced.xdmGeozoneGroupId;
@@ -297,6 +315,9 @@ export async function embarkItinerary({
     throw new Error("Itinerário não pertence ao cliente");
   }
 
+  const resolvedClientId = clientId || itinerary.clientId;
+  const clientDisplayName = await resolveClientDisplayName(resolvedClientId);
+
   const geofenceIds = (itinerary.items || [])
     .filter((item) => item.type === "geofence" || item.type === "target")
     .map((item) => item.id);
@@ -317,6 +338,7 @@ export async function embarkItinerary({
         : new Map();
   const { xdmGeozoneGroupId, groupHash } = await ensureGeozoneGroup(itinerary.id, {
     clientId: itinerary.clientId,
+    clientDisplayName,
     correlationId,
     geofencesById: resolvedGeofencesById,
   });

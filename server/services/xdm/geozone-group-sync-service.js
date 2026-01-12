@@ -17,6 +17,7 @@ import { syncRouteGeozone } from "./route-geozone-sync-service.js";
 import { normalizeGeozoneGroupIdResponse, normalizeXdmId } from "./xdm-utils.js";
 import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
 import { buildItineraryKml } from "../../utils/kml.js";
+import { buildFriendlyName, resolveClientDisplayName, resolveXdmNameConfig, sanitizeFriendlyName } from "./xdm-name-utils.js";
 
 const HASH_VERSION = "v1";
 
@@ -26,7 +27,16 @@ function sanitizeName(value) {
   return trimmed.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function buildGroupName({ clientId, itineraryId, itineraryName }) {
+function buildGroupName({ clientId, clientDisplayName, itineraryId, itineraryName }) {
+  const { friendlyNamesEnabled, maxNameLength } = resolveXdmNameConfig();
+  if (friendlyNamesEnabled) {
+    const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
+    const fallbackItinerary =
+      itineraryId != null ? `Itinerário ${String(itineraryId).slice(0, 8)}` : "Itinerário";
+    const resolvedItinerary = sanitizeFriendlyName(itineraryName) || fallbackItinerary;
+    const friendly = buildFriendlyName([resolvedClient, resolvedItinerary], { maxLen: maxNameLength });
+    if (friendly) return friendly;
+  }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const safeItineraryId = sanitizeName(itineraryId) || "ITINERARY";
   const safeItinerary = sanitizeName(itineraryName) || "ITINERARIO";
@@ -53,7 +63,42 @@ function getDealerId() {
   return dealerId;
 }
 
-async function findGeozoneGroupByName({ name, correlationId, xdmClient }) {
+function notesContainValue(notes, key, value) {
+  if (!notes || value == null) return false;
+  const escaped = String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`${key}\\s*=\\s*${escaped}\\b`, "i");
+  return regex.test(String(notes));
+}
+
+function normalizeNameValue(name) {
+  return String(name || "").trim().toLowerCase();
+}
+
+export function selectGeozoneGroupMatch({ results = [], name, itineraryId, clientId } = {}) {
+  const normalizedName = normalizeNameValue(name);
+  const matches = results.filter((item) => normalizeNameValue(item?.name) === normalizedName);
+  if (!matches.length) return null;
+  if (matches.length === 1) return matches[0];
+
+  let scopedMatches = matches;
+  if (itineraryId) {
+    const byItinerary = matches.filter((item) => notesContainValue(item?.notes, "itineraryId", itineraryId));
+    if (byItinerary.length) {
+      scopedMatches = byItinerary;
+    }
+  }
+
+  if (clientId) {
+    const byClient = scopedMatches.filter((item) => notesContainValue(item?.notes, "clientId", clientId));
+    if (byClient.length) {
+      return byClient[0];
+    }
+  }
+
+  return scopedMatches[0];
+}
+
+async function findGeozoneGroupByName({ name, itineraryId, clientId, correlationId, xdmClient }) {
   if (!name) return null;
   const encodedName = encodeURIComponent(name);
   const response = await xdmClient.request(
@@ -64,8 +109,21 @@ async function findGeozoneGroupByName({ name, correlationId, xdmClient }) {
   );
 
   const results = Array.isArray(response?.results) ? response.results : Array.isArray(response) ? response : [];
-  const normalizedName = String(name).trim().toLowerCase();
-  const match = results.find((item) => String(item?.name || "").trim().toLowerCase() === normalizedName);
+  const match = selectGeozoneGroupMatch({ results, name, itineraryId, clientId });
+  if (match && results.length > 1 && (itineraryId || clientId)) {
+    const itineraryMatch = itineraryId ? notesContainValue(match?.notes, "itineraryId", itineraryId) : true;
+    const clientMatch = clientId ? notesContainValue(match?.notes, "clientId", clientId) : true;
+    if (!itineraryMatch || !clientMatch) {
+      console.warn("[xdm] fallback ao primeiro geozone group com mesmo nome", {
+        correlationId,
+        name,
+        itineraryId,
+        clientId,
+        selectedId: match?.id,
+        total: results.length,
+      });
+    }
+  }
   if (!match?.id) return null;
   return normalizeXdmId(match.id, { context: "discover geozonegroup" });
 }
@@ -73,6 +131,8 @@ async function findGeozoneGroupByName({ name, correlationId, xdmClient }) {
 async function resolveGeozoneGroupId({
   created,
   groupName,
+  itineraryId,
+  clientId,
   correlationId,
   xdmClient,
   payloadSample,
@@ -81,7 +141,13 @@ async function resolveGeozoneGroupId({
     return normalizeGeozoneGroupIdResponse(created, { context: "create geozonegroup" });
   } catch (error) {
     try {
-      const discovered = await findGeozoneGroupByName({ name: groupName, correlationId, xdmClient });
+      const discovered = await findGeozoneGroupByName({
+        name: groupName,
+        itineraryId,
+        clientId,
+        correlationId,
+        xdmClient,
+      });
       if (discovered) return discovered;
     } catch (lookupError) {
       throw wrapXdmError(lookupError, {
@@ -185,7 +251,10 @@ async function importGeozonesToGroup({
   }
 }
 
-export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {
+export async function syncGeozoneGroup(
+  itineraryId,
+  { clientId, clientDisplayName = null, correlationId, geofencesById } = {},
+) {
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
     throw new Error("Itinerário não encontrado");
@@ -239,9 +308,11 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
 
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId: itinerary.clientId,
+      clientDisplayName,
       correlationId,
       geofence: geofenceRecord,
       itineraryId: itinerary.id,
+      itineraryName: itinerary.name,
     });
     xdmGeozoneIds.push(xdmGeofenceId);
 
@@ -293,10 +364,11 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   const itineraryName = itinerary.name || `Itinerário ${itinerary.id}`;
   const groupName = buildGroupName({
     clientId: itinerary.clientId,
+    clientDisplayName,
     itineraryId: itinerary.id,
     itineraryName,
   });
-  const notes = `itineraryId=${itinerary.id}, hash=${groupHash}`;
+  const notes = `itineraryId=${itinerary.id}, clientId=${itinerary.clientId}, hash=${groupHash}`;
 
   let xdmGeozoneGroupId = mappedId || null;
 
@@ -325,6 +397,8 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
     xdmGeozoneGroupId = await resolveGeozoneGroupId({
       created,
       groupName,
+      itineraryId: itinerary.id,
+      clientId: itinerary.clientId,
       correlationId,
       xdmClient,
       payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, groupName },
@@ -486,6 +560,7 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
 
 export async function syncGeozoneGroupForGeofences({
   clientId,
+  clientDisplayName = null,
   geofenceIds = [],
   groupName,
   scopeKey,
@@ -520,6 +595,7 @@ export async function syncGeozoneGroupForGeofences({
 
     const xdmGeofenceId = await syncGeofence(geofenceId, {
       clientId,
+      clientDisplayName,
       correlationId,
       geofence: geofenceRecord,
     });
@@ -570,7 +646,7 @@ export async function syncGeozoneGroupForGeofences({
 
   const xdmClient = new XdmClient();
   const dealerId = getDealerId();
-  const notes = `scope=${resolvedScopeId}, hash=${groupHash}`;
+  const notes = `scope=${resolvedScopeId}, clientId=${clientId}, hash=${groupHash}`;
 
   let xdmGeozoneGroupId = mappedId || null;
 
@@ -599,6 +675,7 @@ export async function syncGeozoneGroupForGeofences({
     xdmGeozoneGroupId = await resolveGeozoneGroupId({
       created,
       groupName: resolvedName,
+      clientId,
       correlationId,
       xdmClient,
       payloadSample: { scopeKey: mappingKey, clientId, groupName: resolvedName },
@@ -740,7 +817,10 @@ export async function syncGeozoneGroupForGeofences({
   return { xdmGeozoneGroupId, groupHash, groupName: resolvedName, warnings };
 }
 
-export async function ensureGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {
+export async function ensureGeozoneGroup(
+  itineraryId,
+  { clientId, clientDisplayName = null, correlationId, geofencesById } = {},
+) {
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
     throw new Error("Itinerário não encontrado");
@@ -763,7 +843,12 @@ export async function ensureGeozoneGroup(itineraryId, { clientId, correlationId,
     return { xdmGeozoneGroupId: normalized, groupHash: mapping.groupHash || null };
   }
 
-  return syncGeozoneGroup(itinerary.id, { clientId: itinerary.clientId, correlationId, geofencesById });
+  return syncGeozoneGroup(itinerary.id, {
+    clientId: itinerary.clientId,
+    clientDisplayName,
+    correlationId,
+    geofencesById,
+  });
 }
 
 export default {

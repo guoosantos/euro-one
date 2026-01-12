@@ -10,8 +10,10 @@ import {
   getRouteGeozoneMapping,
   removeRouteGeozoneMapping,
 } from "../../models/xdm-route-geozone.js";
+import { getClientById } from "../../models/client.js";
 import { normalizeXdmId } from "./xdm-utils.js";
 import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
+import { fallbackClientDisplayName } from "./xdm-name-utils.js";
 
 function buildItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -81,6 +83,20 @@ function markItineraryWarning({ itineraryId, message }) {
   });
 }
 
+async function resolveClientDisplayName(clientId) {
+  if (!clientId) return fallbackClientDisplayName(clientId);
+  try {
+    const client = await getClientById(clientId);
+    return client?.name || fallbackClientDisplayName(clientId);
+  } catch (error) {
+    console.warn("[xdm] falha ao carregar cliente para nome amigável", {
+      clientId,
+      message: error?.message || error,
+    });
+    return fallbackClientDisplayName(clientId);
+  }
+}
+
 export async function cleanupGeozoneForItem({ item, clientId, correlationId, excludeItineraryId, itineraryId }) {
   if (!item) return;
   if (isItemUsedElsewhere({ item, clientId, excludeItineraryId })) {
@@ -108,7 +124,13 @@ export async function cleanupGeozoneForItem({ item, clientId, correlationId, exc
 }
 
 export async function syncItineraryXdm(itineraryId, { clientId, correlationId, geofencesById } = {}) {
-  const syncResult = await syncGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById });
+  const clientDisplayName = await resolveClientDisplayName(clientId);
+  const syncResult = await syncGeozoneGroup(itineraryId, {
+    clientId,
+    clientDisplayName,
+    correlationId,
+    geofencesById,
+  });
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
     throw new Error("Itinerário não encontrado para persistir mapeamento XDM");
