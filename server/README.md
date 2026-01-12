@@ -47,6 +47,8 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
   - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
   - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: **obrigatório**. ID numérico (int32) do override que aponta para o Geozone Group (ex.: `1234`).
+    - O `overrideId` representa o campo/configuração na base do XDM e costuma ser o mesmo para todos os devices da mesma config.
+    - O `geozoneGroupId` é o valor aplicado no override (ID do grupo no XDM) e varia conforme o itinerário.
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`; o valor **precisa** ser numérico.
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
@@ -86,7 +88,7 @@ A API ficará disponível em `http://localhost:3001` (ou porta configurada) e se
 
 ## Execução em produção com PM2
 
-1. Edite `ecosystem.config.cjs` e preencha **todas** as variáveis necessárias (incluindo `XDM_*` e `GEOCODE_REDIS_URL`).
+1. Mantenha o `ecosystem.config.cjs` mínimo (sem secrets). As credenciais e variáveis `XDM_*`, `JWT_*`, `TRACCAR_*` devem ficar em `server/.env`.
 2. Inicie o backend com PM2:
 
    ```bash

@@ -4,6 +4,7 @@ import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
 import {
   ensureGeozoneGroupOverrideId,
+  buildOverridesDto,
   normalizeXdmDeviceUid,
   normalizeXdmId,
 } from "./xdm-utils.js";
@@ -56,9 +57,9 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
     "PUT",
     `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
     {
-      overrides: {
+      overrides: buildOverridesDto({
         [overrideConfig.overrideId]: normalizedGeozoneGroupId,
-      },
+      }),
     },
     { correlationId },
   );
