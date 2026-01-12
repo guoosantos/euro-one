@@ -10,6 +10,7 @@ let groupCreateCalls = 0;
 let rolloutCalls = 0;
 let overrideCalls = 0;
 let lastGroupPayload = null;
+let overridePayloads = [];
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -80,8 +81,15 @@ function createMockServer() {
       }
 
       if (/^\/api\/external\/v3\/settingsOverrides\//.test(req.url) && req.method === "PUT") {
-        overrideCalls += 1;
-        sendJson(res, {});
+        let body = "";
+        req.on("data", (chunk) => {
+          body += chunk;
+        });
+        req.on("end", () => {
+          overrideCalls += 1;
+          overridePayloads.push(body ? JSON.parse(body) : null);
+          sendJson(res, {});
+        });
         return;
       }
 
@@ -125,7 +133,7 @@ await initStorage();
 const { normalizePolygon, buildGeometryHash, syncGeofence } = await import(
   "../services/xdm/geofence-sync-service.js"
 );
-const { syncGeozoneGroup, syncGeozoneGroupForGeofences } = await import(
+const { syncGeozoneGroup, syncGeozoneGroupForGeofences, ensureGeozoneGroup } = await import(
   "../services/xdm/geozone-group-sync-service.js",
 );
 const { createItinerary } = await import("../models/itinerary.js");
@@ -268,9 +276,10 @@ test("buildVehicleRecordFromPrisma preenche deviceImei com uniqueId do device", 
   assert.equal(record.deviceImei, "imei-from-device");
 });
 
-test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
+test("embark múltiplos veículos aplica overrides por deviceUid", async () => {
   rolloutCalls = 0;
   overrideCalls = 0;
+  overridePayloads = [];
 
   const itinerary = createItinerary({
     clientId: geofenceFixture.clientId,
@@ -313,10 +322,11 @@ test("embark múltiplos veículos cria rollouts por deviceUid", async () => {
   const deploymentB = getDeploymentById(response.vehicles[1].deploymentId);
   assert.match(deploymentB.deviceImei, /imei-2-/);
 
-  await waitFor(() => overrideCalls === 2 && rolloutCalls === 2);
+  await waitFor(() => overrideCalls === 2);
 
   assert.equal(overrideCalls, 2);
-  assert.equal(rolloutCalls, 2);
+  assert.equal(rolloutCalls, 0);
+  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: 555 } });
 });
 
 test("embark falha para veículo sem IMEI/deviceUid", async () => {
@@ -344,4 +354,27 @@ test("embark falha para veículo sem IMEI/deviceUid", async () => {
 
   assert.equal(response.vehicles[0].status, "failed");
   assert.match(response.vehicles[0].message, /IMEI/i);
+});
+
+test("ensureGeozoneGroup reutiliza mapeamento salvo", async () => {
+  groupCreateCalls = 0;
+  clearGeofenceMappings();
+  clearGeozoneGroupMappings();
+
+  const itinerary = createItinerary({
+    clientId: geofenceFixture.clientId,
+    name: "Itinerário Persistente",
+    items: [{ type: "geofence", id: geofenceFixture.id }],
+  });
+
+  const first = await ensureGeozoneGroup(itinerary.id, {
+    clientId: geofenceFixture.clientId,
+    geofencesById: new Map([[geofenceFixture.id, geofenceFixture]]),
+  });
+
+  const second = await ensureGeozoneGroup(itinerary.id, { clientId: geofenceFixture.clientId });
+
+  assert.equal(first.xdmGeozoneGroupId, 555);
+  assert.equal(second.xdmGeozoneGroupId, 555);
+  assert.equal(groupCreateCalls, 1);
 });

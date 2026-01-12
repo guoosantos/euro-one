@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import { getItineraryById } from "../../models/itinerary.js";
+import { getItineraryById, updateItinerary } from "../../models/itinerary.js";
 import { getGeofenceById } from "../../models/geofence.js";
 import { getGeofenceMapping } from "../../models/xdm-geofence.js";
 import {
@@ -13,6 +13,7 @@ import XdmClient from "./xdm-client.js";
 import { syncGeofence, normalizePolygon, buildGeometryHash } from "./geofence-sync-service.js";
 import { syncRouteGeozone } from "./route-geozone-sync-service.js";
 import { normalizeXdmId } from "./xdm-utils.js";
+import { wrapXdmError } from "./xdm-error.js";
 
 const HASH_VERSION = "v1";
 
@@ -47,6 +48,59 @@ function getDealerId() {
     throw new Error("XDM_DEALER_ID é obrigatório para criar grupos de GEOFENCES");
   }
   return dealerId;
+}
+
+async function findGeozoneGroupByName({ name, correlationId, xdmClient }) {
+  if (!name) return null;
+  const encodedName = encodeURIComponent(name);
+  const response = await xdmClient.request(
+    "GET",
+    `/api/external/v1/geozonegroups/filter?Name=${encodedName}&FirstRecord=0&ItemsPerPage=25`,
+    null,
+    { correlationId },
+  );
+
+  const results = Array.isArray(response?.results) ? response.results : Array.isArray(response) ? response : [];
+  const normalizedName = String(name).trim().toLowerCase();
+  const match = results.find((item) => String(item?.name || "").trim().toLowerCase() === normalizedName);
+  if (!match?.id) return null;
+  return normalizeXdmId(match.id, { context: "discover geozonegroup" });
+}
+
+async function resolveGeozoneGroupId({
+  created,
+  groupName,
+  correlationId,
+  xdmClient,
+  payloadSample,
+} = {}) {
+  try {
+    return normalizeXdmId(created, { context: "create geozonegroup" });
+  } catch (error) {
+    try {
+      const discovered = await findGeozoneGroupByName({ name: groupName, correlationId, xdmClient });
+      if (discovered) return discovered;
+    } catch (lookupError) {
+      throw wrapXdmError(lookupError, {
+        step: "discoverGroup",
+        correlationId,
+        payloadSample,
+      });
+    }
+    throw wrapXdmError(error, {
+      step: "createGroup",
+      correlationId,
+      payloadSample,
+    });
+  }
+}
+
+function persistItineraryGroupId({ itineraryId, xdmGeozoneGroupId }) {
+  if (!itineraryId || !xdmGeozoneGroupId) return;
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) return;
+  if (itinerary.xdmGeozoneGroupId === xdmGeozoneGroupId) return;
+  updateItinerary(itineraryId, { xdmGeozoneGroupId });
 }
 
 export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {
@@ -157,34 +211,71 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   let xdmGeozoneGroupId = mappedId || null;
 
   if (!xdmGeozoneGroupId) {
-    const created = await xdmClient.request(
-      "POST",
-      "/api/external/v1/geozonegroups",
-      {
-        name: groupName,
-        dealerId,
-        notes,
-      },
-      {
+    let created;
+    try {
+      created = await xdmClient.request(
+        "POST",
+        "/api/external/v1/geozonegroups",
+        {
+          name: groupName,
+          dealerId,
+          notes,
+        },
+        {
+          correlationId,
+        },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "createGroup",
         correlationId,
-      },
-    );
-    xdmGeozoneGroupId = normalizeXdmId(created, { context: "create geozonegroup" });
+        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, groupName },
+      });
+    }
+    xdmGeozoneGroupId = await resolveGeozoneGroupId({
+      created,
+      groupName,
+      correlationId,
+      xdmClient,
+      payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, groupName },
+    });
   } else {
     xdmGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "update geozonegroup" });
-    await xdmClient.request("PUT", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, {
-      id: Number(xdmGeozoneGroupId),
-      name: groupName,
-      dealerId,
-      notes,
-    }, {
-      correlationId,
-    });
+    try {
+      await xdmClient.request(
+        "PUT",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`,
+        {
+          id: Number(xdmGeozoneGroupId),
+          name: groupName,
+          dealerId,
+          notes,
+        },
+        {
+          correlationId,
+        },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "updateGroup",
+        correlationId,
+        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, groupName, xdmGeozoneGroupId },
+      });
+    }
   }
 
-  const groupInfo = await xdmClient.request("GET", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, null, {
-    correlationId,
-  });
+  let groupInfo;
+  try {
+    groupInfo = await xdmClient.request("GET", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, null, {
+      correlationId,
+    });
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "loadGroup",
+      correlationId,
+      payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId },
+    });
+  }
   const existingIds = Array.isArray(groupInfo?.geozoneIds) ? groupInfo.geozoneIds.map((id) => Number(id)) : [];
   const desiredIds = Array.from(new Set(xdmGeozoneIds.map((id) => Number(id))));
 
@@ -192,20 +283,36 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
   const toAdd = desiredIds.filter((id) => !existingIds.includes(id));
 
   if (toRemove.length) {
-    await xdmClient.request(
-      "DELETE",
-      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
-      { geozoneIds: toRemove },
-      { correlationId },
-    );
+    try {
+      await xdmClient.request(
+        "DELETE",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        { geozoneIds: toRemove },
+        { correlationId },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "removeGeozones",
+        correlationId,
+        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toRemove },
+      });
+    }
   }
   if (toAdd.length) {
-    await xdmClient.request(
-      "POST",
-      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
-      { geozoneIds: toAdd },
-      { correlationId },
-    );
+    try {
+      await xdmClient.request(
+        "POST",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        { geozoneIds: toAdd },
+        { correlationId },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "addGeozones",
+        correlationId,
+        payloadSample: { itineraryId: itinerary.id, clientId: itinerary.clientId, xdmGeozoneGroupId, toAdd },
+      });
+    }
   }
 
   upsertGeozoneGroupMapping({
@@ -214,6 +321,7 @@ export async function syncGeozoneGroup(itineraryId, { clientId, correlationId, g
     groupHash,
     xdmGeozoneGroupId,
   });
+  persistItineraryGroupId({ itineraryId: itinerary.id, xdmGeozoneGroupId });
 
   return { xdmGeozoneGroupId, groupHash, itemMappings };
 }
@@ -306,34 +414,71 @@ export async function syncGeozoneGroupForGeofences({
   let xdmGeozoneGroupId = mappedId || null;
 
   if (!xdmGeozoneGroupId) {
-    const created = await xdmClient.request(
-      "POST",
-      "/api/external/v1/geozonegroups",
-      {
-        name: resolvedName,
-        dealerId,
-        notes,
-      },
-      {
+    let created;
+    try {
+      created = await xdmClient.request(
+        "POST",
+        "/api/external/v1/geozonegroups",
+        {
+          name: resolvedName,
+          dealerId,
+          notes,
+        },
+        {
+          correlationId,
+        },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "createGroup",
         correlationId,
-      },
-    );
-    xdmGeozoneGroupId = normalizeXdmId(created, { context: "create geozonegroup" });
+        payloadSample: { scopeKey: mappingKey, clientId, groupName: resolvedName },
+      });
+    }
+    xdmGeozoneGroupId = await resolveGeozoneGroupId({
+      created,
+      groupName: resolvedName,
+      correlationId,
+      xdmClient,
+      payloadSample: { scopeKey: mappingKey, clientId, groupName: resolvedName },
+    });
   } else {
     xdmGeozoneGroupId = normalizeXdmId(xdmGeozoneGroupId, { context: "update geozonegroup scope" });
-    await xdmClient.request("PUT", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, {
-      id: Number(xdmGeozoneGroupId),
-      name: resolvedName,
-      dealerId,
-      notes,
-    }, {
-      correlationId,
-    });
+    try {
+      await xdmClient.request(
+        "PUT",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`,
+        {
+          id: Number(xdmGeozoneGroupId),
+          name: resolvedName,
+          dealerId,
+          notes,
+        },
+        {
+          correlationId,
+        },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "updateGroup",
+        correlationId,
+        payloadSample: { scopeKey: mappingKey, clientId, groupName: resolvedName, xdmGeozoneGroupId },
+      });
+    }
   }
 
-  const groupInfo = await xdmClient.request("GET", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, null, {
-    correlationId,
-  });
+  let groupInfo;
+  try {
+    groupInfo = await xdmClient.request("GET", `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}`, null, {
+      correlationId,
+    });
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "loadGroup",
+      correlationId,
+      payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId },
+    });
+  }
   const existingIds = Array.isArray(groupInfo?.geozoneIds) ? groupInfo.geozoneIds.map((id) => Number(id)) : [];
   const desiredIds = Array.from(new Set(xdmGeozoneIds.map((id) => Number(id))));
 
@@ -341,20 +486,36 @@ export async function syncGeozoneGroupForGeofences({
   const toAdd = desiredIds.filter((id) => !existingIds.includes(id));
 
   if (toRemove.length) {
-    await xdmClient.request(
-      "DELETE",
-      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
-      { geozoneIds: toRemove },
-      { correlationId },
-    );
+    try {
+      await xdmClient.request(
+        "DELETE",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        { geozoneIds: toRemove },
+        { correlationId },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "removeGeozones",
+        correlationId,
+        payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toRemove },
+      });
+    }
   }
   if (toAdd.length) {
-    await xdmClient.request(
-      "POST",
-      `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
-      { geozoneIds: toAdd },
-      { correlationId },
-    );
+    try {
+      await xdmClient.request(
+        "POST",
+        `/api/external/v1/geozonegroups/${xdmGeozoneGroupId}/geozones`,
+        { geozoneIds: toAdd },
+        { correlationId },
+      );
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "addGeozones",
+        correlationId,
+        payloadSample: { scopeKey: mappingKey, clientId, xdmGeozoneGroupId, toAdd },
+      });
+    }
   }
 
   upsertGeozoneGroupMappingByScope({
@@ -368,7 +529,34 @@ export async function syncGeozoneGroupForGeofences({
   return { xdmGeozoneGroupId, groupHash, groupName: resolvedName };
 }
 
+export async function ensureGeozoneGroup(itineraryId, { clientId, correlationId, geofencesById } = {}) {
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) {
+    throw new Error("Itinerário não encontrado");
+  }
+  if (clientId && String(itinerary.clientId) !== String(clientId)) {
+    throw new Error("Itinerário não pertence ao cliente");
+  }
+
+  if (itinerary.xdmGeozoneGroupId != null) {
+    return {
+      xdmGeozoneGroupId: normalizeXdmId(itinerary.xdmGeozoneGroupId, { context: "itinerary geozonegroup" }),
+      groupHash: getGeozoneGroupMapping({ itineraryId, clientId: itinerary.clientId })?.groupHash || null,
+    };
+  }
+
+  const mapping = getGeozoneGroupMapping({ itineraryId, clientId: itinerary.clientId });
+  if (mapping?.xdmGeozoneGroupId != null) {
+    const normalized = normalizeXdmId(mapping.xdmGeozoneGroupId, { context: "mapping geozonegroup" });
+    persistItineraryGroupId({ itineraryId: itinerary.id, xdmGeozoneGroupId: normalized });
+    return { xdmGeozoneGroupId: normalized, groupHash: mapping.groupHash || null };
+  }
+
+  return syncGeozoneGroup(itinerary.id, { clientId: itinerary.clientId, correlationId, geofencesById });
+}
+
 export default {
   syncGeozoneGroup,
   syncGeozoneGroupForGeofences,
+  ensureGeozoneGroup,
 };

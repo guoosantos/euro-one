@@ -11,6 +11,7 @@ import {
   removeRouteGeozoneMapping,
 } from "../../models/xdm-route-geozone.js";
 import { normalizeXdmId } from "./xdm-utils.js";
+import { wrapXdmError } from "./xdm-error.js";
 
 function buildItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -45,7 +46,15 @@ async function deleteGeozone({ xdmGeozoneId, correlationId }) {
   if (!xdmGeozoneId) return;
   const normalized = normalizeXdmId(xdmGeozoneId, { context: "delete geozone" });
   const xdmClient = new XdmClient();
-  await xdmClient.request("DELETE", `/api/external/v1/geozones/${normalized}`, null, { correlationId });
+  try {
+    await xdmClient.request("DELETE", `/api/external/v1/geozones/${normalized}`, null, { correlationId });
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "deleteGeozone",
+      correlationId,
+      payloadSample: { xdmGeozoneId: normalized },
+    });
+  }
 }
 
 export async function cleanupGeozoneForItem({ item, clientId, correlationId, excludeItineraryId }) {
@@ -79,6 +88,9 @@ export async function syncItineraryXdm(itineraryId, { clientId, correlationId, g
   const updated = updateItinerary(itinerary.id, {
     items: mergedItems,
     xdmGeozoneGroupId: syncResult.xdmGeozoneGroupId,
+    xdmSyncStatus: "OK",
+    xdmLastSyncError: null,
+    xdmLastSyncedAt: new Date().toISOString(),
   });
 
   return { itinerary: updated, ...syncResult };
@@ -98,7 +110,15 @@ export async function deleteItineraryGeozoneGroup({ itineraryId, clientId, corre
   try {
     const normalized = normalizeXdmId(xdmGeozoneGroupId, { context: "delete geozone group" });
     const xdmClient = new XdmClient();
-    await xdmClient.request("DELETE", `/api/external/v1/geozonegroups/${normalized}`, null, { correlationId });
+    try {
+      await xdmClient.request("DELETE", `/api/external/v1/geozonegroups/${normalized}`, null, { correlationId });
+    } catch (error) {
+      throw wrapXdmError(error, {
+        step: "deleteGroup",
+        correlationId,
+        payloadSample: { itineraryId, clientId, xdmGeozoneGroupId: normalized },
+      });
+    }
   } finally {
     removeGeozoneGroupMapping({ itineraryId, clientId });
   }

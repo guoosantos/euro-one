@@ -86,6 +86,9 @@ export function createItinerary({ clientId, name, description = "", items = [] }
     description: description || "",
     items: normalizeItems(items),
     xdmGeozoneGroupId: null,
+    xdmSyncStatus: "PENDING",
+    xdmLastSyncError: null,
+    xdmLastSyncedAt: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
@@ -110,6 +113,18 @@ export function updateItinerary(id, updates = {}) {
       Object.prototype.hasOwnProperty.call(updates, "xdmGeozoneGroupId") && updates.xdmGeozoneGroupId !== undefined
         ? updates.xdmGeozoneGroupId
         : existing.xdmGeozoneGroupId ?? null,
+    xdmSyncStatus:
+      Object.prototype.hasOwnProperty.call(updates, "xdmSyncStatus") && updates.xdmSyncStatus !== undefined
+        ? updates.xdmSyncStatus
+        : existing.xdmSyncStatus ?? null,
+    xdmLastSyncError:
+      Object.prototype.hasOwnProperty.call(updates, "xdmLastSyncError") && updates.xdmLastSyncError !== undefined
+        ? updates.xdmLastSyncError
+        : existing.xdmLastSyncError ?? null,
+    xdmLastSyncedAt:
+      Object.prototype.hasOwnProperty.call(updates, "xdmLastSyncedAt") && updates.xdmLastSyncedAt !== undefined
+        ? updates.xdmLastSyncedAt
+        : existing.xdmLastSyncedAt ?? null,
     updatedAt: new Date().toISOString(),
   };
 
