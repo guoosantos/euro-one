@@ -1,6 +1,12 @@
 const DEFAULT_FIELD_CANDIDATES = ["id", "geozoneGroupId", "geozoneId"];
 const DEVICE_UID_FIELD_CANDIDATES = ["deviceUid", "uid", "imei", "deviceImei", "id"];
 const MAX_DEPTH = 6;
+const INT32_MIN = -2147483648;
+const INT32_MAX = 2147483647;
+
+function isInt32(value) {
+  return Number.isInteger(value) && value >= INT32_MIN && value <= INT32_MAX;
+}
 
 function describeType(value) {
   if (value === null) return "null";
@@ -27,6 +33,23 @@ function describeContext(context) {
   return context ? ` (${context})` : "";
 }
 
+function parseInt32(value) {
+  if (value === null || value === undefined) {
+    return { ok: false, value: null, normalized: null };
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return { ok: false, value: null, normalized: null };
+  }
+  if (!/^-?\d+$/.test(trimmed)) {
+    return { ok: false, value: null, normalized: null };
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || !isInt32(parsed)) {
+    return { ok: false, value: null, normalized: null };
+  }
+  return { ok: true, value: parsed, normalized: String(parsed) };
+}
 
 export function normalizeXdmId(
   value,
@@ -155,17 +178,46 @@ export function normalizeXdmDeviceUid(
   return resolve(value, 0);
 }
 
+export function getGeozoneGroupOverrideConfig() {
+  const overrideIdEnv = process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
+  const overrideKeyEnv = process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  const rawValue = overrideIdEnv ?? overrideKeyEnv ?? "geoGroup";
+  const source =
+    overrideIdEnv != null
+      ? "XDM_GEOZONE_GROUP_OVERRIDE_ID"
+      : overrideKeyEnv != null
+        ? "XDM_GEOZONE_GROUP_OVERRIDE_KEY"
+        : "default";
+  const parsed = parseInt32(rawValue);
+  return {
+    rawValue,
+    overrideId: parsed.ok ? parsed.normalized : null,
+    overrideNumber: parsed.ok ? parsed.value : null,
+    source,
+    isValid: parsed.ok,
+  };
+}
+
 export function buildOverridesDto(overrides = {}) {
   return Object.fromEntries(
-    Object.entries(overrides).map(([overrideId, value]) => [
-      overrideId,
-      { value: value == null ? "" : String(value) },
-    ]),
+    Object.entries(overrides).map(([overrideId, value]) => [overrideId, { value }]),
   );
+}
+
+export function ensureGeozoneGroupOverrideId() {
+  const config = getGeozoneGroupOverrideConfig();
+  if (!config.isValid) {
+    throw new Error(
+      "XDM_GEOZONE_GROUP_OVERRIDE_ID deve ser um int32 (ex: 1234). Descubra com: node scripts/xdm-discover-geoGroup-override-id.js <IMEI>",
+    );
+  }
+  return config;
 }
 
 export default {
   normalizeXdmId,
   normalizeXdmDeviceUid,
+  getGeozoneGroupOverrideConfig,
   buildOverridesDto,
+  ensureGeozoneGroupOverrideId,
 };

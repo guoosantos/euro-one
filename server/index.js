@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
-import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
+import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-utils.js";
 import { extractToken } from "./middleware/auth.js";
 
 const logErrorStack = (label, error) => {
@@ -93,7 +93,7 @@ async function bootstrapServer() {
     overrideId: overrideConfig.overrideId,
     overrideIdValid: overrideConfig.isValid,
     overrideSource: overrideConfig.source,
-    overrideKey: overrideConfig.overrideKey,
+    overrideRaw: overrideConfig.rawValue,
   };
   if (overrideConfig.isValid) {
     console.info("[startup] XDM override config", overrideLogPayload);

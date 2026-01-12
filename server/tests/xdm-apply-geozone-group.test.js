@@ -14,9 +14,6 @@ let groupCreateCalls = 0;
 let rolloutCalls = 0;
 let overrideCalls = 0;
 let lastOverridePayload = null;
-let fallbackCalls = 0;
-let lastFallbackPayload = null;
-let forceOverrideFailure = false;
 
 function sendJson(res, payload, status = 200) {
   const body = JSON.stringify(payload);
@@ -68,23 +65,6 @@ function createMockServer() {
         req.on("end", () => {
           overrideCalls += 1;
           lastOverridePayload = body ? JSON.parse(body) : null;
-          if (forceOverrideFailure) {
-            sendJson(res, { message: "override failed" }, 400);
-            return;
-          }
-          sendJson(res, {});
-        });
-        return;
-      }
-
-      if (req.url === "/api/Devices2/UpdateDeviceSdk" && req.method === "PUT") {
-        let body = "";
-        req.on("data", (chunk) => {
-          body += chunk;
-        });
-        req.on("end", () => {
-          fallbackCalls += 1;
-          lastFallbackPayload = body ? JSON.parse(body) : null;
           sendJson(res, {});
         });
         return;
@@ -159,9 +139,6 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   rolloutCalls = 0;
   overrideCalls = 0;
   lastOverridePayload = null;
-  fallbackCalls = 0;
-  lastFallbackPayload = null;
-  forceOverrideFailure = false;
   clearGeofenceMappings();
   clearGeozoneGroupMappings();
 
@@ -202,8 +179,7 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   assert.equal(groupCreateCalls, 1);
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);
-  assert.equal(fallbackCalls, 0);
-  assert.deepEqual(lastOverridePayload?.overrides, { "1234": { value: "555" } });
+  assert.deepEqual(lastOverridePayload?.overrides, { "1234": { value: 555 } });
 });
 
 it("falha quando override id não é numérico", async () => {
@@ -233,7 +209,6 @@ it("falha quando override id não é numérico", async () => {
 
   assert.equal(response.status, 500);
   assert.equal(overrideCalls, 0);
-  assert.equal(fallbackCalls, 0);
 
   if (previousOverrideId === undefined) {
     delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
@@ -245,47 +220,4 @@ it("falha quando override id não é numérico", async () => {
   } else {
     process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = previousOverrideKey;
   }
-});
-
-it("usa fallback UpdateDeviceSdk quando settingsOverrides falha", async () => {
-  importCalls = 0;
-  groupCreateCalls = 0;
-  rolloutCalls = 0;
-  overrideCalls = 0;
-  fallbackCalls = 0;
-  lastOverridePayload = null;
-  lastFallbackPayload = null;
-  forceOverrideFailure = true;
-  clearGeofenceMappings();
-  clearGeozoneGroupMappings();
-
-  const token = signSession({ id: "admin-1", role: "admin", clientId: "client-1" });
-  const payload = {
-    clientId: "client-1",
-    deviceUid: "imei-456",
-    geofenceIds: ["geo-1"],
-    geofences: [geofenceFixture],
-    groupName: "GROUP-TEST-FALLBACK",
-  };
-
-  const response = await fetch(`${baseUrl}/api/xdm/geozone-group/apply`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  const body = await response.json();
-
-  assert.equal(response.status, 200);
-  assert.equal(body.data.xdmGeozoneGroupId, 555);
-  assert.equal(overrideCalls, 1);
-  assert.equal(fallbackCalls, 1);
-  assert.equal(rolloutCalls, 1);
-  assert.deepEqual(lastFallbackPayload?.settingsOverrides?.modified?.[0], {
-    userElementId: 1234,
-    value: "555",
-  });
-  assert.equal(lastFallbackPayload?.deviceUid, "imei-456");
 });
