@@ -23,11 +23,13 @@ import {
 import { queueDeployment, embarkItinerary, disembarkItinerary } from "../services/xdm/deployment-service.js";
 import {
   cleanupGeozoneForItem,
+  cleanupGeozoneForItemWithReport,
   deleteItineraryGeozoneGroup,
   diffRemovedItems,
   syncItineraryXdm,
 } from "../services/xdm/itinerary-sync-service.js";
 import { isNoPermissionError, logNoPermissionDiagnostics } from "../services/xdm/xdm-error.js";
+import { getGeozoneGroupMapping } from "../models/xdm-geozone-group.js";
 
 const router = express.Router();
 
@@ -477,6 +479,145 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
     });
 
     return res.status(201).json({ data: response, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.post("/itineraries/disembark", requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
+    const itineraryIds = Array.isArray(req.body?.itineraryIds) ? req.body.itineraryIds.map(String) : [];
+    if (!itineraryIds.length) {
+      throw createError(400, "Informe itinerários para desembarcar");
+    }
+
+    const dryRun = Boolean(req.body?.dryRun);
+    const cleanupOptions = req.body?.options?.cleanup || {};
+    const cleanupGroups = Boolean(cleanupOptions?.deleteGeozoneGroup);
+    const cleanupGeozones = Boolean(cleanupOptions?.deleteGeozones);
+
+    const ipAddress = resolveRequestIp(req);
+    const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
+    const correlationId = req.headers["x-correlation-id"] || null;
+
+    const summary = { success: 0, failed: 0, errors: [] };
+    const results = [];
+    const cleanup = { geozoneGroups: [], geozones: [] };
+
+    for (const itineraryId of itineraryIds) {
+      const itinerary = getItineraryById(itineraryId);
+      if (!itinerary) {
+        summary.failed += 1;
+        summary.errors.push({ itineraryId: String(itineraryId), message: "Itinerário não encontrado" });
+        continue;
+      }
+      if (String(itinerary.clientId) !== String(clientId)) {
+        summary.failed += 1;
+        summary.errors.push({ itineraryId: String(itineraryId), message: "Itinerário não pertence ao cliente" });
+        continue;
+      }
+
+      let response;
+      try {
+        response = await disembarkItinerary({
+          clientId,
+          itineraryId: itinerary.id,
+          vehicleIds,
+          dryRun,
+          correlationId,
+          requestedByUserId: req.user?.id || null,
+          requestedByName: userLabel,
+          ipAddress,
+        });
+      } catch (error) {
+        summary.failed += 1;
+        summary.errors.push({ itineraryId: String(itinerary.id), message: error?.message || "Falha ao desembarcar" });
+        continue;
+      }
+
+      (response?.vehicles || []).forEach((vehicle) => {
+        const status = vehicle.status || "failed";
+        const entry = {
+          itineraryId: String(itinerary.id),
+          itineraryName: itinerary.name || null,
+          vehicleId: String(vehicle.vehicleId || vehicle.id || ""),
+          status,
+          message: vehicle.message || null,
+          deviceUid: vehicle.deviceUid || null,
+        };
+        results.push(entry);
+        if (status === "failed") {
+          summary.failed += 1;
+          summary.errors.push({
+            itineraryId: String(itinerary.id),
+            vehicleId: entry.vehicleId,
+            message: vehicle.message || "Falha ao desembarcar",
+          });
+        } else {
+          summary.success += 1;
+        }
+      });
+
+      if (cleanupGroups) {
+        const mapping = getGeozoneGroupMapping({ itineraryId: itinerary.id, clientId });
+        const existingGroupId = itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null;
+        if (!existingGroupId) {
+          cleanup.geozoneGroups.push({
+            itineraryId: String(itinerary.id),
+            status: "skipped",
+            reason: "not_found",
+          });
+        } else {
+          try {
+            await deleteItineraryGeozoneGroup({ itineraryId: itinerary.id, clientId, correlationId });
+            cleanup.geozoneGroups.push({ itineraryId: String(itinerary.id), status: "deleted" });
+          } catch (error) {
+            if (isNoPermissionError(error)) {
+              logNoPermissionDiagnostics({
+                error,
+                correlationId,
+                method: req.method,
+                path: req.originalUrl,
+              });
+              cleanup.geozoneGroups.push({
+                itineraryId: String(itinerary.id),
+                status: "failed",
+                reason: "NO_PERMISSION",
+              });
+            } else {
+              cleanup.geozoneGroups.push({
+                itineraryId: String(itinerary.id),
+                status: "failed",
+                reason: error?.message || "Falha ao excluir geozone group",
+              });
+            }
+          }
+        }
+      }
+
+      if (cleanupGeozones) {
+        const items = itinerary.items || [];
+        for (const item of items) {
+          const cleanupResult = await cleanupGeozoneForItemWithReport({
+            item,
+            clientId,
+            correlationId,
+            excludeItineraryId: itinerary.id,
+            itineraryId: itinerary.id,
+          });
+          cleanup.geozones.push({
+            itineraryId: String(itinerary.id),
+            itemType: item?.type || null,
+            itemId: item?.id ? String(item.id) : null,
+            ...cleanupResult,
+          });
+        }
+      }
+    }
+
+    return res.status(201).json({ data: { summary, results, cleanup }, error: null });
   } catch (error) {
     return next(error);
   }

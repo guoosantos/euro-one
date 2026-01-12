@@ -1,12 +1,13 @@
 import crypto from "node:crypto";
 
 import { buildGeofencesKml, approximateCirclePoints } from "../../utils/kml.js";
-import { getGeofenceById } from "../../models/geofence.js";
+import { getGeofenceById, listGeofences } from "../../models/geofence.js";
 import { getGeofenceMapping, upsertGeofenceMapping } from "../../models/xdm-geofence.js";
 import XdmClient from "./xdm-client.js";
 import { wrapXdmError } from "./xdm-error.js";
 import {
-  buildFriendlyName,
+  buildFriendlyNameWithSuffix,
+  buildShortIdSuffix,
   resolveClientDisplayName,
   resolveXdmNameConfig,
   sanitizeFriendlyName,
@@ -111,7 +112,29 @@ function sanitizeName(value) {
   return trimmed.replace(/[^a-zA-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
-function buildXdmName({ clientId, clientDisplayName, itineraryId, itineraryName, geofenceId, type, name }) {
+async function shouldAddGeofenceSuffix({ clientId, geofenceId, name }) {
+  if (!clientId || !name) return false;
+  const normalizedName = sanitizeFriendlyName(name).toLowerCase();
+  if (!normalizedName) return false;
+  const geofences = await listGeofences({ clientId });
+  const duplicates = geofences.filter((item) => {
+    if (!item?.name) return false;
+    if (String(item.id) === String(geofenceId)) return false;
+    return sanitizeFriendlyName(item.name).toLowerCase() === normalizedName;
+  });
+  return duplicates.length > 0;
+}
+
+function buildXdmName({
+  clientId,
+  clientDisplayName,
+  itineraryId,
+  itineraryName,
+  geofenceId,
+  type,
+  name,
+  withSuffix = false,
+}) {
   const { friendlyNamesEnabled, maxNameLength, geozoneNameMode } = resolveXdmNameConfig();
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
@@ -124,7 +147,8 @@ function buildXdmName({ clientId, clientDisplayName, itineraryId, itineraryName,
       }
     }
     parts.push(resolvedGeofence);
-    const friendly = buildFriendlyName(parts, { maxLen: maxNameLength });
+    const suffix = withSuffix ? buildShortIdSuffix(geofenceId) : "";
+    const friendly = buildFriendlyNameWithSuffix(parts, { maxLen: maxNameLength, suffix });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
@@ -179,6 +203,11 @@ export async function syncGeofence(
   };
 
   const normalizedPoints = normalizePolygon(geometry, { geofenceId, clientId: geofence.clientId });
+  const withSuffix = await shouldAddGeofenceSuffix({
+    clientId: geofence.clientId,
+    geofenceId: geofence.id,
+    name: geofence.name,
+  });
   const xdmName = buildXdmName({
     clientId: geofence.clientId,
     clientDisplayName,
@@ -187,6 +216,7 @@ export async function syncGeofence(
     geofenceId: geofence.id,
     type: geofence.type,
     name: geofence.name,
+    withSuffix,
   });
   const geometryHash = buildGeometryHash(normalizedPoints);
   const mapping = getGeofenceMapping({ geofenceId, clientId: geofence.clientId });

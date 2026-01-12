@@ -1,13 +1,14 @@
 import XdmClient from "./xdm-client.js";
 import { buildGeofenceKml, buildGeometryHash, normalizePolygon } from "./geofence-sync-service.js";
-import { getRouteById } from "../../models/route.js";
+import { getRouteById, listRoutes } from "../../models/route.js";
 import {
   getRouteGeozoneMapping,
   upsertRouteGeozoneMapping,
 } from "../../models/xdm-route-geozone.js";
 import { wrapXdmError } from "./xdm-error.js";
 import {
-  buildFriendlyName,
+  buildFriendlyNameWithSuffix,
+  buildShortIdSuffix,
   resolveClientDisplayName,
   resolveXdmNameConfig,
   sanitizeFriendlyName,
@@ -59,12 +60,25 @@ function buildRoutePolygon(points = [], bufferMeters = DEFAULT_BUFFER_METERS) {
   ];
 }
 
-function buildXdmName({ clientId, clientDisplayName, routeId, routeName }) {
+function shouldAddRouteSuffix({ clientId, routeId, routeName }) {
+  if (!clientId || !routeName) return false;
+  const normalizedName = sanitizeFriendlyName(routeName).toLowerCase();
+  if (!normalizedName) return false;
+  const duplicates = listRoutes({ clientId }).filter((item) => {
+    if (!item?.name) return false;
+    if (String(item.id) === String(routeId)) return false;
+    return sanitizeFriendlyName(item.name).toLowerCase() === normalizedName;
+  });
+  return duplicates.length > 0;
+}
+
+function buildXdmName({ clientId, clientDisplayName, routeId, routeName, withSuffix = false }) {
   const { friendlyNamesEnabled, maxNameLength } = resolveXdmNameConfig();
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedRoute = sanitizeFriendlyName(routeName) || "Rota";
-    const friendly = buildFriendlyName([resolvedClient, resolvedRoute], { maxLen: maxNameLength });
+    const suffix = withSuffix ? buildShortIdSuffix(routeId) : "";
+    const friendly = buildFriendlyNameWithSuffix([resolvedClient, resolvedRoute], { maxLen: maxNameLength, suffix });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
@@ -108,6 +122,11 @@ export async function syncRouteGeozone(
   const polygonPoints = buildRoutePolygon(route.points || [], bufferMeters);
   const normalizedPoints = normalizePolygon({ points: polygonPoints }, { geofenceId: route.id, clientId: route.clientId });
   const geometryHash = buildGeometryHash(normalizedPoints);
+  const withSuffix = shouldAddRouteSuffix({
+    clientId: route.clientId,
+    routeId: route.id,
+    routeName: route.name,
+  });
 
   const mapping = getRouteGeozoneMapping({ routeId, clientId: route.clientId });
   const xdmName = buildXdmName({
@@ -115,6 +134,7 @@ export async function syncRouteGeozone(
     clientDisplayName,
     routeId: route.id,
     routeName: route.name,
+    withSuffix,
   });
   if (mapping?.xdmGeozoneId && mapping.geometryHash === geometryHash) {
     const normalizedId = normalizeXdmId(mapping.xdmGeozoneId, { context: "mapping route geozone" });

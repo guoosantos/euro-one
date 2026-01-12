@@ -123,6 +123,45 @@ export async function cleanupGeozoneForItem({ item, clientId, correlationId, exc
   removeGeofenceMapping({ geofenceId: item.id, clientId });
 }
 
+export async function cleanupGeozoneForItemWithReport({
+  item,
+  clientId,
+  correlationId,
+  excludeItineraryId,
+  itineraryId,
+} = {}) {
+  if (!item) {
+    return { status: "skipped", reason: "missing_item" };
+  }
+  if (isItemUsedElsewhere({ item, clientId, excludeItineraryId })) {
+    return { status: "skipped", reason: "in_use" };
+  }
+
+  try {
+    if (item.type === "route") {
+      const mapping = getRouteGeozoneMapping({ routeId: item.id, clientId });
+      const xdmGeozoneId = mapping?.xdmGeozoneId || item.xdmGeozoneId || null;
+      const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+      if (result?.warning && itineraryId) {
+        markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+      }
+      removeRouteGeozoneMapping({ routeId: item.id, clientId });
+      return { status: "deleted" };
+    }
+
+    const mapping = getGeofenceMapping({ geofenceId: item.id, clientId });
+    const xdmGeozoneId = mapping?.xdmGeofenceId || item.xdmGeozoneId || null;
+    const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+    if (result?.warning && itineraryId) {
+      markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+    }
+    removeGeofenceMapping({ geofenceId: item.id, clientId });
+    return { status: "deleted" };
+  } catch (error) {
+    return { status: "failed", reason: error?.message || String(error) };
+  }
+}
+
 export async function syncItineraryXdm(itineraryId, { clientId, correlationId, geofencesById } = {}) {
   const clientDisplayName = await resolveClientDisplayName(clientId);
   const syncResult = await syncGeozoneGroup(itineraryId, {
@@ -183,5 +222,6 @@ export default {
   syncItineraryXdm,
   diffRemovedItems,
   cleanupGeozoneForItem,
+  cleanupGeozoneForItemWithReport,
   deleteItineraryGeozoneGroup,
 };

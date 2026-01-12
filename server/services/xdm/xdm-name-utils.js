@@ -28,10 +28,15 @@ function parseGeozoneNameMode(value) {
 }
 
 export function resolveXdmNameConfig() {
+  const isProduction = process.env.NODE_ENV === "production";
+  const friendlyFromEnv = parseBooleanEnv(process.env.XDM_FRIENDLY_NAMES, DEFAULT_FRIENDLY_NAMES);
+  const geozoneNameMode = isProduction
+    ? DEFAULT_GEOZONE_NAME_MODE
+    : parseGeozoneNameMode(process.env.XDM_GEOZONE_NAME_MODE);
   return {
-    friendlyNamesEnabled: parseBooleanEnv(process.env.XDM_FRIENDLY_NAMES, DEFAULT_FRIENDLY_NAMES),
+    friendlyNamesEnabled: isProduction ? true : friendlyFromEnv,
     maxNameLength: parseMaxLen(process.env.XDM_NAME_MAX_LEN, DEFAULT_NAME_MAX_LEN),
-    geozoneNameMode: parseGeozoneNameMode(process.env.XDM_GEOZONE_NAME_MODE),
+    geozoneNameMode,
   };
 }
 
