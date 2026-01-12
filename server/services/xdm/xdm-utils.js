@@ -198,6 +198,12 @@ export function getGeozoneGroupOverrideConfig() {
   };
 }
 
+export function buildOverridesDto(overrides = {}) {
+  return Object.fromEntries(
+    Object.entries(overrides).map(([overrideId, value]) => [overrideId, { value }]),
+  );
+}
+
 export function ensureGeozoneGroupOverrideId() {
   const config = getGeozoneGroupOverrideConfig();
   if (!config.isValid) {
@@ -212,5 +218,6 @@ export default {
   normalizeXdmId,
   normalizeXdmDeviceUid,
   getGeozoneGroupOverrideConfig,
+  buildOverridesDto,
   ensureGeozoneGroupOverrideId,
 };
