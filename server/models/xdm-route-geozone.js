@@ -16,10 +16,22 @@ export function getRouteGeozoneMapping({ routeId, clientId }) {
   const record = routes.find(
     (item) => String(item.id) === String(routeId) && (!clientId || String(item.clientId) === String(clientId)),
   );
-  return clone(record);
+  const cloned = clone(record);
+  if (!cloned) return null;
+  if (!Array.isArray(cloned.xdmGeozoneIds)) {
+    cloned.xdmGeozoneIds = cloned.xdmGeozoneId ? [cloned.xdmGeozoneId] : [];
+  }
+  return cloned;
 }
 
-export function upsertRouteGeozoneMapping({ routeId, clientId, geometryHash, xdmGeozoneId, name }) {
+export function upsertRouteGeozoneMapping({
+  routeId,
+  clientId,
+  geometryHash,
+  xdmGeozoneId,
+  xdmGeozoneIds,
+  name,
+}) {
   const now = new Date().toISOString();
   const index = routes.findIndex(
     (item) => String(item.id) === String(routeId) && String(item.clientId) === String(clientId),
@@ -31,6 +43,7 @@ export function upsertRouteGeozoneMapping({ routeId, clientId, geometryHash, xdm
     name: name || null,
     geometryHash: geometryHash || null,
     xdmGeozoneId: xdmGeozoneId ?? null,
+    xdmGeozoneIds: Array.isArray(xdmGeozoneIds) ? xdmGeozoneIds : xdmGeozoneId ? [xdmGeozoneId] : [],
     updatedAt: now,
   };
 

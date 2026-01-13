@@ -859,6 +859,7 @@ export default function RoutesPage() {
       const simplified = simplifyPath(deduplicatePath(positions), 0.00005);
       const historyRoute = withWaypoints({
         ...draftRoute,
+        id: null,
         name: draftRoute.name.trim(),
         points: simplified,
         metadata: {

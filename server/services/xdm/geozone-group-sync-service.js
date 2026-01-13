@@ -309,7 +309,12 @@ export async function syncGeozoneGroup(
         correlationId,
         clientDisplayName,
       });
-      xdmGeozoneIds.push(routeResult.xdmGeozoneId);
+      const routeGeozoneIds = routeResult.xdmGeozoneIds?.length
+        ? routeResult.xdmGeozoneIds
+        : routeResult.xdmGeozoneId
+          ? [routeResult.xdmGeozoneId]
+          : [];
+      xdmGeozoneIds.push(...routeGeozoneIds);
       geofenceEntries.push({
         type: item.type,
         geometryHash: routeResult.geometryHash,
@@ -317,7 +322,7 @@ export async function syncGeozoneGroup(
       itemMappings.push({
         type: item.type,
         id: item.id,
-        xdmGeozoneId: routeResult.xdmGeozoneId,
+        xdmGeozoneId: routeResult.xdmGeozoneId || routeGeozoneIds[0] || null,
       });
       continue;
     }

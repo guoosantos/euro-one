@@ -19,6 +19,7 @@ import {
   listLatestDeploymentsByItinerary,
   toHistoryEntries,
   getDeploymentById,
+  updateDeployment,
 } from "../models/xdm-deployment.js";
 import { queueDeployment, embarkItinerary, disembarkItinerary } from "../services/xdm/deployment-service.js";
 import {
@@ -30,6 +31,8 @@ import {
 } from "../services/xdm/itinerary-sync-service.js";
 import { isNoPermissionError, logNoPermissionDiagnostics } from "../services/xdm/xdm-error.js";
 import { getGeozoneGroupMapping } from "../models/xdm-geozone-group.js";
+import { resolveVehicleDeviceUid } from "../services/xdm/resolve-vehicle-device-uid.js";
+import { fetchDeviceGeozoneGroupId } from "../services/xdm/device-geozone-group-service.js";
 
 const router = express.Router();
 
@@ -74,6 +77,56 @@ export function __resolveBlockingEmbarkDeployments(deployments = []) {
     (deployment) =>
       normalizeDeploymentAction(deployment.action) === "EMBARK" && activeStatuses.has(deployment.status),
   );
+}
+
+async function resolveBlockingEmbarkDeployments({
+  itinerary,
+  latestDeployments,
+  correlationId,
+} = {}) {
+  const blocking = __resolveBlockingEmbarkDeployments(latestDeployments);
+  if (!blocking.length) return [];
+  const mapping = getGeozoneGroupMapping({ itineraryId: itinerary.id, clientId: itinerary.clientId });
+  const targetGroupId = itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null;
+  if (!targetGroupId) return blocking;
+
+  const vehicles = listVehicles({ clientId: itinerary.clientId }).reduce((acc, vehicle) => {
+    acc.set(String(vehicle.id), vehicle);
+    return acc;
+  }, new Map());
+
+  const verified = [];
+
+  for (const deployment of blocking) {
+    const vehicle = vehicles.get(String(deployment.vehicleId));
+    const deviceUid = resolveVehicleDeviceUid(vehicle);
+    if (!deviceUid) {
+      verified.push(deployment);
+      continue;
+    }
+
+    try {
+      const currentGroupId = await fetchDeviceGeozoneGroupId({ deviceUid, correlationId });
+      if (currentGroupId && String(currentGroupId) === String(targetGroupId)) {
+        verified.push(deployment);
+        continue;
+      }
+      updateDeployment(deployment.id, {
+        status: "CLEARED",
+        finishedAt: new Date().toISOString(),
+        errorMessage: "Estado reconciliado: geozone group removido",
+      });
+    } catch (error) {
+      console.warn("[itineraries] Falha ao validar geozone group no XDM", {
+        itineraryId: itinerary.id,
+        vehicleId: deployment.vehicleId,
+        message: error?.message || error,
+      });
+      verified.push(deployment);
+    }
+  }
+
+  return verified;
 }
 
 function withSyncStatus(itinerary) {
@@ -245,12 +298,16 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       clientId: existing.clientId,
       itineraryId: existing.id,
     });
-    const blockingDeployments = __resolveBlockingEmbarkDeployments(latestDeployments);
+    const correlationId = req.headers["x-correlation-id"] || null;
+    const blockingDeployments = await resolveBlockingEmbarkDeployments({
+      itinerary: existing,
+      latestDeployments,
+      correlationId,
+    });
     if (blockingDeployments.length) {
       throw createError(409, "Há dispositivos embarcados neste itinerário. Faça o desembarque antes de excluir.");
     }
 
-    const correlationId = req.headers["x-correlation-id"] || null;
     let xdmWarning = null;
 
     try {

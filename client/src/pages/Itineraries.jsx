@@ -74,16 +74,26 @@ function ItineraryModal({
   targetGeofences,
   onLinkItem,
   onRemoveItem,
+  vehicles,
+  itineraries,
+  embarkState,
+  disembarkState,
+  onEmbarkSubmit,
+  onDisembarkSubmit,
 }) {
   const [selectedGeofenceId, setSelectedGeofenceId] = useState(null);
   const [selectedRouteId, setSelectedRouteId] = useState(null);
   const [selectedTargetId, setSelectedTargetId] = useState(null);
+  const [embarkTab, setEmbarkTab] = useState("vehicles");
+  const [disembarkTab, setDisembarkTab] = useState("vehicles");
 
   useEffect(() => {
     if (!open) return;
     setSelectedGeofenceId(null);
     setSelectedRouteId(null);
     setSelectedTargetId(null);
+    setEmbarkTab("vehicles");
+    setDisembarkTab("vehicles");
   }, [open]);
 
   if (!open) return null;
@@ -142,6 +152,8 @@ function ItineraryModal({
               { key: "rotas", label: "Rotas" },
               { key: "alvos", label: "Alvos" },
               { key: "itens", label: "Itens vinculados" },
+              { key: "embarcar", label: "Embarcar itinerário" },
+              { key: "desembarcar", label: "Desembarcar itinerário" },
             ].map((tab) => (
               <button
                 key={tab.key}
@@ -413,21 +425,82 @@ function ItineraryModal({
               </div>
             </div>
           )}
+
+          {activeTab === "embarcar" && (
+            <EmbarkContent
+              vehicles={vehicles}
+              itineraries={itineraries}
+              vehicleQuery={embarkState.vehicleQuery}
+              onVehicleQueryChange={embarkState.onVehicleQueryChange}
+              itineraryQuery={embarkState.itineraryQuery}
+              onItineraryQueryChange={embarkState.onItineraryQueryChange}
+              selectedVehicleIds={embarkState.selectedVehicleIds}
+              onToggleVehicle={embarkState.onToggleVehicle}
+              selectedItineraryIds={embarkState.selectedItineraryIds}
+              onToggleItinerary={embarkState.onToggleItinerary}
+              onRemoveVehicle={embarkState.onRemoveVehicle}
+              resultSummary={embarkState.resultSummary}
+              activeTab={embarkTab}
+              onTabChange={setEmbarkTab}
+              showSummary={false}
+              embedded
+            />
+          )}
+
+          {activeTab === "desembarcar" && (
+            <DisembarkContent
+              vehicles={vehicles}
+              itineraries={itineraries}
+              vehicleQuery={disembarkState.vehicleQuery}
+              onVehicleQueryChange={disembarkState.onVehicleQueryChange}
+              itineraryQuery={disembarkState.itineraryQuery}
+              onItineraryQueryChange={disembarkState.onItineraryQueryChange}
+              selectedVehicleIds={disembarkState.selectedVehicleIds}
+              onToggleVehicle={disembarkState.onToggleVehicle}
+              onRemoveVehicle={disembarkState.onRemoveVehicle}
+              selectedItineraryIds={disembarkState.selectedItineraryIds}
+              onToggleItinerary={disembarkState.onToggleItinerary}
+              cleanupDeleteGroup={disembarkState.cleanupDeleteGroup}
+              onCleanupDeleteGroupChange={disembarkState.onCleanupDeleteGroupChange}
+              cleanupDeleteGeozones={disembarkState.cleanupDeleteGeozones}
+              onCleanupDeleteGeozonesChange={disembarkState.onCleanupDeleteGeozonesChange}
+              resultSummary={disembarkState.resultSummary}
+              activeTab={disembarkTab}
+              onTabChange={setDisembarkTab}
+              showSummary={false}
+              embedded
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={onSave} disabled={saving} icon={Save}>
-            {saving ? "Salvando..." : "Salvar"}
-          </Button>
+          {activeTab === "embarcar" || activeTab === "desembarcar" ? (
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="secondary" onClick={onSave} disabled={saving} icon={Save}>
+                {saving ? "Salvando..." : "Salvar"}
+              </Button>
+              {activeTab === "embarcar" ? (
+                <Button size="sm" onClick={onEmbarkSubmit} disabled={embarkState.sending}>
+                  {embarkState.sending ? "Embarcando..." : "Embarcar"}
+                </Button>
+              ) : (
+                <Button size="sm" onClick={onDisembarkSubmit} disabled={disembarkState.sending}>
+                  {disembarkState.sending ? "Desembarcando..." : "Desembarcar"}
+                </Button>
+              )}
+            </div>
+          ) : (
+            <Button onClick={onSave} disabled={saving} icon={Save}>
+              {saving ? "Salvando..." : "Salvar"}
+            </Button>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function EmbarkModal({
-  open,
-  onClose,
+function EmbarkContent({
   vehicles,
   itineraries,
   vehicleQuery,
@@ -439,12 +512,12 @@ function EmbarkModal({
   selectedItineraryIds,
   onToggleItinerary,
   onRemoveVehicle,
-  sending,
-  onSubmit,
   resultSummary,
+  activeTab,
+  onTabChange,
+  showSummary = true,
+  embedded = false,
 }) {
-  if (!open) return null;
-
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
     if (!term) return true;
@@ -462,39 +535,48 @@ function EmbarkModal({
   });
 
   const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
+  const selectedItineraries = itineraries.filter((itinerary) => selectedItineraryIds.includes(String(itinerary.id)));
+
+  const tabsClassName = embedded ? "border-b border-white/10 pb-3" : "border-b border-white/10 px-6 py-3";
+  const contentClassName = embedded ? "space-y-6" : "max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5";
 
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
-      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-          <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Embarque de itinerários</p>
-            <h2 className="text-xl font-semibold text-white">Enviar embarque</h2>
-            <p className="text-sm text-white/60">Selecione veículos e itinerários para embarcar em lote.</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
-            aria-label="Fechar"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <>
+      <div className={tabsClassName}>
+        <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {[
+            { key: "vehicles", label: "Veículos" },
+            { key: "itineraries", label: "Embarcar itinerário" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => onTabChange(tab.key)}
+              className={`rounded-md px-3 py-2 transition ${
+                activeTab === tab.key
+                  ? "border border-primary/40 bg-primary/20 text-white"
+                  : "border border-transparent hover:border-white/20"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
+      </div>
 
-        <div className="max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+      <div className={contentClassName}>
+        {activeTab === "vehicles" && (
+          <div className="space-y-3">
+            <Input
+              placeholder="Buscar veículo"
+              value={vehicleQuery}
+              onChange={(event) => onVehicleQueryChange(event.target.value)}
+            />
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Veículos</p>
+                <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
                 <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
               </div>
-              <Input
-                placeholder="Buscar veículo"
-                value={vehicleQuery}
-                onChange={(event) => onVehicleQueryChange(event.target.value)}
-              />
-              <div className="max-h-48 space-y-2 overflow-y-auto">
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
                 {filteredVehicles.map((vehicle) => {
                   const isSelected = selectedVehicleIds.includes(String(vehicle.id));
                   return (
@@ -516,58 +598,62 @@ function EmbarkModal({
                 })}
                 {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
               </div>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-white">Veículos selecionados</p>
-                {selectedVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo selecionado.</p>}
-                {selectedVehicles.map((vehicle) => (
-                  <div key={vehicle.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{vehicle.name || "Veículo"}</p>
-                        <p className="text-xs text-white/60">{vehicle.plate || "—"}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-xs text-red-200 hover:text-red-100"
-                        onClick={() => onRemoveVehicle(String(vehicle.id))}
-                      >
-                        Remover
-                      </button>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">Veículos selecionados</p>
+              {selectedVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo selecionado.</p>}
+              {selectedVehicles.map((vehicle) => (
+                <div key={vehicle.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{vehicle.name || "Veículo"}</p>
+                      <p className="text-xs text-white/60">{vehicle.plate || "—"}</p>
                     </div>
-                    <div className="mt-3 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Marca</p>
-                        <p>{vehicle.brand || "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modelo</p>
-                        <p>{vehicle.model || "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status</p>
-                        <p>{resolveVehicleStatus(vehicle)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Última transmissão</p>
-                        <p>{formatDateTime(resolveVehicleLastUpdate(vehicle))}</p>
-                      </div>
+                    <button
+                      type="button"
+                      className="text-xs text-red-200 hover:text-red-100"
+                      onClick={() => onRemoveVehicle(String(vehicle.id))}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Marca</p>
+                      <p>{vehicle.brand || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modelo</p>
+                      <p>{vehicle.model || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status</p>
+                      <p>{resolveVehicleStatus(vehicle)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Última transmissão</p>
+                      <p>{formatDateTime(resolveVehicleLastUpdate(vehicle))}</p>
                     </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
+          </div>
+        )}
 
-            <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+        {activeTab === "itineraries" && (
+          <div className="space-y-3">
+            <Input
+              placeholder="Buscar itinerário"
+              value={itineraryQuery}
+              onChange={(event) => onItineraryQueryChange(event.target.value)}
+            />
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
               <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Itinerários</p>
+                <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
                 <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
               </div>
-              <Input
-                placeholder="Buscar itinerário"
-                value={itineraryQuery}
-                onChange={(event) => onItineraryQueryChange(event.target.value)}
-              />
-              <div className="max-h-64 space-y-2 overflow-y-auto">
+              <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
                 {filteredItineraries.map((itinerary) => (
                   <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
                     <input
@@ -582,14 +668,90 @@ function EmbarkModal({
                 {filteredItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>}
               </div>
             </div>
-          </div>
-
-          {resultSummary && (
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-              {resultSummary}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">Itinerários selecionados</p>
+              {selectedItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário selecionado.</p>}
+              {selectedItineraries.map((itinerary) => (
+                <div key={itinerary.id} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
+                  {itinerary.name}
+                </div>
+              ))}
             </div>
-          )}
+          </div>
+        )}
+
+        {showSummary && resultSummary && (
+          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+            {resultSummary}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function EmbarkModal({
+  open,
+  onClose,
+  vehicles,
+  itineraries,
+  vehicleQuery,
+  onVehicleQueryChange,
+  itineraryQuery,
+  onItineraryQueryChange,
+  selectedVehicleIds,
+  onToggleVehicle,
+  selectedItineraryIds,
+  onToggleItinerary,
+  onRemoveVehicle,
+  sending,
+  onSubmit,
+  resultSummary,
+}) {
+  const [activeTab, setActiveTab] = useState("vehicles");
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveTab("vehicles");
+  }, [open]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Embarque de itinerários</p>
+            <h2 className="text-xl font-semibold text-white">Enviar embarque</h2>
+            <p className="text-sm text-white/60">Selecione veículos e itinerários para embarcar em lote.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
+
+        <EmbarkContent
+          vehicles={vehicles}
+          itineraries={itineraries}
+          vehicleQuery={vehicleQuery}
+          onVehicleQueryChange={onVehicleQueryChange}
+          itineraryQuery={itineraryQuery}
+          onItineraryQueryChange={onItineraryQueryChange}
+          selectedVehicleIds={selectedVehicleIds}
+          onToggleVehicle={onToggleVehicle}
+          selectedItineraryIds={selectedItineraryIds}
+          onToggleItinerary={onToggleItinerary}
+          onRemoveVehicle={onRemoveVehicle}
+          resultSummary={resultSummary}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
           <Button onClick={onSubmit} disabled={sending}>
@@ -598,6 +760,227 @@ function EmbarkModal({
         </div>
       </div>
     </div>
+  );
+}
+
+function DisembarkContent({
+  vehicles,
+  itineraries,
+  vehicleQuery,
+  onVehicleQueryChange,
+  itineraryQuery,
+  onItineraryQueryChange,
+  selectedVehicleIds,
+  onToggleVehicle,
+  onRemoveVehicle,
+  selectedItineraryIds,
+  onToggleItinerary,
+  cleanupDeleteGroup,
+  onCleanupDeleteGroupChange,
+  cleanupDeleteGeozones,
+  onCleanupDeleteGeozonesChange,
+  resultSummary,
+  activeTab,
+  onTabChange,
+  showSummary = true,
+  embedded = false,
+}) {
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const term = vehicleQuery.trim().toLowerCase();
+    if (!term) return true;
+    return [vehicle.name, vehicle.plate, vehicle.brand, vehicle.model]
+      .filter(Boolean)
+      .some((value) => String(value).toLowerCase().includes(term));
+  });
+
+  const filteredItineraries = itineraries.filter((itinerary) => {
+    const term = itineraryQuery.trim().toLowerCase();
+    if (!term) return true;
+    return String(itinerary.name || "")
+      .toLowerCase()
+      .includes(term);
+  });
+
+  const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
+  const selectedItineraries = itineraries.filter((itinerary) => selectedItineraryIds.includes(String(itinerary.id)));
+
+  const tabsClassName = embedded ? "border-b border-white/10 pb-3" : "border-b border-white/10 px-6 py-3";
+  const contentClassName = embedded ? "space-y-6" : "max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5";
+
+  return (
+    <>
+      <div className={tabsClassName}>
+        <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {[
+            { key: "vehicles", label: "Veículos" },
+            { key: "itineraries", label: "Itinerários" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => onTabChange(tab.key)}
+              className={`rounded-md px-3 py-2 transition ${
+                activeTab === tab.key
+                  ? "border border-primary/40 bg-primary/20 text-white"
+                  : "border border-transparent hover:border-white/20"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className={contentClassName}>
+        {activeTab === "vehicles" && (
+          <div className="space-y-3">
+            <Input
+              placeholder="Buscar veículo"
+              value={vehicleQuery}
+              onChange={(event) => onVehicleQueryChange(event.target.value)}
+            />
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
+                <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
+              </div>
+              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                {filteredVehicles.map((vehicle) => {
+                  const isSelected = selectedVehicleIds.includes(String(vehicle.id));
+                  return (
+                    <button
+                      key={vehicle.id}
+                      type="button"
+                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                        isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
+                      }`}
+                      onClick={() => onToggleVehicle(String(vehicle.id))}
+                    >
+                      <span>
+                        {vehicle.name || "Veículo"}
+                        {vehicle.plate ? ` · ${vehicle.plate}` : ""}
+                      </span>
+                      <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
+                    </button>
+                  );
+                })}
+                {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">Veículos selecionados</p>
+              {selectedVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo selecionado.</p>}
+              {selectedVehicles.map((vehicle) => (
+                <div key={vehicle.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{vehicle.name || "Veículo"}</p>
+                      <p className="text-xs text-white/60">{vehicle.plate || "—"}</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-xs text-red-200 hover:text-red-100"
+                      onClick={() => onRemoveVehicle(String(vehicle.id))}
+                    >
+                      Remover
+                    </button>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Marca</p>
+                      <p>{vehicle.brand || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modelo</p>
+                      <p>{vehicle.model || "—"}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status</p>
+                      <p>{resolveVehicleStatus(vehicle)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Última transmissão</p>
+                      <p>{formatDateTime(resolveVehicleLastUpdate(vehicle))}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeTab === "itineraries" && (
+          <div className="space-y-3">
+            <Input
+              placeholder="Buscar itinerário"
+              value={itineraryQuery}
+              onChange={(event) => onItineraryQueryChange(event.target.value)}
+            />
+            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
+                <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
+              </div>
+              <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                {filteredItineraries.map((itinerary) => (
+                  <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4"
+                      checked={selectedItineraryIds.includes(String(itinerary.id))}
+                      onChange={() => onToggleItinerary(String(itinerary.id))}
+                    />
+                    <span>{itinerary.name}</span>
+                  </label>
+                ))}
+                {filteredItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-white">Itinerários selecionados</p>
+              {selectedItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário selecionado.</p>}
+              {selectedItineraries.map((itinerary) => (
+                <div key={itinerary.id} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
+                  {itinerary.name}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+          <p className="text-sm font-semibold text-white">Limpeza no XDM (opcional)</p>
+          <label className="flex items-center gap-2 text-sm text-white/70">
+            <input type="checkbox" className="h-4 w-4" checked disabled />
+            Remover geozone group do veículo (desembarque)
+          </label>
+          <label className="flex items-center gap-2 text-sm text-white/70">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={cleanupDeleteGroup}
+              onChange={(event) => onCleanupDeleteGroupChange(event.target.checked)}
+            />
+            Excluir Geozone Group no XDM
+          </label>
+          <label className="flex items-center gap-2 text-sm text-white/70">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={cleanupDeleteGeozones}
+              onChange={(event) => onCleanupDeleteGeozonesChange(event.target.checked)}
+            />
+            Excluir Cercas / Rotas / Alvos no XDM (somente se não usados por outros itinerários)
+          </label>
+        </div>
+
+        {showSummary && resultSummary && (
+          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+            {resultSummary}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 
@@ -632,25 +1015,6 @@ function DisembarkModal({
 
   if (!open) return null;
 
-  const filteredVehicles = vehicles.filter((vehicle) => {
-    const term = vehicleQuery.trim().toLowerCase();
-    if (!term) return true;
-    return [vehicle.name, vehicle.plate, vehicle.brand, vehicle.model]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(term));
-  });
-
-  const filteredItineraries = itineraries.filter((itinerary) => {
-    const term = itineraryQuery.trim().toLowerCase();
-    if (!term) return true;
-    return String(itinerary.name || "")
-      .toLowerCase()
-      .includes(term);
-  });
-
-  const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
-  const selectedItineraries = itineraries.filter((itinerary) => selectedItineraryIds.includes(String(itinerary.id)));
-
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
       <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
@@ -670,177 +1034,26 @@ function DisembarkModal({
           </button>
         </div>
 
-        <div className="border-b border-white/10 px-6 py-3">
-          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-            {[
-              { key: "vehicles", label: "Veículos" },
-              { key: "itineraries", label: "Itinerários" },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`rounded-md px-3 py-2 transition ${
-                  activeTab === tab.key
-                    ? "border border-primary/40 bg-primary/20 text-white"
-                    : "border border-transparent hover:border-white/20"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5">
-          {activeTab === "vehicles" && (
-            <div className="space-y-3">
-              <Input
-                placeholder="Buscar veículo"
-                value={vehicleQuery}
-                onChange={(event) => onVehicleQueryChange(event.target.value)}
-              />
-              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
-                  <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
-                </div>
-                <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
-                  {filteredVehicles.map((vehicle) => {
-                    const isSelected = selectedVehicleIds.includes(String(vehicle.id));
-                    return (
-                      <button
-                        key={vehicle.id}
-                        type="button"
-                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-                          isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
-                        }`}
-                        onClick={() => onToggleVehicle(String(vehicle.id))}
-                      >
-                        <span>
-                          {vehicle.name || "Veículo"}
-                          {vehicle.plate ? ` · ${vehicle.plate}` : ""}
-                        </span>
-                        <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
-                      </button>
-                    );
-                  })}
-                  {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-white">Veículos selecionados</p>
-                {selectedVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo selecionado.</p>}
-                {selectedVehicles.map((vehicle) => (
-                  <div key={vehicle.id} className="rounded-xl border border-white/10 bg-black/30 p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{vehicle.name || "Veículo"}</p>
-                        <p className="text-xs text-white/60">{vehicle.plate || "—"}</p>
-                      </div>
-                      <button
-                        type="button"
-                        className="text-xs text-red-200 hover:text-red-100"
-                        onClick={() => onRemoveVehicle(String(vehicle.id))}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                    <div className="mt-3 grid gap-2 text-xs text-white/70 sm:grid-cols-2">
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Marca</p>
-                        <p>{vehicle.brand || "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Modelo</p>
-                        <p>{vehicle.model || "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status</p>
-                        <p>{resolveVehicleStatus(vehicle)}</p>
-                      </div>
-                      <div>
-                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Última transmissão</p>
-                        <p>{formatDateTime(resolveVehicleLastUpdate(vehicle))}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {activeTab === "itineraries" && (
-            <div className="space-y-3">
-              <Input
-                placeholder="Buscar itinerário"
-                value={itineraryQuery}
-                onChange={(event) => onItineraryQueryChange(event.target.value)}
-              />
-              <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
-                  <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
-                </div>
-                <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
-                  {filteredItineraries.map((itinerary) => (
-                    <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
-                      <input
-                        type="checkbox"
-                        className="h-4 w-4"
-                        checked={selectedItineraryIds.includes(String(itinerary.id))}
-                        onChange={() => onToggleItinerary(String(itinerary.id))}
-                      />
-                      <span>{itinerary.name}</span>
-                    </label>
-                  ))}
-                  {filteredItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>}
-                </div>
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-semibold text-white">Itinerários selecionados</p>
-                {selectedItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário selecionado.</p>}
-                {selectedItineraries.map((itinerary) => (
-                  <div key={itinerary.id} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
-                    {itinerary.name}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
-            <p className="text-sm font-semibold text-white">Limpeza no XDM (opcional)</p>
-            <label className="flex items-center gap-2 text-sm text-white/70">
-              <input type="checkbox" className="h-4 w-4" checked disabled />
-              Remover geozone group do veículo (desembarque)
-            </label>
-            <label className="flex items-center gap-2 text-sm text-white/70">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={cleanupDeleteGroup}
-                onChange={(event) => onCleanupDeleteGroupChange(event.target.checked)}
-              />
-              Excluir Geozone Group no XDM
-            </label>
-            <label className="flex items-center gap-2 text-sm text-white/70">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={cleanupDeleteGeozones}
-                onChange={(event) => onCleanupDeleteGeozonesChange(event.target.checked)}
-              />
-              Excluir Cercas / Rotas / Alvos no XDM (somente se não usados por outros itinerários)
-            </label>
-          </div>
-
-          {resultSummary && (
-            <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-              {resultSummary}
-            </div>
-          )}
-        </div>
+        <DisembarkContent
+          vehicles={vehicles}
+          itineraries={itineraries}
+          vehicleQuery={vehicleQuery}
+          onVehicleQueryChange={onVehicleQueryChange}
+          itineraryQuery={itineraryQuery}
+          onItineraryQueryChange={onItineraryQueryChange}
+          selectedVehicleIds={selectedVehicleIds}
+          onToggleVehicle={onToggleVehicle}
+          onRemoveVehicle={onRemoveVehicle}
+          selectedItineraryIds={selectedItineraryIds}
+          onToggleItinerary={onToggleItinerary}
+          cleanupDeleteGroup={cleanupDeleteGroup}
+          onCleanupDeleteGroupChange={onCleanupDeleteGroupChange}
+          cleanupDeleteGeozones={cleanupDeleteGeozones}
+          onCleanupDeleteGeozonesChange={onCleanupDeleteGeozonesChange}
+          resultSummary={resultSummary}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+        />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
           <Button onClick={onSubmit} disabled={sending}>
@@ -889,6 +1102,8 @@ export default function Itineraries() {
   const [createAndEmbark, setCreateAndEmbark] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
+  const [deleteConflict, setDeleteConflict] = useState(null);
+  const [deleteConflictSending, setDeleteConflictSending] = useState(false);
 
   const clientNameById = useMemo(
     () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
@@ -1019,6 +1234,12 @@ export default function Itineraries() {
     setEditorOpen(true);
   };
 
+  useEffect(() => {
+    if (!editorOpen || !selectedId) return;
+    setSelectedItineraryIds([String(selectedId)]);
+    setSelectedDisembarkItineraryIds([String(selectedId)]);
+  }, [editorOpen, selectedId]);
+
   const handleLinkItem = useCallback(
     (item) => {
       if (!item) return;
@@ -1047,10 +1268,10 @@ export default function Itineraries() {
     });
   }, []);
 
-  const handleSave = async () => {
+  const saveItinerary = async ({ closeModal = true, allowCreateAndEmbark = true } = {}) => {
     if (!form.name.trim()) {
       showToast("Informe um nome para o itinerário.", "warning");
-      return;
+      return null;
     }
     const isNew = !selectedId;
     setSaving(true);
@@ -1062,23 +1283,32 @@ export default function Itineraries() {
       const saved = response?.data?.data || payload;
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
-      setEditorOpen(false);
+      if (closeModal) {
+        setEditorOpen(false);
+      }
       showToast("Itinerário salvo com sucesso.");
-      if (isNew && createAndEmbark) {
+      if (allowCreateAndEmbark && isNew && createAndEmbark) {
         resetEmbarkForm();
         setSelectedItineraryIds([String(saved.id || selectedId)]);
         setEmbarkOpen(true);
       }
+      return saved;
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Não foi possível salvar o itinerário.", "warning");
+      return null;
     } finally {
       setSaving(false);
     }
   };
 
+  const handleSave = async () => {
+    await saveItinerary();
+  };
+
   const handleDelete = async (id) => {
     if (!id) return;
+    const existing = itineraries.find((item) => item.id === id);
     if (!window.confirm("Remover este itinerário?")) return;
     try {
       await api.delete(`${API_ROUTES.itineraries}/${id}`);
@@ -1088,14 +1318,7 @@ export default function Itineraries() {
     } catch (error) {
       console.error(error);
       if (error?.response?.status === 409) {
-        showToast(
-          "Há dispositivos embarcados. Clique em Desembarcar para remover do veículo e depois excluir.",
-          "warning",
-          {
-            label: "Abrir desembarque",
-            onClick: () => openDisembarkModal(id),
-          },
-        );
+        setDeleteConflict({ id, name: existing?.name || "Itinerário" });
         return;
       }
       showToast(error?.message || "Não foi possível remover.", "warning");
@@ -1194,8 +1417,9 @@ export default function Itineraries() {
     [resetDisembarkForm],
   );
 
-  const handleEmbarkSubmit = async () => {
-    if (!selectedVehicleIds.length || !selectedItineraryIds.length) {
+  const handleEmbarkSubmit = async (overrideItineraryIds = null) => {
+    const itineraryIds = overrideItineraryIds || selectedItineraryIds;
+    if (!selectedVehicleIds.length || !itineraryIds.length) {
       showToast("Selecione veículos e itinerários para embarcar.", "warning");
       return;
     }
@@ -1203,7 +1427,7 @@ export default function Itineraries() {
     try {
       const response = await api.post(API_ROUTES.itineraryEmbark, {
         vehicleIds: selectedVehicleIds,
-        itineraryIds: selectedItineraryIds,
+        itineraryIds,
         clientId: tenantId ?? undefined,
       });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
@@ -1227,8 +1451,9 @@ export default function Itineraries() {
     }
   };
 
-  const handleDisembarkSubmit = async () => {
-    if (!selectedDisembarkItineraryIds.length) {
+  const handleDisembarkSubmit = async (overrideItineraryIds = null) => {
+    const itineraryIds = overrideItineraryIds || selectedDisembarkItineraryIds;
+    if (!itineraryIds.length) {
       showToast("Selecione itinerários para desembarcar.", "warning");
       return;
     }
@@ -1236,7 +1461,7 @@ export default function Itineraries() {
     try {
       const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
         vehicleIds: selectedDisembarkVehicleIds,
-        itineraryIds: selectedDisembarkItineraryIds,
+        itineraryIds,
         clientId: tenantId ?? undefined,
         options: {
           cleanup: {
@@ -1263,6 +1488,56 @@ export default function Itineraries() {
       showToast(error?.message || "Não foi possível desembarcar.", "warning");
     } finally {
       setDisembarkSending(false);
+    }
+  };
+
+  const handleEditorEmbarkSubmit = async () => {
+    let itineraryId = selectedId;
+    if (!itineraryId) {
+      const saved = await saveItinerary({ closeModal: false, allowCreateAndEmbark: false });
+      itineraryId = saved?.id || selectedId;
+    }
+    if (!itineraryId) return;
+    setSelectedItineraryIds([String(itineraryId)]);
+    await handleEmbarkSubmit([String(itineraryId)]);
+  };
+
+  const handleEditorDisembarkSubmit = async () => {
+    let itineraryId = selectedId;
+    if (!itineraryId) {
+      const saved = await saveItinerary({ closeModal: false, allowCreateAndEmbark: false });
+      itineraryId = saved?.id || selectedId;
+    }
+    if (!itineraryId) return;
+    setSelectedDisembarkItineraryIds([String(itineraryId)]);
+    await handleDisembarkSubmit([String(itineraryId)]);
+  };
+
+  const handleDisembarkAndDelete = async (itineraryId) => {
+    if (!itineraryId) return;
+    setDeleteConflictSending(true);
+    try {
+      await api.post(API_ROUTES.itineraryDisembarkBatch, {
+        vehicleIds: [],
+        itineraryIds: [String(itineraryId)],
+        clientId: tenantId ?? undefined,
+        options: {
+          cleanup: {
+            deleteGeozoneGroup: false,
+            deleteGeozones: false,
+          },
+        },
+      });
+      await api.delete(`${API_ROUTES.itineraries}/${itineraryId}`);
+      setItineraries((current) => current.filter((item) => item.id !== itineraryId));
+      if (selectedId === itineraryId) resetForm();
+      setDeleteConflict(null);
+      showToast("Itinerário desembarcado e removido.");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Não foi possível desembarcar e excluir.", "warning");
+    } finally {
+      setDeleteConflictSending(false);
     }
   };
 
@@ -1298,6 +1573,47 @@ export default function Itineraries() {
                 {toast.action.label}
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {deleteConflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 py-6">
+          <div className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f141c] p-5 shadow-2xl">
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Conflito ao excluir</p>
+            <h3 className="mt-2 text-lg font-semibold text-white">Há dispositivos embarcados</h3>
+            <p className="mt-2 text-sm text-white/60">
+              O itinerário <span className="font-semibold text-white">{deleteConflict.name}</span> ainda possui veículos embarcados.
+            </p>
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setDeleteConflict(null)}
+                disabled={deleteConflictSending}
+              >
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  const { id } = deleteConflict;
+                  setDeleteConflict(null);
+                  openDisembarkModal(id);
+                }}
+                disabled={deleteConflictSending}
+              >
+                Abrir desembarque
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => handleDisembarkAndDelete(deleteConflict.id)}
+                disabled={deleteConflictSending}
+              >
+                {deleteConflictSending ? "Processando..." : "Desembarcar e excluir"}
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -1560,6 +1876,40 @@ export default function Itineraries() {
         targetGeofences={targetGeofences}
         onLinkItem={handleLinkItem}
         onRemoveItem={handleRemoveItem}
+        vehicles={vehicles}
+        itineraries={itineraries}
+        embarkState={{
+          vehicleQuery,
+          onVehicleQueryChange: setVehicleQuery,
+          itineraryQuery,
+          onItineraryQueryChange: setItineraryQuery,
+          selectedVehicleIds,
+          onToggleVehicle: handleToggleVehicle,
+          selectedItineraryIds,
+          onToggleItinerary: handleToggleItinerary,
+          onRemoveVehicle: handleRemoveVehicle,
+          resultSummary: embarkSummary,
+          sending: embarkSending,
+        }}
+        disembarkState={{
+          vehicleQuery: disembarkVehicleQuery,
+          onVehicleQueryChange: setDisembarkVehicleQuery,
+          itineraryQuery: disembarkItineraryQuery,
+          onItineraryQueryChange: setDisembarkItineraryQuery,
+          selectedVehicleIds: selectedDisembarkVehicleIds,
+          onToggleVehicle: handleToggleDisembarkVehicle,
+          onRemoveVehicle: handleRemoveDisembarkVehicle,
+          selectedItineraryIds: selectedDisembarkItineraryIds,
+          onToggleItinerary: handleToggleDisembarkItinerary,
+          cleanupDeleteGroup,
+          onCleanupDeleteGroupChange: setCleanupDeleteGroup,
+          cleanupDeleteGeozones,
+          onCleanupDeleteGeozonesChange: setCleanupDeleteGeozones,
+          resultSummary: disembarkSummary,
+          sending: disembarkSending,
+        }}
+        onEmbarkSubmit={handleEditorEmbarkSubmit}
+        onDisembarkSubmit={handleEditorDisembarkSubmit}
       />
 
       <EmbarkModal
