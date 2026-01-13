@@ -1,5 +1,8 @@
+import createError from "http-errors";
+
 import XdmClient from "./xdm-client.js";
 import { initStorage } from "../storage.js";
+import { GEOZONE_GROUP_ROLE_LIST } from "./xdm-geozone-group-roles.js";
 
 const DEFAULT_OVERRIDE_KEY = "geoGroup";
 const DEFAULT_OVERRIDE_KEYS_BY_GROUP = {
@@ -51,30 +54,42 @@ function parseCsvEnv(value) {
     .filter(Boolean);
 }
 
+function parseOverrideIdList() {
+  return parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS);
+}
+
 function buildCacheKey({ dealerId, configName, overrideKey }) {
   return `${dealerId}:${String(configName || "").trim().toLowerCase()}:${String(overrideKey || "")
     .trim()
     .toLowerCase()}`;
 }
 
-export function getGeozoneGroupOverrideConfig({ overrideId, overrideKey, fallbackKey = DEFAULT_OVERRIDE_KEY } = {}) {
+export function getGeozoneGroupOverrideConfig({
+  overrideId,
+  overrideKey,
+  fallbackKey = DEFAULT_OVERRIDE_KEY,
+  source,
+  overrideIdSource,
+  overrideKeySource,
+} = {}) {
   const overrideIdEnv = overrideId ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
   const overrideKeyEnv = overrideKey ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
   const overrideKeyNormalized = normalizeKey(overrideKeyEnv, fallbackKey || DEFAULT_OVERRIDE_KEY);
   const rawValue = overrideIdEnv ?? overrideKeyEnv ?? fallbackKey ?? DEFAULT_OVERRIDE_KEY;
-  const source =
-    overrideIdEnv != null
-      ? "XDM_GEOZONE_GROUP_OVERRIDE_ID"
-      : overrideKeyEnv != null
-        ? "XDM_GEOZONE_GROUP_OVERRIDE_KEY"
-        : "default";
+  const resolvedSource =
+    source ??
+    (overrideIdEnv != null || overrideKeyEnv != null
+      ? "env"
+      : "default");
   const parsed = parseInt32(rawValue);
   return {
     rawValue,
     overrideId: parsed.ok ? parsed.normalized : null,
     overrideNumber: parsed.ok ? parsed.value : null,
     overrideKey: overrideKeyNormalized,
-    source,
+    source: resolvedSource,
+    overrideIdSource: overrideIdSource ?? (overrideIdEnv != null ? "env" : null),
+    overrideKeySource: overrideKeySource ?? (overrideKeyEnv != null ? "env" : null),
     isValid: parsed.ok,
   };
 }
@@ -105,23 +120,35 @@ function resolveOverrideKey(value) {
 function resolveGroupOverrideEnv(roleConfig) {
   const roleIndex = roleConfig.index;
   const listKeys = parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEYS);
-  const listIds = parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS);
-  const overrideId =
+  const listIds = parseOverrideIdList();
+  const roleOverrideId =
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_ID_${roleConfig.envKey}`] ??
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_ID_${roleIndex}`] ??
-    listIds[roleIndex - 1] ??
     null;
-  const overrideKey =
+  const overrideId = roleOverrideId ?? listIds[roleIndex - 1] ?? null;
+  const overrideIdSource = roleOverrideId != null ? "env" : listIds[roleIndex - 1] != null ? "list" : null;
+  const roleOverrideKey =
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_KEY_${roleConfig.envKey}`] ??
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_KEY_${roleIndex}`] ??
-    listKeys[roleIndex - 1] ??
     null;
+  const overrideKey = roleOverrideKey ?? listKeys[roleIndex - 1] ?? null;
+  const overrideKeySource = roleOverrideKey != null ? "env" : listKeys[roleIndex - 1] != null ? "list" : null;
 
   if (roleIndex === 1) {
+    const legacyOverrideId = overrideId ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID ?? null;
+    const legacyOverrideKey = overrideKey ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY ?? null;
     return {
-      overrideId: overrideId ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID ?? null,
-      overrideKey: overrideKey ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY ?? null,
+      overrideId: legacyOverrideId,
+      overrideKey: legacyOverrideKey,
       fallbackKey: roleConfig.fallbackKey || DEFAULT_OVERRIDE_KEY,
+      overrideIdSource:
+        legacyOverrideId == null
+          ? null
+          : overrideIdSource ?? (process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID != null ? "env" : null),
+      overrideKeySource:
+        legacyOverrideKey == null
+          ? null
+          : overrideKeySource ?? (process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY != null ? "env" : null),
     };
   }
 
@@ -129,6 +156,8 @@ function resolveGroupOverrideEnv(roleConfig) {
     overrideId,
     overrideKey,
     fallbackKey: roleConfig.fallbackKey,
+    overrideIdSource,
+    overrideKeySource,
   };
 }
 
@@ -137,8 +166,16 @@ export function getGeozoneGroupOverrideConfigByRole(role) {
   if (!roleConfig) {
     throw new Error(`Grupo de override inválido: ${role}`);
   }
-  const { overrideId, overrideKey, fallbackKey } = resolveGroupOverrideEnv(roleConfig);
-  return getGeozoneGroupOverrideConfig({ overrideId, overrideKey, fallbackKey });
+  const { overrideId, overrideKey, fallbackKey, overrideIdSource, overrideKeySource } =
+    resolveGroupOverrideEnv(roleConfig);
+  return getGeozoneGroupOverrideConfig({
+    overrideId,
+    overrideKey,
+    fallbackKey,
+    source: overrideIdSource || overrideKeySource || null,
+    overrideIdSource,
+    overrideKeySource,
+  });
 }
 
 function findMatchingTemplate(results, configName) {
@@ -292,7 +329,9 @@ export async function resolveGeozoneGroupOverrideElementId({ correlationId, over
       overrideId: config.overrideId,
       overrideNumber: config.overrideNumber,
       overrideKey: config.overrideKey,
-      source: "env",
+      source: config.source || "env",
+      overrideIdSource: config.overrideIdSource || config.source || "env",
+      overrideKeySource: config.overrideKeySource || config.source || "env",
       configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
       dealerId: process.env.XDM_DEALER_ID || null,
     };
@@ -400,10 +439,99 @@ export async function ensureGeozoneGroupOverrideId({ correlationId, overrideId, 
   return resolved;
 }
 
+function buildOverrideValidationError({ message, status = 400, details }) {
+  const error = createError(status, message);
+  error.expose = true;
+  error.code = "XDM_OVERRIDE_VALIDATION_FAILED";
+  error.details = details || null;
+  return error;
+}
+
+function formatOverrideRoleDetails({ roleKey, config, groupIds }) {
+  return {
+    role: roleKey,
+    overrideId: config?.overrideId ?? null,
+    overrideKey: config?.overrideKey ?? null,
+    overrideSource: config?.source ?? null,
+    overrideIdSource: config?.overrideIdSource ?? null,
+    overrideKeySource: config?.overrideKeySource ?? null,
+    groupId: groupIds?.[roleKey] ?? null,
+  };
+}
+
+export async function resolveGeozoneGroupOverrideConfigs({ correlationId } = {}) {
+  const configs = {};
+  for (const role of GEOZONE_GROUP_ROLE_LIST) {
+    const baseConfig = getGeozoneGroupOverrideConfigByRole(role.key);
+    const resolved = await ensureGeozoneGroupOverrideId({
+      correlationId,
+      overrideId: baseConfig.overrideId,
+      overrideKey: baseConfig.overrideKey,
+    });
+    configs[role.key] = {
+      ...resolved,
+      overrideIdSource: baseConfig.overrideIdSource || resolved.overrideIdSource || resolved.source || null,
+      overrideKeySource: baseConfig.overrideKeySource || resolved.overrideKeySource || null,
+    };
+  }
+  return configs;
+}
+
+export function validateGeozoneGroupOverrideConfigs({ configs, correlationId, groupIds } = {}) {
+  const listIds = parseOverrideIdList();
+  if (listIds.length) {
+    console.info("[xdm] override list resolved", {
+      correlationId,
+      overrideIds: listIds,
+    });
+    if (listIds.length !== 3) {
+      throw buildOverrideValidationError({
+        message: "XDM_GEOZONE_GROUP_OVERRIDE_IDS deve conter 3 IDs na ordem itinerary, targets, entry.",
+        details: { correlationId, overrideIds: listIds },
+      });
+    }
+    const invalidList = listIds.filter((entry) => !parseInt32(entry).ok);
+    if (invalidList.length) {
+      throw buildOverrideValidationError({
+        message: "XDM_GEOZONE_GROUP_OVERRIDE_IDS contém valores inválidos (int32).",
+        details: { correlationId, overrideIds: listIds },
+      });
+    }
+  }
+
+  const roles = GEOZONE_GROUP_ROLE_LIST.map((role) => role.key);
+  const resolvedEntries = roles.map((roleKey) =>
+    formatOverrideRoleDetails({ roleKey, config: configs?.[roleKey], groupIds }),
+  );
+
+  const missing = resolvedEntries.filter((entry) => !entry.overrideId || !isInt32(Number(entry.overrideId)));
+  if (missing.length) {
+    throw buildOverrideValidationError({
+      message: "Overrides do XDM inválidos para geozone group (IDs ausentes ou fora de int32).",
+      details: { correlationId, roles: resolvedEntries },
+    });
+  }
+
+  const seen = new Map();
+  for (const entry of resolvedEntries) {
+    const key = String(entry.overrideId);
+    const existing = seen.get(key);
+    if (existing) {
+      throw buildOverrideValidationError({
+        message: "Overrides do XDM devem ser únicos por role (IDs repetidos).",
+        details: { correlationId, roles: resolvedEntries },
+      });
+    }
+    seen.set(key, entry.role);
+  }
+}
+
 export default {
   getGeozoneGroupOverrideConfig,
   getGeozoneGroupOverrideConfigByRole,
   resolveGeozoneGroupOverrideElementId,
   discoverGeozoneGroupOverrideElementId,
   ensureGeozoneGroupOverrideId,
+  resolveGeozoneGroupOverrideConfigs,
+  validateGeozoneGroupOverrideConfigs,
 };
