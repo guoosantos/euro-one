@@ -10,10 +10,15 @@ const DEFAULT_OVERRIDE_KEYS_BY_GROUP = {
   targets: "geoGroup2",
   entry: "geoGroup3",
 };
+const XG37_OVERRIDE_KEYS_BY_GROUP = {
+  itinerary: "Itinerario",
+  targets: "Alvos",
+  entry: "Entrada",
+};
 const GROUP_OVERRIDE_CONFIG = {
-  itinerary: { index: 1, envKey: "ITINERARY", fallbackKey: DEFAULT_OVERRIDE_KEYS_BY_GROUP.itinerary },
-  targets: { index: 2, envKey: "TARGETS", fallbackKey: DEFAULT_OVERRIDE_KEYS_BY_GROUP.targets },
-  entry: { index: 3, envKey: "ENTRY", fallbackKey: DEFAULT_OVERRIDE_KEYS_BY_GROUP.entry },
+  itinerary: { index: 1, envKey: "ITINERARY" },
+  targets: { index: 2, envKey: "TARGETS" },
+  entry: { index: 3, envKey: "ENTRY" },
 };
 const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
@@ -56,6 +61,33 @@ function parseCsvEnv(value) {
 
 function parseOverrideIdList() {
   return parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS);
+}
+
+function normalizeConfigName(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isXg37EuroConfigName(value) {
+  const normalized = normalizeConfigName(value);
+  if (!normalized) return false;
+  return normalized.includes("xg37") && normalized.includes("euro");
+}
+
+function resolveFallbackKeyForRole(roleKey) {
+  const configName = process.env.XDM_CONFIG_NAME || "";
+  const xg37Fallback = isXg37EuroConfigName(configName)
+    ? XG37_OVERRIDE_KEYS_BY_GROUP[roleKey]
+    : null;
+  return xg37Fallback || DEFAULT_OVERRIDE_KEYS_BY_GROUP[roleKey] || DEFAULT_OVERRIDE_KEY;
+}
+
+function resolveFallbackKeyCandidates(roleKey) {
+  const fallback = DEFAULT_OVERRIDE_KEYS_BY_GROUP[roleKey] || DEFAULT_OVERRIDE_KEY;
+  const xg37 = XG37_OVERRIDE_KEYS_BY_GROUP[roleKey];
+  const configName = process.env.XDM_CONFIG_NAME || "";
+  const preferXg37 = isXg37EuroConfigName(configName);
+  const ordered = preferXg37 ? [xg37, fallback] : [fallback, xg37];
+  return ordered.filter(Boolean);
 }
 
 function buildCacheKey({ dealerId, configName, overrideKey }) {
@@ -144,7 +176,7 @@ function resolveGroupOverrideEnv(roleConfig) {
     return {
       overrideId: legacyOverrideId,
       overrideKey: legacyOverrideKey,
-      fallbackKey: roleConfig.fallbackKey || DEFAULT_OVERRIDE_KEY,
+      fallbackKey: resolveFallbackKeyForRole("itinerary"),
       allowLegacyFallback: true,
       overrideIdSource:
         legacyOverrideId == null
@@ -160,7 +192,7 @@ function resolveGroupOverrideEnv(roleConfig) {
   return {
     overrideId,
     overrideKey,
-    fallbackKey: roleConfig.fallbackKey,
+    fallbackKey: resolveFallbackKeyForRole(roleConfig.envKey.toLowerCase()),
     allowLegacyFallback: false,
     overrideIdSource,
     overrideKeySource,
@@ -518,33 +550,14 @@ async function discoverOverrideElementIdWithRetry({ configName, dealerId, overri
   throw lastError;
 }
 
-export async function resolveGeozoneGroupOverrideElementId({
+async function resolveOverrideElementIdFromDiscovery({
+  configName,
+  dealerId,
+  overrideKeyResolved,
   correlationId,
-  overrideId,
-  overrideKey,
-  allowLegacyFallback = true,
   roleKey,
 } = {}) {
-  const config = getGeozoneGroupOverrideConfig({ overrideId, overrideKey, allowLegacyFallback });
-  if (config.isValid) {
-    return {
-      overrideId: config.overrideId,
-      overrideNumber: config.overrideNumber,
-      overrideKey: config.overrideKey,
-      source: config.source || "env",
-      overrideIdSource: config.overrideIdSource || config.source || "env",
-      overrideKeySource: config.overrideKeySource || config.source || "env",
-      configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
-      dealerId: process.env.XDM_DEALER_ID || null,
-      discoveryMode: null,
-    };
-  }
-
-  const dealerId = resolveDealerId();
-  const configName = resolveConfigName();
-  const overrideKeyResolved = resolveOverrideKey(config.overrideKey);
   const cacheKey = buildCacheKey({ dealerId, configName, overrideKey: overrideKeyResolved });
-
   if (discoveryCache.has(cacheKey)) {
     return discoveryCache.get(cacheKey);
   }
@@ -602,6 +615,56 @@ export async function resolveGeozoneGroupOverrideElementId({
 
   discoveryCache.set(cacheKey, guarded);
   return guarded;
+}
+
+export async function resolveGeozoneGroupOverrideElementId({
+  correlationId,
+  overrideId,
+  overrideKey,
+  allowLegacyFallback = true,
+  roleKey,
+} = {}) {
+  const config = getGeozoneGroupOverrideConfig({ overrideId, overrideKey, allowLegacyFallback });
+  if (config.isValid) {
+    return {
+      overrideId: config.overrideId,
+      overrideNumber: config.overrideNumber,
+      overrideKey: config.overrideKey,
+      source: config.source || "env",
+      overrideIdSource: config.overrideIdSource || config.source || "env",
+      overrideKeySource: config.overrideKeySource || config.source || "env",
+      configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
+      dealerId: process.env.XDM_DEALER_ID || null,
+      discoveryMode: null,
+    };
+  }
+
+  const dealerId = resolveDealerId();
+  const configName = resolveConfigName();
+  const overrideKeyResolved = resolveOverrideKey(config.overrideKey);
+  const candidates = new Set([overrideKeyResolved, ...resolveFallbackKeyCandidates(roleKey)]);
+  const attempts = Array.from(candidates).filter(Boolean);
+  const errors = [];
+
+  for (const candidate of attempts) {
+    try {
+      return await resolveOverrideElementIdFromDiscovery({
+        configName,
+        dealerId,
+        overrideKeyResolved: candidate,
+        correlationId,
+        roleKey,
+      });
+    } catch (error) {
+      errors.push({ overrideKey: candidate, message: error?.message || String(error) });
+    }
+  }
+
+  const attempted = attempts.join(", ");
+  const last = errors[errors.length - 1];
+  throw new Error(
+    `Override "${overrideKeyResolved}" não encontrado na configuração "${configName}". Tentativas: ${attempted}. Último erro: ${last?.message || "desconhecido"}`,
+  );
 }
 
 export async function discoverGeozoneGroupOverrideElementId({ correlationId, overrideKey, roleKey } = {}) {

@@ -320,14 +320,14 @@ function buildXdmName({ clientId, clientDisplayName, routeId, routeName, withSuf
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedRoute = sanitizeFriendlyName(routeName) || "Rota";
-    const suffix = withSuffix ? buildShortIdSuffix(routeId) : "";
+    const suffix = [withSuffix ? buildShortIdSuffix(routeId) : null, "ITINERARIO"].filter(Boolean).join(" ");
     const friendly = buildFriendlyNameWithSuffix([resolvedClient, resolvedRoute], { maxLen: maxNameLength, suffix });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const safeRouteId = sanitizeName(routeId) || "ROUTE";
   const safeName = sanitizeName(routeName) || "ROUTE";
-  return `EUROONE_${safeClient}_${safeRouteId}_ROUTE_${safeName}`;
+  return `EUROONE_${safeClient}_${safeRouteId}_ROUTE_${safeName}_ITINERARIO`;
 }
 
 async function updateGeozoneName({ xdmGeozoneId, name, correlationId }) {
