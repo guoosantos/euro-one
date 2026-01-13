@@ -1518,23 +1518,21 @@ export default function Itineraries() {
   };
 
   const handleEditorEmbarkSubmit = async () => {
-    let itineraryId = selectedId;
+    const itineraryId = selectedId;
     if (!itineraryId) {
-      const saved = await saveItinerary({ closeModal: false, allowCreateAndEmbark: false });
-      itineraryId = saved?.id || selectedId;
+      showToast("Salve o itinerário antes de embarcar.", "warning");
+      return;
     }
-    if (!itineraryId) return;
     setSelectedItineraryIds([String(itineraryId)]);
     await handleEmbarkSubmit([String(itineraryId)]);
   };
 
   const handleEditorDisembarkSubmit = async () => {
-    let itineraryId = selectedId;
+    const itineraryId = selectedId;
     if (!itineraryId) {
-      const saved = await saveItinerary({ closeModal: false, allowCreateAndEmbark: false });
-      itineraryId = saved?.id || selectedId;
+      showToast("Salve o itinerário antes de desembarcar.", "warning");
+      return;
     }
-    if (!itineraryId) return;
     setSelectedDisembarkItineraryIds([String(itineraryId)]);
     await handleDisembarkSubmit([String(itineraryId)]);
   };

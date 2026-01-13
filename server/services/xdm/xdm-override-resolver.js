@@ -71,9 +71,12 @@ export function getGeozoneGroupOverrideConfig({
   source,
   overrideIdSource,
   overrideKeySource,
+  allowLegacyFallback = true,
 } = {}) {
-  const overrideIdEnv = overrideId ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
-  const overrideKeyEnv = overrideKey ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  const legacyOverrideId = allowLegacyFallback ? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID : null;
+  const legacyOverrideKey = allowLegacyFallback ? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY : null;
+  const overrideIdEnv = overrideId ?? legacyOverrideId;
+  const overrideKeyEnv = overrideKey ?? legacyOverrideKey;
   const overrideKeyNormalized = normalizeKey(overrideKeyEnv, fallbackKey || DEFAULT_OVERRIDE_KEY);
   const rawValue = overrideIdEnv ?? overrideKeyEnv ?? fallbackKey ?? DEFAULT_OVERRIDE_KEY;
   const resolvedSource =
@@ -91,6 +94,7 @@ export function getGeozoneGroupOverrideConfig({
     overrideIdSource: overrideIdSource ?? (overrideIdEnv != null ? "env" : null),
     overrideKeySource: overrideKeySource ?? (overrideKeyEnv != null ? "env" : null),
     isValid: parsed.ok,
+    allowLegacyFallback,
   };
 }
 
@@ -141,6 +145,7 @@ function resolveGroupOverrideEnv(roleConfig) {
       overrideId: legacyOverrideId,
       overrideKey: legacyOverrideKey,
       fallbackKey: roleConfig.fallbackKey || DEFAULT_OVERRIDE_KEY,
+      allowLegacyFallback: true,
       overrideIdSource:
         legacyOverrideId == null
           ? null
@@ -156,6 +161,7 @@ function resolveGroupOverrideEnv(roleConfig) {
     overrideId,
     overrideKey,
     fallbackKey: roleConfig.fallbackKey,
+    allowLegacyFallback: false,
     overrideIdSource,
     overrideKeySource,
   };
@@ -166,7 +172,7 @@ export function getGeozoneGroupOverrideConfigByRole(role) {
   if (!roleConfig) {
     throw new Error(`Grupo de override inválido: ${role}`);
   }
-  const { overrideId, overrideKey, fallbackKey, overrideIdSource, overrideKeySource } =
+  const { overrideId, overrideKey, fallbackKey, overrideIdSource, overrideKeySource, allowLegacyFallback } =
     resolveGroupOverrideEnv(roleConfig);
   return getGeozoneGroupOverrideConfig({
     overrideId,
@@ -175,6 +181,7 @@ export function getGeozoneGroupOverrideConfigByRole(role) {
     source: overrideIdSource || overrideKeySource || null,
     overrideIdSource,
     overrideKeySource,
+    allowLegacyFallback,
   });
 }
 
@@ -322,8 +329,13 @@ async function discoverOverrideElementIdWithRetry({ configName, dealerId, overri
   throw lastError;
 }
 
-export async function resolveGeozoneGroupOverrideElementId({ correlationId, overrideId, overrideKey } = {}) {
-  const config = getGeozoneGroupOverrideConfig({ overrideId, overrideKey });
+export async function resolveGeozoneGroupOverrideElementId({
+  correlationId,
+  overrideId,
+  overrideKey,
+  allowLegacyFallback = true,
+} = {}) {
+  const config = getGeozoneGroupOverrideConfig({ overrideId, overrideKey, allowLegacyFallback });
   if (config.isValid) {
     return {
       overrideId: config.overrideId,
@@ -429,8 +441,18 @@ export async function discoverGeozoneGroupOverrideElementId({ correlationId, ove
   };
 }
 
-export async function ensureGeozoneGroupOverrideId({ correlationId, overrideId, overrideKey } = {}) {
-  const resolved = await resolveGeozoneGroupOverrideElementId({ correlationId, overrideId, overrideKey });
+export async function ensureGeozoneGroupOverrideId({
+  correlationId,
+  overrideId,
+  overrideKey,
+  allowLegacyFallback = true,
+} = {}) {
+  const resolved = await resolveGeozoneGroupOverrideElementId({
+    correlationId,
+    overrideId,
+    overrideKey,
+    allowLegacyFallback,
+  });
   if (!resolved?.overrideId) {
     throw new Error(
       "Não foi possível determinar o override do geozone group. Rode: node server/scripts/xdm-discover-override-element.js",
@@ -467,6 +489,7 @@ export async function resolveGeozoneGroupOverrideConfigs({ correlationId } = {})
       correlationId,
       overrideId: baseConfig.overrideId,
       overrideKey: baseConfig.overrideKey,
+      allowLegacyFallback: baseConfig.allowLegacyFallback ?? false,
     });
     configs[role.key] = {
       ...resolved,

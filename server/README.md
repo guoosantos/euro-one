@@ -46,10 +46,11 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_OAUTH_AUDIENCE`: audience OAuth2 opcional (enviado no token request).
   - `XDM_DEALER_ID`: dealerId exigido para criação/atualização de Geozone Groups.
   - `XDM_CONFIG_ID` **ou** `XDM_CONFIG_NAME`: configuração base a ser aplicada no deploy.
-  - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: **obrigatório**. ID numérico (int32) do override que aponta para o Geozone Group (ex.: `1234`).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: **legado**. ID numérico (int32) do override que aponta para o Geozone Group (ex.: `1234`).
+    - Válido apenas para o grupo de Itinerário (slot 1). Para Targets/Entry, use IDs dedicados por role.
     - O `overrideId` representa o campo/configuração na base do XDM e costuma ser o mesmo para todos os devices da mesma config.
     - O `geozoneGroupId` é o valor aplicado no override (ID do grupo no XDM) e varia conforme o itinerário.
-  - Para múltiplos grupos (Itinerário/Alvos/Entrada), é possível definir overrides dedicados (prioridade por role):
+  - Para múltiplos grupos (Itinerário/Alvos/Entrada), defina overrides dedicados (prioridade por role):
     - `XDM_GEOZONE_GROUP_OVERRIDE_ID_ITINERARY`, `XDM_GEOZONE_GROUP_OVERRIDE_ID_TARGETS`, `XDM_GEOZONE_GROUP_OVERRIDE_ID_ENTRY`
     - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY`
     - Alternativamente, use listas ordenadas por índice: `XDM_GEOZONE_GROUP_OVERRIDE_IDS="123,456,789"` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS="geoGroup1,geoGroup2,geoGroup3"`.
