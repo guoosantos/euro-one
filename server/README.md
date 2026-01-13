@@ -56,8 +56,9 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
     - Alternativamente, use listas ordenadas por índice: `XDM_GEOZONE_GROUP_OVERRIDE_IDS="123,456,789"` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS="geoGroup1,geoGroup2,geoGroup3"`.
       - **Ordem obrigatória**: `itinerary`, `targets`, `entry` (3 IDs únicos e int32).
     - Para o template `XG37 common settings V5 - EURO`, os nomes esperados são `Itinerario`, `Alvos`, `Entrada`.
-      - Se os nomes não forem definidos via env, o resolver tenta em cascata (`geoGroup1/2/3` → `Itinerario/Alvos/Entrada`, ou inverso quando `XDM_CONFIG_NAME` contém XG37/EURO).
-  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`; o valor **precisa** ser numérico.
+      - Para evitar lookup em `geoGroup2/3`, defina sempre as chaves por role (prioridade máxima).
+      - Se os nomes não forem definidos via env, o resolver tenta em cascata (primeiro `Itinerario/Alvos/Entrada` quando `XDM_CONFIG_NAME` contém XG37/EURO, depois `geoGroup1/2/3`).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`/keys por role.
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
   - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).

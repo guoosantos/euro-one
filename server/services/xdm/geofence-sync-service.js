@@ -4,7 +4,7 @@ import { buildGeofencesKml, approximateCirclePoints } from "../../utils/kml.js";
 import { getGeofenceById, listGeofences } from "../../models/geofence.js";
 import { getGeofenceMapping, upsertGeofenceMapping } from "../../models/xdm-geofence.js";
 import XdmClient from "./xdm-client.js";
-import { wrapXdmError } from "./xdm-error.js";
+import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
 import {
   buildFriendlyNameWithSuffix,
   buildShortIdSuffix,
@@ -99,6 +99,23 @@ async function updateGeozoneName({ xdmGeofenceId, name, correlationId }) {
       { correlationId },
     );
   } catch (error) {
+    if (isNoPermissionError(error)) {
+      logNoPermissionDiagnostics({
+        error,
+        correlationId,
+        method: "PUT",
+        path: `/api/external/v1/geozones/${normalizedId}`,
+      });
+    }
+    console.error("[xdm] falha ao atualizar nome da geofence", {
+      correlationId,
+      xdmGeozoneId: normalizedId,
+      name,
+      status: error?.status || error?.statusCode || null,
+      response: error?.details?.response || null,
+      responseSample: error?.details?.responseSample || null,
+      message: error?.message || error,
+    });
     throw wrapXdmError(error, {
       step: "updateGeofenceName",
       correlationId,

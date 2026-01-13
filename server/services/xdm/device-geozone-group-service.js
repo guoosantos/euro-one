@@ -80,7 +80,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
   );
   const xdmClient = new XdmClient();
   try {
-    await xdmClient.request(
+    const response = await xdmClient.request(
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
@@ -88,13 +88,19 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       },
       { correlationId },
     );
-    console.info("[xdm] apply geozone group overrides", {
-      correlationId,
-      deviceId: normalizedDeviceUid,
-      overrideIds: Object.keys(entries),
-      roles: roleDetails || null,
-      status: "ok",
-    });
+    const details = Array.isArray(roleDetails) ? roleDetails : [];
+    for (const detail of details) {
+      console.info("[xdm] apply geozone group override", {
+        correlationId,
+        deviceUid: normalizedDeviceUid,
+        role: detail.role,
+        groupId: detail.groupId ?? null,
+        overrideId: detail.overrideId ?? null,
+        overrideKey: detail.overrideKey ?? null,
+        response,
+        status: "ok",
+      });
+    }
   } catch (error) {
     console.error("[xdm] falha ao aplicar overrides do geozone group", {
       correlationId,
