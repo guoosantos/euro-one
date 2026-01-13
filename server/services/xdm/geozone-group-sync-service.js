@@ -60,6 +60,7 @@ function buildGroupName({
   groupLabel = null,
 }) {
   const { friendlyNamesEnabled, maxNameLength } = resolveXdmNameConfig();
+  const prefix = "EURO ST";
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const fallbackItinerary =
@@ -67,7 +68,7 @@ function buildGroupName({
     const resolvedItinerary = sanitizeFriendlyName(itineraryName) || fallbackItinerary;
     const suffixToken = withSuffix ? buildShortIdSuffix(itineraryId) : "";
     const groupSuffix = [groupLabel, suffixToken].filter(Boolean).join(" ").trim();
-    const friendly = buildFriendlyNameWithSuffix([resolvedClient, resolvedItinerary], {
+    const friendly = buildFriendlyNameWithSuffix([prefix, resolvedClient, resolvedItinerary], {
       maxLen: maxNameLength,
       suffix: groupSuffix,
     });
@@ -78,20 +79,21 @@ function buildGroupName({
   const safeItinerary = sanitizeName(itineraryName) || "ITINERARIO";
   const suffix = withSuffix ? buildShortIdSuffix(itineraryId) : "";
   const safeLabel = sanitizeName(groupLabel) || "GROUP";
-  return `EUROONE_${safeClient}_${safeItineraryId}_GROUP_${safeItinerary}_${safeLabel}${suffix ? `_${suffix}` : ""}`;
+  return `EURO_ST_${safeClient}_${safeItineraryId}_GROUP_${safeItinerary}_${safeLabel}${suffix ? `_${suffix}` : ""}`;
 }
 
 function buildScopedGroupName({ clientId, clientDisplayName, scopeId }) {
   const { friendlyNamesEnabled, maxNameLength } = resolveXdmNameConfig();
+  const prefix = "EURO ST";
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedScope = sanitizeFriendlyName(scopeId) || "Geozone Group";
-    const friendly = buildFriendlyName([resolvedClient, resolvedScope], { maxLen: maxNameLength });
+    const friendly = buildFriendlyName([prefix, resolvedClient, resolvedScope], { maxLen: maxNameLength });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const safeScope = sanitizeName(scopeId) || "SCOPE";
-  return `EUROONE_${safeClient}_${safeScope}_GEOZONEGROUP`;
+  return `EURO_ST_${safeClient}_${safeScope}_GEOZONEGROUP`;
 }
 
 function buildGroupHash(geofenceEntries = []) {
