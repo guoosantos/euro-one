@@ -914,6 +914,13 @@ export function validateGeozoneGroupOverrideConfigs({ configs, correlationId, gr
       details: { correlationId, roles: resolvedEntries },
     });
   }
+  const missingKeys = resolvedEntries.filter((entry) => !entry.overrideKey || !String(entry.overrideKey).trim());
+  if (missingKeys.length) {
+    throw buildOverrideValidationError({
+      message: "Overrides do XDM inválidos para geozone group (overrideKey ausente).",
+      details: { correlationId, roles: resolvedEntries },
+    });
+  }
 
   const seen = new Map();
   for (const entry of resolvedEntries) {

@@ -144,7 +144,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        modified,
+        Overrides: modified,
       },
       { correlationId },
     );
@@ -201,7 +201,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       payloadSample: {
         deviceUid: normalizedDeviceUid,
         overrides,
-        modified: buildSettingsOverridesModified(overrides),
+        Overrides: buildSettingsOverridesModified(overrides),
         roles: GEOZONE_GROUP_ROLE_LIST.map((role) => ({
           role: role.key,
           overrideId: overrideConfigs?.[role.key]?.overrideId ?? null,
