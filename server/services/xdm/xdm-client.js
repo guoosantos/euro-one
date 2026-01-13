@@ -208,7 +208,7 @@ export class XdmClient {
     }
   }
 
-  async request(method, path, body, { headers = {}, correlationId, includeStatus = false } = {}) {
+  async request(method, path, body, { headers = {}, correlationId } = {}) {
     this.ensureConfigured();
     const url = `${this.baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
     let attempt = 0;
@@ -297,10 +297,6 @@ export class XdmClient {
           durationMs,
           tokenHash,
         });
-
-        if (includeStatus) {
-          return { status: response.status, data: responseBody };
-        }
 
         return responseBody;
       } finally {

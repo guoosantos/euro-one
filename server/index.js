@@ -5,13 +5,8 @@ import { WebSocketServer, WebSocket } from "ws";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
-import {
-  getGeozoneGroupOverrideConfig,
-  getGeozoneGroupOverrideConfigByRole,
-  validateGroupOverrideMappings,
-} from "./services/xdm/xdm-override-resolver.js";
+import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
 import { extractToken } from "./middleware/auth.js";
-import { GEOZONE_GROUP_ROLE_LIST } from "./services/xdm/xdm-geozone-group-roles.js";
 
 const logErrorStack = (label, error) => {
   console.error(label, {
@@ -104,25 +99,6 @@ async function bootstrapServer() {
     console.info("[startup] XDM override config", overrideLogPayload);
   } else {
     console.warn("[startup] XDM override config inválido", overrideLogPayload);
-  }
-
-  try {
-    validateGroupOverrideMappings();
-  } catch (error) {
-    logErrorStack("[startup] XDM geozone group override inválido", error);
-    throw error;
-  }
-
-  for (const role of GEOZONE_GROUP_ROLE_LIST) {
-    const roleConfig = getGeozoneGroupOverrideConfigByRole(role.key);
-    console.info("[startup] XDM override role config", {
-      role: role.key,
-      overrideId: roleConfig.overrideId,
-      overrideIdValid: roleConfig.isValid,
-      overrideKey: roleConfig.overrideKey,
-      overrideSource: roleConfig.source,
-      overrideRaw: roleConfig.rawValue,
-    });
   }
 
   const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
