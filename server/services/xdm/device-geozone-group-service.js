@@ -90,6 +90,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       correlationId,
       deviceId: normalizedDeviceUid,
       overrideIds: Object.keys(entries),
+      roles: roleDetails || null,
       status: "ok",
     });
   } catch (error) {

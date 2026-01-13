@@ -590,14 +590,14 @@ export default function RoutesPage() {
     addressSearch?.resetSuggestions?.();
   }, [addressSearch?.resetSuggestions]);
 
-  const loadRoutes = useCallback(async () => {
+  const loadRoutes = useCallback(async ({ updateDraft = true } = {}) => {
     setLoadingRoutes(true);
     try {
       const response = await api.get(API_ROUTES.routes);
       const list = response?.data?.data || response?.data?.routes || response?.data || [];
       const normalised = (Array.isArray(list) ? list : []).map(withWaypoints);
       setRoutes(normalised);
-      if (normalised[0] && !activeRouteId) {
+      if (updateDraft && normalised[0] && !activeRouteId) {
         setDraftRoute(normalised[0]);
         setBaselineRoute(normalised[0]);
         setActiveRouteId(normalised[0].id);
@@ -650,13 +650,16 @@ export default function RoutesPage() {
         setDraftRoute(saved);
         setBaselineRoute(saved);
         setActiveRouteId(saved.id || null);
+        if (!shouldUpdate) {
+          await loadRoutes({ updateDraft: false });
+        }
         showToast("Rota salva com sucesso.");
         return saved;
       } finally {
         setSaving(false);
       }
     },
-    [activeRouteId, draftRoute, routes, showToast, waypoints],
+    [activeRouteId, draftRoute, loadRoutes, routes, showToast, waypoints],
   );
 
   const handleSave = async () => {
