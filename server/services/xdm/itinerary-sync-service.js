@@ -5,6 +5,8 @@ import { getGeofenceMapping, removeGeofenceMapping } from "../../models/xdm-geof
 import {
   getGeozoneGroupMapping,
   removeGeozoneGroupMapping,
+  getGeozoneGroupMappingByScope,
+  removeGeozoneGroupMappingByScope,
 } from "../../models/xdm-geozone-group.js";
 import {
   getRouteGeozoneMapping,
@@ -14,6 +16,7 @@ import { getClientById } from "../../models/client.js";
 import { normalizeXdmId } from "./xdm-utils.js";
 import { wrapXdmError, isNoPermissionError, logNoPermissionDiagnostics } from "./xdm-error.js";
 import { fallbackClientDisplayName } from "./xdm-name-utils.js";
+import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupScopeKey } from "./xdm-geozone-group-roles.js";
 
 function buildItemKey(item) {
   return `${item.type}:${item.id}`;
@@ -198,6 +201,7 @@ export async function syncItineraryXdm(itineraryId, { clientId, correlationId, g
   const updated = updateItinerary(itinerary.id, {
     items: mergedItems,
     xdmGeozoneGroupId: syncResult.xdmGeozoneGroupId,
+    xdmGeozoneGroupIds: syncResult.groupIds || null,
     xdmGeozoneIds: syncResult.xdmGeozoneIds || itinerary.xdmGeozoneIds || null,
     xdmSyncStatus: hasWarnings ? "SYNCED_WITH_WARNINGS" : "OK",
     xdmLastSyncError: hasWarnings ? syncResult.warnings.join("; ") : null,
@@ -236,10 +240,52 @@ export async function deleteItineraryGeozoneGroup({ itineraryId, clientId, corre
   }
 }
 
+export async function deleteItineraryGeozoneGroups({ itineraryId, clientId, correlationId }) {
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) return;
+  const scopedMappings = GEOZONE_GROUP_ROLE_LIST.map((role) => ({
+    role,
+    mapping: getGeozoneGroupMappingByScope({
+      scopeKey: buildItineraryGroupScopeKey(itineraryId, role.key),
+      clientId,
+    }),
+  }));
+
+  await Promise.all(
+    scopedMappings.map(async ({ role, mapping }) => {
+      const groupId =
+        role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key
+          ? itinerary?.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null
+          : mapping?.xdmGeozoneGroupId || null;
+      if (!groupId) {
+        removeGeozoneGroupMappingByScope({ scopeKey: buildItineraryGroupScopeKey(itineraryId, role.key), clientId });
+        return;
+      }
+      try {
+        const normalized = normalizeXdmId(groupId, { context: "delete geozone group" });
+        const xdmClient = new XdmClient();
+        await xdmClient.request("DELETE", `/api/external/v1/geozonegroups/${normalized}`, null, { correlationId });
+      } catch (error) {
+        throw wrapXdmError(error, {
+          step: "deleteGroup",
+          correlationId,
+          payloadSample: { itineraryId, clientId, xdmGeozoneGroupId: groupId },
+        });
+      } finally {
+        if (role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key) {
+          removeGeozoneGroupMapping({ itineraryId, clientId });
+        }
+        removeGeozoneGroupMappingByScope({ scopeKey: buildItineraryGroupScopeKey(itineraryId, role.key), clientId });
+      }
+    }),
+  );
+}
+
 export default {
   syncItineraryXdm,
   diffRemovedItems,
   cleanupGeozoneForItem,
   cleanupGeozoneForItemWithReport,
   deleteItineraryGeozoneGroup,
+  deleteItineraryGeozoneGroups,
 };

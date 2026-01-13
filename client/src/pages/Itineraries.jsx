@@ -434,6 +434,8 @@ function ItineraryModal({
               onVehicleQueryChange={embarkState.onVehicleQueryChange}
               itineraryQuery={embarkState.itineraryQuery}
               onItineraryQueryChange={embarkState.onItineraryQueryChange}
+              bufferMeters={embarkState.bufferMeters}
+              onBufferMetersChange={embarkState.onBufferMetersChange}
               selectedVehicleIds={embarkState.selectedVehicleIds}
               onToggleVehicle={embarkState.onToggleVehicle}
               selectedItineraryIds={embarkState.selectedItineraryIds}
@@ -507,6 +509,8 @@ function EmbarkContent({
   onVehicleQueryChange,
   itineraryQuery,
   onItineraryQueryChange,
+  bufferMeters,
+  onBufferMetersChange,
   selectedVehicleIds,
   onToggleVehicle,
   selectedItineraryIds,
@@ -546,7 +550,7 @@ function EmbarkContent({
         <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
           {[
             { key: "vehicles", label: "Veículos" },
-            { key: "itineraries", label: "Embarcar itinerário" },
+            { key: "itineraries", label: "Itinerários" },
           ].map((tab) => (
             <button
               key={tab.key}
@@ -644,6 +648,18 @@ function EmbarkContent({
         {activeTab === "itineraries" && (
           <div className="space-y-3">
             <Input
+              label="Largura do corredor (m)"
+              type="number"
+              min="10"
+              step="10"
+              value={bufferMeters ?? 150}
+              onChange={(event) => {
+                const rawValue = event.target.value;
+                const parsed = rawValue === "" ? null : Number(rawValue);
+                onBufferMetersChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 150);
+              }}
+            />
+            <Input
               placeholder="Buscar itinerário"
               value={itineraryQuery}
               onChange={(event) => onItineraryQueryChange(event.target.value)}
@@ -699,6 +715,8 @@ function EmbarkModal({
   onVehicleQueryChange,
   itineraryQuery,
   onItineraryQueryChange,
+  bufferMeters,
+  onBufferMetersChange,
   selectedVehicleIds,
   onToggleVehicle,
   selectedItineraryIds,
@@ -743,6 +761,8 @@ function EmbarkModal({
           onVehicleQueryChange={onVehicleQueryChange}
           itineraryQuery={itineraryQuery}
           onItineraryQueryChange={onItineraryQueryChange}
+          bufferMeters={bufferMeters}
+          onBufferMetersChange={onBufferMetersChange}
           selectedVehicleIds={selectedVehicleIds}
           onToggleVehicle={onToggleVehicle}
           selectedItineraryIds={selectedItineraryIds}
@@ -1091,6 +1111,7 @@ export default function Itineraries() {
   const [selectedItineraryIds, setSelectedItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
   const [embarkSummary, setEmbarkSummary] = useState(null);
+  const [embarkBufferMeters, setEmbarkBufferMeters] = useState(150);
   const [disembarkSending, setDisembarkSending] = useState(false);
   const [disembarkVehicleQuery, setDisembarkVehicleQuery] = useState("");
   const [disembarkItineraryQuery, setDisembarkItineraryQuery] = useState("");
@@ -1206,6 +1227,7 @@ export default function Itineraries() {
     setSelectedVehicleIds([]);
     setSelectedItineraryIds([]);
     setEmbarkSummary(null);
+    setEmbarkBufferMeters(150);
   }, []);
 
   const resetDisembarkForm = useCallback(() => {
@@ -1283,14 +1305,17 @@ export default function Itineraries() {
       const saved = response?.data?.data || payload;
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
-      if (closeModal) {
+      if (closeModal && !(allowCreateAndEmbark && isNew && createAndEmbark)) {
         setEditorOpen(false);
       }
       showToast("Itinerário salvo com sucesso.");
       if (allowCreateAndEmbark && isNew && createAndEmbark) {
         resetEmbarkForm();
         setSelectedItineraryIds([String(saved.id || selectedId)]);
-        setEmbarkOpen(true);
+        setEditorOpen(true);
+        setEditorTab("embarcar");
+        setEmbarkTab("vehicles");
+        void handleEmbarkSubmit([String(saved.id || selectedId)]);
       }
       return saved;
     } catch (error) {
@@ -1429,6 +1454,7 @@ export default function Itineraries() {
         vehicleIds: selectedVehicleIds,
         itineraryIds,
         clientId: tenantId ?? undefined,
+        xdmBufferMeters: embarkBufferMeters,
       });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
       const okCount = Number(summary?.success || 0);
@@ -1883,6 +1909,8 @@ export default function Itineraries() {
           onVehicleQueryChange: setVehicleQuery,
           itineraryQuery,
           onItineraryQueryChange: setItineraryQuery,
+          bufferMeters: embarkBufferMeters,
+          onBufferMetersChange: setEmbarkBufferMeters,
           selectedVehicleIds,
           onToggleVehicle: handleToggleVehicle,
           selectedItineraryIds,
@@ -1924,6 +1952,8 @@ export default function Itineraries() {
         onVehicleQueryChange={setVehicleQuery}
         itineraryQuery={itineraryQuery}
         onItineraryQueryChange={setItineraryQuery}
+        bufferMeters={embarkBufferMeters}
+        onBufferMetersChange={setEmbarkBufferMeters}
         selectedVehicleIds={selectedVehicleIds}
         onToggleVehicle={handleToggleVehicle}
         onRemoveVehicle={handleRemoveVehicle}

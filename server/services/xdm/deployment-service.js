@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { getVehicleById, updateVehicle } from "../../models/vehicle.js";
 import { getItineraryById } from "../../models/itinerary.js";
 import { listGeofences } from "../../models/geofence.js";
+import { getRouteById, updateRoute } from "../../models/route.js";
 import { getClientById } from "../../models/client.js";
 import {
   appendDeploymentLog,
@@ -15,16 +16,26 @@ import {
 } from "../../models/xdm-deployment.js";
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
-import { syncGeozoneGroup, ensureGeozoneGroup } from "./geozone-group-sync-service.js";
+import { syncGeozoneGroup, ensureGeozoneGroups } from "./geozone-group-sync-service.js";
 import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
-import { ensureGeozoneGroupOverrideId } from "./xdm-override-resolver.js";
+import { ensureGeozoneGroupOverrideId, getGeozoneGroupOverrideConfigByRole } from "./xdm-override-resolver.js";
 import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
 import { fallbackClientDisplayName } from "./xdm-name-utils.js";
+import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS } from "./xdm-geozone-group-roles.js";
 
 function buildRequestHash({ itineraryId, vehicleId, groupHash, action }) {
   const payload = `${itineraryId}|${vehicleId}|${action || "EMBARK"}|${groupHash || ""}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
+}
+
+function buildGroupHashSummary(groupHashes = {}) {
+  if (!groupHashes || typeof groupHashes !== "object") return null;
+  return [
+    `itinerary=${groupHashes.itinerary || ""}`,
+    `targets=${groupHashes.targets || ""}`,
+    `entry=${groupHashes.entry || ""}`,
+  ].join("|");
 }
 
 async function resolveClientDisplayName(clientId) {
@@ -80,22 +91,50 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
   return geofencesById;
 }
 
-async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
-  const overrideConfig = await ensureGeozoneGroupOverrideId({ correlationId });
+async function updateRoutesBufferMeters({ routeIds = [], bufferMeters }) {
+  if (!Number.isFinite(bufferMeters) || bufferMeters <= 0) return;
+  const ids = Array.isArray(routeIds) ? routeIds : [];
+  for (const routeId of ids) {
+    const route = await getRouteById(routeId);
+    if (!route) continue;
+    const metadata = route.metadata && typeof route.metadata === "object" ? { ...route.metadata } : {};
+    if (metadata.xdmBufferMeters === bufferMeters) continue;
+    await updateRoute(routeId, { metadata: { ...metadata, xdmBufferMeters: bufferMeters } });
+  }
+}
+
+async function resolveOverrideConfigs({ correlationId } = {}) {
+  const configs = {};
+  for (const role of GEOZONE_GROUP_ROLE_LIST) {
+    const baseConfig = getGeozoneGroupOverrideConfigByRole(role.key);
+    const resolved = await ensureGeozoneGroupOverrideId({
+      correlationId,
+      overrideId: baseConfig.overrideId,
+      overrideKey: baseConfig.overrideKey,
+    });
+    configs[role.key] = resolved;
+  }
+  return configs;
+}
+
+async function applyOverrides({ deviceUid, groupIds, correlationId }) {
+  const overrideConfigs = await resolveOverrideConfigs({ correlationId });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
-  const normalizedGeozoneGroupId =
-    xdmGeozoneGroupId == null
-      ? null
-      : normalizeXdmId(xdmGeozoneGroupId, { context: "apply overrides geozone group" });
+  const overrides = {};
+  for (const role of GEOZONE_GROUP_ROLE_LIST) {
+    const overrideConfig = overrideConfigs[role.key];
+    if (!overrideConfig?.overrideId) continue;
+    const groupId = groupIds?.[role.key] ?? null;
+    overrides[overrideConfig.overrideId] =
+      groupId == null ? null : normalizeXdmId(groupId, { context: "apply overrides geozone group" });
+  }
   const xdmClient = new XdmClient();
   try {
     await xdmClient.request(
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        overrides: buildOverridesDto({
-          [overrideConfig.overrideId]: normalizedGeozoneGroupId,
-        }),
+        overrides: buildOverridesDto(overrides),
       },
       { correlationId },
     );
@@ -116,8 +155,7 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
       correlationId,
       payloadSample: {
         deviceUid: normalizedDeviceUid,
-        overrideId: overrideConfig.overrideId,
-        groupId: normalizedGeozoneGroupId,
+        overrides,
       },
     });
   }
@@ -174,10 +212,12 @@ async function processDeployment(deploymentId) {
   try {
     const action = deployment.action || "EMBARK";
     let xdmGeozoneGroupId = deployment.xdmGeozoneGroupId ?? null;
+    let groupIds = deployment.xdmGeozoneGroupIds ?? null;
+    let groupHashes = deployment.groupHashes ?? null;
     let groupHash = deployment.groupHash ?? null;
 
     if (action !== "DISEMBARK") {
-      if (!xdmGeozoneGroupId || !groupHash) {
+      if (!xdmGeozoneGroupId || !groupHash || !groupIds || !groupHashes) {
         const syncStart = Date.now();
         logStep(deploymentId, "SYNC_GEOFENCES", { status: "started" });
         const synced = await syncGeozoneGroup(itinerary.id, {
@@ -186,8 +226,15 @@ async function processDeployment(deploymentId) {
           correlationId,
         });
         xdmGeozoneGroupId = synced.xdmGeozoneGroupId;
-        groupHash = synced.groupHash;
-        updateDeployment(deploymentId, { xdmGeozoneGroupId, groupHash });
+        groupIds = synced.groupIds || null;
+        groupHashes = synced.groupHashes || null;
+        groupHash = buildGroupHashSummary(groupHashes);
+        updateDeployment(deploymentId, {
+          xdmGeozoneGroupId,
+          xdmGeozoneGroupIds: groupIds,
+          groupHashes,
+          groupHash,
+        });
         logStep(deploymentId, "SYNC_GEOFENCES", {
           status: "ok",
           xdmGeozoneGroupId,
@@ -198,6 +245,13 @@ async function processDeployment(deploymentId) {
       }
     } else {
       xdmGeozoneGroupId = null;
+      groupIds = {
+        itinerary: null,
+        targets: null,
+        entry: null,
+      };
+      groupHashes = null;
+      groupHash = null;
       logStep(deploymentId, "SYNC_GEOFENCES", { status: "skipped", reason: "disembark" });
     }
 
@@ -232,7 +286,7 @@ async function processDeployment(deploymentId) {
 
     const updateStart = Date.now();
     logStep(deploymentId, "APPLY_OVERRIDES", { status: "started" });
-    await applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId });
+    await applyOverrides({ deviceUid, groupIds: groupIds || {}, correlationId });
     logStep(deploymentId, "APPLY_OVERRIDES", {
       status: "ok",
       durationMs: Date.now() - updateStart,
@@ -265,7 +319,9 @@ export function queueDeployment({
   requestedByName,
   ipAddress,
   xdmGeozoneGroupId = null,
+  xdmGeozoneGroupIds = null,
   groupHash = null,
+  groupHashes = null,
   configId = null,
   action = "EMBARK",
 }) {
@@ -275,7 +331,11 @@ export function queueDeployment({
   }
 
   const latest = findLatestDeploymentByPair({ itineraryId, vehicleId, clientId });
-  const knownGroupHash = groupHash || getGeozoneGroupMapping({ itineraryId, clientId })?.groupHash || null;
+  const knownGroupHash =
+    groupHash ||
+    buildGroupHashSummary(groupHashes) ||
+    getGeozoneGroupMapping({ itineraryId, clientId })?.groupHash ||
+    null;
 
   const normalizedAction = action || "EMBARK";
   if (latest?.status === "DEPLOYED" && latest?.requestHash && knownGroupHash && normalizedAction === "EMBARK") {
@@ -310,7 +370,9 @@ export function queueDeployment({
     requestedByName,
     ipAddress,
     xdmGeozoneGroupId,
+    xdmGeozoneGroupIds,
     groupHash,
+    groupHashes,
     configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
     action: normalizedAction,
   });
@@ -327,6 +389,7 @@ export async function embarkItinerary({
   itineraryId,
   vehicleIds = [],
   configId = null,
+  bufferMeters = null,
   dryRun = false,
   correlationId = null,
   requestedByUserId = null,
@@ -354,7 +417,7 @@ export async function embarkItinerary({
   }
 
   if (!dryRun) {
-    await ensureGeozoneGroupOverrideId({ correlationId });
+    await resolveOverrideConfigs({ correlationId });
   }
 
   const resolvedGeofencesById =
@@ -363,12 +426,17 @@ export async function embarkItinerary({
       : geofenceIds.length
         ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
         : new Map();
-  const { xdmGeozoneGroupId, groupHash } = await ensureGeozoneGroup(itinerary.id, {
+  if (Number.isFinite(bufferMeters) && bufferMeters > 0) {
+    await updateRoutesBufferMeters({ routeIds, bufferMeters });
+  }
+
+  const { xdmGeozoneGroupId, groupHash, groupIds, groupHashes } = await ensureGeozoneGroups(itinerary.id, {
     clientId: itinerary.clientId,
     clientDisplayName,
     correlationId,
     geofencesById: resolvedGeofencesById,
   });
+  const deploymentGroupHash = buildGroupHashSummary(groupHashes) || groupHash || null;
 
   const results = vehicleIds.map((vehicleId) => {
     const vehicle = getVehicleById(vehicleId);
@@ -408,7 +476,9 @@ export async function embarkItinerary({
       requestedByName,
       ipAddress,
       xdmGeozoneGroupId,
-      groupHash,
+      xdmGeozoneGroupIds: groupIds,
+      groupHash: deploymentGroupHash,
+      groupHashes,
       configId,
     });
 
@@ -438,6 +508,7 @@ export async function embarkItinerary({
   return {
     itineraryId: itinerary.id,
     xdmGeozoneGroupId,
+    xdmGeozoneGroupIds: groupIds || null,
     vehicles: results,
   };
 }
@@ -479,7 +550,7 @@ export async function disembarkItinerary({
   }
 
   if (!dryRun) {
-    await ensureGeozoneGroupOverrideId({ correlationId });
+    await resolveOverrideConfigs({ correlationId });
   }
 
   const results = targetVehicleIds.map((vehicleId) => {
@@ -517,6 +588,9 @@ export async function disembarkItinerary({
       vehicleId: vehicle.id,
     });
 
+    const resolvedGroupHashes = lastDeployment?.groupHashes || null;
+    const resolvedGroupHash = lastDeployment?.groupHash || buildGroupHashSummary(resolvedGroupHashes);
+
     const { deployment, status } = queueDeployment({
       clientId: itinerary.clientId,
       itineraryId: itinerary.id,
@@ -526,7 +600,9 @@ export async function disembarkItinerary({
       requestedByName,
       ipAddress,
       xdmGeozoneGroupId: null,
-      groupHash: lastDeployment?.groupHash || null,
+      xdmGeozoneGroupIds: lastDeployment?.xdmGeozoneGroupIds || null,
+      groupHash: resolvedGroupHash || null,
+      groupHashes: resolvedGroupHashes,
       action: "DISEMBARK",
     });
 
