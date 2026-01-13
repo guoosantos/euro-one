@@ -16,6 +16,59 @@ const INT32_MIN = -2147483648;
 const INT32_MAX = 2147483647;
 const discoveryCache = new Map();
 
+export function getGeozoneGroupRoleConfig(role) {
+  const roleConfig = GROUP_OVERRIDE_CONFIG[role];
+  if (!roleConfig) {
+    throw new Error(`Grupo de override inválido: ${role}`);
+  }
+  return roleConfig;
+}
+
+function uniqueValues(values) {
+  const normalized = values.filter((value) => value != null);
+  return new Set(normalized).size === normalized.length;
+}
+
+function validateGroupOverrideMappings() {
+  const keysList = parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEYS);
+  const idsList = parseCsvEnv(process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS);
+  if (keysList.length) {
+    if (keysList.length !== Object.keys(GROUP_OVERRIDE_CONFIG).length) {
+      throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_KEYS deve ter exatamente 3 itens (itinerary,targets,entry)");
+    }
+    const expected = [
+      GROUP_OVERRIDE_CONFIG.itinerary.fallbackKey,
+      GROUP_OVERRIDE_CONFIG.targets.fallbackKey,
+      GROUP_OVERRIDE_CONFIG.entry.fallbackKey,
+    ];
+    const normalized = keysList.map((entry) => String(entry || "").trim());
+    const mismatch = normalized
+      .slice(0, expected.length)
+      .some((value, index) => value && value !== expected[index]);
+    if (mismatch) {
+      throw new Error(
+        `XDM_GEOZONE_GROUP_OVERRIDE_KEYS deve seguir a ordem itinerary,targets,entry (${expected.join(
+          ",",
+        )}). Valor atual: ${normalized.join(",")}`,
+      );
+    }
+  }
+
+  if (idsList.length && idsList.length !== Object.keys(GROUP_OVERRIDE_CONFIG).length) {
+    throw new Error("XDM_GEOZONE_GROUP_OVERRIDE_IDS deve ter exatamente 3 itens (itinerary,targets,entry)");
+  }
+
+  const byRoleIds = Object.values(GROUP_OVERRIDE_CONFIG)
+    .map((roleConfig) => process.env[`XDM_GEOZONE_GROUP_OVERRIDE_ID_${roleConfig.envKey}`])
+    .filter(Boolean);
+  if (byRoleIds.length && !uniqueValues(byRoleIds)) {
+    throw new Error("Overrides de geozone group duplicados entre roles (IDs por role)");
+  }
+  if (idsList.length && !uniqueValues(idsList)) {
+    throw new Error("Overrides de geozone group duplicados em XDM_GEOZONE_GROUP_OVERRIDE_IDS");
+  }
+}
+
 function isInt32(value) {
   return Number.isInteger(value) && value >= INT32_MIN && value <= INT32_MAX;
 }
@@ -133,10 +186,7 @@ function resolveGroupOverrideEnv(roleConfig) {
 }
 
 export function getGeozoneGroupOverrideConfigByRole(role) {
-  const roleConfig = GROUP_OVERRIDE_CONFIG[role];
-  if (!roleConfig) {
-    throw new Error(`Grupo de override inválido: ${role}`);
-  }
+  const roleConfig = getGeozoneGroupRoleConfig(role);
   const { overrideId, overrideKey, fallbackKey } = resolveGroupOverrideEnv(roleConfig);
   return getGeozoneGroupOverrideConfig({ overrideId, overrideKey, fallbackKey });
 }
@@ -403,6 +453,8 @@ export async function ensureGeozoneGroupOverrideId({ correlationId, overrideId, 
 export default {
   getGeozoneGroupOverrideConfig,
   getGeozoneGroupOverrideConfigByRole,
+  getGeozoneGroupRoleConfig,
+  validateGroupOverrideMappings,
   resolveGeozoneGroupOverrideElementId,
   discoverGeozoneGroupOverrideElementId,
   ensureGeozoneGroupOverrideId,
