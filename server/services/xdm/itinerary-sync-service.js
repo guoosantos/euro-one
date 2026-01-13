@@ -105,10 +105,19 @@ export async function cleanupGeozoneForItem({ item, clientId, correlationId, exc
 
   if (item.type === "route") {
     const mapping = getRouteGeozoneMapping({ routeId: item.id, clientId });
-    const xdmGeozoneId = mapping?.xdmGeozoneId || item.xdmGeozoneId || null;
-    const result = await deleteGeozone({ xdmGeozoneId, correlationId });
-    if (result?.warning && itineraryId) {
-      markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+    const xdmGeozoneIds =
+      mapping?.xdmGeozoneIds?.length
+        ? mapping.xdmGeozoneIds
+        : mapping?.xdmGeozoneId
+          ? [mapping.xdmGeozoneId]
+          : item.xdmGeozoneId
+            ? [item.xdmGeozoneId]
+            : [];
+    for (const xdmGeozoneId of xdmGeozoneIds) {
+      const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+      if (result?.warning && itineraryId) {
+        markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+      }
     }
     removeRouteGeozoneMapping({ routeId: item.id, clientId });
     return;
@@ -140,10 +149,19 @@ export async function cleanupGeozoneForItemWithReport({
   try {
     if (item.type === "route") {
       const mapping = getRouteGeozoneMapping({ routeId: item.id, clientId });
-      const xdmGeozoneId = mapping?.xdmGeozoneId || item.xdmGeozoneId || null;
-      const result = await deleteGeozone({ xdmGeozoneId, correlationId });
-      if (result?.warning && itineraryId) {
-        markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+      const xdmGeozoneIds =
+        mapping?.xdmGeozoneIds?.length
+          ? mapping.xdmGeozoneIds
+          : mapping?.xdmGeozoneId
+            ? [mapping.xdmGeozoneId]
+            : item.xdmGeozoneId
+              ? [item.xdmGeozoneId]
+              : [];
+      for (const xdmGeozoneId of xdmGeozoneIds) {
+        const result = await deleteGeozone({ xdmGeozoneId, correlationId });
+        if (result?.warning && itineraryId) {
+          markItineraryWarning({ itineraryId, message: "Sem permissão para excluir geozones no XDM" });
+        }
       }
       removeRouteGeozoneMapping({ routeId: item.id, clientId });
       return { status: "deleted" };

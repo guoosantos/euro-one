@@ -90,6 +90,48 @@ async function applyOverrides({ deviceUid, xdmGeozoneGroupId, correlationId }) {
   }
 }
 
+export async function fetchDeviceGeozoneGroupId({ deviceUid, correlationId } = {}) {
+  if (!deviceUid) {
+    throw new Error("deviceUid é obrigatório");
+  }
+  const overrideConfig = await ensureGeozoneGroupOverrideId({ correlationId });
+  const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "fetchDeviceGeozoneGroupId" });
+  const xdmClient = new XdmClient();
+  let response;
+  try {
+    response = await xdmClient.request(
+      "GET",
+      `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
+      null,
+      { correlationId },
+    );
+  } catch (error) {
+    throw wrapXdmError(error, {
+      step: "fetchDeviceOverrides",
+      correlationId,
+      payloadSample: { deviceUid: normalizedDeviceUid },
+    });
+  }
+
+  const overrides =
+    response?.overrides ||
+    response?.data?.overrides ||
+    response?.settingsOverrides ||
+    response?.data?.settingsOverrides ||
+    response ||
+    null;
+  if (!overrides) return null;
+  const overrideEntry =
+    overrides[overrideConfig.overrideId] ||
+    overrides[String(overrideConfig.overrideId)] ||
+    overrides[overrideConfig.overrideKey] ||
+    null;
+  if (!overrideEntry) return null;
+  const rawValue = typeof overrideEntry === "object" && overrideEntry !== null ? overrideEntry.value : overrideEntry;
+  if (rawValue == null || rawValue === "") return null;
+  return normalizeXdmId(rawValue, { context: "device geozone group" });
+}
+
 async function createRollout({ deviceUid, configId, correlationId }) {
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "createRollout" });
   const xdmClient = new XdmClient();
@@ -175,4 +217,5 @@ export async function applyGeozoneGroupToDevice({
 
 export default {
   applyGeozoneGroupToDevice,
+  fetchDeviceGeozoneGroupId,
 };
