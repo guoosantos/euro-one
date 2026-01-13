@@ -197,7 +197,7 @@ export default function Sidebar() {
     { to: "/routes", label: "Rotas", icon: Map },
     { to: "/geofences", label: "Cercas", icon: Map },
     { to: "/targets", label: "Alvos", icon: Target },
-    { to: "/itineraries", label: "Itinerários", icon: Map },
+    { to: "/itineraries", label: "Embarcar Itinerários", icon: Map },
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
 

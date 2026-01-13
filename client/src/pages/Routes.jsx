@@ -633,9 +633,11 @@ export default function RoutesPage() {
       setSaving(true);
       try {
         const shouldUpdate =
+          Boolean(activeRouteId) &&
           payload.id !== null &&
           payload.id !== undefined &&
           String(payload.id).trim() !== "" &&
+          String(payload.id) === String(activeRouteId) &&
           routes.some((route) => String(route.id) === String(payload.id));
         const response = shouldUpdate
           ? await api.put(`${API_ROUTES.routes}/${payload.id}`, payload)
@@ -654,7 +656,7 @@ export default function RoutesPage() {
         setSaving(false);
       }
     },
-    [draftRoute, routes, showToast, waypoints],
+    [activeRouteId, draftRoute, routes, showToast, waypoints],
   );
 
   const handleSave = async () => {

@@ -125,7 +125,7 @@ process.env.XDM_BASE_URL = baseUrl;
 process.env.XDM_CLIENT_ID = "client";
 process.env.XDM_CLIENT_SECRET = "secret";
 process.env.XDM_DEALER_ID = "10";
-process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "1234";
+process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS = "1234,2345,3456";
 process.env.ENABLE_DEMO_FALLBACK = "true";
 
 await initStorage();
@@ -328,7 +328,11 @@ test("embark múltiplos veículos aplica overrides por deviceUid", async () => {
 
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 0);
-  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: 555 } });
+  assert.deepEqual(overridePayloads[0]?.overrides, {
+    "1234": { value: 555 },
+    "2345": { value: 555 },
+    "3456": { value: 555 },
+  });
 });
 
 test("embark falha para veículo sem IMEI/deviceUid", async () => {
@@ -387,7 +391,11 @@ test("disembark limpa override do device", async () => {
 
   assert.equal(response.vehicles[0].status, "queued");
   assert.equal(overrideCalls, 1);
-  assert.deepEqual(overridePayloads[0]?.overrides, { "1234": { value: null } });
+  assert.deepEqual(overridePayloads[0]?.overrides, {
+    "1234": { value: null },
+    "2345": { value: null },
+    "3456": { value: null },
+  });
 });
 
 test("ensureGeozoneGroup reutiliza mapeamento salvo", async () => {

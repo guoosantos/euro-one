@@ -89,7 +89,7 @@ export const routeConfig = [
   { path: "/cercas", element: Geofences, title: "Cercas", requireTenant: true },
   { path: "/targets", element: Targets, title: "Alvos", requireTenant: true },
   { path: "/alvos", element: Targets, title: "Alvos", requireTenant: true },
-  { path: "/itineraries", element: Itineraries, title: "Itinerários", requireTenant: true },
+  { path: "/itineraries", element: Itineraries, title: "Embarcar Itinerários", requireTenant: true },
   { path: "/events", element: Events, title: "Eventos", hideTitle: true, requireTenant: true },
   { path: "/videos", element: Videos, title: "Vídeos", requireTenant: true },
   { path: "/face", element: Face, title: "Reconhecimento facial", requireTenant: true },
