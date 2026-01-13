@@ -45,6 +45,7 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
 - `ENABLE_DEMO_FALLBACK`: defina como `true` **apenas** em ambientes de demonstração sem banco para liberar os dados `demo-client`. Em produção, deixe ausente/false para evitar quedas silenciosas para o tenant demo.
 - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: ID numérico (int32) do override do XDM usado para aplicar o Geozone Group em deploys. Se ausente, o backend tenta descobrir e persistir automaticamente (ou use o script abaixo).
+  - Para três slots fixos (itinerary/targets/entry), prefira `XDM_GEOZONE_GROUP_OVERRIDE_ID_ITINERARY`, `..._TARGETS`, `..._ENTRY` (ou a lista `XDM_GEOZONE_GROUP_OVERRIDE_IDS` na ordem itinerary/targets/entry).
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave/nome do override a ser descoberto (padrão `geoGroup`).
   - Para descobrir e salvar manualmente no storage local:
 

@@ -116,7 +116,7 @@ before(async () => {
   process.env.XDM_CLIENT_ID = "client";
   process.env.XDM_CLIENT_SECRET = "secret";
   process.env.XDM_DEALER_ID = "10";
-  process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "1234";
+  process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS = "1234,2345,3456";
   process.env.XDM_CONFIG_NAME = "Config XDM";
   process.env.ENABLE_DEMO_FALLBACK = "true";
 
@@ -179,14 +179,16 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   assert.equal(groupCreateCalls, 1);
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);
-  assert.deepEqual(lastOverridePayload?.overrides, { "1234": { value: 555 } });
+  assert.deepEqual(lastOverridePayload?.overrides, {
+    "1234": { value: 555 },
+    "2345": { value: null },
+    "3456": { value: null },
+  });
 });
 
 it("falha quando override id não é numérico", async () => {
-  const previousOverrideId = process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
-  const previousOverrideKey = process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
-  process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = "geoGroup";
-  delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
+  const previousOverrideIds = process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS;
+  process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS = "abc,2345,3456";
   overrideCalls = 0;
 
   const token = signSession({ id: "admin-1", role: "admin", clientId: "client-1" });
@@ -207,17 +209,12 @@ it("falha quando override id não é numérico", async () => {
     body: JSON.stringify(payload),
   });
 
-  assert.equal(response.status, 500);
+  assert.equal(response.status, 400);
   assert.equal(overrideCalls, 0);
 
-  if (previousOverrideId === undefined) {
-    delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID;
+  if (previousOverrideIds === undefined) {
+    delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS;
   } else {
-    process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID = previousOverrideId;
-  }
-  if (previousOverrideKey === undefined) {
-    delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY;
-  } else {
-    process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY = previousOverrideKey;
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_IDS = previousOverrideIds;
   }
 });
