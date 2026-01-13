@@ -3,7 +3,7 @@ import createError from "http-errors";
 
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
-import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
+import { buildSettingsOverridesModified, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import {
   getGeozoneGroupOverrideConfigByRole,
   resolveGeozoneGroupOverrideConfigs,
@@ -84,7 +84,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        overrides: buildOverridesDto(entries),
+        modified: buildSettingsOverridesModified(entries),
       },
       { correlationId },
     );
@@ -93,10 +93,14 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       console.info("[xdm] apply geozone group override", {
         correlationId,
         deviceUid: normalizedDeviceUid,
+        configName: detail.configName || null,
         role: detail.role,
         groupId: detail.groupId ?? null,
         overrideId: detail.overrideId ?? null,
         overrideKey: detail.overrideKey ?? null,
+        overrideSource: detail.overrideSource ?? null,
+        overrideIdSource: detail.overrideIdSource ?? null,
+        overrideKeySource: detail.overrideKeySource ?? null,
         response,
         status: "ok",
       });
@@ -107,6 +111,8 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       deviceId: normalizedDeviceUid,
       status: error?.status || error?.statusCode || null,
       message: error?.message || error,
+      response: error?.details?.response || null,
+      responseSample: error?.details?.responseSample || null,
       payloadSample: { overrides: entries, roles: roleDetails || null },
     });
     throw wrapXdmError(error, {
@@ -115,6 +121,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       payloadSample: {
         deviceUid: normalizedDeviceUid,
         overrides: entries,
+        modified: buildSettingsOverridesModified(entries),
         roles: roleDetails || null,
       },
     });
@@ -149,9 +156,18 @@ export async function fetchDeviceGeozoneGroupIds({ deviceUid, correlationId } = 
     response?.data?.overrides ||
     response?.settingsOverrides ||
     response?.data?.settingsOverrides ||
+    response?.modified ||
+    response?.data?.modified ||
     response ||
     null;
   if (!overrides) return null;
+  const normalizedOverrides = Array.isArray(overrides)
+    ? Object.fromEntries(
+        overrides
+          .filter((entry) => entry?.userElementId != null)
+          .map((entry) => [String(entry.userElementId), entry]),
+      )
+    : overrides;
   const results = {};
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const overrideConfig = overrideConfigs[role.key];
@@ -160,9 +176,9 @@ export async function fetchDeviceGeozoneGroupIds({ deviceUid, correlationId } = 
       continue;
     }
     const overrideEntry =
-      overrides[overrideConfig.overrideId] ||
-      overrides[String(overrideConfig.overrideId)] ||
-      overrides[overrideConfig.overrideKey] ||
+      normalizedOverrides[overrideConfig.overrideId] ||
+      normalizedOverrides[String(overrideConfig.overrideId)] ||
+      normalizedOverrides[overrideConfig.overrideKey] ||
       null;
     if (!overrideEntry) {
       results[role.key] = null;
@@ -302,10 +318,15 @@ export async function applyGeozoneGroupToDevice({
       overrideId: config.overrideId,
       overrideKey: config.overrideKey,
       groupId,
+      configName: config.configName || null,
+      overrideSource: config.source || null,
+      overrideIdSource: config.overrideIdSource || null,
+      overrideKeySource: config.overrideKeySource || null,
     });
     console.info("[xdm] apply geozone group override", {
       correlationId: resolvedCorrelationId,
       deviceUid: normalizedDeviceUid,
+      configName: config.configName || null,
       role: role.key,
       xdmGeozoneGroupId: groupId,
       overrideId: config.overrideId,

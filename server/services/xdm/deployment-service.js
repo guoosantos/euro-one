@@ -17,7 +17,7 @@ import {
 import { getGeozoneGroupMapping } from "../../models/xdm-geozone-group.js";
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, ensureGeozoneGroups } from "./geozone-group-sync-service.js";
-import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
+import { buildSettingsOverridesModified, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import {
   resolveGeozoneGroupOverrideConfigs,
   validateGeozoneGroupOverrideConfigs,
@@ -111,6 +111,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
   validateGeozoneGroupOverrideConfigs({ configs: overrideConfigs, correlationId, groupIds });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const overrides = {};
+  const modified = [];
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const overrideConfig = overrideConfigs[role.key];
     if (!overrideConfig?.overrideId) {
@@ -119,10 +120,15 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
     const groupId = groupIds?.[role.key] ?? null;
     overrides[overrideConfig.overrideId] =
       groupId == null ? null : normalizeXdmId(groupId, { context: "apply overrides geozone group" });
+    modified.push({
+      userElementId: overrideConfig.overrideNumber ?? Number(overrideConfig.overrideId),
+      value: overrides[overrideConfig.overrideId],
+    });
     console.info("[xdm] apply geozone group override", {
       correlationId,
       deviceId: normalizedDeviceUid,
       deviceUid: normalizedDeviceUid,
+      configName: overrideConfig.configName || null,
       role: role.key,
       xdmGeozoneGroupId: groupId ?? null,
       overrideId: overrideConfig.overrideId,
@@ -138,7 +144,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        overrides: buildOverridesDto(overrides),
+        modified,
       },
       { correlationId },
     );
@@ -149,6 +155,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
         correlationId,
         deviceId: normalizedDeviceUid,
         deviceUid: normalizedDeviceUid,
+        configName: overrideConfig?.configName || null,
         role: role.key,
         xdmGeozoneGroupId: groupId ?? null,
         overrideId: overrideConfig?.overrideId ?? null,
@@ -165,13 +172,17 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       correlationId,
       deviceId: normalizedDeviceUid,
       deviceUid: normalizedDeviceUid,
+      configName: overrideConfigs?.itinerary?.configName || null,
       roles: GEOZONE_GROUP_ROLE_LIST.map((role) => ({
         role: role.key,
         overrideId: overrideConfigs?.[role.key]?.overrideId ?? null,
         overrideKey: overrideConfigs?.[role.key]?.overrideKey ?? null,
         groupId: groupIds?.[role.key] ?? null,
       })),
+      status: error?.status || error?.statusCode || null,
       message: error?.message || error,
+      response: error?.details?.response || null,
+      responseSample: error?.details?.responseSample || null,
     });
     if (isDeviceNotFoundError(error)) {
       const deviceError = new Error("Device UID not found");
@@ -190,6 +201,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       payloadSample: {
         deviceUid: normalizedDeviceUid,
         overrides,
+        modified: buildSettingsOverridesModified(overrides),
         roles: GEOZONE_GROUP_ROLE_LIST.map((role) => ({
           role: role.key,
           overrideId: overrideConfigs?.[role.key]?.overrideId ?? null,

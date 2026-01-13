@@ -45,11 +45,16 @@ Cada pacote é um workspace npm independente, mas as dependências são instalad
 - `ALLOWED_ORIGINS`: lista de origens permitidas no CORS (inclua `http://localhost:5173` para desenvolvimento com Vite).
 - `ENABLE_DEMO_FALLBACK`: defina como `true` **apenas** em ambientes de demonstração sem banco para liberar os dados `demo-client`. Em produção, deixe ausente/false para evitar quedas silenciosas para o tenant demo.
 - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: ID numérico (int32) do override do XDM usado para aplicar o Geozone Group em deploys. Se ausente, o backend tenta descobrir e persistir automaticamente (ou use o script abaixo).
-  - Para três slots fixos (itinerary/targets/entry), prefira `XDM_GEOZONE_GROUP_OVERRIDE_ID_ITINERARY`, `..._TARGETS`, `..._ENTRY` ou as chaves por role:
+  - Para três slots fixos (itinerary/targets/entry), prefira **os IDs por role** (prioridade máxima):
+    - `XDM_GEOZONE_GROUP_OVERRIDE_ID_ITINERARY=8236818`
+    - `XDM_GEOZONE_GROUP_OVERRIDE_ID_TARGETS=10148957`
+    - `XDM_GEOZONE_GROUP_OVERRIDE_ID_ENTRY=10148959`
+  - Se **qualquer** uma dessas envs por role estiver presente, elas passam a ser a fonte principal (sem discovery por nome) e a lista `XDM_GEOZONE_GROUP_OVERRIDE_IDS` é ignorada.
+  - Chaves por role (fallback para discovery controlado por nome):
     - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY=Itinerario`
     - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS=Alvos`
     - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY=Entrada`
-  - `XDM_GEOZONE_GROUP_OVERRIDE_IDS` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS` ficam como **fallback** (ordem itinerary/targets/entry).
+  - `XDM_GEOZONE_GROUP_OVERRIDE_IDS` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS` ficam como **fallback** (ordem itinerary/targets/entry) quando não há envs por role. A lista deve conter 3 IDs **únicos** na ordem `itinerary, targets, entry`.
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: chave/nome **legado** do override a ser descoberto (padrão `geoGroup`).
   - Para descobrir e salvar manualmente no storage local:
 
