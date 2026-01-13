@@ -51,6 +51,18 @@ function parseCsvEnv(value) {
     .filter(Boolean);
 }
 
+function resolveIndexedOverrideKey(baseKey, roleIndex) {
+  if (!baseKey) return null;
+  const trimmed = String(baseKey).trim();
+  if (!trimmed) return null;
+  const match = trimmed.match(/(\d+)$/);
+  if (match) {
+    const numericSuffix = Number(match[1]);
+    return numericSuffix === roleIndex ? trimmed : null;
+  }
+  return `${trimmed}${roleIndex}`;
+}
+
 function buildCacheKey({ dealerId, configName, overrideKey }) {
   return `${dealerId}:${String(configName || "").trim().toLowerCase()}:${String(overrideKey || "")
     .trim()
@@ -115,12 +127,13 @@ function resolveGroupOverrideEnv(roleConfig) {
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_KEY_${roleConfig.envKey}`] ??
     process.env[`XDM_GEOZONE_GROUP_OVERRIDE_KEY_${roleIndex}`] ??
     listKeys[roleIndex - 1] ??
+    resolveIndexedOverrideKey(process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY, roleIndex) ??
     null;
 
   if (roleIndex === 1) {
     return {
       overrideId: overrideId ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID ?? null,
-      overrideKey: overrideKey ?? process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY ?? null,
+      overrideKey,
       fallbackKey: roleConfig.fallbackKey || DEFAULT_OVERRIDE_KEY,
     };
   }
