@@ -672,7 +672,15 @@ export async function resolveGeozoneGroupOverrideElementId({
 
   const attempted = attempts.join(", ");
   const last = errors[errors.length - 1];
-  const message = `Override "${overrideKeyResolved}" não encontrado na configuração "${configName}"${roleKey ? ` para role "${roleKey}"` : ""}. Tentativas: ${attempted}. Último erro: ${last?.message || "desconhecido"}`;
+  const message = [
+    `Override "${overrideKeyResolved}" não encontrado na configuração "${configName}".`,
+    roleKey ? `role=${roleKey}` : null,
+    config.overrideId != null ? `overrideId=${config.overrideId}` : null,
+    `tentou [${attempted}]`,
+    `último erro: ${last?.message || "desconhecido"}`,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const resolvedError = new Error(message);
   resolvedError.attemptedOverrideKeys = attempts;
   resolvedError.overrideKeyResolved = overrideKeyResolved;
@@ -782,13 +790,26 @@ export async function resolveGeozoneGroupOverrideConfigs({ correlationId } = {})
           overrideId: roleConfig.overrideId ?? null,
         };
       });
+      const attempted = Array.isArray(error?.attemptedOverrideKeys)
+        ? error.attemptedOverrideKeys.filter(Boolean).join(", ")
+        : "";
+      const resolvedOverrideKey = baseConfig.overrideKey || error?.overrideKeyResolved || null;
       throw buildOverrideValidationError({
-        message: `Override do XDM não encontrado para role "${role.key}".`,
+        message: [
+          `Override do XDM não encontrado para role "${role.key}".`,
+          resolvedOverrideKey ? `overrideKey=${resolvedOverrideKey}` : null,
+          baseConfig.overrideId != null || error?.overrideId != null
+            ? `overrideId=${baseConfig.overrideId ?? error?.overrideId}`
+            : null,
+          attempted ? `tentou [${attempted}]` : null,
+        ]
+          .filter(Boolean)
+          .join(" "),
         details: {
           correlationId,
           configName,
           role: role.key,
-          overrideKey: baseConfig.overrideKey || error?.overrideKeyResolved || null,
+          overrideKey: resolvedOverrideKey,
           overrideId: baseConfig.overrideId ?? error?.overrideId ?? null,
           attemptedOverrideKeys: error?.attemptedOverrideKeys || [],
           errors: error?.errors || null,
@@ -858,8 +879,16 @@ export function validateGeozoneGroupOverrideConfigs({ configs, correlationId, gr
     const existing = seen.get(key);
     if (existing) {
       throw buildOverrideValidationError({
-        message: "Overrides do XDM devem ser únicos por role (IDs repetidos).",
-        details: { correlationId, roles: resolvedEntries },
+        message: `Overrides do XDM devem ser únicos por role (IDs repetidos). Duplicado: ${key} (${existing} x ${entry.role}).`,
+        details: {
+          correlationId,
+          duplicate: {
+            overrideId: key,
+            roleA: existing,
+            roleB: entry.role,
+          },
+          roles: resolvedEntries,
+        },
       });
     }
     seen.set(key, entry.role);

@@ -122,6 +122,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
     console.info("[xdm] apply geozone group override", {
       correlationId,
       deviceId: normalizedDeviceUid,
+      deviceUid: normalizedDeviceUid,
       role: role.key,
       xdmGeozoneGroupId: groupId ?? null,
       overrideId: overrideConfig.overrideId,
@@ -133,7 +134,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
   }
   const xdmClient = new XdmClient();
   try {
-    await xdmClient.request(
+    const response = await xdmClient.request(
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
@@ -147,6 +148,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       console.info("[xdm] apply geozone group override", {
         correlationId,
         deviceId: normalizedDeviceUid,
+        deviceUid: normalizedDeviceUid,
         role: role.key,
         xdmGeozoneGroupId: groupId ?? null,
         overrideId: overrideConfig?.overrideId ?? null,
@@ -154,6 +156,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
         overrideSource: overrideConfig?.source ?? null,
         overrideIdSource: overrideConfig?.overrideIdSource ?? null,
         overrideKeySource: overrideConfig?.overrideKeySource ?? null,
+        response,
         status: "ok",
       });
     }
@@ -161,6 +164,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
     console.error("[xdm] falha ao aplicar overrides do geozone group", {
       correlationId,
       deviceId: normalizedDeviceUid,
+      deviceUid: normalizedDeviceUid,
       roles: GEOZONE_GROUP_ROLE_LIST.map((role) => ({
         role: role.key,
         overrideId: overrideConfigs?.[role.key]?.overrideId ?? null,
