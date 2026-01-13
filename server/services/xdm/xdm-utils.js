@@ -161,15 +161,16 @@ export function normalizeXdmDeviceUid(
   return resolve(value, 0);
 }
 
-export function buildOverridesDto(overrides = {}) {
-  return Object.fromEntries(
-    Object.entries(overrides).map(([overrideId, value]) => [overrideId, { value }]),
-  );
+export function buildSettingsOverridesModified(overrides = {}) {
+  return Object.entries(overrides).map(([overrideId, value]) => ({
+    userElementId: Number(overrideId),
+    value,
+  }));
 }
 
 export default {
   normalizeXdmId,
   normalizeGeozoneGroupIdResponse,
   normalizeXdmDeviceUid,
-  buildOverridesDto,
+  buildSettingsOverridesModified,
 };

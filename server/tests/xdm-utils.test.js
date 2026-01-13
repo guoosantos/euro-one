@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildOverridesDto, normalizeGeozoneGroupIdResponse } from "../services/xdm/xdm-utils.js";
+import { buildSettingsOverridesModified, normalizeGeozoneGroupIdResponse } from "../services/xdm/xdm-utils.js";
 
-test("buildOverridesDto monta payload com value aninhado", () => {
-  const payload = buildOverridesDto({ "8236818": 75299 });
-  assert.deepEqual(payload, { "8236818": { value: 75299 } });
+test("buildSettingsOverridesModified monta payload com lista modified", () => {
+  const payload = buildSettingsOverridesModified({ "8236818": 75299 });
+  assert.deepEqual(payload, [{ userElementId: 8236818, value: 75299 }]);
 });
 
 test("normalizeGeozoneGroupIdResponse aceita formatos diferentes", () => {

@@ -179,11 +179,11 @@ it("POST /api/xdm/geozone-group/apply é idempotente para geofences", async () =
   assert.equal(groupCreateCalls, 1);
   assert.equal(overrideCalls, 2);
   assert.equal(rolloutCalls, 2);
-  assert.deepEqual(lastOverridePayload?.overrides, {
-    "1234": { value: 555 },
-    "2345": { value: null },
-    "3456": { value: null },
-  });
+  assert.deepEqual(lastOverridePayload?.modified, [
+    { userElementId: 1234, value: 555 },
+    { userElementId: 2345, value: null },
+    { userElementId: 3456, value: null },
+  ]);
 });
 
 it("falha quando override id não é numérico", async () => {
