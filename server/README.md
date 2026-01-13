@@ -49,6 +49,10 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
   - `XDM_GEOZONE_GROUP_OVERRIDE_ID`: **obrigatório**. ID numérico (int32) do override que aponta para o Geozone Group (ex.: `1234`).
     - O `overrideId` representa o campo/configuração na base do XDM e costuma ser o mesmo para todos os devices da mesma config.
     - O `geozoneGroupId` é o valor aplicado no override (ID do grupo no XDM) e varia conforme o itinerário.
+  - Para múltiplos grupos (Itinerário/Alvos/Entrada), é possível definir overrides dedicados:
+    - `XDM_GEOZONE_GROUP_OVERRIDE_ID_ITINERARY`, `XDM_GEOZONE_GROUP_OVERRIDE_ID_TARGETS`, `XDM_GEOZONE_GROUP_OVERRIDE_ID_ENTRY`
+    - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY`
+    - Alternativamente, use listas ordenadas por índice: `XDM_GEOZONE_GROUP_OVERRIDE_IDS="123,456,789"` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS="geoGroup1,geoGroup2,geoGroup3"`.
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`; o valor **precisa** ser numérico.
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.

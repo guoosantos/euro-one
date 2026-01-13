@@ -45,7 +45,7 @@ const emptyRoute = () => ({
   name: "Nova rota",
   mode: "car",
   points: [],
-  metadata: { waypoints: [] },
+  metadata: { waypoints: [], xdmBufferMeters: 150 },
 });
 
 function uid(prefix = "wpt") {
@@ -1100,6 +1100,25 @@ export default function RoutesPage() {
                       onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
                       className="map-compact-input"
                     />
+                    <Input
+                      label="Largura do corredor (m)"
+                      type="number"
+                      min="10"
+                      step="10"
+                      value={draftRoute.metadata?.xdmBufferMeters ?? 150}
+                      onChange={(event) => {
+                        const rawValue = event.target.value;
+                        const parsed = rawValue === "" ? null : Number(rawValue);
+                        setDraftRoute((current) => ({
+                          ...current,
+                          metadata: {
+                            ...(current.metadata || {}),
+                            xdmBufferMeters: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                          },
+                        }));
+                      }}
+                      className="map-compact-input"
+                    />
                     <Select
                       value={historyForm.vehicleId}
                       onChange={(event) => setHistoryForm((current) => ({ ...current, vehicleId: event.target.value }))}
@@ -1152,6 +1171,25 @@ export default function RoutesPage() {
                       label="Nome da rota"
                       value={draftRoute.name}
                       onChange={(event) => setDraftRoute((current) => ({ ...current, name: event.target.value }))}
+                      className="map-compact-input"
+                    />
+                    <Input
+                      label="Largura do corredor (m)"
+                      type="number"
+                      min="10"
+                      step="10"
+                      value={draftRoute.metadata?.xdmBufferMeters ?? 150}
+                      onChange={(event) => {
+                        const rawValue = event.target.value;
+                        const parsed = rawValue === "" ? null : Number(rawValue);
+                        setDraftRoute((current) => ({
+                          ...current,
+                          metadata: {
+                            ...(current.metadata || {}),
+                            xdmBufferMeters: Number.isFinite(parsed) && parsed > 0 ? parsed : null,
+                          },
+                        }));
+                      }}
                       className="map-compact-input"
                     />
 

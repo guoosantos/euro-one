@@ -5,7 +5,7 @@ import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
 import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
-import { listRoutes } from "../models/route.js";
+import { getRouteById, listRoutes, updateRoute } from "../models/route.js";
 import { getVehicleById, listVehicles } from "../models/vehicle.js";
 import {
   listItineraries,
@@ -25,14 +25,15 @@ import { queueDeployment, embarkItinerary, disembarkItinerary } from "../service
 import {
   cleanupGeozoneForItem,
   cleanupGeozoneForItemWithReport,
-  deleteItineraryGeozoneGroup,
+  deleteItineraryGeozoneGroups,
   diffRemovedItems,
   syncItineraryXdm,
 } from "../services/xdm/itinerary-sync-service.js";
 import { isNoPermissionError, logNoPermissionDiagnostics } from "../services/xdm/xdm-error.js";
-import { getGeozoneGroupMapping } from "../models/xdm-geozone-group.js";
+import { getGeozoneGroupMapping, getGeozoneGroupMappingByScope } from "../models/xdm-geozone-group.js";
 import { resolveVehicleDeviceUid } from "../services/xdm/resolve-vehicle-device-uid.js";
-import { fetchDeviceGeozoneGroupId } from "../services/xdm/device-geozone-group-service.js";
+import { fetchDeviceGeozoneGroupIds } from "../services/xdm/device-geozone-group-service.js";
+import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupScopeKey } from "../services/xdm/xdm-geozone-group-roles.js";
 
 const router = express.Router();
 
@@ -87,8 +88,23 @@ async function resolveBlockingEmbarkDeployments({
   const blocking = __resolveBlockingEmbarkDeployments(latestDeployments);
   if (!blocking.length) return [];
   const mapping = getGeozoneGroupMapping({ itineraryId: itinerary.id, clientId: itinerary.clientId });
-  const targetGroupId = itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null;
-  if (!targetGroupId) return blocking;
+  const targetsMapping = getGeozoneGroupMappingByScope({
+    scopeKey: buildItineraryGroupScopeKey(itinerary.id, ITINERARY_GEOZONE_GROUPS.targets.key),
+    clientId: itinerary.clientId,
+  });
+  const entryMapping = getGeozoneGroupMappingByScope({
+    scopeKey: buildItineraryGroupScopeKey(itinerary.id, ITINERARY_GEOZONE_GROUPS.entry.key),
+    clientId: itinerary.clientId,
+  });
+  const storedGroupIds = itinerary.xdmGeozoneGroupIds || {};
+  const targetGroupIds = {
+    itinerary:
+      storedGroupIds.itinerary || itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null,
+    targets: storedGroupIds.targets || targetsMapping?.xdmGeozoneGroupId || null,
+    entry: storedGroupIds.entry || entryMapping?.xdmGeozoneGroupId || null,
+  };
+  const hasAnyGroup = GEOZONE_GROUP_ROLE_LIST.some((role) => targetGroupIds[role.key]);
+  if (!hasAnyGroup) return blocking;
 
   const vehicles = listVehicles({ clientId: itinerary.clientId }).reduce((acc, vehicle) => {
     acc.set(String(vehicle.id), vehicle);
@@ -106,8 +122,13 @@ async function resolveBlockingEmbarkDeployments({
     }
 
     try {
-      const currentGroupId = await fetchDeviceGeozoneGroupId({ deviceUid, correlationId });
-      if (currentGroupId && String(currentGroupId) === String(targetGroupId)) {
+      const currentGroupIds = await fetchDeviceGeozoneGroupIds({ deviceUid, correlationId });
+      const matches = GEOZONE_GROUP_ROLE_LIST.some((role) => {
+        const currentId = currentGroupIds?.[role.key] || null;
+        const targetId = targetGroupIds[role.key] || null;
+        return currentId && targetId && String(currentId) === String(targetId);
+      });
+      if (matches) {
         verified.push(deployment);
         continue;
       }
@@ -264,6 +285,10 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
       }
     });
 
+    const groupHashSummary = synced.groupHashes
+      ? `itinerary=${synced.groupHashes.itinerary || ""}|targets=${synced.groupHashes.targets || ""}|entry=${synced.groupHashes.entry || ""}`
+      : synced.groupHash || null;
+
     latestByVehicle.forEach((deployment) => {
       if (deployment.status !== "DEPLOYED") return;
       const vehicle = vehicles.get(String(deployment.vehicleId));
@@ -277,7 +302,9 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
         requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
         ipAddress: resolveRequestIp(req),
         xdmGeozoneGroupId: synced.xdmGeozoneGroupId,
-        groupHash: synced.groupHash,
+        xdmGeozoneGroupIds: synced.groupIds,
+        groupHash: groupHashSummary,
+        groupHashes: synced.groupHashes || null,
       });
     });
 
@@ -311,7 +338,7 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
     let xdmWarning = null;
 
     try {
-      await deleteItineraryGeozoneGroup({
+      await deleteItineraryGeozoneGroups({
         itineraryId: existing.id,
         clientId: existing.clientId,
         correlationId,
@@ -492,12 +519,15 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
 
     const dryRun = Boolean(req.body?.dryRun);
     const configId = req.body?.configId ?? null;
+    const bufferMetersRaw = req.body?.xdmBufferMeters ?? req.body?.bufferMeters ?? null;
+    const bufferMeters = bufferMetersRaw == null ? null : Number(bufferMetersRaw);
 
     const response = await embarkItinerary({
       clientId,
       itineraryId,
       vehicleIds,
       configId,
+      bufferMeters,
       dryRun,
       correlationId: req.headers["x-correlation-id"] || null,
       requestedByUserId: req.user?.id || null,
@@ -619,8 +649,28 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
 
       if (cleanupGroups) {
         const mapping = getGeozoneGroupMapping({ itineraryId: itinerary.id, clientId });
-        const existingGroupId = itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null;
-        if (!existingGroupId) {
+        const targetsMapping = getGeozoneGroupMappingByScope({
+          scopeKey: buildItineraryGroupScopeKey(itinerary.id, ITINERARY_GEOZONE_GROUPS.targets.key),
+          clientId,
+        });
+        const entryMapping = getGeozoneGroupMappingByScope({
+          scopeKey: buildItineraryGroupScopeKey(itinerary.id, ITINERARY_GEOZONE_GROUPS.entry.key),
+          clientId,
+        });
+        const storedGroupIds = itinerary.xdmGeozoneGroupIds || {};
+        const hasGroup = GEOZONE_GROUP_ROLE_LIST.some((role) => {
+          if (role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key) {
+            return Boolean(storedGroupIds.itinerary || itinerary.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId);
+          }
+          if (role.key === ITINERARY_GEOZONE_GROUPS.targets.key) {
+            return Boolean(storedGroupIds.targets || targetsMapping?.xdmGeozoneGroupId);
+          }
+          if (role.key === ITINERARY_GEOZONE_GROUPS.entry.key) {
+            return Boolean(storedGroupIds.entry || entryMapping?.xdmGeozoneGroupId);
+          }
+          return false;
+        });
+        if (!hasGroup) {
           cleanup.geozoneGroups.push({
             itineraryId: String(itinerary.id),
             status: "skipped",
@@ -628,7 +678,7 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
           });
         } else {
           try {
-            await deleteItineraryGeozoneGroup({ itineraryId: itinerary.id, clientId, correlationId });
+            await deleteItineraryGeozoneGroups({ itineraryId: itinerary.id, clientId, correlationId });
             cleanup.geozoneGroups.push({ itineraryId: String(itinerary.id), status: "deleted" });
           } catch (error) {
             if (isNoPermissionError(error)) {
@@ -689,6 +739,8 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
       throw createError(400, "Informe veículos e itinerários para embarcar");
     }
 
+    const bufferMetersRaw = req.body?.xdmBufferMeters ?? req.body?.bufferMeters ?? null;
+    const bufferMeters = bufferMetersRaw == null ? null : Number(bufferMetersRaw);
     const ipAddress = resolveRequestIp(req);
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
 
@@ -696,15 +748,31 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
       acc.set(String(vehicle.id), vehicle);
       return acc;
     }, new Map());
+    const itinerariesById = new Map();
+    for (const itineraryId of itineraryIds) {
+      const itinerary = getItineraryById(itineraryId);
+      itinerariesById.set(String(itineraryId), itinerary || null);
+      if (!itinerary || !Number.isFinite(bufferMeters) || bufferMeters <= 0) continue;
+      const routeIds = (itinerary.items || [])
+        .filter((item) => item.type === "route")
+        .map((item) => String(item.id));
+      for (const routeId of routeIds) {
+        const route = await getRouteById(routeId);
+        if (!route) continue;
+        const metadata = route.metadata && typeof route.metadata === "object" ? { ...route.metadata } : {};
+        if (metadata.xdmBufferMeters === bufferMeters) continue;
+        await updateRoute(routeId, { metadata: { ...metadata, xdmBufferMeters: bufferMeters } });
+      }
+    }
 
     const entries = [];
     let success = 0;
     let failed = 0;
 
-    vehicleIds.forEach((vehicleId) => {
+    for (const vehicleId of vehicleIds) {
       const vehicle = vehicles.get(String(vehicleId)) || getVehicleById(vehicleId);
-      itineraryIds.forEach((itineraryId) => {
-        const itinerary = getItineraryById(itineraryId);
+      for (const itineraryId of itineraryIds) {
+        const itinerary = itinerariesById.get(String(itineraryId)) || getItineraryById(itineraryId);
         const entryBase = {
           clientId: String(clientId),
           itineraryId: String(itineraryId),
@@ -759,8 +827,8 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
                 : "Deploy enfileirado",
           deploymentId: deployment?.id || null,
         });
-      });
-    });
+      }
+    }
     return res.status(201).json({ data: { entries, summary: { success, failed } }, error: null });
   } catch (error) {
     return next(error);
