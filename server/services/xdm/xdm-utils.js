@@ -162,10 +162,18 @@ export function normalizeXdmDeviceUid(
 }
 
 export function buildSettingsOverridesModified(overrides = {}) {
-  return Object.entries(overrides).map(([overrideId, value]) => ({
-    userElementId: Number(overrideId),
-    value,
-  }));
+  return Object.entries(overrides).reduce((acc, [overrideId, value]) => {
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      if (Object.prototype.hasOwnProperty.call(value, "value")) {
+        acc[overrideId] = { ...value, value: value.value ?? null };
+      } else {
+        acc[overrideId] = { ...value };
+      }
+    } else {
+      acc[overrideId] = { value: value ?? null };
+    }
+    return acc;
+  }, {});
 }
 
 export default {

@@ -3,9 +3,14 @@ import test from "node:test";
 
 import { buildSettingsOverridesModified, normalizeGeozoneGroupIdResponse } from "../services/xdm/xdm-utils.js";
 
-test("buildSettingsOverridesModified monta payload com lista modified", () => {
+test("buildSettingsOverridesModified monta payload como dicionário de overrides", () => {
   const payload = buildSettingsOverridesModified({ "8236818": 75299 });
-  assert.deepEqual(payload, [{ userElementId: 8236818, value: 75299 }]);
+  assert.deepEqual(payload, { "8236818": { value: 75299 } });
+});
+
+test("buildSettingsOverridesModified mantém null como value null", () => {
+  const payload = buildSettingsOverridesModified({ "8236818": null });
+  assert.deepEqual(payload, { "8236818": { value: null } });
 });
 
 test("normalizeGeozoneGroupIdResponse aceita formatos diferentes", () => {
