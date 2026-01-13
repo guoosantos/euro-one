@@ -123,7 +123,9 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
   const overrides = {};
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const overrideConfig = overrideConfigs[role.key];
-    if (!overrideConfig?.overrideId) continue;
+    if (!overrideConfig?.overrideId) {
+      throw new Error(`Override do geozone group não encontrado para ${role.key}`);
+    }
     const groupId = groupIds?.[role.key] ?? null;
     overrides[overrideConfig.overrideId] =
       groupId == null ? null : normalizeXdmId(groupId, { context: "apply overrides geozone group" });
@@ -435,6 +437,7 @@ export async function embarkItinerary({
     clientDisplayName,
     correlationId,
     geofencesById: resolvedGeofencesById,
+    forceEmptyGroups: true,
   });
   const deploymentGroupHash = buildGroupHashSummary(groupHashes) || groupHash || null;
 

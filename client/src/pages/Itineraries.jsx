@@ -1646,8 +1646,8 @@ export default function Itineraries() {
 
       <div className="-mx-4 space-y-4 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
         <PageHeader
-          eyebrow="Itinerários"
-          title="Itinerários"
+          eyebrow="Embarcar Itinerários"
+          title="Embarcar Itinerários"
           description="Agrupadores de cercas, rotas e alvos para o mesmo cliente."
           right={(
             <>

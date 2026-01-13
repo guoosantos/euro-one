@@ -342,8 +342,9 @@ async function syncGroupFromBucket({
   bucket,
   clientDisplayName,
   correlationId,
+  allowEmpty = false,
 }) {
-  if (!bucket || !bucket.geofenceEntries.length) {
+  if (!bucket || (!bucket.geofenceEntries.length && !allowEmpty)) {
     return { xdmGeozoneGroupId: null, groupHash: null, groupName: null, warnings: [] };
   }
 
@@ -648,7 +649,7 @@ async function syncGroupFromBucket({
 
 export async function syncGeozoneGroup(
   itineraryId,
-  { clientId, clientDisplayName = null, correlationId, geofencesById } = {},
+  { clientId, clientDisplayName = null, correlationId, geofencesById, forceEmptyGroups = false } = {},
 ) {
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
@@ -757,7 +758,7 @@ export async function syncGeozoneGroup(
   const warnings = [];
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const bucket = buckets[role.key];
-    if (!bucket.geofenceEntries.length) {
+    if (!bucket.geofenceEntries.length && !forceEmptyGroups) {
       groupResults[role.key] = null;
       continue;
     }
@@ -766,6 +767,7 @@ export async function syncGeozoneGroup(
       bucket,
       clientDisplayName,
       correlationId,
+      allowEmpty: forceEmptyGroups,
     });
     groupResults[role.key] = result;
     if (Array.isArray(result?.warnings) && result.warnings.length) {
@@ -1091,7 +1093,7 @@ export async function syncGeozoneGroupForGeofences({
 
 export async function ensureGeozoneGroups(
   itineraryId,
-  { clientId, clientDisplayName = null, correlationId, geofencesById } = {},
+  { clientId, clientDisplayName = null, correlationId, geofencesById, forceEmptyGroups = false } = {},
 ) {
   const itinerary = getItineraryById(itineraryId);
   if (!itinerary) {
@@ -1137,9 +1139,9 @@ export async function ensureGeozoneGroups(
     }
   }
 
-  const needsItineraryGroup = Boolean(routeItems.length || itineraryGeofenceCount);
-  const needsTargetsGroup = Boolean(targetItems.length);
-  const needsEntryGroup = Boolean(entryCount);
+  const needsItineraryGroup = forceEmptyGroups || Boolean(routeItems.length || itineraryGeofenceCount);
+  const needsTargetsGroup = forceEmptyGroups || Boolean(targetItems.length);
+  const needsEntryGroup = forceEmptyGroups || Boolean(entryCount);
 
   const groupIds = {
     itinerary: itineraryGroupId != null ? normalizeXdmId(itineraryGroupId, { context: "itinerary geozonegroup" }) : null,
@@ -1183,6 +1185,7 @@ export async function ensureGeozoneGroups(
     clientDisplayName,
     correlationId,
     geofencesById,
+    forceEmptyGroups,
   });
 }
 

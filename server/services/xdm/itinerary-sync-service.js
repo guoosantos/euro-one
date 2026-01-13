@@ -7,6 +7,7 @@ import {
   removeGeozoneGroupMapping,
   getGeozoneGroupMappingByScope,
   removeGeozoneGroupMappingByScope,
+  listGeozoneGroupMappings,
 } from "../../models/xdm-geozone-group.js";
 import {
   getRouteGeozoneMapping,
@@ -44,6 +45,17 @@ function isItemUsedElsewhere({ item, clientId, excludeItineraryId }) {
     return (itinerary.items || []).some(
       (entry) => entry && entry.type === item.type && String(entry.id) === String(item.id),
     );
+  });
+}
+
+function isGeozoneGroupUsedElsewhere({ groupId, clientId, excludeScopeKey, excludeItineraryId }) {
+  if (!groupId) return false;
+  const mappings = listGeozoneGroupMappings(clientId ? { clientId } : {});
+  return mappings.some((mapping) => {
+    if (!mapping?.xdmGeozoneGroupId) return false;
+    if (excludeItineraryId && String(mapping.id) === String(excludeItineraryId)) return false;
+    if (excludeScopeKey && String(mapping.scopeKey) === String(excludeScopeKey)) return false;
+    return String(mapping.xdmGeozoneGroupId) === String(groupId);
   });
 }
 
@@ -281,6 +293,65 @@ export async function deleteItineraryGeozoneGroups({ itineraryId, clientId, corr
   );
 }
 
+export async function deleteItineraryGeozoneGroupsWithReport({ itineraryId, clientId, correlationId }) {
+  const itinerary = getItineraryById(itineraryId);
+  if (!itinerary) return [];
+  const results = [];
+  const scopedMappings = GEOZONE_GROUP_ROLE_LIST.map((role) => ({
+    role,
+    scopeKey: buildItineraryGroupScopeKey(itineraryId, role.key),
+    mapping: getGeozoneGroupMappingByScope({
+      scopeKey: buildItineraryGroupScopeKey(itineraryId, role.key),
+      clientId,
+    }),
+  }));
+
+  for (const { role, mapping, scopeKey } of scopedMappings) {
+    const groupId =
+      role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key
+        ? itinerary?.xdmGeozoneGroupId || mapping?.xdmGeozoneGroupId || null
+        : mapping?.xdmGeozoneGroupId || null;
+    if (!groupId) {
+      results.push({ role: role.key, status: "skipped", reason: "not_found" });
+      removeGeozoneGroupMappingByScope({ scopeKey, clientId });
+      if (role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key) {
+        removeGeozoneGroupMapping({ itineraryId, clientId });
+      }
+      continue;
+    }
+
+    if (isGeozoneGroupUsedElsewhere({ groupId, clientId, excludeScopeKey: scopeKey, excludeItineraryId: itineraryId })) {
+      results.push({ role: role.key, status: "skipped", reason: "in_use", xdmGeozoneGroupId: groupId });
+      continue;
+    }
+
+    try {
+      const normalized = normalizeXdmId(groupId, { context: "delete geozone group" });
+      const xdmClient = new XdmClient();
+      await xdmClient.request("DELETE", `/api/external/v1/geozonegroups/${normalized}`, null, { correlationId });
+      results.push({ role: role.key, status: "deleted", xdmGeozoneGroupId: groupId });
+      if (role.key === ITINERARY_GEOZONE_GROUPS.itinerary.key) {
+        removeGeozoneGroupMapping({ itineraryId, clientId });
+      }
+      removeGeozoneGroupMappingByScope({ scopeKey, clientId });
+    } catch (error) {
+      const status = Number(error?.status || error?.statusCode);
+      if (status === 409) {
+        results.push({ role: role.key, status: "skipped", reason: "in_use", xdmGeozoneGroupId: groupId });
+        continue;
+      }
+      results.push({
+        role: role.key,
+        status: "failed",
+        reason: error?.message || "Falha ao excluir geozone group",
+        xdmGeozoneGroupId: groupId,
+      });
+    }
+  }
+
+  return results;
+}
+
 export default {
   syncItineraryXdm,
   diffRemovedItems,
@@ -288,4 +359,5 @@ export default {
   cleanupGeozoneForItemWithReport,
   deleteItineraryGeozoneGroup,
   deleteItineraryGeozoneGroups,
+  deleteItineraryGeozoneGroupsWithReport,
 };

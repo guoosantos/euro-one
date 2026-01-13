@@ -26,6 +26,7 @@ import {
   cleanupGeozoneForItem,
   cleanupGeozoneForItemWithReport,
   deleteItineraryGeozoneGroups,
+  deleteItineraryGeozoneGroupsWithReport,
   diffRemovedItems,
   syncItineraryXdm,
 } from "../services/xdm/itinerary-sync-service.js";
@@ -535,6 +536,11 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
       ipAddress: resolveRequestIp(req),
     });
 
+    console.info("[itineraries] embarcado com sucesso", {
+      itineraryId: String(itineraryId),
+      vehicles: response?.vehicles?.length || 0,
+    });
+
     return res.status(201).json({ data: response, error: null });
   } catch (error) {
     return next(error);
@@ -563,6 +569,11 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
       requestedByUserId: req.user?.id || null,
       requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
       ipAddress: resolveRequestIp(req),
+    });
+
+    console.info("[itineraries] desembarcado com sucesso", {
+      itineraryId: String(itineraryId),
+      vehicles: response?.vehicles?.length || 0,
     });
 
     return res.status(201).json({ data: response, error: null });
@@ -678,8 +689,20 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
           });
         } else {
           try {
-            await deleteItineraryGeozoneGroups({ itineraryId: itinerary.id, clientId, correlationId });
-            cleanup.geozoneGroups.push({ itineraryId: String(itinerary.id), status: "deleted" });
+            const cleanupResults = await deleteItineraryGeozoneGroupsWithReport({
+              itineraryId: itinerary.id,
+              clientId,
+              correlationId,
+            });
+            cleanupResults.forEach((entry) => {
+              cleanup.geozoneGroups.push({
+                itineraryId: String(itinerary.id),
+                role: entry.role,
+                status: entry.status,
+                reason: entry.reason || null,
+                xdmGeozoneGroupId: entry.xdmGeozoneGroupId || null,
+              });
+            });
           } catch (error) {
             if (isNoPermissionError(error)) {
               logNoPermissionDiagnostics({
@@ -722,6 +745,17 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
           });
         }
       }
+    }
+
+    const cleanupBlocked = [
+      ...cleanup.geozoneGroups.filter((entry) => entry.status === "skipped" && entry.reason === "in_use"),
+      ...cleanup.geozones.filter((entry) => entry.status === "skipped" && entry.reason === "in_use"),
+    ];
+    if (cleanupBlocked.length) {
+      console.warn("[itineraries] limpeza parcial no XDM: itens não removidos por dependência", {
+        total: cleanupBlocked.length,
+        items: cleanupBlocked,
+      });
     }
 
     return res.status(201).json({ data: { summary, results, cleanup }, error: null });
