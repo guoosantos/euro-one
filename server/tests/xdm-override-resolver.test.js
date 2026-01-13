@@ -73,3 +73,36 @@ test("override global não vaza para targets/entry", async () => {
     process.env.XDM_GEOZONE_GROUP_OVERRIDE_ID_ENTRY = originalEnv.XDM_GEOZONE_GROUP_OVERRIDE_ID_ENTRY;
   }
 });
+
+test("fallback para template XG37 EURO usa Itinerario/Alvos/Entrada", async () => {
+  const originalEnv = {
+    XDM_CONFIG_NAME: process.env.XDM_CONFIG_NAME,
+    XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS: process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS,
+    XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY: process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY,
+    XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY: process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY,
+  };
+
+  process.env.XDM_CONFIG_NAME = "XG37 common settings V5 - EURO";
+  delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS;
+  delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY;
+  delete process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY;
+
+  try {
+    const { getGeozoneGroupOverrideConfigByRole } = await import(
+      `../services/xdm/xdm-override-resolver.js?test=${Date.now()}`
+    );
+
+    const itineraryConfig = getGeozoneGroupOverrideConfigByRole("itinerary");
+    const targetsConfig = getGeozoneGroupOverrideConfigByRole("targets");
+    const entryConfig = getGeozoneGroupOverrideConfigByRole("entry");
+
+    assert.equal(itineraryConfig.overrideKey, "Itinerario");
+    assert.equal(targetsConfig.overrideKey, "Alvos");
+    assert.equal(entryConfig.overrideKey, "Entrada");
+  } finally {
+    process.env.XDM_CONFIG_NAME = originalEnv.XDM_CONFIG_NAME;
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS = originalEnv.XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS;
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY = originalEnv.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY;
+    process.env.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY = originalEnv.XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY;
+  }
+});

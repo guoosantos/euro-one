@@ -139,6 +139,12 @@ function buildXdmName({
 }) {
   const { friendlyNamesEnabled, maxNameLength, geozoneNameMode } = resolveXdmNameConfig();
   const roleLabel = roleKey ? ITINERARY_GEOZONE_GROUPS[roleKey]?.label || null : null;
+  const suffixLabel =
+    roleKey === ITINERARY_GEOZONE_GROUPS.targets.key
+      ? ITINERARY_GEOZONE_GROUPS.targets.label
+      : roleKey === ITINERARY_GEOZONE_GROUPS.entry.key
+        ? ITINERARY_GEOZONE_GROUPS.entry.label
+        : "CERCA";
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedGeofence = sanitizeFriendlyName(name) || "Geofence";
@@ -151,7 +157,7 @@ function buildXdmName({
     }
     parts.push(resolvedGeofence);
     const suffix = withSuffix ? buildShortIdSuffix(geofenceId) : "";
-    const suffixParts = [roleLabel, suffix].filter(Boolean).join(" ").trim();
+    const suffixParts = [suffixLabel || roleLabel, suffix].filter(Boolean).join(" ").trim();
     const friendly = buildFriendlyNameWithSuffix(parts, { maxLen: maxNameLength, suffix: suffixParts });
     if (friendly) return friendly;
   }
@@ -159,7 +165,7 @@ function buildXdmName({
   const scopeId = sanitizeName(itineraryId || geofenceId) || "GEOFENCE";
   const safeType = sanitizeName(type) || "GEOFENCE";
   const safeName = sanitizeName(name) || "GEOFENCE";
-  const safeRole = roleLabel ? sanitizeName(roleLabel) : "";
+  const safeRole = suffixLabel || roleLabel ? sanitizeName(suffixLabel || roleLabel) : "";
   return `EUROONE_${safeClient}_${scopeId}_${safeType}_${safeName}${safeRole ? `_${safeRole}` : ""}`;
 }
 

@@ -1,9 +1,11 @@
 import crypto from "node:crypto";
+import createError from "http-errors";
 
 import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, syncGeozoneGroupForGeofences } from "./geozone-group-sync-service.js";
 import { buildOverridesDto, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import {
+  getGeozoneGroupOverrideConfigByRole,
   resolveGeozoneGroupOverrideConfigs,
   validateGeozoneGroupOverrideConfigs,
 } from "./xdm-override-resolver.js";
@@ -232,12 +234,38 @@ export async function applyGeozoneGroupToDevice({
     throw new Error("Falha ao obter geozone group no XDM");
   }
 
-  const overrideConfigs = await resolveGeozoneGroupOverrideConfigs({ correlationId: resolvedCorrelationId });
-  validateGeozoneGroupOverrideConfigs({
-    configs: overrideConfigs,
-    correlationId: resolvedCorrelationId,
-    groupIds,
-  });
+  let overrideConfigs;
+  try {
+    overrideConfigs = await resolveGeozoneGroupOverrideConfigs({ correlationId: resolvedCorrelationId });
+    validateGeozoneGroupOverrideConfigs({
+      configs: overrideConfigs,
+      correlationId: resolvedCorrelationId,
+      groupIds,
+    });
+  } catch (error) {
+    const configName = process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null;
+    const roleDetails = GEOZONE_GROUP_ROLE_LIST.map((role) => {
+      const fallback = getGeozoneGroupOverrideConfigByRole(role.key);
+      const resolved = overrideConfigs?.[role.key] || null;
+      return {
+        role: role.key,
+        groupId: groupIds?.[role.key] ?? null,
+        overrideKey: resolved?.overrideKey || fallback?.overrideKey || null,
+        overrideId: resolved?.overrideId || fallback?.overrideId || null,
+        configName,
+      };
+    });
+    console.error("[xdm] falha ao resolver overrides do geozone group", {
+      correlationId: resolvedCorrelationId,
+      deviceId: normalizedDeviceUid,
+      roles: roleDetails,
+      message: error?.message || error,
+    });
+    throw createError(
+      400,
+      "Falha ao resolver overrides do geozone group no XDM. Verifique XDM_CONFIG_NAME e XDM_GEOZONE_GROUP_OVERRIDE_*.",
+    );
+  }
   const overrides = {};
   const roleDetails = [];
   for (const role of GEOZONE_GROUP_ROLE_LIST) {

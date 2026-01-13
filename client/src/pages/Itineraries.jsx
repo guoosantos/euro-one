@@ -54,6 +54,17 @@ function resolveVehicleLastUpdate(vehicle) {
   );
 }
 
+function resolveApiError(error, fallback) {
+  if (!error) return fallback;
+  const response = error?.response || {};
+  const payload = response?.data || {};
+  const status = error?.status || response?.status || null;
+  const serverMessage = payload?.error || payload?.message || payload?.errorMessage || null;
+  const baseMessage = serverMessage || error?.message || fallback;
+  if (!status) return baseMessage;
+  return `${baseMessage} (HTTP ${status})`;
+}
+
 function ItineraryModal({
   open,
   onClose,
@@ -1153,7 +1164,7 @@ export default function Itineraries() {
       setRoutes(list);
     } catch (error) {
       console.error("[itineraries] Falha ao carregar rotas salvas", error);
-      showToast("Não foi possível carregar as rotas salvas.", "warning");
+      showToast(resolveApiError(error, "Não foi possível carregar as rotas salvas."), "warning");
     }
   }, [showToast]);
 
@@ -1165,7 +1176,7 @@ export default function Itineraries() {
       setItineraries(list);
     } catch (error) {
       console.error("[itineraries] Falha ao carregar itinerários", error);
-      showToast("Não foi possível carregar os itinerários.", "warning");
+      showToast(resolveApiError(error, "Não foi possível carregar os itinerários."), "warning");
     } finally {
       setLoading(false);
     }
@@ -1181,7 +1192,7 @@ export default function Itineraries() {
       setHistoryEntries(Array.isArray(list) ? list : []);
     } catch (error) {
       console.error("[itineraries] Falha ao carregar histórico de embarques", error);
-      showToast("Não foi possível carregar o histórico de embarques.", "warning");
+      showToast(resolveApiError(error, "Não foi possível carregar o histórico de embarques."), "warning");
     } finally {
       setHistoryLoading(false);
     }
@@ -1262,22 +1273,36 @@ export default function Itineraries() {
     setSelectedDisembarkItineraryIds([String(selectedId)]);
   }, [editorOpen, selectedId]);
 
+  useEffect(() => {
+    if (!editorOpen || !selectedId) return;
+    if (editorTab === "embarcar") {
+      setSelectedItineraryIds([String(selectedId)]);
+    }
+    if (editorTab === "desembarcar") {
+      setSelectedDisembarkItineraryIds([String(selectedId)]);
+    }
+  }, [editorOpen, editorTab, selectedId]);
+
   const handleLinkItem = useCallback(
     (item) => {
       if (!item) return;
-      const exists = (form.items || []).some((entry) => entry.type === item.type && String(entry.id) === String(item.id));
-      if (exists) {
-        showToast("Item já vinculado.", "warning");
-        return;
-      }
-      setForm((current) => ({
-        ...current,
-        items: [...(current.items || []), { type: item.type, id: String(item.id) }],
-      }));
+      setForm((current) => {
+        const exists = (current.items || []).some(
+          (entry) => entry.type === item.type && String(entry.id) === String(item.id),
+        );
+        if (exists) {
+          showToast("Item já vinculado.", "warning");
+          return current;
+        }
+        return {
+          ...current,
+          items: [...(current.items || []), { type: item.type, id: String(item.id) }],
+        };
+      });
       const label = item.type === "geofence" ? "Cerca" : item.type === "route" ? "Rota" : "Alvo";
       showToast(`${label} vinculada com sucesso.`);
     },
-    [form.items, showToast],
+    [showToast],
   );
 
   const handleRemoveItem = useCallback((item) => {
@@ -1320,7 +1345,7 @@ export default function Itineraries() {
       return saved;
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Não foi possível salvar o itinerário.", "warning");
+      showToast(resolveApiError(error, "Não foi possível salvar o itinerário."), "warning");
       return null;
     } finally {
       setSaving(false);
@@ -1346,7 +1371,7 @@ export default function Itineraries() {
         setDeleteConflict({ id, name: existing?.name || "Itinerário" });
         return;
       }
-      showToast(error?.message || "Não foi possível remover.", "warning");
+      showToast(resolveApiError(error, "Não foi possível remover."), "warning");
     }
   };
 
@@ -1368,7 +1393,7 @@ export default function Itineraries() {
       });
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Não foi possível exportar o KML.", "warning");
+      showToast(resolveApiError(error, "Não foi possível exportar o KML."), "warning");
     }
   };
 
@@ -1471,7 +1496,7 @@ export default function Itineraries() {
       await loadHistory();
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Não foi possível enviar o embarque.", "warning");
+      showToast(resolveApiError(error, "Não foi possível enviar o embarque."), "warning");
     } finally {
       setEmbarkSending(false);
     }
@@ -1511,7 +1536,7 @@ export default function Itineraries() {
       await loadHistory();
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Não foi possível desembarcar.", "warning");
+      showToast(resolveApiError(error, "Não foi possível desembarcar."), "warning");
     } finally {
       setDisembarkSending(false);
     }
@@ -1559,7 +1584,7 @@ export default function Itineraries() {
       showToast("Itinerário desembarcado e removido.");
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Não foi possível desembarcar e excluir.", "warning");
+      showToast(resolveApiError(error, "Não foi possível desembarcar e excluir."), "warning");
     } finally {
       setDeleteConflictSending(false);
     }

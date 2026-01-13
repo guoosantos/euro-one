@@ -55,6 +55,8 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
     - `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ITINERARY`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_TARGETS`, `XDM_GEOZONE_GROUP_OVERRIDE_KEY_ENTRY`
     - Alternativamente, use listas ordenadas por índice: `XDM_GEOZONE_GROUP_OVERRIDE_IDS="123,456,789"` e `XDM_GEOZONE_GROUP_OVERRIDE_KEYS="geoGroup1,geoGroup2,geoGroup3"`.
       - **Ordem obrigatória**: `itinerary`, `targets`, `entry` (3 IDs únicos e int32).
+    - Para o template `XG37 common settings V5 - EURO`, os nomes esperados são `Itinerario`, `Alvos`, `Entrada`.
+      - Se os nomes não forem definidos via env, o resolver tenta em cascata (`geoGroup1/2/3` → `Itinerario/Alvos/Entrada`, ou inverso quando `XDM_CONFIG_NAME` contém XG37/EURO).
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`; o valor **precisa** ser numérico.
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
@@ -178,6 +180,9 @@ O script consulta o template configurado em `XDM_CONFIG_NAME`, percorre categori
 Alguns templates de produção (ex.: `XG37 common settings V5 - EURO`) não possuem os campos de geozone group nomeados como `geoGroup1/2/3`. Nesses casos, o resolver:
 
 - tenta primeiro encontrar o override pelo nome exato do elemento (`overrideKey`);
+- se `XDM_CONFIG_NAME` identificar o template XG37/EURO, o fallback inicial é `Itinerario`/`Alvos`/`Entrada`;
+- senão, o fallback inicial é `geoGroup1`/`geoGroup2`/`geoGroup3`;
+- se o nome principal falhar, tenta o nome alternativo em cascata por role;
 - se não encontrar, faz um fallback automático por índice dentro da seção de **Geofencing** (identificando elementos com label de “Geozone group”);
 - a ordem do fallback é fixa: **1=Itinerário**, **2=Alvos**, **3=Entrada**.
 
