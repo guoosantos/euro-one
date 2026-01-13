@@ -111,7 +111,6 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
   validateGeozoneGroupOverrideConfigs({ configs: overrideConfigs, correlationId, groupIds });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
   const overrides = {};
-  const modified = [];
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const overrideConfig = overrideConfigs[role.key];
     if (!overrideConfig?.overrideId) {
@@ -120,10 +119,6 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
     const groupId = groupIds?.[role.key] ?? null;
     overrides[overrideConfig.overrideId] =
       groupId == null ? null : normalizeXdmId(groupId, { context: "apply overrides geozone group" });
-    modified.push({
-      userElementId: overrideConfig.overrideNumber ?? Number(overrideConfig.overrideId),
-      value: overrides[overrideConfig.overrideId],
-    });
     console.info("[xdm] apply geozone group override", {
       correlationId,
       deviceId: normalizedDeviceUid,
@@ -144,7 +139,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        Overrides: modified,
+        Overrides: buildSettingsOverridesModified(overrides),
       },
       { correlationId },
     );
