@@ -96,6 +96,13 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       status: "ok",
     });
   } catch (error) {
+    console.error("[xdm] falha ao aplicar overrides do geozone group", {
+      correlationId,
+      deviceId: normalizedDeviceUid,
+      status: error?.status || error?.statusCode || null,
+      message: error?.message || error,
+      payloadSample: { overrides: entries, roles: roleDetails || null },
+    });
     throw wrapXdmError(error, {
       step: "updateDeviceSdk",
       correlationId,
@@ -261,10 +268,20 @@ export async function applyGeozoneGroupToDevice({
       roles: roleDetails,
       message: error?.message || error,
     });
-    throw createError(
+    if (error?.code === "XDM_OVERRIDE_VALIDATION_FAILED") {
+      throw error;
+    }
+    const wrapped = createError(
       400,
       "Falha ao resolver overrides do geozone group no XDM. Verifique XDM_CONFIG_NAME e XDM_GEOZONE_GROUP_OVERRIDE_*.",
     );
+    wrapped.code = "XDM_OVERRIDE_VALIDATION_FAILED";
+    wrapped.details = {
+      correlationId: resolvedCorrelationId,
+      roles: roleDetails,
+      configName,
+    };
+    throw wrapped;
   }
   const overrides = {};
   const roleDetails = [];
@@ -282,14 +299,16 @@ export async function applyGeozoneGroupToDevice({
     });
     console.info("[xdm] apply geozone group override", {
       correlationId: resolvedCorrelationId,
-      deviceId: normalizedDeviceUid,
+      deviceUid: normalizedDeviceUid,
       role: role.key,
       xdmGeozoneGroupId: groupId,
       overrideId: config.overrideId,
       overrideKey: config.overrideKey,
+      source: config.source || null,
       overrideSource: config.source || null,
       overrideIdSource: config.overrideIdSource || null,
       overrideKeySource: config.overrideKeySource || null,
+      discoveryMode: config.discoveryMode || null,
     });
   }
 

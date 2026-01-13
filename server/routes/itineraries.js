@@ -73,6 +73,29 @@ function normalizeDeploymentAction(action) {
   return action || "EMBARK";
 }
 
+function buildItineraryItems({ items, routeIds, existingItems = [], hasItems = false } = {}) {
+  const baseItems = hasItems ? items : existingItems;
+  const normalizedItems = Array.isArray(baseItems) ? baseItems : [];
+  const normalizedRouteIds = Array.isArray(routeIds) ? routeIds : [];
+  const combined = [
+    ...normalizedItems,
+    ...normalizedRouteIds.map((routeId) => ({ type: "route", id: String(routeId) })),
+  ];
+  const seen = new Set();
+  const resolved = [];
+  for (const entry of combined) {
+    if (!entry || typeof entry !== "object") continue;
+    const type = String(entry.type || "").toLowerCase();
+    if (!type || !entry.id) continue;
+    const id = String(entry.id);
+    const key = `${type}:${id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push({ ...entry, type, id });
+  }
+  return resolved;
+}
+
 export function __resolveBlockingEmbarkDeployments(deployments = []) {
   const activeStatuses = new Set(["DEPLOYED", "DEPLOYING", "QUEUED", "SYNCING"]);
   return (Array.isArray(deployments) ? deployments : []).filter(
@@ -189,7 +212,12 @@ router.get("/itineraries/:id", async (req, res, next) => {
 router.post("/itineraries", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
-    const itinerary = createItinerary({ ...req.body, clientId });
+    const items = buildItineraryItems({
+      items: req.body?.items,
+      routeIds: req.body?.routeIds,
+      hasItems: Object.prototype.hasOwnProperty.call(req.body || {}, "items"),
+    });
+    const itinerary = createItinerary({ ...req.body, items, clientId });
     try {
       const synced = await syncItineraryXdm(itinerary.id, {
         clientId,
@@ -238,7 +266,13 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
     }
     const clientId = resolveTargetClient(req, req.body?.clientId || existing.clientId, { required: true });
     ensureSameClient(req.user, clientId);
-    const updated = updateItinerary(req.params.id, { ...req.body, clientId: existing.clientId });
+    const items = buildItineraryItems({
+      items: req.body?.items,
+      routeIds: req.body?.routeIds,
+      existingItems: existing.items || [],
+      hasItems: Object.prototype.hasOwnProperty.call(req.body || {}, "items"),
+    });
+    const updated = updateItinerary(req.params.id, { ...req.body, items, clientId: existing.clientId });
 
     let synced;
     try {

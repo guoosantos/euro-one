@@ -1467,10 +1467,19 @@ export default function Itineraries() {
     [resetDisembarkForm],
   );
 
-  const handleEmbarkSubmit = async (overrideItineraryIds = null) => {
+  const handleEmbarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const itineraryIds = overrideItineraryIds || selectedItineraryIds;
     if (!selectedVehicleIds.length || !itineraryIds.length) {
       showToast("Selecione veículos e itinerários para embarcar.", "warning");
+      return;
+    }
+    const inferredClientId =
+      overrideClientId ||
+      tenantId ||
+      itineraries.find((item) => String(item.id) === String(itineraryIds[0]))?.clientId ||
+      null;
+    if (!inferredClientId) {
+      showToast("Selecione um cliente válido para embarcar.", "warning");
       return;
     }
     setEmbarkSending(true);
@@ -1478,7 +1487,7 @@ export default function Itineraries() {
       const response = await api.post(API_ROUTES.itineraryEmbark, {
         vehicleIds: selectedVehicleIds,
         itineraryIds,
-        clientId: tenantId ?? undefined,
+        clientId: inferredClientId ?? undefined,
         xdmBufferMeters: embarkBufferMeters,
       });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
@@ -1502,10 +1511,19 @@ export default function Itineraries() {
     }
   };
 
-  const handleDisembarkSubmit = async (overrideItineraryIds = null) => {
+  const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const itineraryIds = overrideItineraryIds || selectedDisembarkItineraryIds;
     if (!itineraryIds.length) {
       showToast("Selecione itinerários para desembarcar.", "warning");
+      return;
+    }
+    const inferredClientId =
+      overrideClientId ||
+      tenantId ||
+      itineraries.find((item) => String(item.id) === String(itineraryIds[0]))?.clientId ||
+      null;
+    if (!inferredClientId) {
+      showToast("Selecione um cliente válido para desembarcar.", "warning");
       return;
     }
     setDisembarkSending(true);
@@ -1513,7 +1531,7 @@ export default function Itineraries() {
       const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
         vehicleIds: selectedDisembarkVehicleIds,
         itineraryIds,
-        clientId: tenantId ?? undefined,
+        clientId: inferredClientId ?? undefined,
         options: {
           cleanup: {
             deleteGeozoneGroup: cleanupDeleteGroup,
@@ -1549,7 +1567,7 @@ export default function Itineraries() {
       return;
     }
     setSelectedItineraryIds([String(itineraryId)]);
-    await handleEmbarkSubmit([String(itineraryId)]);
+    await handleEmbarkSubmit([String(itineraryId)], selected?.clientId ?? null);
   };
 
   const handleEditorDisembarkSubmit = async () => {
@@ -1559,7 +1577,7 @@ export default function Itineraries() {
       return;
     }
     setSelectedDisembarkItineraryIds([String(itineraryId)]);
-    await handleDisembarkSubmit([String(itineraryId)]);
+    await handleDisembarkSubmit([String(itineraryId)], selected?.clientId ?? null);
   };
 
   const handleDisembarkAndDelete = async (itineraryId) => {

@@ -642,8 +642,18 @@ export async function resolveGeozoneGroupOverrideElementId({
   const dealerId = resolveDealerId();
   const configName = resolveConfigName();
   const overrideKeyResolved = resolveOverrideKey(config.overrideKey);
-  const candidates = new Set([overrideKeyResolved, ...resolveFallbackKeyCandidates(roleKey)]);
-  const attempts = Array.from(candidates).filter(Boolean);
+  const fallbackCandidates = resolveFallbackKeyCandidates(roleKey);
+  const orderedCandidates = [];
+  if (roleKey && fallbackCandidates.length) {
+    orderedCandidates.push(...fallbackCandidates);
+    if (overrideKeyResolved && !fallbackCandidates.includes(overrideKeyResolved)) {
+      orderedCandidates.push(overrideKeyResolved);
+    }
+  } else {
+    orderedCandidates.push(overrideKeyResolved);
+    orderedCandidates.push(...fallbackCandidates);
+  }
+  const attempts = Array.from(new Set(orderedCandidates)).filter(Boolean);
   const errors = [];
 
   for (const candidate of attempts) {
@@ -662,9 +672,15 @@ export async function resolveGeozoneGroupOverrideElementId({
 
   const attempted = attempts.join(", ");
   const last = errors[errors.length - 1];
-  throw new Error(
-    `Override "${overrideKeyResolved}" não encontrado na configuração "${configName}". Tentativas: ${attempted}. Último erro: ${last?.message || "desconhecido"}`,
-  );
+  const message = `Override "${overrideKeyResolved}" não encontrado na configuração "${configName}"${roleKey ? ` para role "${roleKey}"` : ""}. Tentativas: ${attempted}. Último erro: ${last?.message || "desconhecido"}`;
+  const resolvedError = new Error(message);
+  resolvedError.attemptedOverrideKeys = attempts;
+  resolvedError.overrideKeyResolved = overrideKeyResolved;
+  resolvedError.overrideId = config.overrideId ?? null;
+  resolvedError.roleKey = roleKey || null;
+  resolvedError.configName = configName;
+  resolvedError.errors = errors;
+  throw resolvedError;
 }
 
 export async function discoverGeozoneGroupOverrideElementId({ correlationId, overrideKey, roleKey } = {}) {
@@ -706,12 +722,14 @@ export async function ensureGeozoneGroupOverrideId({
   overrideId,
   overrideKey,
   allowLegacyFallback = true,
+  roleKey,
 } = {}) {
   const resolved = await resolveGeozoneGroupOverrideElementId({
     correlationId,
     overrideId,
     overrideKey,
     allowLegacyFallback,
+    roleKey,
   });
   if (!resolved?.overrideId) {
     throw new Error(
@@ -745,13 +763,39 @@ export async function resolveGeozoneGroupOverrideConfigs({ correlationId } = {})
   const configs = {};
   for (const role of GEOZONE_GROUP_ROLE_LIST) {
     const baseConfig = getGeozoneGroupOverrideConfigByRole(role.key);
-    const resolved = await ensureGeozoneGroupOverrideId({
-      correlationId,
-      overrideId: baseConfig.overrideId,
-      overrideKey: baseConfig.overrideKey,
-      allowLegacyFallback: baseConfig.allowLegacyFallback ?? false,
-      roleKey: role.key,
-    });
+    let resolved;
+    try {
+      resolved = await ensureGeozoneGroupOverrideId({
+        correlationId,
+        overrideId: baseConfig.overrideId,
+        overrideKey: baseConfig.overrideKey,
+        allowLegacyFallback: baseConfig.allowLegacyFallback ?? false,
+        roleKey: role.key,
+      });
+    } catch (error) {
+      const configName = process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null;
+      const roles = GEOZONE_GROUP_ROLE_LIST.map((entry) => {
+        const roleConfig = getGeozoneGroupOverrideConfigByRole(entry.key);
+        return {
+          role: entry.key,
+          overrideKey: roleConfig.overrideKey ?? null,
+          overrideId: roleConfig.overrideId ?? null,
+        };
+      });
+      throw buildOverrideValidationError({
+        message: `Override do XDM não encontrado para role "${role.key}".`,
+        details: {
+          correlationId,
+          configName,
+          role: role.key,
+          overrideKey: baseConfig.overrideKey || error?.overrideKeyResolved || null,
+          overrideId: baseConfig.overrideId ?? error?.overrideId ?? null,
+          attemptedOverrideKeys: error?.attemptedOverrideKeys || [],
+          errors: error?.errors || null,
+          roles,
+        },
+      });
+    }
     configs[role.key] = {
       ...resolved,
       overrideIdSource: baseConfig.overrideIdSource || resolved.overrideIdSource || resolved.source || null,
