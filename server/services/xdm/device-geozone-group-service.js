@@ -84,7 +84,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        modified: buildSettingsOverridesModified(entries),
+        Overrides: buildSettingsOverridesModified(entries),
       },
       { correlationId },
     );
@@ -121,7 +121,7 @@ async function applyOverrides({ deviceUid, overrides, correlationId, roleDetails
       payloadSample: {
         deviceUid: normalizedDeviceUid,
         overrides: entries,
-        modified: buildSettingsOverridesModified(entries),
+        Overrides: buildSettingsOverridesModified(entries),
         roles: roleDetails || null,
       },
     });
@@ -154,6 +154,8 @@ export async function fetchDeviceGeozoneGroupIds({ deviceUid, correlationId } = 
   const overrides =
     response?.overrides ||
     response?.data?.overrides ||
+    response?.Overrides ||
+    response?.data?.Overrides ||
     response?.settingsOverrides ||
     response?.data?.settingsOverrides ||
     response?.modified ||
