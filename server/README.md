@@ -172,3 +172,13 @@ node scripts/xdm-discover-override-element.js
 
 O script consulta o template configurado em `XDM_CONFIG_NAME`, percorre categorias/elementos e persiste o `userElementId` encontrado para o override `XDM_GEOZONE_GROUP_OVERRIDE_KEY` (padrão `geoGroup`).
 - Garanta que `XDM_DEALER_ID` e `XDM_CONFIG_NAME` estejam configurados no `.env`.
+
+#### Observação sobre templates sem `geoGroup2`
+
+Alguns templates de produção (ex.: `XG37 common settings V5 - EURO`) não possuem os campos de geozone group nomeados como `geoGroup1/2/3`. Nesses casos, o resolver:
+
+- tenta primeiro encontrar o override pelo nome exato do elemento (`overrideKey`);
+- se não encontrar, faz um fallback automático por índice dentro da seção de **Geofencing** (identificando elementos com label de “Geozone group”);
+- a ordem do fallback é fixa: **1=Itinerário**, **2=Alvos**, **3=Entrada**.
+
+Isso garante que o deploy use três slots distintos mesmo quando o template não nomeia `geoGroup2`/`geoGroup3`.

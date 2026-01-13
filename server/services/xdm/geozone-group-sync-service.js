@@ -721,6 +721,7 @@ export async function syncGeozoneGroup(
       geofence: geofenceRecord,
       itineraryId: itinerary.id,
       itineraryName: itinerary.name,
+      roleKey: groupKey,
     });
     bucket.xdmGeozoneIds.push(xdmGeofenceId);
 
@@ -840,6 +841,7 @@ export async function syncGeozoneGroupForGeofences({
       clientDisplayName,
       correlationId,
       geofence: geofenceRecord,
+      roleKey: ITINERARY_GEOZONE_GROUPS.itinerary.key,
     });
     xdmGeozoneIds.push(xdmGeofenceId);
 

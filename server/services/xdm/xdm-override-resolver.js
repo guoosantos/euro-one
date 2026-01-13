@@ -223,6 +223,40 @@ function matchesOverrideKey(name, overrideKey) {
   return String(name || "").trim().toLowerCase() === String(overrideKey || "").trim().toLowerCase();
 }
 
+function normalizeDiscoveryText(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function collectLabelCandidates(entry) {
+  if (!entry || typeof entry !== "object") return [];
+  return [entry.name, entry.caption, entry.label, entry.title, entry.description]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+}
+
+function matchesGeozoneGroupLabel(value) {
+  const normalized = normalizeDiscoveryText(value);
+  if (!normalized) return false;
+  if (normalized.includes("geozonegroup") || normalized.includes("geozonesgroup")) return true;
+  return normalized.includes("geozone") && normalized.includes("group");
+}
+
+function isGeofencingCategory(category) {
+  const labels = collectLabelCandidates(category);
+  return labels.some((label) => {
+    const normalized = normalizeDiscoveryText(label);
+    return normalized.includes("geofencing") || normalized.includes("geofence") || normalized.includes("geozone");
+  });
+}
+
+function resolveElementLabel(element) {
+  const labels = collectLabelCandidates(element);
+  return labels[0] || "";
+}
+
 async function findOverrideElementInCategory({
   templateId,
   categoryId,
@@ -282,7 +316,140 @@ async function findOverrideElementInCategory({
   return null;
 }
 
-async function discoverOverrideElementId({ configName, dealerId, overrideKey, correlationId }) {
+async function collectGeozoneGroupCandidatesInCategory({
+  templateId,
+  categoryId,
+  correlationId,
+  xdmClient,
+  visited,
+  inGeofencing,
+  candidates,
+  seenIds,
+}) {
+  if (!categoryId || visited.has(categoryId)) return;
+  visited.add(categoryId);
+
+  const category = await xdmClient.request(
+    "GET",
+    `/api/external/v1/userTemplates/${templateId}/categories/${categoryId}`,
+    null,
+    { correlationId },
+  );
+
+  const isGeofencing = inGeofencing || isGeofencingCategory(category);
+  const categoryLabel = resolveElementLabel(category);
+
+  if (isGeofencing) {
+    const template = category?.elementGroupTemplate;
+    const templateElements = Array.isArray(template?.elements) ? template.elements : [];
+    for (const element of templateElements) {
+      const labels = collectLabelCandidates(element);
+      if (!labels.some(matchesGeozoneGroupLabel)) continue;
+      const elementId = element?.id;
+      if (elementId == null || seenIds.has(elementId)) continue;
+      seenIds.add(elementId);
+      candidates.push({
+        id: elementId,
+        label: resolveElementLabel(element),
+        name: element?.name || null,
+        category: categoryLabel || null,
+      });
+    }
+
+    const groupIds = Array.isArray(category?.userElementGroups) ? category.userElementGroups : [];
+    for (const group of groupIds) {
+      const groupId = group?.id || group;
+      if (!groupId) continue;
+      const groupInfo = await xdmClient.request(
+        "GET",
+        `/api/external/v1/userTemplates/${templateId}/categories/${categoryId}/elementGroups/${groupId}`,
+        null,
+        { correlationId },
+      );
+      const elements = Array.isArray(groupInfo?.userElements) ? groupInfo.userElements : [];
+      for (const element of elements) {
+        const labels = collectLabelCandidates(element);
+        if (!labels.some(matchesGeozoneGroupLabel)) continue;
+        const elementId = element?.id;
+        if (elementId == null || seenIds.has(elementId)) continue;
+        seenIds.add(elementId);
+        candidates.push({
+          id: elementId,
+          label: resolveElementLabel(element),
+          name: element?.name || null,
+          category: categoryLabel || null,
+        });
+      }
+    }
+  }
+
+  const subCategories = Array.isArray(category?.subCategories) ? category.subCategories : [];
+  for (const subCategory of subCategories) {
+    const subId = subCategory?.id || subCategory;
+    await collectGeozoneGroupCandidatesInCategory({
+      templateId,
+      categoryId: subId,
+      correlationId,
+      xdmClient,
+      visited,
+      inGeofencing: isGeofencing,
+      candidates,
+      seenIds,
+    });
+  }
+}
+
+async function discoverOverrideElementIdByIndex({
+  templateId,
+  categories,
+  index,
+  correlationId,
+  xdmClient,
+  roleKey,
+  configName,
+  dealerId,
+}) {
+  const visited = new Set();
+  const candidates = [];
+  const seenIds = new Set();
+  for (const category of categories) {
+    const categoryId = category?.id || category;
+    if (!categoryId) continue;
+    await collectGeozoneGroupCandidatesInCategory({
+      templateId,
+      categoryId,
+      correlationId,
+      xdmClient,
+      visited,
+      inGeofencing: false,
+      candidates,
+      seenIds,
+    });
+  }
+
+  console.info("[xdm] override discovery fallback", {
+    correlationId,
+    configName,
+    dealerId,
+    role: roleKey || null,
+    discoveryMode: "by_index",
+    candidates: candidates.map((candidate, candidateIndex) => ({
+      index: candidateIndex + 1,
+      id: candidate.id,
+      name: candidate.name,
+      label: candidate.label,
+      category: candidate.category,
+    })),
+  });
+
+  const selected = candidates[index - 1] || null;
+  return {
+    overrideElementId: selected?.id ?? null,
+    candidates,
+  };
+}
+
+async function discoverOverrideElementId({ configName, dealerId, overrideKey, correlationId, roleKey }) {
   const xdmClient = new XdmClient();
   const template = await fetchTemplateByName({ configName, dealerId, correlationId, xdmClient });
   const templateId = template?.id;
@@ -305,7 +472,29 @@ async function discoverOverrideElementId({ configName, dealerId, overrideKey, co
       xdmClient,
       visited,
     });
-    if (found != null) return found;
+    if (found != null) {
+      return { overrideElementId: found, discoveryMode: "by_key" };
+    }
+  }
+
+  if (roleKey && GROUP_OVERRIDE_CONFIG[roleKey]) {
+    const { index } = GROUP_OVERRIDE_CONFIG[roleKey];
+    const fallback = await discoverOverrideElementIdByIndex({
+      templateId,
+      categories,
+      index,
+      correlationId,
+      xdmClient,
+      roleKey,
+      configName,
+      dealerId,
+    });
+    if (fallback?.overrideElementId != null) {
+      return { overrideElementId: fallback.overrideElementId, discoveryMode: "by_index" };
+    }
+    throw new Error(
+      `Override "${overrideKey}" não encontrado na configuração "${configName}" (fallback por índice ${index} sem candidatos).`,
+    );
   }
 
   throw new Error(
@@ -313,12 +502,12 @@ async function discoverOverrideElementId({ configName, dealerId, overrideKey, co
   );
 }
 
-async function discoverOverrideElementIdWithRetry({ configName, dealerId, overrideKey, correlationId }) {
+async function discoverOverrideElementIdWithRetry({ configName, dealerId, overrideKey, correlationId, roleKey }) {
   const attempts = 2;
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      return await discoverOverrideElementId({ configName, dealerId, overrideKey, correlationId });
+      return await discoverOverrideElementId({ configName, dealerId, overrideKey, correlationId, roleKey });
     } catch (error) {
       lastError = error;
       if (attempt < attempts) {
@@ -334,6 +523,7 @@ export async function resolveGeozoneGroupOverrideElementId({
   overrideId,
   overrideKey,
   allowLegacyFallback = true,
+  roleKey,
 } = {}) {
   const config = getGeozoneGroupOverrideConfig({ overrideId, overrideKey, allowLegacyFallback });
   if (config.isValid) {
@@ -346,6 +536,7 @@ export async function resolveGeozoneGroupOverrideElementId({
       overrideKeySource: config.overrideKeySource || config.source || "env",
       configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
       dealerId: process.env.XDM_DEALER_ID || null,
+      discoveryMode: null,
     };
   }
 
@@ -381,23 +572,26 @@ export async function resolveGeozoneGroupOverrideElementId({
       dealerId,
       overrideKey: overrideKeyResolved,
       correlationId,
+      roleKey,
     });
 
+    const discoveredId = discovered?.overrideElementId ?? discovered;
     const persisted = upsertOverrideElement({
       dealerId,
       configName,
       overrideKey: overrideKeyResolved,
-      overrideElementId: discovered,
+      overrideElementId: discoveredId,
       source: "discovery",
     });
 
     return {
-      overrideId: String(persisted.overrideElementId ?? discovered),
-      overrideNumber: Number(persisted.overrideElementId ?? discovered),
+      overrideId: String(persisted.overrideElementId ?? discoveredId),
+      overrideNumber: Number(persisted.overrideElementId ?? discoveredId),
       overrideKey: overrideKeyResolved,
       source: "discovery",
       configName,
       dealerId,
+      discoveryMode: discovered?.discoveryMode ?? null,
     };
   })();
 
@@ -410,16 +604,18 @@ export async function resolveGeozoneGroupOverrideElementId({
   return guarded;
 }
 
-export async function discoverGeozoneGroupOverrideElementId({ correlationId, overrideKey } = {}) {
+export async function discoverGeozoneGroupOverrideElementId({ correlationId, overrideKey, roleKey } = {}) {
   const dealerId = resolveDealerId();
   const configName = resolveConfigName();
   const overrideKeyResolved = resolveOverrideKey(overrideKey);
-  const overrideElementId = await discoverOverrideElementIdWithRetry({
+  const discovered = await discoverOverrideElementIdWithRetry({
     configName,
     dealerId,
     overrideKey: overrideKeyResolved,
     correlationId,
+    roleKey,
   });
+  const overrideElementId = discovered?.overrideElementId ?? discovered;
 
   await initStorage();
   const { upsertOverrideElement } = await import("../../models/xdm-override-element.js");
@@ -438,6 +634,7 @@ export async function discoverGeozoneGroupOverrideElementId({ correlationId, ove
     configName,
     dealerId,
     source: "discovery",
+    discoveryMode: discovered?.discoveryMode ?? null,
   };
 }
 
@@ -490,12 +687,25 @@ export async function resolveGeozoneGroupOverrideConfigs({ correlationId } = {})
       overrideId: baseConfig.overrideId,
       overrideKey: baseConfig.overrideKey,
       allowLegacyFallback: baseConfig.allowLegacyFallback ?? false,
+      roleKey: role.key,
     });
     configs[role.key] = {
       ...resolved,
       overrideIdSource: baseConfig.overrideIdSource || resolved.overrideIdSource || resolved.source || null,
       overrideKeySource: baseConfig.overrideKeySource || resolved.overrideKeySource || null,
     };
+    console.info("[xdm] geozone group override resolved", {
+      correlationId,
+      configName: resolved.configName,
+      dealerId: resolved.dealerId,
+      role: role.key,
+      overrideKey: resolved.overrideKey,
+      overrideId: resolved.overrideId,
+      source: resolved.source || null,
+      overrideIdSource: configs[role.key].overrideIdSource || null,
+      overrideKeySource: configs[role.key].overrideKeySource || null,
+      discoveryMode: resolved.discoveryMode || null,
+    });
   }
   return configs;
 }

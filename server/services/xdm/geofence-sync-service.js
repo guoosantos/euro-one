@@ -14,6 +14,7 @@ import {
   truncateName,
 } from "./xdm-name-utils.js";
 import { normalizeXdmId } from "./xdm-utils.js";
+import { ITINERARY_GEOZONE_GROUPS } from "./xdm-geozone-group-roles.js";
 
 const MIN_POINTS = 4;
 
@@ -133,9 +134,11 @@ function buildXdmName({
   geofenceId,
   type,
   name,
+  roleKey = null,
   withSuffix = false,
 }) {
   const { friendlyNamesEnabled, maxNameLength, geozoneNameMode } = resolveXdmNameConfig();
+  const roleLabel = roleKey ? ITINERARY_GEOZONE_GROUPS[roleKey]?.label || null : null;
   if (friendlyNamesEnabled) {
     const resolvedClient = resolveClientDisplayName({ clientDisplayName, clientId });
     const resolvedGeofence = sanitizeFriendlyName(name) || "Geofence";
@@ -148,21 +151,24 @@ function buildXdmName({
     }
     parts.push(resolvedGeofence);
     const suffix = withSuffix ? buildShortIdSuffix(geofenceId) : "";
-    const friendly = buildFriendlyNameWithSuffix(parts, { maxLen: maxNameLength, suffix });
+    const suffixParts = [roleLabel, suffix].filter(Boolean).join(" ").trim();
+    const friendly = buildFriendlyNameWithSuffix(parts, { maxLen: maxNameLength, suffix: suffixParts });
     if (friendly) return friendly;
   }
   const safeClient = sanitizeName(clientId) || "CLIENT";
   const scopeId = sanitizeName(itineraryId || geofenceId) || "GEOFENCE";
   const safeType = sanitizeName(type) || "GEOFENCE";
   const safeName = sanitizeName(name) || "GEOFENCE";
-  return `EUROONE_${safeClient}_${scopeId}_${safeType}_${safeName}`;
+  const safeRole = roleLabel ? sanitizeName(roleLabel) : "";
+  return `EUROONE_${safeClient}_${scopeId}_${safeType}_${safeName}${safeRole ? `_${safeRole}` : ""}`;
 }
 
-function buildGeofenceDescription({ clientId, geofenceId, itineraryId, geometryHash }) {
+function buildGeofenceDescription({ clientId, geofenceId, itineraryId, geometryHash, roleKey }) {
   const entries = [];
   if (clientId) entries.push(`clientId=${clientId}`);
   if (geofenceId) entries.push(`geofenceId=${geofenceId}`);
   if (itineraryId) entries.push(`itineraryId=${itineraryId}`);
+  if (roleKey) entries.push(`role=${roleKey}`);
   if (geometryHash) entries.push(`hash=${geometryHash}`);
   return truncateName(entries.join(", "), 512);
 }
@@ -183,6 +189,7 @@ export async function syncGeofence(
     itineraryId = null,
     itineraryName = null,
     clientDisplayName = null,
+    roleKey = null,
   } = {},
 ) {
   const geofence = geofenceOverride || (await getGeofenceById(geofenceId));
@@ -216,6 +223,7 @@ export async function syncGeofence(
     geofenceId: geofence.id,
     type: geofence.type,
     name: geofence.name,
+    roleKey,
     withSuffix,
   });
   const geometryHash = buildGeometryHash(normalizedPoints);
@@ -242,6 +250,7 @@ export async function syncGeofence(
       clientId: geofence.clientId,
       geofenceId: geofence.id,
       itineraryId,
+      roleKey,
       geometryHash,
     }),
     points: normalizedPoints,
