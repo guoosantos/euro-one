@@ -59,6 +59,8 @@ Crie um `.env` na pasta `server/` a partir de `server/.env.example` e preencha c
       - Para evitar lookup em `geoGroup2/3`, defina sempre as chaves por role (prioridade máxima).
       - Se os nomes não forem definidos via env, o resolver tenta em cascata (primeiro `Itinerario/Alvos/Entrada` quando `XDM_CONFIG_NAME` contém XG37/EURO, depois `geoGroup1/2/3`).
   - `XDM_GEOZONE_GROUP_OVERRIDE_KEY`: legado. Use apenas se não houver `XDM_GEOZONE_GROUP_OVERRIDE_ID`/keys por role.
+  - `XDM_ITINERARY_SIGNATURE_OVERRIDE_ID`: overrideId (int32) do sensor configurável U32 usado para a assinatura do itinerário (ex.: `Sensor_U32UserDefined0`).
+  - `XDM_ITINERARY_SIGNATURE_OVERRIDE_KEY`: nome do elemento na config (opcional, usado apenas para diagnóstico/logs).
   - `XDM_TIMEOUT_MS`: timeout (ms) de chamadas XDM.
   - `XDM_MAX_RETRIES`: número máximo de tentativas em 429/5xx.
   - `XDM_RETRY_BASE_MS`: base do backoff exponencial (ms).

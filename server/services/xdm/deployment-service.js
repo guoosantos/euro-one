@@ -19,6 +19,13 @@ import XdmClient from "./xdm-client.js";
 import { syncGeozoneGroup, ensureGeozoneGroups } from "./geozone-group-sync-service.js";
 import { buildSettingsOverridesModified, normalizeXdmDeviceUid, normalizeXdmId } from "./xdm-utils.js";
 import {
+  buildGroupHashSummary,
+  buildItinerarySignature,
+  buildItinerarySignatureInput,
+  isValidSignatureValue,
+  resolveItinerarySignatureOverrideConfig,
+} from "./xdm-itinerary-signature.js";
+import {
   resolveGeozoneGroupOverrideConfigs,
   validateGeozoneGroupOverrideConfigs,
 } from "./xdm-override-resolver.js";
@@ -30,15 +37,6 @@ import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS } from "./xdm-geozone
 function buildRequestHash({ itineraryId, vehicleId, groupHash, action }) {
   const payload = `${itineraryId}|${vehicleId}|${action || "EMBARK"}|${groupHash || ""}`;
   return crypto.createHash("sha256").update(payload).digest("hex");
-}
-
-function buildGroupHashSummary(groupHashes = {}) {
-  if (!groupHashes || typeof groupHashes !== "object") return null;
-  return [
-    `itinerary=${groupHashes.itinerary || ""}`,
-    `targets=${groupHashes.targets || ""}`,
-    `entry=${groupHashes.entry || ""}`,
-  ].join("|");
 }
 
 async function resolveClientDisplayName(clientId) {
@@ -106,7 +104,7 @@ async function updateRoutesBufferMeters({ routeIds = [], bufferMeters }) {
   }
 }
 
-async function applyOverrides({ deviceUid, groupIds, correlationId }) {
+async function applyOverrides({ deviceUid, groupIds, correlationId, signature }) {
   const overrideConfigs = await resolveGeozoneGroupOverrideConfigs({ correlationId });
   validateGeozoneGroupOverrideConfigs({ configs: overrideConfigs, correlationId, groupIds });
   const normalizedDeviceUid = normalizeXdmDeviceUid(deviceUid, { context: "applyOverrides" });
@@ -131,6 +129,20 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       overrideSource: overrideConfig.source || null,
       overrideIdSource: overrideConfig.overrideIdSource || null,
       overrideKeySource: overrideConfig.overrideKeySource || null,
+    });
+  }
+  if (signature?.overrideId && signature.value != null) {
+    overrides[signature.overrideId] = signature.value;
+    console.info("[xdm] apply itinerary signature override", {
+      correlationId,
+      deviceId: normalizedDeviceUid,
+      deviceUid: normalizedDeviceUid,
+      signatureOverrideId: signature.overrideId,
+      signatureOverrideKey: signature.overrideKey || null,
+      signatureValue: signature.value,
+      signatureInput: signature.input || null,
+      signatureSummary: signature.summary || null,
+      status: "pending",
     });
   }
   const xdmClient = new XdmClient();
@@ -162,6 +174,20 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
         status: "ok",
       });
     }
+    if (signature?.overrideId && signature.value != null) {
+      console.info("[xdm] apply itinerary signature override", {
+        correlationId,
+        deviceId: normalizedDeviceUid,
+        deviceUid: normalizedDeviceUid,
+        signatureOverrideId: signature.overrideId,
+        signatureOverrideKey: signature.overrideKey || null,
+        signatureValue: signature.value,
+        signatureInput: signature.input || null,
+        signatureSummary: signature.summary || null,
+        response,
+        status: "ok",
+      });
+    }
   } catch (error) {
     console.error("[xdm] falha ao aplicar overrides do geozone group", {
       correlationId,
@@ -178,6 +204,15 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
       message: error?.message || error,
       response: error?.details?.response || null,
       responseSample: error?.details?.responseSample || null,
+      signatureOverride: signature?.overrideId
+        ? {
+            overrideId: signature.overrideId,
+            overrideKey: signature.overrideKey || null,
+            value: signature.value ?? null,
+            input: signature.input || null,
+            summary: signature.summary || null,
+          }
+        : null,
     });
     if (isDeviceNotFoundError(error)) {
       const deviceError = new Error("Device UID not found");
@@ -203,6 +238,15 @@ async function applyOverrides({ deviceUid, groupIds, correlationId }) {
           overrideKey: overrideConfigs?.[role.key]?.overrideKey ?? null,
           groupId: groupIds?.[role.key] ?? null,
         })),
+        signatureOverride: signature?.overrideId
+          ? {
+              overrideId: signature.overrideId,
+              overrideKey: signature.overrideKey || null,
+              value: signature.value ?? null,
+              input: signature.input || null,
+              summary: signature.summary || null,
+            }
+          : null,
       },
     });
   }
@@ -331,9 +375,57 @@ async function processDeployment(deploymentId) {
       return;
     }
 
+    const signatureConfig = resolveItinerarySignatureOverrideConfig();
+    let signaturePayload = null;
+    if (action !== "DISEMBARK") {
+      if (!signatureConfig.isValid) {
+        const reason = signatureConfig.isConfigured ? "overrideId inválido" : "overrideId ausente";
+        console.warn("[xdm] assinatura de itinerário desativada", {
+          correlationId,
+          deviceUid,
+          reason,
+          signatureOverrideId: signatureConfig.rawValue,
+          signatureOverrideKey: signatureConfig.overrideKey || null,
+        });
+      } else if (!groupHashes) {
+        console.warn("[xdm] assinatura de itinerário não aplicada (groupHashes ausente)", {
+          correlationId,
+          deviceUid,
+          itineraryId: itinerary.id,
+        });
+      } else {
+        const signatureValue = buildItinerarySignature({ itineraryId: itinerary.id, groupHashes });
+        const signatureInput = buildItinerarySignatureInput({ itineraryId: itinerary.id, groupHashes });
+        const signatureSummary = buildGroupHashSummary(groupHashes);
+        if (isValidSignatureValue(signatureValue)) {
+          signaturePayload = {
+            overrideId: signatureConfig.overrideId,
+            overrideKey: signatureConfig.overrideKey,
+            value: signatureValue,
+            input: signatureInput,
+            summary: signatureSummary,
+          };
+        } else {
+          console.warn("[xdm] assinatura de itinerário inválida; ignorando envio", {
+            correlationId,
+            deviceUid,
+            itineraryId: itinerary.id,
+            signatureValue,
+            signatureInput,
+            signatureSummary,
+          });
+        }
+      }
+    }
+
     const updateStart = Date.now();
     logStep(deploymentId, "APPLY_OVERRIDES", { status: "started" });
-    await applyOverrides({ deviceUid, groupIds: groupIds || {}, correlationId });
+    await applyOverrides({
+      deviceUid,
+      groupIds: groupIds || {},
+      correlationId,
+      signature: signaturePayload,
+    });
     logStep(deploymentId, "APPLY_OVERRIDES", {
       status: "ok",
       durationMs: Date.now() - updateStart,
@@ -430,6 +522,8 @@ export function queueDeployment({
 
   return { deployment, status: "QUEUED" };
 }
+
+export { applyOverrides };
 
 export async function embarkItinerary({
   clientId,

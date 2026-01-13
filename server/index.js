@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from "ws";
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
 import { getGeozoneGroupOverrideConfig } from "./services/xdm/xdm-override-resolver.js";
+import { resolveItinerarySignatureOverrideConfig } from "./services/xdm/xdm-itinerary-signature.js";
 import { extractToken } from "./middleware/auth.js";
 
 const logErrorStack = (label, error) => {
@@ -99,6 +100,18 @@ async function bootstrapServer() {
     console.info("[startup] XDM override config", overrideLogPayload);
   } else {
     console.warn("[startup] XDM override config inválido", overrideLogPayload);
+  }
+  const signatureConfig = resolveItinerarySignatureOverrideConfig();
+  const signatureLogPayload = {
+    overrideId: signatureConfig.overrideId,
+    overrideKey: signatureConfig.overrideKey,
+    overrideIdValid: signatureConfig.isValid,
+    overrideRaw: signatureConfig.rawValue,
+  };
+  if (signatureConfig.isValid) {
+    console.info("[startup] XDM itinerary signature override config", signatureLogPayload);
+  } else {
+    console.warn("[startup] XDM itinerary signature override config inválido", signatureLogPayload);
   }
 
   const { missing } = validateEnv(["JWT_SECRET", "TRACCAR_BASE_URL"], { optional: true });
