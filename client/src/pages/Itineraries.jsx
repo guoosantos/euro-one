@@ -130,6 +130,64 @@ function resolveHybridLayer() {
   );
 }
 
+const DEFAULT_MAP_CENTER = [-23.55, -46.63];
+const DEFAULT_MAP_ZOOM = 13;
+
+function resolveTileLayerConfig(mapLayer) {
+  const tileUrl = typeof mapLayer?.url === "string" ? mapLayer.url.trim() : "";
+  const fallbackUrl = typeof MAP_LAYER_FALLBACK?.url === "string" ? MAP_LAYER_FALLBACK.url.trim() : "";
+  return {
+    tileUrl: tileUrl || fallbackUrl || "",
+    subdomains: mapLayer?.subdomains ?? MAP_LAYER_FALLBACK?.subdomains ?? "abc",
+  };
+}
+
+function resolveInitialCenter(items) {
+  const firstItem = items.find((item) => item?.geometry?.center || item?.geometry?.points?.length);
+  const candidate = firstItem?.geometry?.center || firstItem?.geometry?.points?.[0] || null;
+  if (Array.isArray(candidate) && candidate.length >= 2) {
+    const lat = Number(candidate[0]);
+    const lng = Number(candidate[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng)) {
+      return { center: [lat, lng], reason: null };
+    }
+  }
+  return { center: DEFAULT_MAP_CENTER, reason: "sem center/zoom" };
+}
+
+class MapErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error, info) {
+    console.error("[MAP] erro ao renderizar mapa", error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback || null;
+    }
+    return this.props.children;
+  }
+}
+
+function MapFallback({ reason }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-xl border border-white/10 bg-black/30 text-sm text-white/60">
+      <div className="text-center">
+        <p className="font-semibold text-white/80">Mapa indisponível</p>
+        <p className="mt-1 text-xs text-white/50">{reason || "Não foi possível carregar as camadas do mapa."}</p>
+      </div>
+    </div>
+  );
+}
+
 function buildCircleBounds({ center, radiusMeters }) {
   if (!center || !Number.isFinite(radiusMeters) || radiusMeters <= 0) return null;
   const [lat, lng] = center;
@@ -266,17 +324,26 @@ function MapGeometryLayer({ item }) {
 function MapPreviewModal({ open, title, items = [], onClose }) {
   const mapLayer = useMemo(() => resolveHybridLayer(), []);
   const [mapReady, setMapReady] = useState(false);
-  const initialCenter = useMemo(() => {
-    const firstItem = items.find((item) => item?.geometry?.center || item?.geometry?.points?.length);
-    if (firstItem?.geometry?.center) return firstItem.geometry.center;
-    if (firstItem?.geometry?.points?.length) return firstItem.geometry.points[0];
-    return [-23.55, -46.63];
-  }, [items]);
+  const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
+  const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
+  const fallbackReason = tileConfig.tileUrl ? null : "tileUrl ausente";
 
   useEffect(() => {
     if (!open) return;
     setMapReady(false);
   }, [open, items]);
+
+  useEffect(() => {
+    if (!open) return;
+    console.info("[MAP] tileUrl usado (preview)", tileConfig.tileUrl || "(vazio)");
+    console.info("[MAP] subdomains final (preview)", tileConfig.subdomains);
+    if (fallbackReason) {
+      console.warn("[MAP] fallback do mapa (preview)", fallbackReason);
+    }
+    if (neutralReason) {
+      console.warn("[MAP] neutral state (preview)", neutralReason);
+    }
+  }, [fallbackReason, neutralReason, open, tileConfig.subdomains, tileConfig.tileUrl]);
 
   if (!open) return null;
 
@@ -300,29 +367,37 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
         <div className="h-[420px] w-full">
           {items.length ? (
             <div className="relative h-full w-full">
-              {!mapReady && (
+              {!mapReady && !fallbackReason && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
                   Carregando mapa…
                 </div>
               )}
-              <MapContainer
-                center={initialCenter}
-                zoom={13}
-                scrollWheelZoom
-                className="h-full w-full"
-                whenReady={() => setMapReady(true)}
-              >
-                <TileLayer
-                  url={mapLayer?.url || MAP_LAYER_FALLBACK.url}
-                  attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
-                  maxZoom={mapLayer?.maxZoom || 20}
-                  subdomains={mapLayer?.subdomains}
-                />
-                <MapFitBounds items={items} />
-                {items.map((item) => (
-                  <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
-                ))}
-              </MapContainer>
+              {fallbackReason ? (
+                <MapFallback reason={fallbackReason} />
+              ) : (
+                <MapErrorBoundary fallback={<MapFallback reason="Erro ao carregar o mapa." />}>
+                  <MapContainer
+                    center={initialCenter}
+                    zoom={DEFAULT_MAP_ZOOM}
+                    scrollWheelZoom
+                    className="h-full w-full"
+                    whenReady={() => setMapReady(true)}
+                  >
+                    {tileConfig.tileUrl && (
+                      <TileLayer
+                        url={tileConfig.tileUrl}
+                        attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
+                        maxZoom={mapLayer?.maxZoom || 20}
+                        subdomains={tileConfig.subdomains}
+                      />
+                    )}
+                    <MapFitBounds items={items} />
+                    {items.map((item) => (
+                      <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
+                    ))}
+                  </MapContainer>
+                </MapErrorBoundary>
+              )}
             </div>
           ) : (
             <div className="flex h-full items-center justify-center text-sm text-white/60">
@@ -338,17 +413,26 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
 function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, onOpenMap }) {
   const mapLayer = useMemo(() => resolveHybridLayer(), []);
   const [mapReady, setMapReady] = useState(false);
-  const initialCenter = useMemo(() => {
-    const firstItem = items.find((item) => item?.geometry?.center || item?.geometry?.points?.length);
-    if (firstItem?.geometry?.center) return firstItem.geometry.center;
-    if (firstItem?.geometry?.points?.length) return firstItem.geometry.points[0];
-    return [-23.55, -46.63];
-  }, [items]);
+  const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
+  const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
+  const fallbackReason = tileConfig.tileUrl ? null : "tileUrl ausente";
 
   useEffect(() => {
     if (!open) return;
     setMapReady(false);
   }, [open, items]);
+
+  useEffect(() => {
+    if (!open) return;
+    console.info("[MAP] tileUrl usado (detalhe)", tileConfig.tileUrl || "(vazio)");
+    console.info("[MAP] subdomains final (detalhe)", tileConfig.subdomains);
+    if (fallbackReason) {
+      console.warn("[MAP] fallback do mapa (detalhe)", fallbackReason);
+    }
+    if (neutralReason) {
+      console.warn("[MAP] neutral state (detalhe)", neutralReason);
+    }
+  }, [fallbackReason, neutralReason, open, tileConfig.subdomains, tileConfig.tileUrl]);
 
   if (!open || !itinerary) return null;
 
@@ -386,29 +470,37 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
             <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
               {items.length ? (
                 <div className="relative h-full w-full">
-                  {!mapReady && (
+                  {!mapReady && !fallbackReason && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
                       Carregando mapa…
                     </div>
                   )}
-                  <MapContainer
-                    center={initialCenter}
-                    zoom={13}
-                    scrollWheelZoom
-                    className="h-full w-full"
-                    whenReady={() => setMapReady(true)}
-                  >
-                    <TileLayer
-                      url={mapLayer?.url || MAP_LAYER_FALLBACK.url}
-                      attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
-                      maxZoom={mapLayer?.maxZoom || 20}
-                      subdomains={mapLayer?.subdomains}
-                    />
-                    <MapFitBounds items={items} />
-                    {items.map((item) => (
-                      <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
-                    ))}
-                  </MapContainer>
+                  {fallbackReason ? (
+                    <MapFallback reason={fallbackReason} />
+                  ) : (
+                    <MapErrorBoundary fallback={<MapFallback reason="Erro ao carregar o mapa." />}>
+                      <MapContainer
+                        center={initialCenter}
+                        zoom={DEFAULT_MAP_ZOOM}
+                        scrollWheelZoom
+                        className="h-full w-full"
+                        whenReady={() => setMapReady(true)}
+                      >
+                        {tileConfig.tileUrl && (
+                          <TileLayer
+                            url={tileConfig.tileUrl}
+                            attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
+                            maxZoom={mapLayer?.maxZoom || 20}
+                            subdomains={tileConfig.subdomains}
+                          />
+                        )}
+                        <MapFitBounds items={items} />
+                        {items.map((item) => (
+                          <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
+                        ))}
+                      </MapContainer>
+                    </MapErrorBoundary>
+                  )}
                 </div>
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-white/60">
@@ -2891,44 +2983,46 @@ export default function Itineraries() {
       )}
 
       {activeTab === "veiculos" && (
-        <div className={`grid gap-4 ${selectedEmbarkDetail ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : ""}`}>
-          <div className="border border-white/10 bg-transparent p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-white">Veículos monitorados</p>
-              <span className="text-[11px] text-white/60">{filteredEmbarkDetails.length} resultados</span>
+        <div className="grid gap-4">
+          {!selectedEmbarkDetail && (
+            <div className="border border-white/10 bg-transparent p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-sm font-semibold text-white">Veículos monitorados</p>
+                <span className="text-[11px] text-white/60">{filteredEmbarkDetails.length} resultados</span>
+              </div>
+              <div className="max-h-[560px] space-y-1.5 overflow-y-auto">
+                {embarkDetailsLoading && <p className="text-xs text-white/60">Carregando veículos…</p>}
+                {!embarkDetailsLoading && filteredEmbarkDetails.length === 0 && (
+                  <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>
+                )}
+                {!embarkDetailsLoading &&
+                  filteredEmbarkDetails.map((detail) => {
+                    const isSelected = String(detail.vehicleId) === String(selectedEmbarkDetailVehicleId);
+                    return (
+                      <button
+                        key={detail.vehicleId}
+                        type="button"
+                        onClick={() => setSelectedEmbarkDetailVehicleId(detail.vehicleId)}
+                        className={`flex w-full flex-col gap-0.5 rounded-xl border px-3 py-1.5 text-left transition ${
+                          isSelected ? "border-primary/40 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold">{detail.vehicleName || "Veículo"}</p>
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.xdmStatusLabel || detail.statusLabel || detail.status)}`}>
+                            {detail.xdmStatusLabel || detail.statusLabel || detail.status || "Sem status"}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-white/60">{detail.plate || "Placa não informada"}</p>
+                        <p className="text-[11px] text-white/50">
+                          {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado (XDM)"}
+                        </p>
+                      </button>
+                    );
+                  })}
+              </div>
             </div>
-            <div className="max-h-[560px] space-y-2 overflow-y-auto">
-              {embarkDetailsLoading && <p className="text-xs text-white/60">Carregando veículos…</p>}
-              {!embarkDetailsLoading && filteredEmbarkDetails.length === 0 && (
-                <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>
-              )}
-              {!embarkDetailsLoading &&
-                filteredEmbarkDetails.map((detail) => {
-                  const isSelected = String(detail.vehicleId) === String(selectedEmbarkDetailVehicleId);
-                  return (
-                    <button
-                      key={detail.vehicleId}
-                      type="button"
-                      onClick={() => setSelectedEmbarkDetailVehicleId(detail.vehicleId)}
-                      className={`flex w-full flex-col gap-1 rounded-xl border px-3 py-2 text-left transition ${
-                        isSelected ? "border-primary/40 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-semibold">{detail.vehicleName || "Veículo"}</p>
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.xdmStatusLabel || detail.statusLabel || detail.status)}`}>
-                          {detail.xdmStatusLabel || detail.statusLabel || detail.status || "Sem status"}
-                        </span>
-                      </div>
-                      <p className="text-xs text-white/60">{detail.plate || "Placa não informada"}</p>
-                      <p className="text-xs text-white/50">
-                        {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado (XDM)"}
-                      </p>
-                    </button>
-                  );
-                })}
-            </div>
-          </div>
+          )}
 
           {selectedEmbarkDetail && (
             <div className="border border-white/10 bg-transparent p-5">
@@ -2938,22 +3032,27 @@ export default function Itineraries() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do embarque</p>
-                    <h3 className="text-xl font-semibold text-white">
-                      {selectedEmbarkDetail.vehicleName || "Veículo"}
-                    </h3>
-                    <p className="text-sm text-white/60">{selectedEmbarkDetail.plate || "Placa não informada"}</p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
-                        {selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
-                      </span>
-                      <span>
-                        Última atualização: {formatDateTime(selectedEmbarkDetail.lastActionAt || selectedEmbarkDetail.updatedAt)}
-                      </span>
+                      <h3 className="text-xl font-semibold text-white">
+                        {selectedEmbarkDetail.vehicleName || "Veículo"}
+                      </h3>
+                      <p className="text-sm text-white/60">{selectedEmbarkDetail.plate || "Placa não informada"}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="xs" variant="secondary" onClick={() => setSelectedEmbarkDetailVehicleId(null)}>
+                        Voltar para lista de veículos
+                      </Button>
+                      <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                        <div className="flex items-center gap-2">
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
+                            {selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
+                          </span>
+                          <span>
+                            Última atualização: {formatDateTime(selectedEmbarkDetail.lastActionAt || selectedEmbarkDetail.updatedAt)}
+                          </span>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
 
                 <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
                   {[
