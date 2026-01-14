@@ -53,10 +53,12 @@ body.light {
 }
 * { box-sizing: border-box; }
 html { font-family: theme('fontFamily.sans'); }
+html, body, #root { height: 100%; }
 body {
   @apply bg-bg text-text transition-colors duration-300;
   background-image: linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(15, 23, 42, 0.85)), var(--mesh-gradient);
   background-attachment: fixed;
+  overflow: hidden;
 }
 
 * {
@@ -100,8 +102,56 @@ body {
 }
 
 .app-shell {
-  @apply min-h-screen bg-gradient-to-b from-[#0a0f1a] via-[#0b1220] to-[#0f172a] text-text;
+  display: grid;
+  grid-template-columns: var(--app-sidebar-w, var(--e-sidebar-w)) minmax(0, 1fr);
+  height: 100vh;
+  overflow: hidden;
+  @apply bg-gradient-to-b from-[#0a0f1a] via-[#0b1220] to-[#0f172a] text-text;
   background-image: var(--mesh-gradient), radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.04), transparent 48%);
+}
+
+.app-shell__sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: auto;
+  z-index: 40;
+  min-height: 0;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.app-shell__main {
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.app-shell__content {
+  flex: 1 1 auto;
+  overflow: auto;
+  min-height: 0;
+}
+
+@media (max-width: 767px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .app-shell__sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+  }
+
+  .app-shell__main {
+    grid-column: 1;
+  }
 }
 
 .surface-veil {

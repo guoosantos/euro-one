@@ -57,8 +57,15 @@ export default function Layout({ children, title, hideTitle = false }) {
       }
     : undefined;
 
+  const sidebarWidthVar = sidebarCollapsed
+    ? "var(--e-sidebar-collapsed-w)"
+    : "var(--e-sidebar-w)";
+
   return (
-    <div className="app-shell flex h-screen overflow-hidden text-text" style={rootStyle}>
+    <div
+      className="app-shell text-text"
+      style={{ ...rootStyle, "--app-sidebar-w": sidebarWidthVar }}
+    >
       {/* backdrop mobile */}
       {sidebarOpen && (
         <button
@@ -69,58 +76,42 @@ export default function Layout({ children, title, hideTitle = false }) {
         />
       )}
 
-      {/* SIDEBAR WRAPPER
-          >>> IMPORTANTE: SEM w-72 / w-16 AQUI <<<
-          A largura agora é 100% controlada pelo motion.aside
-          dentro de Sidebar.jsx (82px colapsado, ~292px expandido)
-      */}
-      <div
+      {/* SIDEBAR */}
+      <aside
         role="complementary"
         data-collapsed={sidebarCollapsed ? "true" : "false"}
-        className={`fixed inset-y-0 left-0 z-40 transform overflow-hidden border-r border-[#1f2430] bg-[#0f141c] transition-transform md:static md:h-screen md:flex-shrink-0 md:translate-x-0 ${
+        className={`app-shell__sidebar border-r border-[#1f2430] bg-[#0f141c] transition-transform ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
         }`}
       >
         <Sidebar />
-      </div>
+      </aside>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <div className="flex min-h-0 flex-1 min-w-0 flex-col">
+      <main className="app-shell__main bg-[#0b0f17]">
         {/* No monitoring a própria página cuida do cabeçalho */}
         {((!isMonitoringPage && !isGeofencesPage && !isRoutesPage) ||
           (isMonitoringPage && showMonitoringTopbar) ||
           (isGeofencesPage && showGeofencesTopbar) ||
           (isRoutesPage && showRoutesTopbar)) && <Topbar title={isFullWidthPage ? null : title} />}
 
-        <main
-          className={`flex min-h-0 flex-1 min-w-0 flex-col bg-[#0b0f17] ${
-            isFullWidthPage
-              ? "h-full w-full max-w-none overflow-y-auto p-0"
-              : "overflow-hidden p-6"
-          }`}
-        >
+        <section className={`app-shell__content ${isFullWidthPage ? "p-0" : "p-6"}`}>
           {isFullWidthPage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
-            <div className="flex min-h-0 flex-1 overflow-hidden bg-[#0b0f17]">
+            <div className="flex min-h-0 flex-1 bg-[#0b0f17]">
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           ) : (
             // 🔹 Demais páginas com container centralizado
-            <div className={`flex-1 min-h-0 ${isItinerariesPage ? "overflow-hidden" : "overflow-y-auto"}`}>
-              <div
-                className={`mx-auto flex w-full max-w-7xl flex-col gap-6 ${
-                  isItinerariesPage ? "min-h-0 flex-1" : "min-h-full"
-                }`}
-              >
-                {title && !hideTitle && (
-                  <h1 className="text-3xl font-semibold text-white">{title}</h1>
-                )}
-                <ErrorBoundary>{children}</ErrorBoundary>
-              </div>
+            <div className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6">
+              {title && !hideTitle && (
+                <h1 className="text-3xl font-semibold text-white">{title}</h1>
+              )}
+              <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           )}
-        </main>
-      </div>
+        </section>
+      </main>
 
       <DeviceModalGlobal />
     </div>
