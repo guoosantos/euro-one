@@ -2760,7 +2760,7 @@ export default function Itineraries() {
   const historyColCount = 11;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {toast && (
         <div
           className={
@@ -2833,83 +2833,83 @@ export default function Itineraries() {
         </div>
       )}
 
-      <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
-        <div className="space-y-4">
-          <PageHeader
-            title="Embarcar Itinerários"
-            right={(
-              <>
-                <span className="map-status-pill">
-                  <span className="dot" />
-                  {itineraries.length} itinerários
-                </span>
-                {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
-                    Embarcar
-                  </Button>
-                  <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
-                    Desembarcar
-                  </Button>
-                  <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
-                    Criar novo
-                  </Button>
-                </div>
-              </>
-            )}
-          />
-          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-            {[
-              { key: "embarcado", label: "Embarcado" },
-              { key: "historico", label: "Histórico" },
-              { key: "veiculos", label: "Veículos" },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`rounded-md px-3 py-2 transition ${
-                  activeTab === tab.key
-                    ? "border border-primary/40 bg-primary/20 text-white"
-                    : "border border-transparent hover:border-white/20"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="w-full md:max-w-xs">
-              <SearchInput
-                placeholder={
-                  activeTab === "historico"
-                    ? "Buscar histórico"
-                    : activeTab === "veiculos"
-                      ? "Buscar veículo"
-                      : "Buscar itinerário"
-                }
-                value={activeTab === "veiculos" ? embarkDetailsQuery : query}
-                onChange={(value) => {
-                  if (activeTab === "veiculos") {
-                    setEmbarkDetailsQuery(value);
-                  } else {
-                    setQuery(value);
-                  }
-                }}
-                onClear={() => {
-                  if (activeTab === "veiculos") {
-                    setEmbarkDetailsQuery("");
-                  } else {
-                    setQuery("");
-                  }
-                }}
+      <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        <div className="flex min-h-0 flex-1 flex-col gap-4">
+          <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
+            <div className="space-y-4">
+              <PageHeader
+                title="Embarcar Itinerários"
+                right={(
+                  <>
+                    <span className="map-status-pill">
+                      <span className="dot" />
+                      {itineraries.length} itinerários
+                    </span>
+                    {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
+                        Embarcar
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
+                        Desembarcar
+                      </Button>
+                      <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
+                        Criar novo
+                      </Button>
+                    </div>
+                  </>
+                )}
               />
+              <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+                {[
+                  { key: "embarcado", label: "Embarcado" },
+                  { key: "historico", label: "Histórico" },
+                  { key: "veiculos", label: "Veículos" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    onClick={() => setActiveTab(tab.key)}
+                    className={`rounded-md px-3 py-2 transition ${
+                      activeTab === tab.key
+                        ? "border border-primary/40 bg-primary/20 text-white"
+                        : "border border-transparent hover:border-white/20"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="w-full md:max-w-xs">
+                  <SearchInput
+                    placeholder={
+                      activeTab === "historico"
+                        ? "Buscar histórico"
+                        : activeTab === "veiculos"
+                          ? "Buscar veículo"
+                          : "Buscar itinerário"
+                    }
+                    value={activeTab === "veiculos" ? embarkDetailsQuery : query}
+                    onChange={(value) => {
+                      if (activeTab === "veiculos") {
+                        setEmbarkDetailsQuery(value);
+                      } else {
+                        setQuery(value);
+                      }
+                    }}
+                    onClear={() => {
+                      if (activeTab === "veiculos") {
+                        setEmbarkDetailsQuery("");
+                      } else {
+                        setQuery("");
+                      }
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      </div>
-
-      <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto">
         {activeTab === "embarcado" && (
           <div className="flex-1 border border-white/10 bg-transparent">
           <div className="overflow-x-auto">
@@ -3448,6 +3448,7 @@ export default function Itineraries() {
           )}
           </div>
         )}
+        </div>
       </div>
 
       <ItineraryDetailModal
