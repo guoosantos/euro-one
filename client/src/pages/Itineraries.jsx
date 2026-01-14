@@ -73,8 +73,10 @@ function resolveEquipmentStatusLabel(detail) {
   const pipelineStatus = resolveXdmStatusLabel(detail).toUpperCase();
   if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
   if (pipelineStatus.startsWith("EMBARCADO")) return "Equipamento atualizou";
-  if (pipelineStatus.startsWith("FALHOU")) return "Falha na aplicação";
-  if (pipelineStatus.startsWith("ERRO")) return "Erro na aplicação";
+  if (pipelineStatus.startsWith("FALHOU (ENVIO)")) return "Falha no envio para o equipamento";
+  if (pipelineStatus.startsWith("FALHOU (EQUIPAMENTO)")) return "Falha na atualização do equipamento";
+  if (pipelineStatus.startsWith("FALHOU")) return "Falha na atualização do equipamento";
+  if (pipelineStatus.startsWith("ERRO")) return "Erro na atualização do equipamento";
   return "Aguardando atualização do equipamento";
 }
 
@@ -83,8 +85,10 @@ function resolveCentralStatusLabel(detail) {
   if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
   if (pipelineStatus.startsWith("ENVIADO")) return "Central aguardando confirmação";
   if (pipelineStatus.startsWith("PENDENTE") || pipelineStatus.startsWith("EMBARCADO")) return "Central confirmou";
-  if (pipelineStatus.startsWith("FALHOU")) return "Falha no envio";
-  if (pipelineStatus.startsWith("ERRO")) return "Erro na central";
+  if (pipelineStatus.startsWith("FALHOU (ENVIO)")) return "Falha no envio da Central";
+  if (pipelineStatus.startsWith("FALHOU (EQUIPAMENTO)")) return "Falha após confirmação da Central";
+  if (pipelineStatus.startsWith("FALHOU")) return "Falha no envio da Central";
+  if (pipelineStatus.startsWith("ERRO")) return "Erro na Central";
   return "Central aguardando confirmação";
 }
 
@@ -460,6 +464,10 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
                     center={initialCenter}
                     zoom={DEFAULT_MAP_ZOOM}
                     scrollWheelZoom
+                    dragging
+                    touchZoom
+                    doubleClickZoom
+                    keyboard
                     className="h-full w-full"
                     whenReady={() => setMapReady(true)}
                   >
@@ -563,6 +571,10 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                         center={initialCenter}
                         zoom={DEFAULT_MAP_ZOOM}
                         scrollWheelZoom
+                        dragging
+                        touchZoom
+                        doubleClickZoom
+                        keyboard
                         className="h-full w-full"
                         whenReady={() => setMapReady(true)}
                       >
@@ -1890,6 +1902,7 @@ export default function Itineraries() {
   const [editorCleanupDeleteGeozones, setEditorCleanupDeleteGeozones] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
+  const contentScrollRef = useRef(null);
   const [deleteConflict, setDeleteConflict] = useState(null);
   const [deleteConflictSending, setDeleteConflictSending] = useState(false);
   const [postSavePrompt, setPostSavePrompt] = useState(null);
@@ -2072,6 +2085,11 @@ export default function Itineraries() {
       setHistoryPage(1);
     }
   }, [activeTab, query]);
+
+  useEffect(() => {
+    if (!contentScrollRef.current) return;
+    contentScrollRef.current.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeTab, vehicleDetailTab]);
 
 
   const resetForm = () => {
@@ -2742,7 +2760,7 @@ export default function Itineraries() {
   const historyColCount = 11;
 
   return (
-    <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
       {toast && (
         <div
           className={
@@ -2815,82 +2833,85 @@ export default function Itineraries() {
         </div>
       )}
 
-      <div className="space-y-4">
-        <PageHeader
-          title="Embarcar Itinerários"
-          right={(
-            <>
-              <span className="map-status-pill">
-                <span className="dot" />
-                {itineraries.length} itinerários
-              </span>
-              {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
-                  Embarcar
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
-                  Desembarcar
-                </Button>
-                <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
-                  Criar novo
-                </Button>
-              </div>
-            </>
-          )}
-        />
-        <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-          {[
-            { key: "embarcado", label: "Embarcado" },
-            { key: "historico", label: "Histórico" },
-            { key: "veiculos", label: "Veículos" },
-          ].map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`rounded-md px-3 py-2 transition ${
-                activeTab === tab.key
-                  ? "border border-primary/40 bg-primary/20 text-white"
-                  : "border border-transparent hover:border-white/20"
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+      <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
+        <div className="space-y-4">
+          <PageHeader
+            title="Embarcar Itinerários"
+            right={(
+              <>
+                <span className="map-status-pill">
+                  <span className="dot" />
+                  {itineraries.length} itinerários
+                </span>
+                {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
+                    Embarcar
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
+                    Desembarcar
+                  </Button>
+                  <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
+                    Criar novo
+                  </Button>
+                </div>
+              </>
+            )}
+          />
+          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+            {[
+              { key: "embarcado", label: "Embarcado" },
+              { key: "historico", label: "Histórico" },
+              { key: "veiculos", label: "Veículos" },
+            ].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`rounded-md px-3 py-2 transition ${
+                  activeTab === tab.key
+                    ? "border border-primary/40 bg-primary/20 text-white"
+                    : "border border-transparent hover:border-white/20"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
 
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="w-full md:max-w-xs">
-            <SearchInput
-              placeholder={
-                activeTab === "historico"
-                  ? "Buscar histórico"
-                  : activeTab === "veiculos"
-                    ? "Buscar veículo"
-                    : "Buscar itinerário"
-              }
-              value={activeTab === "veiculos" ? embarkDetailsQuery : query}
-              onChange={(value) => {
-                if (activeTab === "veiculos") {
-                  setEmbarkDetailsQuery(value);
-                } else {
-                  setQuery(value);
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="w-full md:max-w-xs">
+              <SearchInput
+                placeholder={
+                  activeTab === "historico"
+                    ? "Buscar histórico"
+                    : activeTab === "veiculos"
+                      ? "Buscar veículo"
+                      : "Buscar itinerário"
                 }
-              }}
-              onClear={() => {
-                if (activeTab === "veiculos") {
-                  setEmbarkDetailsQuery("");
-                } else {
-                  setQuery("");
-                }
-              }}
-            />
+                value={activeTab === "veiculos" ? embarkDetailsQuery : query}
+                onChange={(value) => {
+                  if (activeTab === "veiculos") {
+                    setEmbarkDetailsQuery(value);
+                  } else {
+                    setQuery(value);
+                  }
+                }}
+                onClear={() => {
+                  if (activeTab === "veiculos") {
+                    setEmbarkDetailsQuery("");
+                  } else {
+                    setQuery("");
+                  }
+                }}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      {activeTab === "embarcado" && (
-        <div className="flex-1 border border-white/10 bg-transparent">
+      <div ref={contentScrollRef} className="min-h-0 flex-1 overflow-y-auto">
+        {activeTab === "embarcado" && (
+          <div className="flex-1 border border-white/10 bg-transparent">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
@@ -2980,8 +3001,8 @@ export default function Itineraries() {
         </div>
       )}
 
-      {activeTab === "historico" && (
-        <div className="flex-1 border border-white/10 bg-transparent">
+        {activeTab === "historico" && (
+          <div className="flex-1 border border-white/10 bg-transparent">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
@@ -3088,8 +3109,8 @@ export default function Itineraries() {
         </div>
       )}
 
-      {activeTab === "veiculos" && (
-        <div className="grid gap-4">
+        {activeTab === "veiculos" && (
+          <div className="grid gap-4">
           {!selectedEmbarkDetail && (
             <div className="border border-white/10 bg-transparent p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -3425,8 +3446,9 @@ export default function Itineraries() {
               )}
             </div>
           )}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
 
       <ItineraryDetailModal
         open={Boolean(detailModalData)}

@@ -75,13 +75,29 @@ function resolveRequestIp(req) {
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
 }
 
-function resolveStatusLabel(status) {
+function normalizePipelineStatusLabel(label) {
+  const normalized = String(label || "").toUpperCase().trim();
+  if (!normalized) return null;
+  if (normalized.includes("EMBARC")) return "EMBARCADO";
+  if (normalized.includes("ENVIAD")) return "ENVIADO";
+  if (normalized.includes("PEND")) return "PENDENTE";
+  if (normalized.includes("FALHOU") && normalized.includes("ENVIO")) return "FALHOU (ENVIO)";
+  if (normalized.includes("FALHOU") && normalized.includes("APLIC")) return "FALHOU (EQUIPAMENTO)";
+  if (normalized.includes("FALHOU") && normalized.includes("EQUIP")) return "FALHOU (EQUIPAMENTO)";
+  if (normalized.includes("FALHOU")) return "FALHOU (EQUIPAMENTO)";
+  return normalized;
+}
+
+function resolveStatusLabel(status, preferredLabel = null) {
+  const normalizedPreferred = normalizePipelineStatusLabel(preferredLabel);
+  if (normalizedPreferred) return normalizedPreferred;
   const normalized = String(status || "").toUpperCase();
-  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "EMBARCADO";
+  if (["APPLIED", "EMBARKED"].includes(normalized)) return "EMBARCADO";
   if (["QUEUED"].includes(normalized)) return "ENVIADO";
   if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "PENDENTE";
-  if (["FAILED", "TIMEOUT"].includes(normalized)) return "FALHOU (APLICAÇÃO)";
+  if (["FAILED", "TIMEOUT"].includes(normalized)) return "FALHOU (EQUIPAMENTO)";
   if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "FALHOU (ENVIO)";
+  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "PENDENTE";
   return "PENDENTE";
 }
 
@@ -109,9 +125,9 @@ function matchesGroupIds(expected, current) {
 function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
   if (xdmError) {
     return {
-      code: "ERRO",
-      label: "ERRO",
-      configLabel: "ERRO",
+      code: "ERROR",
+      label: "FALHOU (ENVIO)",
+      configLabel: "Falha no envio",
       matchesExpected: false,
       detail: xdmError,
     };
@@ -121,42 +137,49 @@ function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
   const matched = matchesGroupIds(expectedGroupIds, xdmGroupIds);
   const hasEmbarked = Boolean(xdmGroupIds?.itinerary);
 
-  if (["FAILED", "TIMEOUT", "ERROR", "INVALID", "REJECTED"].includes(deploymentStatus)) {
-    const label = ["FAILED", "TIMEOUT"].includes(deploymentStatus) ? "FALHOU (APLICAÇÃO)" : "FALHOU (ENVIO)";
+  if (["ERROR", "INVALID", "REJECTED"].includes(deploymentStatus)) {
+    return {
+      code: deploymentStatus || "ERROR",
+      label: "FALHOU (ENVIO)",
+      configLabel: "Falha no envio",
+      matchesExpected: matched,
+    };
+  }
+  if (["FAILED", "TIMEOUT"].includes(deploymentStatus)) {
     return {
       code: deploymentStatus || "FAILED",
-      label,
-      configLabel: label,
+      label: "FALHOU (EQUIPAMENTO)",
+      configLabel: "Falha na atualização",
       matchesExpected: matched,
     };
   }
-  if (["QUEUED", "SYNCING", "DEPLOYING", "STARTED", "RUNNING"].includes(deploymentStatus)) {
+  if (deploymentStatus === "QUEUED") {
     return {
-      code: "PENDING",
-      label: deploymentStatus === "QUEUED" ? "ENVIADO" : "PENDENTE",
-      configLabel: matched ? "Equipamento atualizou" : "Aguardando atualização",
+      code: "ENVIADO",
+      label: "ENVIADO",
+      configLabel: "Aguardando confirmação",
       matchesExpected: matched,
     };
   }
-  if (deployment && matched) {
+  if (matched) {
     return {
-      code: "APPLIED",
+      code: "EMBARCADO",
       label: "EMBARCADO",
       configLabel: "Equipamento atualizou",
       matchesExpected: true,
     };
   }
-  if ((deployment?.action || "EMBARK") === "DISEMBARK" && !hasEmbarked) {
+  if (["SYNCING", "DEPLOYING", "STARTED", "RUNNING", "DEPLOYED", "CLEARED"].includes(deploymentStatus)) {
     return {
-      code: "APPLIED",
-      label: "EMBARCADO",
-      configLabel: "Equipamento atualizou",
-      matchesExpected: true,
+      code: "PENDENTE",
+      label: "PENDENTE",
+      configLabel: "Aguardando atualização",
+      matchesExpected: matched,
     };
   }
-  if (hasEmbarked) {
+  if (!deployment && hasEmbarked) {
     return {
-      code: "EMBARKED",
+      code: "EMBARCADO",
       label: "EMBARCADO",
       configLabel: "Equipamento atualizou",
       matchesExpected: matched,
@@ -185,7 +208,7 @@ function resolveHistoryMessage(entry) {
   const itineraryName = entry.itineraryName || "itinerário";
   const vehicleLabel = entry.plate || entry.vehicleName || "veículo";
   const actionLabel = resolveActionLabel(entry.action);
-  const statusLabel = entry.statusLabel || resolveStatusLabel(entry.statusCode || entry.status);
+  const statusLabel = resolveStatusLabel(entry.statusCode || entry.status, entry.statusLabel);
   if (statusLabel === "ERRO") {
     return `Não foi possível concluir "${actionLabel}" para o itinerário ${itineraryName} no veículo ${vehicleLabel}.`;
   }
@@ -218,7 +241,7 @@ function resolveHistoryMessage(entry) {
 
 function normalizeHistoryEntry(entry) {
   const statusCode = entry.statusCode || entry.status || "SYNCING";
-  const statusLabel = resolveStatusLabel(statusCode);
+  const statusLabel = resolveStatusLabel(statusCode, entry.statusLabel);
   const actionLabel = resolveActionLabel(entry.action);
   const details = entry.details || entry.result || null;
   const message = entry.message || resolveHistoryMessage({ ...entry, statusCode, statusLabel });
