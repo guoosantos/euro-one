@@ -815,7 +815,8 @@ export async function disembarkItinerary({
   }
 
   if (!dryRun) {
-    await resolveOverrideConfigs({ correlationId });
+    const overrideConfigs = await resolveGeozoneGroupOverrideConfigs({ correlationId });
+    validateGeozoneGroupOverrideConfigs({ configs: overrideConfigs, correlationId });
   }
 
   const geofenceIds = (itinerary.items || [])
