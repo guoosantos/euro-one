@@ -27,6 +27,8 @@ import LTextArea from "../ui/LTextArea.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
 
 const HISTORY_PAGE_SIZE = 10;
+const HISTORY_POLL_INTERVAL_MS = 8000;
+const HISTORY_MAX_POLL_ATTEMPTS = 6;
 
 function formatBytes(bytes) {
   if (!Number.isFinite(bytes) || bytes <= 0) return "—";
@@ -152,7 +154,7 @@ function resolveEmbarkErrorMessage(error) {
 
 function normalizeIdList(list = []) {
   if (!Array.isArray(list)) return [];
-  return list.map((item) => String(item)).filter(Boolean);
+  return Array.from(new Set(list.map((item) => String(item)).filter(Boolean)));
 }
 
 function resolveTechnicalDetails(error) {
@@ -166,6 +168,27 @@ function resolveTechnicalDetails(error) {
     }
   }
   return String(error?.message || error) || null;
+}
+
+function formatDisembarkErrorDetails(errors = [], operationId = null) {
+  const normalized = Array.isArray(errors) ? errors : [];
+  if (!normalized.length && !operationId) return null;
+  const lines = [];
+  if (operationId) {
+    lines.push(`Operação: ${operationId}`);
+  }
+  normalized.forEach((entry) => {
+    const parts = [];
+    if (entry?.itineraryId) {
+      parts.push(`Itinerário ${entry.itineraryId}`);
+    }
+    if (entry?.vehicleId) {
+      parts.push(`Veículo ${entry.vehicleId}`);
+    }
+    const label = parts.length ? parts.join(" · ") : "Item";
+    lines.push(`${label}: ${entry?.message || "Falha ao desembarcar"}`);
+  });
+  return lines.join("\n");
 }
 
 function resolveSatelliteLayer() {
@@ -1080,6 +1103,7 @@ function ItineraryModal({
               cleanupDeleteGeozones={disembarkState.cleanupDeleteGeozones}
               onCleanupDeleteGeozonesChange={disembarkState.onCleanupDeleteGeozonesChange}
               resultSummary={disembarkState.resultSummary}
+              technicalDetails={disembarkState.technicalDetails}
               activeTab={disembarkTab}
               onTabChange={setDisembarkTab}
               showSummary={false}
@@ -1871,6 +1895,9 @@ export default function Itineraries() {
   const [query, setQuery] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [kmlSizes, setKmlSizes] = useState(() => new Map());
+  const historyRequestRef = useRef(false);
+  const historyPollRef = useRef({ intervalId: null, attempts: 0 });
+  const disembarkInFlightRef = useRef(false);
   const [embarkVehicleQuery, setEmbarkVehicleQuery] = useState("");
   const [embarkItineraryQuery, setEmbarkItineraryQuery] = useState("");
   const [selectedEmbarkVehicleIds, setSelectedEmbarkVehicleIds] = useState([]);
@@ -1897,6 +1924,7 @@ export default function Itineraries() {
   const [disembarkSummary, setDisembarkSummary] = useState(null);
   const [disembarkErrorDetails, setDisembarkErrorDetails] = useState(null);
   const [editorDisembarkSummary, setEditorDisembarkSummary] = useState(null);
+  const [editorDisembarkErrorDetails, setEditorDisembarkErrorDetails] = useState(null);
   const [cleanupDeleteGroup, setCleanupDeleteGroup] = useState(false);
   const [cleanupDeleteGeozones, setCleanupDeleteGeozones] = useState(false);
   const [editorCleanupDeleteGroup, setEditorCleanupDeleteGroup] = useState(false);
@@ -1965,17 +1993,23 @@ export default function Itineraries() {
   }, [showToast]);
 
   const loadHistory = useCallback(async () => {
+    if (historyRequestRef.current) return;
+    historyRequestRef.current = true;
     setHistoryLoading(true);
     try {
       const response = await api.get(API_ROUTES.itineraryEmbarkHistory, {
         params: tenantId ? { clientId: tenantId } : undefined,
       });
+      if (response?.status === 304) {
+        return;
+      }
       const list = response?.data?.data || response?.data?.history || [];
       setHistoryEntries(Array.isArray(list) ? list : []);
     } catch (error) {
       console.error("[itineraries] Falha ao carregar histórico de embarques", error);
       showToast(resolveApiError(error, "Não foi possível carregar o histórico de embarques."), "warning");
     } finally {
+      historyRequestRef.current = false;
       setHistoryLoading(false);
     }
   }, [showToast, tenantId]);
@@ -2066,6 +2100,7 @@ export default function Itineraries() {
 
   useEffect(() => {
     if (activeTab !== "historico") return;
+    if (embarkOpen || disembarkOpen || editorOpen) return;
     const hasPending = historyEntries.some((entry) => {
       const statusCode = entry.statusCode || entry.status || "";
       const normalized = String(statusCode).toUpperCase();
@@ -2076,11 +2111,28 @@ export default function Itineraries() {
       );
     });
     if (!hasPending) return;
-    const interval = setInterval(() => {
+    if (historyPollRef.current.intervalId) {
+      clearInterval(historyPollRef.current.intervalId);
+    }
+    historyPollRef.current.attempts = 0;
+    historyPollRef.current.intervalId = setInterval(() => {
+      historyPollRef.current.attempts += 1;
+      if (historyPollRef.current.attempts > HISTORY_MAX_POLL_ATTEMPTS) {
+        if (historyPollRef.current.intervalId) {
+          clearInterval(historyPollRef.current.intervalId);
+          historyPollRef.current.intervalId = null;
+        }
+        return;
+      }
       void loadHistory();
-    }, 8000);
-    return () => clearInterval(interval);
-  }, [activeTab, historyEntries, loadHistory]);
+    }, HISTORY_POLL_INTERVAL_MS);
+    return () => {
+      if (historyPollRef.current.intervalId) {
+        clearInterval(historyPollRef.current.intervalId);
+        historyPollRef.current.intervalId = null;
+      }
+    };
+  }, [activeTab, embarkOpen, disembarkOpen, editorOpen, historyEntries, loadHistory]);
 
   useEffect(() => {
     if (activeTab === "historico") {
@@ -2135,6 +2187,7 @@ export default function Itineraries() {
     setSelectedEditorDisembarkVehicleIds([]);
     setSelectedEditorDisembarkItineraryIds([]);
     setEditorDisembarkSummary(null);
+    setEditorDisembarkErrorDetails(null);
     setEditorCleanupDeleteGroup(false);
     setEditorCleanupDeleteGeozones(false);
   }, []);
@@ -2611,6 +2664,7 @@ export default function Itineraries() {
   };
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
+    if (disembarkInFlightRef.current) return;
     const vehicleIds = normalizeIdList(selectedDisembarkVehicleIds);
     const itineraryIds = normalizeIdList(overrideItineraryIds || selectedDisembarkItineraryIds);
     const validationMessage = resolveSelectionValidation({
@@ -2630,6 +2684,7 @@ export default function Itineraries() {
       showToast("Selecione um cliente válido para desembarcar.", "warning");
       return;
     }
+    disembarkInFlightRef.current = true;
     setDisembarkSending(true);
     setDisembarkErrorDetails(null);
     try {
@@ -2645,14 +2700,17 @@ export default function Itineraries() {
         },
       });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
+      const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
       if (failedCount > 0) {
         showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
         setDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+        setDisembarkErrorDetails(formatDisembarkErrorDetails(summary?.errors, operationId));
       } else {
         showToast("Desembarque enviado com sucesso.");
         setDisembarkSummary("Desembarque enviado com sucesso.");
+        setDisembarkErrorDetails(formatDisembarkErrorDetails(summary?.errors, operationId));
         setDisembarkOpen(false);
         resetDisembarkForm();
       }
@@ -2668,6 +2726,7 @@ export default function Itineraries() {
       setDisembarkErrorDetails(resolveTechnicalDetails(error));
     } finally {
       setDisembarkSending(false);
+      disembarkInFlightRef.current = false;
     }
   };
 
@@ -2722,6 +2781,7 @@ export default function Itineraries() {
   };
 
   const handleEditorDisembarkSubmit = async () => {
+    if (disembarkInFlightRef.current) return;
     const itineraryId = selectedId;
     if (!itineraryId) {
       showToast("Salve o itinerário antes de desembarcar.", "warning");
@@ -2744,7 +2804,9 @@ export default function Itineraries() {
       showToast("Selecione um cliente válido para desembarcar.", "warning");
       return;
     }
+    disembarkInFlightRef.current = true;
     setDisembarkSending(true);
+    setEditorDisembarkErrorDetails(null);
     try {
       const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
         vehicleIds: selectedEditorDisembarkVehicleIds,
@@ -2758,21 +2820,26 @@ export default function Itineraries() {
         },
       });
       const summary = response?.data?.data?.summary || response?.data?.summary || null;
+      const operationId = response?.data?.data?.operationId || null;
       const okCount = Number(summary?.success || 0);
       const failedCount = Number(summary?.failed || 0);
       if (failedCount > 0) {
         showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
         setEditorDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+        setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(summary?.errors, operationId));
       } else {
         showToast("Desembarque enviado com sucesso.");
         setEditorDisembarkSummary("Desembarque enviado com sucesso.");
+        setEditorDisembarkErrorDetails(formatDisembarkErrorDetails(summary?.errors, operationId));
       }
       await loadHistory();
     } catch (error) {
       console.error(error);
       showToast(resolveEmbarkErrorMessage(error), "warning");
+      setEditorDisembarkErrorDetails(resolveTechnicalDetails(error));
     } finally {
       setDisembarkSending(false);
+      disembarkInFlightRef.current = false;
     }
   };
 
@@ -2815,7 +2882,7 @@ export default function Itineraries() {
       {toast && (
         <div
           className={
-            "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
+            "fixed right-4 top-4 z-[10050] rounded-lg border px-4 py-3 text-sm shadow-lg " +
             (toast.type === "warning"
               ? "border-amber-500/40 bg-amber-500/20 text-amber-50"
               : "border-emerald-500/40 bg-emerald-500/20 text-emerald-50")
@@ -3635,6 +3702,7 @@ export default function Itineraries() {
           cleanupDeleteGeozones: editorCleanupDeleteGeozones,
           onCleanupDeleteGeozonesChange: setEditorCleanupDeleteGeozones,
           resultSummary: editorDisembarkSummary,
+          technicalDetails: editorDisembarkErrorDetails,
           sending: disembarkSending,
         }}
         onEmbarkSubmit={handleEditorEmbarkSubmit}

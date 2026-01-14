@@ -797,7 +797,9 @@ export async function disembarkItinerary({
   const resolvedClientId = clientId || itinerary.clientId;
   const clientDisplayName = await resolveClientDisplayName(resolvedClientId);
 
-  let targetVehicleIds = Array.isArray(vehicleIds) ? vehicleIds.map(String) : [];
+  let targetVehicleIds = Array.isArray(vehicleIds)
+    ? Array.from(new Set(vehicleIds.map(String)))
+    : [];
   if (!targetVehicleIds.length) {
     const latestDeployments = listLatestDeploymentsByItinerary({
       clientId: itinerary.clientId,
