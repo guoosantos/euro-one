@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Circle, MapContainer, Polygon, Polyline, TileLayer, useMap } from "react-leaflet";
+import { latLngBounds } from "leaflet";
 import {
   Download,
   Map as MapIcon,
@@ -15,6 +17,7 @@ import useGeofences from "../lib/hooks/useGeofences.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
+import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../lib/mapLayers.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -54,22 +57,24 @@ function resolveVehicleLastUpdate(vehicle) {
   );
 }
 
-function resolveSelectionValidation({ hasVehicles, hasItineraries, actionLabel }) {
+function resolveSelectionValidation({ hasVehicles, hasItineraries }) {
   if (hasVehicles && hasItineraries) return null;
   if (!hasVehicles && !hasItineraries) {
-    return `Selecione pelo menos 1 veículo e 1 itinerário para ${actionLabel}.`;
+    return "Selecione pelo menos 1 veículo e 1 itinerário.";
   }
   if (!hasVehicles) {
-    return `Selecione pelo menos 1 veículo para ${actionLabel}.`;
+    return "Selecione pelo menos 1 veículo.";
   }
-  return `Selecione pelo menos 1 itinerário para ${actionLabel}.`;
+  return "Selecione pelo menos 1 itinerário.";
 }
 
 function resolveStatusBadgeClass(label) {
   const normalized = String(label || "").toLowerCase();
-  if (normalized.includes("falh")) return "border-red-500/40 bg-red-500/15 text-red-100";
-  if (normalized.includes("andamento")) return "border-amber-500/40 bg-amber-500/15 text-amber-100";
-  if (normalized.includes("conclu") || normalized.includes("embar")) {
+  if (normalized.includes("falh") || normalized.includes("erro")) return "border-red-500/40 bg-red-500/15 text-red-100";
+  if (normalized.includes("pendente") || normalized.includes("enviado")) {
+    return "border-amber-500/40 bg-amber-500/15 text-amber-100";
+  }
+  if (normalized.includes("conclu")) {
     return "border-emerald-500/40 bg-emerald-500/15 text-emerald-100";
   }
   return "border-white/10 bg-white/5 text-white/70";
@@ -84,6 +89,349 @@ function resolveApiError(error, fallback) {
   const baseMessage = serverMessage || error?.message || fallback;
   if (!status) return baseMessage;
   return `${baseMessage} (HTTP ${status})`;
+}
+
+function resolveEmbarkErrorMessage(error) {
+  const code = error?.response?.data?.code || error?.code || "";
+  const status = error?.response?.status || error?.status || 0;
+  const message = String(error?.response?.data?.message || error?.message || "").toLowerCase();
+  if (code.includes("XDM") || status === 502 || status === 503) {
+    return "Não foi possível comunicar com o XDM. Tente novamente.";
+  }
+  if (code.includes("NO_PERMISSION") || message.includes("permiss")) {
+    return "Falha ao aplicar no equipamento. Verifique credenciais/configuração.";
+  }
+  return resolveApiError(error, "Não foi possível concluir a operação.");
+}
+
+function resolveHybridLayer() {
+  return (
+    ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-hybrid") ||
+    ENABLED_MAP_LAYERS.find((layer) => layer.key === "hybrid") ||
+    MAP_LAYER_FALLBACK
+  );
+}
+
+function buildCircleBounds({ center, radiusMeters }) {
+  if (!center || !Number.isFinite(radiusMeters) || radiusMeters <= 0) return null;
+  const [lat, lng] = center;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  const latRadius = radiusMeters / 111320;
+  const lngRadius = radiusMeters / (111320 * Math.cos((lat * Math.PI) / 180));
+  return latLngBounds(
+    [lat - latRadius, lng - lngRadius],
+    [lat + latRadius, lng + lngRadius],
+  );
+}
+
+function collectGeometryBounds(items = []) {
+  const points = [];
+  items.forEach((item) => {
+    const geometry = item?.geometry;
+    if (!geometry) return;
+    if (Array.isArray(geometry.points) && geometry.points.length) {
+      geometry.points.forEach((point) => {
+        if (Array.isArray(point) && point.length >= 2) {
+          const lat = Number(point[0]);
+          const lng = Number(point[1]);
+          if (Number.isFinite(lat) && Number.isFinite(lng)) {
+            points.push([lat, lng]);
+          }
+        }
+      });
+      return;
+    }
+    if (geometry.center && geometry.radiusMeters) {
+      const bounds = buildCircleBounds({
+        center: geometry.center,
+        radiusMeters: geometry.radiusMeters,
+      });
+      if (bounds) {
+        points.push(bounds.getSouthWest(), bounds.getNorthEast());
+      }
+    }
+  });
+  if (!points.length) return null;
+  return latLngBounds(points);
+}
+
+function buildItineraryItemDetails(itinerary, geofences, routes) {
+  if (!itinerary) return [];
+  const items = Array.isArray(itinerary.items) ? itinerary.items : [];
+  return items.map((item) => {
+    const type = item?.type || "";
+    const id = item?.id ? String(item.id) : null;
+    const geofence = type === "geofence" || type === "target" ? geofences.find((geo) => String(geo.id) === id) : null;
+    const route = type === "route" ? routes.find((routeItem) => String(routeItem.id) === id) : null;
+    const isTarget = Boolean(geofence?.isTarget) || type === "target";
+    const typeLabel =
+      type === "route"
+        ? "Rota"
+        : isTarget
+          ? "Alvo"
+          : geofence?.config === "exit"
+            ? "Saída"
+            : geofence?.config === "entry"
+              ? "Entrada"
+              : "Cerca";
+    const circleCenter =
+      geofence?.type === "circle"
+        ? [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]]
+        : null;
+    const geometryPoints = type === "route" ? route?.points || [] : geofence?.points || [];
+    const baseColor = geofence?.color || route?.color || "#38bdf8";
+    const geometry =
+      geofence?.type === "circle"
+        ? {
+            points: [],
+            center: circleCenter,
+            radiusMeters: geofence?.radius || null,
+            color: baseColor,
+            isRoute: false,
+          }
+        : {
+            points: geometryPoints,
+            center: null,
+            radiusMeters: null,
+            color: baseColor,
+            isRoute: type === "route",
+          };
+    return {
+      id,
+      type,
+      name: geofence?.name || route?.name || "Item",
+      typeLabel,
+      statusLabel: item?.xdmGeozoneId ? "Aplicado no XDM" : "Pendente no XDM",
+      geometry,
+    };
+  });
+}
+
+function MapFitBounds({ items }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!map) return;
+    const bounds = collectGeometryBounds(items);
+    if (!bounds || !bounds.isValid()) return;
+    map.fitBounds(bounds, { padding: [24, 24] });
+  }, [map, items]);
+  return null;
+}
+
+function MapGeometryLayer({ item }) {
+  const geometry = item?.geometry;
+  if (!geometry) return null;
+  const color = geometry.color || "#38bdf8";
+  if (geometry.center && geometry.radiusMeters) {
+    return (
+      <Circle
+        center={geometry.center}
+        radius={geometry.radiusMeters}
+        pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 2 }}
+      />
+    );
+  }
+  if (Array.isArray(geometry.points) && geometry.points.length) {
+    if (geometry.isRoute) {
+      return <Polyline positions={geometry.points} pathOptions={{ color, weight: 3 }} />;
+    }
+    return (
+      <Polygon
+        positions={geometry.points}
+        pathOptions={{ color, fillColor: color, fillOpacity: 0.2, weight: 2 }}
+      />
+    );
+  }
+  return null;
+}
+
+function MapPreviewModal({ open, title, items = [], onClose }) {
+  const mapLayer = useMemo(() => resolveHybridLayer(), []);
+  const [mapReady, setMapReady] = useState(false);
+  const initialCenter = useMemo(() => {
+    const firstItem = items.find((item) => item?.geometry?.center || item?.geometry?.points?.length);
+    if (firstItem?.geometry?.center) return firstItem.geometry.center;
+    if (firstItem?.geometry?.points?.length) return firstItem.geometry.points[0];
+    return [-23.55, -46.63];
+  }, [items]);
+
+  useEffect(() => {
+    if (!open) return;
+    setMapReady(false);
+  }, [open, items]);
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Mapa híbrido</p>
+            <h3 className="text-lg font-semibold text-white">{title}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+            aria-label="Fechar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="h-[420px] w-full">
+          {items.length ? (
+            <div className="relative h-full w-full">
+              {!mapReady && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
+                  Carregando mapa…
+                </div>
+              )}
+              <MapContainer
+                center={initialCenter}
+                zoom={13}
+                scrollWheelZoom
+                className="h-full w-full"
+                whenReady={() => setMapReady(true)}
+              >
+                <TileLayer
+                  url={mapLayer?.url || MAP_LAYER_FALLBACK.url}
+                  attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
+                  maxZoom={mapLayer?.maxZoom || 20}
+                  subdomains={mapLayer?.subdomains}
+                />
+                <MapFitBounds items={items} />
+                {items.map((item) => (
+                  <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
+                ))}
+              </MapContainer>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-white/60">
+              Não há geometria disponível para este item.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, onOpenMap }) {
+  const mapLayer = useMemo(() => resolveHybridLayer(), []);
+  const [mapReady, setMapReady] = useState(false);
+  const initialCenter = useMemo(() => {
+    const firstItem = items.find((item) => item?.geometry?.center || item?.geometry?.points?.length);
+    if (firstItem?.geometry?.center) return firstItem.geometry.center;
+    if (firstItem?.geometry?.points?.length) return firstItem.geometry.points[0];
+    return [-23.55, -46.63];
+  }, [items]);
+
+  useEffect(() => {
+    if (!open) return;
+    setMapReady(false);
+  }, [open, items]);
+
+  if (!open || !itinerary) return null;
+
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 px-4 py-6">
+      <div className="relative flex w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do itinerário</p>
+            <h2 className="text-xl font-semibold text-white">{itinerary.name}</h2>
+            <p className="text-sm text-white/60">{itinerary.description || "Sem descrição"}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="secondary" onClick={() => onExportKml?.(itinerary.id)} icon={Download}>
+              Exportar KML
+            </Button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+              aria-label="Fechar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="grid gap-4 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">Mapa híbrido</p>
+              <span className="text-xs text-white/60">{items.length} itens</span>
+            </div>
+            <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
+              {items.length ? (
+                <div className="relative h-full w-full">
+                  {!mapReady && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
+                      Carregando mapa…
+                    </div>
+                  )}
+                  <MapContainer
+                    center={initialCenter}
+                    zoom={13}
+                    scrollWheelZoom
+                    className="h-full w-full"
+                    whenReady={() => setMapReady(true)}
+                  >
+                    <TileLayer
+                      url={mapLayer?.url || MAP_LAYER_FALLBACK.url}
+                      attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
+                      maxZoom={mapLayer?.maxZoom || 20}
+                      subdomains={mapLayer?.subdomains}
+                    />
+                    <MapFitBounds items={items} />
+                    {items.map((item) => (
+                      <MapGeometryLayer key={`${item.id}-${item.type}`} item={item} />
+                    ))}
+                  </MapContainer>
+                </div>
+              ) : (
+                <div className="flex h-full items-center justify-center text-sm text-white/60">
+                  Sem geometria para exibir.
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status XDM</p>
+              <p className="text-base font-semibold text-white">{itinerary.xdmSyncStatus || "Sem status"}</p>
+              {itinerary.xdmLastSyncError && (
+                <p className="mt-2 text-xs text-red-200">{itinerary.xdmLastSyncError}</p>
+              )}
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <p className="text-sm font-semibold text-white">Cercas / Rotas / Alvos / Entrada</p>
+              <div className="mt-3 space-y-2">
+                {items.length === 0 && <p className="text-xs text-white/60">Nenhum item vinculado.</p>}
+                {items.map((item) => (
+                  <div key={`${item.id}-${item.type}`} className="rounded-xl border border-white/10 bg-black/40 px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{item.name}</p>
+                        <p className="text-xs text-white/60">{item.typeLabel}</p>
+                      </div>
+                      <span className="text-[11px] text-white/60">{item.statusLabel}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                      <Button size="xs" variant="ghost" onClick={() => onOpenMap?.(item)} icon={MapIcon}>
+                        Ver no mapa (Híbrido)
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function ItineraryModal({
@@ -136,12 +484,10 @@ function ItineraryModal({
   const embarkValidationMessage = resolveSelectionValidation({
     hasVehicles: embarkState.selectedVehicleIds.length > 0,
     hasItineraries: embarkState.selectedItineraryIds.length > 0,
-    actionLabel: "embarcar",
   });
   const disembarkValidationMessage = resolveSelectionValidation({
     hasVehicles: disembarkState.selectedVehicleIds.length > 0,
     hasItineraries: disembarkState.selectedItineraryIds.length > 0,
-    actionLabel: "desembarcar",
   });
 
   const linkedItems = form.items || [];
@@ -603,6 +949,24 @@ function EmbarkContent({
   const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
   const selectedItineraries = itineraries.filter((itinerary) => selectedItineraryIds.includes(String(itinerary.id)));
 
+  const [vehicleDropdownOpen, setVehicleDropdownOpen] = useState(false);
+  const [itineraryDropdownOpen, setItineraryDropdownOpen] = useState(false);
+  const vehicleDropdownRef = useRef(null);
+  const itineraryDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (event) => {
+      if (vehicleDropdownRef.current && !vehicleDropdownRef.current.contains(event.target)) {
+        setVehicleDropdownOpen(false);
+      }
+      if (itineraryDropdownRef.current && !itineraryDropdownRef.current.contains(event.target)) {
+        setItineraryDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   const tabsClassName = embedded ? "border-b border-white/10 pb-3" : "border-b border-white/10 px-6 py-3";
   const contentClassName = embedded ? "space-y-6" : "max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5";
 
@@ -637,38 +1001,48 @@ function EmbarkContent({
         )}
         {activeTab === "vehicles" && (
           <div className="space-y-3">
-            <Input
-              placeholder="Buscar veículo"
-              value={vehicleQuery}
-              onChange={(event) => onVehicleQueryChange(event.target.value)}
-            />
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
-                <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
-              </div>
-              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
-                {filteredVehicles.map((vehicle) => {
-                  const isSelected = selectedVehicleIds.includes(String(vehicle.id));
-                  return (
-                    <button
-                      key={vehicle.id}
-                      type="button"
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-                        isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
-                      }`}
-                      onClick={() => onToggleVehicle(String(vehicle.id))}
-                    >
-                      <span>
-                        {vehicle.name || "Veículo"}
-                        {vehicle.plate ? ` · ${vehicle.plate}` : ""}
-                      </span>
-                      <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
-                    </button>
-                  );
-                })}
-                {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
-              </div>
+            <div className="space-y-2" ref={vehicleDropdownRef}>
+              <Input
+                placeholder="Buscar veículo"
+                value={vehicleQuery}
+                onChange={(event) => {
+                  onVehicleQueryChange(event.target.value);
+                  setVehicleDropdownOpen(true);
+                }}
+                onFocus={() => setVehicleDropdownOpen(true)}
+              />
+              {vehicleDropdownOpen && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
+                    <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
+                  </div>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                    {filteredVehicles.map((vehicle) => {
+                      const isSelected = selectedVehicleIds.includes(String(vehicle.id));
+                      return (
+                        <button
+                          key={vehicle.id}
+                          type="button"
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                            isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
+                          }`}
+                          onClick={() => onToggleVehicle(String(vehicle.id))}
+                        >
+                          <span>
+                            {vehicle.name || "Veículo"}
+                            {vehicle.plate ? ` · ${vehicle.plate}` : ""}
+                          </span>
+                          <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
+                        </button>
+                      );
+                    })}
+                    {filteredVehicles.length === 0 && (
+                      <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <p className="text-sm font-semibold text-white">Veículos selecionados</p>
@@ -726,37 +1100,54 @@ function EmbarkContent({
                 onBufferMetersChange(Number.isFinite(parsed) && parsed > 0 ? parsed : 150);
               }}
             />
-            <Input
-              placeholder="Buscar itinerário"
-              value={itineraryQuery}
-              onChange={(event) => onItineraryQueryChange(event.target.value)}
-            />
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
-                <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
-              </div>
-              <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
-                {filteredItineraries.map((itinerary) => (
-                  <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={selectedItineraryIds.includes(String(itinerary.id))}
-                      onChange={() => onToggleItinerary(String(itinerary.id))}
-                    />
-                    <span>{itinerary.name}</span>
-                  </label>
-                ))}
-                {filteredItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>}
-              </div>
+            <div className="space-y-2" ref={itineraryDropdownRef}>
+              <Input
+                placeholder="Buscar itinerário"
+                value={itineraryQuery}
+                onChange={(event) => {
+                  onItineraryQueryChange(event.target.value);
+                  setItineraryDropdownOpen(true);
+                }}
+                onFocus={() => setItineraryDropdownOpen(true)}
+              />
+              {itineraryDropdownOpen && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
+                    <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
+                  </div>
+                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                    {filteredItineraries.map((itinerary) => (
+                      <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={selectedItineraryIds.includes(String(itinerary.id))}
+                          onChange={() => onToggleItinerary(String(itinerary.id))}
+                        />
+                        <span>{itinerary.name}</span>
+                      </label>
+                    ))}
+                    {filteredItineraries.length === 0 && (
+                      <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <p className="text-sm font-semibold text-white">Itinerários selecionados</p>
               {selectedItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário selecionado.</p>}
               {selectedItineraries.map((itinerary) => (
-                <div key={itinerary.id} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
-                  {itinerary.name}
+                <div key={itinerary.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
+                  <span>{itinerary.name}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-red-200 hover:text-red-100"
+                    onClick={() => onToggleItinerary(String(itinerary.id))}
+                  >
+                    Remover
+                  </button>
                 </div>
               ))}
             </div>
@@ -799,7 +1190,6 @@ function EmbarkModal({
   const validationMessage = resolveSelectionValidation({
     hasVehicles,
     hasItineraries,
-    actionLabel: "embarcar",
   });
   const canSubmit = hasVehicles && hasItineraries;
 
@@ -901,6 +1291,24 @@ function DisembarkContent({
   const selectedVehicles = vehicles.filter((vehicle) => selectedVehicleIds.includes(String(vehicle.id)));
   const selectedItineraries = itineraries.filter((itinerary) => selectedItineraryIds.includes(String(itinerary.id)));
 
+  const [vehicleDropdownOpen, setVehicleDropdownOpen] = useState(false);
+  const [itineraryDropdownOpen, setItineraryDropdownOpen] = useState(false);
+  const vehicleDropdownRef = useRef(null);
+  const itineraryDropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClick = (event) => {
+      if (vehicleDropdownRef.current && !vehicleDropdownRef.current.contains(event.target)) {
+        setVehicleDropdownOpen(false);
+      }
+      if (itineraryDropdownRef.current && !itineraryDropdownRef.current.contains(event.target)) {
+        setItineraryDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
   const tabsClassName = embedded ? "border-b border-white/10 pb-3" : "border-b border-white/10 px-6 py-3";
   const contentClassName = embedded ? "space-y-6" : "max-h-[70vh] flex-1 space-y-6 overflow-y-auto px-6 py-5";
 
@@ -935,38 +1343,48 @@ function DisembarkContent({
         )}
         {activeTab === "vehicles" && (
           <div className="space-y-3">
-            <Input
-              placeholder="Buscar veículo"
-              value={vehicleQuery}
-              onChange={(event) => onVehicleQueryChange(event.target.value)}
-            />
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
-                <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
-              </div>
-              <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
-                {filteredVehicles.map((vehicle) => {
-                  const isSelected = selectedVehicleIds.includes(String(vehicle.id));
-                  return (
-                    <button
-                      key={vehicle.id}
-                      type="button"
-                      className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
-                        isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
-                      }`}
-                      onClick={() => onToggleVehicle(String(vehicle.id))}
-                    >
-                      <span>
-                        {vehicle.name || "Veículo"}
-                        {vehicle.plate ? ` · ${vehicle.plate}` : ""}
-                      </span>
-                      <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
-                    </button>
-                  );
-                })}
-                {filteredVehicles.length === 0 && <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>}
-              </div>
+            <div className="space-y-2" ref={vehicleDropdownRef}>
+              <Input
+                placeholder="Buscar veículo"
+                value={vehicleQuery}
+                onChange={(event) => {
+                  onVehicleQueryChange(event.target.value);
+                  setVehicleDropdownOpen(true);
+                }}
+                onFocus={() => setVehicleDropdownOpen(true)}
+              />
+              {vehicleDropdownOpen && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Veículos disponíveis</p>
+                    <span className="text-[11px] text-white/60">{selectedVehicleIds.length} selecionados</span>
+                  </div>
+                  <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                    {filteredVehicles.map((vehicle) => {
+                      const isSelected = selectedVehicleIds.includes(String(vehicle.id));
+                      return (
+                        <button
+                          key={vehicle.id}
+                          type="button"
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm transition ${
+                            isSelected ? "bg-primary/10 text-white" : "text-white/80 hover:bg-white/5"
+                          }`}
+                          onClick={() => onToggleVehicle(String(vehicle.id))}
+                        >
+                          <span>
+                            {vehicle.name || "Veículo"}
+                            {vehicle.plate ? ` · ${vehicle.plate}` : ""}
+                          </span>
+                          <span className="text-[11px] text-white/50">{isSelected ? "Selecionado" : "Adicionar"}</span>
+                        </button>
+                      );
+                    })}
+                    {filteredVehicles.length === 0 && (
+                      <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -1013,37 +1431,54 @@ function DisembarkContent({
 
         {activeTab === "itineraries" && (
           <div className="space-y-3">
-            <Input
-              placeholder="Buscar itinerário"
-              value={itineraryQuery}
-              onChange={(event) => onItineraryQueryChange(event.target.value)}
-            />
-            <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="flex items-center justify-between">
-                <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
-                <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
-              </div>
-              <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
-                {filteredItineraries.map((itinerary) => (
-                  <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={selectedItineraryIds.includes(String(itinerary.id))}
-                      onChange={() => onToggleItinerary(String(itinerary.id))}
-                    />
-                    <span>{itinerary.name}</span>
-                  </label>
-                ))}
-                {filteredItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>}
-              </div>
+            <div className="space-y-2" ref={itineraryDropdownRef}>
+              <Input
+                placeholder="Buscar itinerário"
+                value={itineraryQuery}
+                onChange={(event) => {
+                  onItineraryQueryChange(event.target.value);
+                  setItineraryDropdownOpen(true);
+                }}
+                onFocus={() => setItineraryDropdownOpen(true)}
+              />
+              {itineraryDropdownOpen && (
+                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Itinerários disponíveis</p>
+                    <span className="text-[11px] text-white/60">{selectedItineraryIds.length} selecionados</span>
+                  </div>
+                  <div className="mt-2 max-h-64 space-y-2 overflow-y-auto">
+                    {filteredItineraries.map((itinerary) => (
+                      <label key={itinerary.id} className="flex cursor-pointer items-center gap-2 text-sm text-white/80">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={selectedItineraryIds.includes(String(itinerary.id))}
+                          onChange={() => onToggleItinerary(String(itinerary.id))}
+                        />
+                        <span>{itinerary.name}</span>
+                      </label>
+                    ))}
+                    {filteredItineraries.length === 0 && (
+                      <p className="text-xs text-white/60">Nenhum itinerário encontrado.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <p className="text-sm font-semibold text-white">Itinerários selecionados</p>
               {selectedItineraries.length === 0 && <p className="text-xs text-white/60">Nenhum itinerário selecionado.</p>}
               {selectedItineraries.map((itinerary) => (
-                <div key={itinerary.id} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
-                  {itinerary.name}
+                <div key={itinerary.id} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-sm text-white/80">
+                  <span>{itinerary.name}</span>
+                  <button
+                    type="button"
+                    className="text-xs text-red-200 hover:text-red-100"
+                    onClick={() => onToggleItinerary(String(itinerary.id))}
+                  >
+                    Remover
+                  </button>
                 </div>
               ))}
             </div>
@@ -1114,7 +1549,6 @@ function DisembarkModal({
   const validationMessage = resolveSelectionValidation({
     hasVehicles,
     hasItineraries,
-    actionLabel: "desembarcar",
   });
   const canSubmit = hasVehicles && hasItineraries;
 
@@ -1233,6 +1667,11 @@ export default function Itineraries() {
   const [embarkDetailsLoading, setEmbarkDetailsLoading] = useState(false);
   const [embarkDetailsQuery, setEmbarkDetailsQuery] = useState("");
   const [selectedEmbarkDetailVehicleId, setSelectedEmbarkDetailVehicleId] = useState(null);
+  const [vehicleHistory, setVehicleHistory] = useState([]);
+  const [vehicleHistoryLoading, setVehicleHistoryLoading] = useState(false);
+  const [vehicleDetailTab, setVehicleDetailTab] = useState("detalhes");
+  const [mapPreview, setMapPreview] = useState(null);
+  const [detailItinerary, setDetailItinerary] = useState(null);
 
   const clientNameById = useMemo(
     () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
@@ -1311,6 +1750,29 @@ export default function Itineraries() {
     }
   }, [showToast, tenantId]);
 
+  const loadVehicleHistory = useCallback(
+    async (vehicleId) => {
+      if (!vehicleId) {
+        setVehicleHistory([]);
+        return;
+      }
+      setVehicleHistoryLoading(true);
+      try {
+        const response = await api.get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId), {
+          params: tenantId ? { clientId: tenantId } : undefined,
+        });
+        const list = response?.data?.data || response?.data?.history || [];
+        setVehicleHistory(Array.isArray(list) ? list : []);
+      } catch (error) {
+        console.error("[itineraries] Falha ao carregar histórico do veículo", error);
+        showToast(resolveApiError(error, "Não foi possível carregar o histórico do veículo."), "warning");
+      } finally {
+        setVehicleHistoryLoading(false);
+      }
+    },
+    [showToast, tenantId],
+  );
+
   useEffect(() => {
     void loadRoutes();
     void loadItineraries();
@@ -1325,6 +1787,11 @@ export default function Itineraries() {
     if (activeTab !== "veiculos") return;
     void loadEmbarkDetails();
   }, [activeTab, loadEmbarkDetails]);
+
+  useEffect(() => {
+    if (activeTab !== "veiculos") return;
+    void loadVehicleHistory(selectedEmbarkDetailVehicleId);
+  }, [activeTab, loadVehicleHistory, selectedEmbarkDetailVehicleId]);
 
   useEffect(() => {
     if (activeTab !== "historico") return;
@@ -1558,7 +2025,7 @@ export default function Itineraries() {
         entry.brand,
         entry.sentByName,
         entry.message,
-        entry.eventLabel,
+        entry.actionLabel,
         entry.statusLabel,
       ]
         .filter(Boolean)
@@ -1581,6 +2048,10 @@ export default function Itineraries() {
     () => filteredEmbarkDetails.find((item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId)) || null,
     [filteredEmbarkDetails, selectedEmbarkDetailVehicleId],
   );
+  const detailItems = useMemo(
+    () => buildItineraryItemDetails(detailItinerary, geofences, routes),
+    [detailItinerary, geofences, routes],
+  );
 
   useEffect(() => {
     if (activeTab !== "veiculos") return;
@@ -1595,6 +2066,11 @@ export default function Itineraries() {
       setSelectedEmbarkDetailVehicleId(filteredEmbarkDetails[0].vehicleId);
     }
   }, [activeTab, filteredEmbarkDetails, selectedEmbarkDetailVehicleId]);
+
+  useEffect(() => {
+    if (activeTab !== "veiculos") return;
+    setVehicleDetailTab("detalhes");
+  }, [activeTab, selectedEmbarkDetailVehicleId]);
 
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, historyTotalPages);
@@ -1612,6 +2088,11 @@ export default function Itineraries() {
     },
     [postSavePrompt],
   );
+
+  const openItemMapPreview = useCallback((item) => {
+    if (!item) return;
+    setMapPreview({ title: item.name || "Mapa", items: [item] });
+  }, []);
 
   const handleToggleVehicle = (vehicleId) => {
     setSelectedEmbarkVehicleIds((current) =>
@@ -1704,7 +2185,6 @@ export default function Itineraries() {
     const validationMessage = resolveSelectionValidation({
       hasVehicles: selectedEmbarkVehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
-      actionLabel: "embarcar",
     });
     if (validationMessage) {
       showToast(validationMessage, "warning");
@@ -1745,7 +2225,7 @@ export default function Itineraries() {
       }
     } catch (error) {
       console.error(error);
-      showToast(resolveApiError(error, "Não foi possível enviar o embarque."), "warning");
+      showToast(resolveEmbarkErrorMessage(error), "warning");
     } finally {
       setEmbarkSending(false);
     }
@@ -1756,7 +2236,6 @@ export default function Itineraries() {
     const validationMessage = resolveSelectionValidation({
       hasVehicles: selectedDisembarkVehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
-      actionLabel: "desembarcar",
     });
     if (validationMessage) {
       showToast(validationMessage, "warning");
@@ -1800,12 +2279,9 @@ export default function Itineraries() {
       if (activeTab === "veiculos") {
         await loadEmbarkDetails();
       }
-      if (activeTab === "veiculos") {
-        await loadEmbarkDetails();
-      }
     } catch (error) {
       console.error(error);
-      showToast(resolveApiError(error, "Não foi possível desembarcar."), "warning");
+      showToast(resolveEmbarkErrorMessage(error), "warning");
     } finally {
       setDisembarkSending(false);
     }
@@ -1824,7 +2300,6 @@ export default function Itineraries() {
     const validationMessage = resolveSelectionValidation({
       hasVehicles: selectedEditorEmbarkVehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
-      actionLabel: "embarcar",
     });
     if (validationMessage) {
       showToast(validationMessage, "warning");
@@ -1856,7 +2331,7 @@ export default function Itineraries() {
       await loadHistory();
     } catch (error) {
       console.error(error);
-      showToast(resolveApiError(error, "Não foi possível enviar o embarque."), "warning");
+      showToast(resolveEmbarkErrorMessage(error), "warning");
     } finally {
       setEmbarkSending(false);
     }
@@ -1875,7 +2350,6 @@ export default function Itineraries() {
     const validationMessage = resolveSelectionValidation({
       hasVehicles: selectedEditorDisembarkVehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
-      actionLabel: "desembarcar",
     });
     if (validationMessage) {
       showToast(validationMessage, "warning");
@@ -1912,7 +2386,7 @@ export default function Itineraries() {
       await loadHistory();
     } catch (error) {
       console.error(error);
-      showToast(resolveApiError(error, "Não foi possível desembarcar."), "warning");
+      showToast(resolveEmbarkErrorMessage(error), "warning");
     } finally {
       setDisembarkSending(false);
     }
@@ -1950,7 +2424,7 @@ export default function Itineraries() {
   };
 
   const tableColCount = 8;
-  const historyColCount = 9;
+  const historyColCount = 11;
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
@@ -2096,7 +2570,7 @@ export default function Itineraries() {
       </div>
 
       {activeTab === "embarcado" && (
-        <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+        <div className="flex-1 border border-white/10 bg-transparent">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
@@ -2163,6 +2637,9 @@ export default function Itineraries() {
                         <td className="px-4 py-3">{lastEmbarkLabel}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-wrap justify-end gap-2">
+                            <Button size="xs" variant="secondary" onClick={() => setDetailItinerary(item)} icon={MapIcon}>
+                              Ver detalhes
+                            </Button>
                             <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
                               Exportar KML
                             </Button>
@@ -2184,15 +2661,17 @@ export default function Itineraries() {
       )}
 
       {activeTab === "historico" && (
-        <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
+        <div className="flex-1 border border-white/10 bg-transparent">
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
                 <tr>
-                  <th className="px-4 py-3 text-left">Data/hora</th>
+                  <th className="px-4 py-3 text-left">Data e hora (Envio)</th>
+                  <th className="px-4 py-3 text-left">Data e hora (Recebido)</th>
                   <th className="px-4 py-3 text-left">Usuário</th>
-                  <th className="px-4 py-3 text-left">Veículo</th>
                   <th className="px-4 py-3 text-left">Placa</th>
+                  <th className="px-4 py-3 text-left">Marca</th>
+                  <th className="px-4 py-3 text-left">Modelo</th>
                   <th className="px-4 py-3 text-left">Nome do itinerário</th>
                   <th className="px-4 py-3 text-left">Ação</th>
                   <th className="px-4 py-3 text-left">Status</th>
@@ -2219,11 +2698,13 @@ export default function Itineraries() {
                   paginatedHistory.map((entry) => (
                     <tr key={entry.id}>
                       <td className="px-4 py-3">{formatDateTime(entry.sentAt || entry.at)}</td>
+                      <td className="px-4 py-3">{formatDateTime(entry.receivedAt)}</td>
                       <td className="px-4 py-3">{entry.sentByName || entry.sentBy || "—"}</td>
-                      <td className="px-4 py-3">{entry.vehicleName || "—"}</td>
                       <td className="px-4 py-3">{entry.plate || "—"}</td>
+                      <td className="px-4 py-3">{entry.brand || "—"}</td>
+                      <td className="px-4 py-3">{entry.model || "—"}</td>
                       <td className="px-4 py-3">{entry.itineraryName || "—"}</td>
-                      <td className="px-4 py-3">{entry.eventLabel || "—"}</td>
+                      <td className="px-4 py-3">{entry.actionLabel || "—"}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${resolveStatusBadgeClass(entry.statusLabel || entry.status)}`}>
                           {entry.statusLabel || entry.status || "—"}
@@ -2285,7 +2766,7 @@ export default function Itineraries() {
 
       {activeTab === "veiculos" && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-4 shadow-2xl">
+          <div className="border border-white/10 bg-transparent p-4">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-white">Veículos monitorados</p>
               <span className="text-[11px] text-white/60">{filteredEmbarkDetails.length} resultados</span>
@@ -2315,7 +2796,7 @@ export default function Itineraries() {
                       </div>
                       <p className="text-xs text-white/60">{detail.plate || "Placa não informada"}</p>
                       <p className="text-xs text-white/50">
-                        {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado"}
+                        {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado (XDM)"}
                       </p>
                     </button>
                   );
@@ -2323,7 +2804,7 @@ export default function Itineraries() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-5 shadow-2xl">
+          <div className="border border-white/10 bg-transparent p-5">
             {embarkDetailsLoading && <p className="text-sm text-white/60">Carregando detalhes…</p>}
             {!embarkDetailsLoading && !selectedEmbarkDetail && (
               <p className="text-sm text-white/60">Selecione um veículo para visualizar os detalhes do embarque.</p>
@@ -2350,84 +2831,210 @@ export default function Itineraries() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Itinerário embarcado</p>
-                    <p className="text-base font-semibold text-white">
-                      {selectedEmbarkDetail.itineraryName || "Nenhum itinerário embarcado"}
-                    </p>
-                    {selectedEmbarkDetail.itineraryDescription && (
-                      <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
-                    )}
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-                    <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Último embarque</p>
-                    <p className="text-base font-semibold text-white">
-                      {formatDateTime(selectedEmbarkDetail.lastEmbarkAt || selectedEmbarkDetail.lastActionAt)}
-                    </p>
-                    <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.lastActionLabel || "—"}</p>
-                  </div>
+                <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+                  {[
+                    { key: "detalhes", label: "Detalhes do embarque" },
+                    { key: "historico", label: "Histórico do veículo" },
+                  ].map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setVehicleDetailTab(tab.key)}
+                      className={`rounded-md px-3 py-2 transition ${
+                        vehicleDetailTab === tab.key
+                          ? "border border-primary/40 bg-primary/20 text-white"
+                          : "border border-transparent hover:border-white/20"
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-white">Itens embarcados</p>
-                    <span className="text-xs text-white/60">
-                      {selectedEmbarkDetail.items?.length || 0} itens
-                    </span>
-                  </div>
-                  {selectedEmbarkDetail.items?.length ? (
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {selectedEmbarkDetail.items.map((item) => {
-                        const previewSrc = item.previewUrl
-                          ? item.previewUrl
-                          : item.previewSvg
-                            ? `data:image/svg+xml;utf8,${encodeURIComponent(item.previewSvg)}`
-                            : null;
-                        return (
-                          <div key={`${item.type}-${item.id}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
-                            <div className="flex gap-3">
-                              <div className="h-20 w-28 overflow-hidden rounded-lg border border-white/10 bg-white/5">
-                                {previewSrc ? (
-                                  <img src={previewSrc} alt={`Preview ${item.name}`} className="h-full w-full object-cover" />
-                                ) : (
-                                  <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-[0.12em] text-white/40">
-                                    Sem preview
+                {vehicleDetailTab === "detalhes" && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Itinerário embarcado</p>
+                        <p className="text-base font-semibold text-white">
+                          {selectedEmbarkDetail.itineraryName || "Nenhum itinerário embarcado (XDM)"}
+                        </p>
+                        {selectedEmbarkDetail.itineraryDescription && (
+                          <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
+                        )}
+                        {selectedEmbarkDetail.xdmError && (
+                          <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetail.xdmError}</p>
+                        )}
+                      </div>
+                      <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+                        <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Último embarque</p>
+                        <p className="text-base font-semibold text-white">
+                          {formatDateTime(selectedEmbarkDetail.lastEmbarkAt || selectedEmbarkDetail.lastActionAt)}
+                        </p>
+                        <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.lastActionLabel || "—"}</p>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      {["itinerary", "targets", "entry"].map((role) => (
+                        <div key={role} className="rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-white/70">
+                          <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">
+                            Grupo {role === "itinerary" ? "itinerário" : role === "targets" ? "alvos" : "entrada"}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            {selectedEmbarkDetail.xdmGroups?.[role]?.id || "Não aplicado"}
+                          </p>
+                          {selectedEmbarkDetail.xdmGroups?.[role]?.itineraryId && (
+                            <p className="mt-1 text-[11px] text-white/60">
+                              Itinerário vinculado: {selectedEmbarkDetail.xdmGroups?.[role]?.itineraryId}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-white">Itens embarcados</p>
+                        <span className="text-xs text-white/60">
+                          {selectedEmbarkDetail.items?.length || 0} itens
+                        </span>
+                      </div>
+                      {selectedEmbarkDetail.items?.length ? (
+                        <div className="grid gap-3 md:grid-cols-2">
+                          {selectedEmbarkDetail.items.map((item) => {
+                            const previewSrc = item.previewUrl
+                              ? item.previewUrl
+                              : item.previewSvg
+                                ? `data:image/svg+xml;utf8,${encodeURIComponent(item.previewSvg)}`
+                                : null;
+                            return (
+                              <div key={`${item.type}-${item.id}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                                <div className="flex gap-3">
+                                  <div className="h-20 w-28 overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                                    {previewSrc ? (
+                                      <img src={previewSrc} alt={`Preview ${item.name}`} className="h-full w-full object-cover" />
+                                    ) : (
+                                      <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-[0.12em] text-white/40">
+                                        Sem preview
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-sm font-semibold text-white">{item.name || "Item"}</p>
-                                <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
-                                <div className="mt-2 grid gap-2 text-xs text-white/60 sm:grid-cols-2">
-                                  <div>
-                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Tamanho</p>
-                                    <p>{formatBytes(item.sizeBytes)}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Último embarque</p>
-                                    <p>{formatDateTime(item.lastEmbarkAt || selectedEmbarkDetail.lastEmbarkAt)}</p>
-                                  </div>
-                                  <div>
-                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
-                                    <p>{item.statusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
+                                  <div className="flex-1">
+                                    <p className="text-sm font-semibold text-white">{item.name || "Item"}</p>
+                                    <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
+                                    <div className="mt-2 grid gap-2 text-xs text-white/60 sm:grid-cols-2">
+                                      <div>
+                                        <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Tamanho</p>
+                                        <p>{formatBytes(item.sizeBytes)}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Último embarque</p>
+                                        <p>{formatDateTime(item.lastEmbarkAt || selectedEmbarkDetail.lastEmbarkAt)}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
+                                        <p>{item.statusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3">
+                                      <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
+                                        Ver no mapa (Híbrido)
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-white/60">Nenhum item embarcado para este veículo.</p>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-xs text-white/60">Nenhum item embarcado para este veículo.</p>
-                  )}
-                </div>
+                  </>
+                )}
+
+                {vehicleDetailTab === "historico" && (
+                  <div className="rounded-2xl border border-white/10 bg-black/30">
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-xs text-white/70">
+                        <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
+                          <tr>
+                            <th className="px-3 py-2 text-left">Envio</th>
+                            <th className="px-3 py-2 text-left">Recebido</th>
+                            <th className="px-3 py-2 text-left">Ação</th>
+                            <th className="px-3 py-2 text-left">Status</th>
+                            <th className="px-3 py-2 text-left">Detalhes</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/5">
+                          {vehicleHistoryLoading && (
+                            <tr>
+                              <td colSpan={5} className="px-3 py-4 text-center text-white/60">
+                                Carregando histórico…
+                              </td>
+                            </tr>
+                          )}
+                          {!vehicleHistoryLoading && vehicleHistory.length === 0 && (
+                            <tr>
+                              <td colSpan={5} className="px-3 py-4 text-center text-white/60">
+                                Nenhum histórico disponível.
+                              </td>
+                            </tr>
+                          )}
+                          {!vehicleHistoryLoading &&
+                            vehicleHistory.map((entry) => (
+                              <tr key={entry.id}>
+                                <td className="px-3 py-2">{formatDateTime(entry.sentAt)}</td>
+                                <td className="px-3 py-2">{formatDateTime(entry.receivedAt)}</td>
+                                <td className="px-3 py-2">{entry.actionLabel || "—"}</td>
+                                <td className="px-3 py-2">
+                                  <span
+                                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(
+                                      entry.statusLabel || entry.status,
+                                    )}`}
+                                  >
+                                    {entry.statusLabel || entry.status || "—"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  {entry.details ? (
+                                    <details className="text-[11px] text-white/70">
+                                      <summary className="cursor-pointer text-white/80">Ver detalhes</summary>
+                                      <div className="mt-2 whitespace-pre-wrap text-white/60">{entry.details}</div>
+                                    </details>
+                                  ) : (
+                                    <span className="text-white/50">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         </div>
       )}
+
+      <ItineraryDetailModal
+        open={Boolean(detailItinerary)}
+        itinerary={detailItinerary}
+        items={detailItems}
+        onClose={() => setDetailItinerary(null)}
+        onExportKml={exportKml}
+        onOpenMap={openItemMapPreview}
+      />
+
+      <MapPreviewModal
+        open={Boolean(mapPreview)}
+        title={mapPreview?.title || "Mapa"}
+        items={mapPreview?.items || []}
+        onClose={() => setMapPreview(null)}
+      />
 
       <ItineraryModal
         open={editorOpen}

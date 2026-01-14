@@ -31,7 +31,11 @@ import {
   syncItineraryXdm,
 } from "../services/xdm/itinerary-sync-service.js";
 import { isNoPermissionError, logNoPermissionDiagnostics } from "../services/xdm/xdm-error.js";
-import { getGeozoneGroupMapping, getGeozoneGroupMappingByScope } from "../models/xdm-geozone-group.js";
+import {
+  getGeozoneGroupMapping,
+  getGeozoneGroupMappingByScope,
+  listGeozoneGroupMappings,
+} from "../models/xdm-geozone-group.js";
 import { resolveVehicleDeviceUid } from "../services/xdm/resolve-vehicle-device-uid.js";
 import { fetchDeviceGeozoneGroupIds } from "../services/xdm/device-geozone-group-service.js";
 import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupScopeKey } from "../services/xdm/xdm-geozone-group-roles.js";
@@ -71,33 +75,58 @@ function resolveRequestIp(req) {
 
 function resolveStatusLabel(status) {
   const normalized = String(status || "").toUpperCase();
-  if (["DEPLOYED"].includes(normalized)) return "Concluído";
-  if (["CLEARED"].includes(normalized)) return "Desembarcado";
+  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "Concluído";
+  if (["QUEUED"].includes(normalized)) return "Enviado";
+  if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "Pendente";
   if (["FAILED", "TIMEOUT"].includes(normalized)) return "Falhou";
-  if (["DEPLOYING", "SYNCING", "QUEUED", "STARTED", "RUNNING"].includes(normalized)) return "Em andamento";
-  return "Em andamento";
+  if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "Erro";
+  return "Pendente";
 }
 
-function resolveEventLabel(action, status) {
-  const normalizedAction = normalizeDeploymentAction(action);
-  const normalizedStatus = String(status || "").toUpperCase();
-  const isFailure = ["FAILED", "TIMEOUT"].includes(normalizedStatus);
+function resolveActionLabel(action) {
+  const normalizedAction = String(normalizeDeploymentAction(action)).toUpperCase();
   if (normalizedAction === "DISEMBARK") {
-    return isFailure ? "Falha ao desembarcar" : "Desembarcado";
+    return "Desembarcado itinerário (remover da configuração do equipamento no XDM)";
   }
-  return isFailure ? "Falha ao embarcar" : "Embarcado";
+  if (normalizedAction === "CREATE") return "Criado itinerário";
+  if (normalizedAction === "UPDATE") return "Atualizado itinerário";
+  if (normalizedAction === "DELETE") return "Excluído itinerário";
+  return "Embarcado itinerário";
 }
 
 function resolveHistoryMessage(entry) {
-  const itineraryName = entry.itineraryName || "Sem nome";
-  const vehicleLabel = entry.vehicleName || entry.plate || "Veículo";
-  const userLabel = entry.sentByName || entry.sentBy || "Usuário";
-  const eventLabel = resolveEventLabel(entry.action, entry.statusCode || entry.status);
-  if (eventLabel.startsWith("Falha")) {
-    return `${eventLabel} o itinerário "${itineraryName}" no veículo "${vehicleLabel}" por ${userLabel}.`;
+  const itineraryName = entry.itineraryName || "itinerário";
+  const vehicleLabel = entry.plate || entry.vehicleName || "veículo";
+  const actionLabel = resolveActionLabel(entry.action);
+  const statusLabel = entry.statusLabel || resolveStatusLabel(entry.statusCode || entry.status);
+  if (statusLabel === "Erro") {
+    return `Não foi possível concluir "${actionLabel}" para o itinerário ${itineraryName} no veículo ${vehicleLabel}.`;
   }
-  const normalized = eventLabel.toLowerCase();
-  return `Itinerário "${itineraryName}" ${normalized} no veículo "${vehicleLabel}" por ${userLabel}.`;
+  if (statusLabel === "Falhou") {
+    return `Falha ao executar "${actionLabel}" para o itinerário ${itineraryName} no veículo ${vehicleLabel}.`;
+  }
+  if (statusLabel === "Enviado") {
+    return `Itinerário ${itineraryName} enviado para o veículo ${vehicleLabel}.`;
+  }
+  if (statusLabel === "Pendente") {
+    return `Itinerário ${itineraryName} em processamento no veículo ${vehicleLabel}.`;
+  }
+  if (actionLabel.startsWith("Embarcado")) {
+    return `Itinerário ${itineraryName} embarcado no veículo ${vehicleLabel}.`;
+  }
+  if (actionLabel.startsWith("Desembarcado")) {
+    return `Itinerário ${itineraryName} desembarcado do veículo ${vehicleLabel} (removido do equipamento).`;
+  }
+  if (actionLabel.startsWith("Atualizado")) {
+    return `Itinerário ${itineraryName} atualizado e reenviado para o veículo ${vehicleLabel}.`;
+  }
+  if (actionLabel.startsWith("Criado")) {
+    return `Itinerário ${itineraryName} criado.`;
+  }
+  if (actionLabel.startsWith("Excluído")) {
+    return `Itinerário ${itineraryName} excluído.`;
+  }
+  return `Ação "${actionLabel}" registrada para o itinerário ${itineraryName}.`;
 }
 
 function normalizeDeploymentAction(action) {
@@ -579,14 +608,14 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
       .map((entry) => {
         const statusCode = entry.statusCode || entry.status || "SYNCING";
         const statusLabel = resolveStatusLabel(statusCode);
-        const eventLabel = resolveEventLabel(entry.action, statusCode);
+        const actionLabel = resolveActionLabel(entry.action);
         const details = entry.details || entry.result || null;
         return {
           ...entry,
           statusCode,
           statusLabel,
-          eventLabel,
-          message: resolveHistoryMessage({ ...entry, statusCode }),
+          actionLabel,
+          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
           details,
         };
       });
@@ -605,10 +634,25 @@ router.get("/itineraries/embark/vehicles", async (req, res, next) => {
     const itineraries = listItineraries(clientId ? { clientId } : {});
     const geofences = await listGeofences(clientId ? { clientId } : {});
     const routes = listRoutes(clientId ? { clientId } : {});
+    const groupMappings = listGeozoneGroupMappings(clientId ? { clientId } : {});
 
     const itinerariesById = new Map(itineraries.map((itinerary) => [String(itinerary.id), itinerary]));
     const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
     const routesById = new Map(routes.map((route) => [String(route.id), route]));
+    const groupLookup = new Map();
+    groupMappings.forEach((mapping) => {
+      if (!mapping?.xdmGeozoneGroupId) return;
+      let itineraryId = mapping.itineraryId || mapping.id || null;
+      let roleKey = ITINERARY_GEOZONE_GROUPS.itinerary.key;
+      if (mapping.scopeKey) {
+        const [scopePrefix, scopeItineraryId, scopeRole] = String(mapping.scopeKey).split(":");
+        if (scopePrefix === "itinerary") {
+          itineraryId = scopeItineraryId;
+          roleKey = scopeRole || roleKey;
+        }
+      }
+      groupLookup.set(String(mapping.xdmGeozoneGroupId), { itineraryId, roleKey });
+    });
 
     const sortedDeployments = [...deployments].sort(
       (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime(),
@@ -629,84 +673,164 @@ router.get("/itineraries/embark/vehicles", async (req, res, next) => {
       }
     }
 
-    const vehiclesDetail = vehicles.map((vehicle) => {
-      const deployment = latestByVehicle.get(String(vehicle.id)) || null;
-      const statusCode = deployment?.status || null;
-      const statusLabel = deployment ? resolveStatusLabel(statusCode) : "Sem embarque";
-      const eventLabel = deployment ? resolveEventLabel(deployment.action, statusCode) : "Sem embarque";
-      const lastEmbark = lastEmbarkByVehicle.get(String(vehicle.id)) || null;
-      const actionType = deployment ? normalizeDeploymentAction(deployment.action) : null;
-      const itinerary =
-        deployment && actionType === "EMBARK"
-          ? itinerariesById.get(String(deployment.itineraryId)) || null
-          : null;
-      const items = itinerary
-        ? (itinerary.items || []).map((item) => {
-            const type = item?.type || "";
-            const id = item?.id ? String(item.id) : null;
-            const geofence = type === "geofence" || type === "target" ? geofencesById.get(id) || null : null;
-            const route = type === "route" ? routesById.get(id) || null : null;
-            const isTarget = Boolean(geofence?.isTarget) || type === "target";
-            const typeLabel =
-              type === "route"
-                ? "Rota"
-                : isTarget
-                  ? "Alvo"
-                  : geofence?.config === "exit"
-                    ? "Saída"
-                    : geofence?.config === "entry"
-                      ? "Entrada"
-                      : "Itinerário";
-            const circlePoints =
-              geofence?.type === "circle"
-                ? buildCirclePoints({
-                    center: [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]],
-                    radiusMeters: geofence.radius,
-                  })
-                : [];
-            const points =
-              type === "route"
-                ? route?.points || []
-                : geofence?.type === "circle"
-                  ? circlePoints
-                  : geofence?.points || [];
-            const previewSvg = buildPreviewSvg(points, {
-              stroke: geofence?.color || "#38bdf8",
-              closePath: type !== "route",
-            });
-            return {
-              id,
-              type,
-              name: geofence?.name || route?.name || "Item",
-              typeLabel,
-              sizeBytes: resolveItemSizeBytes(geofence || route),
-              previewSvg,
-              lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
-              statusLabel,
-            };
-          })
-        : [];
+    const vehiclesDetail = await Promise.all(
+      vehicles.map(async (vehicle) => {
+        const deployment = latestByVehicle.get(String(vehicle.id)) || null;
+        const lastEmbark = lastEmbarkByVehicle.get(String(vehicle.id)) || null;
+        const deviceUid = resolveVehicleDeviceUid(vehicle);
+        let xdmGroupIds = null;
+        let xdmError = null;
+        if (deviceUid) {
+          try {
+            xdmGroupIds = await fetchDeviceGeozoneGroupIds({ deviceUid });
+          } catch (error) {
+            xdmError = error?.message || "Falha ao consultar XDM";
+          }
+        }
 
-      return {
-        vehicleId: String(vehicle.id),
-        vehicleName: vehicle.name || null,
-        plate: vehicle.plate || null,
-        brand: vehicle.brand || null,
-        model: vehicle.model || null,
-        itineraryId: itinerary?.id || null,
-        itineraryName: itinerary?.name || null,
-        itineraryDescription: itinerary?.description || null,
-        statusCode,
-        statusLabel,
-        status: statusLabel,
-        lastActionLabel: eventLabel,
-        lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
-        lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
-        items,
-      };
-    });
+        const itineraryMapping = xdmGroupIds?.itinerary
+          ? groupLookup.get(String(xdmGroupIds.itinerary))
+          : null;
+        const targetsMapping = xdmGroupIds?.targets ? groupLookup.get(String(xdmGroupIds.targets)) : null;
+        const entryMapping = xdmGroupIds?.entry ? groupLookup.get(String(xdmGroupIds.entry)) : null;
+        const itinerary = itineraryMapping ? itinerariesById.get(String(itineraryMapping.itineraryId)) || null : null;
+        const statusLabel = xdmError ? "Erro" : xdmGroupIds?.itinerary ? "Concluído" : "Sem embarque";
+
+        const items = itinerary
+          ? (itinerary.items || []).map((item) => {
+              const type = item?.type || "";
+              const id = item?.id ? String(item.id) : null;
+              const geofence = type === "geofence" || type === "target" ? geofencesById.get(id) || null : null;
+              const route = type === "route" ? routesById.get(id) || null : null;
+              const isTarget = Boolean(geofence?.isTarget) || type === "target";
+              const typeLabel =
+                type === "route"
+                  ? "Rota"
+                  : isTarget
+                    ? "Alvo"
+                    : geofence?.config === "exit"
+                      ? "Saída"
+                      : geofence?.config === "entry"
+                        ? "Entrada"
+                        : "Itinerário";
+              const circlePoints =
+                geofence?.type === "circle"
+                  ? buildCirclePoints({
+                      center: [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]],
+                      radiusMeters: geofence.radius,
+                    })
+                  : [];
+              const points =
+                type === "route"
+                  ? route?.points || []
+                  : geofence?.type === "circle"
+                    ? circlePoints
+                    : geofence?.points || [];
+              const previewSvg = buildPreviewSvg(points, {
+                stroke: geofence?.color || "#38bdf8",
+                closePath: type !== "route",
+              });
+              return {
+                id,
+                type,
+                name: geofence?.name || route?.name || "Item",
+                typeLabel,
+                sizeBytes: resolveItemSizeBytes(geofence || route),
+                previewSvg,
+                geometry: {
+                  points,
+                  center:
+                    geofence?.type === "circle"
+                      ? [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]]
+                      : null,
+                  radiusMeters: geofence?.type === "circle" ? geofence?.radius || null : null,
+                  color: geofence?.color || "#38bdf8",
+                  isRoute: type === "route",
+                },
+                lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+                statusLabel,
+              };
+            })
+          : [];
+
+        return {
+          vehicleId: String(vehicle.id),
+          vehicleName: vehicle.name || null,
+          plate: vehicle.plate || null,
+          brand: vehicle.brand || null,
+          model: vehicle.model || null,
+          itineraryId: itinerary?.id || null,
+          itineraryName: itinerary?.name || null,
+          itineraryDescription: itinerary?.description || null,
+          xdmDeviceUid: deviceUid || null,
+          xdmGroups: {
+            itinerary: {
+              id: xdmGroupIds?.itinerary || null,
+              itineraryId: itineraryMapping?.itineraryId || null,
+              itineraryName: itinerary?.name || null,
+            },
+            targets: {
+              id: xdmGroupIds?.targets || null,
+              itineraryId: targetsMapping?.itineraryId || null,
+            },
+            entry: {
+              id: xdmGroupIds?.entry || null,
+              itineraryId: entryMapping?.itineraryId || null,
+            },
+          },
+          xdmError,
+          statusCode: deployment?.status || null,
+          statusLabel,
+          status: statusLabel,
+          lastActionLabel: deployment ? resolveActionLabel(deployment.action) : "—",
+          lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
+          lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+          items,
+        };
+      }),
+    );
 
     return res.json({ data: vehiclesDetail, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/itineraries/embark/vehicles/:vehicleId/history", async (req, res, next) => {
+  try {
+    const vehicleId = req.params.vehicleId;
+    const vehicle = getVehicleById(vehicleId);
+    if (!vehicle) {
+      throw createError(404, "Veículo não encontrado");
+    }
+    ensureSameClient(req.user, vehicle.clientId);
+
+    const deployments = listDeployments({ clientId: vehicle.clientId }).filter(
+      (deployment) => String(deployment.vehicleId) === String(vehicleId),
+    );
+    const vehicles = new Map([[String(vehicle.id), vehicle]]);
+    const itineraries = listItineraries({ clientId: vehicle.clientId }).reduce((acc, itinerary) => {
+      acc.set(String(itinerary.id), itinerary);
+      return acc;
+    }, new Map());
+
+    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
+      .map((entry) => {
+        const statusCode = entry.statusCode || entry.status || "SYNCING";
+        const statusLabel = resolveStatusLabel(statusCode);
+        const actionLabel = resolveActionLabel(entry.action);
+        const details = entry.details || entry.result || null;
+        return {
+          ...entry,
+          statusCode,
+          statusLabel,
+          actionLabel,
+          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
+          details,
+        };
+      });
+
+    return res.json({ data: history, error: null });
   } catch (error) {
     return next(error);
   }
@@ -733,14 +857,14 @@ router.get("/itineraries/:id/embark/history", async (req, res, next) => {
       .map((entry) => {
         const statusCode = entry.statusCode || entry.status || "SYNCING";
         const statusLabel = resolveStatusLabel(statusCode);
-        const eventLabel = resolveEventLabel(entry.action, statusCode);
+        const actionLabel = resolveActionLabel(entry.action);
         const details = entry.details || entry.result || null;
         return {
           ...entry,
           statusCode,
           statusLabel,
-          eventLabel,
-          message: resolveHistoryMessage({ ...entry, statusCode }),
+          actionLabel,
+          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
           details,
         };
       });
