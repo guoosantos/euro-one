@@ -77,12 +77,12 @@ function resolveRequestIp(req) {
 
 function resolveStatusLabel(status) {
   const normalized = String(status || "").toUpperCase();
-  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "Concluído";
-  if (["QUEUED"].includes(normalized)) return "Enviado";
-  if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "Pendente";
-  if (["FAILED", "TIMEOUT"].includes(normalized)) return "Falhou";
-  if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "Erro";
-  return "Pendente";
+  if (["DEPLOYED", "CLEARED"].includes(normalized)) return "EMBARCADO";
+  if (["QUEUED"].includes(normalized)) return "ENVIADO";
+  if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "PENDENTE";
+  if (["FAILED", "TIMEOUT"].includes(normalized)) return "FALHOU (APLICAÇÃO)";
+  if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "FALHOU (ENVIO)";
+  return "PENDENTE";
 }
 
 function resolveExpectedGroupIds(deployment) {
@@ -109,9 +109,9 @@ function matchesGroupIds(expected, current) {
 function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
   if (xdmError) {
     return {
-      code: "ERROR",
-      label: "Falha / Erro",
-      configLabel: "Falha / Erro",
+      code: "ERRO",
+      label: "ERRO",
+      configLabel: "ERRO",
       matchesExpected: false,
       detail: xdmError,
     };
@@ -122,49 +122,50 @@ function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
   const hasEmbarked = Boolean(xdmGroupIds?.itinerary);
 
   if (["FAILED", "TIMEOUT", "ERROR", "INVALID", "REJECTED"].includes(deploymentStatus)) {
+    const label = ["FAILED", "TIMEOUT"].includes(deploymentStatus) ? "FALHOU (APLICAÇÃO)" : "FALHOU (ENVIO)";
     return {
       code: deploymentStatus || "FAILED",
-      label: "Falha / Erro",
-      configLabel: "Falha / Erro",
+      label,
+      configLabel: label,
       matchesExpected: matched,
     };
   }
   if (["QUEUED", "SYNCING", "DEPLOYING", "STARTED", "RUNNING"].includes(deploymentStatus)) {
     return {
       code: "PENDING",
-      label: matched ? "Recebido / Aplicado" : "Pendente de recebimento",
-      configLabel: matched ? "Recebido / Aplicado" : "Pendente de recebimento",
+      label: deploymentStatus === "QUEUED" ? "ENVIADO" : "PENDENTE",
+      configLabel: matched ? "Equipamento atualizou" : "Aguardando atualização",
       matchesExpected: matched,
     };
   }
   if (deployment && matched) {
     return {
       code: "APPLIED",
-      label: "Recebido / Aplicado",
-      configLabel: "Recebido / Aplicado",
+      label: "EMBARCADO",
+      configLabel: "Equipamento atualizou",
       matchesExpected: true,
     };
   }
   if ((deployment?.action || "EMBARK") === "DISEMBARK" && !hasEmbarked) {
     return {
       code: "APPLIED",
-      label: "Recebido / Aplicado",
-      configLabel: "Recebido / Aplicado",
+      label: "EMBARCADO",
+      configLabel: "Equipamento atualizou",
       matchesExpected: true,
     };
   }
   if (hasEmbarked) {
     return {
       code: "EMBARKED",
-      label: "Embarcado (confirmado no XDM)",
-      configLabel: deployment ? "Pendente de recebimento" : null,
+      label: "EMBARCADO",
+      configLabel: "Equipamento atualizou",
       matchesExpected: matched,
     };
   }
   return {
     code: "EMPTY",
-    label: "Sem embarque",
-    configLabel: deployment ? "Pendente de recebimento" : null,
+    label: "SEM EMBARQUE",
+    configLabel: deployment ? "Aguardando atualização" : null,
     matchesExpected: matched,
   };
 }
@@ -172,7 +173,7 @@ function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
 function resolveActionLabel(action) {
   const normalizedAction = String(normalizeDeploymentAction(action)).toUpperCase();
   if (normalizedAction === "DISEMBARK") {
-    return "Desembarcado itinerário (remover da configuração do equipamento no XDM)";
+    return "Desembarcado itinerário (remover da configuração do equipamento)";
   }
   if (normalizedAction === "CREATE") return "Criado itinerário";
   if (normalizedAction === "UPDATE") return "Atualizado itinerário";
@@ -185,17 +186,17 @@ function resolveHistoryMessage(entry) {
   const vehicleLabel = entry.plate || entry.vehicleName || "veículo";
   const actionLabel = resolveActionLabel(entry.action);
   const statusLabel = entry.statusLabel || resolveStatusLabel(entry.statusCode || entry.status);
-  if (statusLabel === "Erro") {
+  if (statusLabel === "ERRO") {
     return `Não foi possível concluir "${actionLabel}" para o itinerário ${itineraryName} no veículo ${vehicleLabel}.`;
   }
-  if (statusLabel === "Falhou") {
+  if (statusLabel.startsWith("FALHOU")) {
     return `Falha ao executar "${actionLabel}" para o itinerário ${itineraryName} no veículo ${vehicleLabel}.`;
   }
-  if (statusLabel === "Enviado") {
-    return `Itinerário ${itineraryName} enviado para o veículo ${vehicleLabel}.`;
+  if (statusLabel === "ENVIADO") {
+    return `Itinerário ${itineraryName} enviado para a central do veículo ${vehicleLabel}.`;
   }
-  if (statusLabel === "Pendente") {
-    return `Itinerário ${itineraryName} em processamento no veículo ${vehicleLabel}.`;
+  if (statusLabel === "PENDENTE") {
+    return `Central confirmou o itinerário ${itineraryName} para o veículo ${vehicleLabel} e aguarda atualização do equipamento.`;
   }
   if (actionLabel.startsWith("Embarcado")) {
     return `Itinerário ${itineraryName} embarcado no veículo ${vehicleLabel}.`;
@@ -431,7 +432,7 @@ async function buildVehicleEmbarkDetail({
     try {
       xdmGroupIds = await fetchDeviceGeozoneGroupIds({ deviceUid, correlationId });
     } catch (error) {
-      xdmError = error?.message || "Falha ao consultar XDM";
+      xdmError = error?.message || "Falha ao consultar a Central";
     }
   }
 
@@ -463,10 +464,10 @@ async function buildVehicleEmbarkDetail({
               : isTarget
                 ? "Alvo"
                 : geofence?.config === "exit"
-                  ? "Saída"
+                  ? "Cerca (Saída)"
                   : geofence?.config === "entry"
-                    ? "Entrada"
-                    : "Itinerário";
+                    ? "Cerca (Entrada)"
+                    : "Cerca";
           const circlePoints =
             geofence?.type === "circle"
               ? buildCirclePoints({
@@ -574,6 +575,8 @@ router.get("/itineraries/:id", async (req, res, next) => {
 router.post("/itineraries", requireRole("manager", "admin"), async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
+    const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
+    const sentAt = new Date().toISOString();
     const items = buildItineraryItems({
       items: req.body?.items,
       routeIds: req.body?.routeIds,
@@ -585,6 +588,23 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
         clientId,
         correlationId: req.headers["x-correlation-id"] || null,
       });
+      addEmbarkEntries([
+        {
+          clientId,
+          itineraryId: synced.itinerary.id,
+          itineraryName: synced.itinerary.name || null,
+          sentAt,
+          receivedAt: new Date().toISOString(),
+          sentBy: req.user?.id || null,
+          sentByName: userLabel,
+          status: "DEPLOYED",
+          statusLabel: "EMBARCADO",
+          action: "CREATE",
+          message: `Itinerário '${synced.itinerary.name || "itinerário"}' criado por ${userLabel}.`,
+          details: null,
+          snapshot: null,
+        },
+      ]);
       return res.status(201).json({ data: withSyncStatus(synced.itinerary), error: null });
     } catch (error) {
       if (isNoPermissionError(error)) {
@@ -594,6 +614,23 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
           xdmLastError: "NO_PERMISSION",
           xdmLastSyncedAt: new Date().toISOString(),
         });
+        addEmbarkEntries([
+          {
+            clientId,
+            itineraryId: updated.id,
+            itineraryName: updated.name || null,
+            sentAt,
+            receivedAt: new Date().toISOString(),
+            sentBy: req.user?.id || null,
+            sentByName: userLabel,
+            status: "DEPLOYED",
+            statusLabel: "EMBARCADO",
+            action: "CREATE",
+            message: `Itinerário '${updated.name || "itinerário"}' criado por ${userLabel}.`,
+            details: null,
+            snapshot: null,
+          },
+        ]);
         logNoPermissionDiagnostics({
           error,
           correlationId: req.headers["x-correlation-id"] || null,
@@ -609,8 +646,8 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
 
       updateItinerary(itinerary.id, {
         xdmSyncStatus: "ERROR",
-        xdmLastSyncError: error?.message || "Falha ao sincronizar no XDM",
-        xdmLastError: error?.message || "Falha ao sincronizar no XDM",
+        xdmLastSyncError: error?.message || "Falha ao sincronizar na Central",
+        xdmLastError: error?.message || "Falha ao sincronizar na Central",
         xdmLastSyncedAt: new Date().toISOString(),
       });
       throw error;
@@ -645,13 +682,14 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
     } catch (error) {
       updateItinerary(updated.id, {
         xdmSyncStatus: "ERROR",
-        xdmLastSyncError: error?.message || "Falha ao sincronizar no XDM",
+        xdmLastSyncError: error?.message || "Falha ao sincronizar na Central",
         xdmLastSyncedAt: new Date().toISOString(),
       });
       throw error;
     }
 
     const removedItems = diffRemovedItems(existing.items || [], synced.itinerary.items || []);
+    let updateDetails = null;
     await Promise.all(
       removedItems.map((item) =>
         cleanupGeozoneForItem({
@@ -694,6 +732,19 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
       ]);
       const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
       const routesById = new Map(routes.map((route) => [String(route.id), route]));
+      if (removedItems.length) {
+        const labels = removedItems.map((item) => {
+          if (item.type === "route") {
+            return routesById.get(String(item.id))?.name || `Rota ${item.id}`;
+          }
+          const geofence = geofencesById.get(String(item.id));
+          if (geofence?.isTarget) {
+            return geofence?.name || `Alvo ${item.id}`;
+          }
+          return geofence?.name || `Cerca ${item.id}`;
+        });
+        updateDetails = `Removeu ${labels.join(", ")}.`;
+      }
       updateSnapshot = buildItinerarySnapshot({
         itinerary: synced.itinerary,
         geofencesById,
@@ -722,8 +773,27 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
         groupHash: groupHashSummary,
         groupHashes: synced.groupHashes || null,
         snapshot: updateSnapshot ? JSON.parse(JSON.stringify(updateSnapshot)) : null,
+        action: "UPDATE",
       });
     });
+
+    addEmbarkEntries([
+      {
+        clientId,
+        itineraryId: updated.id,
+        itineraryName: updated.name || null,
+        sentAt: new Date().toISOString(),
+        receivedAt: new Date().toISOString(),
+        sentBy: req.user?.id || null,
+        sentByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
+        status: "DEPLOYED",
+        statusLabel: "EMBARCADO",
+        action: "UPDATE",
+        message: `Itinerário '${updated.name || "itinerário"}' atualizado por ${req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário"}.`,
+        details: updateDetails,
+        snapshot: updateSnapshot ? JSON.parse(JSON.stringify(updateSnapshot)) : null,
+      },
+    ]);
 
     return res.json({ data: withSyncStatus(synced.itinerary), error: null });
   } catch (error) {
