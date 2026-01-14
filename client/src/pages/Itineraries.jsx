@@ -8,6 +8,7 @@ import {
   Plus,
   Route,
   Save,
+  Search,
   Target,
   Trash2,
   X,
@@ -55,6 +56,21 @@ function resolveVehicleLastUpdate(vehicle) {
     vehicle?.updated_at ||
     null
   );
+}
+
+function normalizeStatusLabel(label, fallback) {
+  const normalized = String(label || "").trim();
+  if (!normalized) return fallback;
+  if (normalized.toLowerCase().includes("sem embarque")) return fallback;
+  return normalized;
+}
+
+function resolveXdmStatusLabel(detail) {
+  return normalizeStatusLabel(detail?.xdmStatusLabel || detail?.statusLabel || detail?.status, "Pendente");
+}
+
+function resolveEquipmentStatusLabel(detail) {
+  return normalizeStatusLabel(detail?.configStatusLabel, "Aguardando recebimento");
 }
 
 function resolveSelectionValidation({ hasVehicles, hasItineraries }) {
@@ -136,9 +152,23 @@ const DEFAULT_MAP_ZOOM = 13;
 function resolveTileLayerConfig(mapLayer) {
   const tileUrl = typeof mapLayer?.url === "string" ? mapLayer.url.trim() : "";
   const fallbackUrl = typeof MAP_LAYER_FALLBACK?.url === "string" ? MAP_LAYER_FALLBACK.url.trim() : "";
+  const rawSubdomains = mapLayer?.subdomains ?? MAP_LAYER_FALLBACK?.subdomains;
+  const normalizedSubdomains =
+    Array.isArray(rawSubdomains) || typeof rawSubdomains === "string" ? rawSubdomains : "abc";
+  const resolvedUrl = tileUrl || fallbackUrl || "";
+  const needsSubdomains = resolvedUrl.includes("{s}");
+  const hasSubdomains = needsSubdomains
+    ? Array.isArray(normalizedSubdomains)
+      ? normalizedSubdomains.length > 0
+      : String(normalizedSubdomains).length > 0
+    : true;
+  const isReady = Boolean(resolvedUrl) && hasSubdomains;
+  const reason = !resolvedUrl ? "tileUrl ausente" : !hasSubdomains ? "subdomains ausente" : null;
   return {
-    tileUrl: tileUrl || fallbackUrl || "",
-    subdomains: mapLayer?.subdomains ?? MAP_LAYER_FALLBACK?.subdomains ?? "abc",
+    tileUrl: resolvedUrl,
+    subdomains: normalizedSubdomains,
+    isReady,
+    reason,
   };
 }
 
@@ -184,6 +214,31 @@ function MapFallback({ reason }) {
         <p className="font-semibold text-white/80">Mapa indisponível</p>
         <p className="mt-1 text-xs text-white/50">{reason || "Não foi possível carregar as camadas do mapa."}</p>
       </div>
+    </div>
+  );
+}
+
+function SearchInput({ value, onChange, onFocus, onClear, placeholder }) {
+  return (
+    <div className="relative">
+      <Input
+        icon={Search}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onFocus={onFocus}
+        className="pr-10"
+      />
+      {value ? (
+        <button
+          type="button"
+          onClick={onClear}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 transition hover:text-white"
+          aria-label="Limpar busca"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -326,7 +381,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
-  const fallbackReason = tileConfig.tileUrl ? null : "tileUrl ausente";
+  const fallbackReason = tileConfig.isReady ? null : tileConfig.reason || "Configuração de mapa incompleta";
 
   useEffect(() => {
     if (!open) return;
@@ -352,7 +407,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
       <div className="relative flex w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0f141c] shadow-3xl">
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <div>
-            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Mapa híbrido</p>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Mapa satélite</p>
             <h3 className="text-lg font-semibold text-white">{title}</h3>
           </div>
           <button
@@ -367,7 +422,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
         <div className="h-[420px] w-full">
           {items.length ? (
             <div className="relative h-full w-full">
-              {!mapReady && !fallbackReason && (
+              {!mapReady && !fallbackReason && tileConfig.isReady && (
                 <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
                   Carregando mapa…
                 </div>
@@ -383,7 +438,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
                     className="h-full w-full"
                     whenReady={() => setMapReady(true)}
                   >
-                    {tileConfig.tileUrl && (
+                    {tileConfig.isReady && (
                       <TileLayer
                         url={tileConfig.tileUrl}
                         attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
@@ -415,7 +470,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
-  const fallbackReason = tileConfig.tileUrl ? null : "tileUrl ausente";
+  const fallbackReason = tileConfig.isReady ? null : tileConfig.reason || "Configuração de mapa incompleta";
 
   useEffect(() => {
     if (!open) return;
@@ -464,13 +519,13 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
         <div className="grid gap-4 overflow-y-auto px-6 py-5 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold text-white">Mapa híbrido</p>
+              <p className="text-sm font-semibold text-white">Mapa satélite</p>
               <span className="text-xs text-white/60">{items.length} itens</span>
             </div>
             <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
               {items.length ? (
                 <div className="relative h-full w-full">
-                  {!mapReady && !fallbackReason && (
+                  {!mapReady && !fallbackReason && tileConfig.isReady && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40 text-sm text-white/70">
                       Carregando mapa…
                     </div>
@@ -486,7 +541,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                         className="h-full w-full"
                         whenReady={() => setMapReady(true)}
                       >
-                        {tileConfig.tileUrl && (
+                        {tileConfig.isReady && (
                           <TileLayer
                             url={tileConfig.tileUrl}
                             attribution={mapLayer?.attribution || MAP_LAYER_FALLBACK.attribution}
@@ -534,7 +589,7 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                       <Button size="xs" variant="ghost" onClick={() => onOpenMap?.(item)} icon={MapIcon}>
-                        Ver no mapa (Híbrido)
+                        Ver no mapa (Satélite)
                       </Button>
                     </div>
                   </div>
@@ -1117,14 +1172,18 @@ function EmbarkContent({
         {activeTab === "vehicles" && (
           <div className="space-y-3">
             <div className="space-y-2" ref={vehicleDropdownRef}>
-              <Input
+              <SearchInput
                 placeholder="Buscar veículo"
                 value={vehicleQuery}
-                onChange={(event) => {
-                  onVehicleQueryChange(event.target.value);
+                onChange={(value) => {
+                  onVehicleQueryChange(value);
                   setVehicleDropdownOpen(true);
                 }}
                 onFocus={() => setVehicleDropdownOpen(true)}
+                onClear={() => {
+                  onVehicleQueryChange("");
+                  setVehicleDropdownOpen(true);
+                }}
               />
               {vehicleDropdownOpen && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1468,14 +1527,18 @@ function DisembarkContent({
         {activeTab === "vehicles" && (
           <div className="space-y-3">
             <div className="space-y-2" ref={vehicleDropdownRef}>
-              <Input
+              <SearchInput
                 placeholder="Buscar veículo"
                 value={vehicleQuery}
-                onChange={(event) => {
-                  onVehicleQueryChange(event.target.value);
+                onChange={(value) => {
+                  onVehicleQueryChange(value);
                   setVehicleDropdownOpen(true);
                 }}
                 onFocus={() => setVehicleDropdownOpen(true)}
+                onClear={() => {
+                  onVehicleQueryChange("");
+                  setVehicleDropdownOpen(true);
+                }}
               />
               {vehicleDropdownOpen && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -2225,11 +2288,12 @@ export default function Itineraries() {
       setSelectedEmbarkDetailVehicleId(null);
       return;
     }
+    if (!selectedEmbarkDetailVehicleId) return;
     const exists = filteredEmbarkDetails.some(
       (item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId),
     );
     if (!exists) {
-      setSelectedEmbarkDetailVehicleId(filteredEmbarkDetails[0].vehicleId);
+      setSelectedEmbarkDetailVehicleId(null);
     }
   }, [activeTab, filteredEmbarkDetails, selectedEmbarkDetailVehicleId]);
 
@@ -2717,7 +2781,6 @@ export default function Itineraries() {
       <div className="space-y-4">
         <PageHeader
           title="Embarcar Itinerários"
-          description="Agrupadores de cercas, rotas e alvos para o mesmo cliente."
           right={(
             <>
               <span className="map-status-pill">
@@ -2761,7 +2824,7 @@ export default function Itineraries() {
 
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="w-full md:max-w-xs">
-            <Input
+            <SearchInput
               placeholder={
                 activeTab === "historico"
                   ? "Buscar histórico"
@@ -2770,12 +2833,18 @@ export default function Itineraries() {
                     : "Buscar itinerário"
               }
               value={activeTab === "veiculos" ? embarkDetailsQuery : query}
-              onChange={(event) => {
-                const value = event.target.value;
+              onChange={(value) => {
                 if (activeTab === "veiculos") {
                   setEmbarkDetailsQuery(value);
                 } else {
                   setQuery(value);
+                }
+              }}
+              onClear={() => {
+                if (activeTab === "veiculos") {
+                  setEmbarkDetailsQuery("");
+                } else {
+                  setQuery("");
                 }
               }}
             />
@@ -3009,8 +3078,8 @@ export default function Itineraries() {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-sm font-semibold">{detail.vehicleName || "Veículo"}</p>
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.xdmStatusLabel || detail.statusLabel || detail.status)}`}>
-                            {detail.xdmStatusLabel || detail.statusLabel || detail.status || "Sem status"}
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(resolveXdmStatusLabel(detail))}`}>
+                            {resolveXdmStatusLabel(detail)}
                           </span>
                         </div>
                         <p className="text-[11px] text-white/60">{detail.plate || "Placa não informada"}</p>
@@ -3043,8 +3112,8 @@ export default function Itineraries() {
                       </Button>
                       <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                         <div className="flex items-center gap-2">
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
-                            {selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
+                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(resolveXdmStatusLabel(selectedEmbarkDetail))}`}>
+                            {resolveXdmStatusLabel(selectedEmbarkDetail)}
                           </span>
                           <span>
                             Última atualização: {formatDateTime(selectedEmbarkDetail.lastActionAt || selectedEmbarkDetail.updatedAt)}
@@ -3085,10 +3154,8 @@ export default function Itineraries() {
                           <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
                         )}
                         <div className="mt-3 space-y-1 text-xs text-white/60">
-                          <p>Status no XDM: {selectedEmbarkDetail.xdmStatusLabel || "Sem status"}</p>
-                          {selectedEmbarkDetail.configStatusLabel && (
-                            <p>Configuração: {selectedEmbarkDetail.configStatusLabel}</p>
-                          )}
+                          <p>Status no XDM: {resolveXdmStatusLabel(selectedEmbarkDetail)}</p>
+                          <p>Status no equipamento: {resolveEquipmentStatusLabel(selectedEmbarkDetail)}</p>
                         </div>
                         {selectedEmbarkDetail.xdmError && (
                           <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetail.xdmError}</p>
@@ -3162,12 +3229,12 @@ export default function Itineraries() {
                                       </div>
                                       <div>
                                         <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
-                                        <p>{item.statusLabel || selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
+                                        <p>{item.statusLabel || resolveXdmStatusLabel(selectedEmbarkDetail)}</p>
                                       </div>
                                     </div>
                                     <div className="mt-3">
                                       <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
-                                        Ver no mapa (Híbrido)
+                                        Ver no mapa (Satélite)
                                       </Button>
                                     </div>
                                   </div>
@@ -3299,7 +3366,7 @@ export default function Itineraries() {
                                           <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
                                           <div className="mt-2">
                                             <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
-                                              Ver no mapa (Híbrido)
+                                              Ver no mapa (Satélite)
                                             </Button>
                                           </div>
                                         </div>
