@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import { getVehicleById, updateVehicle } from "../../models/vehicle.js";
 import { getItineraryById } from "../../models/itinerary.js";
 import { listGeofences } from "../../models/geofence.js";
-import { getRouteById, updateRoute } from "../../models/route.js";
+import { getRouteById, listRoutes, updateRoute } from "../../models/route.js";
 import { getClientById } from "../../models/client.js";
 import {
   appendDeploymentLog,
@@ -33,6 +33,7 @@ import { resolveVehicleDeviceUid } from "./resolve-vehicle-device-uid.js";
 import { wrapXdmError, isDeviceNotFoundError } from "./xdm-error.js";
 import { fallbackClientDisplayName } from "./xdm-name-utils.js";
 import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS } from "./xdm-geozone-group-roles.js";
+import { buildItinerarySnapshot } from "./itinerary-snapshot.js";
 
 function buildRequestHash({ itineraryId, vehicleId, groupHash, action }) {
   const payload = `${itineraryId}|${vehicleId}|${action || "EMBARK"}|${groupHash || ""}`;
@@ -76,6 +77,40 @@ function buildVehicleStatus({ status, message, deviceUid, rolloutId }) {
   };
 }
 
+function cloneSnapshot(snapshot) {
+  if (!snapshot) return null;
+  return JSON.parse(JSON.stringify(snapshot));
+}
+
+function createFailedDeployment({
+  clientId,
+  itineraryId,
+  vehicleId,
+  deviceImei,
+  requestedByUserId,
+  requestedByName,
+  ipAddress,
+  action,
+  snapshot,
+  errorMessage,
+}) {
+  return createDeployment({
+    clientId,
+    itineraryId,
+    vehicleId,
+    deviceImei,
+    requestedByUserId,
+    requestedByName,
+    ipAddress,
+    status: "FAILED",
+    finishedAt: new Date().toISOString(),
+    errorMessage: errorMessage || "Falha no deploy",
+    errorDetails: errorMessage || null,
+    snapshot,
+    action,
+  });
+}
+
 async function loadGeofencesById({ clientId, geofenceIds }) {
   const geofences = await listGeofences({ clientId });
   const geofencesById = new Map();
@@ -90,6 +125,22 @@ async function loadGeofencesById({ clientId, geofenceIds }) {
   });
 
   return geofencesById;
+}
+
+async function loadRoutesById({ clientId, routeIds }) {
+  const routes = listRoutes({ clientId });
+  const routesById = new Map();
+  routes.forEach((route) => {
+    routesById.set(String(route.id), route);
+  });
+
+  routeIds.forEach((routeId) => {
+    if (!routesById.has(String(routeId))) {
+      throw new Error("Rota não encontrada para o itinerário");
+    }
+  });
+
+  return routesById;
 }
 
 async function updateRoutesBufferMeters({ routeIds = [], bufferMeters }) {
@@ -146,12 +197,17 @@ async function applyOverrides({ deviceUid, groupIds, correlationId, signature })
     });
   }
   const xdmClient = new XdmClient();
+  const payloadSnapshot = {
+    Overrides: buildSettingsOverridesModified(overrides),
+    overrides,
+    signature,
+  };
   try {
     const response = await xdmClient.request(
       "PUT",
       `/api/external/v3/settingsOverrides/${normalizedDeviceUid}`,
       {
-        Overrides: buildSettingsOverridesModified(overrides),
+        Overrides: payloadSnapshot.Overrides,
       },
       { correlationId },
     );
@@ -188,6 +244,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId, signature })
         status: "ok",
       });
     }
+    return { response, payload: payloadSnapshot };
   } catch (error) {
     console.error("[xdm] falha ao aplicar overrides do geozone group", {
       correlationId,
@@ -225,7 +282,7 @@ async function applyOverrides({ deviceUid, groupIds, correlationId, signature })
       };
       throw deviceError;
     }
-    throw wrapXdmError(error, {
+    const wrapped = wrapXdmError(error, {
       step: "updateDeviceSdk",
       correlationId,
       payloadSample: {
@@ -249,6 +306,8 @@ async function applyOverrides({ deviceUid, groupIds, correlationId, signature })
           : null,
       },
     });
+    wrapped.snapshot = payloadSnapshot;
+    throw wrapped;
   }
 }
 
@@ -420,7 +479,7 @@ async function processDeployment(deploymentId) {
 
     const updateStart = Date.now();
     logStep(deploymentId, "APPLY_OVERRIDES", { status: "started" });
-    await applyOverrides({
+    const applyResult = await applyOverrides({
       deviceUid,
       groupIds: groupIds || {},
       correlationId,
@@ -431,6 +490,13 @@ async function processDeployment(deploymentId) {
       durationMs: Date.now() - updateStart,
     });
 
+    const current = getDeploymentById(deploymentId);
+    updateDeployment(deploymentId, {
+      snapshot: current?.snapshot
+        ? { ...current.snapshot, request: applyResult?.payload || null, response: applyResult?.response || null }
+        : null,
+    });
+
     updateDeployment(deploymentId, {
       status: action === "DISEMBARK" ? "CLEARED" : "DEPLOYED",
       finishedAt: new Date().toISOString(),
@@ -439,6 +505,17 @@ async function processDeployment(deploymentId) {
       status: action === "DISEMBARK" ? "CLEARED" : "DEPLOYED",
     });
   } catch (error) {
+    const current = getDeploymentById(deploymentId);
+    updateDeployment(deploymentId, {
+      snapshot: current?.snapshot
+        ? {
+            ...current.snapshot,
+            request: current.snapshot.request || error?.snapshot || null,
+            response: error?.details?.response || error?.details || null,
+            error: error?.message || "Falha no deploy",
+          }
+        : null,
+    });
     updateDeployment(deploymentId, {
       status: "FAILED",
       finishedAt: new Date().toISOString(),
@@ -462,6 +539,7 @@ export function queueDeployment({
   groupHash = null,
   groupHashes = null,
   configId = null,
+  snapshot = null,
   action = "EMBARK",
 }) {
   const active = findActiveDeploymentByPair({ itineraryId, vehicleId, clientId });
@@ -513,6 +591,7 @@ export function queueDeployment({
     groupHash,
     groupHashes,
     configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
+    snapshot,
     action: normalizedAction,
   });
 
@@ -568,9 +647,19 @@ export async function embarkItinerary({
       : geofenceIds.length
         ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
         : new Map();
+  const resolvedRoutesById =
+    routeIds.length > 0 ? await loadRoutesById({ clientId: itinerary.clientId, routeIds }) : new Map();
   if (Number.isFinite(bufferMeters) && bufferMeters > 0) {
     await updateRoutesBufferMeters({ routeIds, bufferMeters });
   }
+
+  const snapshotBase = buildItinerarySnapshot({
+    itinerary,
+    geofencesById: resolvedGeofencesById,
+    routesById: resolvedRoutesById,
+    action: "EMBARK",
+    requestedByName,
+  });
 
   const { xdmGeozoneGroupId, groupHash, groupIds, groupHashes } = await ensureGeozoneGroups(itinerary.id, {
     clientId: itinerary.clientId,
@@ -584,6 +673,21 @@ export async function embarkItinerary({
   const results = vehicleIds.map((vehicleId) => {
     const vehicle = getVehicleById(vehicleId);
     if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+      const snapshot = cloneSnapshot(snapshotBase);
+      if (snapshot) {
+        snapshot.error = "Veículo não encontrado para o cliente";
+      }
+      createFailedDeployment({
+        clientId: itinerary.clientId,
+        itineraryId: itinerary.id,
+        vehicleId: String(vehicleId),
+        requestedByUserId,
+        requestedByName,
+        ipAddress,
+        snapshot,
+        action: "EMBARK",
+        errorMessage: "Veículo não encontrado para o cliente",
+      });
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo não encontrado para o cliente" }),
@@ -592,6 +696,21 @@ export async function embarkItinerary({
 
     const resolvedDeviceUid = resolveVehicleDeviceUid(vehicle);
     if (!resolvedDeviceUid) {
+      const snapshot = cloneSnapshot(snapshotBase);
+      if (snapshot) {
+        snapshot.error = "Veículo sem IMEI cadastrado";
+      }
+      createFailedDeployment({
+        clientId: itinerary.clientId,
+        itineraryId: itinerary.id,
+        vehicleId: vehicle.id,
+        requestedByUserId,
+        requestedByName,
+        ipAddress,
+        snapshot,
+        action: "EMBARK",
+        errorMessage: "Veículo sem IMEI cadastrado",
+      });
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
@@ -623,6 +742,7 @@ export async function embarkItinerary({
       groupHash: deploymentGroupHash,
       groupHashes,
       configId,
+      snapshot: cloneSnapshot(snapshotBase),
     });
 
     const mappedStatus =
@@ -696,9 +816,42 @@ export async function disembarkItinerary({
     await resolveOverrideConfigs({ correlationId });
   }
 
+  const geofenceIds = (itinerary.items || [])
+    .filter((item) => item.type === "geofence" || item.type === "target")
+    .map((item) => item.id);
+  const routeIds = (itinerary.items || []).filter((item) => item.type === "route").map((item) => item.id);
+  const resolvedGeofencesById = geofenceIds.length
+    ? await loadGeofencesById({ clientId: itinerary.clientId, geofenceIds })
+    : new Map();
+  const resolvedRoutesById = routeIds.length
+    ? await loadRoutesById({ clientId: itinerary.clientId, routeIds })
+    : new Map();
+  const snapshotBase = buildItinerarySnapshot({
+    itinerary,
+    geofencesById: resolvedGeofencesById,
+    routesById: resolvedRoutesById,
+    action: "DISEMBARK",
+    requestedByName,
+  });
+
   const results = targetVehicleIds.map((vehicleId) => {
     const vehicle = getVehicleById(vehicleId);
     if (!vehicle || String(vehicle.clientId) !== String(itinerary.clientId)) {
+      const snapshot = cloneSnapshot(snapshotBase);
+      if (snapshot) {
+        snapshot.error = "Veículo não encontrado para o cliente";
+      }
+      createFailedDeployment({
+        clientId: itinerary.clientId,
+        itineraryId: itinerary.id,
+        vehicleId: String(vehicleId),
+        requestedByUserId,
+        requestedByName,
+        ipAddress,
+        snapshot,
+        action: "DISEMBARK",
+        errorMessage: "Veículo não encontrado para o cliente",
+      });
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo não encontrado para o cliente" }),
@@ -707,6 +860,21 @@ export async function disembarkItinerary({
 
     const resolvedDeviceUid = resolveVehicleDeviceUid(vehicle);
     if (!resolvedDeviceUid) {
+      const snapshot = cloneSnapshot(snapshotBase);
+      if (snapshot) {
+        snapshot.error = "Veículo sem IMEI cadastrado";
+      }
+      createFailedDeployment({
+        clientId: itinerary.clientId,
+        itineraryId: itinerary.id,
+        vehicleId: vehicle.id,
+        requestedByUserId,
+        requestedByName,
+        ipAddress,
+        snapshot,
+        action: "DISEMBARK",
+        errorMessage: "Veículo sem IMEI cadastrado",
+      });
       return {
         vehicleId: String(vehicleId),
         ...buildVehicleStatus({ status: "failed", message: "Veículo sem IMEI cadastrado" }),
@@ -746,6 +914,7 @@ export async function disembarkItinerary({
       xdmGeozoneGroupIds: lastDeployment?.xdmGeozoneGroupIds || null,
       groupHash: resolvedGroupHash || null,
       groupHashes: resolvedGroupHashes,
+      snapshot: cloneSnapshot(snapshotBase),
       action: "DISEMBARK",
     });
 

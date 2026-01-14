@@ -7,6 +7,7 @@ import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
 import { getRouteById, listRoutes, updateRoute } from "../models/route.js";
 import { getVehicleById, listVehicles } from "../models/vehicle.js";
+import { listEmbarkHistory, addEmbarkEntries } from "../models/itinerary-embark.js";
 import {
   listItineraries,
   getItineraryById,
@@ -39,6 +40,7 @@ import {
 import { resolveVehicleDeviceUid } from "../services/xdm/resolve-vehicle-device-uid.js";
 import { fetchDeviceGeozoneGroupIds } from "../services/xdm/device-geozone-group-service.js";
 import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupScopeKey } from "../services/xdm/xdm-geozone-group-roles.js";
+import { buildItinerarySnapshot } from "../services/xdm/itinerary-snapshot.js";
 
 const router = express.Router();
 
@@ -81,6 +83,90 @@ function resolveStatusLabel(status) {
   if (["FAILED", "TIMEOUT"].includes(normalized)) return "Falhou";
   if (["ERROR", "INVALID", "REJECTED"].includes(normalized)) return "Erro";
   return "Pendente";
+}
+
+function resolveExpectedGroupIds(deployment) {
+  if (!deployment) return null;
+  if ((deployment.action || "EMBARK") === "DISEMBARK") {
+    return { itinerary: null, targets: null, entry: null };
+  }
+  if (deployment.xdmGeozoneGroupIds) return deployment.xdmGeozoneGroupIds;
+  if (deployment.xdmGeozoneGroupId) {
+    return { itinerary: deployment.xdmGeozoneGroupId };
+  }
+  return null;
+}
+
+function matchesGroupIds(expected, current) {
+  if (!expected) return false;
+  const expectedKeys = GEOZONE_GROUP_ROLE_LIST.filter((role) => expected[role.key] != null);
+  if (!expectedKeys.length) {
+    return !current?.itinerary && !current?.targets && !current?.entry;
+  }
+  return expectedKeys.every((role) => String(expected[role.key]) === String(current?.[role.key] ?? ""));
+}
+
+function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
+  if (xdmError) {
+    return {
+      code: "ERROR",
+      label: "Falha / Erro",
+      configLabel: "Falha / Erro",
+      matchesExpected: false,
+      detail: xdmError,
+    };
+  }
+  const deploymentStatus = String(deployment?.status || "").toUpperCase();
+  const expectedGroupIds = resolveExpectedGroupIds(deployment);
+  const matched = matchesGroupIds(expectedGroupIds, xdmGroupIds);
+  const hasEmbarked = Boolean(xdmGroupIds?.itinerary);
+
+  if (["FAILED", "TIMEOUT", "ERROR", "INVALID", "REJECTED"].includes(deploymentStatus)) {
+    return {
+      code: deploymentStatus || "FAILED",
+      label: "Falha / Erro",
+      configLabel: "Falha / Erro",
+      matchesExpected: matched,
+    };
+  }
+  if (["QUEUED", "SYNCING", "DEPLOYING", "STARTED", "RUNNING"].includes(deploymentStatus)) {
+    return {
+      code: "PENDING",
+      label: matched ? "Recebido / Aplicado" : "Pendente de recebimento",
+      configLabel: matched ? "Recebido / Aplicado" : "Pendente de recebimento",
+      matchesExpected: matched,
+    };
+  }
+  if (deployment && matched) {
+    return {
+      code: "APPLIED",
+      label: "Recebido / Aplicado",
+      configLabel: "Recebido / Aplicado",
+      matchesExpected: true,
+    };
+  }
+  if ((deployment?.action || "EMBARK") === "DISEMBARK" && !hasEmbarked) {
+    return {
+      code: "APPLIED",
+      label: "Recebido / Aplicado",
+      configLabel: "Recebido / Aplicado",
+      matchesExpected: true,
+    };
+  }
+  if (hasEmbarked) {
+    return {
+      code: "EMBARKED",
+      label: "Embarcado (confirmado no XDM)",
+      configLabel: deployment ? "Pendente de recebimento" : null,
+      matchesExpected: matched,
+    };
+  }
+  return {
+    code: "EMPTY",
+    label: "Sem embarque",
+    configLabel: deployment ? "Pendente de recebimento" : null,
+    matchesExpected: matched,
+  };
 }
 
 function resolveActionLabel(action) {
@@ -127,6 +213,22 @@ function resolveHistoryMessage(entry) {
     return `Itinerário ${itineraryName} excluído.`;
   }
   return `Ação "${actionLabel}" registrada para o itinerário ${itineraryName}.`;
+}
+
+function normalizeHistoryEntry(entry) {
+  const statusCode = entry.statusCode || entry.status || "SYNCING";
+  const statusLabel = resolveStatusLabel(statusCode);
+  const actionLabel = resolveActionLabel(entry.action);
+  const details = entry.details || entry.result || null;
+  const message = entry.message || resolveHistoryMessage({ ...entry, statusCode, statusLabel });
+  return {
+    ...entry,
+    statusCode,
+    statusLabel,
+    actionLabel,
+    message,
+    details,
+  };
 }
 
 function normalizeDeploymentAction(action) {
@@ -312,6 +414,139 @@ function withSyncStatus(itinerary) {
   };
 }
 
+async function buildVehicleEmbarkDetail({
+  vehicle,
+  deployment,
+  lastEmbark,
+  itinerariesById,
+  geofencesById,
+  routesById,
+  groupLookup,
+  correlationId,
+}) {
+  const deviceUid = resolveVehicleDeviceUid(vehicle);
+  let xdmGroupIds = null;
+  let xdmError = null;
+  if (deviceUid) {
+    try {
+      xdmGroupIds = await fetchDeviceGeozoneGroupIds({ deviceUid, correlationId });
+    } catch (error) {
+      xdmError = error?.message || "Falha ao consultar XDM";
+    }
+  }
+
+  const itineraryMapping = xdmGroupIds?.itinerary ? groupLookup.get(String(xdmGroupIds.itinerary)) : null;
+  const targetsMapping = xdmGroupIds?.targets ? groupLookup.get(String(xdmGroupIds.targets)) : null;
+  const entryMapping = xdmGroupIds?.entry ? groupLookup.get(String(xdmGroupIds.entry)) : null;
+  const itinerary = itineraryMapping ? itinerariesById.get(String(itineraryMapping.itineraryId)) || null : null;
+  const snapshotItinerary = deployment?.snapshot?.itinerary || null;
+  const resolvedItinerary = itinerary || snapshotItinerary || null;
+  const xdmStatus = resolveXdmStatus({ deployment, xdmGroupIds, xdmError });
+  const snapshotItems = deployment?.snapshot?.items || null;
+
+  const items = snapshotItems?.length
+    ? snapshotItems.map((item) => ({
+        ...item,
+        lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+        statusLabel: xdmStatus.label,
+      }))
+    : resolvedItinerary
+      ? (resolvedItinerary.items || []).map((item) => {
+          const type = item?.type || "";
+          const id = item?.id ? String(item.id) : null;
+          const geofence = type === "geofence" || type === "target" ? geofencesById.get(id) || null : null;
+          const route = type === "route" ? routesById.get(id) || null : null;
+          const isTarget = Boolean(geofence?.isTarget) || type === "target";
+          const typeLabel =
+            type === "route"
+              ? "Rota"
+              : isTarget
+                ? "Alvo"
+                : geofence?.config === "exit"
+                  ? "Saída"
+                  : geofence?.config === "entry"
+                    ? "Entrada"
+                    : "Itinerário";
+          const circlePoints =
+            geofence?.type === "circle"
+              ? buildCirclePoints({
+                  center: [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]],
+                  radiusMeters: geofence.radius,
+                })
+              : [];
+          const points =
+            type === "route"
+              ? route?.points || []
+              : geofence?.type === "circle"
+                ? circlePoints
+                : geofence?.points || [];
+          const previewSvg = buildPreviewSvg(points, {
+            stroke: geofence?.color || "#38bdf8",
+            closePath: type !== "route",
+          });
+          return {
+            id,
+            type,
+            name: geofence?.name || route?.name || "Item",
+            typeLabel,
+            sizeBytes: resolveItemSizeBytes(geofence || route),
+            previewSvg,
+            geometry: {
+              points,
+              center:
+                geofence?.type === "circle"
+                  ? [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]]
+                  : null,
+              radiusMeters: geofence?.type === "circle" ? geofence?.radius || null : null,
+              color: geofence?.color || "#38bdf8",
+              isRoute: type === "route",
+            },
+            lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+            statusLabel: xdmStatus.label,
+          };
+        })
+      : [];
+
+  return {
+    vehicleId: String(vehicle.id),
+    vehicleName: vehicle.name || null,
+    plate: vehicle.plate || null,
+    brand: vehicle.brand || null,
+    model: vehicle.model || null,
+    itineraryId: itinerary?.id || snapshotItinerary?.id || null,
+    itineraryName: itinerary?.name || snapshotItinerary?.name || null,
+    itineraryDescription: itinerary?.description || snapshotItinerary?.description || null,
+    xdmDeviceUid: deviceUid || null,
+    xdmGroups: {
+      itinerary: {
+        id: xdmGroupIds?.itinerary || null,
+        itineraryId: itineraryMapping?.itineraryId || null,
+        itineraryName: itinerary?.name || null,
+      },
+      targets: {
+        id: xdmGroupIds?.targets || null,
+        itineraryId: targetsMapping?.itineraryId || null,
+      },
+      entry: {
+        id: xdmGroupIds?.entry || null,
+        itineraryId: entryMapping?.itineraryId || null,
+      },
+    },
+    xdmError,
+    xdmStatus: xdmStatus.code,
+    xdmStatusLabel: xdmStatus.label,
+    configStatusLabel: xdmStatus.configLabel,
+    statusCode: deployment?.status || null,
+    statusLabel: xdmStatus.label,
+    status: xdmStatus.label,
+    lastActionLabel: deployment ? resolveActionLabel(deployment.action) : "—",
+    lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
+    lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+    items,
+    lastSnapshot: deployment?.snapshot || null,
+  };
+}
+
 router.get("/itineraries", async (req, res, next) => {
   try {
     const targetClientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
@@ -451,6 +686,25 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
       ? `itinerary=${synced.groupHashes.itinerary || ""}|targets=${synced.groupHashes.targets || ""}|entry=${synced.groupHashes.entry || ""}`
       : synced.groupHash || null;
 
+    let updateSnapshot = null;
+    try {
+      const [geofences, routes] = await Promise.all([
+        listGeofences({ clientId: updated.clientId }),
+        listRoutes({ clientId: updated.clientId }),
+      ]);
+      const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+      const routesById = new Map(routes.map((route) => [String(route.id), route]));
+      updateSnapshot = buildItinerarySnapshot({
+        itinerary: synced.itinerary,
+        geofencesById,
+        routesById,
+        action: "UPDATE",
+        requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
+      });
+    } catch (error) {
+      console.warn("[itineraries] Falha ao gerar snapshot para atualização", error?.message || error);
+    }
+
     latestByVehicle.forEach((deployment) => {
       if (deployment.status !== "DEPLOYED") return;
       const vehicle = vehicles.get(String(deployment.vehicleId));
@@ -467,6 +721,7 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
         xdmGeozoneGroupIds: synced.groupIds,
         groupHash: groupHashSummary,
         groupHashes: synced.groupHashes || null,
+        snapshot: updateSnapshot ? JSON.parse(JSON.stringify(updateSnapshot)) : null,
       });
     });
 
@@ -483,6 +738,26 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       throw createError(404, "Itinerário não encontrado");
     }
     ensureSameClient(req.user, existing.clientId);
+    const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
+    const sentAt = new Date().toISOString();
+    let deleteSnapshot = null;
+    try {
+      const [geofences, routes] = await Promise.all([
+        listGeofences({ clientId: existing.clientId }),
+        listRoutes({ clientId: existing.clientId }),
+      ]);
+      const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+      const routesById = new Map(routes.map((route) => [String(route.id), route]));
+      deleteSnapshot = buildItinerarySnapshot({
+        itinerary: existing,
+        geofencesById,
+        routesById,
+        action: "DELETE",
+        requestedByName: userLabel,
+      });
+    } catch (error) {
+      console.warn("[itineraries] Falha ao gerar snapshot para exclusão", error?.message || error);
+    }
     const latestDeployments = listLatestDeploymentsByItinerary({
       clientId: existing.clientId,
       itineraryId: existing.id,
@@ -545,7 +820,44 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
       }),
     );
 
-    await deleteItinerary(req.params.id);
+    try {
+      await deleteItinerary(req.params.id);
+      addEmbarkEntries([
+        {
+          clientId: existing.clientId,
+          itineraryId: existing.id,
+          itineraryName: existing.name || null,
+          sentAt,
+          receivedAt: new Date().toISOString(),
+          sentBy: req.user?.id || null,
+          sentByName: userLabel,
+          status: "DEPLOYED",
+          action: "DELETE",
+          message: `Itinerário '${existing.name || "itinerário"}' excluído por ${userLabel}.`,
+          details: null,
+          snapshot: deleteSnapshot,
+        },
+      ]);
+    } catch (error) {
+      addEmbarkEntries([
+        {
+          clientId: existing.clientId,
+          itineraryId: existing.id,
+          itineraryName: existing.name || null,
+          sentAt,
+          receivedAt: new Date().toISOString(),
+          sentBy: req.user?.id || null,
+          sentByName: userLabel,
+          status: error?.status ? "ERROR" : "FAILED",
+          action: "DELETE",
+          message: `Falha ao excluir itinerário '${existing.name || "itinerário"}' por ${userLabel}.`,
+          details: error?.message || "Falha ao excluir",
+          snapshot: deleteSnapshot ? { ...deleteSnapshot, error: error?.message || "Falha ao excluir" } : null,
+        },
+      ]);
+      throw error;
+    }
+
     if (xdmWarning) {
       return res.status(200).json({ ok: true, xdm: xdmWarning });
     }
@@ -604,21 +916,16 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
       return acc;
     }, new Map());
 
-    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
-      .map((entry) => {
-        const statusCode = entry.statusCode || entry.status || "SYNCING";
-        const statusLabel = resolveStatusLabel(statusCode);
-        const actionLabel = resolveActionLabel(entry.action);
-        const details = entry.details || entry.result || null;
-        return {
-          ...entry,
-          statusCode,
-          statusLabel,
-          actionLabel,
-          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
-          details,
-        };
-      });
+    const deploymentsHistory = toHistoryEntries({
+      deploymentsList: deployments,
+      vehiclesById: vehicles,
+      itinerariesById: itineraries,
+    }).map(normalizeHistoryEntry);
+    const extraHistory = listEmbarkHistory(clientId ? { clientId } : {}).map(normalizeHistoryEntry);
+
+    const history = [...deploymentsHistory, ...extraHistory].sort(
+      (a, b) => new Date(b.sentAt || b.at || 0).getTime() - new Date(a.sentAt || a.at || 0).getTime(),
+    );
 
     return res.json({ data: history, error: null });
   } catch (error) {
@@ -629,6 +936,7 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
 router.get("/itineraries/embark/vehicles", async (req, res, next) => {
   try {
     const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const correlationId = req.headers["x-correlation-id"] || null;
     const vehicles = listVehicles(clientId ? { clientId } : {});
     const deployments = listDeployments(clientId ? { clientId } : {});
     const itineraries = listItineraries(clientId ? { clientId } : {});
@@ -677,120 +985,81 @@ router.get("/itineraries/embark/vehicles", async (req, res, next) => {
       vehicles.map(async (vehicle) => {
         const deployment = latestByVehicle.get(String(vehicle.id)) || null;
         const lastEmbark = lastEmbarkByVehicle.get(String(vehicle.id)) || null;
-        const deviceUid = resolveVehicleDeviceUid(vehicle);
-        let xdmGroupIds = null;
-        let xdmError = null;
-        if (deviceUid) {
-          try {
-            xdmGroupIds = await fetchDeviceGeozoneGroupIds({ deviceUid });
-          } catch (error) {
-            xdmError = error?.message || "Falha ao consultar XDM";
-          }
-        }
-
-        const itineraryMapping = xdmGroupIds?.itinerary
-          ? groupLookup.get(String(xdmGroupIds.itinerary))
-          : null;
-        const targetsMapping = xdmGroupIds?.targets ? groupLookup.get(String(xdmGroupIds.targets)) : null;
-        const entryMapping = xdmGroupIds?.entry ? groupLookup.get(String(xdmGroupIds.entry)) : null;
-        const itinerary = itineraryMapping ? itinerariesById.get(String(itineraryMapping.itineraryId)) || null : null;
-        const statusLabel = xdmError ? "Erro" : xdmGroupIds?.itinerary ? "Concluído" : "Sem embarque";
-
-        const items = itinerary
-          ? (itinerary.items || []).map((item) => {
-              const type = item?.type || "";
-              const id = item?.id ? String(item.id) : null;
-              const geofence = type === "geofence" || type === "target" ? geofencesById.get(id) || null : null;
-              const route = type === "route" ? routesById.get(id) || null : null;
-              const isTarget = Boolean(geofence?.isTarget) || type === "target";
-              const typeLabel =
-                type === "route"
-                  ? "Rota"
-                  : isTarget
-                    ? "Alvo"
-                    : geofence?.config === "exit"
-                      ? "Saída"
-                      : geofence?.config === "entry"
-                        ? "Entrada"
-                        : "Itinerário";
-              const circlePoints =
-                geofence?.type === "circle"
-                  ? buildCirclePoints({
-                      center: [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]],
-                      radiusMeters: geofence.radius,
-                    })
-                  : [];
-              const points =
-                type === "route"
-                  ? route?.points || []
-                  : geofence?.type === "circle"
-                    ? circlePoints
-                    : geofence?.points || [];
-              const previewSvg = buildPreviewSvg(points, {
-                stroke: geofence?.color || "#38bdf8",
-                closePath: type !== "route",
-              });
-              return {
-                id,
-                type,
-                name: geofence?.name || route?.name || "Item",
-                typeLabel,
-                sizeBytes: resolveItemSizeBytes(geofence || route),
-                previewSvg,
-                geometry: {
-                  points,
-                  center:
-                    geofence?.type === "circle"
-                      ? [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]]
-                      : null,
-                  radiusMeters: geofence?.type === "circle" ? geofence?.radius || null : null,
-                  color: geofence?.color || "#38bdf8",
-                  isRoute: type === "route",
-                },
-                lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
-                statusLabel,
-              };
-            })
-          : [];
-
-        return {
-          vehicleId: String(vehicle.id),
-          vehicleName: vehicle.name || null,
-          plate: vehicle.plate || null,
-          brand: vehicle.brand || null,
-          model: vehicle.model || null,
-          itineraryId: itinerary?.id || null,
-          itineraryName: itinerary?.name || null,
-          itineraryDescription: itinerary?.description || null,
-          xdmDeviceUid: deviceUid || null,
-          xdmGroups: {
-            itinerary: {
-              id: xdmGroupIds?.itinerary || null,
-              itineraryId: itineraryMapping?.itineraryId || null,
-              itineraryName: itinerary?.name || null,
-            },
-            targets: {
-              id: xdmGroupIds?.targets || null,
-              itineraryId: targetsMapping?.itineraryId || null,
-            },
-            entry: {
-              id: xdmGroupIds?.entry || null,
-              itineraryId: entryMapping?.itineraryId || null,
-            },
-          },
-          xdmError,
-          statusCode: deployment?.status || null,
-          statusLabel,
-          status: statusLabel,
-          lastActionLabel: deployment ? resolveActionLabel(deployment.action) : "—",
-          lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
-          lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
-          items,
-        };
+        return buildVehicleEmbarkDetail({
+          vehicle,
+          deployment,
+          lastEmbark,
+          itinerariesById,
+          geofencesById,
+          routesById,
+          groupLookup,
+          correlationId,
+        });
       }),
     );
 
     return res.json({ data: vehiclesDetail, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/itineraries/embark/vehicles/:vehicleId/status", async (req, res, next) => {
+  try {
+    const vehicleId = req.params.vehicleId;
+    const vehicle = getVehicleById(vehicleId);
+    if (!vehicle) {
+      throw createError(404, "Veículo não encontrado");
+    }
+    ensureSameClient(req.user, vehicle.clientId);
+    const correlationId = req.headers["x-correlation-id"] || null;
+
+    const deployments = listDeployments({ clientId: vehicle.clientId }).filter(
+      (deployment) => String(deployment.vehicleId) === String(vehicleId),
+    );
+    const sortedDeployments = [...deployments].sort(
+      (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime(),
+    );
+    const latest = sortedDeployments[0] || null;
+    const lastEmbark = sortedDeployments.find(
+      (deployment) => normalizeDeploymentAction(deployment.action) === "EMBARK" && deployment.status === "DEPLOYED",
+    );
+
+    const itineraries = listItineraries({ clientId: vehicle.clientId });
+    const geofences = await listGeofences({ clientId: vehicle.clientId });
+    const routes = listRoutes({ clientId: vehicle.clientId });
+    const groupMappings = listGeozoneGroupMappings({ clientId: vehicle.clientId });
+
+    const itinerariesById = new Map(itineraries.map((itinerary) => [String(itinerary.id), itinerary]));
+    const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+    const routesById = new Map(routes.map((route) => [String(route.id), route]));
+    const groupLookup = new Map();
+    groupMappings.forEach((mapping) => {
+      if (!mapping?.xdmGeozoneGroupId) return;
+      let itineraryId = mapping.itineraryId || mapping.id || null;
+      let roleKey = ITINERARY_GEOZONE_GROUPS.itinerary.key;
+      if (mapping.scopeKey) {
+        const [scopePrefix, scopeItineraryId, scopeRole] = String(mapping.scopeKey).split(":");
+        if (scopePrefix === "itinerary") {
+          itineraryId = scopeItineraryId;
+          roleKey = scopeRole || roleKey;
+        }
+      }
+      groupLookup.set(String(mapping.xdmGeozoneGroupId), { itineraryId, roleKey });
+    });
+
+    const detail = await buildVehicleEmbarkDetail({
+      vehicle,
+      deployment: latest,
+      lastEmbark,
+      itinerariesById,
+      geofencesById,
+      routesById,
+      groupLookup,
+      correlationId,
+    });
+
+    return res.json({ data: detail, error: null });
   } catch (error) {
     return next(error);
   }
@@ -815,20 +1084,7 @@ router.get("/itineraries/embark/vehicles/:vehicleId/history", async (req, res, n
     }, new Map());
 
     const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
-      .map((entry) => {
-        const statusCode = entry.statusCode || entry.status || "SYNCING";
-        const statusLabel = resolveStatusLabel(statusCode);
-        const actionLabel = resolveActionLabel(entry.action);
-        const details = entry.details || entry.result || null;
-        return {
-          ...entry,
-          statusCode,
-          statusLabel,
-          actionLabel,
-          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
-          details,
-        };
-      });
+      .map(normalizeHistoryEntry);
 
     return res.json({ data: history, error: null });
   } catch (error) {
@@ -853,21 +1109,17 @@ router.get("/itineraries/:id/embark/history", async (req, res, next) => {
     }, new Map());
     const itineraries = new Map([[String(itinerary.id), itinerary]]);
 
-    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
-      .map((entry) => {
-        const statusCode = entry.statusCode || entry.status || "SYNCING";
-        const statusLabel = resolveStatusLabel(statusCode);
-        const actionLabel = resolveActionLabel(entry.action);
-        const details = entry.details || entry.result || null;
-        return {
-          ...entry,
-          statusCode,
-          statusLabel,
-          actionLabel,
-          message: resolveHistoryMessage({ ...entry, statusCode, statusLabel }),
-          details,
-        };
-      });
+    const deploymentsHistory = toHistoryEntries({
+      deploymentsList: deployments,
+      vehiclesById: vehicles,
+      itinerariesById: itineraries,
+    }).map(normalizeHistoryEntry);
+    const extraHistory = listEmbarkHistory({ clientId: itinerary.clientId })
+      .filter((entry) => String(entry.itineraryId) === String(itinerary.id))
+      .map(normalizeHistoryEntry);
+    const history = [...deploymentsHistory, ...extraHistory].sort(
+      (a, b) => new Date(b.sentAt || b.at || 0).getTime() - new Date(a.sentAt || a.at || 0).getTime(),
+    );
     return res.json({ data: history, error: null });
   } catch (error) {
     return next(error);
@@ -1173,11 +1425,29 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
     const entries = [];
     let success = 0;
     let failed = 0;
+    const [geofences, routes] = await Promise.all([
+      listGeofences({ clientId }),
+      listRoutes({ clientId }),
+    ]);
+    const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+    const routesById = new Map(routes.map((route) => [String(route.id), route]));
+    const snapshotByItinerary = new Map();
 
     for (const vehicleId of vehicleIds) {
       const vehicle = vehicles.get(String(vehicleId)) || getVehicleById(vehicleId);
       for (const itineraryId of itineraryIds) {
         const itinerary = itinerariesById.get(String(itineraryId)) || getItineraryById(itineraryId);
+        let snapshot = snapshotByItinerary.get(String(itineraryId)) || null;
+        if (!snapshot && itinerary) {
+          snapshot = buildItinerarySnapshot({
+            itinerary,
+            geofencesById,
+            routesById,
+            action: "EMBARK",
+            requestedByName: userLabel,
+          });
+          snapshotByItinerary.set(String(itineraryId), snapshot);
+        }
         const entryBase = {
           clientId: String(clientId),
           itineraryId: String(itineraryId),
@@ -1218,6 +1488,7 @@ router.post("/itineraries/embark", requireRole("manager", "admin"), async (req, 
           requestedByUserId: req.user?.id || null,
           requestedByName: userLabel,
           ipAddress,
+          snapshot: snapshot ? JSON.parse(JSON.stringify(snapshot)) : null,
         });
 
         success += 1;

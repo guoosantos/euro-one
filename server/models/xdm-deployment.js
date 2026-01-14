@@ -29,6 +29,11 @@ export function createDeployment({
   groupHash = null,
   groupHashes = null,
   configId = null,
+  status = "SYNCING",
+  finishedAt = null,
+  errorMessage = null,
+  errorDetails = null,
+  snapshot = null,
   action = "EMBARK",
 }) {
   const now = new Date().toISOString();
@@ -44,17 +49,18 @@ export function createDeployment({
     groupHashes: groupHashes || null,
     configId: Number.isFinite(Number(configId)) ? Number(configId) : null,
     action: action || "EMBARK",
-    status: "SYNCING",
+    status: status || "SYNCING",
     xdmDeploymentId: null,
     requestHash: null,
     startedAt: now,
-    finishedAt: null,
-    errorMessage: null,
-    errorDetails: null,
+    finishedAt: finishedAt || null,
+    errorMessage: errorMessage || null,
+    errorDetails: errorDetails || null,
     correlationId: null,
     requestedByUserId: requestedByUserId || null,
     requestedByName: requestedByName || null,
     ipAddress: ipAddress || null,
+    snapshot: snapshot || null,
     logs: [],
   };
   deployments.push(record);
@@ -152,11 +158,12 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
     .map((deployment) => {
       const vehicle = vehiclesById.get(String(deployment.vehicleId));
       const itinerary = itinerariesById.get(String(deployment.itineraryId));
+      const snapshotItinerary = deployment.snapshot?.itinerary || null;
       return {
         id: deployment.id,
         clientId: deployment.clientId,
         itineraryId: deployment.itineraryId,
-        itineraryName: itinerary?.name || null,
+        itineraryName: itinerary?.name || snapshotItinerary?.name || deployment.itineraryName || null,
         vehicleId: deployment.vehicleId,
         vehicleName: vehicle?.name || null,
         plate: vehicle?.plate || null,
@@ -172,6 +179,7 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
         action: deployment.action || "EMBARK",
         result: deployment.errorMessage || null,
         details: deployment.errorDetails || null,
+        snapshot: deployment.snapshot || null,
       };
     })
     .sort((a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime());

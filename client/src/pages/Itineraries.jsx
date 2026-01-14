@@ -74,7 +74,7 @@ function resolveStatusBadgeClass(label) {
   if (normalized.includes("pendente") || normalized.includes("enviado")) {
     return "border-amber-500/40 bg-amber-500/15 text-amber-100";
   }
-  if (normalized.includes("conclu")) {
+  if (normalized.includes("conclu") || normalized.includes("embarcad") || normalized.includes("aplicad")) {
     return "border-emerald-500/40 bg-emerald-500/15 text-emerald-100";
   }
   return "border-white/10 bg-white/5 text-white/70";
@@ -362,9 +362,11 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
             <p className="text-sm text-white/60">{itinerary.description || "Sem descrição"}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="secondary" onClick={() => onExportKml?.(itinerary.id)} icon={Download}>
-              Exportar KML
-            </Button>
+            {onExportKml && itinerary?.id && (
+              <Button size="sm" variant="secondary" onClick={() => onExportKml?.(itinerary.id)} icon={Download}>
+                Exportar KML
+              </Button>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -418,7 +420,9 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
           <div className="space-y-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
               <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status XDM</p>
-              <p className="text-base font-semibold text-white">{itinerary.xdmSyncStatus || "Sem status"}</p>
+              <p className="text-base font-semibold text-white">
+                {itinerary.xdmSyncStatus || itinerary.statusLabel || "Sem status"}
+              </p>
               {itinerary.xdmLastSyncError && (
                 <p className="mt-2 text-xs text-red-200">{itinerary.xdmLastSyncError}</p>
               )}
@@ -1707,9 +1711,10 @@ export default function Itineraries() {
   const [selectedEmbarkDetailVehicleId, setSelectedEmbarkDetailVehicleId] = useState(null);
   const [vehicleHistory, setVehicleHistory] = useState([]);
   const [vehicleHistoryLoading, setVehicleHistoryLoading] = useState(false);
-  const [vehicleDetailTab, setVehicleDetailTab] = useState("detalhes");
+  const [vehicleDetailTab, setVehicleDetailTab] = useState("ultimo");
   const [mapPreview, setMapPreview] = useState(null);
-  const [detailItinerary, setDetailItinerary] = useState(null);
+  const [detailModalData, setDetailModalData] = useState(null);
+  const [selectedVehicleHistoryId, setSelectedVehicleHistoryId] = useState(null);
 
   const clientNameById = useMemo(
     () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
@@ -1788,6 +1793,26 @@ export default function Itineraries() {
     }
   }, [showToast, tenantId]);
 
+  const refreshVehicleStatus = useCallback(
+    async (vehicleId) => {
+      if (!vehicleId) return;
+      try {
+        const response = await api.get(API_ROUTES.itineraryEmbarkVehicleStatus(vehicleId), {
+          params: tenantId ? { clientId: tenantId } : undefined,
+        });
+        const detail = response?.data?.data || null;
+        if (!detail) return;
+        setEmbarkDetails((current) =>
+          current.map((item) => (String(item.vehicleId) === String(detail.vehicleId) ? detail : item)),
+        );
+      } catch (error) {
+        console.error("[itineraries] Falha ao atualizar status do veículo", error);
+        showToast(resolveApiError(error, "Não foi possível atualizar o status do veículo."), "warning");
+      }
+    },
+    [showToast, tenantId],
+  );
+
   const loadVehicleHistory = useCallback(
     async (vehicleId) => {
       if (!vehicleId) {
@@ -1830,6 +1855,11 @@ export default function Itineraries() {
     if (activeTab !== "veiculos") return;
     void loadVehicleHistory(selectedEmbarkDetailVehicleId);
   }, [activeTab, loadVehicleHistory, selectedEmbarkDetailVehicleId]);
+
+  useEffect(() => {
+    if (activeTab !== "veiculos") return;
+    void refreshVehicleStatus(selectedEmbarkDetailVehicleId);
+  }, [activeTab, refreshVehicleStatus, selectedEmbarkDetailVehicleId]);
 
   useEffect(() => {
     if (activeTab !== "historico") return;
@@ -2088,10 +2118,14 @@ export default function Itineraries() {
     () => filteredEmbarkDetails.find((item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId)) || null,
     [filteredEmbarkDetails, selectedEmbarkDetailVehicleId],
   );
-  const detailItems = useMemo(
-    () => buildItineraryItemDetails(detailItinerary, geofences, routes),
-    [detailItinerary, geofences, routes],
+  const selectedVehicleHistoryEntry = useMemo(
+    () => vehicleHistory.find((entry) => entry.id === selectedVehicleHistoryId) || null,
+    [vehicleHistory, selectedVehicleHistoryId],
   );
+  const detailItems = useMemo(() => {
+    if (detailModalData?.items?.length) return detailModalData.items;
+    return buildItineraryItemDetails(detailModalData?.itinerary, geofences, routes);
+  }, [detailModalData, geofences, routes]);
 
   useEffect(() => {
     if (activeTab !== "veiculos") return;
@@ -2109,8 +2143,22 @@ export default function Itineraries() {
 
   useEffect(() => {
     if (activeTab !== "veiculos") return;
-    setVehicleDetailTab("detalhes");
+    setVehicleDetailTab("ultimo");
   }, [activeTab, selectedEmbarkDetailVehicleId]);
+
+  useEffect(() => {
+    setSelectedVehicleHistoryId(null);
+  }, [selectedEmbarkDetailVehicleId]);
+
+  useEffect(() => {
+    if (!vehicleHistory.length) {
+      setSelectedVehicleHistoryId(null);
+      return;
+    }
+    if (!selectedVehicleHistoryId || !vehicleHistory.some((entry) => entry.id === selectedVehicleHistoryId)) {
+      setSelectedVehicleHistoryId(vehicleHistory[0].id);
+    }
+  }, [vehicleHistory, selectedVehicleHistoryId]);
 
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, historyTotalPages);
@@ -2133,6 +2181,30 @@ export default function Itineraries() {
     if (!item) return;
     setMapPreview({ title: item.name || "Mapa", items: [item] });
   }, []);
+
+  const openDetailModal = useCallback((itinerary, items = null) => {
+    if (!itinerary) return;
+    setDetailModalData({ itinerary, items });
+  }, []);
+
+  const openHistorySnapshot = useCallback(
+    (entry) => {
+      if (!entry) return;
+      const snapshot = entry.snapshot || {};
+      const itinerarySnapshot = snapshot.itinerary || {};
+      const isDeleteAction = String(entry.action || "").toUpperCase() === "DELETE";
+      const itinerary = {
+        id: isDeleteAction ? null : itinerarySnapshot.id || entry.itineraryId || null,
+        name: itinerarySnapshot.name || entry.itineraryName || "Itinerário",
+        description: itinerarySnapshot.description || null,
+        xdmSyncStatus: entry.statusLabel || null,
+        xdmLastSyncError: entry.details || null,
+        statusLabel: entry.statusLabel || null,
+      };
+      openDetailModal(itinerary, snapshot.items || []);
+    },
+    [openDetailModal],
+  );
 
   const handleToggleVehicle = (vehicleId) => {
     setSelectedEmbarkVehicleIds((current) =>
@@ -2687,7 +2759,7 @@ export default function Itineraries() {
                         <td className="px-4 py-3">{lastEmbarkLabel}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex flex-wrap justify-end gap-2">
-                            <Button size="xs" variant="secondary" onClick={() => setDetailItinerary(item)} icon={MapIcon}>
+                            <Button size="xs" variant="secondary" onClick={() => openDetailModal(item)} icon={MapIcon}>
                               Ver detalhes
                             </Button>
                             <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
@@ -2762,7 +2834,11 @@ export default function Itineraries() {
                       </td>
                       <td className="px-4 py-3">{entry.message || entry.result || "—"}</td>
                       <td className="px-4 py-3">
-                        {entry.details ? (
+                        {entry.snapshot?.items?.length || entry.snapshot?.itinerary ? (
+                          <Button size="xs" variant="ghost" onClick={() => openHistorySnapshot(entry)} icon={MapIcon}>
+                            Ver snapshot
+                          </Button>
+                        ) : entry.details ? (
                           <details className="text-xs text-white/70">
                             <summary className="cursor-pointer text-white/80">Ver detalhes</summary>
                             <div className="mt-2 whitespace-pre-wrap text-white/60">{entry.details}</div>
@@ -2815,7 +2891,7 @@ export default function Itineraries() {
       )}
 
       {activeTab === "veiculos" && (
-        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+        <div className={`grid gap-4 ${selectedEmbarkDetail ? "lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : ""}`}>
           <div className="border border-white/10 bg-transparent p-4">
             <div className="mb-3 flex items-center justify-between">
               <p className="text-sm font-semibold text-white">Veículos monitorados</p>
@@ -2840,8 +2916,8 @@ export default function Itineraries() {
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-sm font-semibold">{detail.vehicleName || "Veículo"}</p>
-                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.statusLabel || detail.status)}`}>
-                          {detail.statusLabel || detail.status || "Sem status"}
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.xdmStatusLabel || detail.statusLabel || detail.status)}`}>
+                          {detail.xdmStatusLabel || detail.statusLabel || detail.status || "Sem status"}
                         </span>
                       </div>
                       <p className="text-xs text-white/60">{detail.plate || "Placa não informada"}</p>
@@ -2854,16 +2930,14 @@ export default function Itineraries() {
             </div>
           </div>
 
-          <div className="border border-white/10 bg-transparent p-5">
-            {embarkDetailsLoading && <p className="text-sm text-white/60">Carregando detalhes…</p>}
-            {!embarkDetailsLoading && !selectedEmbarkDetail && (
-              <p className="text-sm text-white/60">Selecione um veículo para visualizar os detalhes do embarque.</p>
-            )}
-            {!embarkDetailsLoading && selectedEmbarkDetail && (
-              <div className="space-y-6">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do embarque</p>
+          {selectedEmbarkDetail && (
+            <div className="border border-white/10 bg-transparent p-5">
+              {embarkDetailsLoading && <p className="text-sm text-white/60">Carregando detalhes…</p>}
+              {!embarkDetailsLoading && (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do embarque</p>
                     <h3 className="text-xl font-semibold text-white">
                       {selectedEmbarkDetail.vehicleName || "Veículo"}
                     </h3>
@@ -2871,8 +2945,8 @@ export default function Itineraries() {
                   </div>
                   <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                     <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
-                        {selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
+                        {selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
                       </span>
                       <span>
                         Última atualização: {formatDateTime(selectedEmbarkDetail.lastActionAt || selectedEmbarkDetail.updatedAt)}
@@ -2883,7 +2957,7 @@ export default function Itineraries() {
 
                 <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
                   {[
-                    { key: "detalhes", label: "Detalhes do embarque" },
+                    { key: "ultimo", label: "Último embarque" },
                     { key: "historico", label: "Histórico do veículo" },
                   ].map((tab) => (
                     <button
@@ -2900,7 +2974,7 @@ export default function Itineraries() {
                   ))}
                 </div>
 
-                {vehicleDetailTab === "detalhes" && (
+                {vehicleDetailTab === "ultimo" && (
                   <>
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
@@ -2911,6 +2985,12 @@ export default function Itineraries() {
                         {selectedEmbarkDetail.itineraryDescription && (
                           <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
                         )}
+                        <div className="mt-3 space-y-1 text-xs text-white/60">
+                          <p>Status no XDM: {selectedEmbarkDetail.xdmStatusLabel || "Sem status"}</p>
+                          {selectedEmbarkDetail.configStatusLabel && (
+                            <p>Configuração: {selectedEmbarkDetail.configStatusLabel}</p>
+                          )}
+                        </div>
                         {selectedEmbarkDetail.xdmError && (
                           <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetail.xdmError}</p>
                         )}
@@ -2983,7 +3063,7 @@ export default function Itineraries() {
                                       </div>
                                       <div>
                                         <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
-                                        <p>{item.statusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
+                                        <p>{item.statusLabel || selectedEmbarkDetail.xdmStatusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
                                       </div>
                                     </div>
                                     <div className="mt-3">
@@ -3005,40 +3085,33 @@ export default function Itineraries() {
                 )}
 
                 {vehicleDetailTab === "historico" && (
-                  <div className="rounded-2xl border border-white/10 bg-black/30">
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full text-xs text-white/70">
-                        <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
-                          <tr>
-                            <th className="px-3 py-2 text-left">Envio</th>
-                            <th className="px-3 py-2 text-left">Recebido</th>
-                            <th className="px-3 py-2 text-left">Ação</th>
-                            <th className="px-3 py-2 text-left">Status</th>
-                            <th className="px-3 py-2 text-left">Detalhes</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                          {vehicleHistoryLoading && (
-                            <tr>
-                              <td colSpan={5} className="px-3 py-4 text-center text-white/60">
-                                Carregando histórico…
-                              </td>
-                            </tr>
-                          )}
-                          {!vehicleHistoryLoading && vehicleHistory.length === 0 && (
-                            <tr>
-                              <td colSpan={5} className="px-3 py-4 text-center text-white/60">
-                                Nenhum histórico disponível.
-                              </td>
-                            </tr>
-                          )}
-                          {!vehicleHistoryLoading &&
-                            vehicleHistory.map((entry) => (
-                              <tr key={entry.id}>
-                                <td className="px-3 py-2">{formatDateTime(entry.sentAt)}</td>
-                                <td className="px-3 py-2">{formatDateTime(entry.receivedAt)}</td>
-                                <td className="px-3 py-2">{entry.actionLabel || "—"}</td>
-                                <td className="px-3 py-2">
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      <div className="mb-3 flex items-center justify-between">
+                        <p className="text-sm font-semibold text-white">Eventos anteriores</p>
+                        <span className="text-[11px] text-white/60">{vehicleHistory.length} registros</span>
+                      </div>
+                      <div className="max-h-[420px] space-y-2 overflow-y-auto">
+                        {vehicleHistoryLoading && <p className="text-xs text-white/60">Carregando histórico…</p>}
+                        {!vehicleHistoryLoading && vehicleHistory.length === 0 && (
+                          <p className="text-xs text-white/60">Nenhum histórico disponível.</p>
+                        )}
+                        {!vehicleHistoryLoading &&
+                          vehicleHistory.map((entry) => {
+                            const isSelected = entry.id === selectedVehicleHistoryId;
+                            return (
+                              <button
+                                key={entry.id}
+                                type="button"
+                                onClick={() => setSelectedVehicleHistoryId(entry.id)}
+                                className={`flex w-full flex-col gap-1 rounded-xl border px-3 py-2 text-left transition ${
+                                  isSelected
+                                    ? "border-primary/40 bg-primary/10 text-white"
+                                    : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-sm font-semibold">{entry.actionLabel || "Evento"}</p>
                                   <span
                                     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(
                                       entry.statusLabel || entry.status,
@@ -3046,35 +3119,117 @@ export default function Itineraries() {
                                   >
                                     {entry.statusLabel || entry.status || "—"}
                                   </span>
-                                </td>
-                                <td className="px-3 py-2">
-                                  {entry.details ? (
-                                    <details className="text-[11px] text-white/70">
-                                      <summary className="cursor-pointer text-white/80">Ver detalhes</summary>
-                                      <div className="mt-2 whitespace-pre-wrap text-white/60">{entry.details}</div>
-                                    </details>
-                                  ) : (
-                                    <span className="text-white/50">—</span>
-                                  )}
-                                </td>
-                              </tr>
-                            ))}
-                        </tbody>
-                      </table>
+                                </div>
+                                <p className="text-xs text-white/60">{formatDateTime(entry.sentAt)}</p>
+                                <p className="text-xs text-white/50">{entry.itineraryName || "Itinerário"}</p>
+                              </button>
+                            );
+                          })}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+                      {vehicleHistoryLoading && <p className="text-xs text-white/60">Carregando detalhes…</p>}
+                      {!vehicleHistoryLoading && !selectedVehicleHistoryEntry && (
+                        <p className="text-xs text-white/60">Selecione um evento para ver os detalhes do embarque.</p>
+                      )}
+                      {!vehicleHistoryLoading && selectedVehicleHistoryEntry && (
+                        <div className="space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Detalhes do evento</p>
+                              <p className="text-base font-semibold text-white">
+                                {selectedVehicleHistoryEntry.itineraryName || "Itinerário"}
+                              </p>
+                              <p className="text-xs text-white/60">
+                                {selectedVehicleHistoryEntry.actionLabel || "—"} ·{" "}
+                                {formatDateTime(selectedVehicleHistoryEntry.sentAt)}
+                              </p>
+                            </div>
+                            <span
+                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${resolveStatusBadgeClass(
+                                selectedVehicleHistoryEntry.statusLabel || selectedVehicleHistoryEntry.status,
+                              )}`}
+                            >
+                              {selectedVehicleHistoryEntry.statusLabel || selectedVehicleHistoryEntry.status || "—"}
+                            </span>
+                          </div>
+
+                          <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-xs text-white/70">
+                            <p>Envio: {formatDateTime(selectedVehicleHistoryEntry.sentAt)}</p>
+                            <p>Recebido: {formatDateTime(selectedVehicleHistoryEntry.receivedAt)}</p>
+                            {selectedVehicleHistoryEntry.message && (
+                              <p className="mt-2 text-white/80">{selectedVehicleHistoryEntry.message}</p>
+                            )}
+                            {selectedVehicleHistoryEntry.details && (
+                              <p className="mt-2 whitespace-pre-wrap text-white/50">
+                                {selectedVehicleHistoryEntry.details}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm font-semibold text-white">Itens do snapshot</p>
+                              <span className="text-xs text-white/60">
+                                {selectedVehicleHistoryEntry.snapshot?.items?.length || 0} itens
+                              </span>
+                            </div>
+                            {selectedVehicleHistoryEntry.snapshot?.items?.length ? (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                {selectedVehicleHistoryEntry.snapshot.items.map((item) => {
+                                  const previewSrc = item.previewUrl
+                                    ? item.previewUrl
+                                    : item.previewSvg
+                                      ? `data:image/svg+xml;utf8,${encodeURIComponent(item.previewSvg)}`
+                                      : null;
+                                  return (
+                                    <div key={`${item.type}-${item.id}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                                      <div className="flex gap-3">
+                                        <div className="h-20 w-28 overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                                          {previewSrc ? (
+                                            <img src={previewSrc} alt={`Preview ${item.name}`} className="h-full w-full object-cover" />
+                                          ) : (
+                                            <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-[0.12em] text-white/40">
+                                              Sem preview
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div className="flex-1">
+                                          <p className="text-sm font-semibold text-white">{item.name || "Item"}</p>
+                                          <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
+                                          <div className="mt-2">
+                                            <Button size="xs" variant="ghost" onClick={() => openItemMapPreview(item)} icon={MapIcon}>
+                                              Ver no mapa (Híbrido)
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <p className="text-xs text-white/60">Nenhum item disponível para este evento.</p>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
-              </div>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
       <ItineraryDetailModal
-        open={Boolean(detailItinerary)}
-        itinerary={detailItinerary}
+        open={Boolean(detailModalData)}
+        itinerary={detailModalData?.itinerary || null}
         items={detailItems}
-        onClose={() => setDetailItinerary(null)}
+        onClose={() => setDetailModalData(null)}
         onExportKml={exportKml}
         onOpenMap={openItemMapPreview}
       />
