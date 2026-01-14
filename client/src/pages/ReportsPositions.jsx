@@ -23,6 +23,7 @@ import {
   resolveReportColumnTooltip,
 } from "../lib/report-column-labels.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
+import PageHeader from "../ui/PageHeader.jsx";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
@@ -726,10 +727,8 @@ export default function ReportsPositions() {
   };
 
   const columnsForSelection = useMemo(
-
     () => availableColumns.map((column) => ({ key: column.key, label: column.label })),
     [availableColumns],
-
   );
   const toastClassName =
     toast?.type === "error"
@@ -737,104 +736,102 @@ export default function ReportsPositions() {
       : "border-emerald-500/30 bg-emerald-500/15 text-emerald-100";
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4">
+    <div className="flex h-full min-h-0 flex-col gap-6">
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
-        <header className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório de posições</p>
-              </div>
-              <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                  <span className="whitespace-nowrap">Itens por página</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-                    className="rounded bg-transparent text-white outline-none"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((option) => (
-                      <option key={option} value={option} className="bg-[#0d1117] text-white">
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="submit"
-                  disabled={loading || geocoding || !selectedVehicleId}
-                  className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+        <PageHeader
+          title="Relatório de posições"
+          description="Escolha o veículo, período e filtros para gerar o relatório."
+          right={(
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
+                <span className="whitespace-nowrap">Itens por página</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => handlePageSizeChange(Number(event.target.value))}
+                  className="rounded bg-transparent text-white outline-none"
                 >
-                  {loading ? "Gerando…" : "Gerar relatório"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("pdf")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingPdf ? "Exportando…" : "Exportar PDF"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("xlsx")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingXlsx ? "Exportando…" : "Exportar Excel"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => openPdfModal("csv")}
-                  disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
-                  className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
-                >
-                  {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePopup("columns")}
-                  className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
-                  title="Selecionar colunas"
-                  aria-label="Selecionar colunas"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <rect x="3" y="4" width="18" height="16" rx="2" />
-                    <line x1="9" y1="4" x2="9" y2="20" />
-                    <line x1="15" y1="4" x2="15" y2="20" />
-                  </svg>
-                </button>
-                <label
-                  className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
-                  title="Ocultar posições sem ignição"
-                >
-                  <input
-                    type="checkbox"
-                    checked={hideUnavailableIgnition}
-                    onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
-                    className="h-4 w-4 accent-primary"
-                  />
-                  <span className="whitespace-nowrap">Disponibilidade</span>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setTopBarVisible((visible) => !visible)}
-                  className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
-                  title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                  aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                >
-                  {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
-                </button>
-              </div>
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option} className="bg-[#0d1117] text-white">
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="submit"
+                disabled={loading || geocoding || !selectedVehicleId}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-60"
+              >
+                {loading ? "Gerando…" : "Gerar relatório"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("pdf")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingPdf ? "Exportando…" : "Exportar PDF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("xlsx")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingXlsx ? "Exportando…" : "Exportar Excel"}
+              </button>
+              <button
+                type="button"
+                onClick={() => openPdfModal("csv")}
+                disabled={loading || exportingPdf || exportingXlsx || exportingCsv || !selectedVehicleId}
+                className="rounded-lg border border-white/10 px-4 py-2 text-sm font-medium text-white/80 hover:border-white/30 disabled:opacity-60"
+              >
+                {exportingCsv ? "Exportando…" : "Exportar CSV (Excel)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActivePopup("columns")}
+                className="flex h-10 w-10 items-center justify-center rounded-md border border-white/15 bg-[#0d1117] text-white/60 transition hover:border-white/30 hover:text-white"
+                title="Selecionar colunas"
+                aria-label="Selecionar colunas"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="2" />
+                  <line x1="9" y1="4" x2="9" y2="20" />
+                  <line x1="15" y1="4" x2="15" y2="20" />
+                </svg>
+              </button>
+              <label
+                className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30"
+                title="Ocultar posições sem ignição"
+              >
+                <input
+                  type="checkbox"
+                  checked={hideUnavailableIgnition}
+                  onChange={(event) => setHideUnavailableIgnition(event.target.checked)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="whitespace-nowrap">Disponibilidade</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => setTopBarVisible((visible) => !visible)}
+                className={`flex h-10 items-center justify-center rounded-md border border-white/15 px-3 text-sm font-medium text-white/70 transition hover:border-white/30 hover:text-white ${topBarVisible ? "bg-white/5" : "bg-[#0d1117]"}`}
+                title={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+                aria-label={topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+              >
+                {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
+              </button>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar o relatório.</p>
-              <div className="flex items-center gap-2 text-xs text-white/70">
-                <span className="whitespace-nowrap">
-                  Página {currentPage} de {totalPages} • {totalItems} itens
-                </span>
-              </div>
-            </div>
-        </header>
+          )}
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+          <div className="flex items-center gap-2 text-xs text-white/70">
+            <span className="whitespace-nowrap">
+              Página {currentPage} de {totalPages} • {totalItems} itens
+            </span>
+          </div>
+        </div>
 
         {topBarVisible ? (
           <div className="space-y-3">

@@ -168,8 +168,10 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
         sentByName: deployment.requestedByName || null,
         ipAddress: deployment.ipAddress || null,
         status: deployment.status,
+        statusCode: deployment.status,
         action: deployment.action || "EMBARK",
         result: deployment.errorMessage || null,
+        details: deployment.errorDetails || null,
       };
     })
     .sort((a, b) => new Date(b.sentAt || 0).getTime() - new Date(a.sentAt || 0).getTime());

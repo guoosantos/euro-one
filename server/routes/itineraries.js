@@ -69,6 +69,37 @@ function resolveRequestIp(req) {
   return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || null;
 }
 
+function resolveStatusLabel(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (["DEPLOYED"].includes(normalized)) return "Concluído";
+  if (["CLEARED"].includes(normalized)) return "Desembarcado";
+  if (["FAILED", "TIMEOUT"].includes(normalized)) return "Falhou";
+  if (["DEPLOYING", "SYNCING", "QUEUED", "STARTED", "RUNNING"].includes(normalized)) return "Em andamento";
+  return "Em andamento";
+}
+
+function resolveEventLabel(action, status) {
+  const normalizedAction = normalizeDeploymentAction(action);
+  const normalizedStatus = String(status || "").toUpperCase();
+  const isFailure = ["FAILED", "TIMEOUT"].includes(normalizedStatus);
+  if (normalizedAction === "DISEMBARK") {
+    return isFailure ? "Falha ao desembarcar" : "Desembarcado";
+  }
+  return isFailure ? "Falha ao embarcar" : "Embarcado";
+}
+
+function resolveHistoryMessage(entry) {
+  const itineraryName = entry.itineraryName || "Sem nome";
+  const vehicleLabel = entry.vehicleName || entry.plate || "Veículo";
+  const userLabel = entry.sentByName || entry.sentBy || "Usuário";
+  const eventLabel = resolveEventLabel(entry.action, entry.statusCode || entry.status);
+  if (eventLabel.startsWith("Falha")) {
+    return `${eventLabel} o itinerário "${itineraryName}" no veículo "${vehicleLabel}" por ${userLabel}.`;
+  }
+  const normalized = eventLabel.toLowerCase();
+  return `Itinerário "${itineraryName}" ${normalized} no veículo "${vehicleLabel}" por ${userLabel}.`;
+}
+
 function normalizeDeploymentAction(action) {
   return action || "EMBARK";
 }
@@ -94,6 +125,73 @@ function buildItineraryItems({ items, routeIds, existingItems = [], hasItems = f
     resolved.push({ ...entry, type, id });
   }
   return resolved;
+}
+
+function normalizePointList(points = []) {
+  return (Array.isArray(points) ? points : [])
+    .map((pair) => {
+      if (!Array.isArray(pair) || pair.length < 2) return null;
+      const lat = Number(pair[0]);
+      const lng = Number(pair[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return [lat, lng];
+    })
+    .filter(Boolean);
+}
+
+function buildCirclePoints({ center, radiusMeters }) {
+  if (!center || !Number.isFinite(radiusMeters) || radiusMeters <= 0) return [];
+  const [lat, lng] = center;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+  const latRadius = radiusMeters / 111320;
+  const lngRadius = radiusMeters / (111320 * Math.cos((lat * Math.PI) / 180));
+  const points = [];
+  for (let angle = 0; angle <= 360; angle += 15) {
+    const rad = (angle * Math.PI) / 180;
+    points.push([lat + latRadius * Math.sin(rad), lng + lngRadius * Math.cos(rad)]);
+  }
+  return points;
+}
+
+function buildPreviewSvg(points = [], { stroke = "#38bdf8", fill = "rgba(56,189,248,0.2)", closePath = false } = {}) {
+  const normalized = normalizePointList(points);
+  if (!normalized.length) return null;
+  const width = 160;
+  const height = 96;
+  const padding = 8;
+  const lats = normalized.map((pair) => pair[0]);
+  const lngs = normalized.map((pair) => pair[1]);
+  const minLat = Math.min(...lats);
+  const maxLat = Math.max(...lats);
+  const minLng = Math.min(...lngs);
+  const maxLng = Math.max(...lngs);
+  const latSpan = maxLat - minLat || 0.0001;
+  const lngSpan = maxLng - minLng || 0.0001;
+  const scaleX = (width - padding * 2) / lngSpan;
+  const scaleY = (height - padding * 2) / latSpan;
+  const path = normalized
+    .map(([lat, lng], index) => {
+      const x = padding + (lng - minLng) * scaleX;
+      const y = height - padding - (lat - minLat) * scaleY;
+      return `${index === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`;
+    })
+    .join(" ");
+  const closed = closePath ? `${path} Z` : path;
+  return `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}">
+      <rect width="100%" height="100%" fill="#0f172a" />
+      <path d="${closed}" fill="${fill}" stroke="${stroke}" stroke-width="2" />
+    </svg>
+  `.trim();
+}
+
+function resolveItemSizeBytes(payload) {
+  if (!payload) return null;
+  if (payload.kml) return Buffer.byteLength(String(payload.kml));
+  if (payload.geometryJson) return Buffer.byteLength(JSON.stringify(payload.geometryJson));
+  if (payload.area) return Buffer.byteLength(String(payload.area));
+  if (payload.points) return Buffer.byteLength(JSON.stringify(payload.points));
+  return null;
 }
 
 export function __resolveBlockingEmbarkDeployments(deployments = []) {
@@ -479,35 +577,136 @@ router.get("/itineraries/embark/history", async (req, res, next) => {
 
     const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
       .map((entry) => {
-        const status = entry.status || "SYNCING";
-        const statusLabel =
-          status === "DEPLOYED"
-            ? "Deployed"
-            : status === "CLEARED"
-              ? "Desembarcado"
-            : status === "DEPLOYING"
-              ? "Deploying"
-              : status === "FAILED"
-                ? "Failed"
-                : status === "TIMEOUT"
-                  ? "Timeout"
-                  : "Enviado";
-        const result =
-          status === "DEPLOYED"
-            ? entry.result || "Aplicado com sucesso"
-            : status === "CLEARED"
-              ? entry.result || "Desembarque concluído"
-            : status === "DEPLOYING"
-              ? "Deploy disparado"
-              : status === "FAILED"
-                ? entry.result || "Falha no deploy"
-                : status === "TIMEOUT"
-                  ? "Timeout ao aplicar configuração"
-                  : "Sincronizando cercas";
-        return { ...entry, status: statusLabel, result };
+        const statusCode = entry.statusCode || entry.status || "SYNCING";
+        const statusLabel = resolveStatusLabel(statusCode);
+        const eventLabel = resolveEventLabel(entry.action, statusCode);
+        const details = entry.details || entry.result || null;
+        return {
+          ...entry,
+          statusCode,
+          statusLabel,
+          eventLabel,
+          message: resolveHistoryMessage({ ...entry, statusCode }),
+          details,
+        };
       });
 
     return res.json({ data: history, error: null });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/itineraries/embark/vehicles", async (req, res, next) => {
+  try {
+    const clientId = resolveTargetClient(req, req.query?.clientId, { required: req.user.role !== "admin" });
+    const vehicles = listVehicles(clientId ? { clientId } : {});
+    const deployments = listDeployments(clientId ? { clientId } : {});
+    const itineraries = listItineraries(clientId ? { clientId } : {});
+    const geofences = await listGeofences(clientId ? { clientId } : {});
+    const routes = listRoutes(clientId ? { clientId } : {});
+
+    const itinerariesById = new Map(itineraries.map((itinerary) => [String(itinerary.id), itinerary]));
+    const geofencesById = new Map(geofences.map((geofence) => [String(geofence.id), geofence]));
+    const routesById = new Map(routes.map((route) => [String(route.id), route]));
+
+    const sortedDeployments = [...deployments].sort(
+      (a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime(),
+    );
+    const latestByVehicle = new Map();
+    const lastEmbarkByVehicle = new Map();
+    for (const deployment of sortedDeployments) {
+      const vehicleId = String(deployment.vehicleId);
+      if (!latestByVehicle.has(vehicleId)) {
+        latestByVehicle.set(vehicleId, deployment);
+      }
+      if (
+        !lastEmbarkByVehicle.has(vehicleId) &&
+        normalizeDeploymentAction(deployment.action) === "EMBARK" &&
+        deployment.status === "DEPLOYED"
+      ) {
+        lastEmbarkByVehicle.set(vehicleId, deployment);
+      }
+    }
+
+    const vehiclesDetail = vehicles.map((vehicle) => {
+      const deployment = latestByVehicle.get(String(vehicle.id)) || null;
+      const statusCode = deployment?.status || null;
+      const statusLabel = deployment ? resolveStatusLabel(statusCode) : "Sem embarque";
+      const eventLabel = deployment ? resolveEventLabel(deployment.action, statusCode) : "Sem embarque";
+      const lastEmbark = lastEmbarkByVehicle.get(String(vehicle.id)) || null;
+      const actionType = deployment ? normalizeDeploymentAction(deployment.action) : null;
+      const itinerary =
+        deployment && actionType === "EMBARK"
+          ? itinerariesById.get(String(deployment.itineraryId)) || null
+          : null;
+      const items = itinerary
+        ? (itinerary.items || []).map((item) => {
+            const type = item?.type || "";
+            const id = item?.id ? String(item.id) : null;
+            const geofence = type === "geofence" || type === "target" ? geofencesById.get(id) || null : null;
+            const route = type === "route" ? routesById.get(id) || null : null;
+            const isTarget = Boolean(geofence?.isTarget) || type === "target";
+            const typeLabel =
+              type === "route"
+                ? "Rota"
+                : isTarget
+                  ? "Alvo"
+                  : geofence?.config === "exit"
+                    ? "Saída"
+                    : geofence?.config === "entry"
+                      ? "Entrada"
+                      : "Itinerário";
+            const circlePoints =
+              geofence?.type === "circle"
+                ? buildCirclePoints({
+                    center: [geofence.latitude ?? geofence.center?.[0], geofence.longitude ?? geofence.center?.[1]],
+                    radiusMeters: geofence.radius,
+                  })
+                : [];
+            const points =
+              type === "route"
+                ? route?.points || []
+                : geofence?.type === "circle"
+                  ? circlePoints
+                  : geofence?.points || [];
+            const previewSvg = buildPreviewSvg(points, {
+              stroke: geofence?.color || "#38bdf8",
+              closePath: type !== "route",
+            });
+            return {
+              id,
+              type,
+              name: geofence?.name || route?.name || "Item",
+              typeLabel,
+              sizeBytes: resolveItemSizeBytes(geofence || route),
+              previewSvg,
+              lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+              statusLabel,
+            };
+          })
+        : [];
+
+      return {
+        vehicleId: String(vehicle.id),
+        vehicleName: vehicle.name || null,
+        plate: vehicle.plate || null,
+        brand: vehicle.brand || null,
+        model: vehicle.model || null,
+        itineraryId: itinerary?.id || null,
+        itineraryName: itinerary?.name || null,
+        itineraryDescription: itinerary?.description || null,
+        statusCode,
+        statusLabel,
+        status: statusLabel,
+        lastActionLabel: eventLabel,
+        lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
+        lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+        items,
+      };
+    });
+
+    return res.json({ data: vehiclesDetail, error: null });
   } catch (error) {
     return next(error);
   }
@@ -530,7 +729,21 @@ router.get("/itineraries/:id/embark/history", async (req, res, next) => {
     }, new Map());
     const itineraries = new Map([[String(itinerary.id), itinerary]]);
 
-    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries });
+    const history = toHistoryEntries({ deploymentsList: deployments, vehiclesById: vehicles, itinerariesById: itineraries })
+      .map((entry) => {
+        const statusCode = entry.statusCode || entry.status || "SYNCING";
+        const statusLabel = resolveStatusLabel(statusCode);
+        const eventLabel = resolveEventLabel(entry.action, statusCode);
+        const details = entry.details || entry.result || null;
+        return {
+          ...entry,
+          statusCode,
+          statusLabel,
+          eventLabel,
+          message: resolveHistoryMessage({ ...entry, statusCode }),
+          details,
+        };
+      });
     return res.json({ data: history, error: null });
   } catch (error) {
     return next(error);

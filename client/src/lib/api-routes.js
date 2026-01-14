@@ -13,6 +13,7 @@ export const API_ROUTES = {
   routes: "euro/routes",
   itineraries: "itineraries",
   itineraryEmbark: "itineraries/embark",
+  itineraryEmbarkVehicles: "itineraries/embark/vehicles",
   itineraryEmbarkHistory: "itineraries/embark/history",
   itineraryDisembark: (id) => `itineraries/${id}/disembark`,
   itineraryDisembarkBatch: "itineraries/disembark",
