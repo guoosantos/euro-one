@@ -3,6 +3,7 @@ import { Circle, MapContainer, Polygon, Polyline, TileLayer, useMap } from "reac
 import { latLngBounds } from "leaflet";
 import {
   Download,
+  Eye,
   Map as MapIcon,
   Pencil,
   Plus,
@@ -1873,7 +1874,7 @@ export default function Itineraries() {
   const [embarkVehicleQuery, setEmbarkVehicleQuery] = useState("");
   const [embarkItineraryQuery, setEmbarkItineraryQuery] = useState("");
   const [selectedEmbarkVehicleIds, setSelectedEmbarkVehicleIds] = useState([]);
-  const [selectedEmbarkItineraryIds, setSelectedEmbarkItineraryIds] = useState([]);
+  const [selectedBatchItineraryIds, setSelectedBatchItineraryIds] = useState([]);
   const [editorEmbarkVehicleQuery, setEditorEmbarkVehicleQuery] = useState("");
   const [editorEmbarkItineraryQuery, setEditorEmbarkItineraryQuery] = useState("");
   const [selectedEditorEmbarkVehicleIds, setSelectedEditorEmbarkVehicleIds] = useState([]);
@@ -1888,7 +1889,6 @@ export default function Itineraries() {
   const [disembarkVehicleQuery, setDisembarkVehicleQuery] = useState("");
   const [disembarkItineraryQuery, setDisembarkItineraryQuery] = useState("");
   const [selectedDisembarkVehicleIds, setSelectedDisembarkVehicleIds] = useState([]);
-  const [selectedDisembarkItineraryIds, setSelectedDisembarkItineraryIds] = useState([]);
   const [editorDisembarkVehicleQuery, setEditorDisembarkVehicleQuery] = useState("");
   const [editorDisembarkItineraryQuery, setEditorDisembarkItineraryQuery] = useState("");
   const [selectedEditorDisembarkVehicleIds, setSelectedEditorDisembarkVehicleIds] = useState([]);
@@ -1903,6 +1903,7 @@ export default function Itineraries() {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const contentScrollRef = useRef(null);
+  const selectAllRef = useRef(null);
   const [deleteConflict, setDeleteConflict] = useState(null);
   const [deleteConflictSending, setDeleteConflictSending] = useState(false);
   const [postSavePrompt, setPostSavePrompt] = useState(null);
@@ -2102,7 +2103,6 @@ export default function Itineraries() {
     setEmbarkVehicleQuery("");
     setEmbarkItineraryQuery("");
     setSelectedEmbarkVehicleIds([]);
-    setSelectedEmbarkItineraryIds([]);
     setEmbarkSummary(null);
     setEmbarkErrorDetails(null);
     setEmbarkBufferMeters(150);
@@ -2112,7 +2112,6 @@ export default function Itineraries() {
     setDisembarkVehicleQuery("");
     setDisembarkItineraryQuery("");
     setSelectedDisembarkVehicleIds([]);
-    setSelectedDisembarkItineraryIds([]);
     setDisembarkSummary(null);
     setDisembarkErrorDetails(null);
     setCleanupDeleteGroup(false);
@@ -2292,6 +2291,14 @@ export default function Itineraries() {
       return true;
     });
   }, [itineraries, query]);
+  const filteredItineraryIds = useMemo(
+    () => filteredItineraries.map((item) => String(item.id)),
+    [filteredItineraries],
+  );
+  const hasBatchSelection = selectedBatchItineraryIds.length > 0;
+  const allFilteredSelected =
+    filteredItineraryIds.length > 0 && filteredItineraryIds.every((id) => selectedBatchItineraryIds.includes(id));
+  const someFilteredSelected = filteredItineraryIds.some((id) => selectedBatchItineraryIds.includes(id));
 
   const filteredHistory = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -2378,6 +2385,18 @@ export default function Itineraries() {
 
   const selected = useMemo(() => itineraries.find((item) => item.id === selectedId) || null, [itineraries, selectedId]);
 
+  useEffect(() => {
+    setSelectedBatchItineraryIds((current) => {
+      const next = current.filter((id) => itineraries.some((item) => String(item.id) === String(id)));
+      return next.length === current.length ? current : next;
+    });
+  }, [itineraries]);
+
+  useEffect(() => {
+    if (!selectAllRef.current) return;
+    selectAllRef.current.indeterminate = someFilteredSelected && !allFilteredSelected;
+  }, [allFilteredSelected, someFilteredSelected]);
+
   const handleFormChange = useCallback(
     (nextForm) => {
       setForm(nextForm);
@@ -2424,9 +2443,19 @@ export default function Itineraries() {
   };
 
   const handleToggleItinerary = (itineraryId) => {
-    setSelectedEmbarkItineraryIds((current) =>
+    setSelectedBatchItineraryIds((current) =>
       current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
     );
+  };
+
+  const handleToggleAllFilteredItineraries = () => {
+    setSelectedBatchItineraryIds((current) => {
+      if (allFilteredSelected) {
+        return current.filter((id) => !filteredItineraryIds.includes(id));
+      }
+      const merged = new Set([...current, ...filteredItineraryIds]);
+      return Array.from(merged);
+    });
   };
 
   const handleRemoveVehicle = (vehicleId) => {
@@ -2455,10 +2484,20 @@ export default function Itineraries() {
     );
   };
 
-  const handleToggleDisembarkItinerary = (itineraryId) => {
-    setSelectedDisembarkItineraryIds((current) =>
-      current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
-    );
+  const handleOpenEmbarkModal = () => {
+    if (!hasBatchSelection) {
+      showToast("Selecione ao menos 1 itinerário.", "warning");
+      return;
+    }
+    openEmbarkModal();
+  };
+
+  const handleOpenDisembarkModal = () => {
+    if (!hasBatchSelection) {
+      showToast("Selecione ao menos 1 itinerário.", "warning");
+      return;
+    }
+    openDisembarkModal();
   };
 
   const handleRemoveDisembarkVehicle = (vehicleId) => {
@@ -2485,7 +2524,7 @@ export default function Itineraries() {
     (itineraryId = null) => {
       resetDisembarkForm();
       if (itineraryId) {
-        setSelectedDisembarkItineraryIds([String(itineraryId)]);
+        setSelectedBatchItineraryIds([String(itineraryId)]);
       }
       setDisembarkOpen(true);
     },
@@ -2496,7 +2535,7 @@ export default function Itineraries() {
     (itineraryId = null) => {
       resetEmbarkForm();
       if (itineraryId) {
-        setSelectedEmbarkItineraryIds([String(itineraryId)]);
+        setSelectedBatchItineraryIds([String(itineraryId)]);
       }
       setEmbarkOpen(true);
     },
@@ -2505,7 +2544,7 @@ export default function Itineraries() {
 
   const handleEmbarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const vehicleIds = normalizeIdList(selectedEmbarkVehicleIds);
-    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedEmbarkItineraryIds);
+    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedBatchItineraryIds);
     const validationMessage = resolveSelectionValidation({
       hasVehicles: vehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
@@ -2561,7 +2600,7 @@ export default function Itineraries() {
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const vehicleIds = normalizeIdList(selectedDisembarkVehicleIds);
-    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedDisembarkItineraryIds);
+    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedBatchItineraryIds);
     const validationMessage = resolveSelectionValidation({
       hasVehicles: vehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
@@ -2756,7 +2795,7 @@ export default function Itineraries() {
     }
   };
 
-  const tableColCount = 8;
+  const tableColCount = 9;
   const historyColCount = 11;
 
   return (
@@ -2847,10 +2886,10 @@ export default function Itineraries() {
                     </span>
                     {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
                     <div className="flex items-center gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
+                      <Button size="sm" variant="secondary" onClick={handleOpenEmbarkModal}>
                         Embarcar
                       </Button>
-                      <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
+                      <Button size="sm" variant="secondary" onClick={handleOpenDisembarkModal}>
                         Desembarcar
                       </Button>
                       <Button size="sm" onClick={() => openEditor(null)} icon={Plus}>
@@ -2916,6 +2955,19 @@ export default function Itineraries() {
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
                 <tr>
+                  <th className="px-4 py-3 text-left">
+                    <label className="inline-flex items-center gap-2 text-[11px] uppercase tracking-[0.12em] text-white/60">
+                      <input
+                        ref={selectAllRef}
+                        type="checkbox"
+                        className="h-4 w-4"
+                        checked={allFilteredSelected}
+                        onChange={handleToggleAllFilteredItineraries}
+                        aria-label="Selecionar todos os itinerários filtrados"
+                      />
+                      <span className="hidden sm:inline">Selecionar</span>
+                    </label>
+                  </th>
                   <th className="px-4 py-3 text-left">Nome</th>
                   <th className="px-4 py-3 text-left">Cliente</th>
                   <th className="px-4 py-3 text-left">Cercas</th>
@@ -2923,7 +2975,7 @@ export default function Itineraries() {
                   <th className="px-4 py-3 text-left">Alvos</th>
                   <th className="px-4 py-3 text-left">Tamanho do arquivo</th>
                   <th className="px-4 py-3 text-left">Último embarque</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
+                  <th className="w-32 px-3 py-3 text-right">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -2969,6 +3021,15 @@ export default function Itineraries() {
                       : "—";
                     return (
                       <tr key={item.id}>
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4"
+                            checked={selectedBatchItineraryIds.includes(String(item.id))}
+                            onChange={() => handleToggleItinerary(String(item.id))}
+                            aria-label={`Selecionar itinerário ${item.name}`}
+                          />
+                        </td>
                         <td className="px-4 py-3 font-semibold text-white">{item.name}</td>
                         <td className="px-4 py-3">{clientNameById.get(String(item.clientId)) || item.clientId || "—"}</td>
                         <td className="px-4 py-3">{geofenceCount}</td>
@@ -2976,20 +3037,44 @@ export default function Itineraries() {
                         <td className="px-4 py-3">{targetCount}</td>
                         <td className="px-4 py-3">{formatBytes(kmlSizes.get(item.id))}</td>
                         <td className="px-4 py-3">{lastEmbarkLabel}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex flex-wrap justify-end gap-2">
-                            <Button size="xs" variant="secondary" onClick={() => openDetailModal(item)} icon={MapIcon}>
-                              Ver detalhes
-                            </Button>
-                            <Button size="xs" variant="secondary" onClick={() => exportKml(item.id)} icon={Download}>
-                              Exportar KML
-                            </Button>
-                            <Button size="xs" variant="ghost" onClick={() => openEditor(item)} icon={Pencil}>
-                              Editar
-                            </Button>
-                            <Button size="xs" variant="ghost" onClick={() => handleDelete(item.id)} icon={Trash2}>
-                              Excluir
-                            </Button>
+                        <td className="px-3 py-3 text-right">
+                          <div className="flex flex-wrap justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openDetailModal(item)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              aria-label="Ver detalhes"
+                              title="Ver detalhes"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => exportKml(item.id)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              aria-label="Exportar KML"
+                              title="Exportar KML"
+                            >
+                              <Download className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openEditor(item)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              aria-label="Editar"
+                              title="Editar"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(item.id)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-white/10 bg-white/5 text-white/70 transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                              aria-label="Excluir"
+                              title="Excluir"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -3557,7 +3642,7 @@ export default function Itineraries() {
         selectedVehicleIds={selectedEmbarkVehicleIds}
         onToggleVehicle={handleToggleVehicle}
         onRemoveVehicle={handleRemoveVehicle}
-        selectedItineraryIds={selectedEmbarkItineraryIds}
+        selectedItineraryIds={selectedBatchItineraryIds}
         onToggleItinerary={handleToggleItinerary}
         sending={embarkSending}
         onSubmit={handleEmbarkSubmit}
@@ -3580,8 +3665,8 @@ export default function Itineraries() {
         selectedVehicleIds={selectedDisembarkVehicleIds}
         onToggleVehicle={handleToggleDisembarkVehicle}
         onRemoveVehicle={handleRemoveDisembarkVehicle}
-        selectedItineraryIds={selectedDisembarkItineraryIds}
-        onToggleItinerary={handleToggleDisembarkItinerary}
+        selectedItineraryIds={selectedBatchItineraryIds}
+        onToggleItinerary={handleToggleItinerary}
         cleanupDeleteGroup={cleanupDeleteGroup}
         onCleanupDeleteGroupChange={setCleanupDeleteGroup}
         cleanupDeleteGeozones={cleanupDeleteGeozones}
