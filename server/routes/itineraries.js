@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import express from "express";
 import createError from "http-errors";
 
@@ -1265,6 +1266,7 @@ router.post("/itineraries/:itineraryId/embark", requireRole("manager", "admin"),
 
 router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    const operationId = req.headers["x-correlation-id"] || crypto.randomUUID();
     const itineraryId = req.params.itineraryId;
     const itinerary = getItineraryById(itineraryId);
     if (!itinerary) {
@@ -1273,26 +1275,38 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
     const clientId = resolveTargetClient(req, req.body?.clientId || itinerary.clientId, { required: true });
     ensureSameClient(req.user, clientId);
 
-    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
+    const vehicleIds = Array.isArray(req.body?.vehicleIds)
+      ? Array.from(new Set(req.body.vehicleIds.map(String)))
+      : [];
     const dryRun = Boolean(req.body?.dryRun);
+
+    console.info("[itineraries] solicitando desembarque", {
+      operationId,
+      itineraryId: String(itineraryId),
+      clientId: String(clientId),
+      vehicleCount: vehicleIds.length,
+      requestedBy: req.user?.id || null,
+      ipAddress: resolveRequestIp(req),
+    });
 
     const response = await disembarkItinerary({
       clientId,
       itineraryId,
       vehicleIds,
       dryRun,
-      correlationId: req.headers["x-correlation-id"] || null,
+      correlationId: operationId,
       requestedByUserId: req.user?.id || null,
       requestedByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
       ipAddress: resolveRequestIp(req),
     });
 
     console.info("[itineraries] desembarcado com sucesso", {
+      operationId,
       itineraryId: String(itineraryId),
       vehicles: response?.vehicles?.length || 0,
     });
 
-    return res.status(201).json({ data: response, error: null });
+    return res.status(201).json({ data: { ...response, operationId }, error: null });
   } catch (error) {
     return next(error);
   }
@@ -1300,9 +1314,14 @@ router.post("/itineraries/:itineraryId/disembark", requireRole("manager", "admin
 
 router.post("/itineraries/disembark", requireRole("manager", "admin"), async (req, res, next) => {
   try {
+    const operationId = req.headers["x-correlation-id"] || crypto.randomUUID();
     const clientId = resolveTargetClient(req, req.body?.clientId, { required: true });
-    const vehicleIds = Array.isArray(req.body?.vehicleIds) ? req.body.vehicleIds.map(String) : [];
-    const itineraryIds = Array.isArray(req.body?.itineraryIds) ? req.body.itineraryIds.map(String) : [];
+    const vehicleIds = Array.isArray(req.body?.vehicleIds)
+      ? Array.from(new Set(req.body.vehicleIds.map(String)))
+      : [];
+    const itineraryIds = Array.isArray(req.body?.itineraryIds)
+      ? Array.from(new Set(req.body.itineraryIds.map(String)))
+      : [];
     if (!itineraryIds.length) {
       throw createError(400, "Informe itinerários para desembarcar");
     }
@@ -1314,7 +1333,16 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
 
     const ipAddress = resolveRequestIp(req);
     const userLabel = req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário";
-    const correlationId = req.headers["x-correlation-id"] || null;
+    const correlationId = operationId;
+
+    console.info("[itineraries] solicitando desembarque em lote", {
+      operationId,
+      clientId: String(clientId),
+      itineraryCount: itineraryIds.length,
+      vehicleCount: vehicleIds.length,
+      requestedBy: req.user?.id || null,
+      ipAddress,
+    });
 
     const summary = { success: 0, failed: 0, errors: [] };
     const results = [];
@@ -1348,6 +1376,11 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
       } catch (error) {
         summary.failed += 1;
         summary.errors.push({ itineraryId: String(itinerary.id), message: error?.message || "Falha ao desembarcar" });
+        console.warn("[itineraries] falha no desembarque em lote", {
+          operationId,
+          itineraryId: String(itinerary.id),
+          message: error?.message || error,
+        });
         continue;
       }
 
@@ -1365,6 +1398,12 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
         if (status === "failed") {
           summary.failed += 1;
           summary.errors.push({
+            itineraryId: String(itinerary.id),
+            vehicleId: entry.vehicleId,
+            message: vehicle.message || "Falha ao desembarcar",
+          });
+          console.warn("[itineraries] falha ao desembarcar veículo", {
+            operationId,
             itineraryId: String(itinerary.id),
             vehicleId: entry.vehicleId,
             message: vehicle.message || "Falha ao desembarcar",
@@ -1474,7 +1513,7 @@ router.post("/itineraries/disembark", requireRole("manager", "admin"), async (re
       });
     }
 
-    return res.status(201).json({ data: { summary, results, cleanup }, error: null });
+    return res.status(201).json({ data: { summary, results, cleanup, operationId }, error: null });
   } catch (error) {
     return next(error);
   }
