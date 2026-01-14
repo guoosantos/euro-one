@@ -18,6 +18,7 @@ export default function Layout({ children, title, hideTitle = false }) {
     location.pathname.startsWith("/alvos");
   const isRoutesPage = location.pathname.startsWith("/routes");
   const isEventsPage = location.pathname.startsWith("/events");
+  const isItinerariesPage = location.pathname.startsWith("/itineraries");
   // Rotas fullscreen (sem container / sem padding)
   const isFullWidthPage =
     isMonitoringPage ||
@@ -105,8 +106,12 @@ export default function Layout({ children, title, hideTitle = false }) {
             </div>
           ) : (
             // 🔹 Demais páginas com container centralizado
-            <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto flex min-h-full w-full max-w-7xl flex-col gap-6">
+            <div className={`flex-1 min-h-0 ${isItinerariesPage ? "overflow-hidden" : "overflow-y-auto"}`}>
+              <div
+                className={`mx-auto flex w-full max-w-7xl flex-col gap-6 ${
+                  isItinerariesPage ? "min-h-0 flex-1" : "min-h-full"
+                }`}
+              >
                 {title && !hideTitle && (
                   <h1 className="text-3xl font-semibold text-white">{title}</h1>
                 )}
