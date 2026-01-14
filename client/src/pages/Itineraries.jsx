@@ -1889,6 +1889,7 @@ export default function Itineraries() {
   const [disembarkVehicleQuery, setDisembarkVehicleQuery] = useState("");
   const [disembarkItineraryQuery, setDisembarkItineraryQuery] = useState("");
   const [selectedDisembarkVehicleIds, setSelectedDisembarkVehicleIds] = useState([]);
+  const [selectedDisembarkItineraryIds, setSelectedDisembarkItineraryIds] = useState([]);
   const [editorDisembarkVehicleQuery, setEditorDisembarkVehicleQuery] = useState("");
   const [editorDisembarkItineraryQuery, setEditorDisembarkItineraryQuery] = useState("");
   const [selectedEditorDisembarkVehicleIds, setSelectedEditorDisembarkVehicleIds] = useState([]);
@@ -2112,6 +2113,7 @@ export default function Itineraries() {
     setDisembarkVehicleQuery("");
     setDisembarkItineraryQuery("");
     setSelectedDisembarkVehicleIds([]);
+    setSelectedDisembarkItineraryIds([]);
     setDisembarkSummary(null);
     setDisembarkErrorDetails(null);
     setCleanupDeleteGroup(false);
@@ -2484,6 +2486,12 @@ export default function Itineraries() {
     );
   };
 
+  const handleToggleDisembarkItinerary = (itineraryId) => {
+    setSelectedDisembarkItineraryIds((current) =>
+      current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
+    );
+  };
+
   const handleOpenEmbarkModal = () => {
     if (!hasBatchSelection) {
       showToast("Selecione ao menos 1 itinerário.", "warning");
@@ -2523,12 +2531,16 @@ export default function Itineraries() {
   const openDisembarkModal = useCallback(
     (itineraryId = null) => {
       resetDisembarkForm();
+      const nextItineraryIds = itineraryId ? [String(itineraryId)] : normalizeIdList(selectedBatchItineraryIds);
+      if (nextItineraryIds.length) {
+        setSelectedDisembarkItineraryIds(nextItineraryIds);
+      }
       if (itineraryId) {
         setSelectedBatchItineraryIds([String(itineraryId)]);
       }
       setDisembarkOpen(true);
     },
-    [resetDisembarkForm],
+    [resetDisembarkForm, selectedBatchItineraryIds],
   );
 
   const openEmbarkModal = useCallback(
@@ -2600,7 +2612,7 @@ export default function Itineraries() {
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const vehicleIds = normalizeIdList(selectedDisembarkVehicleIds);
-    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedBatchItineraryIds);
+    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedDisembarkItineraryIds);
     const validationMessage = resolveSelectionValidation({
       hasVehicles: vehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
@@ -2877,7 +2889,11 @@ export default function Itineraries() {
           <div className="sticky top-0 z-30 bg-[#0b0f17] pb-4">
             <div className="space-y-4">
               <PageHeader
-                title="Embarcar Itinerários"
+                title={(
+                  <span className="text-xs font-normal uppercase tracking-[0.12em] text-white/50">
+                    Embarcar Itinerários
+                  </span>
+                )}
                 right={(
                   <>
                     <span className="map-status-pill">
@@ -3038,7 +3054,7 @@ export default function Itineraries() {
                         <td className="px-4 py-3">{formatBytes(kmlSizes.get(item.id))}</td>
                         <td className="px-4 py-3">{lastEmbarkLabel}</td>
                         <td className="px-3 py-3 text-right">
-                          <div className="flex flex-wrap justify-end gap-1.5">
+                          <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => openDetailModal(item)}
@@ -3665,8 +3681,8 @@ export default function Itineraries() {
         selectedVehicleIds={selectedDisembarkVehicleIds}
         onToggleVehicle={handleToggleDisembarkVehicle}
         onRemoveVehicle={handleRemoveDisembarkVehicle}
-        selectedItineraryIds={selectedBatchItineraryIds}
-        onToggleItinerary={handleToggleItinerary}
+        selectedItineraryIds={selectedDisembarkItineraryIds}
+        onToggleItinerary={handleToggleDisembarkItinerary}
         cleanupDeleteGroup={cleanupDeleteGroup}
         onCleanupDeleteGroupChange={setCleanupDeleteGroup}
         cleanupDeleteGeozones={cleanupDeleteGeozones}
