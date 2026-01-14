@@ -14,6 +14,7 @@ export const API_ROUTES = {
   itineraries: "itineraries",
   itineraryEmbark: "itineraries/embark",
   itineraryEmbarkVehicles: "itineraries/embark/vehicles",
+  itineraryEmbarkVehicleStatus: (vehicleId) => `itineraries/embark/vehicles/${vehicleId}/status`,
   itineraryEmbarkVehicleHistory: (vehicleId) => `itineraries/embark/vehicles/${vehicleId}/history`,
   itineraryEmbarkHistory: "itineraries/embark/history",
   itineraryDisembark: (id) => `itineraries/${id}/disembark`,
