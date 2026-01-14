@@ -54,6 +54,27 @@ function resolveVehicleLastUpdate(vehicle) {
   );
 }
 
+function resolveSelectionValidation({ hasVehicles, hasItineraries, actionLabel }) {
+  if (hasVehicles && hasItineraries) return null;
+  if (!hasVehicles && !hasItineraries) {
+    return `Selecione pelo menos 1 veículo e 1 itinerário para ${actionLabel}.`;
+  }
+  if (!hasVehicles) {
+    return `Selecione pelo menos 1 veículo para ${actionLabel}.`;
+  }
+  return `Selecione pelo menos 1 itinerário para ${actionLabel}.`;
+}
+
+function resolveStatusBadgeClass(label) {
+  const normalized = String(label || "").toLowerCase();
+  if (normalized.includes("falh")) return "border-red-500/40 bg-red-500/15 text-red-100";
+  if (normalized.includes("andamento")) return "border-amber-500/40 bg-amber-500/15 text-amber-100";
+  if (normalized.includes("conclu") || normalized.includes("embar")) {
+    return "border-emerald-500/40 bg-emerald-500/15 text-emerald-100";
+  }
+  return "border-white/10 bg-white/5 text-white/70";
+}
+
 function resolveApiError(error, fallback) {
   if (!error) return fallback;
   const response = error?.response || {};
@@ -75,9 +96,10 @@ function ItineraryModal({
   onDelete,
   form,
   onChange,
-  createAndEmbark,
-  onCreateAndEmbarkChange,
-  showCreateAndEmbark,
+  postSavePrompt,
+  onEmbarkNow,
+  onContinueEditing,
+  onClosePrompt,
   activeTab,
   onTabChange,
   geofences,
@@ -108,6 +130,19 @@ function ItineraryModal({
   }, [open]);
 
   if (!open) return null;
+
+  const canEmbark = embarkState.selectedVehicleIds.length > 0 && embarkState.selectedItineraryIds.length > 0;
+  const canDisembark = disembarkState.selectedVehicleIds.length > 0 && disembarkState.selectedItineraryIds.length > 0;
+  const embarkValidationMessage = resolveSelectionValidation({
+    hasVehicles: embarkState.selectedVehicleIds.length > 0,
+    hasItineraries: embarkState.selectedItineraryIds.length > 0,
+    actionLabel: "embarcar",
+  });
+  const disembarkValidationMessage = resolveSelectionValidation({
+    hasVehicles: disembarkState.selectedVehicleIds.length > 0,
+    hasItineraries: disembarkState.selectedItineraryIds.length > 0,
+    actionLabel: "desembarcar",
+  });
 
   const linkedItems = form.items || [];
   const linkedSet = new Set(linkedItems.map((item) => `${item.type}:${item.id}`));
@@ -195,16 +230,29 @@ function ItineraryModal({
                 onChange={(event) => onChange({ ...form, description: event.target.value })}
                 rows={3}
               />
-              {showCreateAndEmbark && (
-                <label className="flex items-center gap-2 text-sm text-white/70">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={createAndEmbark}
-                    onChange={(event) => onCreateAndEmbarkChange(event.target.checked)}
-                  />
-                  Criar e embarcar agora
-                </label>
+              {postSavePrompt && (
+                <div className="space-y-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-50">
+                  <div className="space-y-1">
+                    <p className="text-xs uppercase tracking-[0.12em] text-emerald-100/70">
+                      Itinerário salvo
+                    </p>
+                    <p className="text-base font-semibold text-white">{postSavePrompt.name}</p>
+                    <p className="text-sm text-emerald-100/80">
+                      Deseja embarcar este itinerário agora ou continuar ajustando?
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button size="sm" onClick={onEmbarkNow}>
+                      Embarcar agora
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={onContinueEditing}>
+                      Continuar editando
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={onClosePrompt}>
+                      Fechar
+                    </Button>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -457,6 +505,7 @@ function ItineraryModal({
               onTabChange={setEmbarkTab}
               showSummary={false}
               embedded
+              validationMessage={canEmbark ? null : embarkValidationMessage}
             />
           )}
 
@@ -482,6 +531,7 @@ function ItineraryModal({
               onTabChange={setDisembarkTab}
               showSummary={false}
               embedded
+              validationMessage={canDisembark ? null : disembarkValidationMessage}
             />
           )}
         </div>
@@ -493,11 +543,11 @@ function ItineraryModal({
                 {saving ? "Salvando..." : "Salvar"}
               </Button>
               {activeTab === "embarcar" ? (
-                <Button size="sm" onClick={onEmbarkSubmit} disabled={embarkState.sending}>
+                <Button size="sm" onClick={onEmbarkSubmit} disabled={embarkState.sending || !canEmbark}>
                   {embarkState.sending ? "Embarcando..." : "Embarcar"}
                 </Button>
               ) : (
-                <Button size="sm" onClick={onDisembarkSubmit} disabled={disembarkState.sending}>
+                <Button size="sm" onClick={onDisembarkSubmit} disabled={disembarkState.sending || !canDisembark}>
                   {disembarkState.sending ? "Desembarcando..." : "Desembarcar"}
                 </Button>
               )}
@@ -532,6 +582,7 @@ function EmbarkContent({
   onTabChange,
   showSummary = true,
   embedded = false,
+  validationMessage,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -579,6 +630,11 @@ function EmbarkContent({
       </div>
 
       <div className={contentClassName}>
+        {validationMessage && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+            {validationMessage}
+          </div>
+        )}
         {activeTab === "vehicles" && (
           <div className="space-y-3">
             <Input
@@ -738,6 +794,14 @@ function EmbarkModal({
   resultSummary,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
+  const hasVehicles = selectedVehicleIds.length > 0;
+  const hasItineraries = selectedItineraryIds.length > 0;
+  const validationMessage = resolveSelectionValidation({
+    hasVehicles,
+    hasItineraries,
+    actionLabel: "embarcar",
+  });
+  const canSubmit = hasVehicles && hasItineraries;
 
   useEffect(() => {
     if (!open) return;
@@ -782,10 +846,11 @@ function EmbarkModal({
           resultSummary={resultSummary}
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          validationMessage={validationMessage}
         />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={onSubmit} disabled={sending}>
+          <Button onClick={onSubmit} disabled={sending || !canSubmit}>
             {sending ? "Embarcando..." : "Embarcar"}
           </Button>
         </div>
@@ -815,6 +880,7 @@ function DisembarkContent({
   onTabChange,
   showSummary = true,
   embedded = false,
+  validationMessage,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -862,6 +928,11 @@ function DisembarkContent({
       </div>
 
       <div className={contentClassName}>
+        {validationMessage && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+            {validationMessage}
+          </div>
+        )}
         {activeTab === "vehicles" && (
           <div className="space-y-3">
             <Input
@@ -1038,6 +1109,14 @@ function DisembarkModal({
   resultSummary,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
+  const hasVehicles = selectedVehicleIds.length > 0;
+  const hasItineraries = selectedItineraryIds.length > 0;
+  const validationMessage = resolveSelectionValidation({
+    hasVehicles,
+    hasItineraries,
+    actionLabel: "desembarcar",
+  });
+  const canSubmit = hasVehicles && hasItineraries;
 
   useEffect(() => {
     if (!open) return;
@@ -1084,10 +1163,11 @@ function DisembarkModal({
           resultSummary={resultSummary}
           activeTab={activeTab}
           onTabChange={setActiveTab}
+          validationMessage={validationMessage}
         />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={onSubmit} disabled={sending}>
+          <Button onClick={onSubmit} disabled={sending || !canSubmit}>
             {sending ? "Desembarcando..." : "Desembarcar"}
           </Button>
         </div>
@@ -1116,26 +1196,43 @@ export default function Itineraries() {
   const [query, setQuery] = useState("");
   const [historyPage, setHistoryPage] = useState(1);
   const [kmlSizes, setKmlSizes] = useState(() => new Map());
-  const [vehicleQuery, setVehicleQuery] = useState("");
-  const [itineraryQuery, setItineraryQuery] = useState("");
-  const [selectedVehicleIds, setSelectedVehicleIds] = useState([]);
-  const [selectedItineraryIds, setSelectedItineraryIds] = useState([]);
+  const [embarkVehicleQuery, setEmbarkVehicleQuery] = useState("");
+  const [embarkItineraryQuery, setEmbarkItineraryQuery] = useState("");
+  const [selectedEmbarkVehicleIds, setSelectedEmbarkVehicleIds] = useState([]);
+  const [selectedEmbarkItineraryIds, setSelectedEmbarkItineraryIds] = useState([]);
+  const [editorEmbarkVehicleQuery, setEditorEmbarkVehicleQuery] = useState("");
+  const [editorEmbarkItineraryQuery, setEditorEmbarkItineraryQuery] = useState("");
+  const [selectedEditorEmbarkVehicleIds, setSelectedEditorEmbarkVehicleIds] = useState([]);
+  const [selectedEditorEmbarkItineraryIds, setSelectedEditorEmbarkItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
   const [embarkSummary, setEmbarkSummary] = useState(null);
   const [embarkBufferMeters, setEmbarkBufferMeters] = useState(150);
+  const [editorEmbarkSummary, setEditorEmbarkSummary] = useState(null);
+  const [editorEmbarkBufferMeters, setEditorEmbarkBufferMeters] = useState(150);
   const [disembarkSending, setDisembarkSending] = useState(false);
   const [disembarkVehicleQuery, setDisembarkVehicleQuery] = useState("");
   const [disembarkItineraryQuery, setDisembarkItineraryQuery] = useState("");
   const [selectedDisembarkVehicleIds, setSelectedDisembarkVehicleIds] = useState([]);
   const [selectedDisembarkItineraryIds, setSelectedDisembarkItineraryIds] = useState([]);
+  const [editorDisembarkVehicleQuery, setEditorDisembarkVehicleQuery] = useState("");
+  const [editorDisembarkItineraryQuery, setEditorDisembarkItineraryQuery] = useState("");
+  const [selectedEditorDisembarkVehicleIds, setSelectedEditorDisembarkVehicleIds] = useState([]);
+  const [selectedEditorDisembarkItineraryIds, setSelectedEditorDisembarkItineraryIds] = useState([]);
   const [disembarkSummary, setDisembarkSummary] = useState(null);
+  const [editorDisembarkSummary, setEditorDisembarkSummary] = useState(null);
   const [cleanupDeleteGroup, setCleanupDeleteGroup] = useState(false);
   const [cleanupDeleteGeozones, setCleanupDeleteGeozones] = useState(false);
-  const [createAndEmbark, setCreateAndEmbark] = useState(false);
+  const [editorCleanupDeleteGroup, setEditorCleanupDeleteGroup] = useState(false);
+  const [editorCleanupDeleteGeozones, setEditorCleanupDeleteGeozones] = useState(false);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const [deleteConflict, setDeleteConflict] = useState(null);
   const [deleteConflictSending, setDeleteConflictSending] = useState(false);
+  const [postSavePrompt, setPostSavePrompt] = useState(null);
+  const [embarkDetails, setEmbarkDetails] = useState([]);
+  const [embarkDetailsLoading, setEmbarkDetailsLoading] = useState(false);
+  const [embarkDetailsQuery, setEmbarkDetailsQuery] = useState("");
+  const [selectedEmbarkDetailVehicleId, setSelectedEmbarkDetailVehicleId] = useState(null);
 
   const clientNameById = useMemo(
     () => new Map((tenants || []).map((client) => [String(client.id), client.name])),
@@ -1198,6 +1295,22 @@ export default function Itineraries() {
     }
   }, [showToast, tenantId]);
 
+  const loadEmbarkDetails = useCallback(async () => {
+    setEmbarkDetailsLoading(true);
+    try {
+      const response = await api.get(API_ROUTES.itineraryEmbarkVehicles, {
+        params: tenantId ? { clientId: tenantId } : undefined,
+      });
+      const list = response?.data?.data || response?.data?.vehicles || [];
+      setEmbarkDetails(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error("[itineraries] Falha ao carregar detalhes de embarque por veículo", error);
+      showToast(resolveApiError(error, "Não foi possível carregar os detalhes dos veículos."), "warning");
+    } finally {
+      setEmbarkDetailsLoading(false);
+    }
+  }, [showToast, tenantId]);
+
   useEffect(() => {
     void loadRoutes();
     void loadItineraries();
@@ -1209,10 +1322,17 @@ export default function Itineraries() {
   }, [activeTab, loadHistory]);
 
   useEffect(() => {
+    if (activeTab !== "veiculos") return;
+    void loadEmbarkDetails();
+  }, [activeTab, loadEmbarkDetails]);
+
+  useEffect(() => {
     if (activeTab !== "historico") return;
-    const hasPending = historyEntries.some((entry) =>
-      ["Deploying", "Enviado"].includes(entry.status || ""),
-    );
+    const hasPending = historyEntries.some((entry) => {
+      const statusCode = entry.statusCode || entry.status || "";
+      const normalized = String(statusCode).toUpperCase();
+      return ["DEPLOYING", "SYNCING", "QUEUED"].includes(normalized) || entry.statusLabel === "Em andamento";
+    });
     if (!hasPending) return;
     const interval = setInterval(() => {
       void loadHistory();
@@ -1226,17 +1346,18 @@ export default function Itineraries() {
     }
   }, [activeTab, query]);
 
+
   const resetForm = () => {
     setForm({ name: "", description: "", items: [] });
     setSelectedId(null);
-    setCreateAndEmbark(false);
+    setPostSavePrompt(null);
   };
 
   const resetEmbarkForm = useCallback(() => {
-    setVehicleQuery("");
-    setItineraryQuery("");
-    setSelectedVehicleIds([]);
-    setSelectedItineraryIds([]);
+    setEmbarkVehicleQuery("");
+    setEmbarkItineraryQuery("");
+    setSelectedEmbarkVehicleIds([]);
+    setSelectedEmbarkItineraryIds([]);
     setEmbarkSummary(null);
     setEmbarkBufferMeters(150);
   }, []);
@@ -1251,6 +1372,25 @@ export default function Itineraries() {
     setCleanupDeleteGeozones(false);
   }, []);
 
+  const resetEditorEmbarkForm = useCallback(() => {
+    setEditorEmbarkVehicleQuery("");
+    setEditorEmbarkItineraryQuery("");
+    setSelectedEditorEmbarkVehicleIds([]);
+    setSelectedEditorEmbarkItineraryIds([]);
+    setEditorEmbarkSummary(null);
+    setEditorEmbarkBufferMeters(150);
+  }, []);
+
+  const resetEditorDisembarkForm = useCallback(() => {
+    setEditorDisembarkVehicleQuery("");
+    setEditorDisembarkItineraryQuery("");
+    setSelectedEditorDisembarkVehicleIds([]);
+    setSelectedEditorDisembarkItineraryIds([]);
+    setEditorDisembarkSummary(null);
+    setEditorCleanupDeleteGroup(false);
+    setEditorCleanupDeleteGeozones(false);
+  }, []);
+
   const openEditor = (itinerary = null) => {
     if (itinerary) {
       setSelectedId(itinerary.id);
@@ -1259,27 +1399,29 @@ export default function Itineraries() {
         description: itinerary.description || "",
         items: itinerary.items || [],
       });
-      setCreateAndEmbark(false);
+      setPostSavePrompt(null);
     } else {
       resetForm();
     }
+    resetEditorEmbarkForm();
+    resetEditorDisembarkForm();
     setEditorTab("detalhes");
     setEditorOpen(true);
   };
 
   useEffect(() => {
     if (!editorOpen || !selectedId) return;
-    setSelectedItineraryIds([String(selectedId)]);
-    setSelectedDisembarkItineraryIds([String(selectedId)]);
+    setSelectedEditorEmbarkItineraryIds([String(selectedId)]);
+    setSelectedEditorDisembarkItineraryIds([String(selectedId)]);
   }, [editorOpen, selectedId]);
 
   useEffect(() => {
     if (!editorOpen || !selectedId) return;
     if (editorTab === "embarcar") {
-      setSelectedItineraryIds([String(selectedId)]);
+      setSelectedEditorEmbarkItineraryIds([String(selectedId)]);
     }
     if (editorTab === "desembarcar") {
-      setSelectedDisembarkItineraryIds([String(selectedId)]);
+      setSelectedEditorDisembarkItineraryIds([String(selectedId)]);
     }
   }, [editorOpen, editorTab, selectedId]);
 
@@ -1315,7 +1457,7 @@ export default function Itineraries() {
     });
   }, []);
 
-  const saveItinerary = async ({ closeModal = true, allowCreateAndEmbark = true } = {}) => {
+  const saveItinerary = async ({ closeModal = true } = {}) => {
     if (!form.name.trim()) {
       showToast("Informe um nome para o itinerário.", "warning");
       return null;
@@ -1330,17 +1472,15 @@ export default function Itineraries() {
       const saved = response?.data?.data || payload;
       await loadItineraries();
       setSelectedId(saved.id || selectedId);
-      if (closeModal && !(allowCreateAndEmbark && isNew && createAndEmbark)) {
-        setEditorOpen(false);
-      }
       showToast("Itinerário salvo com sucesso.");
-      if (allowCreateAndEmbark && isNew && createAndEmbark) {
-        resetEmbarkForm();
-        setSelectedItineraryIds([String(saved.id || selectedId)]);
-        setEditorOpen(true);
-        setEditorTab("embarcar");
-        setEmbarkTab("vehicles");
-        void handleEmbarkSubmit([String(saved.id || selectedId)]);
+      if (isNew) {
+        setEditorTab("detalhes");
+        setPostSavePrompt({
+          id: String(saved.id || selectedId || ""),
+          name: saved.name || form.name || "Itinerário",
+        });
+      } else if (closeModal) {
+        setEditorOpen(false);
       }
       return saved;
     } catch (error) {
@@ -1410,12 +1550,51 @@ export default function Itineraries() {
     const term = query.trim().toLowerCase();
     const list = historyEntries.filter((entry) => {
       if (!term) return true;
-      return [entry.itineraryName, entry.vehicleName, entry.plate, entry.model, entry.brand, entry.sentByName]
+      return [
+        entry.itineraryName,
+        entry.vehicleName,
+        entry.plate,
+        entry.model,
+        entry.brand,
+        entry.sentByName,
+        entry.message,
+        entry.eventLabel,
+        entry.statusLabel,
+      ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(term));
     });
     return list;
   }, [historyEntries, query]);
+
+  const filteredEmbarkDetails = useMemo(() => {
+    const term = embarkDetailsQuery.trim().toLowerCase();
+    if (!term) return embarkDetails;
+    return embarkDetails.filter((detail) =>
+      [detail.vehicleName, detail.plate, detail.brand, detail.model, detail.itineraryName]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term)),
+    );
+  }, [embarkDetails, embarkDetailsQuery]);
+
+  const selectedEmbarkDetail = useMemo(
+    () => filteredEmbarkDetails.find((item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId)) || null,
+    [filteredEmbarkDetails, selectedEmbarkDetailVehicleId],
+  );
+
+  useEffect(() => {
+    if (activeTab !== "veiculos") return;
+    if (!filteredEmbarkDetails.length) {
+      setSelectedEmbarkDetailVehicleId(null);
+      return;
+    }
+    const exists = filteredEmbarkDetails.some(
+      (item) => String(item.vehicleId) === String(selectedEmbarkDetailVehicleId),
+    );
+    if (!exists) {
+      setSelectedEmbarkDetailVehicleId(filteredEmbarkDetails[0].vehicleId);
+    }
+  }, [activeTab, filteredEmbarkDetails, selectedEmbarkDetailVehicleId]);
 
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE));
   const safeHistoryPage = Math.min(historyPage, historyTotalPages);
@@ -1424,20 +1603,46 @@ export default function Itineraries() {
 
   const selected = useMemo(() => itineraries.find((item) => item.id === selectedId) || null, [itineraries, selectedId]);
 
+  const handleFormChange = useCallback(
+    (nextForm) => {
+      setForm(nextForm);
+      if (postSavePrompt) {
+        setPostSavePrompt(null);
+      }
+    },
+    [postSavePrompt],
+  );
+
   const handleToggleVehicle = (vehicleId) => {
-    setSelectedVehicleIds((current) =>
+    setSelectedEmbarkVehicleIds((current) =>
       current.includes(vehicleId) ? current.filter((id) => id !== vehicleId) : [...current, vehicleId],
     );
   };
 
   const handleToggleItinerary = (itineraryId) => {
-    setSelectedItineraryIds((current) =>
+    setSelectedEmbarkItineraryIds((current) =>
       current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
     );
   };
 
   const handleRemoveVehicle = (vehicleId) => {
-    setSelectedVehicleIds((current) => current.filter((id) => id !== vehicleId));
+    setSelectedEmbarkVehicleIds((current) => current.filter((id) => id !== vehicleId));
+  };
+
+  const handleToggleEditorEmbarkVehicle = (vehicleId) => {
+    setSelectedEditorEmbarkVehicleIds((current) =>
+      current.includes(vehicleId) ? current.filter((id) => id !== vehicleId) : [...current, vehicleId],
+    );
+  };
+
+  const handleToggleEditorEmbarkItinerary = (itineraryId) => {
+    setSelectedEditorEmbarkItineraryIds((current) =>
+      current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
+    );
+  };
+
+  const handleRemoveEditorEmbarkVehicle = (vehicleId) => {
+    setSelectedEditorEmbarkVehicleIds((current) => current.filter((id) => id !== vehicleId));
   };
 
   const handleToggleDisembarkVehicle = (vehicleId) => {
@@ -1456,6 +1661,22 @@ export default function Itineraries() {
     setSelectedDisembarkVehicleIds((current) => current.filter((id) => id !== vehicleId));
   };
 
+  const handleToggleEditorDisembarkVehicle = (vehicleId) => {
+    setSelectedEditorDisembarkVehicleIds((current) =>
+      current.includes(vehicleId) ? current.filter((id) => id !== vehicleId) : [...current, vehicleId],
+    );
+  };
+
+  const handleToggleEditorDisembarkItinerary = (itineraryId) => {
+    setSelectedEditorDisembarkItineraryIds((current) =>
+      current.includes(itineraryId) ? current.filter((id) => id !== itineraryId) : [...current, itineraryId],
+    );
+  };
+
+  const handleRemoveEditorDisembarkVehicle = (vehicleId) => {
+    setSelectedEditorDisembarkVehicleIds((current) => current.filter((id) => id !== vehicleId));
+  };
+
   const openDisembarkModal = useCallback(
     (itineraryId = null) => {
       resetDisembarkForm();
@@ -1467,10 +1688,26 @@ export default function Itineraries() {
     [resetDisembarkForm],
   );
 
+  const openEmbarkModal = useCallback(
+    (itineraryId = null) => {
+      resetEmbarkForm();
+      if (itineraryId) {
+        setSelectedEmbarkItineraryIds([String(itineraryId)]);
+      }
+      setEmbarkOpen(true);
+    },
+    [resetEmbarkForm],
+  );
+
   const handleEmbarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
-    const itineraryIds = overrideItineraryIds || selectedItineraryIds;
-    if (!selectedVehicleIds.length || !itineraryIds.length) {
-      showToast("Selecione veículos e itinerários para embarcar.", "warning");
+    const itineraryIds = overrideItineraryIds || selectedEmbarkItineraryIds;
+    const validationMessage = resolveSelectionValidation({
+      hasVehicles: selectedEmbarkVehicleIds.length > 0,
+      hasItineraries: itineraryIds.length > 0,
+      actionLabel: "embarcar",
+    });
+    if (validationMessage) {
+      showToast(validationMessage, "warning");
       return;
     }
     const inferredClientId =
@@ -1485,7 +1722,7 @@ export default function Itineraries() {
     setEmbarkSending(true);
     try {
       const response = await api.post(API_ROUTES.itineraryEmbark, {
-        vehicleIds: selectedVehicleIds,
+        vehicleIds: selectedEmbarkVehicleIds,
         itineraryIds,
         clientId: inferredClientId ?? undefined,
         xdmBufferMeters: embarkBufferMeters,
@@ -1503,6 +1740,9 @@ export default function Itineraries() {
         resetEmbarkForm();
       }
       await loadHistory();
+      if (activeTab === "veiculos") {
+        await loadEmbarkDetails();
+      }
     } catch (error) {
       console.error(error);
       showToast(resolveApiError(error, "Não foi possível enviar o embarque."), "warning");
@@ -1513,8 +1753,13 @@ export default function Itineraries() {
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
     const itineraryIds = overrideItineraryIds || selectedDisembarkItineraryIds;
-    if (!itineraryIds.length) {
-      showToast("Selecione itinerários para desembarcar.", "warning");
+    const validationMessage = resolveSelectionValidation({
+      hasVehicles: selectedDisembarkVehicleIds.length > 0,
+      hasItineraries: itineraryIds.length > 0,
+      actionLabel: "desembarcar",
+    });
+    if (validationMessage) {
+      showToast(validationMessage, "warning");
       return;
     }
     const inferredClientId =
@@ -1552,6 +1797,12 @@ export default function Itineraries() {
         resetDisembarkForm();
       }
       await loadHistory();
+      if (activeTab === "veiculos") {
+        await loadEmbarkDetails();
+      }
+      if (activeTab === "veiculos") {
+        await loadEmbarkDetails();
+      }
     } catch (error) {
       console.error(error);
       showToast(resolveApiError(error, "Não foi possível desembarcar."), "warning");
@@ -1566,8 +1817,49 @@ export default function Itineraries() {
       showToast("Salve o itinerário antes de embarcar.", "warning");
       return;
     }
-    setSelectedItineraryIds([String(itineraryId)]);
-    await handleEmbarkSubmit([String(itineraryId)], selected?.clientId ?? null);
+    const itineraryIds =
+      selectedEditorEmbarkItineraryIds.length > 0
+        ? selectedEditorEmbarkItineraryIds
+        : [String(itineraryId)];
+    const validationMessage = resolveSelectionValidation({
+      hasVehicles: selectedEditorEmbarkVehicleIds.length > 0,
+      hasItineraries: itineraryIds.length > 0,
+      actionLabel: "embarcar",
+    });
+    if (validationMessage) {
+      showToast(validationMessage, "warning");
+      return;
+    }
+    const inferredClientId = selected?.clientId ?? tenantId ?? null;
+    if (!inferredClientId) {
+      showToast("Selecione um cliente válido para embarcar.", "warning");
+      return;
+    }
+    setEmbarkSending(true);
+    try {
+      const response = await api.post(API_ROUTES.itineraryEmbark, {
+        vehicleIds: selectedEditorEmbarkVehicleIds,
+        itineraryIds,
+        clientId: inferredClientId ?? undefined,
+        xdmBufferMeters: editorEmbarkBufferMeters,
+      });
+      const summary = response?.data?.data?.summary || response?.data?.summary || null;
+      const okCount = Number(summary?.success || 0);
+      const failedCount = Number(summary?.failed || 0);
+      if (failedCount > 0) {
+        showToast(`Embarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+        setEditorEmbarkSummary(`Resultado: ${okCount} enviados, ${failedCount} falharam.`);
+      } else {
+        showToast("Embarque enviado com sucesso.");
+        setEditorEmbarkSummary("Embarque enviado com sucesso.");
+      }
+      await loadHistory();
+    } catch (error) {
+      console.error(error);
+      showToast(resolveApiError(error, "Não foi possível enviar o embarque."), "warning");
+    } finally {
+      setEmbarkSending(false);
+    }
   };
 
   const handleEditorDisembarkSubmit = async () => {
@@ -1576,8 +1868,54 @@ export default function Itineraries() {
       showToast("Salve o itinerário antes de desembarcar.", "warning");
       return;
     }
-    setSelectedDisembarkItineraryIds([String(itineraryId)]);
-    await handleDisembarkSubmit([String(itineraryId)], selected?.clientId ?? null);
+    const itineraryIds =
+      selectedEditorDisembarkItineraryIds.length > 0
+        ? selectedEditorDisembarkItineraryIds
+        : [String(itineraryId)];
+    const validationMessage = resolveSelectionValidation({
+      hasVehicles: selectedEditorDisembarkVehicleIds.length > 0,
+      hasItineraries: itineraryIds.length > 0,
+      actionLabel: "desembarcar",
+    });
+    if (validationMessage) {
+      showToast(validationMessage, "warning");
+      return;
+    }
+    const inferredClientId = selected?.clientId ?? tenantId ?? null;
+    if (!inferredClientId) {
+      showToast("Selecione um cliente válido para desembarcar.", "warning");
+      return;
+    }
+    setDisembarkSending(true);
+    try {
+      const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
+        vehicleIds: selectedEditorDisembarkVehicleIds,
+        itineraryIds,
+        clientId: inferredClientId ?? undefined,
+        options: {
+          cleanup: {
+            deleteGeozoneGroup: editorCleanupDeleteGroup,
+            deleteGeozones: editorCleanupDeleteGeozones,
+          },
+        },
+      });
+      const summary = response?.data?.data?.summary || response?.data?.summary || null;
+      const okCount = Number(summary?.success || 0);
+      const failedCount = Number(summary?.failed || 0);
+      if (failedCount > 0) {
+        showToast(`Desembarque concluído com ${okCount} sucesso(s) e ${failedCount} falha(s).`, "warning");
+        setEditorDisembarkSummary(`Resultado: ${okCount} concluídos, ${failedCount} falharam.`);
+      } else {
+        showToast("Desembarque enviado com sucesso.");
+        setEditorDisembarkSummary("Desembarque enviado com sucesso.");
+      }
+      await loadHistory();
+    } catch (error) {
+      console.error(error);
+      showToast(resolveApiError(error, "Não foi possível desembarcar."), "warning");
+    } finally {
+      setDisembarkSending(false);
+    }
   };
 
   const handleDisembarkAndDelete = async (itineraryId) => {
@@ -1600,6 +1938,9 @@ export default function Itineraries() {
       if (selectedId === itineraryId) resetForm();
       setDeleteConflict(null);
       showToast("Itinerário desembarcado e removido.");
+      if (activeTab === "veiculos") {
+        await loadEmbarkDetails();
+      }
     } catch (error) {
       console.error(error);
       showToast(resolveApiError(error, "Não foi possível desembarcar e excluir."), "warning");
@@ -1609,7 +1950,7 @@ export default function Itineraries() {
   };
 
   const tableColCount = 8;
-  const historyColCount = 10;
+  const historyColCount = 9;
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
@@ -1685,9 +2026,8 @@ export default function Itineraries() {
         </div>
       )}
 
-      <div className="-mx-4 space-y-4 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
+      <div className="space-y-4">
         <PageHeader
-          eyebrow="Embarcar Itinerários"
           title="Embarcar Itinerários"
           description="Agrupadores de cercas, rotas e alvos para o mesmo cliente."
           right={(
@@ -1698,7 +2038,7 @@ export default function Itineraries() {
               </span>
               {loading && <span className="map-status-pill border-primary/50 bg-primary/10 text-cyan-100">Carregando...</span>}
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => setEmbarkOpen(true)}>
+                <Button size="sm" variant="secondary" onClick={() => openEmbarkModal()}>
                   Embarcar
                 </Button>
                 <Button size="sm" variant="secondary" onClick={() => openDisembarkModal()}>
@@ -1711,34 +2051,46 @@ export default function Itineraries() {
             </>
           )}
         />
-        <div className="space-y-3">
-          <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-            {[
-              { key: "embarcado", label: "Embarcado" },
-              { key: "historico", label: "Histórico" },
-            ].map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`rounded-md px-3 py-2 transition ${
-                  activeTab === tab.key
-                    ? "border border-primary/40 bg-primary/20 text-white"
-                    : "border border-transparent hover:border-white/20"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {[
+            { key: "embarcado", label: "Embarcado" },
+            { key: "historico", label: "Histórico" },
+            { key: "veiculos", label: "Veículos" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`rounded-md px-3 py-2 transition ${
+                activeTab === tab.key
+                  ? "border border-primary/40 bg-primary/20 text-white"
+                  : "border border-transparent hover:border-white/20"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="w-full md:max-w-xs">
-              <Input
-                placeholder={activeTab === "historico" ? "Buscar histórico" : "Buscar itinerário"}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </div>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="w-full md:max-w-xs">
+            <Input
+              placeholder={
+                activeTab === "historico"
+                  ? "Buscar histórico"
+                  : activeTab === "veiculos"
+                    ? "Buscar veículo"
+                    : "Buscar itinerário"
+              }
+              value={activeTab === "veiculos" ? embarkDetailsQuery : query}
+              onChange={(event) => {
+                const value = event.target.value;
+                if (activeTab === "veiculos") {
+                  setEmbarkDetailsQuery(value);
+                } else {
+                  setQuery(value);
+                }
+              }}
+            />
           </div>
         </div>
       </div>
@@ -1837,16 +2189,15 @@ export default function Itineraries() {
             <table className="min-w-full text-sm text-white/80">
               <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
                 <tr>
-                  <th className="px-4 py-3 text-left">Enviado em</th>
-                  <th className="px-4 py-3 text-left">Recebido em</th>
-                  <th className="px-4 py-3 text-left">Quem enviou</th>
-                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Data/hora</th>
+                  <th className="px-4 py-3 text-left">Usuário</th>
                   <th className="px-4 py-3 text-left">Veículo</th>
                   <th className="px-4 py-3 text-left">Placa</th>
-                  <th className="px-4 py-3 text-left">Marca</th>
-                  <th className="px-4 py-3 text-left">Modelo</th>
-                  <th className="px-4 py-3 text-left">Resultado</th>
-                  <th className="px-4 py-3 text-left">IP/Endereço</th>
+                  <th className="px-4 py-3 text-left">Nome do itinerário</th>
+                  <th className="px-4 py-3 text-left">Ação</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Mensagem</th>
+                  <th className="px-4 py-3 text-left">Detalhes</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -1867,16 +2218,28 @@ export default function Itineraries() {
                 {!historyLoading &&
                   paginatedHistory.map((entry) => (
                     <tr key={entry.id}>
-                      <td className="px-4 py-3">{formatDateTime(entry.sentAt)}</td>
-                      <td className="px-4 py-3">{formatDateTime(entry.receivedAt)}</td>
+                      <td className="px-4 py-3">{formatDateTime(entry.sentAt || entry.at)}</td>
                       <td className="px-4 py-3">{entry.sentByName || entry.sentBy || "—"}</td>
-                      <td className="px-4 py-3">{entry.status || "—"}</td>
                       <td className="px-4 py-3">{entry.vehicleName || "—"}</td>
                       <td className="px-4 py-3">{entry.plate || "—"}</td>
-                      <td className="px-4 py-3">{entry.brand || "—"}</td>
-                      <td className="px-4 py-3">{entry.model || "—"}</td>
-                      <td className="px-4 py-3">{entry.result || "—"}</td>
-                      <td className="px-4 py-3">{entry.ipAddress || "—"}</td>
+                      <td className="px-4 py-3">{entry.itineraryName || "—"}</td>
+                      <td className="px-4 py-3">{entry.eventLabel || "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${resolveStatusBadgeClass(entry.statusLabel || entry.status)}`}>
+                          {entry.statusLabel || entry.status || "—"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{entry.message || entry.result || "—"}</td>
+                      <td className="px-4 py-3">
+                        {entry.details ? (
+                          <details className="text-xs text-white/70">
+                            <summary className="cursor-pointer text-white/80">Ver detalhes</summary>
+                            <div className="mt-2 whitespace-pre-wrap text-white/60">{entry.details}</div>
+                          </details>
+                        ) : (
+                          <span className="text-white/50">—</span>
+                        )}
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -1920,11 +2283,159 @@ export default function Itineraries() {
         </div>
       )}
 
+      {activeTab === "veiculos" && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-4 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold text-white">Veículos monitorados</p>
+              <span className="text-[11px] text-white/60">{filteredEmbarkDetails.length} resultados</span>
+            </div>
+            <div className="max-h-[560px] space-y-2 overflow-y-auto">
+              {embarkDetailsLoading && <p className="text-xs text-white/60">Carregando veículos…</p>}
+              {!embarkDetailsLoading && filteredEmbarkDetails.length === 0 && (
+                <p className="text-xs text-white/60">Nenhum veículo encontrado.</p>
+              )}
+              {!embarkDetailsLoading &&
+                filteredEmbarkDetails.map((detail) => {
+                  const isSelected = String(detail.vehicleId) === String(selectedEmbarkDetailVehicleId);
+                  return (
+                    <button
+                      key={detail.vehicleId}
+                      type="button"
+                      onClick={() => setSelectedEmbarkDetailVehicleId(detail.vehicleId)}
+                      className={`flex w-full flex-col gap-1 rounded-xl border px-3 py-2 text-left transition ${
+                        isSelected ? "border-primary/40 bg-primary/10 text-white" : "border-white/10 bg-white/5 text-white/80 hover:border-white/30"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold">{detail.vehicleName || "Veículo"}</p>
+                        <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(detail.statusLabel || detail.status)}`}>
+                          {detail.statusLabel || detail.status || "Sem status"}
+                        </span>
+                      </div>
+                      <p className="text-xs text-white/60">{detail.plate || "Placa não informada"}</p>
+                      <p className="text-xs text-white/50">
+                        {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado"}
+                      </p>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 p-5 shadow-2xl">
+            {embarkDetailsLoading && <p className="text-sm text-white/60">Carregando detalhes…</p>}
+            {!embarkDetailsLoading && !selectedEmbarkDetail && (
+              <p className="text-sm text-white/60">Selecione um veículo para visualizar os detalhes do embarque.</p>
+            )}
+            {!embarkDetailsLoading && selectedEmbarkDetail && (
+              <div className="space-y-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.12em] text-white/50">Detalhes do embarque</p>
+                    <h3 className="text-xl font-semibold text-white">
+                      {selectedEmbarkDetail.vehicleName || "Veículo"}
+                    </h3>
+                    <p className="text-sm text-white/60">{selectedEmbarkDetail.plate || "Placa não informada"}</p>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                    <div className="flex items-center gap-2">
+                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold ${resolveStatusBadgeClass(selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status)}`}>
+                        {selectedEmbarkDetail.statusLabel || selectedEmbarkDetail.status || "Sem status"}
+                      </span>
+                      <span>
+                        Última atualização: {formatDateTime(selectedEmbarkDetail.lastActionAt || selectedEmbarkDetail.updatedAt)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Itinerário embarcado</p>
+                    <p className="text-base font-semibold text-white">
+                      {selectedEmbarkDetail.itineraryName || "Nenhum itinerário embarcado"}
+                    </p>
+                    {selectedEmbarkDetail.itineraryDescription && (
+                      <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
+                    )}
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
+                    <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Último embarque</p>
+                    <p className="text-base font-semibold text-white">
+                      {formatDateTime(selectedEmbarkDetail.lastEmbarkAt || selectedEmbarkDetail.lastActionAt)}
+                    </p>
+                    <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.lastActionLabel || "—"}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-semibold text-white">Itens embarcados</p>
+                    <span className="text-xs text-white/60">
+                      {selectedEmbarkDetail.items?.length || 0} itens
+                    </span>
+                  </div>
+                  {selectedEmbarkDetail.items?.length ? (
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {selectedEmbarkDetail.items.map((item) => {
+                        const previewSrc = item.previewUrl
+                          ? item.previewUrl
+                          : item.previewSvg
+                            ? `data:image/svg+xml;utf8,${encodeURIComponent(item.previewSvg)}`
+                            : null;
+                        return (
+                          <div key={`${item.type}-${item.id}`} className="rounded-xl border border-white/10 bg-black/30 p-3">
+                            <div className="flex gap-3">
+                              <div className="h-20 w-28 overflow-hidden rounded-lg border border-white/10 bg-white/5">
+                                {previewSrc ? (
+                                  <img src={previewSrc} alt={`Preview ${item.name}`} className="h-full w-full object-cover" />
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center text-[10px] uppercase tracking-[0.12em] text-white/40">
+                                    Sem preview
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-sm font-semibold text-white">{item.name || "Item"}</p>
+                                <p className="text-xs text-white/60">{item.typeLabel || item.type || "—"}</p>
+                                <div className="mt-2 grid gap-2 text-xs text-white/60 sm:grid-cols-2">
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Tamanho</p>
+                                    <p>{formatBytes(item.sizeBytes)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Último embarque</p>
+                                    <p>{formatDateTime(item.lastEmbarkAt || selectedEmbarkDetail.lastEmbarkAt)}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/40">Status</p>
+                                    <p>{item.statusLabel || selectedEmbarkDetail.statusLabel || "—"}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-white/60">Nenhum item embarcado para este veículo.</p>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <ItineraryModal
         open={editorOpen}
         onClose={() => {
           setEditorOpen(false);
-          setCreateAndEmbark(false);
+          setPostSavePrompt(null);
+          resetEditorEmbarkForm();
+          resetEditorDisembarkForm();
         }}
         title={selected ? "Editar itinerário" : "Novo itinerário"}
         description="Organize cercas, rotas e alvos existentes em um agrupador."
@@ -1932,10 +2443,20 @@ export default function Itineraries() {
         onSave={handleSave}
         onDelete={selected ? () => handleDelete(selected.id) : null}
         form={form}
-        onChange={setForm}
-        createAndEmbark={createAndEmbark}
-        onCreateAndEmbarkChange={setCreateAndEmbark}
-        showCreateAndEmbark={!selected}
+        onChange={handleFormChange}
+        postSavePrompt={postSavePrompt}
+        onEmbarkNow={() => {
+          const itineraryId = postSavePrompt?.id || selectedId;
+          if (!itineraryId) return;
+          setPostSavePrompt(null);
+          setEditorOpen(false);
+          openEmbarkModal(itineraryId);
+        }}
+        onContinueEditing={() => setPostSavePrompt(null)}
+        onClosePrompt={() => {
+          setPostSavePrompt(null);
+          setEditorOpen(false);
+        }}
         activeTab={editorTab}
         onTabChange={setEditorTab}
         geofences={geofences}
@@ -1946,35 +2467,35 @@ export default function Itineraries() {
         vehicles={vehicles}
         itineraries={itineraries}
         embarkState={{
-          vehicleQuery,
-          onVehicleQueryChange: setVehicleQuery,
-          itineraryQuery,
-          onItineraryQueryChange: setItineraryQuery,
-          bufferMeters: embarkBufferMeters,
-          onBufferMetersChange: setEmbarkBufferMeters,
-          selectedVehicleIds,
-          onToggleVehicle: handleToggleVehicle,
-          selectedItineraryIds,
-          onToggleItinerary: handleToggleItinerary,
-          onRemoveVehicle: handleRemoveVehicle,
-          resultSummary: embarkSummary,
+          vehicleQuery: editorEmbarkVehicleQuery,
+          onVehicleQueryChange: setEditorEmbarkVehicleQuery,
+          itineraryQuery: editorEmbarkItineraryQuery,
+          onItineraryQueryChange: setEditorEmbarkItineraryQuery,
+          bufferMeters: editorEmbarkBufferMeters,
+          onBufferMetersChange: setEditorEmbarkBufferMeters,
+          selectedVehicleIds: selectedEditorEmbarkVehicleIds,
+          onToggleVehicle: handleToggleEditorEmbarkVehicle,
+          selectedItineraryIds: selectedEditorEmbarkItineraryIds,
+          onToggleItinerary: handleToggleEditorEmbarkItinerary,
+          onRemoveVehicle: handleRemoveEditorEmbarkVehicle,
+          resultSummary: editorEmbarkSummary,
           sending: embarkSending,
         }}
         disembarkState={{
-          vehicleQuery: disembarkVehicleQuery,
-          onVehicleQueryChange: setDisembarkVehicleQuery,
-          itineraryQuery: disembarkItineraryQuery,
-          onItineraryQueryChange: setDisembarkItineraryQuery,
-          selectedVehicleIds: selectedDisembarkVehicleIds,
-          onToggleVehicle: handleToggleDisembarkVehicle,
-          onRemoveVehicle: handleRemoveDisembarkVehicle,
-          selectedItineraryIds: selectedDisembarkItineraryIds,
-          onToggleItinerary: handleToggleDisembarkItinerary,
-          cleanupDeleteGroup,
-          onCleanupDeleteGroupChange: setCleanupDeleteGroup,
-          cleanupDeleteGeozones,
-          onCleanupDeleteGeozonesChange: setCleanupDeleteGeozones,
-          resultSummary: disembarkSummary,
+          vehicleQuery: editorDisembarkVehicleQuery,
+          onVehicleQueryChange: setEditorDisembarkVehicleQuery,
+          itineraryQuery: editorDisembarkItineraryQuery,
+          onItineraryQueryChange: setEditorDisembarkItineraryQuery,
+          selectedVehicleIds: selectedEditorDisembarkVehicleIds,
+          onToggleVehicle: handleToggleEditorDisembarkVehicle,
+          onRemoveVehicle: handleRemoveEditorDisembarkVehicle,
+          selectedItineraryIds: selectedEditorDisembarkItineraryIds,
+          onToggleItinerary: handleToggleEditorDisembarkItinerary,
+          cleanupDeleteGroup: editorCleanupDeleteGroup,
+          onCleanupDeleteGroupChange: setEditorCleanupDeleteGroup,
+          cleanupDeleteGeozones: editorCleanupDeleteGeozones,
+          onCleanupDeleteGeozonesChange: setEditorCleanupDeleteGeozones,
+          resultSummary: editorDisembarkSummary,
           sending: disembarkSending,
         }}
         onEmbarkSubmit={handleEditorEmbarkSubmit}
@@ -1989,16 +2510,16 @@ export default function Itineraries() {
         }}
         vehicles={vehicles}
         itineraries={itineraries}
-        vehicleQuery={vehicleQuery}
-        onVehicleQueryChange={setVehicleQuery}
-        itineraryQuery={itineraryQuery}
-        onItineraryQueryChange={setItineraryQuery}
+        vehicleQuery={embarkVehicleQuery}
+        onVehicleQueryChange={setEmbarkVehicleQuery}
+        itineraryQuery={embarkItineraryQuery}
+        onItineraryQueryChange={setEmbarkItineraryQuery}
         bufferMeters={embarkBufferMeters}
         onBufferMetersChange={setEmbarkBufferMeters}
-        selectedVehicleIds={selectedVehicleIds}
+        selectedVehicleIds={selectedEmbarkVehicleIds}
         onToggleVehicle={handleToggleVehicle}
         onRemoveVehicle={handleRemoveVehicle}
-        selectedItineraryIds={selectedItineraryIds}
+        selectedItineraryIds={selectedEmbarkItineraryIds}
         onToggleItinerary={handleToggleItinerary}
         sending={embarkSending}
         onSubmit={handleEmbarkSubmit}
