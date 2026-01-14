@@ -104,6 +104,24 @@ function resolveEmbarkErrorMessage(error) {
   return resolveApiError(error, "Não foi possível concluir a operação.");
 }
 
+function normalizeIdList(list = []) {
+  if (!Array.isArray(list)) return [];
+  return list.map((item) => String(item)).filter(Boolean);
+}
+
+function resolveTechnicalDetails(error) {
+  if (!error) return null;
+  const responseData = error?.response?.data;
+  if (responseData) {
+    try {
+      return JSON.stringify(responseData, null, 2);
+    } catch (stringifyError) {
+      console.error("[itineraries] Falha ao serializar erro técnico", stringifyError);
+    }
+  }
+  return String(error?.message || error) || null;
+}
+
 function resolveHybridLayer() {
   return (
     ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-hybrid") ||
@@ -929,6 +947,7 @@ function EmbarkContent({
   showSummary = true,
   embedded = false,
   validationMessage,
+  technicalDetails,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -1155,8 +1174,14 @@ function EmbarkContent({
         )}
 
         {showSummary && resultSummary && (
-          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-            {resultSummary}
+          <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+            <p>{resultSummary}</p>
+            {technicalDetails && (
+              <details className="text-[11px] text-white/70">
+                <summary className="cursor-pointer text-white/80">Ver detalhes técnicos</summary>
+                <pre className="mt-2 whitespace-pre-wrap text-white/60">{technicalDetails}</pre>
+              </details>
+            )}
           </div>
         )}
       </div>
@@ -1183,6 +1208,7 @@ function EmbarkModal({
   sending,
   onSubmit,
   resultSummary,
+  technicalDetails,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
   const hasVehicles = selectedVehicleIds.length > 0;
@@ -1234,6 +1260,7 @@ function EmbarkModal({
           onToggleItinerary={onToggleItinerary}
           onRemoveVehicle={onRemoveVehicle}
           resultSummary={resultSummary}
+          technicalDetails={technicalDetails}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           validationMessage={validationMessage}
@@ -1271,6 +1298,7 @@ function DisembarkContent({
   showSummary = true,
   embedded = false,
   validationMessage,
+  technicalDetails,
 }) {
   const filteredVehicles = vehicles.filter((vehicle) => {
     const term = vehicleQuery.trim().toLowerCase();
@@ -1512,8 +1540,14 @@ function DisembarkContent({
         </div>
 
         {showSummary && resultSummary && (
-          <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-            {resultSummary}
+          <div className="space-y-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+            <p>{resultSummary}</p>
+            {technicalDetails && (
+              <details className="text-[11px] text-white/70">
+                <summary className="cursor-pointer text-white/80">Ver detalhes técnicos</summary>
+                <pre className="mt-2 whitespace-pre-wrap text-white/60">{technicalDetails}</pre>
+              </details>
+            )}
           </div>
         )}
       </div>
@@ -1542,6 +1576,7 @@ function DisembarkModal({
   sending,
   onSubmit,
   resultSummary,
+  technicalDetails,
 }) {
   const [activeTab, setActiveTab] = useState("vehicles");
   const hasVehicles = selectedVehicleIds.length > 0;
@@ -1595,6 +1630,7 @@ function DisembarkModal({
           cleanupDeleteGeozones={cleanupDeleteGeozones}
           onCleanupDeleteGeozonesChange={onCleanupDeleteGeozonesChange}
           resultSummary={resultSummary}
+          technicalDetails={technicalDetails}
           activeTab={activeTab}
           onTabChange={setActiveTab}
           validationMessage={validationMessage}
@@ -1640,6 +1676,7 @@ export default function Itineraries() {
   const [selectedEditorEmbarkItineraryIds, setSelectedEditorEmbarkItineraryIds] = useState([]);
   const [embarkSending, setEmbarkSending] = useState(false);
   const [embarkSummary, setEmbarkSummary] = useState(null);
+  const [embarkErrorDetails, setEmbarkErrorDetails] = useState(null);
   const [embarkBufferMeters, setEmbarkBufferMeters] = useState(150);
   const [editorEmbarkSummary, setEditorEmbarkSummary] = useState(null);
   const [editorEmbarkBufferMeters, setEditorEmbarkBufferMeters] = useState(150);
@@ -1653,6 +1690,7 @@ export default function Itineraries() {
   const [selectedEditorDisembarkVehicleIds, setSelectedEditorDisembarkVehicleIds] = useState([]);
   const [selectedEditorDisembarkItineraryIds, setSelectedEditorDisembarkItineraryIds] = useState([]);
   const [disembarkSummary, setDisembarkSummary] = useState(null);
+  const [disembarkErrorDetails, setDisembarkErrorDetails] = useState(null);
   const [editorDisembarkSummary, setEditorDisembarkSummary] = useState(null);
   const [cleanupDeleteGroup, setCleanupDeleteGroup] = useState(false);
   const [cleanupDeleteGeozones, setCleanupDeleteGeozones] = useState(false);
@@ -1826,6 +1864,7 @@ export default function Itineraries() {
     setSelectedEmbarkVehicleIds([]);
     setSelectedEmbarkItineraryIds([]);
     setEmbarkSummary(null);
+    setEmbarkErrorDetails(null);
     setEmbarkBufferMeters(150);
   }, []);
 
@@ -1835,6 +1874,7 @@ export default function Itineraries() {
     setSelectedDisembarkVehicleIds([]);
     setSelectedDisembarkItineraryIds([]);
     setDisembarkSummary(null);
+    setDisembarkErrorDetails(null);
     setCleanupDeleteGroup(false);
     setCleanupDeleteGeozones(false);
   }, []);
@@ -2181,9 +2221,10 @@ export default function Itineraries() {
   );
 
   const handleEmbarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
-    const itineraryIds = overrideItineraryIds || selectedEmbarkItineraryIds;
+    const vehicleIds = normalizeIdList(selectedEmbarkVehicleIds);
+    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedEmbarkItineraryIds);
     const validationMessage = resolveSelectionValidation({
-      hasVehicles: selectedEmbarkVehicleIds.length > 0,
+      hasVehicles: vehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
     });
     if (validationMessage) {
@@ -2200,9 +2241,10 @@ export default function Itineraries() {
       return;
     }
     setEmbarkSending(true);
+    setEmbarkErrorDetails(null);
     try {
       const response = await api.post(API_ROUTES.itineraryEmbark, {
-        vehicleIds: selectedEmbarkVehicleIds,
+        vehicleIds,
         itineraryIds,
         clientId: inferredClientId ?? undefined,
         xdmBufferMeters: embarkBufferMeters,
@@ -2225,16 +2267,20 @@ export default function Itineraries() {
       }
     } catch (error) {
       console.error(error);
-      showToast(resolveEmbarkErrorMessage(error), "warning");
+      const friendlyMessage = resolveEmbarkErrorMessage(error);
+      showToast(friendlyMessage, "warning");
+      setEmbarkSummary(friendlyMessage);
+      setEmbarkErrorDetails(resolveTechnicalDetails(error));
     } finally {
       setEmbarkSending(false);
     }
   };
 
   const handleDisembarkSubmit = async (overrideItineraryIds = null, overrideClientId = null) => {
-    const itineraryIds = overrideItineraryIds || selectedDisembarkItineraryIds;
+    const vehicleIds = normalizeIdList(selectedDisembarkVehicleIds);
+    const itineraryIds = normalizeIdList(overrideItineraryIds || selectedDisembarkItineraryIds);
     const validationMessage = resolveSelectionValidation({
-      hasVehicles: selectedDisembarkVehicleIds.length > 0,
+      hasVehicles: vehicleIds.length > 0,
       hasItineraries: itineraryIds.length > 0,
     });
     if (validationMessage) {
@@ -2251,9 +2297,10 @@ export default function Itineraries() {
       return;
     }
     setDisembarkSending(true);
+    setDisembarkErrorDetails(null);
     try {
       const response = await api.post(API_ROUTES.itineraryDisembarkBatch, {
-        vehicleIds: selectedDisembarkVehicleIds,
+        vehicleIds,
         itineraryIds,
         clientId: inferredClientId ?? undefined,
         options: {
@@ -2281,7 +2328,10 @@ export default function Itineraries() {
       }
     } catch (error) {
       console.error(error);
-      showToast(resolveEmbarkErrorMessage(error), "warning");
+      const friendlyMessage = resolveEmbarkErrorMessage(error);
+      showToast(friendlyMessage, "warning");
+      setDisembarkSummary(friendlyMessage);
+      setDisembarkErrorDetails(resolveTechnicalDetails(error));
     } finally {
       setDisembarkSending(false);
     }
@@ -3131,6 +3181,7 @@ export default function Itineraries() {
         sending={embarkSending}
         onSubmit={handleEmbarkSubmit}
         resultSummary={embarkSummary}
+        technicalDetails={embarkErrorDetails}
       />
 
       <DisembarkModal
@@ -3157,6 +3208,7 @@ export default function Itineraries() {
         sending={disembarkSending}
         onSubmit={handleDisembarkSubmit}
         resultSummary={disembarkSummary}
+        technicalDetails={disembarkErrorDetails}
       />
     </div>
   );
