@@ -62,8 +62,8 @@ export const BASE_MAP_LAYERS = [
   },
   {
     key: "hybrid",
-    label: "Híbrido",
-    description: "Sátelite + labels (Esri)",
+    label: "Satélite",
+    description: "Satélite com ruas (Esri)",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}",
     attribution: 'Tiles &copy; Esri — Source: Esri',
     maxZoom: 20,
@@ -95,8 +95,8 @@ const GOOGLE_LAYERS = [
   },
   {
     key: "google-hybrid",
-    label: "Google Híbrido",
-    description: "Satélite + labels Google (se habilitado)",
+    label: "Google Satélite",
+    description: "Satélite com ruas Google (se habilitado)",
     url: GOOGLE_HYBRID_TILE_URL,
     subdomains: ["mt0", "mt1", "mt2", "mt3"],
     maxZoom: 20,

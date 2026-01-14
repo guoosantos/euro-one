@@ -61,27 +61,52 @@ function resolveVehicleLastUpdate(vehicle) {
 function normalizeStatusLabel(label, fallback) {
   const normalized = String(label || "").trim();
   if (!normalized) return fallback;
-  if (normalized.toLowerCase().includes("sem embarque")) return fallback;
+  if (normalized.toLowerCase().includes("sem embarque")) return "SEM EMBARQUE";
   return normalized;
 }
 
 function resolveXdmStatusLabel(detail) {
-  return normalizeStatusLabel(detail?.xdmStatusLabel || detail?.statusLabel || detail?.status, "Pendente");
+  return normalizeStatusLabel(detail?.xdmStatusLabel || detail?.statusLabel || detail?.status, "SEM EMBARQUE");
 }
 
 function resolveEquipmentStatusLabel(detail) {
-  return normalizeStatusLabel(detail?.configStatusLabel, "Aguardando recebimento");
+  const pipelineStatus = resolveXdmStatusLabel(detail).toUpperCase();
+  if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
+  if (pipelineStatus.startsWith("EMBARCADO")) return "Equipamento atualizou";
+  if (pipelineStatus.startsWith("FALHOU")) return "Falha na aplicação";
+  if (pipelineStatus.startsWith("ERRO")) return "Erro na aplicação";
+  return "Aguardando atualização do equipamento";
+}
+
+function resolveCentralStatusLabel(detail) {
+  const pipelineStatus = resolveXdmStatusLabel(detail).toUpperCase();
+  if (pipelineStatus.startsWith("SEM EMBARQUE")) return "Sem embarque";
+  if (pipelineStatus.startsWith("ENVIADO")) return "Central aguardando confirmação";
+  if (pipelineStatus.startsWith("PENDENTE") || pipelineStatus.startsWith("EMBARCADO")) return "Central confirmou";
+  if (pipelineStatus.startsWith("FALHOU")) return "Falha no envio";
+  if (pipelineStatus.startsWith("ERRO")) return "Erro na central";
+  return "Central aguardando confirmação";
+}
+
+function resolveItinerarySyncLabel(itinerary) {
+  const raw = String(itinerary?.syncStatus || itinerary?.xdmSyncStatus || itinerary?.statusLabel || "").toUpperCase();
+  if (!raw) return "SEM STATUS";
+  if (raw === "OK") return "EMBARCADO";
+  if (raw === "PENDING") return "PENDENTE";
+  if (raw === "FAILED") return "FALHOU (ENVIO)";
+  if (raw === "ERROR") return "ERRO";
+  return raw;
 }
 
 function resolveSelectionValidation({ hasVehicles, hasItineraries }) {
   if (hasVehicles && hasItineraries) return null;
   if (!hasVehicles && !hasItineraries) {
-    return "Selecione pelo menos 1 veículo e 1 itinerário.";
+    return "Selecione ao menos 1 veículo e 1 itinerário.";
   }
   if (!hasVehicles) {
-    return "Selecione pelo menos 1 veículo.";
+    return "Selecione ao menos 1 veículo.";
   }
-  return "Selecione pelo menos 1 itinerário.";
+  return "Selecione ao menos 1 itinerário.";
 }
 
 function resolveStatusBadgeClass(label) {
@@ -112,7 +137,7 @@ function resolveEmbarkErrorMessage(error) {
   const status = error?.response?.status || error?.status || 0;
   const message = String(error?.response?.data?.message || error?.message || "").toLowerCase();
   if (code.includes("XDM") || status === 502 || status === 503) {
-    return "Não foi possível comunicar com o XDM. Tente novamente.";
+    return "Não foi possível comunicar com a Central. Tente novamente.";
   }
   if (code.includes("NO_PERMISSION") || message.includes("permiss")) {
     return "Falha ao aplicar no equipamento. Verifique credenciais/configuração.";
@@ -138,10 +163,10 @@ function resolveTechnicalDetails(error) {
   return String(error?.message || error) || null;
 }
 
-function resolveHybridLayer() {
+function resolveSatelliteLayer() {
   return (
-    ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-hybrid") ||
-    ENABLED_MAP_LAYERS.find((layer) => layer.key === "hybrid") ||
+    ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-satellite") ||
+    ENABLED_MAP_LAYERS.find((layer) => layer.key === "satellite") ||
     MAP_LAYER_FALLBACK
   );
 }
@@ -301,9 +326,9 @@ function buildItineraryItemDetails(itinerary, geofences, routes) {
         : isTarget
           ? "Alvo"
           : geofence?.config === "exit"
-            ? "Saída"
+            ? "Cerca (Saída)"
             : geofence?.config === "entry"
-              ? "Entrada"
+              ? "Cerca (Entrada)"
               : "Cerca";
     const circleCenter =
       geofence?.type === "circle"
@@ -332,7 +357,7 @@ function buildItineraryItemDetails(itinerary, geofences, routes) {
       type,
       name: geofence?.name || route?.name || "Item",
       typeLabel,
-      statusLabel: item?.xdmGeozoneId ? "Aplicado no XDM" : "Pendente no XDM",
+      statusLabel: item?.xdmGeozoneId ? "Equipamento atualizou" : "Aguardando atualização",
       geometry,
     };
   });
@@ -377,7 +402,7 @@ function MapGeometryLayer({ item }) {
 }
 
 function MapPreviewModal({ open, title, items = [], onClose }) {
-  const mapLayer = useMemo(() => resolveHybridLayer(), []);
+  const mapLayer = useMemo(() => resolveSatelliteLayer(), []);
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
@@ -466,7 +491,7 @@ function MapPreviewModal({ open, title, items = [], onClose }) {
 }
 
 function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, onOpenMap }) {
-  const mapLayer = useMemo(() => resolveHybridLayer(), []);
+  const mapLayer = useMemo(() => resolveSatelliteLayer(), []);
   const [mapReady, setMapReady] = useState(false);
   const tileConfig = useMemo(() => resolveTileLayerConfig(mapLayer), [mapLayer]);
   const { center: initialCenter, reason: neutralReason } = useMemo(() => resolveInitialCenter(items), [items]);
@@ -566,9 +591,9 @@ function ItineraryDetailModal({ open, itinerary, items, onClose, onExportKml, on
           </div>
           <div className="space-y-3">
             <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status XDM</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Status da Central</p>
               <p className="text-base font-semibold text-white">
-                {itinerary.xdmSyncStatus || itinerary.statusLabel || "Sem status"}
+                {resolveItinerarySyncLabel(itinerary)}
               </p>
               {itinerary.xdmLastSyncError && (
                 <p className="mt-2 text-xs text-red-200">{itinerary.xdmLastSyncError}</p>
@@ -1275,14 +1300,18 @@ function EmbarkContent({
               }}
             />
             <div className="space-y-2" ref={itineraryDropdownRef}>
-              <Input
+              <SearchInput
                 placeholder="Buscar itinerário"
                 value={itineraryQuery}
-                onChange={(event) => {
-                  onItineraryQueryChange(event.target.value);
+                onChange={(value) => {
+                  onItineraryQueryChange(value);
                   setItineraryDropdownOpen(true);
                 }}
                 onFocus={() => setItineraryDropdownOpen(true)}
+                onClear={() => {
+                  onItineraryQueryChange("");
+                  setItineraryDropdownOpen(true);
+                }}
               />
               {itineraryDropdownOpen && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1422,7 +1451,7 @@ function EmbarkModal({
         />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={onSubmit} disabled={sending || !canSubmit}>
+          <Button onClick={() => onSubmit()} disabled={sending || !canSubmit}>
             {sending ? "Embarcando..." : "Embarcar"}
           </Button>
         </div>
@@ -1619,14 +1648,18 @@ function DisembarkContent({
         {activeTab === "itineraries" && (
           <div className="space-y-3">
             <div className="space-y-2" ref={itineraryDropdownRef}>
-              <Input
+              <SearchInput
                 placeholder="Buscar itinerário"
                 value={itineraryQuery}
-                onChange={(event) => {
-                  onItineraryQueryChange(event.target.value);
+                onChange={(value) => {
+                  onItineraryQueryChange(value);
                   setItineraryDropdownOpen(true);
                 }}
                 onFocus={() => setItineraryDropdownOpen(true)}
+                onClear={() => {
+                  onItineraryQueryChange("");
+                  setItineraryDropdownOpen(true);
+                }}
               />
               {itineraryDropdownOpen && (
                 <div className="rounded-xl border border-white/10 bg-white/5 p-3">
@@ -1673,7 +1706,7 @@ function DisembarkContent({
         )}
 
         <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
-          <p className="text-sm font-semibold text-white">Limpeza no XDM (opcional)</p>
+          <p className="text-sm font-semibold text-white">Limpeza na Central (opcional)</p>
           <label className="flex items-center gap-2 text-sm text-white/70">
             <input type="checkbox" className="h-4 w-4" checked disabled />
             Remover geozone group do veículo (desembarque)
@@ -1685,7 +1718,7 @@ function DisembarkContent({
               checked={cleanupDeleteGroup}
               onChange={(event) => onCleanupDeleteGroupChange(event.target.checked)}
             />
-            Excluir Geozone Group no XDM
+            Excluir Geozone Group na Central
           </label>
           <label className="flex items-center gap-2 text-sm text-white/70">
             <input
@@ -1694,7 +1727,7 @@ function DisembarkContent({
               checked={cleanupDeleteGeozones}
               onChange={(event) => onCleanupDeleteGeozonesChange(event.target.checked)}
             />
-            Excluir Cercas / Rotas / Alvos no XDM (somente se não usados por outros itinerários)
+            Excluir Cercas / Rotas / Alvos na Central (somente se não usados por outros itinerários)
           </label>
         </div>
 
@@ -1796,7 +1829,7 @@ function DisembarkModal({
         />
 
         <div className="flex items-center justify-end border-t border-white/10 px-6 py-4">
-          <Button onClick={onSubmit} disabled={sending || !canSubmit}>
+          <Button onClick={() => onSubmit()} disabled={sending || !canSubmit}>
             {sending ? "Desembarcando..." : "Desembarcar"}
           </Button>
         </div>
@@ -2021,7 +2054,11 @@ export default function Itineraries() {
     const hasPending = historyEntries.some((entry) => {
       const statusCode = entry.statusCode || entry.status || "";
       const normalized = String(statusCode).toUpperCase();
-      return ["DEPLOYING", "SYNCING", "QUEUED"].includes(normalized) || entry.statusLabel === "Em andamento";
+      const label = String(entry.statusLabel || "").toUpperCase();
+      return (
+        ["DEPLOYING", "SYNCING", "QUEUED"].includes(normalized) ||
+        ["PENDENTE", "ENVIADO"].includes(label)
+      );
     });
     if (!hasPending) return;
     const interval = setInterval(() => {
@@ -3084,7 +3121,7 @@ export default function Itineraries() {
                         </div>
                         <p className="text-[11px] text-white/60">{detail.plate || "Placa não informada"}</p>
                         <p className="text-[11px] text-white/50">
-                          {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado (XDM)"}
+                          {detail.itineraryName ? `Itinerário: ${detail.itineraryName}` : "Sem itinerário embarcado"}
                         </p>
                       </button>
                     );
@@ -3148,14 +3185,14 @@ export default function Itineraries() {
                       <div className="rounded-xl border border-white/10 bg-black/30 p-4 text-sm text-white/70">
                         <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Itinerário embarcado</p>
                         <p className="text-base font-semibold text-white">
-                          {selectedEmbarkDetail.itineraryName || "Nenhum itinerário embarcado (XDM)"}
+                          {selectedEmbarkDetail.itineraryName || "Nenhum itinerário embarcado"}
                         </p>
                         {selectedEmbarkDetail.itineraryDescription && (
                           <p className="mt-2 text-xs text-white/60">{selectedEmbarkDetail.itineraryDescription}</p>
                         )}
                         <div className="mt-3 space-y-1 text-xs text-white/60">
-                          <p>Status no XDM: {resolveXdmStatusLabel(selectedEmbarkDetail)}</p>
-                          <p>Status no equipamento: {resolveEquipmentStatusLabel(selectedEmbarkDetail)}</p>
+                          <p>Status da Central: {resolveCentralStatusLabel(selectedEmbarkDetail)}</p>
+                          <p>Status do equipamento: {resolveEquipmentStatusLabel(selectedEmbarkDetail)}</p>
                         </div>
                         {selectedEmbarkDetail.xdmError && (
                           <p className="mt-2 text-xs text-red-200">{selectedEmbarkDetail.xdmError}</p>

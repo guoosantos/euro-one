@@ -57,7 +57,7 @@ export default function Layout({ children, title, hideTitle = false }) {
     : undefined;
 
   return (
-    <div className="app-shell flex min-h-screen text-text" style={rootStyle}>
+    <div className="app-shell flex h-screen overflow-hidden text-text" style={rootStyle}>
       {/* backdrop mobile */}
       {sidebarOpen && (
         <button
