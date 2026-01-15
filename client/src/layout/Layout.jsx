@@ -98,7 +98,7 @@ export default function Layout({ children, title, hideTitle = false }) {
         <section className={`app-shell__content ${isFullWidthPage ? "p-0" : "p-6"}`}>
           {isFullWidthPage ? (
             // 🔵 Páginas fullscreen (monitoring / realtime)
-            <div className="flex min-h-0 flex-1 bg-[#0b0f17]">
+            <div className="flex min-h-0 w-full flex-1 flex-col bg-[#0b0f17]">
               <ErrorBoundary>{children}</ErrorBoundary>
             </div>
           ) : (

@@ -133,9 +133,12 @@ body {
 }
 
 .app-shell__content {
+  display: flex;
   flex: 1 1 auto;
-  overflow: auto;
+  flex-direction: column;
   min-height: 0;
+  min-width: 0;
+  overflow: auto;
 }
 
 @media (max-width: 767px) {
