@@ -227,8 +227,8 @@ export default function ReportsRoute() {
       },
       {
         key: "criticality",
-        label: resolveReportColumnLabel("criticality", "Criticidade"),
-        fullLabel: resolveReportColumnTooltip("criticality", "Criticidade"),
+        label: resolveReportColumnLabel("criticality", "Severidade"),
+        fullLabel: resolveReportColumnTooltip("criticality", "Severidade"),
         defaultVisible: false,
         render: (point) => {
           const severity = point?.attributes?.severity || point?.severity;

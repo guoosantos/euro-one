@@ -284,7 +284,7 @@ const IOTM_REPORT_COLUMN_LABELS = {
   sensor_dtc_captured: "CAN - Códigos de Falha do Veículo",
   portafl: "CAN - Porta Motorista",
   portarl: "CAN - Porta Passageiro",
-  eventseverity: "Criticidade",
+  eventseverity: "Severidade",
   eventactive: "Evento Ativo",
 };
 
@@ -320,7 +320,7 @@ const PROTOCOL_COLUMN_CATALOG = {
     batterylevel: { labelPt: "Nível da Bateria", unit: "%", type: "percent", group: "battery" },
     rssi: { labelPt: "Sinal Celular", group: "sensor" },
     status: { labelPt: "Status", group: "other" },
-    eventseverity: { labelPt: "Criticidade", group: "base" },
+    eventseverity: { labelPt: "Severidade", group: "base" },
     eventactive: { labelPt: "Evento Ativo", type: "boolean", group: "base" },
   },
   gt06: {

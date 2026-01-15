@@ -12,6 +12,7 @@ import { getEventResolution, markEventResolved } from "../models/resolved-event.
 import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../services/traccar.js";
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
+import { upsertAlertFromEvent } from "../services/alerts.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import {
@@ -1340,12 +1341,16 @@ function applyEventConfigToPosition(position, { clientId } = {}) {
     eventLabel: resolved.label,
     eventSeverity: resolved.severity,
     eventActive: resolved.active,
+    eventCategory: resolved.category,
+    eventRequiresHandling: resolved.requiresHandling,
   };
   return {
     ...position,
     eventLabel: resolved.label,
     eventSeverity: resolved.severity,
     eventActive: resolved.active,
+    eventCategory: resolved.category,
+    eventRequiresHandling: resolved.requiresHandling,
     attributes: nextAttributes,
   };
 }
@@ -1362,6 +1367,14 @@ function resolvePositionEventLabel(position, { clientId } = {}) {
   let eventSeverity = position.eventSeverity || attributes.eventSeverity || null;
   let eventActive =
     position.eventActive !== undefined ? position.eventActive : attributes.eventActive !== undefined ? attributes.eventActive : null;
+  let eventCategory =
+    position.eventCategory !== undefined ? position.eventCategory : attributes.eventCategory !== undefined ? attributes.eventCategory : null;
+  let eventRequiresHandling =
+    position.eventRequiresHandling !== undefined
+      ? position.eventRequiresHandling
+      : attributes.eventRequiresHandling !== undefined
+      ? attributes.eventRequiresHandling
+      : null;
 
   if (eventCode) {
     const resolved = resolveEventConfiguration({
@@ -1375,6 +1388,8 @@ function resolvePositionEventLabel(position, { clientId } = {}) {
       eventLabel = resolved.label ?? eventLabel;
       eventSeverity = resolved.severity ?? eventSeverity;
       eventActive = resolved.active ?? eventActive;
+      eventCategory = resolved.category ?? eventCategory;
+      eventRequiresHandling = resolved.requiresHandling ?? eventRequiresHandling;
     }
   }
 
@@ -1383,6 +1398,8 @@ function resolvePositionEventLabel(position, { clientId } = {}) {
     eventLabel,
     eventSeverity,
     eventActive,
+    eventCategory,
+    eventRequiresHandling,
     attributes: {
       ...attributes,
       eventLabel,
@@ -2262,6 +2279,9 @@ async function handleEventsReport(req, res, next) {
     const severityFilter = req.query?.severity;
     const resolvedFilter = req.query?.resolved;
 
+    const vehicles = listVehicles({ clientId });
+    const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
+
     const eventsWithAddress = events.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
       const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
@@ -2279,6 +2299,9 @@ async function handleEventsReport(req, res, next) {
         lookup.metadataById?.get(String(event.deviceId)),
         event.deviceId,
       );
+      const deviceRecord = lookup.devicesByTraccarId?.get(String(event.deviceId)) || null;
+      const vehicleId = deviceRecord?.vehicleId ?? null;
+      const vehicle = vehicleId ? vehicleById.get(String(vehicleId)) : null;
       const batteryLevel =
         decoratedPosition?.batteryLevel ?? extractBatteryLevel(position?.attributes) ?? extractBatteryLevel(event.attributes);
       const ignition =
@@ -2304,6 +2327,22 @@ async function handleEventsReport(req, res, next) {
           })
         : null;
       const severity = configuredEvent?.severity || resolveEventSeverity(event);
+      const eventCategory = configuredEvent?.category ?? null;
+      const eventRequiresHandling = configuredEvent?.requiresHandling ?? false;
+
+      if (configuredEvent?.requiresHandling) {
+        upsertAlertFromEvent({
+          clientId,
+          event,
+          configuredEvent,
+          deviceId: event?.deviceId ?? null,
+          vehicleId,
+          vehicleLabel: vehicle?.name ?? null,
+          plate: vehicle?.plate ?? null,
+          address: resolvedAddress || decoratedPosition?.address || position?.address || event.address || fallbackShort,
+          protocol,
+        });
+      }
       return {
         ...event,
         position: decoratedPosition || position,
@@ -2319,6 +2358,8 @@ async function handleEventsReport(req, res, next) {
         eventLabel: configuredEvent?.label || null,
         eventSeverity: configuredEvent?.severity || null,
         eventActive: configuredEvent?.active ?? true,
+        eventCategory,
+        eventRequiresHandling,
         protocol,
         resolved: Boolean(resolution),
         resolvedAt: resolution?.resolvedAt || null,

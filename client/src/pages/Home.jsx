@@ -6,11 +6,11 @@ import { useTenant } from "../lib/tenant-context";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
 import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
-import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
+import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
-import { resolveAlertSignals } from "../lib/alert-utils.js";
 import { formatAddress } from "../lib/format-address.js";
-import { deriveStatus, hasRecentCriticalAlert, resolveEventSeverity } from "../lib/monitoring-helpers.js";
+import useAlerts from "../lib/hooks/useAlerts.js";
+import useConjugatedAlerts from "../lib/hooks/useConjugatedAlerts.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 
@@ -32,6 +32,10 @@ export default function Home() {
   const { vehicles, loading: loadingVehicles } = useVehicles();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
   const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const { alerts: pendingAlerts, loading: pendingAlertsLoading } = useAlerts({ params: { status: "pending" } });
+  const { alerts: conjugatedAlerts, loading: conjugatedAlertsLoading } = useConjugatedAlerts({
+    params: { windowHours: 5 },
+  });
 
   const positionByDevice = useMemo(() => {
     const map = new Map();
@@ -189,28 +193,8 @@ export default function Home() {
     [decoratedTable, tasks, vehicleByDeviceId],
   );
 
-  const alertRows = useMemo(
-    () =>
-      decoratedTable
-        .map((row) => {
-          const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
-          return { ...row, alertSignals };
-        })
-        .filter((row) => deriveStatus(row.position) === "alert"),
-    [decoratedTable],
-  );
-
-  const conjugatedAlertRows = useMemo(
-    () =>
-      decoratedTable
-        .map((row) => ({
-          ...row,
-          alertSignals: resolveAlertSignals({ position: row.position, device: row.device }),
-          eventSeverity: resolveEventSeverity(row.position),
-        }))
-        .filter((row) => hasRecentCriticalAlert(row.position)),
-    [decoratedTable],
-  );
+  const alertRows = useMemo(() => pendingAlerts, [pendingAlerts]);
+  const conjugatedAlertRows = useMemo(() => conjugatedAlerts, [conjugatedAlerts]);
 
 
   const renderCommunicationSummary = (expanded = false) => (
@@ -323,7 +307,7 @@ export default function Home() {
           Fechar
         </button>
       ) : (
-        <Link to="/monitoring?filter=critical" className="text-xs font-semibold text-primary">
+        <Link to="/monitoring?filter=alerts" className="text-xs font-semibold text-primary">
           Ver no monitoramento
         </Link>
       )}
@@ -349,14 +333,19 @@ export default function Home() {
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                  onClick={() => window.open(`/monitoring?filter=critical&deviceId=${row.id}`, "_blank")}
+                  onClick={() =>
+                    window.open(
+                      `/monitoring?filter=alerts&deviceId=${row.deviceId ?? ""}`,
+                      "_blank",
+                    )
+                  }
                 >
                   <td className="py-2 pr-4 text-white/80">
-                    {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
+                    {row.vehicleLabel || row.plate || row.vehicleId || "—"}
                   </td>
-                  <td className="py-2 pr-4 text-white/70">{formatDate(row.lastUpdate, locale)}</td>
+                  <td className="py-2 pr-4 text-white/70">{formatDate(row.createdAt, locale)}</td>
                   <td className="py-2 pr-4 text-white/70">
-                    {row.alertSignals.length ? row.alertSignals.join(" · ") : "Alerta ativo"}
+                    {row.eventLabel || "Alerta pendente"}
                   </td>
                   <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
                 </tr>
@@ -377,7 +366,7 @@ export default function Home() {
           Fechar
         </button>
       ) : (
-        <Link to="/monitoring?filter=critical" className="text-xs font-semibold text-primary">
+        <Link to="/monitoring?filter=conjugated" className="text-xs font-semibold text-primary">
           Ver no monitoramento
         </Link>
       )}
@@ -393,8 +382,10 @@ export default function Home() {
             <thead className="text-white/40">
               <tr className="border-b border-white/10 text-left">
                 <th className="py-2 pr-4">Veículo</th>
-                <th className="py-2 pr-4">Última atualização</th>
-                <th className="py-2 pr-4">Criticidade</th>
+                <th className="py-2 pr-4">Data/Hora</th>
+                <th className="py-2 pr-4">Evento</th>
+                <th className="py-2 pr-4">Local</th>
+                <th className="py-2 pr-4">Severidade</th>
               </tr>
             </thead>
             <tbody>
@@ -402,13 +393,20 @@ export default function Home() {
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                  onClick={() => window.open(`/monitoring?filter=critical&deviceId=${row.id}`, "_blank")}
+                  onClick={() =>
+                    window.open(
+                      `/monitoring?filter=conjugated&deviceId=${row.deviceId ?? ""}`,
+                      "_blank",
+                    )
+                  }
                 >
                   <td className="py-2 pr-4 text-white/80">
-                    {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
+                    {row.vehicleLabel || row.plate || row.vehicleId || "—"}
                   </td>
-                  <td className="py-2 pr-4 text-white/70">{formatDate(row.lastUpdate, locale)}</td>
-                  <td className="py-2 pr-4 text-white/70">{row.eventSeverity || "Crítica"}</td>
+                  <td className="py-2 pr-4 text-white/70">{formatDate(row.eventTime, locale)}</td>
+                  <td className="py-2 pr-4 text-white/70">{row.eventLabel || "—"}</td>
+                  <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
+                  <td className="py-2 pr-4 text-white/70">{row.severity || "Crítica"}</td>
                 </tr>
               ))}
             </tbody>
@@ -453,14 +451,14 @@ export default function Home() {
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={loadingPositions ? "…" : alertRows.length}
+          value={pendingAlertsLoading ? "…" : alertRows.length}
           hint="Alertas ativos no monitoramento"
           variant="alert"
           onClick={() => setSelectedCard("alert")}
         />
         <StatCard
           title="Alertas conjugados"
-          value={loadingPositions ? "…" : conjugatedAlertRows.length}
+          value={conjugatedAlertsLoading ? "…" : conjugatedAlertRows.length}
           hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
           onClick={() => setSelectedCard("critical")}

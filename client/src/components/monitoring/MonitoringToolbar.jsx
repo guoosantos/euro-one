@@ -241,13 +241,14 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
     { key: "stale_24_plus", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24Plus ?? 0 },
   ];
   const secondaryItems = [
-    { key: "critical", label: t("monitoring.filters.conjugatedAlerts"), value: summary?.alerts ?? 0 },
+    { key: "alerts", label: t("monitoring.filters.alerts"), value: summary?.alertsPending ?? 0 },
+    { key: "conjugated", label: t("monitoring.filters.conjugatedAlerts"), value: summary?.alertsConjugated ?? 0 },
   ];
 
   const renderRow = (items, rowId) => (
     <div
       key={rowId}
-      className="flex min-h-[24px] flex-nowrap items-center gap-2 overflow-x-auto px-1 py-0.5 text-[10px] leading-[14px] text-white/60"
+      className="flex min-h-[24px] flex-wrap items-center gap-2 px-1 py-0.5 text-[10px] leading-[14px] text-white/60"
     >
       {items.map((item) => {
         const isActive = activeFilter === item.key;
