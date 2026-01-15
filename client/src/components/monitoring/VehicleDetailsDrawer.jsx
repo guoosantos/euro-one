@@ -125,22 +125,15 @@ export default function VehicleDetailsDrawer({
   const [itineraryStatus, setItineraryStatus] = useState(null);
   const [itineraryLoading, setItineraryLoading] = useState(false);
   const [alertStatus, setAlertStatus] = useState("pending");
-  const [alertSeverity, setAlertSeverity] = useState("");
-  const [alertCategory, setAlertCategory] = useState("");
-  const [alertFrom, setAlertFrom] = useState("");
-  const [alertTo, setAlertTo] = useState("");
   const [handlingDrafts, setHandlingDrafts] = useState({});
+  const [activeAlertId, setActiveAlertId] = useState(null);
 
   const alertParams = useMemo(
     () => ({
       status: alertStatus,
       vehicleId: vehicleId || undefined,
-      severity: alertSeverity || undefined,
-      category: alertCategory || undefined,
-      from: alertFrom || undefined,
-      to: alertTo || undefined,
     }),
-    [alertCategory, alertFrom, alertSeverity, alertStatus, alertTo, vehicleId],
+    [alertStatus, vehicleId],
   );
   const { alerts: vehicleAlerts, loading: alertsLoading, refresh: refreshAlerts } = useAlerts({
     params: alertParams,
@@ -308,7 +301,10 @@ export default function VehicleDetailsDrawer({
           <Section title="Resumo">
             <Detail label="Placa" value={safeVehicle.plate || "—"} />
             <Detail label="Status" value={statusLabel} />
-            <Detail label="Velocidade" value={position?.speed != null ? `${position.speed} km/h` : "—"} />
+            <Detail
+              label="Velocidade"
+              value={position?.speed != null ? `${Number(position.speed).toFixed(0)} km/h` : "—"}
+            />
             <Detail label="Última atualização" value={lastUpdateLabel} />
             <Detail label="Endereço" value={resolvedAddress} />
           </Section>
@@ -344,7 +340,7 @@ export default function VehicleDetailsDrawer({
           {tripsLoading && <p className="text-xs text-white/60">Carregando trajetos...</p>}
           {tripsError && <p className="text-xs text-red-300">Erro ao carregar trajetos.</p>}
           {!tripsLoading && trips.length === 0 && (
-            <p className="text-xs text-white/50">Nenhum trajeto encontrado.</p>
+            <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           <ul className="space-y-2">
             {trips.map((trip) => (
@@ -382,16 +378,19 @@ export default function VehicleDetailsDrawer({
           </div>
           {eventsLoading && <p className="text-xs text-white/60">Carregando eventos...</p>}
           {!eventsLoading && events.length === 0 && (
-            <p className="text-xs text-white/50">Nenhum evento encontrado.</p>
+            <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           <ul className="space-y-2">
-            {events.map((event) => (
-              <li key={event.id} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
+            {events.map((event, index) => (
+              <li
+                key={String(event.id || event.eventId || `${event.type || "event"}-${index}`)}
+                className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70"
+              >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="font-semibold text-white">
-                    {event.eventLabel || event.type || "Evento"}
+                    {formatDisplayValue(event.eventLabel || event.type || "Evento")}
                   </span>
-                  <span className="text-white/50">{event.severity || event.eventSeverity || "—"}</span>
+                  <span className="text-white/50">{formatDisplayValue(event.severity || event.eventSeverity || "—")}</span>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/50">
                   <span>{event.serverTime ? new Date(event.serverTime).toLocaleString() : "—"}</span>
@@ -447,14 +446,16 @@ export default function VehicleDetailsDrawer({
           </div>
           {commandsLoading && <p className="text-xs text-white/60">Carregando comandos...</p>}
           {!commandsLoading && commands.length === 0 && (
-            <p className="text-xs text-white/50">Nenhum comando encontrado.</p>
+            <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           <ul className="space-y-2">
             {commands.map((command) => (
               <li key={command.id || command.createdAt} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-white">{command.type || command.commandName || "Comando"}</span>
-                  <span className="text-white/50">{command.status || "—"}</span>
+                  <span className="font-semibold text-white">
+                    {formatDisplayValue(command.type || command.commandName || "Comando")}
+                  </span>
+                  <span className="text-white/50">{formatDisplayValue(command.status || "—")}</span>
                 </div>
                 <div className="mt-1 text-[11px] text-white/50">
                   {command.createdAt ? new Date(command.createdAt).toLocaleString() : "—"}
@@ -482,7 +483,7 @@ export default function VehicleDetailsDrawer({
           </div>
           {itineraryLoading && <p className="text-xs text-white/60">Carregando itinerário...</p>}
           {!itineraryLoading && !itineraryStatus && (
-            <p className="text-xs text-white/50">Nenhum itinerário embarcado.</p>
+            <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           {itineraryStatus && (
             <div className="mt-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
@@ -526,55 +527,9 @@ export default function VehicleDetailsDrawer({
             </div>
           </div>
 
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
-            <label className="text-xs uppercase tracking-wide text-white/60">
-              Período inicial
-              <input
-                type="datetime-local"
-                value={alertFrom}
-                onChange={(event) => setAlertFrom(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
-              />
-            </label>
-            <label className="text-xs uppercase tracking-wide text-white/60">
-              Período final
-              <input
-                type="datetime-local"
-                value={alertTo}
-                onChange={(event) => setAlertTo(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
-              />
-            </label>
-            <label className="text-xs uppercase tracking-wide text-white/60">
-              Severidade
-              <select
-                value={alertSeverity}
-                onChange={(event) => setAlertSeverity(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
-              >
-                <option value="">Todas</option>
-                <option value="grave">Grave</option>
-                <option value="critical">Crítica</option>
-                <option value="warning">Alerta</option>
-              </select>
-            </label>
-            <label className="text-xs uppercase tracking-wide text-white/60">
-              Tipo
-              <select
-                value={alertCategory}
-                onChange={(event) => setAlertCategory(event.target.value)}
-                className="mt-2 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-xs text-white"
-              >
-                <option value="">Todos</option>
-                <option value="Segurança">Segurança</option>
-                <option value="Logística">Logística</option>
-              </select>
-            </label>
-          </div>
-
           {alertsLoading && <p className="text-xs text-white/60">Carregando alertas...</p>}
           {!alertsLoading && vehicleAlerts.length === 0 && (
-            <p className="text-xs text-white/50">Nenhum alerta encontrado.</p>
+            <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           <div className="space-y-3">
             {vehicleAlerts.map((alert) => (
@@ -591,23 +546,42 @@ export default function VehicleDetailsDrawer({
                     },
                   }))
                 }
-                onHandle={async () => {
-                  await safeApi.patch(API_ROUTES.alertHandle(alert.id), {
-                    isOk: handlingDrafts[alert.id]?.isOk ?? null,
-                    action: handlingDrafts[alert.id]?.action ?? "",
-                    cause: handlingDrafts[alert.id]?.cause ?? "",
-                    notes: handlingDrafts[alert.id]?.notes ?? "",
-                  });
-                  setHandlingDrafts((current) => {
-                    const next = { ...current };
-                    delete next[alert.id];
-                    return next;
-                  });
-                  refreshAlerts?.();
-                }}
+                onOpenHandle={() => setActiveAlertId(alert.id)}
               />
             ))}
           </div>
+          <AlertHandleModal
+            isOpen={Boolean(activeAlertId)}
+            alert={vehicleAlerts.find((item) => item.id === activeAlertId) || null}
+            draft={activeAlertId ? handlingDrafts[activeAlertId] || {} : {}}
+            onClose={() => setActiveAlertId(null)}
+            onDraftChange={(field, value) =>
+              setHandlingDrafts((current) => ({
+                ...current,
+                [activeAlertId]: {
+                  ...(current[activeAlertId] || {}),
+                  [field]: value,
+                },
+              }))
+            }
+            onHandle={async () => {
+              if (!activeAlertId) return;
+              const draft = handlingDrafts[activeAlertId] || {};
+              await safeApi.patch(API_ROUTES.alertHandle(activeAlertId), {
+                isOk: draft?.isOk ?? null,
+                action: draft?.action ?? "",
+                cause: draft?.cause ?? "",
+                notes: draft?.notes ?? "",
+              });
+              setHandlingDrafts((current) => {
+                const next = { ...current };
+                delete next[activeAlertId];
+                return next;
+              });
+              setActiveAlertId(null);
+              refreshAlerts?.();
+            }}
+          />
         </Section>
       );
     }
@@ -726,7 +700,7 @@ function Detail({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-3 text-xs text-white/70">
       <span className="uppercase tracking-[0.12em] text-white/50">{label}</span>
-      <span className="max-w-[65%] truncate text-right text-white">{value ?? "—"}</span>
+      <span className="max-w-[65%] truncate text-right text-white">{formatDisplayValue(value)}</span>
     </div>
   );
 }
@@ -742,7 +716,7 @@ function InfoField({ label, value }) {
   return (
     <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
       <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">{label}</p>
-      <p className="mt-1 text-sm text-white">{value ?? "—"}</p>
+      <p className="mt-1 text-sm text-white">{formatDisplayValue(value)}</p>
     </div>
   );
 }
@@ -769,15 +743,19 @@ function SensorCard({ sensor }) {
   );
 }
 
-function AlertCard({ alert, draft, onDraftChange, onHandle }) {
+function AlertCard({ alert, draft, onDraftChange, onOpenHandle }) {
   const isPending = alert.status === "pending";
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-xs text-white/70">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-white">{alert.eventLabel || "Alerta"}</p>
+          <p className="text-sm font-semibold text-white">
+            {formatDisplayValue(alert.eventLabel || "Alerta")}
+          </p>
           <p className="text-[11px] text-white/50">
-            {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "—"} • {alert.severity || "—"}
+            {alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "—"} •
+            {" "}
+            {formatDisplayValue(alert.severity || "—")}
           </p>
         </div>
         <span className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.12em] ${
@@ -786,10 +764,60 @@ function AlertCard({ alert, draft, onDraftChange, onHandle }) {
           {isPending ? "Pendente" : "Tratado"}
         </span>
       </div>
-      <p className="mt-2 text-[11px] text-white/50">{alert.address || "Endereço indisponível"}</p>
+      <p className="mt-2 text-[11px] text-white/50">{formatDisplayValue(alert.address || "Endereço indisponível")}</p>
 
       {isPending ? (
-        <div className="mt-3 grid gap-3">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-white/50">
+            Aguardando tratativa obrigatória.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenHandle}
+            className="rounded-lg border border-primary/60 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white"
+          >
+            Tratar alerta
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 space-y-1 text-[11px] text-white/50">
+          <p>Tratado em: {alert.handledAt ? new Date(alert.handledAt).toLocaleString() : "—"}</p>
+          <p>OK: {alert.handling?.isOk === true ? "Sim" : alert.handling?.isOk === false ? "Não" : "—"}</p>
+          <p>Ação: {alert.handling?.action || "—"}</p>
+          <p>Causa: {alert.handling?.cause || "—"}</p>
+          <p>Observação: {alert.handling?.notes || "—"}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlertHandleModal({ alert, draft, isOpen, onClose, onDraftChange, onHandle }) {
+  if (!isOpen || !alert) return null;
+  const isValid =
+    draft?.isOk !== null &&
+    draft?.isOk !== undefined &&
+    Boolean(draft?.action?.trim()) &&
+    Boolean(draft?.cause?.trim()) &&
+    Boolean(draft?.notes?.trim());
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-[#0f141c] p-5 text-white shadow-2xl">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-[0.14em] text-white/50">Tratativa obrigatória</p>
+            <h3 className="text-lg font-semibold text-white">{formatDisplayValue(alert.eventLabel || "Alerta")}</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/70 hover:text-white"
+          >
+            Fechar
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 text-xs text-white/70">
           <div>
             <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Está tudo OK com o veículo?</p>
             <div className="mt-2 flex gap-2">
@@ -818,7 +846,7 @@ function AlertCard({ alert, draft, onDraftChange, onHandle }) {
             </div>
           </div>
           <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
-            O que foi feito?
+            O que foi feito? *
             <textarea
               value={draft.action || ""}
               onChange={(event) => onDraftChange("action", event.target.value)}
@@ -827,7 +855,7 @@ function AlertCard({ alert, draft, onDraftChange, onHandle }) {
             />
           </label>
           <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
-            O que causou?
+            O que causou? *
             <textarea
               value={draft.cause || ""}
               onChange={(event) => onDraftChange("cause", event.target.value)}
@@ -836,7 +864,7 @@ function AlertCard({ alert, draft, onDraftChange, onHandle }) {
             />
           </label>
           <label className="text-[10px] uppercase tracking-[0.12em] text-white/50">
-            Observação
+            Observação *
             <textarea
               value={draft.notes || ""}
               onChange={(event) => onDraftChange("notes", event.target.value)}
@@ -844,23 +872,35 @@ function AlertCard({ alert, draft, onDraftChange, onHandle }) {
               rows={2}
             />
           </label>
+          <div className="grid gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Data/Hora do alerta</p>
+            <p className="text-sm text-white">{alert.createdAt ? new Date(alert.createdAt).toLocaleString() : "—"}</p>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Data/Hora da tratativa</p>
+            <p className="text-sm text-white">{new Date().toLocaleString()}</p>
+          </div>
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
           <button
             type="button"
-            onClick={onHandle}
-            className="rounded-lg border border-primary/60 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70"
           >
-            Tratar alerta
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={!isValid}
+            onClick={onHandle}
+            className={`rounded-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+              isValid
+                ? "border-primary/60 bg-primary/20 text-white"
+                : "border-white/10 bg-white/5 text-white/40"
+            }`}
+          >
+            Salvar tratativa
           </button>
         </div>
-      ) : (
-        <div className="mt-3 space-y-1 text-[11px] text-white/50">
-          <p>Tratado em: {alert.handledAt ? new Date(alert.handledAt).toLocaleString() : "—"}</p>
-          <p>OK: {alert.handling?.isOk === true ? "Sim" : alert.handling?.isOk === false ? "Não" : "—"}</p>
-          <p>Ação: {alert.handling?.action || "—"}</p>
-          <p>Causa: {alert.handling?.cause || "—"}</p>
-          <p>Observação: {alert.handling?.notes || "—"}</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -913,6 +953,18 @@ function formatVehicleSummary(brand, model, year) {
   const parts = [brand, model, year].filter((item) => item && String(item).trim());
   if (!parts.length) return "—";
   return parts.join(" • ");
+}
+
+function formatDisplayValue(value) {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string") return value.trim() ? value : "—";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "—";
+  if (typeof value === "boolean") return value ? "Sim" : "Não";
+  if (Array.isArray(value)) {
+    const filtered = value.map((item) => formatDisplayValue(item)).filter((item) => item !== "—");
+    return filtered.length ? filtered.join(", ") : "—";
+  }
+  return "—";
 }
 
 function formatDuration(value) {

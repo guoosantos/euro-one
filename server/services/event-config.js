@@ -8,6 +8,30 @@ import { getProtocolEvents, normalizeProtocolKey } from "./protocol-catalog.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const storagePath = process.env.EVENT_CONFIG_PATH || path.join(__dirname, "..", "data", "event-config.json");
 let cachedConfig = null;
+const DEFAULT_EVENT_CATEGORY = "Logística";
+const SECURITY_EVENT_IDS = new Set(
+  [
+    "10",
+    "11",
+    "12",
+    "13",
+    "145",
+    "21",
+    "3",
+    "4",
+    "5",
+    "6",
+    "68",
+    "69",
+    "70",
+    "9",
+    "commandresult",
+    "deviceinactive",
+    "deviceoffline",
+    "fun_id=0,war_id=1",
+    "fun_id=0,war_id=140",
+  ].map((entry) => entry.toLowerCase()),
+);
 
 function readFile() {
   if (cachedConfig) return cachedConfig;
@@ -32,6 +56,13 @@ function normalizeClientKey(clientId) {
 function normalizeEventId(eventId) {
   if (eventId === undefined || eventId === null) return "";
   return String(eventId).trim();
+}
+
+function resolveDefaultCategory(eventId, catalogEvent = null) {
+  const normalized = normalizeEventId(eventId).toLowerCase();
+  if (catalogEvent?.category) return catalogEvent.category;
+  if (SECURITY_EVENT_IDS.has(normalized)) return "Segurança";
+  return DEFAULT_EVENT_CATEGORY;
 }
 
 function getCatalogEvents(protocolKey, catalogEvents) {
@@ -114,7 +145,7 @@ export function getEventConfig({ clientId, protocol, catalogEvents } = {}) {
     const defaults = {
       severity: event?.defaultSeverity || event?.severity || "info",
       active: true,
-      category: event?.category ?? null,
+      category: resolveDefaultCategory(eventId, event),
       requiresHandling: event?.requiresHandling ?? false,
     };
     if (!next[eventId]) {
@@ -165,7 +196,7 @@ export function updateEventConfig({ clientId, protocol, items = [], catalogEvent
     const defaults = {
       severity: catalog?.defaultSeverity || catalog?.severity || "info",
       active: true,
-      category: catalog?.category ?? null,
+      category: resolveDefaultCategory(eventId, catalog),
       requiresHandling: catalog?.requiresHandling ?? false,
     };
     const normalized = normalizeEntry(
@@ -217,7 +248,7 @@ export function ensureUnmappedEventConfig({ clientId, protocol, eventId }) {
       customName: `NÃO MAPEADO (${eventKey})`,
       severity: "warning",
       active: true,
-      category: null,
+      category: resolveDefaultCategory(eventKey),
       requiresHandling: false,
     },
   };
