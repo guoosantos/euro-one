@@ -226,6 +226,7 @@ async function maybeConfirmDeployment({ deployment, vehicle, xdmStatus } = {}) {
   return updateDeployment(deployment.id, {
     status: "CONFIRMED",
     confirmedAt,
+    deviceConfirmedAt: confirmedAt,
     finishedAt: confirmedAt,
   });
 }
@@ -282,6 +283,7 @@ function normalizeHistoryEntry(entry) {
   const actionLabel = resolveActionLabel(entry.action);
   const details = entry.details || entry.result || null;
   const message = entry.message || resolveHistoryMessage({ ...entry, statusCode, statusLabel });
+  const deviceConfirmedAt = entry.deviceConfirmedAt || entry.receivedAtDevice || null;
   return {
     ...entry,
     statusCode,
@@ -289,6 +291,7 @@ function normalizeHistoryEntry(entry) {
     actionLabel,
     message,
     details,
+    deviceConfirmedAt,
   };
 }
 
@@ -656,11 +659,12 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
           itineraryId: synced.itinerary.id,
           itineraryName: synced.itinerary.name || null,
           sentAt,
-          receivedAt: new Date().toISOString(),
+          receivedAt: null,
+          deviceConfirmedAt: null,
           sentBy: req.user?.id || null,
           sentByName: userLabel,
           status: "DEPLOYED",
-          statusLabel: "EMBARCADO",
+          statusLabel: "CONCLUÍDO",
           action: "CREATE",
           message: `Itinerário '${synced.itinerary.name || "itinerário"}' criado por ${userLabel}.`,
           details: null,
@@ -682,11 +686,12 @@ router.post("/itineraries", requireRole("manager", "admin"), async (req, res, ne
             itineraryId: updated.id,
             itineraryName: updated.name || null,
             sentAt,
-            receivedAt: new Date().toISOString(),
+            receivedAt: null,
+            deviceConfirmedAt: null,
             sentBy: req.user?.id || null,
             sentByName: userLabel,
             status: "DEPLOYED",
-            statusLabel: "EMBARCADO",
+            statusLabel: "CONCLUÍDO",
             action: "CREATE",
             message: `Itinerário '${updated.name || "itinerário"}' criado por ${userLabel}.`,
             details: null,
@@ -845,7 +850,8 @@ router.put("/itineraries/:id", requireRole("manager", "admin"), async (req, res,
         itineraryId: updated.id,
         itineraryName: updated.name || null,
         sentAt: new Date().toISOString(),
-        receivedAt: new Date().toISOString(),
+        receivedAt: null,
+        deviceConfirmedAt: null,
         sentBy: req.user?.id || null,
         sentByName: req.user?.name || req.user?.email || req.user?.username || req.user?.id || "Usuário",
         status: "DEPLOYED",
@@ -960,7 +966,8 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
           itineraryId: existing.id,
           itineraryName: existing.name || null,
           sentAt,
-          receivedAt: new Date().toISOString(),
+          receivedAt: null,
+          deviceConfirmedAt: null,
           sentBy: req.user?.id || null,
           sentByName: userLabel,
           status: "DEPLOYED",
@@ -977,7 +984,8 @@ router.delete("/itineraries/:id", requireRole("manager", "admin"), async (req, r
           itineraryId: existing.id,
           itineraryName: existing.name || null,
           sentAt,
-          receivedAt: new Date().toISOString(),
+          receivedAt: null,
+          deviceConfirmedAt: null,
           sentBy: req.user?.id || null,
           sentByName: userLabel,
           status: error?.status ? "ERROR" : "FAILED",

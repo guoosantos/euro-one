@@ -13,16 +13,23 @@ import { formatAddress } from "../../lib/format-address.js";
 
 // --- CONFIGURAÇÃO E CONSTANTES ---
 const clusterIconCache = new Map();
-const ADDRESS_PIN_ICON = L.divIcon({
-  className: "address-pin",
-  html: `
-    <div style="position:relative;display:flex;align-items:center;justify-content:center;width:20px;height:20px;">
-      <div style="width:14px;height:14px;border-radius:9999px;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,0.8);border:2px solid white;"></div>
-    </div>
-  `,
-  iconSize: [20, 20],
-  iconAnchor: [10, 10],
-});
+const addressPinIconCache = { current: null };
+
+function getAddressPinIcon() {
+  if (addressPinIconCache.current) return addressPinIconCache.current;
+  if (!L?.divIcon) return null;
+  addressPinIconCache.current = L.divIcon({
+    className: "address-pin",
+    html: `
+      <div style="position:relative;display:flex;align-items:center;justify-content:center;width:20px;height:20px;">
+        <div style="width:14px;height:14px;border-radius:9999px;background:#22d3ee;box-shadow:0 0 14px rgba(34,211,238,0.8);border:2px solid white;"></div>
+      </div>
+    `,
+    iconSize: [20, 20],
+    iconAnchor: [10, 10],
+  });
+  return addressPinIconCache.current;
+}
 
 const STATUS_STYLES = {
   online: { background: "rgba(34,197,94,0.15)", border: "1px solid rgba(74,222,128,0.6)", color: "#bbf7d0" },
@@ -314,6 +321,7 @@ function RegionOverlay({ target }) {
 
 function AddressMarker({ marker }) {
   if (!marker || !Number.isFinite(marker.lat) || !Number.isFinite(marker.lng)) return null;
+  const icon = useMemo(() => getAddressPinIcon(), []);
 
   return (
     <>
@@ -329,7 +337,7 @@ function AddressMarker({ marker }) {
           </div>
         </Tooltip>
       </CircleMarker>
-      <Marker position={[marker.lat, marker.lng]} icon={ADDRESS_PIN_ICON} />
+      <Marker position={[marker.lat, marker.lng]} icon={icon || undefined} />
     </>
   );
 }
@@ -353,7 +361,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const mapRef = useRef(null);
   const userActionRef = useRef(false);
   const markerRefs = useRef(new Map());
+  const isMountedRef = useRef(true);
+  const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
+  const isDev = Boolean(import.meta?.env?.DEV);
   const providerMaxZoom = Number.isFinite(mapLayer?.maxZoom) ? Number(mapLayer.maxZoom) : 20;
   const effectiveMaxZoom = useMemo(
     () => buildEffectiveMaxZoom(mapPreferences?.maxZoom, providerMaxZoom),
@@ -366,18 +377,33 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       const nextLng = Number(lng);
       if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
       const map = mapRef.current;
-      if (!map) return false;
+      if (!map || !map._mapPane) return false;
       userActionRef.current = true;
-      console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
+      if (isDev) {
+        console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
+      }
+      const runInvalidate = () => {
+        if (!isMountedRef.current || mapRef.current !== map) return;
+        const container = map.getContainer?.() || containerRef.current;
+        if (!container || container.isConnected === false) return;
+        const rect = container.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        if (!map._loaded || !map._mapPane) return;
+        map.invalidateSize?.({ pan: false });
+      };
+      const scheduleResize = () => {
+        const rafId = requestAnimationFrame(runInvalidate);
+        pendingResizeRef.current.rafIds.push(rafId);
+      };
+      map.whenReady?.(scheduleResize);
+      scheduleResize();
       map.stop?.();
-      map.invalidateSize?.();
-      requestAnimationFrame(() => {
-        map.setView([nextLat, nextLng], zoom, { animate });
-        setTimeout(() => map.invalidateSize?.(), 50);
-      });
+      map.setView([nextLat, nextLng], zoom, { animate });
+      const timeoutId = setTimeout(runInvalidate, 60);
+      pendingResizeRef.current.timeoutIds.push(timeoutId);
       return true;
     },
-    [],
+    [isDev],
   );
 
   useImperativeHandle(
@@ -397,7 +423,19 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   );
 
   useEffect(() => {
+    if (!isDev) return undefined;
     console.info("[MAP] mounted — neutral state (no center, no zoom)");
+    return undefined;
+  }, [isDev]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      pendingResizeRef.current.rafIds.forEach((id) => cancelAnimationFrame(id));
+      pendingResizeRef.current.timeoutIds.forEach((id) => clearTimeout(id));
+      pendingResizeRef.current = { rafIds: [], timeoutIds: [] };
+    };
   }, []);
 
   useEffect(() => {

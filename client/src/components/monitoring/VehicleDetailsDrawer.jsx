@@ -1391,8 +1391,8 @@ export default function VehicleDetailsDrawer({
                       </span>
                       <span>
                         Recebido em:{" "}
-                        {historyEntry?.receivedAtDevice || historyEntry?.receivedAt
-                          ? new Date(historyEntry.receivedAtDevice || historyEntry.receivedAt).toLocaleString()
+                        {historyEntry?.deviceConfirmedAt || historyEntry?.receivedAtDevice
+                          ? new Date(historyEntry.deviceConfirmedAt || historyEntry.receivedAtDevice).toLocaleString()
                           : "—"}
                       </span>
                     </div>
@@ -1421,8 +1421,8 @@ export default function VehicleDetailsDrawer({
                   </p>
                   <p className="mt-1 text-[11px] text-white/50">
                     Recebido em:{" "}
-                    {item.receivedAtDevice || item.receivedAt
-                      ? new Date(item.receivedAtDevice || item.receivedAt).toLocaleString()
+                    {item.deviceConfirmedAt || item.receivedAtDevice
+                      ? new Date(item.deviceConfirmedAt || item.receivedAtDevice).toLocaleString()
                       : "—"}
                   </p>
                 </li>
@@ -2156,7 +2156,11 @@ function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, t
 function MapFollowController({ center, activeIndex, follow }) {
   const map = useMap();
   useEffect(() => {
-    if (!follow || !map || !center) return;
+    if (!follow || !map || !center || !map._loaded || !map._mapPane) return;
+    const container = map.getContainer?.();
+    if (!container || container.isConnected === false) return;
+    const rect = container.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
     map.setView(center, map.getZoom(), { animate: true });
   }, [activeIndex, center, follow, map]);
   return null;

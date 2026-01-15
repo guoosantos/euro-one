@@ -7,7 +7,9 @@ export default function useMapDataRefresh(
 ) {
   useEffect(() => {
     const map = mapRef?.current;
-    if (!map) return;
+    if (!map || !map._loaded || !map._mapPane) return;
+    const container = map.getContainer?.();
+    if (!container || container.isConnected === false) return;
 
     if (markerRefs?.current) {
       markers.forEach((marker) => {
@@ -32,7 +34,15 @@ export default function useMapDataRefresh(
 
     const size = map.getSize?.();
     if (size && (size.x === 0 || size.y === 0)) {
-      map.invalidateSize?.({ pan: false });
+      const rafId = requestAnimationFrame(() => {
+        if (mapRef?.current !== map) return;
+        if (!map._loaded || !map._mapPane) return;
+        const rect = container.getBoundingClientRect?.();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return;
+        map.invalidateSize?.({ pan: false });
+      });
+      return () => cancelAnimationFrame(rafId);
     }
+    return undefined;
   }, [mapRef, markers, layers, selectedMarkerId, markerRefs]);
 }
