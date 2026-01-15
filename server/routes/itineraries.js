@@ -8,6 +8,7 @@ import { buildItineraryKml } from "../utils/kml.js";
 import { listGeofences } from "../models/geofence.js";
 import { getRouteById, listRoutes, updateRoute } from "../models/route.js";
 import { getVehicleById, listVehicles } from "../models/vehicle.js";
+import { getDeviceById } from "../models/device.js";
 import { listEmbarkHistory, addEmbarkEntries } from "../models/itinerary-embark.js";
 import {
   listItineraries,
@@ -42,6 +43,7 @@ import { resolveVehicleDeviceUid } from "../services/xdm/resolve-vehicle-device-
 import { fetchDeviceGeozoneGroupIds } from "../services/xdm/device-geozone-group-service.js";
 import { GEOZONE_GROUP_ROLE_LIST, ITINERARY_GEOZONE_GROUPS, buildItineraryGroupScopeKey } from "../services/xdm/xdm-geozone-group-roles.js";
 import { buildItinerarySnapshot } from "../services/xdm/itinerary-snapshot.js";
+import { fetchLatestPositionsWithFallback } from "../services/traccar-db.js";
 
 const router = express.Router();
 
@@ -79,6 +81,7 @@ function resolveRequestIp(req) {
 function normalizePipelineStatusLabel(label) {
   const normalized = String(label || "").toUpperCase().trim();
   if (!normalized) return null;
+  if (normalized.includes("CONCLU")) return "CONCLUÍDO";
   if (normalized.includes("EMBARC")) return "EMBARCADO";
   if (normalized.includes("ENVIAD")) return "ENVIADO";
   if (normalized.includes("PEND")) return "PENDENTE";
@@ -93,7 +96,7 @@ function resolveStatusLabel(status, preferredLabel = null) {
   const normalizedPreferred = normalizePipelineStatusLabel(preferredLabel);
   if (normalizedPreferred) return normalizedPreferred;
   const normalized = String(status || "").toUpperCase();
-  if (["APPLIED", "EMBARKED"].includes(normalized)) return "EMBARCADO";
+  if (["APPLIED", "EMBARKED", "CONFIRMED", "CONCLUDED"].includes(normalized)) return "CONCLUÍDO";
   if (["QUEUED"].includes(normalized)) return "ENVIADO";
   if (["DEPLOYING", "SYNCING", "STARTED", "RUNNING"].includes(normalized)) return "PENDENTE";
   if (["FAILED", "TIMEOUT"].includes(normalized)) return "FALHOU (EQUIPAMENTO)";
@@ -164,9 +167,9 @@ function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
   }
   if (matched) {
     return {
-      code: "EMBARCADO",
-      label: "EMBARCADO",
-      configLabel: "Equipamento atualizou",
+      code: "CONFIRMED",
+      label: "CONCLUÍDO",
+      configLabel: "Equipamento confirmou",
       matchesExpected: true,
     };
   }
@@ -192,6 +195,39 @@ function resolveXdmStatus({ deployment, xdmGroupIds, xdmError }) {
     configLabel: deployment ? "Aguardando atualização" : null,
     matchesExpected: matched,
   };
+}
+
+async function resolveDeviceConfirmationTime(vehicle) {
+  if (!vehicle) return null;
+  const deviceRecord = getDeviceById(vehicle.deviceId || null);
+  const traccarId = deviceRecord?.traccarId || deviceRecord?.id || null;
+  if (!traccarId) return null;
+  try {
+    const positions = await fetchLatestPositionsWithFallback([traccarId], vehicle.clientId || null);
+    const position = positions.find((item) => String(item.deviceId) === String(traccarId)) || positions[0];
+    return position?.deviceTime || position?.fixTime || null;
+  } catch (error) {
+    console.warn("[itineraries] Falha ao obter horário do equipamento", {
+      vehicleId: vehicle.id,
+      deviceId: traccarId,
+      message: error?.message || error,
+    });
+    return null;
+  }
+}
+
+async function maybeConfirmDeployment({ deployment, vehicle, xdmStatus } = {}) {
+  if (!deployment || !xdmStatus?.matchesExpected) return null;
+  const status = String(deployment.status || "").toUpperCase();
+  if (["FAILED", "TIMEOUT", "ERROR", "INVALID", "REJECTED"].includes(status)) return deployment;
+  if (deployment.confirmedAt) return deployment;
+  const deviceTime = await resolveDeviceConfirmationTime(vehicle);
+  const confirmedAt = deviceTime || new Date().toISOString();
+  return updateDeployment(deployment.id, {
+    status: "CONFIRMED",
+    confirmedAt,
+    finishedAt: confirmedAt,
+  });
 }
 
 function resolveActionLabel(action) {
@@ -467,12 +503,14 @@ async function buildVehicleEmbarkDetail({
   const snapshotItinerary = deployment?.snapshot?.itinerary || null;
   const resolvedItinerary = itinerary || snapshotItinerary || null;
   const xdmStatus = resolveXdmStatus({ deployment, xdmGroupIds, xdmError });
-  const snapshotItems = deployment?.snapshot?.items || null;
+  const confirmedDeployment = await maybeConfirmDeployment({ deployment, vehicle, xdmStatus });
+  const activeDeployment = confirmedDeployment || deployment;
+  const snapshotItems = activeDeployment?.snapshot?.items || null;
 
   const items = snapshotItems?.length
     ? snapshotItems.map((item) => ({
         ...item,
-        lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+        lastEmbarkAt: lastEmbark?.confirmedAt || lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
         statusLabel: xdmStatus.label,
       }))
     : resolvedItinerary
@@ -526,7 +564,7 @@ async function buildVehicleEmbarkDetail({
               color: geofence?.color || "#38bdf8",
               isRoute: type === "route",
             },
-            lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+            lastEmbarkAt: lastEmbark?.confirmedAt || lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
             statusLabel: xdmStatus.label,
           };
         })
@@ -561,14 +599,14 @@ async function buildVehicleEmbarkDetail({
     xdmStatus: xdmStatus.code,
     xdmStatusLabel: xdmStatus.label,
     configStatusLabel: xdmStatus.configLabel,
-    statusCode: deployment?.status || null,
+    statusCode: activeDeployment?.status || null,
     statusLabel: xdmStatus.label,
     status: xdmStatus.label,
-    lastActionLabel: deployment ? resolveActionLabel(deployment.action) : "—",
-    lastActionAt: deployment?.finishedAt || deployment?.startedAt || null,
-    lastEmbarkAt: lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
+    lastActionLabel: activeDeployment ? resolveActionLabel(activeDeployment.action) : "—",
+    lastActionAt: activeDeployment?.confirmedAt || activeDeployment?.finishedAt || activeDeployment?.startedAt || null,
+    lastEmbarkAt: lastEmbark?.confirmedAt || lastEmbark?.finishedAt || lastEmbark?.startedAt || null,
     items,
-    lastSnapshot: deployment?.snapshot || null,
+    lastSnapshot: activeDeployment?.snapshot || null,
   };
 }
 

@@ -244,8 +244,8 @@ export function ensureUnmappedEventConfig({ clientId, protocol, eventId }) {
   const next = {
     ...protocolEntry,
     [eventKey]: {
-      displayName: `NÃO MAPEADO (${eventKey})`,
-      customName: `NÃO MAPEADO (${eventKey})`,
+      displayName: `Evento desconhecido (${eventKey})`,
+      customName: `Evento desconhecido (${eventKey})`,
       severity: "warning",
       active: true,
       category: resolveDefaultCategory(eventKey),
@@ -294,7 +294,7 @@ export function resolveEventConfiguration({
     }
     return {
       id: eventKey,
-      label: entry?.customName || entry?.displayName || `NÃO MAPEADO (${eventKey})`,
+      label: entry?.customName || entry?.displayName || `Evento desconhecido (${eventKey})`,
       severity: entry?.severity || "warning",
       active: entry?.active ?? true,
       category: entry?.category ?? null,

@@ -439,7 +439,7 @@ export default function Events() {
           .map(([id, configEntry]) => ({
             id: String(id),
             code: String(id),
-            defaultName: configEntry.customName || configEntry.displayName || `NÃO MAPEADO (${id})`,
+            defaultName: configEntry.customName || configEntry.displayName || `Evento desconhecido (${id})`,
             description: "",
             defaultSeverity: null,
             customName: configEntry.customName ?? configEntry.displayName ?? "",

@@ -84,6 +84,7 @@ function PopupContent({ marker }) {
     <div className="space-y-1.5 text-white min-w-[200px]">
       {marker.label && <div className="text-sm font-bold leading-tight text-white">{marker.label}</div>}
       {marker.plate && <div className="text-[11px] uppercase tracking-wide text-white/60">{marker.plate}</div>}
+      {marker.model && <div className="text-[11px] text-white/70">{marker.model}</div>}
       
       {addressText && <div className="text-xs leading-snug text-white/80 border-t border-white/10 pt-1 mt-1">{addressText}</div>}
       
@@ -91,6 +92,11 @@ function PopupContent({ marker }) {
         <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-mono font-semibold text-white">
           {marker.speedLabel || "0 km/h"}
         </span>
+        {marker.ignitionLabel && (
+          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-white/80">
+            Ignição {marker.ignitionLabel}
+          </span>
+        )}
         {marker.statusLabel && (
           <span
             className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
@@ -105,6 +111,14 @@ function PopupContent({ marker }) {
         )}
       </div>
       
+      {marker.lastEventLabel && (
+        <div className="flex flex-col gap-0.5 text-[10px] text-white/60">
+          <span>Último evento: <span className="text-white/80">{marker.lastEventLabel}</span></span>
+          {marker.lastEventTimeLabel && (
+            <span>Hora: <span className="text-white/80">{marker.lastEventTimeLabel}</span></span>
+          )}
+        </div>
+      )}
       {marker.lastUpdateLabel && (
         <div className="flex items-center gap-1 text-[10px] text-white/50 mt-1">
           <span>{marker.updatedTitle ?? "Atualizado:"}</span>
