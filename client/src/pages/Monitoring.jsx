@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { Globe } from "lucide-react";
 import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
@@ -138,6 +139,10 @@ const EURO_ONE_DEFAULT_COLUMNS = [
   "address",
   "lastEvent",
   "blocked",
+  "input2Jammer",
+  "input4Panel",
+  "out1RouteDeviation",
+  "out2CentralCommands",
   "batteryLevel",
   "voltage",
   "speed",
@@ -169,6 +174,10 @@ const COLUMN_WIDTH_HINTS = {
   geofences: DEFAULT_COLUMN_WIDTH,
   notes: DEFAULT_COLUMN_WIDTH,
   faceRecognition: DEFAULT_COLUMN_WIDTH,
+  input2Jammer: DEFAULT_COLUMN_WIDTH,
+  input4Panel: DEFAULT_COLUMN_WIDTH,
+  out1RouteDeviation: DEFAULT_COLUMN_WIDTH,
+  out2CentralCommands: DEFAULT_COLUMN_WIDTH,
   actions: DEFAULT_COLUMN_WIDTH,
 };
 
@@ -908,8 +917,8 @@ export default function Monitoring() {
       const endExpected = activeTask?.endTimeExpected ? Date.parse(activeTask.endTimeExpected) : null;
       const statusText = String(activeTask?.status || "").toLowerCase();
       const routeDelay = Boolean(hasRoute && startExpected && now > startExpected && !statusText.includes("final"));
-      const routeDeviation = Boolean(hasRoute && endExpected && now > endExpected && !statusText.includes("final"));
-      const alarmText = String(
+  const routeDeviation = Boolean(hasRoute && endExpected && now > endExpected && !statusText.includes("final"));
+  const alarmText = String(
         position?.attributes?.alarm ??
           position?.attributes?.event ??
           position?.alarm ??
@@ -939,10 +948,8 @@ export default function Monitoring() {
       }
 
       if (filterMode === "online") return online;
-      if (filterMode === "critical") return deriveStatus(position) === "alert";
-      if (filterMode === "conjugated") {
-        return deriveStatus(position) === "alert" && hasConjugatedAlerts;
-      }
+      if (filterMode === "critical") return deriveStatus(position) === "alert" && hasConjugatedAlerts;
+      if (filterMode === "conjugated") return deriveStatus(position) === "alert" && hasConjugatedAlerts;
       if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
       if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
@@ -1333,7 +1340,6 @@ export default function Monitoring() {
       offline: 0,
       moving: 0,
       critical: 0,
-      conjugated: 0,
       stale0to1: 0,
       stale1to6: 0,
       stale6to12: 0,
@@ -1350,16 +1356,15 @@ export default function Monitoring() {
       const staleness = Number.isFinite(row.stalenessMinutes)
         ? row.stalenessMinutes
         : minutesSince(row.lastActivity);
-      const critical = deriveStatus(row.position) === "alert";
       const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
       const hasConjugatedAlerts = alertSignals.length >= 2;
+      const critical = deriveStatus(row.position) === "alert" && hasConjugatedAlerts;
 
       if (online) base.online += 1;
       else base.offline += 1;
 
       if ((row.speed ?? 0) > 0) base.moving += 1;
       if (critical) base.critical += 1;
-      if (critical && hasConjugatedAlerts) base.conjugated += 1;
 
       if (!online && Number.isFinite(staleness)) {
         if (staleness >= 0 && staleness < 60) base.stale0to1 += 1;
@@ -1405,29 +1410,42 @@ export default function Monitoring() {
     fixed: true,
     width: getColumnBaseWidth("actions"),
     minWidth: getColumnMinWidth("actions"),
-    render: row => (
-      <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide">
-        <a
-          className="rounded border border-primary/40 bg-primary/10 px-2 py-1 font-semibold text-primary hover:bg-primary/20"
-          href={Number.isFinite(row.lat) && Number.isFinite(row.lng) ? `https://www.google.com/maps?q=${row.lat},${row.lng}` : "#"}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
-        >
-          Mapa
-        </a>
-        <button
-          className="rounded border border-white/15 bg-white/5 px-2 py-1 font-semibold text-white/70 hover:text-white"
-          onClick={(event) => {
-            event.stopPropagation();
-            focusDevice(row.deviceId, { openDetails: true });
-          }}
-        >
-          Detalhes
-        </button>
-      </div>
-    ),
-  }), [focusDevice, t]);
+    render: (row) => {
+      const formattedAddress = formatAddress(row.address || row.rawAddress || row.position?.address || row.device?.address);
+      const addressValue = formattedAddress && formattedAddress !== "—" ? formattedAddress : null;
+      const hasCoords = Number.isFinite(row.lat) && Number.isFinite(row.lng);
+      const mapUrl = hasCoords
+        ? `https://www.google.com/maps?q=${row.lat},${row.lng}`
+        : addressValue
+          ? `https://www.google.com/maps?q=${encodeURIComponent(addressValue)}`
+          : null;
+
+      return (
+        <div className="flex items-center justify-center">
+          {mapUrl ? (
+            <a
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-primary/30 bg-primary/10 text-primary transition hover:border-primary/60 hover:bg-primary/20"
+              href={mapUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Abrir no Google Maps"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Globe size={16} />
+            </a>
+          ) : (
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 text-white/30"
+              aria-hidden
+              title="Localização indisponível"
+            >
+              <Globe size={16} />
+            </span>
+          )}
+        </div>
+      );
+    },
+  }), [t]);
 
   const allColumns = useMemo(() => [...telemetryColumns, actionsColumn], [telemetryColumns, actionsColumn]);
 

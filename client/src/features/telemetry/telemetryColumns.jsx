@@ -11,9 +11,37 @@ import {
 import { resolveEventLabelFromPayload } from "../../lib/event-translations.js";
 
 const FALLBACK = "—";
+const IO_TRUE_VALUES = new Set(["1", "true", "on", "ativo", "ativado", "enabled"]);
+const IO_FALSE_VALUES = new Set(["0", "false", "off", "inativo", "desativado", "disabled"]);
 
 function getAttributes(row) {
   return row?.position?.rawAttributes || row?.position?.attributes || row?.device?.attributes || row?.rawAttributes || {};
+}
+
+function resolveAttributeValue(row, keys = []) {
+  const attributes = getAttributes(row);
+  for (const key of keys) {
+    if (!key) continue;
+    if (attributes?.[key] !== undefined && attributes?.[key] !== null && String(attributes[key]).trim() !== "") {
+      return attributes[key];
+    }
+    if (row?.position?.[key] !== undefined && row?.position?.[key] !== null && String(row.position[key]).trim() !== "") {
+      return row.position[key];
+    }
+  }
+  return null;
+}
+
+function formatIoValue(value, helpers = {}) {
+  if (value === null || value === undefined || value === "") return FALLBACK;
+  const yes = helpers.t ? helpers.t("common.yes") : "Sim";
+  const no = helpers.t ? helpers.t("common.no") : "Não";
+  if (typeof value === "boolean") return value ? yes : no;
+  if (typeof value === "number") return value === 1 ? yes : value === 0 ? no : String(value);
+  const normalized = String(value).trim().toLowerCase();
+  if (IO_TRUE_VALUES.has(normalized)) return yes;
+  if (IO_FALSE_VALUES.has(normalized)) return no;
+  return String(value);
 }
 
 export const TELEMETRY_COLUMNS = [
@@ -311,6 +339,42 @@ export const TELEMETRY_COLUMNS = [
       const no = helpers.t ? helpers.t("common.no") : "Não";
       const attributes = getAttributes(row);
       return row.position?.blocked || attributes.blocked ? yes : no;
+    },
+  },
+  {
+    key: "input2Jammer",
+    labelKey: "monitoring.columns.input2Jammer",
+    defaultVisible: true,
+    getValue: (row, helpers = {}) => {
+      const value = resolveAttributeValue(row, ["input2", "digitalinput2", "digitalInput2", "signalIn2", "in2"]);
+      return formatIoValue(value, helpers);
+    },
+  },
+  {
+    key: "input4Panel",
+    labelKey: "monitoring.columns.input4Panel",
+    defaultVisible: true,
+    getValue: (row, helpers = {}) => {
+      const value = resolveAttributeValue(row, ["input4", "digitalinput4", "digitalInput4", "signalIn4", "in4"]);
+      return formatIoValue(value, helpers);
+    },
+  },
+  {
+    key: "out1RouteDeviation",
+    labelKey: "monitoring.columns.out1RouteDeviation",
+    defaultVisible: true,
+    getValue: (row, helpers = {}) => {
+      const value = resolveAttributeValue(row, ["out1", "output1", "digitaloutput1", "digitalOutput1"]);
+      return formatIoValue(value, helpers);
+    },
+  },
+  {
+    key: "out2CentralCommands",
+    labelKey: "monitoring.columns.out2CentralCommands",
+    defaultVisible: true,
+    getValue: (row, helpers = {}) => {
+      const value = resolveAttributeValue(row, ["out2", "output2", "digitaloutput2", "digitalOutput2"]);
+      return formatIoValue(value, helpers);
     },
   },
   {
