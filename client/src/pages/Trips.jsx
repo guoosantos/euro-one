@@ -26,6 +26,7 @@ import VehicleSelector from "../components/VehicleSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehicleMarkerIcon.js";
 import AddressStatus from "../ui/AddressStatus.jsx";
+import PageHeader from "../ui/PageHeader.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
@@ -2553,12 +2554,10 @@ export default function Trips() {
 
   return (
     <div className="space-y-6">
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold text-white">Trajetos</h1>
-        <p className="text-sm text-white/60">
-          Gere e acompanhe relatórios de viagens por veículo. Quando houver mais de um equipamento, usamos o principal disponível.
-        </p>
-      </div>
+      <PageHeader
+        title="Trajetos"
+        description="Gere e acompanhe relatórios de viagens por veículo. Quando houver mais de um equipamento, usamos o principal disponível."
+      />
 
       <form
         onSubmit={handleSubmit}

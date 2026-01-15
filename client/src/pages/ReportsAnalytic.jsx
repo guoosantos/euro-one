@@ -4,6 +4,7 @@ import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
+import PageHeader from "../ui/PageHeader.jsx";
 import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import {
@@ -1032,11 +1033,9 @@ export default function ReportsAnalytic() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex w-full flex-col gap-4">
         <form onSubmit={handleGenerate} className="flex w-full flex-col gap-4">
-        <header className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Relatório Analítico</p>
-              </div>
+          <PageHeader
+            title="Relatório Analítico"
+            right={(
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
                 <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
                   <span className="whitespace-nowrap">Itens por página</span>
@@ -1118,16 +1117,16 @@ export default function ReportsAnalytic() {
                   {topBarVisible ? "Ocultar filtros" : "Mostrar filtros"}
                 </button>
               </div>
+            )}
+          />
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+            <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar a linha do tempo completa.</p>
+            <div className="flex items-center gap-2 text-xs text-white/70">
+              <span className="whitespace-nowrap">
+                Página {currentPage} de {totalPages} • {totalItems} itens
+              </span>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <p className="text-sm text-white/70">Escolha o veículo, período e filtros para gerar a linha do tempo completa.</p>
-              <div className="flex items-center gap-2 text-xs text-white/70">
-                <span className="whitespace-nowrap">
-                  Página {currentPage} de {totalPages} • {totalItems} itens
-                </span>
-              </div>
-            </div>
-        </header>
+          </div>
 
         {topBarVisible ? (
           <div className="space-y-3">

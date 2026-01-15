@@ -502,6 +502,8 @@ export default function RoutesPage() {
   const [draftRoute, setDraftRoute] = useState(withWaypoints(emptyRoute()));
   const [baselineRoute, setBaselineRoute] = useState(withWaypoints(emptyRoute()));
   const [activeRouteId, setActiveRouteId] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingRouteId, setEditingRouteId] = useState(null);
   const [routeFilter, setRouteFilter] = useState("");
   const [loadingRoutes, setLoadingRoutes] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -601,6 +603,8 @@ export default function RoutesPage() {
         setDraftRoute(normalised[0]);
         setBaselineRoute(normalised[0]);
         setActiveRouteId(normalised[0].id);
+        setIsEditing(false);
+        setEditingRouteId(null);
       }
     } catch (error) {
       console.error("[routes] Falha ao carregar rotas", error);
@@ -619,12 +623,14 @@ export default function RoutesPage() {
     setDraftRoute(fresh);
     setBaselineRoute(fresh);
     setActiveRouteId(null);
+    setIsEditing(false);
+    setEditingRouteId(null);
     setMapAddsStops(false);
     resetAutocomplete();
   }, [resetAutocomplete]);
 
-  const persistRoute = useCallback(
-    async (routePayload = draftRoute) => {
+  const buildRoutePayload = useCallback(
+    (routePayload = draftRoute) => {
       const trimmedName = routePayload?.name?.trim();
       const payload = withWaypoints({
         ...routePayload,
@@ -640,26 +646,24 @@ export default function RoutesPage() {
       if (!payload.points || payload.points.length < 2) {
         throw new Error("A rota precisa de pelo menos dois pontos.");
       }
+      return payload;
+    },
+    [draftRoute, waypoints],
+  );
+
+  const createRoute = useCallback(
+    async (routePayload = draftRoute) => {
+      const payload = buildRoutePayload(routePayload);
+      const { id: _discardedId, ...createPayload } = payload;
       setSaving(true);
       try {
-        const shouldUpdate =
-          Boolean(activeRouteId) &&
-          payload.id !== null &&
-          payload.id !== undefined &&
-          String(payload.id).trim() !== "" &&
-          String(payload.id) === String(activeRouteId) &&
-          routes.some((route) => String(route.id) === String(payload.id));
-        const response = shouldUpdate
-          ? await api.put(`${API_ROUTES.routes}/${payload.id}`, payload)
-          : await api.post(API_ROUTES.routes, payload);
+        const response = await api.post(API_ROUTES.routes, createPayload);
         const saved = withWaypoints(response?.data?.data || response?.data?.route || response?.data || payload);
         setRoutes((prev) => {
           const others = prev.filter((item) => String(item.id) !== String(saved.id));
           return saved.id ? [saved, ...others] : prev;
         });
-        if (!shouldUpdate) {
-          await loadRoutes({ updateDraft: false });
-        }
+        await loadRoutes({ updateDraft: false });
         showToast("Rota salva com sucesso.");
         handleNewRoute();
         return saved;
@@ -667,12 +671,45 @@ export default function RoutesPage() {
         setSaving(false);
       }
     },
-    [activeRouteId, draftRoute, handleNewRoute, loadRoutes, routes, showToast, waypoints],
+    [buildRoutePayload, draftRoute, handleNewRoute, loadRoutes, showToast],
+  );
+
+  const updateRoute = useCallback(
+    async (routePayload = draftRoute, routeId = editingRouteId) => {
+      if (!routeId) {
+        throw new Error("Selecione uma rota para editar.");
+      }
+      const payload = buildRoutePayload(routePayload);
+      setSaving(true);
+      try {
+        const response = await api.put(`${API_ROUTES.routes}/${routeId}`, { ...payload, id: routeId });
+        const saved = withWaypoints(response?.data?.data || response?.data?.route || response?.data || payload);
+        setRoutes((prev) => {
+          const others = prev.filter((item) => String(item.id) !== String(saved.id));
+          return saved.id ? [saved, ...others] : prev;
+        });
+        showToast("Rota atualizada com sucesso.");
+        handleNewRoute();
+        return saved;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [buildRoutePayload, draftRoute, editingRouteId, handleNewRoute, showToast],
   );
 
   const handleSave = async () => {
     try {
-      await persistRoute();
+      const shouldUpdate = isEditing && Boolean(editingRouteId);
+      if (!shouldUpdate && editingRouteId) {
+        setEditingRouteId(null);
+        setIsEditing(false);
+      }
+      if (shouldUpdate) {
+        await updateRoute(draftRoute, editingRouteId);
+      } else {
+        await createRoute(draftRoute);
+      }
     } catch (error) {
       console.error(error);
       showToast(error?.response?.data?.message || error?.message || "Não foi possível salvar a rota.", "warning");
@@ -690,6 +727,8 @@ export default function RoutesPage() {
     setDraftRoute(normalized);
     setBaselineRoute(normalized);
     setActiveRouteId(normalized.id || null);
+    setIsEditing(true);
+    setEditingRouteId(normalized.id || null);
     resetAutocomplete();
   };
 
@@ -879,7 +918,7 @@ export default function RoutesPage() {
       });
       userActionRef.current = true;
       setDraftRoute(historyRoute);
-      const saved = await persistRoute(historyRoute);
+      const saved = await createRoute(historyRoute);
       handleExportSingle(historyRoute);
     } catch (error) {
       console.error(error);
@@ -906,7 +945,7 @@ export default function RoutesPage() {
         metadata: { source: "kml" },
       });
       try {
-      const saved = await persistRoute(route);
+      const saved = await createRoute(route);
       if (saved) {
         userActionRef.current = true;
       }
@@ -1023,9 +1062,9 @@ export default function RoutesPage() {
       <div className="pointer-events-none absolute inset-0 z-20">
         <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
-            <SidebarCard className="w-[440px] md:w-[460px]">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <SidebarCard className="w-[520px] md:w-[560px]">
+              <div className="flex items-center gap-3 overflow-x-auto">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
@@ -1033,7 +1072,7 @@ export default function RoutesPage() {
                     containerClassName="flex-1 min-w-0"
                     placeholder="Buscar endereço rápido"
                   />
-                  <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     <ToolbarButton
                       icon={SlidersHorizontal}
                       title="Ferramentas"
@@ -1054,7 +1093,7 @@ export default function RoutesPage() {
                     />
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
                   <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
                   <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
