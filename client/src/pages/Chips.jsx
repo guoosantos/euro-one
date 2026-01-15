@@ -378,7 +378,6 @@ export default function Chips() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
         title="Chips"
-        description="Controle de chips vinculados aos equipamentos do tenant."
         right={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>

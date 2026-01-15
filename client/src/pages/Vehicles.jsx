@@ -476,7 +476,6 @@ export default function Vehicles() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
         title="Veículos"
-        description="Gestão de veículos e vínculos com equipamentos"
         right={(
           <div className="flex flex-wrap items-center gap-2">
             <Button
