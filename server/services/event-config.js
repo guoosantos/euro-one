@@ -72,7 +72,24 @@ function normalizeEntry(entry, defaults = {}) {
   const displayName = typeof rawName === "string" ? rawName.trim() : rawName ?? null;
   const severity = entry?.severity || defaults.severity || "info";
   const active = typeof entry?.active === "boolean" ? entry.active : defaults.active ?? true;
-  return { displayName: displayName || null, customName: displayName || null, severity, active };
+  const category =
+    entry?.category ??
+    defaults.category ??
+    null;
+  const requiresHandling =
+    typeof entry?.requiresHandling === "boolean"
+      ? entry.requiresHandling
+      : typeof defaults.requiresHandling === "boolean"
+      ? defaults.requiresHandling
+      : false;
+  return {
+    displayName: displayName || null,
+    customName: displayName || null,
+    severity,
+    active,
+    category,
+    requiresHandling,
+  };
 }
 
 function ensureProtocolConfig(data, clientKey, protocolKey) {
@@ -94,9 +111,21 @@ export function getEventConfig({ clientId, protocol, catalogEvents } = {}) {
   events.forEach((event) => {
     const eventId = normalizeEventId(event?.id);
     if (!eventId) return;
-    const defaults = { severity: event?.defaultSeverity || event?.severity || "info", active: true };
+    const defaults = {
+      severity: event?.defaultSeverity || event?.severity || "info",
+      active: true,
+      category: event?.category ?? null,
+      requiresHandling: event?.requiresHandling ?? false,
+    };
     if (!next[eventId]) {
-      next[eventId] = { displayName: null, customName: null, severity: defaults.severity, active: true };
+      next[eventId] = {
+        displayName: null,
+        customName: null,
+        severity: defaults.severity,
+        active: true,
+        category: defaults.category,
+        requiresHandling: defaults.requiresHandling,
+      };
       mutated = true;
       return;
     }
@@ -136,6 +165,8 @@ export function updateEventConfig({ clientId, protocol, items = [], catalogEvent
     const defaults = {
       severity: catalog?.defaultSeverity || catalog?.severity || "info",
       active: true,
+      category: catalog?.category ?? null,
+      requiresHandling: catalog?.requiresHandling ?? false,
     };
     const normalized = normalizeEntry(
       {
@@ -147,6 +178,11 @@ export function updateEventConfig({ clientId, protocol, items = [], catalogEvent
           null,
         severity: item?.severity ?? next?.[eventId]?.severity,
         active: typeof item?.active === "boolean" ? item.active : next?.[eventId]?.active,
+        category: item?.category ?? next?.[eventId]?.category,
+        requiresHandling:
+          typeof item?.requiresHandling === "boolean"
+            ? item.requiresHandling
+            : next?.[eventId]?.requiresHandling,
       },
       defaults,
     );
@@ -181,6 +217,8 @@ export function ensureUnmappedEventConfig({ clientId, protocol, eventId }) {
       customName: `NÃO MAPEADO (${eventKey})`,
       severity: "warning",
       active: true,
+      category: null,
+      requiresHandling: false,
     },
   };
   const payload = {
@@ -228,6 +266,8 @@ export function resolveEventConfiguration({
       label: entry?.customName || entry?.displayName || `NÃO MAPEADO (${eventKey})`,
       severity: entry?.severity || "warning",
       active: entry?.active ?? true,
+      category: entry?.category ?? null,
+      requiresHandling: entry?.requiresHandling ?? false,
       isMapped: false,
     };
   }
@@ -242,12 +282,21 @@ export function resolveEventConfiguration({
     eventKey;
   const severity = entry.severity || catalogEntry.defaultSeverity || catalogEntry.severity || "info";
   const active = typeof entry.active === "boolean" ? entry.active : true;
+  const category = entry.category ?? catalogEntry.category ?? null;
+  const requiresHandling =
+    typeof entry.requiresHandling === "boolean"
+      ? entry.requiresHandling
+      : typeof catalogEntry.requiresHandling === "boolean"
+      ? catalogEntry.requiresHandling
+      : false;
 
   return {
     id: eventKey,
     label,
     severity,
     active,
+    category,
+    requiresHandling,
     isMapped: true,
     catalog: catalogEntry,
   };

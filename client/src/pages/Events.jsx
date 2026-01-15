@@ -15,7 +15,7 @@ import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 
-const EVENT_TABS = ["Relatório", "Criticidade"];
+const EVENT_TABS = ["Relatório", "Severidade"];
 const EVENT_TYPES = [
   "all",
   "deviceOnline",
@@ -70,7 +70,7 @@ const DEFAULT_COLUMNS = [
   { id: "device", label: "Veículo", defaultVisible: true, width: 180, minWidth: 160 },
   { id: "type", label: "Tipo", defaultVisible: true, width: 190, minWidth: 160 },
   { id: "description", label: "Descrição", defaultVisible: true, width: 220, minWidth: 180 },
-  { id: "severity", label: "Criticidade", defaultVisible: true, width: 130, minWidth: 120 },
+  { id: "severity", label: "Severidade", defaultVisible: true, width: 130, minWidth: 120 },
   { id: "address", label: "Endereço", defaultVisible: true, width: 360, minWidth: 240 },
   { id: "speed", label: "Velocidade", defaultVisible: false, width: 120 },
   { id: "ignition", label: "Ignição", defaultVisible: false, width: 110 },
@@ -195,6 +195,7 @@ export default function Events() {
   const { vehicles } = useVehicles();
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
+  const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [vehicleSearch, setVehicleSearch] = useState("");
   const [eventType, setEventType] = useState("all");
@@ -403,7 +404,7 @@ export default function Events() {
   }, [allDeviceIds, eventType, from, page, pageSize, selectedVehicle, to]);
 
   useEffect(() => {
-    if (activeTab !== "Criticidade" || !selectedProtocol) return;
+    if (activeTab !== "Severidade" || !selectedProtocol) return;
     let mounted = true;
     async function loadProtocolEvents() {
       setConfigLoading(true);
@@ -429,6 +430,8 @@ export default function Events() {
             customName: configEntry.customName ?? configEntry.displayName ?? "",
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
+            category: configEntry.category ?? "",
+            requiresHandling: configEntry.requiresHandling ?? false,
           };
         });
         const unmappedRows = Object.entries(configMap)
@@ -443,6 +446,8 @@ export default function Events() {
             severity: normalizeSeverityValue(configEntry.severity ?? "warning"),
             active: configEntry.active ?? true,
             isUnmapped: true,
+            category: configEntry.category ?? "",
+            requiresHandling: configEntry.requiresHandling ?? false,
           }));
         if (mounted) {
           setProtocolEvents([...rows, ...unmappedRows]);
@@ -620,8 +625,13 @@ export default function Events() {
 
   const filteredProtocolEvents = useMemo(() => {
     const term = eventSearch.trim().toLowerCase();
-    if (!term) return protocolEvents;
     return protocolEvents.filter((event) => {
+      const matchesCategory =
+        !activeCategoryTab ||
+        !event.category ||
+        String(event.category).toLowerCase() === String(activeCategoryTab).toLowerCase();
+      if (!matchesCategory) return false;
+      if (!term) return true;
       return (
         event.code?.toLowerCase().includes(term) ||
         event.defaultName?.toLowerCase().includes(term) ||
@@ -629,7 +639,7 @@ export default function Events() {
         event.description?.toLowerCase().includes(term)
       );
     });
-  }, [eventSearch, protocolEvents]);
+  }, [activeCategoryTab, eventSearch, protocolEvents]);
 
   const handleCustomNameChange = (eventId, value) => {
     setProtocolEvents((current) =>
@@ -649,6 +659,18 @@ export default function Events() {
     );
   };
 
+  const handleCategoryChange = (eventId, value) => {
+    setProtocolEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, category: value } : event)),
+    );
+  };
+
+  const handleRequiresHandlingChange = (eventId, value) => {
+    setProtocolEvents((current) =>
+      current.map((event) => (event.id === eventId ? { ...event, requiresHandling: value } : event)),
+    );
+  };
+
   const handleSaveConfig = async () => {
     if (!selectedProtocol) return;
     setSavingConfig(true);
@@ -659,6 +681,8 @@ export default function Events() {
         customName: event.customName?.trim() || null,
         severity: normalizeSeverityValue(event.severity || event.defaultSeverity || "info"),
         active: typeof event.active === "boolean" ? event.active : true,
+        category: event.category || null,
+        requiresHandling: Boolean(event.requiresHandling),
       }));
       const response = await api.put(API_ROUTES.protocolEventConfig(selectedProtocol), { items });
       const updatedConfig = response?.data?.config || {};
@@ -671,6 +695,8 @@ export default function Events() {
             customName: configEntry.customName ?? configEntry.displayName ?? "",
             severity: normalizeSeverityValue(configEntry.severity ?? event.defaultSeverity ?? "info"),
             active: configEntry.active ?? true,
+            category: configEntry.category ?? event.category ?? "",
+            requiresHandling: configEntry.requiresHandling ?? event.requiresHandling ?? false,
           };
         }),
       );
@@ -965,7 +991,7 @@ export default function Events() {
           </div>
         )}
 
-        {activeTab === "Criticidade" && (
+        {activeTab === "Severidade" && (
           <div className="space-y-4 px-6 pb-6">
             <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <label className="text-xs uppercase tracking-wide text-white/60">
@@ -1010,18 +1036,37 @@ export default function Events() {
                   </Button>
                 </div>
 
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {["Segurança", "Logística"].map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      onClick={() => setActiveCategoryTab(tab)}
+                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                        activeCategoryTab === tab
+                          ? "border-primary/60 bg-primary/20 text-white"
+                          : "border-white/10 text-white/60 hover:text-white"
+                      }`}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
+
                 <div className="mt-3 space-y-2">
-                  <div className="hidden items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60 md:grid md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.6fr)_160px_80px]">
+                  <div className="hidden items-center gap-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px] uppercase tracking-wide text-white/60 md:grid md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.4fr)_150px_150px_160px_80px]">
                     <span>Código</span>
                     <span>Nome do evento</span>
                     <span>Descrição</span>
-                    <span>Criticidade</span>
+                    <span>Severidade</span>
+                    <span>Categoria</span>
+                    <span>Requer tratativa</span>
                     <span>Ativo</span>
                   </div>
                   {filteredProtocolEvents.map((event) => (
                     <div
                       key={event.id}
-                      className="grid gap-3 rounded-2xl border border-white/10 bg-neutral-900/60 p-3 md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.6fr)_160px_80px] md:items-center"
+                      className="grid gap-3 rounded-2xl border border-white/10 bg-neutral-900/60 p-3 md:grid-cols-[120px_minmax(0,1.4fr)_minmax(0,1.4fr)_150px_150px_160px_80px] md:items-center"
                     >
                       <div className="text-xs text-white/70">
                         <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Código</span>
@@ -1041,7 +1086,7 @@ export default function Events() {
                         <p>{event.description || "—"}</p>
                       </div>
                       <label className="text-xs uppercase tracking-wide text-white/60">
-                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Criticidade</span>
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Severidade</span>
                         <Select
                           value={event.severity || "info"}
                           onChange={(evt) => handleSeverityChange(event.id, evt.target.value)}
@@ -1052,6 +1097,29 @@ export default function Events() {
                               {level.label}
                             </option>
                           ))}
+                        </Select>
+                      </label>
+                      <label className="text-xs uppercase tracking-wide text-white/60">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Categoria</span>
+                        <Select
+                          value={event.category || ""}
+                          onChange={(evt) => handleCategoryChange(event.id, evt.target.value)}
+                          className="mt-1 w-full bg-layer text-xs md:mt-0"
+                        >
+                          <option value="">Não definida</option>
+                          <option value="Segurança">Segurança</option>
+                          <option value="Logística">Logística</option>
+                        </Select>
+                      </label>
+                      <label className="text-xs uppercase tracking-wide text-white/60">
+                        <span className="block text-[10px] uppercase tracking-wide text-white/40 md:hidden">Requer tratativa</span>
+                        <Select
+                          value={event.requiresHandling ? "yes" : "no"}
+                          onChange={(evt) => handleRequiresHandlingChange(event.id, evt.target.value === "yes")}
+                          className="mt-1 w-full bg-layer text-xs md:mt-0"
+                        >
+                          <option value="no">Não</option>
+                          <option value="yes">Sim</option>
                         </Select>
                       </label>
                       <label className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/60">
@@ -1074,7 +1142,7 @@ export default function Events() {
 
             {!selectedProtocol && (
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
-                Selecione um protocolo para visualizar a criticidade dos eventos.
+                Selecione um protocolo para visualizar a severidade dos eventos.
               </div>
             )}
           </div>
