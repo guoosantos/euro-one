@@ -117,6 +117,12 @@ export default function VehicleDetailsDrawer({
     limit: 5,
     enabled: Boolean(deviceIdForReports),
   });
+  const reportRange = useMemo(() => {
+    const now = new Date();
+    const to = now.toISOString();
+    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    return { from, to };
+  }, []);
 
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -245,6 +251,36 @@ export default function VehicleDetailsDrawer({
     };
   }, [vehicleId]);
 
+  const itinerarySummary = useMemo(() => {
+    const items = Array.isArray(itineraryStatus?.items) ? itineraryStatus.items : [];
+    const counts = { geofences: 0, routes: 0, targets: 0 };
+    items.forEach((item) => {
+      const type = String(item?.type || "").toLowerCase();
+      if (type === "route") {
+        counts.routes += 1;
+        return;
+      }
+      if (type === "target") {
+        counts.targets += 1;
+        return;
+      }
+      if (type) {
+        counts.geofences += 1;
+      }
+    });
+    return {
+      counts,
+      lastEmbarkAt: itineraryStatus?.lastEmbarkAt || itineraryStatus?.lastActionAt || itineraryStatus?.updatedAt || null,
+      statusLabel:
+        itineraryStatus?.status ||
+        itineraryStatus?.statusLabel ||
+        itineraryStatus?.xdmStatusLabel ||
+        itineraryStatus?.state ||
+        "—",
+      itineraryName: itineraryStatus?.itineraryName || itineraryStatus?.name || "—",
+    };
+  }, [itineraryStatus]);
+
   const sensorCards = useMemo(() => {
     if (!position && !device) return [];
     const attributes = {
@@ -329,7 +365,9 @@ export default function VehicleDetailsDrawer({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Resumo dos últimos trajetos deste veículo.</p>
             <Link
-              to={`/trips?vehicleId=${encodeURIComponent(vehicleId || "")}`}
+              to={`/trips?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                reportRange.from,
+              )}&to=${encodeURIComponent(reportRange.to)}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
@@ -345,15 +383,37 @@ export default function VehicleDetailsDrawer({
           <ul className="space-y-2">
             {trips.map((trip) => (
               <li key={trip.id || trip.startTime} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-white">
-                    {trip.startTime ? new Date(trip.startTime).toLocaleString() : "—"} →
-                    {trip.endTime ? ` ${new Date(trip.endTime).toLocaleString()}` : " —"}
-                  </span>
-                  <span className="text-white/50">
-                    {trip.distance != null ? `${Number(trip.distance).toFixed(1)} km` : "—"} •
-                    {trip.duration != null ? ` ${formatDuration(trip.duration)}` : " —"}
-                  </span>
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Início</p>
+                    <p className="truncate font-semibold text-white" title={trip.startTime || ""}>
+                      {trip.startTime ? new Date(trip.startTime).toLocaleString() : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Fim</p>
+                    <p className="truncate text-white/70" title={trip.endTime || ""}>
+                      {trip.endTime ? new Date(trip.endTime).toLocaleString() : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Duração</p>
+                    <p className="text-white/70">{trip.duration != null ? formatDuration(trip.duration) : "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Distância</p>
+                    <p className="text-white/70">
+                      {trip.distance != null ? `${Number(trip.distance).toFixed(1)} km` : "—"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Vel. média</p>
+                    <p className="text-white/70">
+                      {trip.averageSpeed ?? trip.avgSpeed ?? trip.speed
+                        ? `${Number(trip.averageSpeed ?? trip.avgSpeed ?? trip.speed).toFixed(0)} km/h`
+                        : "—"}
+                    </p>
+                  </div>
                 </div>
               </li>
             ))}
@@ -368,7 +428,9 @@ export default function VehicleDetailsDrawer({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Eventos recentes vinculados ao veículo.</p>
             <Link
-              to={`/events?vehicleId=${encodeURIComponent(vehicleId || "")}`}
+              to={`/events?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                reportRange.from,
+              )}&to=${encodeURIComponent(reportRange.to)}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
@@ -387,14 +449,21 @@ export default function VehicleDetailsDrawer({
                 className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-white">
+                  <span className="truncate font-semibold text-white" title={event.eventLabel || event.type || ""}>
                     {formatDisplayValue(event.eventLabel || event.type || "Evento")}
                   </span>
-                  <span className="text-white/50">{formatDisplayValue(event.severity || event.eventSeverity || "—")}</span>
+                  <span className="text-white/50">
+                    {formatDisplayValue(event.severity || event.eventSeverity || "—")}
+                  </span>
                 </div>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-2 text-[11px] text-white/50">
+                <div className="mt-1 grid gap-2 text-[11px] text-white/50 sm:grid-cols-2 lg:grid-cols-3">
                   <span>{event.serverTime ? new Date(event.serverTime).toLocaleString() : "—"}</span>
-                  <span>{formatAddressString(event.address || event.shortAddress)}</span>
+                  <span className="truncate" title={event.eventCategory || event.category || ""}>
+                    {formatDisplayValue(event.eventCategory || event.category || "—")}
+                  </span>
+                  <span className="truncate" title={formatAddressString(event.address || event.shortAddress)}>
+                    {formatAddressString(event.address || event.shortAddress)}
+                  </span>
                 </div>
               </li>
             ))}
@@ -436,7 +505,9 @@ export default function VehicleDetailsDrawer({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Últimos comandos enviados para o veículo.</p>
             <Link
-              to={`/commands?vehicleId=${encodeURIComponent(vehicleId || "")}`}
+              to={`/commands?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                reportRange.from,
+              )}&to=${encodeURIComponent(reportRange.to)}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
@@ -452,13 +523,16 @@ export default function VehicleDetailsDrawer({
             {commands.map((command) => (
               <li key={command.id || command.createdAt} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-semibold text-white">
+                  <span className="truncate font-semibold text-white" title={command.type || command.commandName || ""}>
                     {formatDisplayValue(command.type || command.commandName || "Comando")}
                   </span>
                   <span className="text-white/50">{formatDisplayValue(command.status || "—")}</span>
                 </div>
-                <div className="mt-1 text-[11px] text-white/50">
-                  {command.createdAt ? new Date(command.createdAt).toLocaleString() : "—"}
+                <div className="mt-1 grid gap-2 text-[11px] text-white/50 sm:grid-cols-2">
+                  <span>{command.createdAt ? new Date(command.createdAt).toLocaleString() : "—"}</span>
+                  <span className="truncate" title={command.result || command.response || ""}>
+                    {formatDisplayValue(command.result || command.response || "—")}
+                  </span>
                 </div>
               </li>
             ))}
@@ -487,9 +561,24 @@ export default function VehicleDetailsDrawer({
           )}
           {itineraryStatus && (
             <div className="mt-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
-              <Detail label="Itinerário" value={itineraryStatus.itineraryName || itineraryStatus.name || "—"} />
-              <Detail label="Status" value={itineraryStatus.status || itineraryStatus.state || "—"} />
-              <Detail label="Última atualização" value={itineraryStatus.updatedAt || itineraryStatus.lastSync || "—"} />
+              <Detail label="Itinerário" value={itinerarySummary.itineraryName} />
+              <Detail label="Status" value={itinerarySummary.statusLabel} />
+              <Detail
+                label="Último embarque"
+                value={itinerarySummary.lastEmbarkAt ? new Date(itinerarySummary.lastEmbarkAt).toLocaleString() : "—"}
+              />
+              <Detail
+                label="Rotas"
+                value={itinerarySummary.counts.routes}
+              />
+              <Detail
+                label="Cercas"
+                value={itinerarySummary.counts.geofences}
+              />
+              <Detail
+                label="Alvos"
+                value={itinerarySummary.counts.targets}
+              />
             </div>
           )}
         </Section>

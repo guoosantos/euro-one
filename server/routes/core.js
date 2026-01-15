@@ -17,6 +17,7 @@ import * as traccarSyncService from "../services/traccar-sync.js";
 import { ensureTraccarRegistryConsistency } from "../services/traccar-coherence.js";
 import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
+import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
@@ -1335,6 +1336,14 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
           lastUpdate: item.lastUpdate,
         })),
       };
+
+      ingestSignalStateEvents({
+        clientId: telemetryEntry.clientId,
+        vehicleId: telemetryEntry.vehicleId,
+        deviceId: telemetryEntry.deviceId,
+        position: positionWithMapping || warmedPosition || position || null,
+        attributes: attributesSource,
+      });
 
       telemetry.push(telemetryEntry);
     }
