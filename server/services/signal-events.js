@@ -44,6 +44,18 @@ const SIGNAL_DEFINITIONS = [
     descriptionOn: "OUT1 ativou (veículo no itinerário)",
     descriptionOff: "OUT1 desativou (desvio no itinerário)",
   },
+  {
+    key: "OUT2",
+    kind: "output",
+    index: 2,
+    keys: ["out2", "output2", "digitaloutput2", "digitalOutput2"],
+    labelOn: "COMANDO DESACIONADO",
+    labelOff: "COMANDO ACIONADO",
+    codeOn: "OUT2_ON",
+    codeOff: "OUT2_OFF",
+    descriptionOn: "OUT2 ativou (comando desacionado)",
+    descriptionOff: "OUT2 desativou (comando acionado)",
+  },
 ];
 
 const persistedStates = loadCollection(STATE_STORAGE_KEY, []);

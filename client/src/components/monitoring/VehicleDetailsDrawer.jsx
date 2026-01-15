@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { MapContainer, Marker, Polyline, TileLayer } from "react-leaflet";
 import {
   Battery,
   BatteryCharging,
@@ -18,11 +19,15 @@ import {
 import { formatAddress as formatAddressString } from "../../lib/format-address.js";
 import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 import { resolveTelemetryDescriptor } from "../../../../shared/telemetryDictionary.js";
+import { resolveEventDefinitionFromPayload } from "../../lib/event-translations.js";
 import { getIgnition, pickSpeed } from "../../lib/monitoring-helpers.js";
 import useTrips from "../../lib/hooks/useTrips.js";
+import useReportsRoute from "../../lib/hooks/useReportsRoute.js";
 import safeApi from "../../lib/safe-api.js";
 import { API_ROUTES } from "../../lib/api-routes.js";
 import useAlerts from "../../lib/hooks/useAlerts.js";
+import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
+import { MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
 
 export default function VehicleDetailsDrawer({
   vehicle,
@@ -112,27 +117,70 @@ export default function VehicleDetailsDrawer({
     null;
   const vehicleSummary = formatVehicleSummary(vehicleBrand, vehicleModel, vehicleYear);
 
+  const defaultRange = useMemo(() => buildDateRange(24), []);
+  const [tripsRange, setTripsRange] = useState(() => ({
+    from: formatDatetimeLocal(defaultRange.from),
+    to: formatDatetimeLocal(defaultRange.to),
+  }));
+  const [eventsRange, setEventsRange] = useState(() => ({
+    from: formatDatetimeLocal(defaultRange.from),
+    to: formatDatetimeLocal(defaultRange.to),
+  }));
+  const [commandsRange, setCommandsRange] = useState(() => ({
+    from: formatDatetimeLocal(defaultRange.from),
+    to: formatDatetimeLocal(defaultRange.to),
+  }));
+  const reportRange = useMemo(() => ({
+    from: toISOStringSafe(defaultRange.from),
+    to: toISOStringSafe(defaultRange.to),
+  }), [defaultRange]);
+  const tripsQuery = useMemo(
+    () => ({
+      from: toISOStringSafe(tripsRange.from),
+      to: toISOStringSafe(tripsRange.to),
+    }),
+    [tripsRange.from, tripsRange.to],
+  );
   const { trips, loading: tripsLoading, error: tripsError } = useTrips({
     deviceId: deviceIdForReports,
-    limit: 5,
+    from: tripsQuery.from,
+    to: tripsQuery.to,
+    limit: 10,
     enabled: Boolean(deviceIdForReports),
   });
-  const reportRange = useMemo(() => {
-    const now = new Date();
-    const to = now.toISOString();
-    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    return { from, to };
-  }, []);
+  const eventsQuery = useMemo(
+    () => ({
+      from: toISOStringSafe(eventsRange.from),
+      to: toISOStringSafe(eventsRange.to),
+    }),
+    [eventsRange.from, eventsRange.to],
+  );
+  const commandsQuery = useMemo(
+    () => ({
+      from: toISOStringSafe(commandsRange.from),
+      to: toISOStringSafe(commandsRange.to),
+    }),
+    [commandsRange.from, commandsRange.to],
+  );
 
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
+  const [eventTypeFilter, setEventTypeFilter] = useState("all");
   const [commands, setCommands] = useState([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
+  const [selectedTrip, setSelectedTrip] = useState(null);
+  const [activeTripIndex, setActiveTripIndex] = useState(0);
+  const [isTripPlaying, setIsTripPlaying] = useState(false);
+  const [tripSpeed, setTripSpeed] = useState(1);
+  const [showTripDetails, setShowTripDetails] = useState(false);
   const [itineraryStatus, setItineraryStatus] = useState(null);
   const [itineraryLoading, setItineraryLoading] = useState(false);
+  const [itineraryHistory, setItineraryHistory] = useState([]);
+  const [itineraryHistoryLoading, setItineraryHistoryLoading] = useState(false);
   const [alertStatus, setAlertStatus] = useState("pending");
   const [handlingDrafts, setHandlingDrafts] = useState({});
   const [activeAlertId, setActiveAlertId] = useState(null);
+  const { data: routeData, loading: routeLoading, error: routeError, generate: generateRoute } = useReportsRoute();
 
   const alertParams = useMemo(
     () => ({
@@ -154,12 +202,11 @@ export default function VehicleDetailsDrawer({
     }
     let isActive = true;
     setEventsLoading(true);
-    const now = new Date();
-    const from = new Date(now.getTime() - 6 * 60 * 60 * 1000).toISOString();
-    const to = now.toISOString();
+    const from = eventsQuery.from || reportRange.from;
+    const to = eventsQuery.to || reportRange.to;
     safeApi
       .get(API_ROUTES.events, {
-        params: { deviceIds: [deviceIdForReports], from, to, limit: 8 },
+        params: { deviceIds: [deviceIdForReports], from, to, limit: 12 },
       })
       .then(({ data, error }) => {
         if (!isActive) return;
@@ -183,7 +230,7 @@ export default function VehicleDetailsDrawer({
     return () => {
       isActive = false;
     };
-  }, [deviceIdForReports]);
+  }, [deviceIdForReports, eventsQuery.from, eventsQuery.to, reportRange.from, reportRange.to]);
 
   useEffect(() => {
     if (!vehicleId) {
@@ -192,12 +239,11 @@ export default function VehicleDetailsDrawer({
     }
     let isActive = true;
     setCommandsLoading(true);
-    const now = new Date();
-    const from = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    const to = now.toISOString();
+    const from = commandsQuery.from || reportRange.from;
+    const to = commandsQuery.to || reportRange.to;
     safeApi
       .get(API_ROUTES.commandsHistory, {
-        params: { vehicleId, from, to, pageSize: 6, page: 1 },
+        params: { vehicleId, from, to, pageSize: 8, page: 1 },
       })
       .then(({ data, error }) => {
         if (!isActive) return;
@@ -221,7 +267,7 @@ export default function VehicleDetailsDrawer({
     return () => {
       isActive = false;
     };
-  }, [vehicleId]);
+  }, [commandsQuery.from, commandsQuery.to, reportRange.from, reportRange.to, vehicleId]);
 
   useEffect(() => {
     if (!vehicleId) {
@@ -245,6 +291,41 @@ export default function VehicleDetailsDrawer({
       })
       .finally(() => {
         if (isActive) setItineraryLoading(false);
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [vehicleId]);
+
+  useEffect(() => {
+    if (!vehicleId) {
+      setItineraryHistory([]);
+      return;
+    }
+    let isActive = true;
+    setItineraryHistoryLoading(true);
+    safeApi
+      .get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId))
+      .then(({ data, error }) => {
+        if (!isActive) return;
+        if (error) {
+          setItineraryHistory([]);
+          return;
+        }
+        const list = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data?.history)
+          ? data.history
+          : Array.isArray(data)
+          ? data
+          : [];
+        setItineraryHistory(list.slice(0, 6));
+      })
+      .catch(() => {
+        if (isActive) setItineraryHistory([]);
+      })
+      .finally(() => {
+        if (isActive) setItineraryHistoryLoading(false);
       });
     return () => {
       isActive = false;
@@ -280,6 +361,79 @@ export default function VehicleDetailsDrawer({
       itineraryName: itineraryStatus?.itineraryName || itineraryStatus?.name || "—",
     };
   }, [itineraryStatus]);
+
+  useEffect(() => {
+    if (!selectedTrip) return;
+    const from = selectedTrip.startTime || selectedTrip.start || selectedTrip.from;
+    const to = selectedTrip.endTime || selectedTrip.end || selectedTrip.to;
+    const deviceId = selectedTrip.deviceId || selectedTrip.device_id || deviceIdForReports;
+    if (!from || !to || !deviceId) return;
+    void generateRoute({ deviceId, from, to }).catch(() => {});
+  }, [deviceIdForReports, generateRoute, selectedTrip]);
+
+  const routePoints = useMemo(() => {
+    const positions = Array.isArray(routeData?.positions)
+      ? routeData.positions
+      : Array.isArray(routeData?.data)
+      ? routeData.data
+      : [];
+    return positions
+      .map((point, index) => {
+        const normalized = normalizeLatLng(point);
+        if (!normalized) return null;
+        return { ...point, ...normalized, index };
+      })
+      .filter(Boolean);
+  }, [routeData]);
+
+  useEffect(() => {
+    if (!routePoints.length) {
+      setActiveTripIndex(0);
+      setIsTripPlaying(false);
+      return;
+    }
+    setActiveTripIndex(0);
+    setIsTripPlaying(false);
+  }, [routePoints.length]);
+
+  useEffect(() => {
+    if (!isTripPlaying || routePoints.length < 2) return undefined;
+    const intervalMs = Math.max(200, Math.round(900 / Math.max(0.5, tripSpeed)));
+    const interval = setInterval(() => {
+      setActiveTripIndex((current) => {
+        if (current + 1 >= routePoints.length) {
+          setIsTripPlaying(false);
+          return current;
+        }
+        return current + 1;
+      });
+    }, intervalMs);
+    return () => clearInterval(interval);
+  }, [isTripPlaying, routePoints.length, tripSpeed]);
+
+  const tripEventSummaries = useMemo(() => {
+    const summary = new Map();
+    routePoints.forEach((point) => {
+      const definition = resolveEventDefinitionFromPayload(point);
+      const label = definition?.label || "Posição registrada";
+      const key = definition?.type || label;
+      const current = summary.get(key) || { label, count: 0 };
+      summary.set(key, { ...current, count: current.count + 1 });
+    });
+    return Array.from(summary.values()).sort((a, b) => b.count - a.count);
+  }, [routePoints]);
+
+  const activeTripPoint = routePoints[activeTripIndex] || null;
+
+  useEffect(() => {
+    if (!selectedTrip) return;
+    const match = trips.find(
+      (trip) => String(trip?.id || trip?.startTime) === String(selectedTrip?.id || selectedTrip?.startTime),
+    );
+    if (!match) {
+      setSelectedTrip(null);
+    }
+  }, [selectedTrip, trips]);
 
   const sensorCards = useMemo(() => {
     if (!position && !device) return [];
@@ -361,13 +515,13 @@ export default function VehicleDetailsDrawer({
 
     if (activeTab === "trips") {
       return (
-        <Section title="Trajetos recentes">
+        <Section title="Trajetos / Replay">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-white/60">Resumo dos últimos trajetos deste veículo.</p>
+            <p className="text-xs text-white/60">Replay compacto dos últimos trajetos do veículo.</p>
             <Link
               to={`/trips?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
-                reportRange.from,
-              )}&to=${encodeURIComponent(reportRange.to)}`}
+                tripsQuery.from || reportRange.from,
+              )}&to=${encodeURIComponent(tripsQuery.to || reportRange.to)}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
@@ -375,62 +529,248 @@ export default function VehicleDetailsDrawer({
               Abrir em Trajetos
             </Link>
           </div>
+
+          <div className="mt-3 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 lg:grid-cols-[1.4fr_repeat(2,1fr)]">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Veículo</p>
+              <p className="mt-1 truncate text-sm font-semibold text-white">{safeVehicle.plate || safeVehicle.name || "—"}</p>
+            </div>
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>De</span>
+              <input
+                type="datetime-local"
+                value={tripsRange.from}
+                onChange={(event) => setTripsRange((current) => ({ ...current, from: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>Até</span>
+              <input
+                type="datetime-local"
+                value={tripsRange.to}
+                onChange={(event) => setTripsRange((current) => ({ ...current, to: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+          </div>
+
           {tripsLoading && <p className="text-xs text-white/60">Carregando trajetos...</p>}
           {tripsError && <p className="text-xs text-red-300">Erro ao carregar trajetos.</p>}
-          {!tripsLoading && trips.length === 0 && (
-            <p className="text-xs text-white/50">Sem dados para exibir.</p>
-          )}
-          <ul className="space-y-2">
-            {trips.map((trip) => (
-              <li key={trip.id || trip.startTime} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
-                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Início</p>
-                    <p className="truncate font-semibold text-white" title={trip.startTime || ""}>
-                      {trip.startTime ? new Date(trip.startTime).toLocaleString() : "—"}
-                    </p>
+          <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
+            <table className="min-w-full text-xs text-white/70">
+              <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
+                <tr>
+                  <th className="px-3 py-2 text-left">Início</th>
+                  <th className="px-3 py-2 text-left">Fim</th>
+                  <th className="px-3 py-2 text-left">Duração</th>
+                  <th className="px-3 py-2 text-left">Distância</th>
+                  <th className="px-3 py-2 text-left">Vel. média</th>
+                  <th className="px-3 py-2 text-left">Origem</th>
+                  <th className="px-3 py-2 text-left">Destino</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!tripsLoading && trips.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-3 py-4 text-center text-white/50">
+                      Nenhum trajeto encontrado no período. Ajuste as datas e tente novamente.
+                    </td>
+                  </tr>
+                )}
+                {trips.map((trip) => {
+                  const isSelected = selectedTrip?.id === trip.id && selectedTrip?.startTime === trip.startTime;
+                  return (
+                    <tr
+                      key={`${trip.id || trip.startTime}-${trip.endTime}`}
+                      className={`cursor-pointer border-t border-white/5 transition hover:bg-white/5 ${
+                        isSelected ? "bg-primary/10" : ""
+                      }`}
+                      onClick={() => setSelectedTrip(trip)}
+                    >
+                      <td className="px-3 py-2 text-white">{trip.startTime ? new Date(trip.startTime).toLocaleString() : "—"}</td>
+                      <td className="px-3 py-2 text-white/70">{trip.endTime ? new Date(trip.endTime).toLocaleString() : "—"}</td>
+                      <td className="px-3 py-2 text-white/70">{trip.duration != null ? formatDuration(trip.duration) : "—"}</td>
+                      <td className="px-3 py-2 text-white/70">
+                        {trip.distance != null ? `${Number(trip.distance).toFixed(1)} km` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-white/70">
+                        {trip.averageSpeed ?? trip.avgSpeed ?? trip.speed
+                          ? `${Number(trip.averageSpeed ?? trip.avgSpeed ?? trip.speed).toFixed(0)} km/h`
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-white/60">{formatDisplayValue(trip.startAddress || trip.startLocation)}</td>
+                      <td className="px-3 py-2 text-white/60">{formatDisplayValue(trip.endAddress || trip.endLocation)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-4 space-y-3 rounded-lg border border-white/10 bg-white/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-white">Replay do trajeto</p>
+                <p className="text-[11px] text-white/50">
+                  {selectedTrip ? "Selecione um ponto para acompanhar o replay." : "Selecione um trajeto na lista para iniciar o replay."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTripPlaying((current) => !current)}
+                  disabled={!routePoints.length}
+                  className="rounded-md border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white disabled:cursor-not-allowed disabled:text-white/30"
+                >
+                  {isTripPlaying ? "Pausar" : "Reproduzir"}
+                </button>
+                <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-2 py-2 text-[11px] text-white/60">
+                  <span>Velocidade</span>
+                  <select
+                    value={tripSpeed}
+                    onChange={(event) => setTripSpeed(Number(event.target.value))}
+                    className="rounded-md border border-white/10 bg-[#0f141c] px-2 py-1 text-[11px] text-white"
+                  >
+                    {[0.5, 1, 2, 4].map((value) => (
+                      <option key={value} value={value}>
+                        {value}x
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(220px,1fr)]">
+              <MiniReplayMap
+                points={routePoints}
+                activeIndex={activeTripIndex}
+                vehicle={safeVehicle}
+              />
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Eventos do trajeto</p>
+                <div className="space-y-2">
+                  {tripEventSummaries.length === 0 ? (
+                    <div className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/50">
+                      Nenhum evento registrado no período selecionado.
+                    </div>
+                  ) : (
+                    tripEventSummaries.slice(0, 6).map((item) => (
+                      <div key={item.label} className="flex items-center justify-between rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                        <span className="truncate">{item.label}</span>
+                        <span className="text-white/50">{item.count}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {routeLoading && <p className="text-xs text-white/60">Carregando trajeto...</p>}
+            {routeError && <p className="text-xs text-red-300">{routeError.message}</p>}
+
+            {routePoints.length > 0 && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-white/60">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span>
+                      Ponto atual: <span className="text-white">{activeTripIndex + 1}/{routePoints.length}</span>
+                    </span>
+                    <span>
+                      Horário: <span className="text-white">{resolvePointTime(activeTripPoint)}</span>
+                    </span>
+                    <span>
+                      Velocidade: <span className="text-white">{resolvePointSpeed(activeTripPoint)}</span>
+                    </span>
                   </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Fim</p>
-                    <p className="truncate text-white/70" title={trip.endTime || ""}>
-                      {trip.endTime ? new Date(trip.endTime).toLocaleString() : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Duração</p>
-                    <p className="text-white/70">{trip.duration != null ? formatDuration(trip.duration) : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Distância</p>
-                    <p className="text-white/70">
-                      {trip.distance != null ? `${Number(trip.distance).toFixed(1)} km` : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Vel. média</p>
-                    <p className="text-white/70">
-                      {trip.averageSpeed ?? trip.avgSpeed ?? trip.speed
-                        ? `${Number(trip.averageSpeed ?? trip.avgSpeed ?? trip.speed).toFixed(0)} km/h`
-                        : "—"}
-                    </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTripIndex((current) => Math.max(0, current - 1))}
+                      disabled={activeTripIndex <= 0}
+                      className="rounded-md border border-white/10 px-3 py-2 text-[11px] text-white/70 disabled:cursor-not-allowed disabled:text-white/30"
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTripIndex((current) => Math.min(routePoints.length - 1, current + 1))}
+                      disabled={activeTripIndex >= routePoints.length - 1}
+                      className="rounded-md border border-white/10 px-3 py-2 text-[11px] text-white/70 disabled:cursor-not-allowed disabled:text-white/30"
+                    >
+                      Próximo
+                    </button>
                   </div>
                 </div>
-              </li>
-            ))}
-          </ul>
+                <input
+                  type="range"
+                  min={0}
+                  max={Math.max(routePoints.length - 1, 0)}
+                  value={Math.min(activeTripIndex, routePoints.length - 1)}
+                  onChange={(event) => setActiveTripIndex(Number(event.target.value))}
+                  className="w-full accent-primary"
+                />
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setShowTripDetails((current) => !current)}
+                    className="text-[11px] uppercase tracking-[0.12em] text-white/60"
+                  >
+                    {showTripDetails ? "Ocultar detalhes do trajeto" : "Detalhes do trajeto"}
+                  </button>
+                </div>
+                {showTripDetails && (
+                  <div className="max-h-56 overflow-y-auto rounded-md border border-white/10">
+                    <table className="min-w-full text-xs text-white/70">
+                      <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Horário</th>
+                          <th className="px-3 py-2 text-left">Evento</th>
+                          <th className="px-3 py-2 text-left">Velocidade</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {routePoints.slice(0, 40).map((point) => {
+                          const definition = resolveEventDefinitionFromPayload(point);
+                          return (
+                            <tr key={`${point.id || point.index}-${point.fixTime || point.deviceTime || point.serverTime}`} className="border-t border-white/5">
+                              <td className="px-3 py-2">{resolvePointTime(point)}</td>
+                              <td className="px-3 py-2">{definition?.label || "Posição registrada"}</td>
+                              <td className="px-3 py-2">{resolvePointSpeed(point)}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </Section>
       );
     }
 
     if (activeTab === "events") {
+      const eventTypeOptions = Array.from(
+        new Set(events.map((event) => event?.eventLabel || event?.type || event?.eventType).filter(Boolean)),
+      );
+      const filteredEvents =
+        eventTypeFilter === "all"
+          ? events
+          : events.filter(
+              (event) =>
+                String(event?.eventLabel || event?.type || event?.eventType) === String(eventTypeFilter),
+            );
       return (
         <Section title="Eventos">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Eventos recentes vinculados ao veículo.</p>
             <Link
               to={`/events?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
-                reportRange.from,
-              )}&to=${encodeURIComponent(reportRange.to)}`}
+                eventsQuery.from || reportRange.from,
+              )}&to=${encodeURIComponent(eventsQuery.to || reportRange.to)}`}
               target="_blank"
               rel="noreferrer"
               className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
@@ -438,36 +778,79 @@ export default function VehicleDetailsDrawer({
               Abrir em Eventos
             </Link>
           </div>
-          {eventsLoading && <p className="text-xs text-white/60">Carregando eventos...</p>}
-          {!eventsLoading && events.length === 0 && (
-            <p className="text-xs text-white/50">Sem dados para exibir.</p>
-          )}
-          <ul className="space-y-2">
-            {events.map((event, index) => (
-              <li
-                key={String(event.id || event.eventId || `${event.type || "event"}-${index}`)}
-                className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70"
+          <div className="mt-3 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-3">
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>De</span>
+              <input
+                type="datetime-local"
+                value={eventsRange.from}
+                onChange={(event) => setEventsRange((current) => ({ ...current, from: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>Até</span>
+              <input
+                type="datetime-local"
+                value={eventsRange.to}
+                onChange={(event) => setEventsRange((current) => ({ ...current, to: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>Tipo</span>
+              <select
+                value={eventTypeFilter}
+                onChange={(event) => setEventTypeFilter(event.target.value)}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="truncate font-semibold text-white" title={event.eventLabel || event.type || ""}>
-                    {formatDisplayValue(event.eventLabel || event.type || "Evento")}
-                  </span>
-                  <span className="text-white/50">
-                    {formatDisplayValue(event.severity || event.eventSeverity || "—")}
-                  </span>
-                </div>
-                <div className="mt-1 grid gap-2 text-[11px] text-white/50 sm:grid-cols-2 lg:grid-cols-3">
-                  <span>{event.serverTime ? new Date(event.serverTime).toLocaleString() : "—"}</span>
-                  <span className="truncate" title={event.eventCategory || event.category || ""}>
-                    {formatDisplayValue(event.eventCategory || event.category || "—")}
-                  </span>
-                  <span className="truncate" title={formatAddressString(event.address || event.shortAddress)}>
-                    {formatAddressString(event.address || event.shortAddress)}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+                <option value="all">Todos</option>
+                {eventTypeOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {eventsLoading && <p className="text-xs text-white/60">Carregando eventos...</p>}
+          <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
+            <table className="min-w-full text-xs text-white/70">
+              <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
+                <tr>
+                  <th className="px-3 py-2 text-left">Hora GPS</th>
+                  <th className="px-3 py-2 text-left">Tipo</th>
+                  <th className="px-3 py-2 text-left">Descrição</th>
+                  <th className="px-3 py-2 text-left">Severidade</th>
+                  <th className="px-3 py-2 text-left">Endereço</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!eventsLoading && filteredEvents.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-4 text-center text-white/50">
+                      Nenhum evento no período selecionado. Ajuste o filtro para visualizar outros eventos.
+                    </td>
+                  </tr>
+                )}
+                {filteredEvents.map((event, index) => (
+                  <tr
+                    key={String(event.id || event.eventId || `${event.type || "event"}-${index}`)}
+                    className="border-t border-white/5"
+                  >
+                    <td className="px-3 py-2 text-white/70">
+                      {event.serverTime ? new Date(event.serverTime).toLocaleString() : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-white">{formatDisplayValue(event.eventLabel || event.type || "Evento")}</td>
+                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.eventCategory || event.category || "—")}</td>
+                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.severity || event.eventSeverity || "—")}</td>
+                    <td className="px-3 py-2 text-white/60">{formatAddressString(event.address || event.shortAddress)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Section>
       );
     }
@@ -504,39 +887,82 @@ export default function VehicleDetailsDrawer({
         <Section title="Comandos">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Últimos comandos enviados para o veículo.</p>
-            <Link
-              to={`/commands?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
-                reportRange.from,
-              )}&to=${encodeURIComponent(reportRange.to)}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
-            >
-              Abrir em Comandos
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                to={`/commands?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
+                  commandsQuery.from || reportRange.from,
+                )}&to=${encodeURIComponent(commandsQuery.to || reportRange.to)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
+              >
+                Abrir em Comandos
+              </Link>
+              <Link
+                to={`/commands/create?vehicleId=${encodeURIComponent(vehicleId || "")}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30"
+              >
+                Enviar comando
+              </Link>
+            </div>
           </div>
+          <div className="mt-3 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-2">
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>De</span>
+              <input
+                type="datetime-local"
+                value={commandsRange.from}
+                onChange={(event) => setCommandsRange((current) => ({ ...current, from: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+            <label className="space-y-1 text-[11px] text-white/60">
+              <span>Até</span>
+              <input
+                type="datetime-local"
+                value={commandsRange.to}
+                onChange={(event) => setCommandsRange((current) => ({ ...current, to: event.target.value }))}
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+          </div>
+
           {commandsLoading && <p className="text-xs text-white/60">Carregando comandos...</p>}
-          {!commandsLoading && commands.length === 0 && (
-            <p className="text-xs text-white/50">Sem dados para exibir.</p>
-          )}
-          <ul className="space-y-2">
-            {commands.map((command) => (
-              <li key={command.id || command.createdAt} className="rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="truncate font-semibold text-white" title={command.type || command.commandName || ""}>
-                    {formatDisplayValue(command.type || command.commandName || "Comando")}
-                  </span>
-                  <span className="text-white/50">{formatDisplayValue(command.status || "—")}</span>
-                </div>
-                <div className="mt-1 grid gap-2 text-[11px] text-white/50 sm:grid-cols-2">
-                  <span>{command.createdAt ? new Date(command.createdAt).toLocaleString() : "—"}</span>
-                  <span className="truncate" title={command.result || command.response || ""}>
-                    {formatDisplayValue(command.result || command.response || "—")}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
+          <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
+            <table className="min-w-full text-xs text-white/70">
+              <thead className="bg-white/5 text-[10px] uppercase tracking-[0.12em] text-white/50">
+                <tr>
+                  <th className="px-3 py-2 text-left">Enviado em</th>
+                  <th className="px-3 py-2 text-left">Respondido em</th>
+                  <th className="px-3 py-2 text-left">Comando</th>
+                  <th className="px-3 py-2 text-left">Quem enviou</th>
+                  <th className="px-3 py-2 text-left">Status</th>
+                  <th className="px-3 py-2 text-left">Resultado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!commandsLoading && commands.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-3 py-4 text-center text-white/50">
+                      Nenhum comando registrado no período selecionado.
+                    </td>
+                  </tr>
+                )}
+                {commands.map((command) => (
+                  <tr key={command.id || command.createdAt} className="border-t border-white/5">
+                    <td className="px-3 py-2">{command.createdAt ? new Date(command.createdAt).toLocaleString() : "—"}</td>
+                    <td className="px-3 py-2">{command.respondedAt ? new Date(command.respondedAt).toLocaleString() : "—"}</td>
+                    <td className="px-3 py-2 text-white">{formatDisplayValue(command.type || command.commandName || "Comando")}</td>
+                    <td className="px-3 py-2">{formatDisplayValue(command.createdBy || command.userName || "—")}</td>
+                    <td className="px-3 py-2">{formatDisplayValue(command.status || "—")}</td>
+                    <td className="px-3 py-2">{formatDisplayValue(command.result || command.response || "—")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Section>
       );
     }
@@ -557,30 +983,43 @@ export default function VehicleDetailsDrawer({
           </div>
           {itineraryLoading && <p className="text-xs text-white/60">Carregando itinerário...</p>}
           {!itineraryLoading && !itineraryStatus && (
-            <p className="text-xs text-white/50">Sem dados para exibir.</p>
+            <p className="text-xs text-white/50">Sem itinerário embarcado para este veículo.</p>
           )}
           {itineraryStatus && (
-            <div className="mt-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70">
-              <Detail label="Itinerário" value={itinerarySummary.itineraryName} />
-              <Detail label="Status" value={itinerarySummary.statusLabel} />
-              <Detail
-                label="Último embarque"
-                value={itinerarySummary.lastEmbarkAt ? new Date(itinerarySummary.lastEmbarkAt).toLocaleString() : "—"}
-              />
-              <Detail
-                label="Rotas"
-                value={itinerarySummary.counts.routes}
-              />
-              <Detail
-                label="Cercas"
-                value={itinerarySummary.counts.geofences}
-              />
-              <Detail
-                label="Alvos"
-                value={itinerarySummary.counts.targets}
-              />
+            <div className="mt-2 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-2">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Itinerário</p>
+                <p className="mt-1 text-sm font-semibold text-white">{itinerarySummary.itineraryName}</p>
+                <p className="text-[11px] text-white/50">{itinerarySummary.statusLabel}</p>
+              </div>
+              <div className="space-y-1">
+                <Detail label="Último embarque" value={itinerarySummary.lastEmbarkAt ? new Date(itinerarySummary.lastEmbarkAt).toLocaleString() : "—"} />
+                <Detail label="Rotas" value={itinerarySummary.counts.routes} />
+                <Detail label="Cercas" value={itinerarySummary.counts.geofences} />
+                <Detail label="Alvos" value={itinerarySummary.counts.targets} />
+              </div>
             </div>
           )}
+          <div className="mt-3 space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Histórico recente</p>
+            {itineraryHistoryLoading && <p className="text-xs text-white/60">Carregando histórico...</p>}
+            {!itineraryHistoryLoading && itineraryHistory.length === 0 && (
+              <p className="text-xs text-white/50">Nenhuma ação recente registrada.</p>
+            )}
+            <ul className="space-y-2">
+              {itineraryHistory.map((item) => (
+                <li key={item.id || item.createdAt || item.timestamp} className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-white">{formatDisplayValue(item.action || item.status || item.type || "Ação")}</span>
+                    <span className="text-white/50">{item.createdAt ? new Date(item.createdAt).toLocaleString() : "—"}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] text-white/50">
+                    {formatDisplayValue(item.userName || item.user || item.updatedBy || "Sistema")}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
         </Section>
       );
     }
@@ -1064,4 +1503,83 @@ function formatDuration(value) {
   const remainingMinutes = minutes % 60;
   if (hours > 0) return `${hours}h ${remainingMinutes}m`;
   return `${minutes}m`;
+}
+
+function buildDateRange(hours = 24) {
+  const now = new Date();
+  const from = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  return { from, to: now };
+}
+
+function formatDatetimeLocal(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 16);
+}
+
+function toISOStringSafe(value) {
+  if (!value) return "";
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+}
+
+function normalizeLatLng(point) {
+  if (!point) return null;
+  const lat = Number(point.lat ?? point.latitude ?? point.lat_deg ?? point.latitudeDeg);
+  const lng = Number(point.lng ?? point.lon ?? point.longitude ?? point.lon_deg ?? point.longitudeDeg);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function resolvePointTime(point) {
+  const raw = point?.fixTime || point?.deviceTime || point?.serverTime || point?.time;
+  if (!raw) return "—";
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return "—";
+  return parsed.toLocaleString();
+}
+
+function resolvePointSpeed(point) {
+  const raw = point?.speed ?? point?.attributes?.speed ?? point?.attributes?.sp;
+  if (!Number.isFinite(Number(raw))) return "—";
+  return `${Math.round(Number(raw))} km/h`;
+}
+
+function MiniReplayMap({ points = [], activeIndex = 0, vehicle }) {
+  if (!points.length) {
+    return (
+      <div className="flex h-[280px] items-center justify-center rounded-lg border border-white/10 bg-[#0f141c] text-xs text-white/50">
+        Selecione um trajeto para visualizar o mapa.
+      </div>
+    );
+  }
+
+  const safeIndex = Math.min(Math.max(activeIndex, 0), points.length - 1);
+  const activePoint = points[safeIndex] || points[0];
+  const positions = points.map((point) => [point.lat, point.lng]);
+  const center = [activePoint.lat, activePoint.lng];
+  const markerIcon = createVehicleMarkerIcon({
+    bearing: activePoint.heading || 0,
+    color: "#60a5fa",
+    label: vehicle?.plate || vehicle?.name || "",
+    plate: vehicle?.plate,
+    iconType: vehicle?.iconType,
+  });
+  const tileLayer = MAP_LAYER_FALLBACK;
+
+  return (
+    <div className="relative h-[280px] w-full overflow-hidden rounded-lg border border-white/10 bg-[#0f141c]">
+      <MapContainer center={center} zoom={15} className="h-full w-full" scrollWheelZoom={false}>
+        <TileLayer
+          attribution={tileLayer.attribution}
+          url={tileLayer.url}
+          subdomains={tileLayer.subdomains ?? "abc"}
+          maxZoom={tileLayer.maxZoom ?? 19}
+        />
+        <Polyline positions={positions} color="#2563eb" weight={4} />
+        <Marker position={center} icon={markerIcon || undefined} />
+      </MapContainer>
+    </div>
+  );
 }
