@@ -13,6 +13,7 @@ import { buildTraccarUnavailableError, traccarProxy, traccarRequest } from "../s
 import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../services/protocol-catalog.js";
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
+import { listSignalEvents } from "../services/signal-events.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import {
@@ -2245,6 +2246,19 @@ async function proxyTraccarReport(req, res, next, path) {
   return proxyTraccarReportWithParams(req, res, next, path, { ...(req.query || {}) });
 }
 
+function resolveEventTimestamp(event) {
+  const value =
+    event?.eventTime ??
+    event?.serverTime ??
+    event?.deviceTime ??
+    event?.time ??
+    event?.createdAt ??
+    null;
+  if (!value) return 0;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 async function handleEventsReport(req, res, next) {
   const accept = pickAccept(String(req.query?.format || ""));
   const wantsBinary = accept !== "application/json";
@@ -2271,7 +2285,16 @@ async function handleEventsReport(req, res, next) {
 
     const fetchLimit = pageSize ? pageSize * page : pageSize;
     const events = await fetchEventsWithFallback(deviceIdsToQuery, from, to, fetchLimit);
-    const positionIds = Array.from(new Set(events.map((event) => event.positionId).filter(Boolean)));
+    const signalEvents = listSignalEvents({
+      clientId,
+      deviceIds: deviceIdsToQuery,
+      from,
+      to,
+    });
+    const combinedEvents = [...events, ...signalEvents].sort(
+      (a, b) => resolveEventTimestamp(b) - resolveEventTimestamp(a),
+    );
+    const positionIds = Array.from(new Set(combinedEvents.map((event) => event.positionId).filter(Boolean)));
     const positions = await fetchPositionsByIds(positionIds);
     const enrichedPositions = ensureCachedAddresses(positions, { priority: "normal" });
     const positionMap = new Map(enrichedPositions.map((position) => [position.id, position]));
@@ -2282,17 +2305,24 @@ async function handleEventsReport(req, res, next) {
     const vehicles = listVehicles({ clientId });
     const vehicleById = new Map(vehicles.map((vehicle) => [String(vehicle.id), vehicle]));
 
-    const eventsWithAddress = events.map((event) => {
+    const eventsWithAddress = combinedEvents.map((event) => {
       const position = event.positionId ? positionMap.get(event.positionId) : null;
-      const fallbackShort = buildShortAddressFallback(position?.latitude, position?.longitude);
+      const fallbackShort = buildShortAddressFallback(
+        position?.latitude ?? event?.latitude,
+        position?.longitude ?? event?.longitude,
+      );
       const formattedAddress = position ? formatAddress(position.address) : null;
       const resolvedShortAddress =
         position?.shortAddress ||
         formattedAddress ||
         normalizeAddressValue(position?.address, position?.fullAddress, position?.shortAddress) ||
+        event?.shortAddress ||
+        event?.address ||
         fallbackShort;
       const resolvedAddress =
-        normalizeAddressValue(position?.address, position?.fullAddress, position?.shortAddress) || resolvedShortAddress;
+        normalizeAddressValue(position?.address, position?.fullAddress, position?.shortAddress) ||
+        event?.address ||
+        resolvedShortAddress;
       const decoratedPosition = position ? decoratePositionWithDevice(position, lookup) : null;
       const device = buildDeviceInfo(
         lookup.devicesByTraccarId?.get(String(event.deviceId)),
@@ -2309,6 +2339,7 @@ async function handleEventsReport(req, res, next) {
       const lastCommunication =
         decoratedPosition?.lastCommunication || device?.lastUpdate || position?.serverTime || position?.deviceTime || null;
       const resolution = getEventResolution(event.id, { clientId });
+      const isSynthetic = event?.synthetic === true || event?.source === "telemetry";
       const protocol =
         event?.protocol ||
         event?.attributes?.protocol ||
@@ -2316,8 +2347,8 @@ async function handleEventsReport(req, res, next) {
         position?.protocol ||
         position?.attributes?.protocol ||
         null;
-      const eventId = resolveEventIdFromPayload(event);
-      const configuredEvent = eventId
+      const eventId = !isSynthetic ? resolveEventIdFromPayload(event) : null;
+      const configuredEvent = !isSynthetic && eventId
         ? resolveEventConfiguration({
             clientId,
             protocol,
@@ -2326,15 +2357,24 @@ async function handleEventsReport(req, res, next) {
             deviceId: event?.deviceId ?? null,
           })
         : null;
-      const severity = configuredEvent?.severity || resolveEventSeverity(event);
-      const eventCategory = configuredEvent?.category ?? null;
-      const eventRequiresHandling = configuredEvent?.requiresHandling ?? false;
+      const baseSeverity = event?.eventSeverity || event?.severity || resolveEventSeverity(event);
+      const eventLabel = configuredEvent?.label || event?.eventLabel || event?.type || event?.event || null;
+      const eventCategory = configuredEvent?.category ?? event?.eventCategory ?? event?.category ?? null;
+      const eventRequiresHandling =
+        configuredEvent?.requiresHandling ?? event?.eventRequiresHandling ?? event?.requiresHandling ?? false;
+      const severity = configuredEvent?.severity || baseSeverity;
 
-      if (configuredEvent?.requiresHandling) {
+      if (eventRequiresHandling) {
         upsertAlertFromEvent({
           clientId,
           event,
-          configuredEvent,
+          configuredEvent: {
+            label: eventLabel,
+            severity,
+            category: eventCategory,
+            requiresHandling: eventRequiresHandling,
+            active: configuredEvent?.active ?? event?.eventActive ?? true,
+          },
           deviceId: event?.deviceId ?? null,
           vehicleId,
           vehicleLabel: vehicle?.name ?? null,
@@ -2355,9 +2395,9 @@ async function handleEventsReport(req, res, next) {
         batteryLevel,
         ignition,
         severity,
-        eventLabel: configuredEvent?.label || null,
-        eventSeverity: configuredEvent?.severity || null,
-        eventActive: configuredEvent?.active ?? true,
+        eventLabel,
+        eventSeverity: configuredEvent?.severity || event?.eventSeverity || null,
+        eventActive: configuredEvent?.active ?? event?.eventActive ?? true,
         eventCategory,
         eventRequiresHandling,
         protocol,

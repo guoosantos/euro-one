@@ -28,25 +28,16 @@ export function useTrips({
   const abortRef = useRef(null);
   const initialLoadRef = useRef(true);
 
-  const shouldFetch = Boolean(enabled);
-
-  // ❗ CORREÇÃO DEFINITIVA:
-  // Se não tem deviceId OU tenantId, o hook termina aqui
-  if (!shouldFetch || !tenantId || !deviceId) {
-    return ensureHookResult(
-      {
-        data: [],
-        trips: [],
-        loading: false,
-        error: null,
-        fetchedAt: null,
-        refresh: () => {},
-      },
-      { defaultData: [] }
-    );
-  }
+  const shouldFetch = Boolean(enabled && tenantId && deviceId);
 
   const fetchTrips = useCallback(async () => {
+    if (!shouldFetch) {
+      setTrips([]);
+      setFetchedAt(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
     if (!mountedRef.current) {
       setLoading(false);
       return;
@@ -123,14 +114,14 @@ export function useTrips({
       }
       initialLoadRef.current = false;
     }
-  }, [deviceId, from, to, limit, tenantId, t]);
+  }, [deviceId, from, to, limit, shouldFetch, tenantId, t]);
 
   const pollingEnabled =
     typeof refreshInterval === "number" &&
     Number.isFinite(refreshInterval);
 
   usePollingTask(fetchTrips, {
-    enabled: pollingEnabled,
+    enabled: pollingEnabled && shouldFetch,
     intervalMs: refreshInterval,
     maxConsecutiveErrors,
     pauseWhenHidden,
@@ -149,7 +140,13 @@ export function useTrips({
   useEffect(() => {
     mountedRef.current = true;
 
-    if (!pollingEnabled) {
+    if (!shouldFetch) {
+      setTrips([]);
+      setFetchedAt(null);
+      setError(null);
+      setLoading(false);
+      initialLoadRef.current = true;
+    } else if (!pollingEnabled) {
       void fetchTrips().catch(() => {});
     }
 
@@ -157,9 +154,9 @@ export function useTrips({
       mountedRef.current = false;
       abortRef.current?.abort();
     };
-  }, [fetchTrips, pollingEnabled]);
+  }, [fetchTrips, pollingEnabled, shouldFetch]);
 
-  const data = Array.isArray(trips) ? trips : [];
+  const data = shouldFetch && Array.isArray(trips) ? trips : [];
 
   return ensureHookResult(
     { data, trips: data, loading, error, fetchedAt, refresh },
