@@ -55,6 +55,7 @@ export function createDeployment({
     startedAt: now,
     finishedAt: finishedAt || null,
     confirmedAt: null,
+    deviceConfirmedAt: null,
     errorMessage: errorMessage || null,
     errorDetails: errorDetails || null,
     correlationId: null,
@@ -160,6 +161,7 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
       const vehicle = vehiclesById.get(String(deployment.vehicleId));
       const itinerary = itinerariesById.get(String(deployment.itineraryId));
       const snapshotItinerary = deployment.snapshot?.itinerary || null;
+      const deviceConfirmedAt = deployment.deviceConfirmedAt || deployment.confirmedAt || null;
       return {
         id: deployment.id,
         clientId: deployment.clientId,
@@ -171,8 +173,9 @@ export function toHistoryEntries({ deploymentsList, vehiclesById = new Map(), it
         brand: vehicle?.brand || null,
         model: vehicle?.model || null,
         sentAt: deployment.startedAt,
-        receivedAt: deployment.confirmedAt || deployment.finishedAt,
-        receivedAtDevice: deployment.confirmedAt || null,
+        receivedAt: deviceConfirmedAt,
+        receivedAtDevice: deviceConfirmedAt,
+        deviceConfirmedAt,
         sentBy: deployment.requestedByUserId || null,
         sentByName: deployment.requestedByName || null,
         ipAddress: deployment.ipAddress || null,

@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import L from "leaflet";
 
 const FALLBACK_DELAY_MS = 120;
@@ -42,6 +42,7 @@ function isValidBounds(bounds) {
 export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const mapRef = useRef(null);
   const pendingFocusRef = useRef(null);
+  const fallbackTimeoutRef = useRef(null);
   const isDev = Boolean(import.meta?.env?.DEV);
 
   const log = useCallback(
@@ -82,9 +83,14 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
         t: Date.now(),
       });
 
-      setTimeout(() => {
-        const currentCenter = map.getCenter?.();
-        const currentZoom = map.getZoom?.();
+      if (fallbackTimeoutRef.current) {
+        clearTimeout(fallbackTimeoutRef.current);
+      }
+      fallbackTimeoutRef.current = setTimeout(() => {
+        const currentMap = mapRef.current;
+        if (!currentMap || !currentMap._mapPane) return;
+        const currentCenter = currentMap.getCenter?.();
+        const currentZoom = currentMap.getZoom?.();
         if (!hasCenterMoved(fromCenter, currentCenter, fromZoom, currentZoom)) {
           log("[MAP_FOCUS_FALLBACK_SET_VIEW]", {
             page,
@@ -95,8 +101,8 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
             toZoom: targetZoom,
             t: Date.now(),
           });
-          map.stop?.();
-          map.setView([lat, lng], targetZoom, { animate });
+          currentMap.stop?.();
+          currentMap.setView([lat, lng], targetZoom, { animate });
         }
       }, FALLBACK_DELAY_MS);
 
@@ -216,6 +222,15 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
     },
     [fitBounds, focusLatLng],
   );
+
+  useEffect(() => {
+    return () => {
+      if (fallbackTimeoutRef.current) {
+        clearTimeout(fallbackTimeoutRef.current);
+        fallbackTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   return {
     registerMap,

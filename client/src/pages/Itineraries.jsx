@@ -3207,7 +3207,9 @@ export default function Itineraries() {
                   paginatedHistory.map((entry) => (
                     <tr key={entry.id}>
                       <td className="px-4 py-3">{formatDateTime(entry.sentAt || entry.at)}</td>
-                      <td className="px-4 py-3">{formatDateTime(entry.receivedAt)}</td>
+                      <td className="px-4 py-3">
+                        {formatDateTime(entry.deviceConfirmedAt || entry.receivedAtDevice)}
+                      </td>
                       <td className="px-4 py-3">{entry.sentByName || entry.sentBy || "—"}</td>
                       <td className="px-4 py-3">{entry.plate || "—"}</td>
                       <td className="px-4 py-3">{entry.brand || "—"}</td>
@@ -3549,7 +3551,9 @@ export default function Itineraries() {
 
                           <div className="rounded-xl border border-white/10 bg-black/40 p-3 text-xs text-white/70">
                             <p>Envio: {formatDateTime(selectedVehicleHistoryEntry.sentAt)}</p>
-                            <p>Recebido: {formatDateTime(selectedVehicleHistoryEntry.receivedAt)}</p>
+                            <p>
+                              Recebido: {formatDateTime(selectedVehicleHistoryEntry.deviceConfirmedAt || selectedVehicleHistoryEntry.receivedAtDevice)}
+                            </p>
                             {selectedVehicleHistoryEntry.message && (
                               <p className="mt-2 text-white/80">{selectedVehicleHistoryEntry.message}</p>
                             )}

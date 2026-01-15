@@ -14,7 +14,7 @@ export function waitForMapContainerReady(
 
     const check = () => {
       frame += 1;
-      if (!containerEl || frame > maxFrames) {
+      if (!containerEl || containerEl.isConnected === false || frame > maxFrames) {
         resolve(false);
         return;
       }
@@ -51,6 +51,7 @@ export class MapLifecycleController {
     this.container = null;
     this.active = false;
     this.timeoutIds = [];
+    this.rafIds = [];
   }
 
   attach({ map, container }) {
@@ -78,16 +79,32 @@ export class MapLifecycleController {
     }
   }
 
+  canInvalidate() {
+    if (!this.active) return false;
+    const map = this.map;
+    const container = this.container;
+    if (!map || !container || container.isConnected === false) return false;
+    if (!map._loaded || !map._mapPane) return false;
+    const rect = container.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    return true;
+  }
+
   invalidateSequence() {
     const map = this.map;
-    if (!map?.invalidateSize) return;
+    if (!map?.invalidateSize || !this.canInvalidate()) return;
 
-    map.invalidateSize({ pan: false });
-    requestAnimationFrame(() => map.invalidateSize({ pan: false }));
+    const runInvalidate = () => {
+      if (!this.canInvalidate()) return;
+      map.invalidateSize({ pan: false });
+    };
+
+    runInvalidate();
+    this.rafIds.push(requestAnimationFrame(runInvalidate));
 
     this.timeoutIds.push(
-      setTimeout(() => map.invalidateSize({ pan: false }), 200),
-      setTimeout(() => map.invalidateSize({ pan: false }), 600),
+      setTimeout(runInvalidate, 200),
+      setTimeout(runInvalidate, 600),
     );
   }
 
@@ -98,7 +115,11 @@ export class MapLifecycleController {
 
   detach() {
     this.active = false;
+    this.rafIds.forEach((id) => cancelAnimationFrame(id));
+    this.rafIds = [];
     this.timeoutIds.forEach((id) => clearTimeout(id));
     this.timeoutIds = [];
+    this.map = null;
+    this.container = null;
   }
 }
