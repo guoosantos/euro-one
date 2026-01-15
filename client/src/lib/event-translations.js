@@ -167,6 +167,54 @@ function normalizeProtocol(protocol) {
   return cleaned || null;
 }
 
+const IOTM_SIGNAL_LABELS = [
+  {
+    label: "BLOQUEADO POR JAMMER",
+    keys: ["input2", "digitalinput2", "digitalInput2", "signalIn2", "in2"],
+  },
+  {
+    label: "BLOQUEADO POR PAINEL",
+    keys: ["input4", "digitalinput4", "digitalInput4", "signalIn4", "in4"],
+  },
+  {
+    label: "DESVIO DE ROTA",
+    keys: ["out1", "output1", "digitaloutput1", "digitalOutput1"],
+  },
+  {
+    label: "COMANDOS CENTRAL",
+    keys: ["out2", "output2", "digitaloutput2", "digitalOutput2"],
+  },
+];
+
+const SIGNAL_TRUE_VALUES = new Set(["true", "1", "on", "yes", "sim"]);
+
+function isSignalActive(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (value === null || value === undefined) return false;
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return false;
+  return SIGNAL_TRUE_VALUES.has(normalized);
+}
+
+function resolveIotmSignalLabel(payload = {}) {
+  const attributes = extractPositionAttributes(payload);
+  const source = payload?.position || payload || {};
+  const candidates = [
+    attributes,
+    source,
+    payload?.attributes,
+    payload?.rawAttributes,
+  ].filter(Boolean);
+
+  const activeLabels = IOTM_SIGNAL_LABELS.filter(({ keys }) =>
+    keys.some((key) => candidates.some((candidate) => isSignalActive(candidate?.[key]))),
+  ).map(({ label }) => label);
+
+  if (!activeLabels.length) return null;
+  return activeLabels.join(" · ");
+}
+
 function resolveProtocolFromPayload(payload = {}) {
   const attributes = payload?.attributes || payload?.position?.attributes || payload?.rawAttributes || payload?.position?.rawAttributes || {};
   return (
@@ -462,8 +510,12 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
     if (shouldFallbackToPosition(payloadLabel, payload)) return POSITION_LABEL_PT;
     return payloadLabel;
   }
+  const protocolKey = normalizeProtocol(protocol);
+  const iotmSignalLabel = protocolKey === "iotm" ? resolveIotmSignalLabel(payload) : null;
+  if (iotmSignalLabel && (!raw || /^\d+$/.test(raw))) {
+    return iotmSignalLabel;
+  }
   if (/^\d+$/.test(raw)) {
-    const protocolKey = normalizeProtocol(protocol);
     if (protocolKey === "iotm") {
       const descriptor = resolveDescriptorLabel(raw, protocol, payload);
       if (descriptor?.labelPt) {
@@ -543,7 +595,26 @@ export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR"
 
   const candidate = candidates.find((value) => normalizeEventCandidate(value));
   const protocol = resolveProtocolFromPayload(payload);
-  return resolveEventDefinition(candidate, locale, fallbackTranslator, protocol, payload);
+  const definition = resolveEventDefinition(candidate, locale, fallbackTranslator, protocol, payload);
+  const protocolKey = normalizeProtocol(protocol);
+  const iotmSignalLabel = protocolKey === "iotm" ? resolveIotmSignalLabel(payload) : null;
+  if (iotmSignalLabel) {
+    const normalizedLabel = String(definition?.label || "").trim();
+    const shouldOverride =
+      !normalizedLabel ||
+      normalizedLabel === POSITION_LABEL_PT ||
+      GENERIC_EVENT_LABELS_PT.has(normalizedLabel) ||
+      definition?.isFallback;
+    if (shouldOverride) {
+      return {
+        ...definition,
+        label: iotmSignalLabel,
+        type: "iotm_signal",
+        isIotmSignal: true,
+      };
+    }
+  }
+  return definition;
 }
 
 export function getEventSeverity(type, defaultSeverity = "medium") {

@@ -13,7 +13,6 @@ import AddressSearchInput, { useAddressSearchState } from "../components/shared/
 import DataState from "../ui/DataState.jsx";
 
 import useMonitoringSettings from "../lib/hooks/useMonitoringSettings.js";
-import useGeofences from "../lib/hooks/useGeofences.js";
 import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import useTelemetry from "../lib/hooks/useTelemetry.js";
 import useVehicles from "../lib/hooks/useVehicles.js";
@@ -26,6 +25,7 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
+import { resolveAlertSignals } from "../lib/alert-utils.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -88,6 +88,7 @@ const GEO_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const GEO_MAX_CACHE_ENTRIES = 500;
 const GEO_MAX_CONCURRENT = 4;
 const GEO_QUEUE_DELAY_MS = 120;
+const LAYOUT_STORAGE_KEY = "monitoring:layout-visibility:v1";
 const normaliseLayoutVisibility = (value = {}) => ({
   showMap: value.showMap !== false,
   showTable: value.showTable !== false,
@@ -192,7 +193,7 @@ const COLUMN_LABEL_OVERRIDES = {
 
 const COLUMN_LABEL_FALLBACKS = {
   "monitoring.columns.client": "Cliente",
-  "monitoring.columns.geofences": "Rotas",
+  "monitoring.columns.geofences": "Itinerario",
   "monitoring.columns.faceRecognition": "Rec. Facial",
 };
 
@@ -224,6 +225,28 @@ const loadGeocodeCache = () => {
     return new Map(hydrated);
   } catch (_error) {
     return new Map();
+  }
+};
+
+const loadLayoutVisibility = (storageKey) => {
+  if (typeof window === "undefined") return null;
+  if (!storageKey) return null;
+  try {
+    const stored = localStorage.getItem(storageKey);
+    if (!stored) return null;
+    return normaliseLayoutVisibility(JSON.parse(stored));
+  } catch (_error) {
+    return null;
+  }
+};
+
+const persistLayoutVisibility = (storageKey, value) => {
+  if (typeof window === "undefined") return;
+  if (!storageKey) return;
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(normaliseLayoutVisibility(value)));
+  } catch (_error) {
+    // ignore
   }
 };
 
@@ -377,7 +400,6 @@ export default function Monitoring() {
     return map;
   }, [vehicles]);
 
-  const { geofences } = useGeofences({ autoRefreshMs: 60_000 });
   const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
   const setMonitoringTopbarVisible = useUI((state) => state.setMonitoringTopbarVisible);
 
@@ -546,6 +568,15 @@ export default function Monitoring() {
 
   const [layoutVisibility, setLayoutVisibility] = useState(() => ({ ...DEFAULT_LAYOUT_VISIBILITY }));
   const [layoutSaveRequestedAt, setLayoutSaveRequestedAt] = useState(null);
+  const layoutHydratedRef = useRef(false);
+  const layoutStorageKey = useMemo(
+    () => `${LAYOUT_STORAGE_KEY}:${tenantId || "global"}:${user?.id || "anon"}`,
+    [tenantId, user?.id],
+  );
+  const columnStorageKey = useMemo(
+    () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
+    [tenantId, user?.id],
+  );
 
   const layoutsEqual = useCallback((a, b) => {
     return (
@@ -590,15 +621,32 @@ export default function Monitoring() {
   );
 
   useEffect(() => {
+    layoutHydratedRef.current = false;
+  }, [layoutStorageKey]);
+
+  useEffect(() => {
     if (loadingPreferences) return;
+    if (layoutHydratedRef.current) return;
+    const storedLayout = loadLayoutVisibility(layoutStorageKey);
     const remote = preferences?.monitoringLayoutVisibility;
 
-      if (remote) {
-        applyLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote }, { persist: false });
-      } else {
-        applyLayoutVisibility((prev) => normaliseLayoutVisibility(prev), { persist: false });
-      }
-  }, [applyLayoutVisibility, loadingPreferences, preferences?.monitoringLayoutVisibility]);
+    if (storedLayout) {
+      applyLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...storedLayout }, { persist: false });
+      layoutHydratedRef.current = true;
+      return;
+    }
+
+    if (remote) {
+      applyLayoutVisibility({ ...DEFAULT_LAYOUT_VISIBILITY, ...remote }, { persist: false });
+    } else {
+      applyLayoutVisibility((prev) => normaliseLayoutVisibility(prev), { persist: false });
+    }
+    layoutHydratedRef.current = true;
+  }, [applyLayoutVisibility, layoutStorageKey, loadingPreferences, preferences?.monitoringLayoutVisibility]);
+
+  useEffect(() => {
+    persistLayoutVisibility(layoutStorageKey, layoutVisibility);
+  }, [layoutStorageKey, layoutVisibility]);
 
   useEffect(() => {
     if (loadingPreferences || !layoutSaveRequestedAt) return undefined;
@@ -623,11 +671,6 @@ export default function Monitoring() {
       geocodePumpTimerRef.current = null;
     }
   }, []);
-
-  const columnStorageKey = useMemo(
-    () => `monitoring.table.columns:${tenantId || "global"}:${user?.id || "anon"}`,
-    [tenantId, user?.id],
-  );
 
   const clampMapHeight = value => Math.min(
     MAX_MAP_HEIGHT,
@@ -874,6 +917,8 @@ export default function Monitoring() {
           device?.alerts?.[0] ??
           "",
       ).toLowerCase();
+      const alertSignals = resolveAlertSignals({ position, device });
+      const hasConjugatedAlerts = alertSignals.length >= 2;
       const isBlocked = Boolean(device?.blocked || position?.blocked || String(position?.status || "").toLowerCase() === "blocked");
 
       if (routeFilter === "active" && !hasRoute) return false;
@@ -895,6 +940,9 @@ export default function Monitoring() {
 
       if (filterMode === "online") return online;
       if (filterMode === "critical") return deriveStatus(position) === "alert";
+      if (filterMode === "conjugated") {
+        return deriveStatus(position) === "alert" && hasConjugatedAlerts;
+      }
       if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
       if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
@@ -1285,6 +1333,7 @@ export default function Monitoring() {
       offline: 0,
       moving: 0,
       critical: 0,
+      conjugated: 0,
       stale0to1: 0,
       stale1to6: 0,
       stale6to12: 0,
@@ -1302,12 +1351,15 @@ export default function Monitoring() {
         ? row.stalenessMinutes
         : minutesSince(row.lastActivity);
       const critical = deriveStatus(row.position) === "alert";
+      const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
+      const hasConjugatedAlerts = alertSignals.length >= 2;
 
       if (online) base.online += 1;
       else base.offline += 1;
 
       if ((row.speed ?? 0) > 0) base.moving += 1;
       if (critical) base.critical += 1;
+      if (critical && hasConjugatedAlerts) base.conjugated += 1;
 
       if (!online && Number.isFinite(staleness)) {
         if (staleness >= 0 && staleness < 60) base.stale0to1 += 1;
@@ -1454,7 +1506,6 @@ export default function Monitoring() {
 
     setSelectedDeviceId(null);
     setDetailsDeviceId(null);
-    applyLayoutVisibility((prev) => ({ ...prev, showMap: true, showTable: true }), { persist: true });
     setMapInvalidateKey((prev) => prev + 1);
   }, [buildAddressFocusKey, clampRadius, normaliseBoundingBox, radiusValue]);
 
@@ -1622,7 +1673,6 @@ export default function Monitoring() {
           <MonitoringMap
             ref={mapControllerRef}
             markers={markers}
-            geofences={geofences}
             focusMarkerId={selectedDeviceId}
             mapViewport={mapViewport}
             onViewportChange={setMapViewport}

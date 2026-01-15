@@ -1,22 +1,22 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context";
 import { useLivePositions } from "../lib/hooks/useLivePositions";
-import { useEvents } from "../lib/hooks/useEvents";
 import useTasks from "../lib/hooks/useTasks";
 import { buildFleetState, parsePositionTime } from "../lib/fleet-utils";
 import { translateEventType } from "../lib/event-translations.js";
 import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
+import { resolveAlertSignals } from "../lib/alert-utils.js";
 import { usePolling } from "../lib/hooks/usePolling.js";
 import { formatAddress } from "../lib/format-address.js";
+import { deriveStatus } from "../lib/monitoring-helpers.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
-import TableStateRow from "../components/TableStateRow.jsx";
 
 const COMMUNICATION_BUCKETS = [
   { key: "stale_0_1", label: "0–1h", minMinutes: 0, maxMinutes: 60 },
@@ -37,17 +37,9 @@ export default function Home() {
   const navigate = useNavigate();
   const { tenantId } = useTenant();
   const [selectedCard, setSelectedCard] = useState(null);
-  const [resolvingEventId, setResolvingEventId] = useState(null);
-  const [dismissedEventIds, setDismissedEventIds] = useState(() => new Set());
 
   const { vehicles, loading: loadingVehicles } = useVehicles();
   const { data: positions = [], loading: loadingPositions, fetchedAt: telemetryFetchedAt } = useLivePositions();
-  const { events, loading: loadingEvents, error: eventsError } = useEvents({
-    limit: 200,
-    severity: "critical",
-    resolved: false,
-    refreshInterval: HOME_REFRESH_MS,
-  });
   const {
     data: criticalVehiclesData,
     loading: loadingCriticalVehicles,
@@ -223,51 +215,19 @@ export default function Home() {
     [decoratedTable, tasks, vehicleByDeviceId],
   );
 
-  const normalizedEvents = useMemo(() => {
-    return events.map((event) => {
-      const severity = normalizeSeverity(event);
-      const time = event.time ?? event.eventTime ?? event.serverTime;
-      return { ...event, severity, __time: time ? new Date(time).toISOString() : null, resolved: Boolean(event.resolved) };
-    });
-  }, [events]);
+  const alertRows = useMemo(() => (
+    decoratedTable
+      .map((row) => {
+        const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
+        return { ...row, alertSignals };
+      })
+      .filter((row) => deriveStatus(row.position) === "alert")
+  ), [decoratedTable]);
 
-  const eventsWithVehicle = useMemo(
-    () =>
-      normalizedEvents.map((event) => {
-        const deviceKey = toDeviceKey(event.deviceId ?? event.device?.id ?? event.device?.deviceId ?? event.id);
-        const vehicle =
-          event.vehicle ||
-          (event.vehicleId ? vehicleById.get(String(event.vehicleId)) || null : null) ||
-          (deviceKey ? vehicleByDeviceId.get(String(deviceKey)) || null : null) ||
-          (event.vehicleId ? { id: event.vehicleId } : null);
-        const vehicleId = event.vehicleId ?? vehicle?.id ?? null;
-        return { ...event, __deviceKey: deviceKey, vehicle, vehicleId };
-      }),
-    [normalizedEvents, vehicleByDeviceId, vehicleById],
+  const conjugatedAlertRows = useMemo(
+    () => alertRows.filter((row) => row.alertSignals.length >= 2),
+    [alertRows],
   );
-
-  const activeCriticalEvents = useMemo(() => {
-    const dismissed = dismissedEventIds;
-    return eventsWithVehicle
-      .filter(
-        (event) =>
-          event.vehicleId &&
-          !event.resolved &&
-          String(event.severity || "").toLowerCase() === "critical" &&
-          (getEventId(event) ? !dismissed.has(getEventId(event)) : true),
-      )
-      .sort((a, b) => new Date(b.__time || 0) - new Date(a.__time || 0));
-  }, [dismissedEventIds, eventsWithVehicle]);
-
-  const vehiclesInAlert = useMemo(() => {
-    const ids = new Set();
-    activeCriticalEvents.forEach((event) => {
-      if (event.vehicleId) ids.add(String(event.vehicleId));
-    });
-    return ids.size;
-  }, [activeCriticalEvents]);
-
-  const recentCriticalEvents = useMemo(() => activeCriticalEvents.slice(0, 8), [activeCriticalEvents]);
 
   const criticalByVehicle = useMemo(() => {
     const list = Array.isArray(criticalVehiclesData) ? criticalVehiclesData : [];
@@ -282,37 +242,6 @@ export default function Home() {
     });
   }, [criticalVehiclesData, vehicleById]);
 
-  const handleResolveEvent = useCallback(
-    async (event) => {
-      const eventId = getEventId(event);
-      if (!eventId) return;
-      const confirmed = window.confirm("Marcar este evento como resolvido?");
-      if (!confirmed) return;
-      setResolvingEventId(eventId);
-      setDismissedEventIds((current) => {
-        const next = new Set(current);
-        next.add(eventId);
-        return next;
-      });
-      try {
-        await api.patch(API_ROUTES.eventResolve(eventId), { resolved: true, clientId: tenantId });
-      } catch (error) {
-        setDismissedEventIds((current) => {
-          const next = new Set(current);
-          next.delete(eventId);
-          return next;
-        });
-        const message =
-          error?.response?.data?.message ||
-          error?.message ||
-          "Não foi possível resolver o evento. Tente novamente.";
-        window.alert(message);
-      } finally {
-        setResolvingEventId(null);
-      }
-    },
-    [setDismissedEventIds, setResolvingEventId],
-  );
 
   const renderCommunicationSummary = (expanded = false) => (
     <Card
@@ -417,86 +346,103 @@ export default function Home() {
 
   const renderAlertSummary = (expanded = false) => (
     <Card
-      title="Eventos em alerta"
-      subtitle={telemetryFetchedAt ? `Atualizado às ${new Date(telemetryFetchedAt).toLocaleTimeString(locale)}` : "Sincronizando"}
-      actions={
-        <Link to="/events?severity=critical" className="text-xs font-semibold text-primary">
-          Ver todos
+      title="Alertas"
+      subtitle="Veículos com alerta ativo no monitoramento"
+      actions={expanded ? (
+        <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
+          Fechar
+        </button>
+      ) : (
+        <Link to="/monitoring?filter=critical" className="text-xs font-semibold text-primary">
+          Ver no monitoramento
         </Link>
-      }
+      )}
       className={expanded ? "xl:col-span-2" : ""}
     >
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-sm">
-          <thead className="text-white/40">
-            <tr className="border-b border-white/10 text-left">
-              <th className="py-2 pr-4">Horário</th>
-              <th className="py-2 pr-4">Tipo</th>
-              <th className="py-2 pr-4">Veículo</th>
-              <th className="py-2 pr-4">Severidade</th>
-              <th className="py-2 pr-4">Local</th>
-              <th className="py-2 pr-4 text-right">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loadingEvents && <TableStateRow colSpan={6} state="loading" tone="muted" title="Carregando eventos" />}
-            {!loadingEvents && eventsError && (
-              <TableStateRow colSpan={6} state="error" tone="error" title="Erro ao carregar eventos" />
-            )}
-            {!loadingEvents && !eventsError && recentCriticalEvents.length === 0 && (
-              <TableStateRow colSpan={6} state="empty" tone="muted" title="Nenhum evento crítico" />
-            )}
-            {recentCriticalEvents.map((event) => {
-              const eventId = getEventId(event);
-              return (
+      {alertRows.length === 0 ? (
+        <div className="py-6">
+          <DataState state="empty" tone="muted" title="Nenhum alerta ativo" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-white/40">
+              <tr className="border-b border-white/10 text-left">
+                <th className="py-2 pr-4">Veículo</th>
+                <th className="py-2 pr-4">Última atualização</th>
+                <th className="py-2 pr-4">Alertas</th>
+                <th className="py-2 pr-4">Local</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alertRows.slice(0, expanded ? alertRows.length : 8).map((row) => (
                 <tr
-                  key={eventId || `${event.deviceId}-${event.__time}`}
+                  key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                  onClick={() => openTripRange(event)}
+                  onClick={() => window.open(`/monitoring?filter=critical&deviceId=${row.id}`, "_blank")}
                 >
-                  <td className="py-2 pr-4 text-white/70">{formatDate(event.__time, locale)}</td>
                   <td className="py-2 pr-4 text-white/80">
-                    {translateEventType(
-                      event.type ?? event.event,
-                      locale,
-                      t,
-                      event.protocol || event.attributes?.protocol || null,
-                      event,
-                    )}
+                    {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
                   </td>
+                  <td className="py-2 pr-4 text-white/70">{formatDate(row.lastUpdate, locale)}</td>
                   <td className="py-2 pr-4 text-white/70">
-                    {event.vehicle ? formatVehicleLabel(event.vehicle) : event.deviceName ?? event.deviceId ?? "—"}
+                    {row.alertSignals.length ? row.alertSignals.join(" · ") : "Alerta ativo"}
                   </td>
-                  <td className="py-2 pr-4">
-                    <SeverityBadge severity={event.severity} />
-                  </td>
-                  <td className="py-2 pr-4 text-white/70">
-                    {formatAddress(event.attributes?.address ?? event.address)}
-                  </td>
-                  <td className="py-2 pr-4 text-right">
-                    <button
-                      type="button"
-                      className="rounded-lg border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white transition hover:border-primary/60 disabled:opacity-60"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleResolveEvent(event);
-                      }}
-                      disabled={!eventId || resolvingEventId === eventId}
-                    >
-                      {resolvingEventId === eventId ? "Resolvendo…" : "Resolver"}
-                    </button>
-                  </td>
+                  <td className="py-2 pr-4 text-white/70">{formatAddress(row.address)}</td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      {expanded && (
-        <div className="mt-4 text-right">
-          <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
-            Fechar
-          </button>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Card>
+  );
+
+  const renderConjugatedAlertsSummary = (expanded = false) => (
+    <Card
+      title="Alertas conjugados"
+      subtitle="Veículos com múltiplos alertas ativos"
+      actions={expanded ? (
+        <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
+          Fechar
+        </button>
+      ) : (
+        <Link to="/monitoring?filter=conjugated" className="text-xs font-semibold text-primary">
+          Ver no monitoramento
+        </Link>
+      )}
+      className={expanded ? "xl:col-span-2" : ""}
+    >
+      {conjugatedAlertRows.length === 0 ? (
+        <div className="py-6">
+          <DataState state="empty" tone="muted" title="Nenhum alerta conjugado" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="text-white/40">
+              <tr className="border-b border-white/10 text-left">
+                <th className="py-2 pr-4">Veículo</th>
+                <th className="py-2 pr-4">Última atualização</th>
+                <th className="py-2 pr-4">Alertas combinados</th>
+              </tr>
+            </thead>
+            <tbody>
+              {conjugatedAlertRows.slice(0, expanded ? conjugatedAlertRows.length : 8).map((row) => (
+                <tr
+                  key={row.id}
+                  className="cursor-pointer border-b border-white/5 hover:bg-white/5"
+                  onClick={() => window.open(`/monitoring?filter=conjugated&deviceId=${row.id}`, "_blank")}
+                >
+                  <td className="py-2 pr-4 text-white/80">
+                    {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
+                  </td>
+                  <td className="py-2 pr-4 text-white/70">{formatDate(row.lastUpdate, locale)}</td>
+                  <td className="py-2 pr-4 text-white/70">{row.alertSignals.join(" · ")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </Card>
@@ -568,6 +514,7 @@ export default function Home() {
     if (selectedCard === "monitored") return renderCommunicationSummary(true);
     if (selectedCard === "route") return renderRouteSummary(true);
     if (selectedCard === "alert") return renderAlertSummary(true);
+    if (selectedCard === "conjugated") return renderConjugatedAlertsSummary(true);
     if (selectedCard === "critical") return renderCriticalSummary(true);
 
     return (
@@ -575,6 +522,7 @@ export default function Home() {
         {renderCommunicationSummary()}
         {renderRouteSummary()}
         {renderAlertSummary()}
+        {renderConjugatedAlertsSummary()}
         {renderCriticalSummary()}
       </div>
     );
@@ -582,7 +530,7 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard
           title={t("home.vehiclesMonitored")}
           value={loadingVehicles ? "…" : summary.total}
@@ -599,10 +547,17 @@ export default function Home() {
         />
         <StatCard
           title={t("home.inAlertTitle")}
-          value={loadingEvents ? "…" : activeCriticalEvents.length}
-          hint="Eventos críticos não resolvidos"
+          value={loadingPositions ? "…" : alertRows.length}
+          hint="Alertas ativos no monitoramento"
           variant="alert"
           onClick={() => setSelectedCard("alert")}
+        />
+        <StatCard
+          title="Alertas conjugados"
+          value={loadingPositions ? "…" : conjugatedAlertRows.length}
+          hint="Múltiplos alertas simultâneos"
+          variant="alert"
+          onClick={() => setSelectedCard("conjugated")}
         />
         <StatCard
           title="Eventos críticos"
@@ -646,32 +601,6 @@ function StatCard({ title, value, hint, variant = "default", onClick }) {
       </div>
     </div>
   );
-}
-
-function SeverityBadge({ severity }) {
-  const { t } = useTranslation();
-  const normalized = String(severity ?? "").toLowerCase();
-
-  const palette = {
-    critical: "bg-red-500/20 text-red-200 border border-red-500/40",
-    high: "bg-red-500/20 text-red-200 border border-red-500/40",
-    medium: "bg-yellow-500/20 text-yellow-200 border border-yellow-500/40",
-    low: "bg-green-500/20 text-green-200 border border-green-500/40",
-    info: "bg-blue-500/20 text-blue-200 border border-blue-500/40",
-  };
-
-  const label =
-    normalized === "critical"
-      ? t("severity.critical")
-      : normalized === "high"
-      ? t("severity.high")
-      : normalized === "medium"
-      ? t("severity.medium")
-      : normalized === "info"
-      ? t("severity.info")
-      : t("severity.low");
-
-  return <span className={`rounded-full px-3 py-1 text-xs ${palette[normalized] ?? palette.low}`}>{label}</span>;
 }
 
 function Metric({ label, value, onClick }) {
@@ -753,28 +682,6 @@ function buildOfflineBuckets(table = []) {
       (vehicle) => vehicle.offlineMinutes >= bucket.minMinutes && vehicle.offlineMinutes < bucket.maxMinutes,
     ),
   }));
-}
-
-function normalizeSeverity(event) {
-  const explicit = event?.severity;
-  const raw = explicit ?? event?.attributes?.alarm ?? event?.level ?? "normal";
-  const normalized = String(raw).toLowerCase();
-  if (normalized.includes("crit")) return "critical";
-  if (normalized.includes("high") || normalized.includes("alta")) return "high";
-  if (normalized.includes("low") || normalized.includes("baixa")) return "low";
-  if (normalized.includes("info")) return "info";
-  return "normal";
-}
-
-function getEventId(event) {
-  const candidates = [
-    event?.id,
-    event?.eventId,
-    event?.attributes?.id,
-    event?.attributes?.eventId,
-  ];
-  const match = candidates.find((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  return match != null ? String(match) : null;
 }
 
 function percentage(value, total) {
