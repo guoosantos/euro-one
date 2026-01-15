@@ -428,7 +428,7 @@ export default function Sidebar() {
     >
 
       <nav className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto p-3">
-        <div className="flex items-center justify-between px-2 py-1">
+        <div className={`flex items-center px-2 py-1 ${collapsed ? "justify-center" : "justify-between"}`}>
           <span
             className={`text-white font-semibold ${
               collapsed ? "hidden" : "truncate"
@@ -439,10 +439,10 @@ export default function Sidebar() {
           <button
             type="button"
             aria-label="Alternar menu"
-            className="rounded-full p-2 text-white/70 transition hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-white/70 transition hover:text-white"
             onClick={toggleCollapsed}
           >
-            <Menu size={18} />
+            <Menu size={20} />
           </button>
         </div>
 
@@ -451,10 +451,10 @@ export default function Sidebar() {
             collapsed ? "bg-transparent p-2 shadow-none" : "bg-[#111827] p-3 shadow-soft"
           }`}
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "justify-between"}`}>
+            <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : ""}`}>
               <div
-                className="grid h-10 w-10 flex-shrink-0 place-items-center rounded-full"
+                className={`grid flex-shrink-0 place-items-center rounded-full ${collapsed ? "h-9 w-9 text-xs" : "h-10 w-10 text-sm"}`}
                 style={{
                   backgroundColor: tenant?.brandColor
                     ? `${tenant.brandColor}1a`

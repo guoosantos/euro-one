@@ -613,6 +613,16 @@ export default function RoutesPage() {
     void loadRoutes();
   }, [loadRoutes]);
 
+  const handleNewRoute = useCallback(() => {
+    const fresh = withWaypoints(emptyRoute());
+    userActionRef.current = true;
+    setDraftRoute(fresh);
+    setBaselineRoute(fresh);
+    setActiveRouteId(null);
+    setMapAddsStops(false);
+    resetAutocomplete();
+  }, [resetAutocomplete]);
+
   const persistRoute = useCallback(
     async (routePayload = draftRoute) => {
       const trimmedName = routePayload?.name?.trim();
@@ -647,19 +657,17 @@ export default function RoutesPage() {
           const others = prev.filter((item) => String(item.id) !== String(saved.id));
           return saved.id ? [saved, ...others] : prev;
         });
-        setDraftRoute(saved);
-        setBaselineRoute(saved);
-        setActiveRouteId(saved.id || null);
         if (!shouldUpdate) {
           await loadRoutes({ updateDraft: false });
         }
         showToast("Rota salva com sucesso.");
+        handleNewRoute();
         return saved;
       } finally {
         setSaving(false);
       }
     },
-    [activeRouteId, draftRoute, loadRoutes, routes, showToast, waypoints],
+    [activeRouteId, draftRoute, handleNewRoute, loadRoutes, routes, showToast, waypoints],
   );
 
   const handleSave = async () => {
@@ -704,15 +712,6 @@ export default function RoutesPage() {
     if (!route) return;
     const kml = exportRoutesToKml([route]);
     downloadKml(`${route.name || "rota"}.kml`, kml);
-  };
-
-  const handleNewRoute = () => {
-    const fresh = withWaypoints(emptyRoute());
-    userActionRef.current = true;
-    setDraftRoute(fresh);
-    setBaselineRoute(fresh);
-    setActiveRouteId(null);
-    resetAutocomplete();
   };
 
   useEffect(() => {
@@ -881,9 +880,6 @@ export default function RoutesPage() {
       userActionRef.current = true;
       setDraftRoute(historyRoute);
       const saved = await persistRoute(historyRoute);
-      if (saved) {
-        setBaselineRoute(saved);
-      }
       handleExportSingle(historyRoute);
     } catch (error) {
       console.error(error);
@@ -910,13 +906,11 @@ export default function RoutesPage() {
         metadata: { source: "kml" },
       });
       try {
-        const saved = await persistRoute(route);
-        if (saved) {
-          userActionRef.current = true;
-          setDraftRoute(saved);
-          setBaselineRoute(saved);
-        }
-      } catch (importError) {
+      const saved = await persistRoute(route);
+      if (saved) {
+        userActionRef.current = true;
+      }
+    } catch (importError) {
         console.error("Falha ao salvar rota importada", importError);
       }
     }
@@ -1030,16 +1024,16 @@ export default function RoutesPage() {
         <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
             <SidebarCard className="w-[440px] md:w-[460px]">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex min-w-[240px] flex-1 items-center gap-2">
+              <div className="flex flex-nowrap items-center gap-2">
+                <div className="flex min-w-0 flex-1 items-center gap-2">
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
                     variant="toolbar"
-                    containerClassName="flex-1 min-w-[240px]"
+                    containerClassName="flex-1 min-w-0"
                     placeholder="Buscar endereço rápido"
                   />
-                  <div className="flex items-center gap-1">
+                  <div className="flex flex-nowrap items-center gap-1">
                     <ToolbarButton
                       icon={SlidersHorizontal}
                       title="Ferramentas"
@@ -1060,7 +1054,7 @@ export default function RoutesPage() {
                     />
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-nowrap items-center gap-2">
                   <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
                   <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
                   <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
