@@ -26,7 +26,6 @@ import { API_ROUTES } from "../lib/api-routes.js";
 import { resolveMapPreferences } from "../lib/map-config.js";
 import { resolveEventDefinitionFromPayload } from "../lib/event-translations.js";
 import { matchesTenant } from "../lib/tenancy.js";
-import { resolveAlertSignals } from "../lib/alert-utils.js";
 import {
   DEFAULT_MAP_LAYER_KEY,
   ENABLED_MAP_LAYERS,
@@ -46,6 +45,7 @@ import {
   getLastActivity,
   getIgnition,
   getLastUpdate,
+  hasRecentCriticalAlert,
   isLinkedToVehicle,
   isOnline,
   minutesSince,
@@ -532,6 +532,7 @@ export default function Monitoring() {
   const queryFilters = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey);
     const filter = params.get("filter");
+    const normalizedFilter = filter === "conjugated" ? "critical" : filter;
     const incomingRouteFilter = params.get("routeFilter");
     const rawSecurityFilter = params.get("securityFilter") || "";
     const normalizedSecurityFilters = rawSecurityFilter
@@ -539,7 +540,7 @@ export default function Monitoring() {
       .map((item) => item.trim())
       .filter(Boolean);
     return {
-      filter: filter || null,
+      filter: normalizedFilter || null,
       routeFilter: incomingRouteFilter || null,
       securityFilters: normalizedSecurityFilters,
     };
@@ -926,8 +927,7 @@ export default function Monitoring() {
           device?.alerts?.[0] ??
           "",
       ).toLowerCase();
-      const alertSignals = resolveAlertSignals({ position, device });
-      const hasConjugatedAlerts = alertSignals.length >= 2;
+      const hasCriticalAlert = hasRecentCriticalAlert(position);
       const isBlocked = Boolean(device?.blocked || position?.blocked || String(position?.status || "").toLowerCase() === "blocked");
 
       if (routeFilter === "active" && !hasRoute) return false;
@@ -948,8 +948,7 @@ export default function Monitoring() {
       }
 
       if (filterMode === "online") return online;
-      if (filterMode === "critical") return deriveStatus(position) === "alert";
-      if (filterMode === "conjugated") return deriveStatus(position) === "alert" && hasConjugatedAlerts;
+      if (filterMode === "critical") return hasCriticalAlert;
       if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
       if (filterMode === "stale_6_12") return !online && hasStaleness && stalenessMinutes >= 360 && stalenessMinutes < 720;
@@ -1340,7 +1339,6 @@ export default function Monitoring() {
       offline: 0,
       moving: 0,
       alerts: 0,
-      conjugated: 0,
       stale0to1: 0,
       stale1to6: 0,
       stale6to12: 0,
@@ -1357,17 +1355,13 @@ export default function Monitoring() {
       const staleness = Number.isFinite(row.stalenessMinutes)
         ? row.stalenessMinutes
         : minutesSince(row.lastActivity);
-      const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
-      const hasConjugatedAlerts = alertSignals.length >= 2;
-      const alerts = deriveStatus(row.position) === "alert";
-      const conjugated = alerts && hasConjugatedAlerts;
+      const alerts = hasRecentCriticalAlert(row.position);
 
       if (online) base.online += 1;
       else base.offline += 1;
 
       if ((row.speed ?? 0) > 0) base.moving += 1;
       if (alerts) base.alerts += 1;
-      if (conjugated) base.conjugated += 1;
 
       if (!online && Number.isFinite(staleness)) {
         if (staleness >= 0 && staleness < 60) base.stale0to1 += 1;

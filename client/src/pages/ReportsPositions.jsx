@@ -740,7 +740,6 @@ export default function ReportsPositions() {
       <form onSubmit={handleGenerate} className="flex flex-col gap-4">
         <PageHeader
           title="Relatório de posições"
-          description="Escolha o veículo, período e filtros para gerar o relatório."
           right={(
             <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
               <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">

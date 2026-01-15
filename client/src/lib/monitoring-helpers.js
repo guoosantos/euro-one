@@ -116,6 +116,81 @@ export function getLastUpdate(position) {
   return null;
 }
 
+function parseTimestamp(value) {
+  if (!value && value !== 0) return null;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+  if (typeof value === "number") {
+    const ms = value > 1_000_000_000_000 ? value : value * 1000;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return null;
+  const date = new Date(parsed);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+export function resolveEventSeverity(position) {
+  if (!position) return null;
+  const attributes = position?.attributes || {};
+  return (
+    position?.eventSeverity ||
+    position?.criticality ||
+    position?.severity ||
+    attributes?.eventSeverity ||
+    attributes?.criticality ||
+    attributes?.severity ||
+    null
+  );
+}
+
+export function resolveEventActive(position) {
+  if (!position) return null;
+  const attributes = position?.attributes || {};
+  if (position?.eventActive === false || attributes?.eventActive === false) return false;
+  if (position?.eventActive === true || attributes?.eventActive === true) return true;
+  return null;
+}
+
+export function getEventTime(position) {
+  if (!position) return null;
+  const attributes = position?.attributes || {};
+  const candidates = [
+    position?.eventTime,
+    position?.eventTimestamp,
+    position?.eventDate,
+    attributes?.eventTime,
+    attributes?.eventTimestamp,
+    attributes?.eventDate,
+    attributes?.event_time,
+    attributes?.event_datetime,
+  ];
+  for (const value of candidates) {
+    const parsed = parseTimestamp(value);
+    if (parsed) return parsed;
+  }
+  return getLastUpdate(position);
+}
+
+export function isCriticalSeverity(severity) {
+  if (!severity) return false;
+  const normalized = String(severity).trim().toLowerCase();
+  return ["grave", "critica", "crítica", "critico", "crítico", "critical"].includes(normalized);
+}
+
+export function hasRecentCriticalAlert(position, windowHours = 5) {
+  if (!position) return false;
+  if (!isCriticalSeverity(resolveEventSeverity(position))) return false;
+  const active = resolveEventActive(position);
+  if (active === false) return false;
+  const eventTime = getEventTime(position);
+  if (!eventTime) return false;
+  const diffMs = Date.now() - eventTime.getTime();
+  return diffMs >= 0 && diffMs <= windowHours * 60 * 60 * 1000;
+}
+
 export function formatDateTime(value, locale) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     return "—";

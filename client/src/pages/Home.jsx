@@ -10,7 +10,7 @@ import useVehicles, { formatVehicleLabel, normalizeVehicleDevices } from "../lib
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { resolveAlertSignals } from "../lib/alert-utils.js";
 import { formatAddress } from "../lib/format-address.js";
-import { deriveStatus } from "../lib/monitoring-helpers.js";
+import { deriveStatus, hasRecentCriticalAlert, resolveEventSeverity } from "../lib/monitoring-helpers.js";
 import Card from "../ui/Card";
 import DataState from "../ui/DataState.jsx";
 
@@ -189,18 +189,27 @@ export default function Home() {
     [decoratedTable, tasks, vehicleByDeviceId],
   );
 
-  const alertRows = useMemo(() => (
-    decoratedTable
-      .map((row) => {
-        const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
-        return { ...row, alertSignals };
-      })
-      .filter((row) => deriveStatus(row.position) === "alert")
-  ), [decoratedTable]);
+  const alertRows = useMemo(
+    () =>
+      decoratedTable
+        .map((row) => {
+          const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
+          return { ...row, alertSignals };
+        })
+        .filter((row) => deriveStatus(row.position) === "alert"),
+    [decoratedTable],
+  );
 
   const conjugatedAlertRows = useMemo(
-    () => alertRows.filter((row) => row.alertSignals.length >= 2),
-    [alertRows],
+    () =>
+      decoratedTable
+        .map((row) => ({
+          ...row,
+          alertSignals: resolveAlertSignals({ position: row.position, device: row.device }),
+          eventSeverity: resolveEventSeverity(row.position),
+        }))
+        .filter((row) => hasRecentCriticalAlert(row.position)),
+    [decoratedTable],
   );
 
 
@@ -362,13 +371,13 @@ export default function Home() {
   const renderCriticalSummary = (expanded = false) => (
     <Card
       title="Alertas conjugados"
-      subtitle="Veículos com múltiplos alertas em curto intervalo"
+      subtitle="Alertas graves/críticos das últimas 5 horas"
       actions={expanded ? (
         <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
           Fechar
         </button>
       ) : (
-        <Link to="/monitoring?filter=conjugated" className="text-xs font-semibold text-primary">
+        <Link to="/monitoring?filter=critical" className="text-xs font-semibold text-primary">
           Ver no monitoramento
         </Link>
       )}
@@ -376,7 +385,7 @@ export default function Home() {
     >
       {conjugatedAlertRows.length === 0 ? (
         <div className="py-6">
-          <DataState state="empty" tone="muted" title="Nenhum alerta conjugado" />
+          <DataState state="empty" tone="muted" title="Nenhum alerta crítico nas últimas 5 horas" />
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -385,7 +394,7 @@ export default function Home() {
               <tr className="border-b border-white/10 text-left">
                 <th className="py-2 pr-4">Veículo</th>
                 <th className="py-2 pr-4">Última atualização</th>
-                <th className="py-2 pr-4">Alertas conjugados</th>
+                <th className="py-2 pr-4">Criticidade</th>
               </tr>
             </thead>
             <tbody>
@@ -393,13 +402,13 @@ export default function Home() {
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                  onClick={() => window.open(`/monitoring?filter=conjugated&deviceId=${row.id}`, "_blank")}
+                  onClick={() => window.open(`/monitoring?filter=critical&deviceId=${row.id}`, "_blank")}
                 >
                   <td className="py-2 pr-4 text-white/80">
                     {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
                   </td>
                   <td className="py-2 pr-4 text-white/70">{formatDate(row.lastUpdate, locale)}</td>
-                  <td className="py-2 pr-4 text-white/70">{row.alertSignals.join(" · ")}</td>
+                  <td className="py-2 pr-4 text-white/70">{row.eventSeverity || "Crítica"}</td>
                 </tr>
               ))}
             </tbody>
@@ -452,7 +461,7 @@ export default function Home() {
         <StatCard
           title="Alertas conjugados"
           value={loadingPositions ? "…" : conjugatedAlertRows.length}
-          hint="Veículos com múltiplos alertas em curto intervalo"
+          hint="Alertas graves/críticos nas últimas 5 horas"
           variant="alert"
           onClick={() => setSelectedCard("critical")}
         />

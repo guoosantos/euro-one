@@ -131,7 +131,6 @@ export default function Products() {
     <div className="space-y-5">
       <PageHeader
         title="Modelos & Portas"
-        description="Catálogo centralizado de rastreadores e mapeamento de IO."
         right={
           <Button onClick={() => openDrawer(null)} className="inline-flex items-center gap-2">
             <Plus className="h-4 w-4" />

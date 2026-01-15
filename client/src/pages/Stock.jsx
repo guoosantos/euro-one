@@ -171,7 +171,6 @@ export default function Stock() {
     <div className="space-y-5">
       <PageHeader
         title="Estoque"
-        description="Inventário enxuto com foco em produto, SKU e movimentações."
         right={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>

@@ -241,8 +241,7 @@ function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
     { key: "stale_24_plus", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24Plus ?? 0 },
   ];
   const secondaryItems = [
-    { key: "critical", label: t("monitoring.filters.alerts"), value: summary?.alerts ?? 0 },
-    { key: "conjugated", label: t("monitoring.filters.conjugatedAlerts"), value: summary?.conjugated ?? 0 },
+    { key: "critical", label: t("monitoring.filters.conjugatedAlerts"), value: summary?.alerts ?? 0 },
   ];
 
   const renderRow = (items, rowId) => (

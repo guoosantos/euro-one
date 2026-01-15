@@ -2556,7 +2556,6 @@ export default function Trips() {
     <div className="space-y-6">
       <PageHeader
         title="Trajetos"
-        description="Gere e acompanhe relatórios de viagens por veículo. Quando houver mais de um equipamento, usamos o principal disponível."
       />
 
       <form

@@ -1134,7 +1134,6 @@ export default function Devices() {
       <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
         <PageHeader
           title="Equipamentos"
-          description="Cadastro e vínculos com chips/veículos"
           right={
             <div className="flex flex-col items-end gap-1 text-right">
               <div className="flex gap-2">

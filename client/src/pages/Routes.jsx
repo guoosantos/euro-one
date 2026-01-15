@@ -397,6 +397,7 @@ function RoutePanel({
   searchTerm,
   onSearch,
   onSelect,
+  onEdit,
   onDelete,
   onExport,
   loading,
@@ -449,6 +450,16 @@ function RoutePanel({
                 )}
               </div>
               <div className="mt-2 flex gap-2">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onEdit?.(route);
+                  }}
+                >
+                  Editar
+                </Button>
                 <Button
                   size="xs"
                   variant="ghost"
@@ -727,6 +738,18 @@ export default function RoutesPage() {
     setDraftRoute(normalized);
     setBaselineRoute(normalized);
     setActiveRouteId(normalized.id || null);
+    setIsEditing(false);
+    setEditingRouteId(null);
+    resetAutocomplete();
+  };
+
+  const handleEditRoute = (route) => {
+    if (!route) return;
+    const normalized = withWaypoints(route);
+    userActionRef.current = true;
+    setDraftRoute(normalized);
+    setBaselineRoute(normalized);
+    setActiveRouteId(normalized.id || null);
     setIsEditing(true);
     setEditingRouteId(normalized.id || null);
     resetAutocomplete();
@@ -998,12 +1021,7 @@ export default function RoutesPage() {
   const showToolsCard = showToolsPanel;
   const editorTitle =
     editorMode === "history" ? "Modo histórico" : editorMode === "stops" ? "Modo paradas" : "Modo manual";
-  const editorDescription =
-    editorMode === "history"
-      ? "Gere a rota a partir do histórico do veículo."
-      : editorMode === "stops"
-        ? "Adicione paradas intermediárias antes de gerar a rota."
-        : "Desenhe por endereços e paradas intermediárias.";
+  const editorModeLabel = isEditing ? "Editando rota" : "Nova rota";
 
   useEffect(() => {
     refreshMap();
@@ -1062,9 +1080,9 @@ export default function RoutesPage() {
       <div className="pointer-events-none absolute inset-0 z-20">
         <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
-            <SidebarCard className="w-[520px] md:w-[560px]">
-              <div className="flex items-center gap-3 overflow-x-auto">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
+            <SidebarCard className="w-[640px] max-w-[calc(100vw-2rem)] md:w-[700px] lg:w-[740px]">
+              <div className="flex flex-nowrap items-center gap-3 overflow-x-auto pb-1">
+                <div className="flex min-w-[280px] flex-1 items-center gap-2">
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
@@ -1093,7 +1111,7 @@ export default function RoutesPage() {
                     />
                   </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
+                <div className="flex min-w-max shrink-0 items-center gap-2">
                   <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
                   <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
                   <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />
@@ -1112,6 +1130,7 @@ export default function RoutesPage() {
                 searchTerm={routeFilter}
                 onSearch={setRouteFilter}
                 onSelect={handleSelectRoute}
+                onEdit={handleEditRoute}
                 onDelete={handleDeleteRoute}
                 onExport={handleExportSingle}
                 loading={loadingRoutes}
@@ -1124,8 +1143,12 @@ export default function RoutesPage() {
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.1em] text-white/60">Rotas</p>
-                  <h2 className="text-sm font-semibold text-white">{editorTitle}</h2>
-                  <p className="text-[11px] text-white/60">{editorDescription}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold text-white">{editorTitle}</h2>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-white/60">
+                      {editorModeLabel}
+                    </span>
+                  </div>
                 </div>
               </div>
 
