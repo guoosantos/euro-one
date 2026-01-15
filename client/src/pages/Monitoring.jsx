@@ -948,7 +948,7 @@ export default function Monitoring() {
       }
 
       if (filterMode === "online") return online;
-      if (filterMode === "critical") return deriveStatus(position) === "alert" && hasConjugatedAlerts;
+      if (filterMode === "critical") return deriveStatus(position) === "alert";
       if (filterMode === "conjugated") return deriveStatus(position) === "alert" && hasConjugatedAlerts;
       if (filterMode === "stale_0_1") return !online && hasStaleness && stalenessMinutes >= 0 && stalenessMinutes < 60;
       if (filterMode === "stale_1_6") return !online && hasStaleness && stalenessMinutes >= 60 && stalenessMinutes < 360;
@@ -1000,7 +1000,7 @@ export default function Monitoring() {
       const statusLabel = statusBadge === "online"
         ? t("monitoring.filters.online")
         : statusBadge === "alert"
-          ? t("monitoring.filters.criticalEvents")
+          ? t("monitoring.filters.alerts")
           : t("monitoring.filters.offline");
       const lastActivity = getLastActivity(pos, device) || getLastUpdate(pos);
       const stalenessMinutes = minutesSince(lastActivity);
@@ -1296,7 +1296,7 @@ export default function Monitoring() {
         const statusLabel = status === "online"
           ? t("monitoring.filters.online")
           : status === "alert"
-            ? t("monitoring.filters.criticalEvents")
+            ? t("monitoring.filters.alerts")
             : t("monitoring.filters.offline");
 
         const ignitionColor =
@@ -1339,7 +1339,8 @@ export default function Monitoring() {
       online: 0,
       offline: 0,
       moving: 0,
-      critical: 0,
+      alerts: 0,
+      conjugated: 0,
       stale0to1: 0,
       stale1to6: 0,
       stale6to12: 0,
@@ -1358,13 +1359,15 @@ export default function Monitoring() {
         : minutesSince(row.lastActivity);
       const alertSignals = resolveAlertSignals({ position: row.position, device: row.device });
       const hasConjugatedAlerts = alertSignals.length >= 2;
-      const critical = deriveStatus(row.position) === "alert" && hasConjugatedAlerts;
+      const alerts = deriveStatus(row.position) === "alert";
+      const conjugated = alerts && hasConjugatedAlerts;
 
       if (online) base.online += 1;
       else base.offline += 1;
 
       if ((row.speed ?? 0) > 0) base.moving += 1;
-      if (critical) base.critical += 1;
+      if (alerts) base.alerts += 1;
+      if (conjugated) base.conjugated += 1;
 
       if (!online && Number.isFinite(staleness)) {
         if (staleness >= 0 && staleness < 60) base.stale0to1 += 1;

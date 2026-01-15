@@ -18,6 +18,16 @@ function getAttributes(row) {
   return row?.position?.rawAttributes || row?.position?.attributes || row?.device?.attributes || row?.rawAttributes || {};
 }
 
+function isIoActive(value) {
+  if (value === null || value === undefined || value === "") return false;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value === 1;
+  const normalized = String(value).trim().toLowerCase();
+  if (IO_TRUE_VALUES.has(normalized)) return true;
+  if (IO_FALSE_VALUES.has(normalized)) return false;
+  return false;
+}
+
 function resolveAttributeValue(row, keys = []) {
   const attributes = getAttributes(row);
   for (const key of keys) {
@@ -338,6 +348,14 @@ export const TELEMETRY_COLUMNS = [
       const yes = helpers.t ? helpers.t("common.yes") : "Sim";
       const no = helpers.t ? helpers.t("common.no") : "Não";
       const attributes = getAttributes(row);
+      const protocol = String(row.position?.protocol || row.device?.protocol || attributes.protocol || "").toLowerCase();
+      const isIotm = protocol === "iotm";
+      if (isIotm) {
+        const jammer = resolveAttributeValue(row, ["input2", "digitalinput2", "digitalInput2", "signalIn2", "in2"]);
+        const panel = resolveAttributeValue(row, ["input4", "digitalinput4", "digitalInput4", "signalIn4", "in4"]);
+        const routeDeviation = resolveAttributeValue(row, ["out1", "output1", "digitaloutput1", "digitalOutput1"]);
+        return isIoActive(jammer) || isIoActive(panel) || isIoActive(routeDeviation) ? yes : no;
+      }
       return row.position?.blocked || attributes.blocked ? yes : no;
     },
   },

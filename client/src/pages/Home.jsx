@@ -361,14 +361,14 @@ export default function Home() {
 
   const renderCriticalSummary = (expanded = false) => (
     <Card
-      title="Eventos críticos"
+      title="Alertas conjugados"
       subtitle="Veículos com múltiplos alertas em curto intervalo"
       actions={expanded ? (
         <button type="button" className="text-xs font-semibold text-primary" onClick={() => setSelectedCard(null)}>
           Fechar
         </button>
       ) : (
-        <Link to="/monitoring?filter=critical" className="text-xs font-semibold text-primary">
+        <Link to="/monitoring?filter=conjugated" className="text-xs font-semibold text-primary">
           Ver no monitoramento
         </Link>
       )}
@@ -376,7 +376,7 @@ export default function Home() {
     >
       {conjugatedAlertRows.length === 0 ? (
         <div className="py-6">
-          <DataState state="empty" tone="muted" title="Nenhum evento crítico" />
+          <DataState state="empty" tone="muted" title="Nenhum alerta conjugado" />
         </div>
       ) : (
         <div className="overflow-x-auto">
@@ -385,7 +385,7 @@ export default function Home() {
               <tr className="border-b border-white/10 text-left">
                 <th className="py-2 pr-4">Veículo</th>
                 <th className="py-2 pr-4">Última atualização</th>
-                <th className="py-2 pr-4">Alertas críticos</th>
+                <th className="py-2 pr-4">Alertas conjugados</th>
               </tr>
             </thead>
             <tbody>
@@ -393,7 +393,7 @@ export default function Home() {
                 <tr
                   key={row.id}
                   className="cursor-pointer border-b border-white/5 hover:bg-white/5"
-                  onClick={() => window.open(`/monitoring?filter=critical&deviceId=${row.id}`, "_blank")}
+                  onClick={() => window.open(`/monitoring?filter=conjugated&deviceId=${row.id}`, "_blank")}
                 >
                   <td className="py-2 pr-4 text-white/80">
                     {row.vehicle ? formatVehicleLabel(row.vehicle) : row.name ?? row.plate ?? row.id}
@@ -427,7 +427,7 @@ export default function Home() {
 
   return (
     <div className="space-y-6">
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title={t("home.vehiclesMonitored")}
           value={loadingVehicles ? "…" : summary.total}
@@ -450,9 +450,9 @@ export default function Home() {
           onClick={() => setSelectedCard("alert")}
         />
         <StatCard
-          title="Eventos críticos"
+          title="Alertas conjugados"
           value={loadingPositions ? "…" : conjugatedAlertRows.length}
-          hint="Veículos com múltiplos eventos graves"
+          hint="Veículos com múltiplos alertas em curto intervalo"
           variant="alert"
           onClick={() => setSelectedCard("critical")}
         />
