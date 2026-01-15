@@ -40,7 +40,7 @@ test("updateEventConfig persiste overrides e aceita ids não mapeados", () => {
     protocol: "gt06",
     items: [
       { id: "1", customName: "Customizado", severity: "critical", active: false },
-      { id: "999", customName: "NÃO MAPEADO (999)", severity: "warning", active: true },
+    { id: "999", customName: "Evento desconhecido (999)", severity: "warning", active: true },
     ],
     catalogEvents: catalog,
   });
@@ -48,7 +48,7 @@ test("updateEventConfig persiste overrides e aceita ids não mapeados", () => {
   assert.equal(updated["1"].customName, "Customizado");
   assert.equal(updated["1"].severity, "critical");
   assert.equal(updated["1"].active, false);
-  assert.equal(updated["999"].displayName, "NÃO MAPEADO (999)");
+  assert.equal(updated["999"].displayName, "Evento desconhecido (999)");
 });
 
 test("resolveEventConfiguration aplica customName em eventos de diagnóstico", () => {

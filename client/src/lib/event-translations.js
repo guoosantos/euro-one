@@ -161,6 +161,10 @@ function normalizeEventCandidate(value) {
   return asString;
 }
 
+function pickFirstValue(...values) {
+  return values.find((value) => value !== null && value !== undefined && String(value).trim() !== "");
+}
+
 function normalizeProtocol(protocol) {
   if (!protocol) return null;
   const cleaned = String(protocol).trim().toLowerCase();
@@ -226,6 +230,44 @@ function resolveProtocolFromPayload(payload = {}) {
     attributes.device_protocol ||
     null
   );
+}
+
+function extractDiagnosticIds(payload = {}) {
+  const attributes = extractPositionAttributes(payload);
+  const funId = pickFirstValue(
+    payload?.funId,
+    payload?.fun_id,
+    payload?.functionId,
+    payload?.function_id,
+    attributes?.funId,
+    attributes?.fun_id,
+    attributes?.functionId,
+    attributes?.function_id,
+  );
+  const warId = pickFirstValue(
+    payload?.warId,
+    payload?.war_id,
+    payload?.warningId,
+    payload?.warning_id,
+    payload?.warnId,
+    attributes?.warId,
+    attributes?.war_id,
+    attributes?.warningId,
+    attributes?.warning_id,
+    attributes?.warnId,
+  );
+  return {
+    funId: funId !== undefined && funId !== null ? String(funId).trim() : null,
+    warId: warId !== undefined && warId !== null ? String(warId).trim() : null,
+  };
+}
+
+function buildUnknownEventLabel(candidate, payload) {
+  const { funId, warId } = extractDiagnosticIds(payload);
+  if (funId || warId) {
+    return `Evento desconhecido (fun_id=${funId || "?"}, war_id=${warId || "?"})`;
+  }
+  return `Evento desconhecido (${candidate || "sem código"})`;
 }
 
 function resolvePayloadEventLabel(payload = {}) {
@@ -443,7 +485,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
         };
       }
       return {
-        label: `NÃO MAPEADO (${candidate})`,
+        label: buildUnknownEventLabel(candidate, payload),
         raw: candidate,
         isFallback: true,
         type: "unmapped",
@@ -463,7 +505,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     }
 
     return {
-      label: `NÃO MAPEADO (${candidate})`,
+      label: buildUnknownEventLabel(candidate, payload),
       raw: candidate,
       isFallback: true,
       type: "unmapped",
@@ -522,7 +564,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
         if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
         return descriptor.labelPt;
       }
-      return `NÃO MAPEADO (${raw})`;
+      return buildUnknownEventLabel(raw, payload);
     }
 
     const descriptor = resolveDescriptorLabel(raw, protocol, payload);
@@ -530,7 +572,7 @@ export function translateEventType(type, locale = "pt-BR", fallbackTranslator, p
       if (shouldFallbackToPosition(descriptor.labelPt, payload)) return POSITION_LABEL_PT;
       return descriptor.labelPt;
     }
-    return `NÃO MAPEADO (${raw})`;
+    return buildUnknownEventLabel(raw, payload);
   }
   const normalized = normalizeType(raw);
   const dictionary = EVENT_LABELS[locale] || EVENT_LABELS["pt-BR"];

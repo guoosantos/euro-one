@@ -44,6 +44,7 @@ import {
   deriveStatus,
   formatDateTime,
   getDeviceKey,
+  getEventTime,
   getLastActivity,
   getIgnition,
   getLastUpdate,
@@ -1359,17 +1360,28 @@ export default function Monitoring() {
         );
 
         const plateLabel = (r.vehicle?.plate ?? r.device?.plate ?? r.plate ?? "").trim() || "Sem placa";
+        const vehicleName = r.vehicle?.name || r.vehicle?.item || r.device?.vehicle?.name || null;
+        const vehicleLabel = vehicleName || plateLabel;
+        const modelLabel = [r.vehicle?.brand, r.vehicle?.model].filter(Boolean).join(" ") || r.vehicle?.model || "—";
+        const eventDefinition = resolveEventDefinitionFromPayload(r.position || r.device?.position || {});
+        const eventTime = getEventTime(r.position || r.device?.position || null);
+        const ignitionLabel =
+          r.ignition === true ? "Ligada" : r.ignition === false ? "Desligada" : "—";
 
         return {
           id: r.deviceId,
           lat: r.lat,
           lng: r.lng,
-          label: r.deviceName,
+          label: vehicleLabel,
           mapLabel: plateLabel,
           plate: plateLabel,
+          model: modelLabel,
           address: r.address,
           speedLabel: `${r.speed ?? 0} km/h`,
           lastUpdateLabel: formatDateTime(r.lastUpdate, locale),
+          ignitionLabel,
+          lastEventLabel: eventDefinition?.label || "—",
+          lastEventTimeLabel: eventTime ? formatDateTime(eventTime, locale) : "—",
           color: ignitionColor,
           accentColor: r.deviceId === selectedDeviceId ? "#f97316" : r.isNearby ? "#22d3ee" : undefined,
           muted: !r.isOnline,

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { MapContainer, Marker, Polyline, TileLayer } from "react-leaflet";
+import { MapContainer, Marker, Polyline, TileLayer, useMap } from "react-leaflet";
 import {
   Battery,
   BatteryCharging,
@@ -27,7 +27,8 @@ import safeApi from "../../lib/safe-api.js";
 import { API_ROUTES } from "../../lib/api-routes.js";
 import useAlerts from "../../lib/hooks/useAlerts.js";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
-import { MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
+import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
+import { filterCommandsBySearch, mergeCommands, resolveCommandSendError } from "../../pages/commands-helpers.js";
 
 export default function VehicleDetailsDrawer({
   vehicle,
@@ -162,6 +163,42 @@ export default function VehicleDetailsDrawer({
     }),
     [commandsRange.from, commandsRange.to],
   );
+  const fetchCommandsHistory = useCallback(() => {
+    if (!vehicleId) {
+      setCommands([]);
+      return Promise.resolve();
+    }
+    let isActive = true;
+    setCommandsLoading(true);
+    const from = commandsQuery.from || reportRange.from;
+    const to = commandsQuery.to || reportRange.to;
+    return safeApi
+      .get(API_ROUTES.commandsHistory, {
+        params: { vehicleId, from, to, pageSize: 8, page: 1 },
+      })
+      .then(({ data, error }) => {
+        if (!isActive) return;
+        if (error) {
+          setCommands([]);
+          return;
+        }
+        const list = Array.isArray(data?.data?.items)
+          ? data.data.items
+          : Array.isArray(data?.items)
+          ? data.items
+          : [];
+        setCommands(list.slice(0, 6));
+      })
+      .catch(() => {
+        if (isActive) setCommands([]);
+      })
+      .finally(() => {
+        if (isActive) setCommandsLoading(false);
+      })
+      .finally(() => {
+        isActive = false;
+      });
+  }, [commandsQuery.from, commandsQuery.to, reportRange.from, reportRange.to, vehicleId]);
 
   const [events, setEvents] = useState([]);
   const [eventsLoading, setEventsLoading] = useState(false);
@@ -171,16 +208,30 @@ export default function VehicleDetailsDrawer({
   const [selectedTrip, setSelectedTrip] = useState(null);
   const [activeTripIndex, setActiveTripIndex] = useState(0);
   const [isTripPlaying, setIsTripPlaying] = useState(false);
-  const [tripSpeed, setTripSpeed] = useState(1);
+  const [tripSpeed, setTripSpeed] = useState(8);
+  const [tripFollow, setTripFollow] = useState(true);
   const [showTripDetails, setShowTripDetails] = useState(false);
   const [itineraryStatus, setItineraryStatus] = useState(null);
   const [itineraryLoading, setItineraryLoading] = useState(false);
   const [itineraryHistory, setItineraryHistory] = useState([]);
   const [itineraryHistoryLoading, setItineraryHistoryLoading] = useState(false);
+  const [itineraryList, setItineraryList] = useState([]);
+  const [itineraryListLoading, setItineraryListLoading] = useState(false);
+  const [itineraryActionLoading, setItineraryActionLoading] = useState(null);
+  const [itineraryQuery, setItineraryQuery] = useState("");
   const [alertStatus, setAlertStatus] = useState("pending");
   const [handlingDrafts, setHandlingDrafts] = useState({});
   const [activeAlertId, setActiveAlertId] = useState(null);
   const { data: routeData, loading: routeLoading, error: routeError, generate: generateRoute } = useReportsRoute();
+  const [commandModalOpen, setCommandModalOpen] = useState(false);
+  const [commandSearch, setCommandSearch] = useState("");
+  const [commandOptions, setCommandOptions] = useState([]);
+  const [commandOptionsLoading, setCommandOptionsLoading] = useState(false);
+  const [commandOptionsError, setCommandOptionsError] = useState(null);
+  const [selectedCommandKey, setSelectedCommandKey] = useState("");
+  const [commandParams, setCommandParams] = useState({});
+  const [commandSending, setCommandSending] = useState(false);
+  const [commandSendError, setCommandSendError] = useState(null);
 
   const alertParams = useMemo(
     () => ({
@@ -233,50 +284,17 @@ export default function VehicleDetailsDrawer({
   }, [deviceIdForReports, eventsQuery.from, eventsQuery.to, reportRange.from, reportRange.to]);
 
   useEffect(() => {
-    if (!vehicleId) {
-      setCommands([]);
-      return;
-    }
-    let isActive = true;
-    setCommandsLoading(true);
-    const from = commandsQuery.from || reportRange.from;
-    const to = commandsQuery.to || reportRange.to;
-    safeApi
-      .get(API_ROUTES.commandsHistory, {
-        params: { vehicleId, from, to, pageSize: 8, page: 1 },
-      })
-      .then(({ data, error }) => {
-        if (!isActive) return;
-        if (error) {
-          setCommands([]);
-          return;
-        }
-        const list = Array.isArray(data?.data?.items)
-          ? data.data.items
-          : Array.isArray(data?.items)
-          ? data.items
-          : [];
-        setCommands(list.slice(0, 6));
-      })
-      .catch(() => {
-        if (isActive) setCommands([]);
-      })
-      .finally(() => {
-        if (isActive) setCommandsLoading(false);
-      });
-    return () => {
-      isActive = false;
-    };
-  }, [commandsQuery.from, commandsQuery.to, reportRange.from, reportRange.to, vehicleId]);
+    void fetchCommandsHistory();
+  }, [fetchCommandsHistory]);
 
-  useEffect(() => {
+  const fetchItineraryStatus = useCallback(() => {
     if (!vehicleId) {
       setItineraryStatus(null);
-      return;
+      return Promise.resolve();
     }
     let isActive = true;
     setItineraryLoading(true);
-    safeApi
+    return safeApi
       .get(API_ROUTES.itineraryEmbarkVehicleStatus(vehicleId))
       .then(({ data, error }) => {
         if (!isActive) return;
@@ -291,20 +309,22 @@ export default function VehicleDetailsDrawer({
       })
       .finally(() => {
         if (isActive) setItineraryLoading(false);
+        isActive = false;
       });
-    return () => {
-      isActive = false;
-    };
   }, [vehicleId]);
 
   useEffect(() => {
+    void fetchItineraryStatus();
+  }, [fetchItineraryStatus]);
+
+  const fetchItineraryHistory = useCallback(() => {
     if (!vehicleId) {
       setItineraryHistory([]);
-      return;
+      return Promise.resolve();
     }
     let isActive = true;
     setItineraryHistoryLoading(true);
-    safeApi
+    return safeApi
       .get(API_ROUTES.itineraryEmbarkVehicleHistory(vehicleId))
       .then(({ data, error }) => {
         if (!isActive) return;
@@ -319,18 +339,96 @@ export default function VehicleDetailsDrawer({
           : Array.isArray(data)
           ? data
           : [];
-        setItineraryHistory(list.slice(0, 6));
+        setItineraryHistory(list.slice(0, 12));
       })
       .catch(() => {
         if (isActive) setItineraryHistory([]);
       })
       .finally(() => {
         if (isActive) setItineraryHistoryLoading(false);
+        isActive = false;
+      });
+  }, [vehicleId]);
+
+  useEffect(() => {
+    void fetchItineraryHistory();
+  }, [fetchItineraryHistory]);
+
+  useEffect(() => {
+    if (!safeVehicle?.client?.id && !safeVehicle?.clientId && !safeVehicle?.client_id) {
+      setItineraryList([]);
+      return;
+    }
+    let isActive = true;
+    setItineraryListLoading(true);
+    safeApi
+      .get(API_ROUTES.itineraries, {
+        params: {
+          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || safeVehicle?.client_id || undefined,
+        },
+      })
+      .then(({ data, error }) => {
+        if (!isActive) return;
+        if (error) {
+          setItineraryList([]);
+          return;
+        }
+        const list = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+        setItineraryList(list);
+      })
+      .catch(() => {
+        if (isActive) setItineraryList([]);
+      })
+      .finally(() => {
+        if (isActive) setItineraryListLoading(false);
       });
     return () => {
       isActive = false;
     };
-  }, [vehicleId]);
+  }, [safeVehicle?.client?.id, safeVehicle?.clientId, safeVehicle?.client_id]);
+
+  useEffect(() => {
+    if (!commandModalOpen) return;
+    if (!device?.protocol) {
+      setCommandOptions([]);
+      setCommandOptionsError(new Error("Dispositivo sem protocolo configurado."));
+      return;
+    }
+    let isActive = true;
+    const load = async () => {
+      setCommandOptionsLoading(true);
+      setCommandOptionsError(null);
+      try {
+        const [protocolResponse, customResponse] = await Promise.all([
+          safeApi.get(API_ROUTES.protocolCommands(device.protocol)),
+          safeApi.get(API_ROUTES.commandsCustom, {
+            params: {
+              deviceId: device?.traccarId || device?.id || undefined,
+              protocol: device?.protocol || undefined,
+              clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+            },
+          }),
+        ]);
+        if (protocolResponse?.error) throw protocolResponse.error;
+        if (customResponse?.error) throw customResponse.error;
+        if (!isActive) return;
+        const protocolCommands = Array.isArray(protocolResponse?.data?.commands) ? protocolResponse.data.commands : [];
+        const customCommands = Array.isArray(customResponse?.data?.data) ? customResponse.data.data : [];
+        const merged = mergeCommands(protocolCommands, customCommands, { deviceProtocol: device.protocol });
+        setCommandOptions(merged);
+      } catch (error) {
+        if (!isActive) return;
+        setCommandOptions([]);
+        setCommandOptionsError(error instanceof Error ? error : new Error("Erro ao carregar comandos"));
+      } finally {
+        if (isActive) setCommandOptionsLoading(false);
+      }
+    };
+    void load();
+    return () => {
+      isActive = false;
+    };
+  }, [commandModalOpen, device?.protocol, device?.traccarId, device?.id, safeVehicle?.client?.id, safeVehicle?.clientId]);
 
   const itinerarySummary = useMemo(() => {
     const items = Array.isArray(itineraryStatus?.items) ? itineraryStatus.items : [];
@@ -361,6 +459,21 @@ export default function VehicleDetailsDrawer({
       itineraryName: itineraryStatus?.itineraryName || itineraryStatus?.name || "—",
     };
   }, [itineraryStatus]);
+
+  const latestHistoryByItinerary = useMemo(() => {
+    const map = new Map();
+    itineraryHistory.forEach((entry) => {
+      const id = entry?.itineraryId ? String(entry.itineraryId) : null;
+      if (!id) return;
+      const current = map.get(id);
+      const entryTime = new Date(entry.sentAt || entry.createdAt || entry.at || 0).getTime();
+      const currentTime = current ? new Date(current.sentAt || current.createdAt || current.at || 0).getTime() : 0;
+      if (!current || entryTime > currentTime) {
+        map.set(id, entry);
+      }
+    });
+    return map;
+  }, [itineraryHistory]);
 
   useEffect(() => {
     if (!selectedTrip) return;
@@ -424,6 +537,14 @@ export default function VehicleDetailsDrawer({
   }, [routePoints]);
 
   const activeTripPoint = routePoints[activeTripIndex] || null;
+  const satelliteLayer = useMemo(() => {
+    return (
+      ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-satellite") ||
+      ENABLED_MAP_LAYERS.find((layer) => layer.key === "satellite") ||
+      ENABLED_MAP_LAYERS.find((layer) => layer.key === "google-hybrid") ||
+      MAP_LAYER_FALLBACK
+    );
+  }, []);
 
   useEffect(() => {
     if (!selectedTrip) return;
@@ -434,6 +555,115 @@ export default function VehicleDetailsDrawer({
       setSelectedTrip(null);
     }
   }, [selectedTrip, trips]);
+
+  const handleSendCommand = useCallback(async () => {
+    if (!selectedCommand) return;
+    if (!vehicleId) {
+      setCommandSendError("Veículo inválido para envio de comando.");
+      return;
+    }
+    const traccarId = Number(device?.traccarId ?? device?.id);
+    if (!Number.isFinite(traccarId)) {
+      setCommandSendError("Equipamento sem Traccar ID válido.");
+      return;
+    }
+    if (selectedCommand.kind !== "custom" && !device?.protocol) {
+      setCommandSendError("Dispositivo sem protocolo definido.");
+      return;
+    }
+    const commandKey = getCommandKey(selectedCommand);
+    if (!commandKey) {
+      setCommandSendError("Selecione um comando válido.");
+      return;
+    }
+    setCommandSending(true);
+    setCommandSendError(null);
+    try {
+      const payloadBase = {
+        vehicleId,
+        deviceId: traccarId,
+        ...(safeVehicle?.client?.id ? { clientId: safeVehicle.client.id } : {}),
+      };
+      let response = null;
+      if (selectedCommand.kind === "custom") {
+        response = await safeApi.post(API_ROUTES.commandsSend, {
+          ...payloadBase,
+          customCommandId: selectedCommand.id,
+        });
+      } else {
+        response = await safeApi.post(API_ROUTES.commandsSend, {
+          ...payloadBase,
+          protocol: device.protocol,
+          commandKey,
+          commandName: selectedCommand.name || commandKey,
+          params: commandParams || {},
+        });
+      }
+      if (response?.error) {
+        throw response.error;
+      }
+      setCommandModalOpen(false);
+      setSelectedCommandKey("");
+      setCommandParams({});
+      await fetchCommandsHistory();
+    } catch (error) {
+      const message = resolveCommandSendError(error, "Erro ao enviar comando");
+      setCommandSendError(message);
+    } finally {
+      setCommandSending(false);
+    }
+  }, [
+    commandParams,
+    device?.id,
+    device?.protocol,
+    device?.traccarId,
+    fetchCommandsHistory,
+    safeVehicle?.client?.id,
+    selectedCommand,
+    vehicleId,
+  ]);
+
+  const handleEmbarkItinerary = useCallback(
+    async (itineraryId) => {
+      if (!vehicleId || !itineraryId) return;
+      setItineraryActionLoading(itineraryId);
+      try {
+        const response = await safeApi.post(`${API_ROUTES.itineraries}/${itineraryId}/embark`, {
+          vehicleIds: [vehicleId],
+          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+        });
+        if (response?.error) throw response.error;
+      } catch (error) {
+        console.warn("Falha ao embarcar itinerário", error);
+      } finally {
+        setItineraryActionLoading(null);
+        await fetchItineraryStatus();
+        await fetchItineraryHistory();
+      }
+    },
+    [fetchItineraryHistory, fetchItineraryStatus, safeVehicle?.client?.id, safeVehicle?.clientId, vehicleId],
+  );
+
+  const handleDisembarkItinerary = useCallback(
+    async (itineraryId) => {
+      if (!vehicleId || !itineraryId) return;
+      setItineraryActionLoading(itineraryId);
+      try {
+        const response = await safeApi.post(API_ROUTES.itineraryDisembark(itineraryId), {
+          vehicleIds: [vehicleId],
+          clientId: safeVehicle?.client?.id || safeVehicle?.clientId || undefined,
+        });
+        if (response?.error) throw response.error;
+      } catch (error) {
+        console.warn("Falha ao desembarcar itinerário", error);
+      } finally {
+        setItineraryActionLoading(null);
+        await fetchItineraryStatus();
+        await fetchItineraryHistory();
+      }
+    },
+    [fetchItineraryHistory, fetchItineraryStatus, safeVehicle?.client?.id, safeVehicle?.clientId, vehicleId],
+  );
 
   const sensorCards = useMemo(() => {
     if (!position && !device) return [];
@@ -475,6 +705,29 @@ export default function VehicleDetailsDrawer({
       updatedAt: latest,
     }));
   }, [device, latestPosition, position]);
+
+  const filteredCommandOptions = useMemo(
+    () => filterCommandsBySearch(commandOptions, commandSearch),
+    [commandOptions, commandSearch],
+  );
+  const selectedCommand = useMemo(
+    () => filteredCommandOptions.find((command) => getCommandKey(command) === selectedCommandKey) || null,
+    [filteredCommandOptions, selectedCommandKey],
+  );
+  const filteredItineraries = useMemo(() => {
+    const query = itineraryQuery.trim().toLowerCase();
+    if (!query) return itineraryList;
+    return itineraryList.filter((itinerary) => {
+      const name = String(itinerary?.name || "").toLowerCase();
+      const description = String(itinerary?.description || "").toLowerCase();
+      return name.includes(query) || description.includes(query);
+    });
+  }, [itineraryList, itineraryQuery]);
+
+  useEffect(() => {
+    setCommandParams({});
+    setCommandSendError(null);
+  }, [selectedCommandKey]);
 
   const renderContent = () => {
     if (!vehicle) {
@@ -625,6 +878,17 @@ export default function VehicleDetailsDrawer({
                 >
                   {isTripPlaying ? "Pausar" : "Reproduzir"}
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setTripFollow((current) => !current)}
+                  className={`rounded-md border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                    tripFollow
+                      ? "border-emerald-400/70 bg-emerald-500/20 text-emerald-100"
+                      : "border-white/10 bg-white/10 text-white/60"
+                  }`}
+                >
+                  {tripFollow ? "Seguindo veículo" : "Seguir veículo"}
+                </button>
                 <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-2 py-2 text-[11px] text-white/60">
                   <span>Velocidade</span>
                   <select
@@ -632,7 +896,7 @@ export default function VehicleDetailsDrawer({
                     onChange={(event) => setTripSpeed(Number(event.target.value))}
                     className="rounded-md border border-white/10 bg-[#0f141c] px-2 py-1 text-[11px] text-white"
                   >
-                    {[0.5, 1, 2, 4].map((value) => (
+                    {[1, 4, 8, 16].map((value) => (
                       <option key={value} value={value}>
                         {value}x
                       </option>
@@ -647,6 +911,8 @@ export default function VehicleDetailsDrawer({
                 points={routePoints}
                 activeIndex={activeTripIndex}
                 vehicle={safeVehicle}
+                follow={tripFollow}
+                tileLayer={satelliteLayer}
               />
               <div className="space-y-2">
                 <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Eventos do trajeto</p>
@@ -753,16 +1019,37 @@ export default function VehicleDetailsDrawer({
     }
 
     if (activeTab === "events") {
-      const eventTypeOptions = Array.from(
-        new Set(events.map((event) => event?.eventLabel || event?.type || event?.eventType).filter(Boolean)),
-      );
+      const eventsWithDefinition = events.map((event) => {
+        const definition = resolveEventDefinitionFromPayload(event);
+        const label = definition?.label || event?.eventLabel || event?.type || event?.eventType || "Evento";
+        const description =
+          event?.description ||
+          event?.eventDescription ||
+          event?.attributes?.message ||
+          event?.attributes?.description ||
+          event?.eventCategory ||
+          event?.category ||
+          "—";
+        const severity = definition?.severity || event?.severity || event?.eventSeverity || "—";
+        return {
+          ...event,
+          __label: label,
+          __description: description,
+          __severity: severity,
+          __time:
+            event?.fixTime ||
+            event?.deviceTime ||
+            event?.eventTime ||
+            event?.time ||
+            event?.serverTime ||
+            null,
+        };
+      });
+      const eventTypeOptions = Array.from(new Set(eventsWithDefinition.map((event) => event.__label).filter(Boolean)));
       const filteredEvents =
         eventTypeFilter === "all"
-          ? events
-          : events.filter(
-              (event) =>
-                String(event?.eventLabel || event?.type || event?.eventType) === String(eventTypeFilter),
-            );
+          ? eventsWithDefinition
+          : eventsWithDefinition.filter((event) => String(event.__label) === String(eventTypeFilter));
       return (
         <Section title="Eventos">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -840,17 +1127,39 @@ export default function VehicleDetailsDrawer({
                     className="border-t border-white/5"
                   >
                     <td className="px-3 py-2 text-white/70">
-                      {event.serverTime ? new Date(event.serverTime).toLocaleString() : "—"}
+                      {event.__time ? new Date(event.__time).toLocaleString() : "—"}
                     </td>
-                    <td className="px-3 py-2 text-white">{formatDisplayValue(event.eventLabel || event.type || "Evento")}</td>
-                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.eventCategory || event.category || "—")}</td>
-                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.severity || event.eventSeverity || "—")}</td>
+                    <td className="px-3 py-2 text-white">{formatDisplayValue(event.__label)}</td>
+                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.__description)}</td>
+                    <td className="px-3 py-2 text-white/60">{formatDisplayValue(event.__severity)}</td>
                     <td className="px-3 py-2 text-white/60">{formatAddressString(event.address || event.shortAddress)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <CommandSendModal
+            isOpen={commandModalOpen}
+            onClose={() => setCommandModalOpen(false)}
+            commands={filteredCommandOptions}
+            loading={commandOptionsLoading}
+            error={commandOptionsError}
+            search={commandSearch}
+            onSearchChange={setCommandSearch}
+            selectedKey={selectedCommandKey}
+            onSelectCommand={setSelectedCommandKey}
+            selectedCommand={selectedCommand}
+            params={commandParams}
+            onParamChange={(key, value) =>
+              setCommandParams((current) => ({
+                ...current,
+                [key]: value,
+              }))
+            }
+            onSubmit={handleSendCommand}
+            sending={commandSending}
+            sendError={commandSendError}
+          />
         </Section>
       );
     }
@@ -888,6 +1197,13 @@ export default function VehicleDetailsDrawer({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-white/60">Últimos comandos enviados para o veículo.</p>
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCommandModalOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30"
+              >
+                Enviar comando
+              </button>
               <Link
                 to={`/commands?vehicleId=${encodeURIComponent(vehicleId || "")}&from=${encodeURIComponent(
                   commandsQuery.from || reportRange.from,
@@ -897,14 +1213,6 @@ export default function VehicleDetailsDrawer({
                 className="inline-flex items-center gap-2 rounded-md border border-primary/50 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white transition hover:border-primary/80"
               >
                 Abrir em Comandos
-              </Link>
-              <Link
-                to={`/commands/create?vehicleId=${encodeURIComponent(vehicleId || "")}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-md border border-white/10 bg-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/80 transition hover:border-white/30"
-              >
-                Enviar comando
               </Link>
             </div>
           </div>
@@ -971,7 +1279,7 @@ export default function VehicleDetailsDrawer({
       return (
         <Section title="Itinerário">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-white/60">Itinerário vinculado ao veículo.</p>
+            <p className="text-xs text-white/60">Gestão compacta dos itinerários do veículo.</p>
             <Link
               to={`/itineraries?vehicleId=${encodeURIComponent(vehicleId || "")}`}
               target="_blank"
@@ -981,19 +1289,27 @@ export default function VehicleDetailsDrawer({
               Abrir em Itinerários
             </Link>
           </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="flex-1 text-[11px] text-white/60">
+              <span className="block">Buscar itinerário</span>
+              <input
+                value={itineraryQuery}
+                onChange={(event) => setItineraryQuery(event.target.value)}
+                className="mt-1 w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+                placeholder="Filtrar por nome ou descrição"
+              />
+            </label>
+          </div>
           {itineraryLoading && <p className="text-xs text-white/60">Carregando itinerário...</p>}
-          {!itineraryLoading && !itineraryStatus && (
-            <p className="text-xs text-white/50">Sem itinerário embarcado para este veículo.</p>
-          )}
           {itineraryStatus && (
             <div className="mt-2 grid gap-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70 sm:grid-cols-2">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Itinerário</p>
+                <p className="text-[10px] uppercase tracking-[0.12em] text-white/50">Status atual</p>
                 <p className="mt-1 text-sm font-semibold text-white">{itinerarySummary.itineraryName}</p>
                 <p className="text-[11px] text-white/50">{itinerarySummary.statusLabel}</p>
               </div>
               <div className="space-y-1">
-                <Detail label="Último embarque" value={itinerarySummary.lastEmbarkAt ? new Date(itinerarySummary.lastEmbarkAt).toLocaleString() : "—"} />
+                <Detail label="Última ação" value={itinerarySummary.lastEmbarkAt ? new Date(itinerarySummary.lastEmbarkAt).toLocaleString() : "—"} />
                 <Detail label="Rotas" value={itinerarySummary.counts.routes} />
                 <Detail label="Cercas" value={itinerarySummary.counts.geofences} />
                 <Detail label="Alvos" value={itinerarySummary.counts.targets} />
@@ -1001,7 +1317,92 @@ export default function VehicleDetailsDrawer({
             </div>
           )}
           <div className="mt-3 space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Histórico recente</p>
+            <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Itinerários do cliente</p>
+            {itineraryListLoading && <p className="text-xs text-white/60">Carregando itinerários...</p>}
+            {!itineraryListLoading && filteredItineraries.length === 0 && (
+              <p className="text-xs text-white/50">Nenhum itinerário disponível para este cliente.</p>
+            )}
+            <div className="space-y-2">
+              {filteredItineraries.map((itinerary) => {
+                const historyEntry = latestHistoryByItinerary.get(String(itinerary.id));
+                const isCurrent = String(itineraryStatus?.itineraryId || "") === String(itinerary.id);
+                const statusLabel =
+                  historyEntry?.statusLabel ||
+                  historyEntry?.status ||
+                  (isCurrent ? itineraryStatus?.statusLabel || itineraryStatus?.xdmStatusLabel : null) ||
+                  "—";
+                const isPending = statusLabel === "PENDENTE";
+                const isConcluded = statusLabel === "CONCLUÍDO";
+                const isLoading = itineraryActionLoading === itinerary.id;
+                return (
+                  <div key={itinerary.id} className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-semibold text-white">{itinerary.name || "Itinerário"}</p>
+                        <p className="text-[11px] text-white/50">{itinerary.description || "Sem descrição"}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.12em] ${
+                            isConcluded
+                              ? "bg-emerald-500/20 text-emerald-200"
+                              : isPending
+                                ? "bg-amber-500/20 text-amber-200"
+                                : "bg-white/10 text-white/60"
+                          }`}
+                        >
+                          {statusLabel}
+                        </span>
+                        {isCurrent ? (
+                          <>
+                            <button
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => handleEmbarkItinerary(itinerary.id)}
+                              className="rounded-md border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white/70 hover:border-white/30"
+                            >
+                              Atualizar
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isLoading}
+                              onClick={() => handleDisembarkItinerary(itinerary.id)}
+                              className="rounded-md border border-red-400/40 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-red-200 hover:border-red-300/70"
+                            >
+                              Desembarcar
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isLoading}
+                            onClick={() => handleEmbarkItinerary(itinerary.id)}
+                            className="rounded-md border border-primary/60 bg-primary/20 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-white hover:border-primary/80"
+                          >
+                            Embarcar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <div className="mt-2 grid gap-2 text-[11px] text-white/50 sm:grid-cols-2">
+                      <span>
+                        Enviado em:{" "}
+                        {historyEntry?.sentAt ? new Date(historyEntry.sentAt).toLocaleString() : "—"}
+                      </span>
+                      <span>
+                        Recebido em:{" "}
+                        {historyEntry?.receivedAtDevice || historyEntry?.receivedAt
+                          ? new Date(historyEntry.receivedAtDevice || historyEntry.receivedAt).toLocaleString()
+                          : "—"}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Histórico de operações</p>
             {itineraryHistoryLoading && <p className="text-xs text-white/60">Carregando histórico...</p>}
             {!itineraryHistoryLoading && itineraryHistory.length === 0 && (
               <p className="text-xs text-white/50">Nenhuma ação recente registrada.</p>
@@ -1010,11 +1411,19 @@ export default function VehicleDetailsDrawer({
               {itineraryHistory.map((item) => (
                 <li key={item.id || item.createdAt || item.timestamp} className="rounded-md border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-white">{formatDisplayValue(item.action || item.status || item.type || "Ação")}</span>
-                    <span className="text-white/50">{item.createdAt ? new Date(item.createdAt).toLocaleString() : "—"}</span>
+                    <span className="font-semibold text-white">{formatDisplayValue(item.actionLabel || item.action || item.statusLabel || "Ação")}</span>
+                    <span className="text-white/50">
+                      {item.sentAt ? new Date(item.sentAt).toLocaleString() : "—"}
+                    </span>
                   </div>
                   <p className="mt-1 text-[11px] text-white/50">
-                    {formatDisplayValue(item.userName || item.user || item.updatedBy || "Sistema")}
+                    {formatDisplayValue(item.sentByName || item.userName || item.user || item.updatedBy || "Sistema")}
+                  </p>
+                  <p className="mt-1 text-[11px] text-white/50">
+                    Recebido em:{" "}
+                    {item.receivedAtDevice || item.receivedAt
+                      ? new Date(item.receivedAtDevice || item.receivedAt).toLocaleString()
+                      : "—"}
                   </p>
                 </li>
               ))}
@@ -1433,6 +1842,149 @@ function AlertHandleModal({ alert, draft, isOpen, onClose, onDraftChange, onHand
   );
 }
 
+function CommandSendModal({
+  isOpen,
+  onClose,
+  commands,
+  loading,
+  error,
+  search,
+  onSearchChange,
+  selectedKey,
+  onSelectCommand,
+  selectedCommand,
+  params,
+  onParamChange,
+  onSubmit,
+  sending,
+  sendError,
+}) {
+  if (!isOpen) return null;
+  const hasCommands = Array.isArray(commands) && commands.length > 0;
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/70 px-4 py-6">
+      <div className="w-full max-w-2xl rounded-xl border border-white/10 bg-[#0f141c] p-5 text-white shadow-2xl">
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <p className="text-xs uppercase tracking-[0.14em] text-white/50">Enviar comando</p>
+            <h3 className="text-lg font-semibold text-white">Selecione o comando</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/70 hover:text-white"
+          >
+            Fechar
+          </button>
+        </div>
+
+        <div className="mt-4 space-y-3 text-xs text-white/70">
+          <label className="space-y-1 text-[11px] text-white/60">
+            <span>Buscar comando</span>
+            <input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              className="w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+              placeholder="Filtrar por nome ou descrição"
+            />
+          </label>
+
+          <label className="space-y-1 text-[11px] text-white/60">
+            <span>Comando</span>
+            <select
+              value={selectedKey || ""}
+              onChange={(event) => onSelectCommand(event.target.value)}
+              className="w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="">Selecione</option>
+              {commands.map((command) => {
+                const key = getCommandKey(command);
+                return (
+                  <option key={key} value={key}>
+                    {command.name || command.description || key}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
+
+          {loading && <p className="text-xs text-white/60">Carregando comandos...</p>}
+          {error && <p className="text-xs text-red-300">{error.message || "Erro ao carregar comandos."}</p>}
+          {!loading && !error && !hasCommands && (
+            <p className="text-xs text-white/50">Nenhum comando disponível para este protocolo.</p>
+          )}
+
+          {selectedCommand?.parameters?.length ? (
+            <div className="space-y-2 rounded-lg border border-white/10 bg-white/5 p-3">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Parâmetros</p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {selectedCommand.parameters.map((param, index) => {
+                  const paramKey = resolveParamKey(param, index);
+                  const label = resolveParamLabel(param, index);
+                  const value = params?.[paramKey] ?? "";
+                  const type = String(param?.type || "text").toLowerCase();
+                  const inputType = type === "number" || type === "int" ? "number" : "text";
+                  if (type === "boolean") {
+                    return (
+                      <label key={paramKey} className="space-y-1 text-[11px] text-white/60">
+                        <span>{label}</span>
+                        <select
+                          value={String(value)}
+                          onChange={(event) => onParamChange(paramKey, event.target.value === "true")}
+                          className="w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+                        >
+                          <option value="">Selecione</option>
+                          <option value="true">Sim</option>
+                          <option value="false">Não</option>
+                        </select>
+                      </label>
+                    );
+                  }
+                  return (
+                    <label key={paramKey} className="space-y-1 text-[11px] text-white/60">
+                      <span>{label}</span>
+                      <input
+                        type={inputType}
+                        value={value}
+                        onChange={(event) => onParamChange(paramKey, event.target.value)}
+                        className="w-full rounded-md border border-white/10 bg-white/10 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {sendError && <p className="text-xs text-red-300">{sendError}</p>}
+        </div>
+
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/70"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={sending || !selectedKey}
+            className={`rounded-lg border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] ${
+              sending || !selectedKey
+                ? "border-white/10 bg-white/5 text-white/40"
+                : "border-primary/60 bg-primary/20 text-white"
+            }`}
+          >
+            {sending ? "Enviando..." : "Confirmar envio"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function isValidSensorValue(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === "string" && value.trim() === "") return false;
@@ -1495,6 +2047,22 @@ function formatDisplayValue(value) {
   return "—";
 }
 
+function getCommandKey(command) {
+  return command?.code || command?.id || "";
+}
+
+function resolveParamKey(param, index) {
+  return param?.key || param?.id || param?.name || `param_${index}`;
+}
+
+function resolveParamLabel(param, index) {
+  const label = typeof param?.label === "string" ? param.label.trim() : "";
+  if (label) return label;
+  const name = typeof param?.name === "string" ? param.name.trim() : "";
+  if (name) return name;
+  return `Parâmetro ${Number.isFinite(index) ? index + 1 : 1}`;
+}
+
 function formatDuration(value) {
   const totalSeconds = Number(value);
   if (!Number.isFinite(totalSeconds)) return "—";
@@ -1546,7 +2114,7 @@ function resolvePointSpeed(point) {
   return `${Math.round(Number(raw))} km/h`;
 }
 
-function MiniReplayMap({ points = [], activeIndex = 0, vehicle }) {
+function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, tileLayer }) {
   if (!points.length) {
     return (
       <div className="flex h-[280px] items-center justify-center rounded-lg border border-white/10 bg-[#0f141c] text-xs text-white/50">
@@ -1566,20 +2134,30 @@ function MiniReplayMap({ points = [], activeIndex = 0, vehicle }) {
     plate: vehicle?.plate,
     iconType: vehicle?.iconType,
   });
-  const tileLayer = MAP_LAYER_FALLBACK;
+  const activeLayer = tileLayer || MAP_LAYER_FALLBACK;
 
   return (
     <div className="relative h-[280px] w-full overflow-hidden rounded-lg border border-white/10 bg-[#0f141c]">
       <MapContainer center={center} zoom={15} className="h-full w-full" scrollWheelZoom={false}>
         <TileLayer
-          attribution={tileLayer.attribution}
-          url={tileLayer.url}
-          subdomains={tileLayer.subdomains ?? "abc"}
-          maxZoom={tileLayer.maxZoom ?? 19}
+          attribution={activeLayer.attribution}
+          url={activeLayer.url}
+          subdomains={activeLayer.subdomains ?? "abc"}
+          maxZoom={activeLayer.maxZoom ?? 19}
         />
+        <MapFollowController center={center} activeIndex={safeIndex} follow={follow} />
         <Polyline positions={positions} color="#2563eb" weight={4} />
         <Marker position={center} icon={markerIcon || undefined} />
       </MapContainer>
     </div>
   );
+}
+
+function MapFollowController({ center, activeIndex, follow }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!follow || !map || !center) return;
+    map.setView(center, map.getZoom(), { animate: true });
+  }, [activeIndex, center, follow, map]);
+  return null;
 }
