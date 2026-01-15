@@ -275,7 +275,7 @@ export default function MonitoringTable({
                         : undefined;
                   const displayValue = formatCompactValue(col, cellValue);
                   const contentClass = isAddressColumn
-                    ? "flex min-w-0 items-center gap-1 overflow-hidden"
+                    ? "flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap text-ellipsis"
                     : React.isValidElement(displayValue)
                       ? "flex items-center gap-1 overflow-visible"
                       : "truncate whitespace-nowrap overflow-hidden text-ellipsis";

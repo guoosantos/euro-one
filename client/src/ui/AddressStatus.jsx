@@ -8,8 +8,8 @@ export default function AddressStatus({ address, loading, className = "" }) {
   const title = !loading ? resolvedAddress || undefined : undefined;
 
   return (
-    <span className={`flex min-w-0 items-center gap-2 ${className}`} title={title}>
-      <span className="min-w-0 truncate">{display}</span>
+    <span className={`flex min-w-0 items-center gap-2 overflow-hidden ${className}`} title={title}>
+      <span className="min-w-0 truncate whitespace-nowrap">{display}</span>
     </span>
   );
 }

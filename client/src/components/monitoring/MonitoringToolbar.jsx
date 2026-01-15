@@ -233,37 +233,47 @@ export function MonitoringSearchBox({
 }
 
 function StatusSummaryLine({ t, summary, activeFilter, onChange }) {
-  const items = [
+  const primaryItems = [
     { key: "all", label: t("monitoring.filters.all"), value: summary?.total ?? 0 },
     { key: "online", label: t("monitoring.filters.online"), value: summary?.online ?? 0 },
     { key: "stale_1_6", label: t("monitoring.filters.noSignal1to6h"), value: summary?.stale1to6 ?? 0 },
-    { key: "stale_6_24", label: "Sem transmissão 6–24h", value: summary?.stale6to24 ?? 0 },
-    { key: "stale_24_plus", label: "Acima de 24h", value: summary?.stale24Plus ?? 0 },
-    { key: "stale_10d_plus", label: "Acima de 10 dias", value: summary?.stale10dPlus ?? 0 },
+    { key: "stale_6_24", label: t("monitoring.filters.noSignal6to24h"), value: summary?.stale6to24 ?? 0 },
+    { key: "stale_24_plus", label: t("monitoring.filters.noSignal24h"), value: summary?.stale24Plus ?? 0 },
+  ];
+  const secondaryItems = [
     { key: "critical", label: t("monitoring.filters.criticalEvents"), value: summary?.critical ?? 0 },
+    { key: "conjugated", label: t("monitoring.filters.conjugatedAlerts"), value: summary?.conjugated ?? 0 },
   ];
 
+  const renderRow = (items, rowId) => (
+    <div
+      key={rowId}
+      className="flex min-h-[24px] flex-nowrap items-center gap-2 overflow-x-auto px-1 py-0.5 text-[10px] leading-[14px] text-white/60"
+    >
+      {items.map((item) => {
+        const isActive = activeFilter === item.key;
+        return (
+          <button
+            key={item.key}
+            type="button"
+            onClick={() => onChange?.(item.key)}
+            aria-pressed={isActive}
+            className={`flex min-w-[108px] cursor-pointer items-center gap-1 whitespace-nowrap rounded px-2 py-1 text-left text-[10px] leading-[14px] font-medium transition-colors focus:outline-none ${
+              isActive ? "bg-primary/15 text-primary" : "text-white/70 hover:text-white/90"
+            }`}
+          >
+            <span className="uppercase tracking-[0.08em]">{item.label}</span>
+            <span className="font-semibold text-white">{item.value}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
-    <div className="relative -mx-1">
-      <div className="flex min-h-[28px] flex-nowrap items-center gap-3 overflow-x-auto px-1 py-1 text-[12px] leading-[18px] text-white/60">
-        {items.map((item) => {
-          const isActive = activeFilter === item.key;
-          return (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => onChange?.(item.key)}
-              aria-pressed={isActive}
-              className={`flex min-w-[90px] cursor-pointer items-start gap-1 whitespace-nowrap rounded px-2 py-1 text-left text-[12px] leading-[16px] font-medium transition-colors focus:outline-none ${
-                isActive ? "bg-primary/10 text-primary" : "text-white/70 hover:text-white/90"
-              }`}
-            >
-              <span className="leading-[15px] uppercase tracking-[0.06em]">{item.label}</span>
-              <span className="leading-[15px] font-semibold text-white">{item.value}</span>
-            </button>
-          );
-        })}
-      </div>
+    <div className="relative -mx-1 flex flex-col gap-1">
+      {renderRow(primaryItems, "primary")}
+      {renderRow(secondaryItems, "secondary")}
     </div>
   );
 }

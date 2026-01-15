@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import { Marker, TileLayer, useMap, Polygon, Circle, CircleMarker, Tooltip } from "react-leaflet";
+import { Marker, TileLayer, useMap, Circle, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import "./monitoring-map.css";
@@ -324,7 +324,6 @@ function AddressMarker({ marker }) {
 
 const MonitoringMap = React.forwardRef(function MonitoringMap({
   markers = [],
-  geofences = [],
   focusMarkerId = null,
   onViewportChange = null,
   regionTarget = null,
@@ -393,7 +392,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   useMapDataRefresh(mapRef, {
     markers,
-    layers: geofences,
+    layers: [],
     selectedMarkerId: focusMarkerId,
     markerRefs,
   });
@@ -441,22 +440,6 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           <RegionOverlay target={regionTarget} />
           <AddressMarker marker={addressMarker} />
 
-          {/* Renderização de Geofences */}
-          {geofences.map((geo) => {
-            if (!geo.coordinates || geo.coordinates.length === 0) return null;
-            return (
-              <Polygon
-                key={geo.id}
-                positions={geo.coordinates}
-                pathOptions={{
-                  color: geo.color || "#3b82f6",
-                  fillColor: geo.color || "#3b82f6",
-                  fillOpacity: 0.15,
-                  weight: 2,
-                }}
-              />
-            );
-          })}
         </AppMap>
       </div>
     </div>
