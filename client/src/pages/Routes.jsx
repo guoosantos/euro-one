@@ -1024,8 +1024,8 @@ export default function RoutesPage() {
         <div className="pointer-events-auto absolute left-4 top-4 flex max-h-[calc(100vh-2rem)] flex-col items-start gap-3 overflow-y-auto pr-1">
           {showToolsCard && (
             <SidebarCard className="w-[440px] md:w-[460px]">
-              <div className="flex flex-nowrap items-center gap-2">
-                <div className="flex min-w-0 flex-1 items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                   <AddressSearchInput
                     state={addressSearch}
                     onSelect={handleSelectAddress}
@@ -1033,7 +1033,7 @@ export default function RoutesPage() {
                     containerClassName="flex-1 min-w-0"
                     placeholder="Buscar endereço rápido"
                   />
-                  <div className="flex flex-nowrap items-center gap-1">
+                  <div className="flex flex-wrap items-center gap-1">
                     <ToolbarButton
                       icon={SlidersHorizontal}
                       title="Ferramentas"
@@ -1054,7 +1054,7 @@ export default function RoutesPage() {
                     />
                   </div>
                 </div>
-                <div className="flex flex-nowrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <ToolbarButton icon={Route} title="Nova rota" onClick={handleNewRoute} />
                   <ToolbarButton icon={FileUp} title="Importar KML" onClick={() => fileInputRef.current?.click()} />
                   <ToolbarButton icon={Download} title="Exportar KML" onClick={handleExportKml} />

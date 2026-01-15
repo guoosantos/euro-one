@@ -136,7 +136,7 @@ export default function VehicleDetailsDrawer({
     if (activeTab === "events") {
       return (
         <Section title="Eventos">
-          <p className="text-xs text-white/60">Eventos críticos, alertas e cercas virtuais aparecerão aqui.</p>
+          <p className="text-xs text-white/60">Alertas conjugados, alertas e cercas virtuais aparecerão aqui.</p>
           <p className="text-xs text-white/40">Integração em andamento.</p>
         </Section>
       );
