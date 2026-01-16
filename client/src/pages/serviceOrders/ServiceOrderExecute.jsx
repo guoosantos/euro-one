@@ -139,6 +139,7 @@ export default function ServiceOrderExecute() {
     <div className="space-y-6">
       <PageHeader
         title="Execução da OS (técnico)"
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle={`OS ${headline} • ${item.vehicle?.plate || "—"}`}
         actions={
           <button

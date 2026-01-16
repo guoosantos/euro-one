@@ -301,93 +301,219 @@ router.get("/service-orders/:id/pdf", async (req, res, next) => {
     }
 
     const pdfDoc = await PDFDocument.create();
-    let page = pdfDoc.addPage([595, 842]);
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
     const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
-    const drawText = (text, x, y, options = {}) => {
-      page.drawText(text, {
-        x,
-        y,
-        size: options.size || 12,
-        font: options.bold ? boldFont : font,
-        color: options.color || rgb(0.9, 0.9, 0.9),
+    const PAGE_WIDTH = 595;
+    const PAGE_HEIGHT = 842;
+    const HEADER_HEIGHT = 64;
+    const MARGIN_X = 36;
+    const MARGIN_BOTTOM = 48;
+    const LABEL_WIDTH = 128;
+    const LINE_HEIGHT = 12;
+    const SECTION_GAP = 10;
+    const BODY_FONT_SIZE = 9.5;
+    const LABEL_FONT_SIZE = 9;
+    const SECTION_FONT_SIZE = 9.5;
+    const HEADER_BG = rgb(0.08, 0.13, 0.2);
+    const ACCENT = rgb(0.2, 0.8, 0.95);
+
+    let page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+
+    const drawHeader = () => {
+      page.drawRectangle({
+        x: 0,
+        y: PAGE_HEIGHT - HEADER_HEIGHT,
+        width: PAGE_WIDTH,
+        height: HEADER_HEIGHT,
+        color: HEADER_BG,
+      });
+      page.drawText("EuroOne • Ordem de Serviço", {
+        x: MARGIN_X,
+        y: PAGE_HEIGHT - 34,
+        size: 14,
+        font: boldFont,
+        color: rgb(0.95, 0.95, 0.95),
+      });
+      page.drawText(`OS ${item.osInternalId || item.id.slice(0, 8)}`, {
+        x: MARGIN_X,
+        y: PAGE_HEIGHT - 52,
+        size: 9.5,
+        font,
+        color: rgb(0.8, 0.85, 0.9),
       });
     };
 
-    page.drawRectangle({
-      x: 0,
-      y: 760,
-      width: 595,
-      height: 82,
-      color: rgb(0.08, 0.13, 0.2),
-    });
+    const wrapText = (text, maxWidth, size, textFont) => {
+      const safeText = String(text || "—");
+      const words = safeText.split(/\s+/);
+      if (!words.length) return ["—"];
+      const lines = [];
+      let line = "";
+      words.forEach((word) => {
+        const candidate = line ? `${line} ${word}` : word;
+        const width = textFont.widthOfTextAtSize(candidate, size);
+        if (width <= maxWidth) {
+          line = candidate;
+        } else {
+          if (line) lines.push(line);
+          line = word;
+        }
+      });
+      if (line) lines.push(line);
+      return lines.length ? lines : ["—"];
+    };
 
-    drawText("EuroOne • Ordem de Serviço", 32, 800, { size: 18, bold: true });
-    drawText(`OS ${item.osInternalId || item.id.slice(0, 8)}`, 32, 776, { size: 12 });
+    const formatSignature = (value) => {
+      if (!value) return "—";
+      const text = String(value);
+      if (text.startsWith("data:image") || text.length > 120) return "Assinado";
+      return text;
+    };
 
-    let cursorY = 730;
-    const lineGap = 18;
-    const equipmentList =
-      item.equipmentsData || (item.equipmentsText ? [{ model: item.equipmentsText }] : null);
-    const checklistItems = item.checklistItems || null;
+    const addPage = () => {
+      page = pdfDoc.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+      drawHeader();
+      return PAGE_HEIGHT - HEADER_HEIGHT - 22;
+    };
 
-    const fields = [
-      ["Cliente", item.clientName || "—"],
-      [
-        "Veículo",
-        item.vehicle
-          ? `${item.vehicle.plate || "—"} • ${item.vehicle.model || item.vehicle.name || "—"}`
-          : "—",
-      ],
-      ["Marca/Modelo", item.vehicle?.brand || item.vehicle?.model || "—"],
-      ["Chassi", item.vehicle?.chassis || "—"],
-      ["Renavam", item.vehicle?.renavam || "—"],
-      ["Cor", item.vehicle?.color || "—"],
-      ["Ano modelo/fabricação", [item.vehicle?.modelYear, item.vehicle?.manufactureYear].filter(Boolean).join(" / ") || "—"],
-      ["Técnico", item.technicianName || "—"],
-      ["Status", item.status || "—"],
-      ["Tipo", item.type || "—"],
-      ["Data/Hora", item.startAt ? new Date(item.startAt).toLocaleString("pt-BR") : "—"],
-      ["Endereço partida", item.addressStart || "—"],
-      ["Endereço serviço", item.address || "—"],
-      ["Endereço volta", item.addressReturn || "—"],
-      ["KM total", item.km ? `${item.km} km` : "—"],
-      [
-        "Equipamentos",
-        equipmentList
-          ? equipmentList
-              .map((equipment) => {
-                const label = equipment.model || equipment.equipmentId || "Equipamento";
-                if (equipment.installLocation) {
-                  return `${label} (${equipment.installLocation})`;
-                }
-                return label;
-              })
-              .join(" | ")
-          : "—",
-      ],
-      [
-        "Checklist",
-        checklistItems
-          ? checklistItems
-              .map((entry) => `${entry.item}: ${entry.before || "—"} → ${entry.after || "—"}`)
-              .join(" | ")
-          : "—",
-      ],
-      ["Assinaturas", "—"],
-      ["Observações", item.notes || "—"],
+    const ensureSpace = (cursorY, heightNeeded) => {
+      if (cursorY - heightNeeded < MARGIN_BOTTOM) {
+        return addPage();
+      }
+      return cursorY;
+    };
+
+    const drawSectionTitle = (title, cursorY) => {
+      const nextY = ensureSpace(cursorY, SECTION_FONT_SIZE + SECTION_GAP);
+      page.drawText(title.toUpperCase(), {
+        x: MARGIN_X,
+        y: nextY,
+        size: SECTION_FONT_SIZE,
+        font: boldFont,
+        color: ACCENT,
+      });
+      return nextY - SECTION_GAP;
+    };
+
+    const drawField = (label, value, cursorY) => {
+      const contentWidth = PAGE_WIDTH - MARGIN_X * 2 - LABEL_WIDTH;
+      const lines = wrapText(value, contentWidth, BODY_FONT_SIZE, font);
+      const needed = Math.max(lines.length, 1) * LINE_HEIGHT;
+      let nextY = ensureSpace(cursorY, needed);
+      page.drawText(`${label}:`, {
+        x: MARGIN_X,
+        y: nextY,
+        size: LABEL_FONT_SIZE,
+        font: boldFont,
+        color: ACCENT,
+      });
+      lines.forEach((line, index) => {
+        page.drawText(line, {
+          x: MARGIN_X + LABEL_WIDTH,
+          y: nextY - LINE_HEIGHT * index,
+          size: BODY_FONT_SIZE,
+          font,
+          color: rgb(0.92, 0.92, 0.92),
+        });
+      });
+      return nextY - needed;
+    };
+
+    const drawList = (lines, cursorY) => {
+      const contentWidth = PAGE_WIDTH - MARGIN_X * 2;
+      let nextY = cursorY;
+      lines.forEach((entry) => {
+        const wrapped = wrapText(entry, contentWidth - 8, BODY_FONT_SIZE, font);
+        const needed = wrapped.length * LINE_HEIGHT;
+        nextY = ensureSpace(nextY, needed);
+        wrapped.forEach((line, index) => {
+          page.drawText(`${index === 0 ? "• " : "  "}${line}`, {
+            x: MARGIN_X,
+            y: nextY - LINE_HEIGHT * index,
+            size: BODY_FONT_SIZE,
+            font,
+            color: rgb(0.9, 0.9, 0.9),
+          });
+        });
+        nextY -= needed;
+      });
+      return nextY;
+    };
+
+    drawHeader();
+    let cursorY = PAGE_HEIGHT - HEADER_HEIGHT - 24;
+
+    const equipmentList = Array.isArray(item.equipmentsData)
+      ? item.equipmentsData
+      : item.equipmentsText
+        ? [{ model: item.equipmentsText }]
+        : [];
+    const equipmentLines = equipmentList.length
+      ? equipmentList.map((equipment) => {
+          const label = equipment.model || equipment.equipmentId || "Equipamento";
+          if (equipment.installLocation) {
+            return `${label} (${equipment.installLocation})`;
+          }
+          return label;
+        })
+      : ["—"];
+
+    const checklistLines = Array.isArray(item.checklistItems) && item.checklistItems.length
+      ? item.checklistItems.map(
+          (entry) => `${entry.item}: ${entry.before || "—"} → ${entry.after || "—"}`,
+        )
+      : ["—"];
+
+    const signatureLines = [
+      `Técnico: ${formatSignature(item.signatures?.technician)}`,
+      `Cliente: ${formatSignature(item.signatures?.client)}`,
     ];
 
-    fields.forEach(([label, value]) => {
-      drawText(`${label}:`, 32, cursorY, { bold: true, size: 11, color: rgb(0.2, 0.8, 0.95) });
-      drawText(String(value), 140, cursorY, { size: 11 });
-      cursorY -= lineGap;
-      if (cursorY < 80) {
-        page = pdfDoc.addPage([595, 842]);
-        cursorY = 780;
-      }
-    });
+    cursorY = drawSectionTitle("Dados básicos", cursorY);
+    cursorY = drawField("OS", item.osInternalId || item.id.slice(0, 8), cursorY);
+    cursorY = drawField("Cliente", item.clientName || "—", cursorY);
+    cursorY = drawField("Status", item.status || "—", cursorY);
+    cursorY = drawField("Tipo", item.type || "—", cursorY);
+    cursorY = drawField("Data/Hora", item.startAt ? new Date(item.startAt).toLocaleString("pt-BR") : "—", cursorY);
+    cursorY = drawField("KM total", item.km ? `${item.km} km` : "—", cursorY);
+    cursorY = drawField("Serial", item.serial || "—", cursorY);
+    cursorY = drawField("Ref externa", item.externalRef || "—", cursorY);
+    cursorY = drawField("Técnico", item.technicianName || "—", cursorY);
+
+    cursorY = drawSectionTitle("Responsável", cursorY);
+    cursorY = drawField("Nome", item.responsibleName || "—", cursorY);
+    cursorY = drawField("Telefone", item.responsiblePhone || "—", cursorY);
+
+    cursorY = drawSectionTitle("Endereços", cursorY);
+    cursorY = drawField("Partida", item.addressStart || "—", cursorY);
+    cursorY = drawField("Serviço", item.address || "—", cursorY);
+    cursorY = drawField("Volta", item.addressReturn || "—", cursorY);
+
+    cursorY = drawSectionTitle("Veículo", cursorY);
+    cursorY = drawField("Placa", item.vehicle?.plate || "—", cursorY);
+    cursorY = drawField("Modelo", item.vehicle?.model || item.vehicle?.name || "—", cursorY);
+    cursorY = drawField("Marca", item.vehicle?.brand || "—", cursorY);
+    cursorY = drawField("Chassi", item.vehicle?.chassis || "—", cursorY);
+    cursorY = drawField("Renavam", item.vehicle?.renavam || "—", cursorY);
+    cursorY = drawField("Cor", item.vehicle?.color || "—", cursorY);
+    cursorY = drawField(
+      "Ano modelo/fabricação",
+      [item.vehicle?.modelYear, item.vehicle?.manufactureYear].filter(Boolean).join(" / ") || "—",
+      cursorY,
+    );
+
+    cursorY = drawSectionTitle("Equipamentos", cursorY);
+    cursorY = drawList(equipmentLines, cursorY);
+
+    cursorY = drawSectionTitle("Checklist", cursorY);
+    cursorY = drawList(checklistLines, cursorY);
+
+    cursorY = drawSectionTitle("Assinaturas", cursorY);
+    cursorY = drawList(signatureLines, cursorY);
+
+    cursorY = drawSectionTitle("Observações", cursorY);
+    drawList([item.notes || "—"], cursorY);
 
     const buffer = await pdfDoc.save();
     res.setHeader("Content-Type", "application/pdf");

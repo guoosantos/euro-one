@@ -193,6 +193,7 @@ export default function ServiceOrdersList() {
     <div className="space-y-4">
       <PageHeader
         title="Ordem de Serviço"
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
@@ -241,7 +242,7 @@ export default function ServiceOrdersList() {
                 </option>
               ))}
             </select>
-            <div className="flex w-full flex-wrap items-center gap-3 md:w-auto">
+            <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap">
               <input
                 type="date"
                 value={from}

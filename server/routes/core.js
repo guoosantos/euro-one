@@ -1901,6 +1901,7 @@ router.get("/technicians", async (req, res, next) => {
         state: attributes.state || null,
         status: attributes.status || "ativo",
         type: attributes.type || null,
+        profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
         street: attributes.street || null,
         number: attributes.number || null,
@@ -1934,6 +1935,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
     const state = body.state ? String(body.state).trim() : "";
     const status = body.status ? String(body.status).trim().toLowerCase() : "ativo";
     const type = body.type ? String(body.type).trim() : "";
+    const profile = body.profile ? String(body.profile).trim() : "Técnico Completo";
     const addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
     const street = body.street ? String(body.street).trim() : "";
     const number = body.number ? String(body.number).trim() : "";
@@ -1962,6 +1964,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         state,
         status,
         type,
+        profile,
         addressSearch,
         street,
         number,
@@ -1987,6 +1990,7 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         state,
         status,
         type,
+        profile,
         addressSearch,
         street,
         number,
@@ -2038,6 +2042,9 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     if (Object.prototype.hasOwnProperty.call(body, "type")) {
       attributes.type = body.type ? String(body.type).trim() : "";
     }
+    if (Object.prototype.hasOwnProperty.call(body, "profile")) {
+      attributes.profile = body.profile ? String(body.profile).trim() : "Técnico Completo";
+    }
     if (Object.prototype.hasOwnProperty.call(body, "addressSearch")) {
       attributes.addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
     }
@@ -2086,6 +2093,7 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
         state: attributes.state || null,
         status: attributes.status || "ativo",
         type: attributes.type || null,
+        profile: attributes.profile || "Técnico Completo",
         addressSearch: attributes.addressSearch || null,
         street: attributes.street || null,
         number: attributes.number || null,

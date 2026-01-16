@@ -190,6 +190,7 @@ export default function Products() {
     <div className="space-y-5">
       <PageHeader
         title="Modelos & Portas"
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Cadastre modelos e configurações de portas/protocolos."
         actions={
           <button
