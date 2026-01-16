@@ -1,0 +1,1 @@
+ALTER TABLE "ServiceOrder" ADD COLUMN IF NOT EXISTS "signatures" JSONB;

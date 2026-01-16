@@ -194,6 +194,7 @@ export default function Sidebar() {
       children: [
         { to: "/services", label: "Ordem de Serviço", icon: Wrench },
         { to: "/appointments", label: "Agendamentos", icon: CalendarClock },
+        { to: "/technicians", label: "Técnico", icon: UserCog },
       ],
     },
     { to: "/routes", label: "Rotas", icon: Map },

@@ -7,6 +7,7 @@ import FilterBar from "../../components/ui/FilterBar.jsx";
 import DataTable from "../../components/ui/DataTable.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
+import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
 import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 
@@ -52,6 +53,22 @@ function normalizeType(value) {
 
 function resolveOrderDate(item) {
   return item?.startAt || item?.createdAt || item?.updatedAt || null;
+}
+
+function buildEquipmentLabels(item) {
+  const list = Array.isArray(item?.equipmentsData) ? item.equipmentsData : null;
+  if (list && list.length) {
+    return list.map((equipment) => {
+      const id = equipment?.equipmentId || equipment?.id || "";
+      const model = equipment?.model || equipment?.name || "";
+      if (model && id) return `${model} • ${id}`;
+      return model || id;
+    });
+  }
+  if (item?.equipmentsText) {
+    return [String(item.equipmentsText)];
+  }
+  return [];
 }
 
 export default function ServiceOrdersList() {
@@ -161,6 +178,17 @@ export default function ServiceOrdersList() {
     return tenants;
   }, [hasAdminAccess, tenants, user]);
 
+  const clientAutocompleteOptions = useMemo(() => {
+    const baseOptions = clientOptions.map((client) => ({
+      value: String(client.id),
+      label: client.name,
+    }));
+    if (!hasAdminAccess) {
+      return baseOptions;
+    }
+    return [{ value: "", label: "Todos os clientes" }, ...baseOptions];
+  }, [clientOptions, hasAdminAccess]);
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -191,21 +219,17 @@ export default function ServiceOrdersList() {
               value={q}
               onChange={(event) => setQ(event.target.value)}
               placeholder="Buscar por OS, placa, contato, técnico..."
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-80"
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-72"
             />
-            <select
-              value={clientId}
-              onChange={(event) => setClientId(event.target.value)}
-              disabled={!hasAdminAccess}
-              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 md:w-64"
-            >
-              {hasAdminAccess && <option value="">Todos os clientes</option>}
-              {clientOptions.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.name}
-                </option>
-              ))}
-            </select>
+            <div className="w-full md:w-64">
+              <AutocompleteSelect
+                placeholder="Buscar cliente"
+                value={clientId}
+                options={clientAutocompleteOptions}
+                onChange={(nextValue) => setClientId(String(nextValue ?? ""))}
+                disabled={!hasAdminAccess}
+              />
+            </div>
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
@@ -217,18 +241,20 @@ export default function ServiceOrdersList() {
                 </option>
               ))}
             </select>
-            <input
-              type="date"
-              value={from}
-              onChange={(event) => setFrom(event.target.value)}
-              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            />
-            <input
-              type="date"
-              value={to}
-              onChange={(event) => setTo(event.target.value)}
-              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            />
+            <div className="flex w-full flex-wrap items-center gap-3 md:w-auto">
+              <input
+                type="date"
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:w-40"
+              />
+              <input
+                type="date"
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:w-40"
+              />
+            </div>
           </>
         }
         right={
@@ -273,6 +299,7 @@ export default function ServiceOrdersList() {
               <th className="px-4 py-3">Placa</th>
               <th className="px-4 py-3">Responsável</th>
               <th className="px-4 py-3">Técnico</th>
+              <th className="px-4 py-3">Equipamentos</th>
               <th className="px-4 py-3">Data</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Ações</th>
@@ -281,14 +308,14 @@ export default function ServiceOrdersList() {
           <tbody className="divide-y divide-white/10">
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={7} />
+                <td colSpan={8} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={8} />
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8">
+                <td colSpan={8} className="px-4 py-8">
                   <EmptyState
                     title="Nenhuma ordem de serviço encontrada com os filtros atuais."
                     subtitle="Crie uma nova OS para iniciar o fluxo."
@@ -316,6 +343,24 @@ export default function ServiceOrdersList() {
                     <div className="text-xs text-white/50">{item.responsiblePhone || ""}</div>
                   </td>
                   <td className="px-4 py-3">{item.technicianName || "—"}</td>
+                  <td className="px-4 py-3">
+                    {(() => {
+                      const labels = buildEquipmentLabels(item).filter(Boolean);
+                      if (!labels.length) return "—";
+                      return (
+                        <div className="flex flex-wrap gap-1">
+                          {labels.map((label, index) => (
+                            <span
+                              key={`${label}-${index}`}
+                              className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/80"
+                            >
+                              {label}
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="px-4 py-3">{formatDate(item.startAt)}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
