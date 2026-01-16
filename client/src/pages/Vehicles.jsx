@@ -3,10 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-import PageHeader from "../ui/PageHeader";
-import Input from "../ui/Input";
 import Button from "../ui/Button";
-import Field from "../ui/Field";
 import Modal from "../ui/Modal";
 import DropdownMenu from "../ui/DropdownMenu";
 import { EllipsisVertical, Link2, Plus, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
@@ -18,6 +15,12 @@ import { resolveVehicleIconType, VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehic
 import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import VehicleForm from "../components/vehicles/VehicleForm.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import PageHeader from "../components/ui/PageHeader.jsx";
+import FilterBar from "../components/ui/FilterBar.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
+import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 
 function VehicleRow({
   vehicle,
@@ -476,135 +479,166 @@ export default function Vehicles() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
         title="Veículos"
-        right={(
+        subtitle="Frota e dados principais."
+        actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              className="inline-flex items-center gap-2 px-4 py-2"
+            <button
+              type="button"
               onClick={load}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
             >
-              <RefreshCw className="h-4 w-4" /> Atualizar
-            </Button>
-            <Button className="inline-flex items-center gap-2 px-4 py-2" onClick={openModal}>
-              <Plus className="h-4 w-4" /> Novo veículo
-            </Button>
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" /> Atualizar
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={openModal}
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Plus className="h-4 w-4" /> Novo veículo
+              </span>
+            </button>
           </div>
-        )}
+        }
       />
 
       {error && (
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
       )}
 
-      <Field label="Filtros">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <Input
-            placeholder="Buscar (placa, veículo, motorista, equipamento)"
-            icon={Search}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="flex-1"
-          />
-          <Button variant="ghost" onClick={() => setShowColumnPicker((prev) => !prev)}>
-            Exibir colunas
-          </Button>
-        </div>
-      </Field>
+      <DataCard>
+        <FilterBar
+          left={
+            <>
+              <div className="relative min-w-[240px] flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <input
+                  placeholder="Buscar (placa, veículo, motorista, equipamento)"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                />
+              </div>
+            </>
+          }
+          right={
+            <button
+              type="button"
+              onClick={() => setShowColumnPicker((prev) => !prev)}
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Exibir colunas
+            </button>
+          }
+        />
 
-      {showColumnPicker && (
-        <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={visibleColumns.driver}
-              onChange={() => setVisibleColumns((current) => ({ ...current, driver: !current.driver }))}
-              className="h-4 w-4 rounded border-white/30 bg-transparent"
-            />
-            Motorista
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={visibleColumns.group}
-              onChange={() => setVisibleColumns((current) => ({ ...current, group: !current.group }))}
-              className="h-4 w-4 rounded border-white/30 bg-transparent"
-            />
-            Grupo
-          </label>
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={visibleColumns.odometer}
-              onChange={() => setVisibleColumns((current) => ({ ...current, odometer: !current.odometer }))}
-              className="h-4 w-4 rounded border-white/30 bg-transparent"
-            />
-            Odômetro
-          </label>
-        </div>
-      )}
+        {showColumnPicker && (
+          <div className="mt-3 flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.driver}
+                onChange={() => setVisibleColumns((current) => ({ ...current, driver: !current.driver }))}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Motorista
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.group}
+                onChange={() => setVisibleColumns((current) => ({ ...current, group: !current.group }))}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Grupo
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={visibleColumns.odometer}
+                onChange={() => setVisibleColumns((current) => ({ ...current, odometer: !current.odometer }))}
+                className="h-4 w-4 rounded border-white/30 bg-transparent"
+              />
+              Odômetro
+            </label>
+          </div>
+        )}
+      </DataCard>
 
-      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0f141c] shadow-lg">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-white/80">
-            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
+      <DataCard className="flex-1 overflow-hidden p-0">
+        <DataTable tableClassName="text-white/80">
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
+            <tr>
+              <th className="px-4 py-3 text-left">Associação</th>
+              <th className="px-4 py-3 text-left">N° EURO ONE / ID</th>
+              <th className="px-4 py-3 text-left">Placa</th>
+              <th className="px-4 py-3 text-left">Tipo</th>
+              {visibleColumns.driver && <th className="px-4 py-3 text-left">Motorista</th>}
+              {visibleColumns.group && <th className="px-4 py-3 text-left">Grupo</th>}
+              {visibleColumns.odometer && <th className="px-4 py-3 text-left">Odômetro</th>}
+              <th className="px-4 py-3 text-left">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading && (
               <tr>
-                <th className="px-4 py-3 text-left">Associação</th>
-                <th className="px-4 py-3 text-left">N° EURO ONE / ID</th>
-                <th className="px-4 py-3 text-left">Placa</th>
-                <th className="px-4 py-3 text-left">Tipo</th>
-                {visibleColumns.driver && <th className="px-4 py-3 text-left">Motorista</th>}
-                {visibleColumns.group && <th className="px-4 py-3 text-left">Grupo</th>}
-                {visibleColumns.odometer && <th className="px-4 py-3 text-left">Odômetro</th>}
-                <th className="px-4 py-3 text-left">Ações</th>
+                <td colSpan={tableColCount} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={tableColCount} />
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {loading && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
-                    Carregando veículos…
-                  </td>
-                </tr>
-              )}
-              {!loading && filteredVehicles.length === 0 && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
-                    Nenhum veículo encontrado.
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                filteredVehicles.map((vehicle) => {
-                  const latestPosition = getDevicePosition(vehicle);
-                  const statusLive = getDeviceStatus(vehicle, latestPosition);
-                  const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
-                  const coordinates = getDeviceCoordinates(vehicle, latestPosition);
-                  const deviceIdentifier =
-                    vehicle.device?.uniqueId || vehicle.device?.identifier || vehicle.device?.id || "—";
-                  return (
-                    <VehicleRow
-                      key={vehicle.id}
-                      vehicle={vehicle}
-                      association={renderAssociation(vehicle, statusLive)}
-                      deviceIdentifier={deviceIdentifier}
-                      lastSeen={lastSeen}
-                      coordinates={coordinates}
-                      typeLabel={formatVehicleType(vehicle.type)}
-                      showDriver={visibleColumns.driver}
-                      showGroup={visibleColumns.group}
-                      showOdometer={visibleColumns.odometer}
-                      odometerLabel={formatOdometer(vehicle.odometer)}
-                      onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
-                      onViewDevice={() => handleViewDevice(vehicle, latestPosition)}
-                      onUnlink={() => handleUnlink(vehicle)}
-                      onDelete={() => handleDelete(vehicle)}
-                    />
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+            )}
+            {!loading && filteredVehicles.length === 0 && (
+              <tr>
+                <td colSpan={tableColCount} className="px-4 py-6">
+                  <EmptyState
+                    title="Nenhum veículo cadastrado."
+                    subtitle="Cadastre um novo veículo para iniciar o acompanhamento."
+                    action={
+                      <button
+                        type="button"
+                        onClick={openModal}
+                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                      >
+                        Novo veículo
+                      </button>
+                    }
+                  />
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              filteredVehicles.map((vehicle) => {
+                const latestPosition = getDevicePosition(vehicle);
+                const statusLive = getDeviceStatus(vehicle, latestPosition);
+                const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
+                const coordinates = getDeviceCoordinates(vehicle, latestPosition);
+                const deviceIdentifier =
+                  vehicle.device?.uniqueId || vehicle.device?.identifier || vehicle.device?.id || "—";
+                return (
+                  <VehicleRow
+                    key={vehicle.id}
+                    vehicle={vehicle}
+                    association={renderAssociation(vehicle, statusLive)}
+                    deviceIdentifier={deviceIdentifier}
+                    lastSeen={lastSeen}
+                    coordinates={coordinates}
+                    typeLabel={formatVehicleType(vehicle.type)}
+                    showDriver={visibleColumns.driver}
+                    showGroup={visibleColumns.group}
+                    showOdometer={visibleColumns.odometer}
+                    odometerLabel={formatOdometer(vehicle.odometer)}
+                    onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
+                    onViewDevice={() => handleViewDevice(vehicle, latestPosition)}
+                    onUnlink={() => handleUnlink(vehicle)}
+                    onDelete={() => handleDelete(vehicle)}
+                  />
+                );
+              })}
+          </tbody>
+        </DataTable>
+      </DataCard>
 
       <Modal open={open} onClose={() => setOpen(false)} title="Novo veículo" width="max-w-3xl">
         <form onSubmit={handleSave} className="space-y-4">

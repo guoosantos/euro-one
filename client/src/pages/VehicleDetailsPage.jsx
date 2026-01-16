@@ -1,17 +1,19 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
-import VehicleDetailsDrawer from "../components/monitoring/VehicleDetailsDrawer.jsx";
 import Button from "../ui/Button";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import { useTranslation } from "../lib/i18n.js";
 import { useTraccarDevices } from "../lib/hooks/useTraccarDevices.js";
 import safeApi from "../lib/safe-api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import VehicleForm from "../components/vehicles/VehicleForm.jsx";
 import { VEHICLE_TYPE_OPTIONS } from "../lib/icons/vehicleIcons.js";
+import PageHeader from "../components/ui/PageHeader.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
 
 function AdminBindingsTab({
   vehicle,
@@ -318,7 +320,6 @@ export default function VehicleDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { tenantId, user } = useTenant();
-  const { t } = useTranslation();
   const [vehicle, setVehicle] = useState(null);
   const [devices, setDevices] = useState([]);
   const [chips, setChips] = useState([]);
@@ -328,6 +329,7 @@ export default function VehicleDetailsPage() {
   const [error, setError] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [linkingDeviceId, setLinkingDeviceId] = useState("");
+  const [activeTab, setActiveTab] = useState("resumo");
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -524,87 +526,219 @@ export default function VehicleDetailsPage() {
     }
   };
 
-  const adminTabs = isAdmin
-    ? [
-        {
-          id: "admin",
-          label: "Admin / Editar",
-          render: () => (
-            <AdminBindingsTab
-              vehicle={vehicle}
-              devices={devices}
-              chips={chips}
-              clients={clients}
-              tenantId={tenantId}
-              user={user}
-              onSaveVehicle={handleSaveVehicle}
-              saving={saving}
-              onBindChip={handleBindChip}
-              linkedDevices={linkedDevices}
-              autoPrimaryDeviceId={autoPrimaryDeviceId}
-              linkingDeviceId={linkingDeviceId}
-              setLinkingDeviceId={setLinkingDeviceId}
-              availableDevices={availableDevices}
-              onLinkDevice={handleLinkDevice}
-              onUnlinkDevice={handleUnlinkDevice}
-              onError={reportError}
-            />
-          ),
-        },
-      ]
-    : [];
-
-  const pageTabs = useMemo(
-    () => [
-      { id: "status", label: "Status" },
-      { id: "info", label: "Informações" },
-    ],
-    [],
-  );
+  const tabs = useMemo(() => {
+    const baseTabs = [
+      { id: "resumo", label: "Resumo" },
+      { id: "equipamentos", label: "Equipamentos" },
+      { id: "os", label: "Ordens de Serviço" },
+    ];
+    if (isAdmin) {
+      baseTabs.push({ id: "admin", label: "Admin / Editar" });
+    }
+    return baseTabs;
+  }, [isAdmin]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-white/60">{t("monitoring.columns.vehicle")}</p>
-          <h1 className="text-2xl font-semibold text-white">{vehicle?.plate || "Veículo"}</h1>
-          {vehicle?.name && <p className="text-sm text-white/60">{vehicle.name}</p>}
-        </div>
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" onClick={() => navigate(-1)}>
-          Voltar
-        </Button>
-        <Link
-            to="/vehicles"
-            className="inline-flex items-center rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white hover:border-white/30 hover:bg-white/20"
-          >
-            Voltar à lista
-          </Link>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title={`Veículo ${vehicle?.plate || "—"}`}
+        subtitle="Resumo, equipamentos e histórico de OS."
+        actions={
+          <>
+            <button
+              type="button"
+              onClick={() => setActiveTab("equipamentos")}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Vincular equipamento
+            </button>
+            <Link
+              to="/services/new"
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              Nova OS
+            </Link>
+          </>
+        }
+      />
 
-      {error && <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>}
+      {error && (
+        <div className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-100">
+          {error.message}
+        </div>
+      )}
       {feedback && !error && (
         <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
           {feedback}
         </div>
       )}
 
-      {loading && <p className="text-sm text-white/60">Carregando dados do veículo…</p>}
+      {loading && (
+        <DataCard className="animate-pulse">
+          <div className="h-6 w-52 rounded-full bg-white/10" />
+          <div className="mt-3 h-4 w-64 rounded-full bg-white/10" />
+        </DataCard>
+      )}
 
       {!loading && !vehicle && (
-        <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">Veículo não encontrado.</div>
+        <DataCard>
+          <EmptyState title="Veículo não encontrado." subtitle="Verifique a placa ou tente novamente." />
+        </DataCard>
       )}
 
-      {!loading && vehicle && vehicle.deviceCount === 0 && (
-        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-          Este veículo ainda não possui equipamento vinculado. Ele não aparecerá em monitoramento ou relatórios até que um
-          rastreador seja associado.
-        </div>
-      )}
+      {!loading && vehicle && (
+        <>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <DataCard>
+              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Status do veículo</div>
+              <div className="mt-2 text-lg font-semibold text-white">{detailedVehicle?.statusLabel || "—"}</div>
+            </DataCard>
+            <DataCard>
+              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Última posição</div>
+              <div className="mt-2 text-sm text-white/80">{detailedVehicle?.address || "—"}</div>
+            </DataCard>
+            <DataCard>
+              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Equipamentos vinculados</div>
+              <div className="mt-2 text-lg font-semibold text-white">{linkedDevices.length}</div>
+            </DataCard>
+            <DataCard>
+              <div className="text-xs uppercase tracking-[0.1em] text-white/60">OS no histórico</div>
+              <div className="mt-2 text-lg font-semibold text-white">
+                {Array.isArray(vehicle.serviceOrders) ? vehicle.serviceOrders.length : 0}
+              </div>
+            </DataCard>
+          </div>
 
-      {detailedVehicle && (
-        <VehicleDetailsDrawer vehicle={detailedVehicle} variant="page" extraTabs={adminTabs} baseTabs={pageTabs} />
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-xl px-4 py-2 text-sm transition ${
+                  activeTab === tab.id ? "bg-sky-500 text-black" : "bg-white/10 text-white hover:bg-white/15"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => navigate(-1)}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Voltar
+            </button>
+          </div>
+
+          {activeTab === "resumo" && (
+            <DataCard className="space-y-3">
+              <h2 className="text-sm font-semibold text-white">Resumo</h2>
+              <div className="grid gap-4 md:grid-cols-2 text-sm text-white/70">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Placa</div>
+                  <div className="text-white">{vehicle.plate || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Tipo</div>
+                  <div className="text-white">{vehicle.type || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Motorista</div>
+                  <div className="text-white">{vehicle.driver || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Grupo</div>
+                  <div className="text-white">{vehicle.group || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Odômetro</div>
+                  <div className="text-white">{vehicle.odometer ? `${vehicle.odometer} km` : "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Última posição</div>
+                  <div className="text-white">{detailedVehicle?.coordinatesLabel || "—"}</div>
+                </div>
+              </div>
+            </DataCard>
+          )}
+
+          {activeTab === "equipamentos" && (
+            <DataCard className="overflow-hidden p-0">
+              <DataTable>
+                <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                  <tr className="text-left">
+                    <th className="px-4 py-3">ID/IMEI</th>
+                    <th className="px-4 py-3">Produto/Modelo</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Local</th>
+                    <th className="px-4 py-3 text-right">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {linkedDevices.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-4 py-6">
+                        <EmptyState title="Nenhum equipamento vinculado." />
+                      </td>
+                    </tr>
+                  )}
+                  {linkedDevices.map((device) => (
+                    <tr key={device.id} className="hover:bg-white/5">
+                      <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
+                      <td className="px-4 py-3 text-white/70">{device.model || device.name || "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                          {device.status || "HABILITADO"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-white/70">{device.location || "No veículo"}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleUnlinkDevice(device.id)}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                        >
+                          Desvincular
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </DataTable>
+            </DataCard>
+          )}
+
+          {activeTab === "os" && (
+            <DataCard>
+              <EmptyState title="Nenhuma ordem de serviço registrada." subtitle="Crie uma nova OS para este veículo." />
+            </DataCard>
+          )}
+
+          {activeTab === "admin" && (
+            <DataCard>
+              <AdminBindingsTab
+                vehicle={vehicle}
+                devices={devices}
+                chips={chips}
+                clients={clients}
+                tenantId={tenantId}
+                user={user}
+                onSaveVehicle={handleSaveVehicle}
+                saving={saving}
+                onBindChip={handleBindChip}
+                linkedDevices={linkedDevices}
+                autoPrimaryDeviceId={autoPrimaryDeviceId}
+                linkingDeviceId={linkingDeviceId}
+                setLinkingDeviceId={setLinkingDeviceId}
+                availableDevices={availableDevices}
+                onLinkDevice={handleLinkDevice}
+                onUnlinkDevice={handleUnlinkDevice}
+                onError={reportError}
+              />
+            </DataCard>
+          )}
+        </>
       )}
     </div>
   );

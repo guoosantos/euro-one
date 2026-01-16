@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import PageHeader from "../../components/ui/PageHeader.jsx";
+import DataCard from "../../components/ui/DataCard.jsx";
+import EmptyState from "../../components/ui/EmptyState.jsx";
+
 const STATUS_OPTIONS = [
   "SOLICITADA",
   "AGENDADA",
@@ -30,6 +34,13 @@ function toLocalInput(value) {
   )}:${pad(date.getMinutes())}`;
 }
 
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
+}
+
 function mapPayload(formState) {
   return {
     osInternalId: formState.osInternalId,
@@ -57,6 +68,7 @@ export default function ServiceOrderDetails() {
   const [saving, setSaving] = useState(false);
   const [item, setItem] = useState(null);
   const [form, setForm] = useState(null);
+  const [showActions, setShowActions] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,41 +144,128 @@ export default function ServiceOrderDetails() {
   }, [item]);
 
   if (loading) {
-    return <div className="text-white/60">Carregando...</div>;
+    return (
+      <div className="space-y-4">
+        <DataCard className="animate-pulse">
+          <div className="h-6 w-48 rounded-full bg-white/10" />
+          <div className="mt-3 h-4 w-64 rounded-full bg-white/10" />
+        </DataCard>
+      </div>
+    );
   }
 
   if (!item || !form) {
-    return <div className="text-white/60">OS não encontrada.</div>;
+    return (
+      <DataCard>
+        <EmptyState title="OS não encontrada." subtitle="Verifique o código e tente novamente." />
+      </DataCard>
+    );
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-lg font-semibold text-white">OS {headline}</div>
-          <p className="text-sm text-white/60">
-            Placa: <span className="text-white">{item.vehicle?.plate || "—"}</span>
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link className="btn" to={`/services/${item.id}/execute`}>
-            Executar (Técnico)
-          </Link>
-          <button type="button" className="btn btn-primary" onClick={() => save()} disabled={saving}>
-            {saving ? "Salvando..." : "Salvar"}
-          </button>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <PageHeader
+        title={
+          <span className="flex flex-wrap items-center gap-3">
+            <span>OS {headline}</span>
+            <span className="rounded-xl bg-white/10 px-3 py-1 text-xs uppercase tracking-[0.1em] text-white/80">
+              {item.status || "—"}
+            </span>
+          </span>
+        }
+        subtitle={`Placa ${item.vehicle?.plate || "—"} • Cliente ${item.clientName || "—"} • Técnico ${
+          item.technicianName || "—"
+        }`}
+        actions={
+          <>
+            <button
+              type="button"
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Exportar PDF
+            </button>
+            <Link
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+              to={`/services/${item.id}/execute`}
+            >
+              Executar (técnico)
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowActions((prev) => !prev)}
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Agendar / Remanejar / Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => save({ status: "CONCLUIDA" })}
+              disabled={item.status !== "AGUARDANDO_APROVACAO" || saving}
+              className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-50"
+            >
+              Aprovar OS
+            </button>
+          </>
+        }
+      />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="card lg:col-span-2 space-y-4">
-          <div className="text-sm font-semibold text-white">Dados principais</div>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Status">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+        <div className="space-y-4">
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Timeline</h2>
+            <div className="space-y-2 text-sm text-white/70">
+              {STATUS_OPTIONS.map((status) => (
+                <div
+                  key={status}
+                  className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-3 py-2"
+                >
+                  <span className="text-white">{status}</span>
+                  <span className="text-xs text-white/50">
+                    {status === item.status ? formatDateTime(item.updatedAt || item.startAt) : "—"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Checklist</h2>
+            <div className="text-sm text-white/60">
+              {form.notes ? form.notes : "Nenhum checklist registrado até o momento."}
+            </div>
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Mídias</h2>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={`media-${index}`} className="aspect-video rounded-xl border border-white/10 bg-black/30" />
+              ))}
+            </div>
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Assinaturas</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-6 text-center text-sm text-white/60">
+                Técnico
+              </div>
+              <div className="rounded-xl border border-white/10 bg-black/30 px-3 py-6 text-center text-sm text-white/60">
+                Responsável
+              </div>
+            </div>
+          </DataCard>
+        </div>
+
+        <div className="space-y-4">
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Dados do serviço</h2>
+            <label className="block text-xs text-white/60">
+              Status
               <select
                 value={form.status}
                 onChange={(event) => handleChange("status", event.target.value)}
-                className="input"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               >
                 {STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
@@ -174,163 +273,106 @@ export default function ServiceOrderDetails() {
                   </option>
                 ))}
               </select>
-            </Field>
-
-            <Field label="Tipo">
-              <input
-                value={form.type}
-                onChange={(event) => handleChange("type", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="OS (ID interno)">
-              <input
-                value={form.osInternalId}
-                onChange={(event) => handleChange("osInternalId", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Placa do veículo">
-              <input
-                value={form.vehiclePlate}
-                onChange={(event) => handleChange("vehiclePlate", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Início">
-              <input
-                type="datetime-local"
-                value={form.startAt}
-                onChange={(event) => handleChange("startAt", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Fim">
-              <input
-                type="datetime-local"
-                value={form.endAt}
-                onChange={(event) => handleChange("endAt", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Técnico">
-              <input
-                value={form.technicianName}
-                onChange={(event) => handleChange("technicianName", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Contato (responsável)">
-              <input
-                value={form.responsibleName}
-                onChange={(event) => handleChange("responsibleName", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Telefone">
-              <input
-                value={form.responsiblePhone}
-                onChange={(event) => handleChange("responsiblePhone", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="KM (total)">
-              <input
-                value={form.km}
-                onChange={(event) => handleChange("km", event.target.value)}
-                className="input"
-              />
-            </Field>
-
-            <Field label="Endereço" full>
+            </label>
+            <label className="block text-xs text-white/60">
+              Endereço
               <input
                 value={form.address}
                 onChange={(event) => handleChange("address", event.target.value)}
-                className="input"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               />
-            </Field>
-
-            <Field label="Descrição do serviço" full>
-              <textarea
-                value={form.reason}
-                onChange={(event) => handleChange("reason", event.target.value)}
-                className="input min-h-[120px]"
-              />
-            </Field>
-
-            <Field label="Observações" full>
-              <textarea
-                value={form.notes}
-                onChange={(event) => handleChange("notes", event.target.value)}
-                className="input min-h-[100px]"
-              />
-            </Field>
-
-            <Field label="Equipamentos" full>
-              <textarea
-                value={form.equipmentsText}
-                onChange={(event) => handleChange("equipmentsText", event.target.value)}
-                className="input min-h-[100px]"
-              />
-            </Field>
-
-            <Field label="Serial" full>
+            </label>
+            <label className="block text-xs text-white/60">
+              Contato
               <input
-                value={form.serial}
-                onChange={(event) => handleChange("serial", event.target.value)}
-                className="input"
+                value={form.responsibleName}
+                onChange={(event) => handleChange("responsibleName", event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               />
-            </Field>
-
-            <Field label="Referência externa" full>
+            </label>
+            <label className="block text-xs text-white/60">
+              Telefone
               <input
-                value={form.externalRef}
-                onChange={(event) => handleChange("externalRef", event.target.value)}
-                className="input"
+                value={form.responsiblePhone}
+                onChange={(event) => handleChange("responsiblePhone", event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               />
-            </Field>
-          </div>
-        </div>
-
-        <div className="card space-y-3">
-          <div className="text-sm font-semibold text-white">Ações rápidas</div>
-          {QUICK_ACTIONS.map((action) => (
+            </label>
             <button
-              key={action.status}
               type="button"
-              onClick={() => save({ status: action.status })}
-              className={
-                action.tone === "danger"
-                  ? "btn bg-red-500/20 text-red-100 hover:bg-red-500/30"
-                  : "btn"
-              }
+              onClick={() => save()}
               disabled={saving}
+              className="w-full rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
             >
-              {action.label}
+              {saving ? "Salvando..." : "Salvar alterações"}
             </button>
-          ))}
-          <div className="text-xs text-white/50">
-            As ações rápidas atualizam o status e já salvam a OS.
-          </div>
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Veículo</h2>
+            <div className="text-sm text-white/70">
+              <div className="font-semibold text-white">{form.vehiclePlate || item.vehicle?.plate || "—"}</div>
+              <div className="text-xs text-white/50">{item.vehicle?.name || item.vehicle?.model || "—"}</div>
+              {item.vehicle?.id && (
+                <Link className="mt-2 inline-flex text-xs text-sky-300" to={`/vehicles/${item.vehicle?.id}`}>
+                  Ver veículo
+                </Link>
+              )}
+            </div>
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Equipamentos vinculados</h2>
+            {form.equipmentsText ? (
+              <ul className="space-y-2 text-sm text-white/70">
+                {form.equipmentsText
+                  .split("\n")
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .map((line, index) => (
+                    <li key={`eq-${index}`} className="rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                      {line}
+                    </li>
+                  ))}
+              </ul>
+            ) : (
+              <EmptyState title="Nenhum equipamento informado." />
+            )}
+          </DataCard>
+
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">KM</h2>
+            <input
+              value={form.km}
+              onChange={(event) => handleChange("km", event.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              placeholder="KM total"
+            />
+          </DataCard>
+
+          {showActions && (
+            <DataCard className="space-y-3">
+              <h2 className="text-sm font-semibold text-white">Ações rápidas</h2>
+              <div className="flex flex-col gap-2">
+                {QUICK_ACTIONS.map((action) => (
+                  <button
+                    key={action.status}
+                    type="button"
+                    className={`rounded-xl px-3 py-2 text-sm transition ${
+                      action.tone === "danger"
+                        ? "bg-red-500/10 text-red-200 hover:bg-red-500/20"
+                        : "bg-white/10 text-white hover:bg-white/15"
+                    }`}
+                    onClick={() => save({ status: action.status })}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </DataCard>
+          )}
         </div>
       </div>
     </div>
-  );
-}
-
-function Field({ label, children, full }) {
-  return (
-    <label className={full ? "md:col-span-2" : ""}>
-      <div className="text-xs text-white/60 mb-2">{label}</div>
-      {children}
-    </label>
   );
 }

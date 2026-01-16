@@ -1,6 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
+import PageHeader from "../components/ui/PageHeader.jsx";
+import FilterBar from "../components/ui/FilterBar.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
+import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+
 import { useTranslation } from "../lib/i18n.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useDevices from "../lib/hooks/useDevices.js";
@@ -77,208 +84,169 @@ export default function Tasks() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-lg font-semibold text-white">
-            {t("tasks.title")}
-          </div>
-          <p className="text-sm text-white/60">{t("tasks.subtitle")}</p>
-        </div>
-        <Link className="btn btn-primary" to="/tasks/new">
-          {t("tasks.new")}
-        </Link>
-      </div>
+      <PageHeader
+        title={t("tasks.title")}
+        subtitle={t("tasks.subtitle")}
+        actions={
+          <Link
+            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            to="/tasks/new"
+          >
+            {t("tasks.new")}
+          </Link>
+        }
+      />
 
-      <div className="card space-y-3">
-        <div className="grid gap-3 md:grid-cols-3">
-          <label className="text-xs text-white/60">
-            {t("tasks.status")}
-            <select
-              name="status"
-              value={filters.status}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            >
-              <option value="">{t("all")}</option>
-              <option value="pendente">{t("tasks.statusPending")}</option>
-              <option value="em rota">{t("tasks.statusOnRoute")}</option>
-              <option value="em atendimento">{t("tasks.statusInService")}</option>
-              <option value="finalizada">{t("tasks.statusDone")}</option>
-              <option value="atrasada">{t("tasks.statusLate")}</option>
-              <option value="improdutiva">{t("tasks.statusIdle")}</option>
-              <option value="cancelada">{t("tasks.statusCancelled")}</option>
-            </select>
-          </label>
+      <DataCard>
+        <FilterBar
+          left={
+            <>
+              <select
+                name="status"
+                value={filters.status}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="">{t("all")}</option>
+                <option value="pendente">{t("tasks.statusPending")}</option>
+                <option value="em rota">{t("tasks.statusOnRoute")}</option>
+                <option value="em atendimento">{t("tasks.statusInService")}</option>
+                <option value="finalizada">{t("tasks.statusDone")}</option>
+                <option value="atrasada">{t("tasks.statusLate")}</option>
+                <option value="improdutiva">{t("tasks.statusIdle")}</option>
+                <option value="cancelada">{t("tasks.statusCancelled")}</option>
+              </select>
+              <select
+                name="driverId"
+                value={filters.driverId}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="">{t("all")}</option>
+                {drivers.map((driver) => (
+                  <option key={driver.id} value={driver.id}>
+                    {driver.name || driver.email || driver.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                name="vehicleId"
+                value={filters.vehicleId}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="">{t("all")}</option>
+                {devices.map((device) => (
+                  <option key={device.id} value={device.id}>
+                    {device.name || device.uniqueId || device.id}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="datetime-local"
+                name="from"
+                value={filters.from}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+              <input
+                type="datetime-local"
+                name="to"
+                value={filters.to}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+              <select
+                name="type"
+                value={filters.type || ""}
+                onChange={handleFilterChange}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="">{t("all")}</option>
+                <option value="entrega">{t("tasks.delivery")}</option>
+                <option value="coleta">{t("tasks.pickup")}</option>
+              </select>
+            </>
+          }
+        />
+      </DataCard>
 
-          <label className="text-xs text-white/60">
-            {t("tasks.driver")}
-            <select
-              name="driverId"
-              value={filters.driverId}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            >
-              <option value="">{t("all")}</option>
-              {drivers.map((driver) => (
-                <option key={driver.id} value={driver.id}>
-                  {driver.name || driver.email || driver.id}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="text-xs text-white/60">
-            {t("tasks.vehicle")}
-            <select
-              name="vehicleId"
-              value={filters.vehicleId}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            >
-              <option value="">{t("all")}</option>
-              {devices.map((device) => (
-                <option key={device.id} value={device.id}>
-                  {device.name || device.uniqueId || device.id}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="text-xs text-white/60">
-            {t("from")}
-            <input
-              type="datetime-local"
-              name="from"
-              value={filters.from}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            />
-          </label>
-
-          <label className="text-xs text-white/60">
-            {t("to")}
-            <input
-              type="datetime-local"
-              name="to"
-              value={filters.to}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            />
-          </label>
-
-          <label className="text-xs text-white/60">
-            {t("tasks.type")}
-            <select
-              name="type"
-              value={filters.type || ""}
-              onChange={handleFilterChange}
-              className="input mt-1"
-            >
-              <option value="">{t("all")}</option>
-              <option value="entrega">{t("tasks.delivery")}</option>
-              <option value="coleta">{t("tasks.pickup")}</option>
-            </select>
-          </label>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-white/50">
-              <tr className="border-b border-white/10 text-left">
-                <th className="py-2 pr-4">{t("tasks.code")}</th>
-                <th className="py-2 pr-4">{t("tasks.type")}</th>
-                <th className="py-2 pr-4">{t("tasks.vehicle")}</th>
-                <th className="py-2 pr-4">{t("tasks.driver")}</th>
-                <th className="py-2 pr-4">{t("tasks.address")}</th>
-                <th className="py-2 pr-4">{t("tasks.window")}</th>
-                <th className="py-2 pr-4">{t("tasks.status")}</th>
-                <th className="py-2 pr-4">{t("tasks.actions")}</th>
+      <DataCard className="overflow-hidden p-0">
+        <DataTable>
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+            <tr className="border-b border-white/10 text-left">
+              <th className="px-4 py-3">{t("tasks.code")}</th>
+              <th className="px-4 py-3">{t("tasks.type")}</th>
+              <th className="px-4 py-3">{t("tasks.vehicle")}</th>
+              <th className="px-4 py-3">{t("tasks.driver")}</th>
+              <th className="px-4 py-3">{t("tasks.address")}</th>
+              <th className="px-4 py-3">{t("tasks.window")}</th>
+              <th className="px-4 py-3">{t("tasks.status")}</th>
+              <th className="px-4 py-3">{t("tasks.actions")}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={8} />
+                </td>
               </tr>
-            </thead>
-
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={8} className="py-4 text-center text-white/50">
-                    {t("tasks.loading")}
-                  </td>
-                </tr>
-              )}
-
-              {!loading && error && (
-                <tr>
-                  <td colSpan={8} className="py-4 text-center text-red-200/80">
-                    {t("tasks.loadError")}
-                  </td>
-                </tr>
-              )}
-
-              {!loading && !error && tasks.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="py-4 text-center text-white/50">
-                    {t("tasks.empty")}
-                  </td>
-                </tr>
-              )}
-
-              {tasks.map((task) => (
-                <tr key={task.id} className="border-b border-white/5">
-                  <td className="py-2 pr-4 text-white/80">{task.id}</td>
-                  <td className="py-2 pr-4 text-white/80">
-                    {t(
-                      task.type === "coleta"
-                        ? "tasks.pickup"
-                        : "tasks.delivery"
-                    )}
-                  </td>
-                  <td className="py-2 pr-4 text-white/80">
-                    {deviceIndex[task.vehicleId]?.name ||
-                      task.vehicleId ||
-                      "—"}
-                  </td>
-                  <td className="py-2 pr-4 text-white/80">
-                    {driverIndex[task.driverId]?.name || "—"}
-                  </td>
-                  <td className="py-2 pr-4 text-white/80">
-                    {formatAddress(task.address)}
-                  </td>
-                  <td className="py-2 pr-4 text-white/70">
-                    {task.startTimeExpected
-                      ? formatDate(task.startTimeExpected)
-                      : "—"}{" "}
-                    –{" "}
-                    {task.endTimeExpected
-                      ? formatDate(task.endTimeExpected)
-                      : "—"}
-                  </td>
-
-                  <td className="py-2 pr-4 text-white/80">
-                    <span className="rounded bg-white/10 px-2 py-1 text-xs">
-                      {renderStatus(task.status)}
-                    </span>
-                  </td>
-
-                  <td className="flex flex-wrap gap-2 py-2 pr-4 text-white/80">
-                    <Link className="text-primary" to={`/tasks/${task.id}`}>
+            )}
+            {!loading && error && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6 text-center text-red-200/80">
+                  {t("tasks.loadError")}
+                </td>
+              </tr>
+            )}
+            {!loading && !error && tasks.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-6">
+                  <EmptyState title={t("tasks.empty")} />
+                </td>
+              </tr>
+            )}
+            {tasks.map((task) => (
+              <tr key={task.id} className="border-b border-white/5">
+                <td className="px-4 py-3 text-white/80">{task.id}</td>
+                <td className="px-4 py-3 text-white/80">
+                  {t(task.type === "coleta" ? "tasks.pickup" : "tasks.delivery")}
+                </td>
+                <td className="px-4 py-3 text-white/80">
+                  {deviceIndex[task.vehicleId]?.name || task.vehicleId || "—"}
+                </td>
+                <td className="px-4 py-3 text-white/80">{driverIndex[task.driverId]?.name || "—"}</td>
+                <td className="px-4 py-3 text-white/80">{formatAddress(task.address)}</td>
+                <td className="px-4 py-3 text-white/70">
+                  {task.startTimeExpected ? formatDate(task.startTimeExpected) : "—"} –{" "}
+                  {task.endTimeExpected ? formatDate(task.endTimeExpected) : "—"}
+                </td>
+                <td className="px-4 py-3 text-white/80">
+                  <span className="rounded-lg bg-white/10 px-2 py-1 text-xs">
+                    {renderStatus(task.status)}
+                  </span>
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex flex-wrap gap-2 text-sm text-white/80">
+                    <Link className="text-sky-300" to={`/tasks/${task.id}`}>
                       {t("tasks.viewDetails")}
                     </Link>
-
                     <button
                       type="button"
-                      className="text-primary"
+                      className="text-sky-300"
                       onClick={() => finalizeTask(task.id)}
                       disabled={task.status === "finalizada"}
                     >
                       {t("tasks.finish")}
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-
-          </table>
-        </div>
-      </div>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </DataTable>
+      </DataCard>
     </div>
   );
 }
