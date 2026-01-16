@@ -68,7 +68,26 @@ export function getModelById(id) {
   return clone(record);
 }
 
-export function createModel({ name, brand, protocol = "", connectivity = "", ports = [], clientId = null }) {
+export function createModel({
+  name,
+  brand,
+  protocol = "",
+  connectivity = "",
+  ports = [],
+  clientId = null,
+  version = "",
+  jammerBlockTime = "",
+  panelBlockTime = "",
+  jammerDetectionTime = "",
+  frequency = "",
+  blockMode = "",
+  resetMode = "",
+  workshopMode = "",
+  productionDate = null,
+  notes = "",
+  isClientDefault = false,
+  defaultClientId = null,
+} = {}) {
   if (!name) {
     throw createError(400, "Nome do modelo é obrigatório");
   }
@@ -104,6 +123,18 @@ export function createModel({ name, brand, protocol = "", connectivity = "", por
     protocol: String(protocol || "").trim(),
     connectivity: String(connectivity || "").trim(),
     ports: Array.isArray(ports) ? ports.map((port, index) => normalisePort(port, index)) : [],
+    version: String(version || "").trim(),
+    jammerBlockTime: String(jammerBlockTime || "").trim(),
+    panelBlockTime: String(panelBlockTime || "").trim(),
+    jammerDetectionTime: String(jammerDetectionTime || "").trim(),
+    frequency: String(frequency || "").trim(),
+    blockMode: String(blockMode || "").trim(),
+    resetMode: String(resetMode || "").trim(),
+    workshopMode: String(workshopMode || "").trim(),
+    productionDate: productionDate ? String(productionDate).trim() : null,
+    notes: String(notes || "").trim(),
+    isClientDefault: Boolean(isClientDefault),
+    defaultClientId: defaultClientId ? String(defaultClientId) : null,
     clientId: ownerId,
     createdAt: now,
     updatedAt: now,
@@ -129,6 +160,42 @@ export function updateModel(id, updates = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "connectivity")) {
     record.connectivity = String(updates.connectivity || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "version")) {
+    record.version = String(updates.version || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "jammerBlockTime")) {
+    record.jammerBlockTime = String(updates.jammerBlockTime || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "panelBlockTime")) {
+    record.panelBlockTime = String(updates.panelBlockTime || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "jammerDetectionTime")) {
+    record.jammerDetectionTime = String(updates.jammerDetectionTime || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "frequency")) {
+    record.frequency = String(updates.frequency || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "blockMode")) {
+    record.blockMode = String(updates.blockMode || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "resetMode")) {
+    record.resetMode = String(updates.resetMode || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "workshopMode")) {
+    record.workshopMode = String(updates.workshopMode || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "productionDate")) {
+    record.productionDate = updates.productionDate ? String(updates.productionDate).trim() : null;
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "notes")) {
+    record.notes = String(updates.notes || "").trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "isClientDefault")) {
+    record.isClientDefault = Boolean(updates.isClientDefault);
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "defaultClientId")) {
+    record.defaultClientId = updates.defaultClientId ? String(updates.defaultClientId) : null;
   }
   if (Array.isArray(updates.ports)) {
     record.ports = updates.ports.map((port, index) => normalisePort(port, index));

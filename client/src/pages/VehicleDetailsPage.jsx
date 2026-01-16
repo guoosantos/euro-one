@@ -533,7 +533,7 @@ export default function VehicleDetailsPage() {
       { id: "os", label: "Ordens de Serviço" },
     ];
     if (isAdmin) {
-      baseTabs.push({ id: "admin", label: "Admin / Editar" });
+      baseTabs.push({ id: "admin", label: "Editar" });
     }
     return baseTabs;
   }, [isAdmin]);
@@ -541,8 +541,21 @@ export default function VehicleDetailsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Veículo ${vehicle?.plate || "—"}`}
-        subtitle="Resumo, equipamentos e histórico de OS."
+        title={
+          <div className="space-y-2">
+            <div className="text-2xl font-semibold text-white">{vehicle?.plate || "—"}</div>
+            <div className="text-sm text-white/70">
+              {vehicle?.brand || "Marca"} • {vehicle?.model || vehicle?.name || "Modelo"}
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">{vehicle?.status || "—"}</span>
+              {detailedVehicle?.statusLabel && (
+                <span className="rounded-full bg-white/5 px-3 py-1 text-white/70">{detailedVehicle.statusLabel}</span>
+              )}
+            </div>
+          </div>
+        }
+        subtitle="Resumo completo, equipamentos vinculados e histórico de OS."
         actions={
           <>
             <button
@@ -552,6 +565,15 @@ export default function VehicleDetailsPage() {
             >
               Vincular equipamento
             </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setActiveTab("admin")}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+              >
+                Editar veículo
+              </button>
+            )}
             <Link
               to="/services/new"
               className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
@@ -588,27 +610,6 @@ export default function VehicleDetailsPage() {
 
       {!loading && vehicle && (
         <>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <DataCard>
-              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Status do veículo</div>
-              <div className="mt-2 text-lg font-semibold text-white">{detailedVehicle?.statusLabel || "—"}</div>
-            </DataCard>
-            <DataCard>
-              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Última posição</div>
-              <div className="mt-2 text-sm text-white/80">{detailedVehicle?.address || "—"}</div>
-            </DataCard>
-            <DataCard>
-              <div className="text-xs uppercase tracking-[0.1em] text-white/60">Equipamentos vinculados</div>
-              <div className="mt-2 text-lg font-semibold text-white">{linkedDevices.length}</div>
-            </DataCard>
-            <DataCard>
-              <div className="text-xs uppercase tracking-[0.1em] text-white/60">OS no histórico</div>
-              <div className="mt-2 text-lg font-semibold text-white">
-                {Array.isArray(vehicle.serviceOrders) ? vehicle.serviceOrders.length : 0}
-              </div>
-            </DataCard>
-          </div>
-
           <div className="flex flex-wrap gap-2">
             {tabs.map((tab) => (
               <button
@@ -652,6 +653,26 @@ export default function VehicleDetailsPage() {
                   <div className="text-white">{vehicle.group || "—"}</div>
                 </div>
                 <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Marca</div>
+                  <div className="text-white">{vehicle.brand || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Modelo</div>
+                  <div className="text-white">{vehicle.model || vehicle.name || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Chassi</div>
+                  <div className="text-white">{vehicle.chassis || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Ano</div>
+                  <div className="text-white">{vehicle.modelYear || vehicle.manufactureYear || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Cliente</div>
+                  <div className="text-white">{vehicle.clientName || vehicle.clientId || "—"}</div>
+                </div>
+                <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Odômetro</div>
                   <div className="text-white">{vehicle.odometer ? `${vehicle.odometer} km` : "—"}</div>
                 </div>
@@ -664,8 +685,19 @@ export default function VehicleDetailsPage() {
           )}
 
           {activeTab === "equipamentos" && (
-            <DataCard className="overflow-hidden p-0">
-              <DataTable>
+            <DataCard className="space-y-3">
+              <div className="flex items-center justify-between px-4 pt-4">
+                <h2 className="text-sm font-semibold text-white">Equipamentos vinculados</h2>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("equipamentos")}
+                  className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                >
+                  Vincular equipamento
+                </button>
+              </div>
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <DataTable>
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
                   <tr className="text-left">
                     <th className="px-4 py-3">ID/IMEI</th>
@@ -705,7 +737,8 @@ export default function VehicleDetailsPage() {
                     </tr>
                   ))}
                 </tbody>
-              </DataTable>
+                </DataTable>
+              </div>
             </DataCard>
           )}
 

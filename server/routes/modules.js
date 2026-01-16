@@ -8,7 +8,78 @@ const router = express.Router();
 router.use(authenticate);
 
 router.get("/finance", requireRole("user", "manager", "admin"), (_req, res) => {
-  res.json({ status: "OK", billableVehicles: 42, amountDue: 12990.75, nextBilling: "2024-12-15" });
+  res.json({
+    status: "OK",
+    billableVehicles: 42,
+    amountDue: 12990.75,
+    nextBilling: "2024-12-15",
+    summary: {
+      income: 15420.5,
+      expense: 6230.2,
+      balance: 9190.3,
+    },
+    items: [
+      {
+        id: "FIN-1001",
+        date: "2024-12-10",
+        type: "Entrada",
+        clientName: "Grupo Alfa",
+        technicianName: "João Souza",
+        osCode: "OS-1203",
+        amount: 850.5,
+        method: "PIX",
+        status: "Pago",
+      },
+      {
+        id: "FIN-1002",
+        date: "2024-12-11",
+        type: "Saída",
+        clientName: "Grupo Alfa",
+        technicianName: "—",
+        osCode: "OS-1206",
+        amount: 320.0,
+        method: "Boleto",
+        status: "Pendente",
+      },
+    ],
+  });
+});
+
+router.get("/finance/summary", requireRole("user", "manager", "admin"), (_req, res) => {
+  res.json({
+    income: 15420.5,
+    expense: 6230.2,
+    balance: 9190.3,
+  });
+});
+
+router.get("/finance/entries", requireRole("user", "manager", "admin"), (_req, res) => {
+  res.json({
+    items: [
+      {
+        id: "FIN-1001",
+        date: "2024-12-10",
+        type: "Entrada",
+        clientName: "Grupo Alfa",
+        technicianName: "João Souza",
+        osCode: "OS-1203",
+        amount: 850.5,
+        method: "PIX",
+        status: "Pago",
+      },
+      {
+        id: "FIN-1002",
+        date: "2024-12-11",
+        type: "Saída",
+        clientName: "Grupo Alfa",
+        technicianName: "—",
+        osCode: "OS-1206",
+        amount: 320.0,
+        method: "Boleto",
+        status: "Pendente",
+      },
+    ],
+  });
 });
 
 router.get("/driver-behavior", requireRole("user", "manager", "admin"), (_req, res) => {

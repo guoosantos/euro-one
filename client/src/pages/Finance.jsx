@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Pencil, RefreshCw } from "lucide-react";
 import api from "../lib/api";
-import { API_ROUTES } from "../lib/api-routes";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import DataCard from "../components/ui/DataCard.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
@@ -9,7 +9,8 @@ import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 
 export default function Finance() {
-  const [snapshot, setSnapshot] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [entries, setEntries] = useState([]);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -17,19 +18,41 @@ export default function Finance() {
     to: "",
     client: "",
     technician: "",
-    status: "",
+    type: "",
   });
 
-  useEffect(() => {
+  const loadFinance = async () => {
     setLoading(true);
-    api
-      .get(API_ROUTES.finance)
-      .then((response) => setSnapshot(response?.data || response))
-      .catch((err) => setError(err))
-      .finally(() => setLoading(false));
+    setError(null);
+    try {
+      const [summaryResponse, entriesResponse] = await Promise.all([
+        api.get("finance/summary"),
+        api.get("finance/entries"),
+      ]);
+      setSummary(summaryResponse?.data || summaryResponse);
+      setEntries(entriesResponse?.data?.items || entriesResponse?.items || []);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadFinance();
   }, []);
 
-  const transactions = useMemo(() => snapshot?.transactions || snapshot?.items || [], [snapshot]);
+  const transactions = useMemo(() => {
+    const term = filters.client.trim().toLowerCase();
+    return entries.filter((entry) => {
+      if (filters.type && entry.type !== filters.type) return false;
+      if (filters.technician && !String(entry.technicianName || "").toLowerCase().includes(filters.technician.toLowerCase())) {
+        return false;
+      }
+      if (term && !String(entry.clientName || "").toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [entries, filters]);
 
   return (
     <div className="space-y-4 text-white/80">
@@ -37,9 +60,20 @@ export default function Finance() {
         title="Financeiro"
         subtitle="Entradas, saídas e OS aprovadas."
         actions={
-          <button className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15">
-            Exportar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+              onClick={loadFinance}
+            >
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Atualizar
+              </span>
+            </button>
+            <button className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15">
+              Exportar
+            </button>
+          </div>
         }
       />
 
@@ -47,32 +81,32 @@ export default function Finance() {
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <DataCard>
-          <div className="text-sm text-white/60">Situação</div>
-          <div className="text-2xl font-semibold text-white">{snapshot?.status || "Em análise"}</div>
-        </DataCard>
-        <DataCard>
-          <div className="text-sm text-white/60">Entradas do mês</div>
+          <div className="text-sm text-white/60">Entradas</div>
           <div className="text-2xl font-semibold text-white">
-            {snapshot?.monthIncome
-              ? `R$ ${snapshot.monthIncome.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+            {summary?.income
+              ? `R$ ${summary.income.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
               : "R$ 0,00"}
           </div>
         </DataCard>
         <DataCard>
-          <div className="text-sm text-white/60">Saídas do mês</div>
+          <div className="text-sm text-white/60">Saídas</div>
           <div className="text-2xl font-semibold text-white">
-            {snapshot?.monthExpense
-              ? `R$ ${snapshot.monthExpense.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+            {summary?.expense
+              ? `R$ ${summary.expense.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
               : "R$ 0,00"}
           </div>
         </DataCard>
         <DataCard>
-          <div className="text-sm text-white/60">Valor devido</div>
+          <div className="text-sm text-white/60">Saldo</div>
           <div className="text-2xl font-semibold text-white">
-            {snapshot?.amountDue
-              ? `R$ ${snapshot.amountDue.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
+            {summary?.balance
+              ? `R$ ${summary.balance.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
               : "R$ 0,00"}
           </div>
+        </DataCard>
+        <DataCard>
+          <div className="text-sm text-white/60">Lançamentos</div>
+          <div className="text-2xl font-semibold text-white">{transactions.length}</div>
         </DataCard>
       </div>
 
@@ -105,14 +139,13 @@ export default function Finance() {
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
               />
               <select
-                value={filters.status}
-                onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+                value={filters.type}
+                onChange={(event) => setFilters((prev) => ({ ...prev, type: event.target.value }))}
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               >
-                <option value="">Status</option>
-                <option value="receber">A receber</option>
-                <option value="pago">Pago</option>
-                <option value="pendente">Pendente</option>
+                <option value="">Tipo</option>
+                <option value="Entrada">Entrada</option>
+                <option value="Saída">Saída</option>
               </select>
             </>
           }
@@ -129,6 +162,7 @@ export default function Finance() {
               <th className="px-4 py-3">Técnico</th>
               <th className="px-4 py-3">OS</th>
               <th className="px-4 py-3">Valor</th>
+              <th className="px-4 py-3">Método</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
@@ -136,14 +170,14 @@ export default function Finance() {
           <tbody className="divide-y divide-white/10">
             {loading && (
               <tr>
-                <td colSpan={8} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={8} />
+                <td colSpan={9} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={9} />
                 </td>
               </tr>
             )}
             {!loading && transactions.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-6">
+                <td colSpan={9} className="px-4 py-6">
                   <EmptyState
                     title="Nenhum lançamento encontrado."
                     subtitle="Ajuste filtros ou verifique OS pendentes."
@@ -169,14 +203,18 @@ export default function Finance() {
                       ? `R$ ${Number(entry.amount).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`
                       : "R$ 0,00"}
                   </td>
+                  <td className="px-4 py-3">{entry.method || "—"}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
                       {entry.status || "—"}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <button className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15">
-                      Ver detalhe
+                    <button
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+                      aria-label="Editar lançamento"
+                    >
+                      <Pencil className="h-4 w-4" />
                     </button>
                   </td>
                 </tr>

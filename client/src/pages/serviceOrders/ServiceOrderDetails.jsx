@@ -138,6 +138,24 @@ export default function ServiceOrderDetails() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    try {
+      const response = await fetch(`/api/core/service-orders/${id}/pdf`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Falha ao gerar PDF");
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setTimeout(() => window.URL.revokeObjectURL(url), 5000);
+    } catch (error) {
+      console.error("Falha ao exportar PDF", error);
+      alert("Não foi possível exportar o PDF agora.");
+    }
+  };
+
   const headline = useMemo(() => {
     if (!item) return "";
     return item.osInternalId || item.id.slice(0, 8);
@@ -180,6 +198,7 @@ export default function ServiceOrderDetails() {
           <>
             <button
               type="button"
+              onClick={handleDownloadPdf}
               className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
             >
               Exportar PDF

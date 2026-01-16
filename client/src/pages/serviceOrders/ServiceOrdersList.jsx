@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { RefreshCw } from "lucide-react";
+import { Pencil, RefreshCw } from "lucide-react";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import FilterBar from "../../components/ui/FilterBar.jsx";
@@ -87,7 +87,7 @@ export default function ServiceOrdersList() {
     <div className="space-y-4">
       <PageHeader
         title="Serviços"
-        subtitle="Ordens de Serviço"
+        subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
             <Link
@@ -215,10 +215,11 @@ export default function ServiceOrdersList() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link
-                      className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
                       to={`/services/${item.id}`}
+                      aria-label="Editar OS"
                     >
-                      Ver
+                      <Pencil className="h-4 w-4" />
                     </Link>
                   </td>
                 </tr>

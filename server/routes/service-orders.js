@@ -1,6 +1,7 @@
 import express from "express";
 import createError from "http-errors";
 import { randomUUID } from "crypto";
+import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
@@ -110,6 +111,88 @@ router.get("/service-orders/:id", async (req, res, next) => {
     }
 
     return res.json({ ok: true, item });
+  } catch (error) {
+    return next(error);
+  }
+});
+
+router.get("/service-orders/:id/pdf", async (req, res, next) => {
+  try {
+    ensurePrisma();
+    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const item = await prisma.serviceOrder.findFirst({
+      where: {
+        id: String(req.params.id),
+        clientId,
+      },
+      include: {
+        vehicle: { select: { id: true, plate: true, name: true } },
+      },
+    });
+
+    if (!item) {
+      throw createError(404, "OS não encontrada");
+    }
+
+    const pdfDoc = await PDFDocument.create();
+    let page = pdfDoc.addPage([595, 842]);
+    const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const boldFont = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+    const drawText = (text, x, y, options = {}) => {
+      page.drawText(text, {
+        x,
+        y,
+        size: options.size || 12,
+        font: options.bold ? boldFont : font,
+        color: options.color || rgb(0.9, 0.9, 0.9),
+      });
+    };
+
+    page.drawRectangle({
+      x: 0,
+      y: 760,
+      width: 595,
+      height: 82,
+      color: rgb(0.08, 0.13, 0.2),
+    });
+
+    drawText("EuroOne • Ordem de Serviço", 32, 800, { size: 18, bold: true });
+    drawText(`OS ${item.osInternalId || item.id.slice(0, 8)}`, 32, 776, { size: 12 });
+
+    let cursorY = 730;
+    const lineGap = 18;
+    const fields = [
+      ["Cliente", item.clientName || "—"],
+      ["Veículo", item.vehicle?.plate || item.vehicle?.name || "—"],
+      ["Técnico", item.technicianName || "—"],
+      ["Status", item.status || "—"],
+      ["Data/Hora", item.startAt ? new Date(item.startAt).toLocaleString("pt-BR") : "—"],
+      ["Endereço", item.address || "—"],
+      ["Equipamentos", item.equipmentsText || "—"],
+      ["Checklist", "—"],
+      ["Assinaturas", "—"],
+      ["KM / Valores", item.km ? `${item.km} km` : "—"],
+      ["Observações", item.notes || "—"],
+    ];
+
+    fields.forEach(([label, value]) => {
+      drawText(`${label}:`, 32, cursorY, { bold: true, size: 11, color: rgb(0.2, 0.8, 0.95) });
+      drawText(String(value), 140, cursorY, { size: 11 });
+      cursorY -= lineGap;
+      if (cursorY < 80) {
+        page = pdfDoc.addPage([595, 842]);
+        cursorY = 780;
+      }
+    });
+
+    const buffer = await pdfDoc.save();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="os-${item.osInternalId || item.id.slice(0, 8)}.pdf"`,
+    );
+    res.send(Buffer.from(buffer));
   } catch (error) {
     return next(error);
   }
