@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import PageHeader from "../../ui/PageHeader.jsx";
-import DataCard from "../../components/ui/DataCard.jsx";
+import PageHeader from "../../components/ui/PageHeader.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../../components/shared/AddressSearchInput.jsx";
 import VehicleSelector from "../../components/VehicleSelector.jsx";
 import api from "../../lib/api.js";
 import { CoreApi } from "../../lib/coreApi.js";
+import useVehicles from "../../lib/hooks/useVehicles.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 
 const STATUS_OPTIONS = [
@@ -89,11 +89,13 @@ export default function ServiceOrderNew() {
 
   const [vehicleSnapshot, setVehicleSnapshot] = useState(null);
   const [equipments, setEquipments] = useState([]);
+  const [equipmentQuery, setEquipmentQuery] = useState("");
   const [checklist, setChecklist] = useState(() =>
     CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
   );
 
   const resolvedClientId = tenantId || user?.clientId || null;
+  const { vehicles } = useVehicles({ includeUnlinked: true });
 
   const addressStartState = useAddressSearchState({ initialValue: "" });
   const addressServiceState = useAddressSearchState({ initialValue: "" });
@@ -135,20 +137,38 @@ export default function ServiceOrderNew() {
     loadDevices();
   }, [resolvedClientId]);
 
-  const availableEquipments = useMemo(() => {
-    if (!form.vehicleId) return [];
-    return devices.filter((device) => String(device.vehicleId || "") === String(form.vehicleId));
-  }, [devices, form.vehicleId]);
-
+  const devicesById = useMemo(
+    () => new Map(devices.map((device) => [String(device.id), device])),
+    [devices],
+  );
+  const vehiclesById = useMemo(
+    () => new Map((vehicles || []).map((vehicle) => [String(vehicle.id), vehicle])),
+    [vehicles],
+  );
   const equipmentOptions = useMemo(
     () =>
-      availableEquipments.map((device) => ({
+      devices.map((device) => ({
         id: device.id,
         label: device.name || device.uniqueId || device.id,
-        model: device.model || device.modelName || device.type || null,
+        model: device.model || device.modelName || device.type || device.name || null,
+        status: device.status || device.connectionStatusLabel || device.attributes?.status || null,
+        vehicleId: device.vehicleId || null,
+        uniqueId: device.uniqueId || device.attributes?.imei || device.attributes?.serial || null,
+        chipId: device.chipId || device.attributes?.chipId || null,
       })),
-    [availableEquipments],
+    [devices],
   );
+  const filteredEquipmentOptions = useMemo(() => {
+    const term = equipmentQuery.trim().toLowerCase();
+    if (!term) return equipmentOptions;
+    return equipmentOptions.filter((option) => {
+      const haystack = [option.label, option.model, option.status, option.uniqueId, option.id]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [equipmentOptions, equipmentQuery]);
 
   const setField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -165,6 +185,10 @@ export default function ServiceOrderNew() {
         {
           equipmentId: option.id,
           model: option.model || option.label,
+          status: option.status || null,
+          vehicleId: option.vehicleId || null,
+          uniqueId: option.uniqueId || null,
+          chipId: option.chipId || null,
           installLocation: "",
         },
       ];
@@ -237,8 +261,8 @@ export default function ServiceOrderNew() {
     <div className="space-y-6">
       <PageHeader
         title="Nova Ordem de Serviço"
-        description="Solicite o serviço e acompanhe o status."
-        right={
+        subtitle="Solicite o serviço e acompanhe o status."
+        actions={
           <div className="flex flex-wrap items-center gap-2">
             {createdOrder?.id && (
               <button
@@ -267,10 +291,10 @@ export default function ServiceOrderNew() {
         </div>
       )}
 
-      <DataCard className="space-y-8">
-        <div>
+      <div className="space-y-8">
+        <div className="space-y-3">
           <h2 className="text-sm font-semibold text-white">Dados básicos</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 md:grid-cols-5">
             <label className="block text-xs text-white/60">
               Data do serviço *
               <input
@@ -318,7 +342,7 @@ export default function ServiceOrderNew() {
                 placeholder="Ex: Lucas Lima"
               />
             </label>
-            <label className="block text-xs text-white/60 md:col-span-2">
+            <label className="block text-xs text-white/60">
               Cliente
               <input
                 value={form.clientName}
@@ -330,9 +354,9 @@ export default function ServiceOrderNew() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Responsável</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <label className="block text-xs text-white/60">
               Nome *
               <input
@@ -355,9 +379,9 @@ export default function ServiceOrderNew() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Endereços</h2>
-          <div className="mt-3 grid gap-4 md:grid-cols-2">
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
               <span className="block text-xs text-white/60">Endereço Partida</span>
               <div className="mt-2">
@@ -406,9 +430,9 @@ export default function ServiceOrderNew() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Veículo</h2>
-          <div className="mt-3 grid gap-4">
+          <div className="grid gap-4">
             <VehicleSelector
               label="Buscar veículo"
               placeholder="Busque por placa ou nome"
@@ -461,58 +485,115 @@ export default function ServiceOrderNew() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Equipamentos</h2>
-          <div className="mt-3 space-y-3">
+          <div className="space-y-3">
             {devicesLoading ? (
               <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/70">
                 Carregando equipamentos...
               </div>
-            ) : !form.vehicleId ? (
-              <EmptyState title="Selecione um veículo para carregar os equipamentos disponíveis." />
             ) : equipmentOptions.length === 0 ? (
-              <EmptyState title="Nenhum equipamento encontrado para este veículo." />
+              <EmptyState title="Nenhum equipamento disponível para seleção." />
             ) : (
-              <div className="grid gap-2 md:grid-cols-2">
-                {equipmentOptions.map((option) => {
-                  const selected = equipments.some((item) => String(item.equipmentId) === String(option.id));
-                  return (
-                    <label
-                      key={option.id}
-                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
-                        selected ? "border-sky-400/60 bg-sky-500/10 text-white" : "border-white/10 bg-black/30 text-white/70"
-                      }`}
-                    >
-                      <input type="checkbox" checked={selected} onChange={() => toggleEquipment(option)} />
-                      <span>{option.label}</span>
-                    </label>
-                  );
-                })}
+              <div className="space-y-3">
+                <label className="block text-xs text-white/60">
+                  Buscar equipamento
+                  <input
+                    value={equipmentQuery}
+                    onChange={(event) => setEquipmentQuery(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                    placeholder="Digite ID, modelo, IMEI ou status"
+                  />
+                </label>
+                <div className="grid gap-2 md:grid-cols-2">
+                  {filteredEquipmentOptions.map((option) => {
+                    const selected = equipments.some((item) => String(item.equipmentId) === String(option.id));
+                    return (
+                      <label
+                        key={option.id}
+                        className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
+                          selected
+                            ? "border-sky-400/60 bg-sky-500/10 text-white"
+                            : "border-white/10 bg-black/30 text-white/70"
+                        }`}
+                      >
+                        <input type="checkbox" checked={selected} onChange={() => toggleEquipment(option)} />
+                        <span className="flex flex-col">
+                          <span>{option.label}</span>
+                          <span className="text-xs text-white/50">{option.model || "Modelo não informado"}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
             {equipments.length > 0 && (
-              <div className="space-y-3">
-                {equipments.map((equipment) => (
-                  <label key={equipment.equipmentId} className="block text-xs text-white/60">
-                    Local de instalação - {equipment.model || equipment.equipmentId}
-                    <input
-                      value={equipment.installLocation}
-                      onChange={(event) => updateEquipmentLocation(equipment.equipmentId, event.target.value)}
-                      className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                      placeholder="Ex: Painel, porta, porta-luvas"
-                      required
-                    />
-                  </label>
-                ))}
+              <div className="space-y-4">
+                {equipments.map((equipment) => {
+                  const device = devicesById.get(String(equipment.equipmentId));
+                  const linkedVehicle = device?.vehicleId
+                    ? vehiclesById.get(String(device.vehicleId))
+                    : null;
+                  return (
+                    <div
+                      key={equipment.equipmentId}
+                      className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4"
+                    >
+                      <div className="grid gap-3 text-xs text-white/70 md:grid-cols-2">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">ID</div>
+                          <div className="text-sm text-white">{equipment.equipmentId}</div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Modelo</div>
+                          <div className="text-sm text-white">{equipment.model || device?.model || "—"}</div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Status</div>
+                          <div className="text-sm text-white">
+                            {equipment.status || device?.status || device?.connectionStatusLabel || "—"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Vínculo atual</div>
+                          <div className="text-sm text-white">
+                            {linkedVehicle
+                              ? `${linkedVehicle.plate || linkedVehicle.name || linkedVehicle.id}`
+                              : device?.vehicleId
+                                ? device.vehicleId
+                                : "Sem vínculo"}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Chip/IMEI</div>
+                          <div className="text-sm text-white">
+                            {equipment.uniqueId || equipment.chipId || device?.uniqueId || device?.chipId || "—"}
+                          </div>
+                        </div>
+                      </div>
+                      <label className="block text-xs text-white/60">
+                        Local de instalação do equipamento
+                        <input
+                          value={equipment.installLocation}
+                          onChange={(event) => updateEquipmentLocation(equipment.equipmentId, event.target.value)}
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                          placeholder="Ex: Painel, porta, porta-luvas"
+                          required
+                        />
+                      </label>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Checklist</h2>
-          <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
+          <div className="overflow-hidden rounded-xl border border-white/10">
             <table className="min-w-full text-left text-xs text-white/70">
               <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
                 <tr>
@@ -554,16 +635,16 @@ export default function ServiceOrderNew() {
           </div>
         </div>
 
-        <div>
+        <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Observações</h2>
           <textarea
             value={form.notes}
             onChange={(event) => setField("notes", event.target.value)}
-            className="mt-3 min-h-[120px] w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            className="min-h-[120px] w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             placeholder="Detalhes importantes para a execução."
           />
         </div>
-      </DataCard>
+      </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <button
