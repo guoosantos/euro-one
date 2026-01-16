@@ -25,6 +25,7 @@ import {
   Package,
   Radio,
   ShieldCheck,
+  UploadCloud,
   Target,
   Settings,
   Terminal,
@@ -122,6 +123,7 @@ export default function Sidebar() {
   const nestedLinkClass = linkClass(false);
   const activeStyle = linkStyle(accentColor);
   const canManageUsers = role === "admin" || role === "manager";
+  const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
   const labelVisibilityClass = collapsed ? "hidden" : "flex-1 truncate";
   const linkIconSize = collapsed ? 22 : 18;
   const navLabelProps = (label) => ({
@@ -201,7 +203,11 @@ export default function Sidebar() {
     { to: "/deliveries", label: "Entregas", icon: Package },
   ];
 
-  const adminLinks = [...(canManageUsers ? [clientLink, userLink] : [])];
+  const importLink =
+    role === "admin" && isEuroImportEnabled
+      ? { to: "/admin/import-euro-xlsx", label: "Importar Base (XLSX)", icon: UploadCloud }
+      : null;
+  const adminLinks = [...(canManageUsers ? [clientLink, userLink] : []), ...(importLink ? [importLink] : [])];
 
   const euroCanLinks = [
     { to: "/fuel", label: "Combustível", icon: Flame },

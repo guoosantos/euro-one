@@ -32,6 +32,10 @@ model Client {
 
   commandDispatches CommandDispatch[]
   customCommands    CustomCommand[]
+  equipmentProducts EquipmentProduct[]
+  equipments        Equipment[]
+  serviceOrders     ServiceOrder[]
+  euroImportLogs    EuroImportLog[]
 }
 
 model User {
@@ -51,6 +55,7 @@ model User {
   client           Client?          @relation(fields: [clientId], references: [id])
   preferences      UserPreference[]
   geofencesCreated Geofence[]
+  euroImportLogs  EuroImportLog[]
 }
 
 model Model {
@@ -122,6 +127,7 @@ model Vehicle {
   chassis   String?
   renavam   String?
   color     String?
+  externalRef String?
   modelYear Int?
   manufactureYear Int?
   fipeCode  String?
@@ -137,6 +143,99 @@ model Vehicle {
 
   client  Client   @relation(fields: [clientId], references: [id])
   devices Device[]
+  equipments Equipment[]
+  serviceOrders ServiceOrder[]
+}
+
+model EquipmentProduct {
+  id             String   @id @default(uuid())
+  clientId       String
+  name           String
+  nameNormalized String
+  isNonTracked   Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  client    Client     @relation(fields: [clientId], references: [id])
+  equipments Equipment[]
+
+  @@unique([clientId, nameNormalized])
+  @@index([clientId])
+}
+
+model Equipment {
+  id             String   @id @default(uuid())
+  clientId       String
+  vehicleId      String?
+  productId      String?
+  internalId     String
+  status         String?
+  condition      String?
+  location       String?
+  warrantyDays   Int?
+  priceValue     Float?
+  externalRef    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  client  Client           @relation(fields: [clientId], references: [id])
+  vehicle Vehicle?         @relation(fields: [vehicleId], references: [id])
+  product EquipmentProduct? @relation(fields: [productId], references: [id])
+
+  @@unique([clientId, internalId])
+  @@index([clientId, vehicleId])
+}
+
+model ServiceOrder {
+  id               String   @id @default(uuid())
+  clientId         String
+  vehicleId        String?
+  osInternalId     String
+  type             String?
+  status           String?
+  startAt          DateTime?
+  endAt            DateTime?
+  technicianName   String?
+  address          String?
+  addressStart     String?
+  addressReturn    String?
+  km               Float?
+  reason           String?
+  notes            String?
+  responsibleName  String?
+  responsiblePhone String?
+  clientValue      Float?
+  technicianValue  Float?
+  serial           String?
+  externalRef      String?
+  equipmentsText   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  client  Client   @relation(fields: [clientId], references: [id])
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id])
+
+  @@unique([clientId, osInternalId])
+  @@index([clientId, vehicleId])
+}
+
+model EuroImportLog {
+  id         String   @id @default(uuid())
+  clientId   String?
+  userId     String?
+  fileName   String
+  mode       String
+  importMode String
+  summary    Json?
+  warnings   Json?
+  errors     Json?
+  createdAt  DateTime @default(now())
+
+  client Client? @relation(fields: [clientId], references: [id])
+  user   User?   @relation(fields: [userId], references: [id])
+
+  @@index([clientId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Group {

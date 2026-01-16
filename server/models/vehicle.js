@@ -52,6 +52,7 @@ async function syncVehicleToPrisma(record) {
       chassis: record.chassis || null,
       renavam: record.renavam || null,
       color: record.color || null,
+      externalRef: record.externalRef || null,
       modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
       manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
       fipeCode: record.fipeCode || null,
@@ -116,6 +117,7 @@ export function buildVehicleRecordFromPrisma(record) {
     chassis: record.chassis || "",
     renavam: record.renavam || "",
     color: record.color || "",
+    externalRef: record.externalRef || "",
     modelYear: Number.isFinite(record.modelYear) ? record.modelYear : null,
     manufactureYear: Number.isFinite(record.manufactureYear) ? record.manufactureYear : null,
     fipeCode: record.fipeCode || "",
@@ -203,6 +205,7 @@ export function createVehicle({
   chassis,
   renavam,
   color,
+  externalRef,
   modelYear,
   manufactureYear,
   fipeCode,
@@ -256,6 +259,7 @@ export function createVehicle({
     chassis: chassis ? String(chassis).trim() : "",
     renavam: renavam ? String(renavam).trim() : "",
     color: color ? String(color).trim() : "",
+    externalRef: externalRef ? String(externalRef).trim() : "",
     modelYear: parseNumber(modelYear),
     manufactureYear: parseNumber(manufactureYear),
     fipeCode: fipeCode ? String(fipeCode).trim() : "",
@@ -331,6 +335,9 @@ export function updateVehicle(id, updates = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "color")) {
     record.color = updates.color ? String(updates.color).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "externalRef")) {
+    record.externalRef = updates.externalRef ? String(updates.externalRef).trim() : "";
   }
   if (Object.prototype.hasOwnProperty.call(updates, "modelYear")) {
     record.modelYear = parseNumber(updates.modelYear);

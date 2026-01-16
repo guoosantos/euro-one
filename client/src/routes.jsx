@@ -55,6 +55,9 @@ import TaskDetails from "./pages/TaskDetails";
 import Crm from "./pages/Crm";
 import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
+import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
+
+const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
 export const routeConfig = [
   { path: "/dashboard", element: Dashboard, title: "Dashboard", hideTitle: true, requireTenant: true },
@@ -113,6 +116,9 @@ export const routeConfig = [
   { path: "/compliance", element: Compliance, title: "Compliance", requireTenant: true },
   { path: "/iot-sensors", element: IotSensors, title: "Sensores IoT", requireTenant: true },
   { path: "/video-telematics", element: VideoTelematics, title: "Vídeo Telemetria", requireTenant: true },
+  ...(isEuroImportEnabled
+    ? [{ path: "/admin/import-euro-xlsx", element: AdminImportXlsx, title: "Importar Base (XLSX)", roles: ["admin"] }]
+    : []),
 ];
 
 const withLayout = (element, options = {}) => (
