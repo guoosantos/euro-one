@@ -120,12 +120,17 @@ export default function ServiceOrderDetails() {
     if (!form) return;
     setSaving(true);
     try {
-      const payload = mapPayload({ ...form, ...overrides });
+      const nextForm = { ...form, ...overrides };
+      const payload = mapPayload(nextForm);
       const response = await api.patch(`core/service-orders/${id}`, payload);
       if (!response?.data?.ok) {
         throw new Error(response?.data?.error || "Falha ao atualizar OS");
       }
       setItem(response.data.item);
+      const resolvedStatus = response?.data?.item?.status || nextForm.status;
+      if (resolvedStatus === "CONCLUIDA" && response?.data?.equipmentsLinked !== undefined) {
+        alert("Equipamentos vinculados ao veículo automaticamente.");
+      }
     } catch (error) {
       console.error("Falha ao atualizar OS", error);
       alert("Falha ao atualizar OS.");

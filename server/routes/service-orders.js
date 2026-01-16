@@ -4,6 +4,8 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
 import { resolveClientId } from "../middleware/client.js";
+import { getDeviceById, updateDevice } from "../models/device.js";
+import { getVehicleById } from "../models/vehicle.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 
 const router = express.Router();
@@ -12,6 +14,7 @@ router.use(authenticate);
 
 const STATUS_FALLBACK = "SOLICITADA";
 const CHECKLIST_STATUS_VALUES = new Set(["OK", "NOK"]);
+const FINAL_STATUS_VALUES = new Set(["CONCLUIDA", "FINALIZADA", "FINALIZADO"]);
 
 function ensurePrisma() {
   if (!isPrismaAvailable()) {
@@ -46,7 +49,8 @@ function parseSequence(value) {
 
 function buildSequence(value) {
   const numeric = Number.isFinite(Number(value)) ? Number(value) : 1;
-  return String(numeric).padStart(4, "0");
+  const raw = String(numeric);
+  return raw.length >= 4 ? raw : raw.padStart(4, "0");
 }
 
 async function generateOsInternalId(tx, { clientId, referenceDate }) {
@@ -64,6 +68,35 @@ async function generateOsInternalId(tx, { clientId, referenceDate }) {
   const lastNumber = parseSequence(lastSequence);
   const nextNumber = lastNumber ? lastNumber + 1 : 1;
   return `${prefix}${buildSequence(nextNumber)}`;
+}
+
+function isFinalStatus(status) {
+  if (!status) return false;
+  return FINAL_STATUS_VALUES.has(String(status).toUpperCase());
+}
+
+function autoLinkEquipmentsToVehicle({ clientId, vehicleId, equipmentsData }) {
+  if (!vehicleId || !Array.isArray(equipmentsData) || equipmentsData.length === 0) {
+    return { linked: 0 };
+  }
+
+  const vehicle = getVehicleById(vehicleId);
+  if (!vehicle || String(vehicle.clientId) !== String(clientId)) {
+    return { linked: 0 };
+  }
+
+  let linked = 0;
+  equipmentsData.forEach((equipment) => {
+    const equipmentId = equipment?.equipmentId || equipment?.id;
+    if (!equipmentId) return;
+    const device = getDeviceById(equipmentId);
+    if (!device || String(device.clientId) !== String(clientId)) return;
+    if (String(device.vehicleId || "") === String(vehicleId)) return;
+    updateDevice(device.id, { vehicleId });
+    linked += 1;
+  });
+
+  return { linked };
 }
 
 function normalizeEquipmentsData(value) {
@@ -401,7 +434,7 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
               vehicle: { select: { id: true, plate: true, name: true } },
             },
           });
-        });
+        }, { isolationLevel: "Serializable" });
         lastError = null;
         break;
       } catch (error) {
@@ -417,7 +450,15 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
       throw lastError;
     }
 
-    return res.status(201).json({ ok: true, item: created });
+    const autoLinked = isFinalStatus(created?.status)
+      ? autoLinkEquipmentsToVehicle({
+          clientId,
+          vehicleId: created.vehicleId,
+          equipmentsData: created.equipmentsData,
+        })
+      : { linked: 0 };
+
+    return res.status(201).json({ ok: true, item: created, equipmentsLinked: autoLinked.linked });
   } catch (error) {
     return next(error);
   }
@@ -432,7 +473,7 @@ router.patch("/service-orders/:id", async (req, res, next) => {
 
     const existing = await prisma.serviceOrder.findFirst({
       where: { id, clientId },
-      select: { id: true },
+      select: { id: true, status: true },
     });
 
     if (!existing) {
@@ -494,7 +535,17 @@ router.patch("/service-orders/:id", async (req, res, next) => {
       },
     });
 
-    return res.json({ ok: true, item: updated });
+    const wasFinal = isFinalStatus(existing?.status);
+    const isNowFinal = isFinalStatus(updated?.status);
+    const autoLinked = isNowFinal && !wasFinal
+      ? autoLinkEquipmentsToVehicle({
+          clientId,
+          vehicleId: updated.vehicleId,
+          equipmentsData: updated.equipmentsData,
+        })
+      : { linked: 0 };
+
+    return res.json({ ok: true, item: updated, equipmentsLinked: autoLinked.linked });
   } catch (error) {
     return next(error);
   }
