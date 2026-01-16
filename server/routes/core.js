@@ -19,6 +19,7 @@ import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
+import { createUser, getUserById, updateUser } from "../models/user.js";
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
@@ -27,6 +28,7 @@ import { importEuroXlsx } from "../services/euro-xlsx-import.js";
 
 const router = express.Router();
 
+const TECHNICIAN_ROLE = "technician";
 const defaultDeps = {
   authenticate,
   requireRole,
@@ -582,7 +584,12 @@ function selectPrincipalDevice(devices = [], traccarById = new Map(), positionsB
 }
 
 function buildVehicleResponse(vehicle, context) {
-  const { deviceMap, traccarById, positionsByDeviceId = new Map() } = context;
+  const {
+    deviceMap,
+    traccarById,
+    positionsByDeviceId = new Map(),
+    clientMap = new Map(),
+  } = context;
   const linkedDevices = Array.from(deviceMap.values()).filter(
     (item) => item.vehicleId === vehicle.id || item.id === vehicle.deviceId,
   );
@@ -605,10 +612,13 @@ function buildVehicleResponse(vehicle, context) {
     vehicle?.type ||
     vehicle?.category ||
     null;
+  const resolvedClientName =
+    clientMap.get(String(vehicle.clientId))?.name || vehicle?.client?.name || vehicle?.clientName || null;
 
   return {
     ...vehicle,
     vehicleType: vehicle?.type || vehicle?.vehicleType || null,
+    clientName: resolvedClientName,
     attributes: mergedAttributes,
     iconType,
     device: principalDevice
@@ -1855,6 +1865,161 @@ router.delete("/chips/:id", deps.requireRole("manager", "admin"), resolveClientM
   }
 });
 
+router.get("/technicians", async (req, res, next) => {
+  try {
+    if (!isPrismaAvailable()) {
+      throw createError(503, "Banco de dados indisponível");
+    }
+    const isAdmin = req.user?.role === "admin";
+    const isManager = req.user?.role === "manager";
+    const includeDetails = isAdmin || isManager;
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: !isAdmin });
+
+    const where = {
+      role: TECHNICIAN_ROLE,
+      ...(clientId ? { clientId: String(clientId) } : {}),
+    };
+
+    const technicians = await prisma.user.findMany({
+      where,
+      orderBy: { createdAt: "desc" },
+    });
+
+    const items = technicians.map((tech) => {
+      const attributes = tech.attributes || {};
+      if (!includeDetails) {
+        return { id: tech.id, name: tech.name };
+      }
+      return {
+        id: tech.id,
+        name: tech.name,
+        email: tech.email,
+        clientId: tech.clientId,
+        phone: attributes.phone || null,
+        city: attributes.city || null,
+        state: attributes.state || null,
+        status: attributes.status || "ativo",
+        contact: attributes.phone || tech.email || null,
+      };
+    });
+
+    res.json({ ok: true, items });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/technicians", deps.requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    if (!isPrismaAvailable()) {
+      throw createError(503, "Banco de dados indisponível");
+    }
+    const body = req.body || {};
+    const clientId = deps.resolveClientId(req, body.clientId, { required: true });
+    const name = String(body.name || "").trim();
+    const email = String(body.email || "").trim();
+    const phone = body.phone ? String(body.phone).trim() : "";
+    const city = body.city ? String(body.city).trim() : "";
+    const state = body.state ? String(body.state).trim() : "";
+    const status = body.status ? String(body.status).trim().toLowerCase() : "ativo";
+
+    if (!name || !email) {
+      throw createError(400, "Nome e e-mail são obrigatórios");
+    }
+
+    const password = randomUUID();
+    const technician = await createUser({
+      name,
+      email,
+      password,
+      role: TECHNICIAN_ROLE,
+      clientId,
+      attributes: {
+        phone,
+        city,
+        state,
+        status,
+      },
+    });
+
+    res.status(201).json({
+      ok: true,
+      item: {
+        id: technician.id,
+        name: technician.name,
+        email: technician.email,
+        clientId: technician.clientId,
+        phone,
+        city,
+        state,
+        status,
+        contact: phone || email,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    if (!isPrismaAvailable()) {
+      throw createError(503, "Banco de dados indisponível");
+    }
+    const body = req.body || {};
+    const existing = await getUserById(req.params.id, { includeSensitive: true });
+    if (!existing || existing.role !== TECHNICIAN_ROLE) {
+      throw createError(404, "Técnico não encontrado");
+    }
+
+    if (req.user?.role !== "admin") {
+      const requiredClientId = deps.resolveClientId(req, body.clientId || existing.clientId, { required: true });
+      if (String(requiredClientId) !== String(existing.clientId)) {
+        throw createError(403, "Operação não permitida para este cliente");
+      }
+    }
+
+    const attributes = { ...(existing.attributes || {}) };
+    if (Object.prototype.hasOwnProperty.call(body, "phone")) {
+      attributes.phone = body.phone ? String(body.phone).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "city")) {
+      attributes.city = body.city ? String(body.city).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "state")) {
+      attributes.state = body.state ? String(body.state).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "status")) {
+      attributes.status = body.status ? String(body.status).trim().toLowerCase() : "ativo";
+    }
+
+    const payload = {
+      name: body.name !== undefined ? String(body.name).trim() : undefined,
+      email: body.email !== undefined ? String(body.email).trim() : undefined,
+      attributes,
+    };
+
+    const updated = await updateUser(existing.id, payload);
+
+    res.json({
+      ok: true,
+      item: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        clientId: updated.clientId,
+        phone: attributes.phone || null,
+        city: attributes.city || null,
+        state: attributes.state || null,
+        status: attributes.status || "ativo",
+        contact: attributes.phone || updated.email || null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/vehicles", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
@@ -1864,6 +2029,18 @@ router.get("/vehicles", async (req, res, next) => {
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
+    let clientMap = new Map();
+
+    if (isPrismaAvailable()) {
+      const clientIds = Array.from(new Set(vehicles.map((vehicle) => vehicle?.clientId).filter(Boolean)));
+      if (clientIds.length) {
+        const clients = await prisma.client.findMany({
+          where: { id: { in: clientIds.map((id) => String(id)) } },
+          select: { id: true, name: true },
+        });
+        clientMap = new Map(clients.map((client) => [String(client.id), client]));
+      }
+    }
 
     const includeUnlinked =
       (req.user?.role === "admin" || req.user?.role === "manager") && isTruthyParam(req.query?.includeUnlinked);
@@ -1915,7 +2092,7 @@ router.get("/vehicles", async (req, res, next) => {
       : vehicles;
 
     const response = vehiclesToExpose.map((vehicle) =>
-      buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId }),
+      buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId, clientMap }),
     );
     res.json({ vehicles: response });
   } catch (error) {
@@ -2087,9 +2264,15 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
     const devices = deps.listDevices({ clientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const clientMap = new Map();
+    const client = deps.getClientById(clientId);
+    if (client) {
+      clientMap.set(String(clientId), client);
+    }
     const response = buildVehicleResponse(deps.getVehicleById(vehicle.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
+      clientMap,
     });
     recordAuditEvent({
       clientId,
@@ -2126,9 +2309,15 @@ router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager"
     const devices = deps.listDevices({ clientId: resolvedClientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const clientMap = new Map();
+    const client = deps.getClientById(resolvedClientId);
+    if (client) {
+      clientMap.set(String(resolvedClientId), client);
+    }
     const response = buildVehicleResponse(deps.getVehicleById(vehicleId), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
+      clientMap,
     });
     recordAuditEvent({
       clientId: resolvedClientId,
@@ -2171,9 +2360,15 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
     const devices = deps.listDevices({ clientId: resolvedClientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const clientMap = new Map();
+    const client = deps.getClientById(resolvedClientId);
+    if (client) {
+      clientMap.set(String(resolvedClientId), client);
+    }
     const response = buildVehicleResponse(deps.getVehicleById(vehicle.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
+      clientMap,
     });
     recordAuditEvent({
       clientId: resolvedClientId,
@@ -2220,9 +2415,15 @@ router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientM
     const devices = deps.listDevices({ clientId });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
+    const clientMap = new Map();
+    const client = deps.getClientById(clientId);
+    if (client) {
+      clientMap.set(String(clientId), client);
+    }
     const response = buildVehicleResponse(deps.getVehicleById(updated.id), {
       deviceMap: new Map(devices.map((item) => [item.id, item])),
       traccarById,
+      clientMap,
     });
 
     recordAuditEvent({

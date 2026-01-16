@@ -161,6 +161,23 @@ function normalizeChecklistItems(value) {
   return normalized.length ? normalized : null;
 }
 
+function normalizeSignatures(value) {
+  if (!value) return null;
+  let payload = value;
+  if (typeof value === "string") {
+    try {
+      payload = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+  if (typeof payload !== "object" || Array.isArray(payload)) return null;
+  const technician = payload?.technician ? String(payload.technician) : null;
+  const client = payload?.client ? String(payload.client) : null;
+  if (!technician && !client) return null;
+  return { technician, client };
+}
+
 async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
   if (!vehiclePlate) return null;
   const plate = String(vehiclePlate).trim();
@@ -393,6 +410,7 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
     const referenceDate = parseNullableDate(body.startAt) || new Date();
     const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
     const normalizedChecklist = normalizeChecklistItems(body.checklistItems || body.checklist);
+    const normalizedSignatures = normalizeSignatures(body.signatures);
     const equipmentsText = body.equipmentsText
       ? String(body.equipmentsText)
       : buildEquipmentsText(normalizedEquipments);
@@ -434,6 +452,7 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
               equipmentsText,
               equipmentsData: normalizedEquipments,
               checklistItems: normalizedChecklist,
+              signatures: normalizedSignatures,
               vehicleId: resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null),
             },
             include: {
@@ -491,6 +510,7 @@ router.patch("/service-orders/:id", async (req, res, next) => {
       : null;
     const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
     const normalizedChecklist = normalizeChecklistItems(body.checklistItems || body.checklist);
+    const normalizedSignatures = normalizeSignatures(body.signatures);
     const equipmentsText =
       body.equipmentsText !== undefined
         ? body.equipmentsText
@@ -531,6 +551,7 @@ router.patch("/service-orders/:id", async (req, res, next) => {
           body.equipmentsData !== undefined || body.equipments !== undefined ? normalizedEquipments : undefined,
         checklistItems:
           body.checklistItems !== undefined || body.checklist !== undefined ? normalizedChecklist : undefined,
+        signatures: body.signatures !== undefined ? normalizedSignatures : undefined,
         vehicleId:
           body.vehicleId !== undefined || resolvedVehicleId
             ? resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null)

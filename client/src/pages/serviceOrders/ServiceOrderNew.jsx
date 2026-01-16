@@ -5,6 +5,7 @@ import PageHeader from "../../components/ui/PageHeader.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../../components/shared/AddressSearchInput.jsx";
 import VehicleSelector from "../../components/VehicleSelector.jsx";
+import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
 import api from "../../lib/api.js";
 import { CoreApi } from "../../lib/coreApi.js";
 import useVehicles from "../../lib/hooks/useVehicles.js";
@@ -65,11 +66,21 @@ function formatPhone(value) {
 
 export default function ServiceOrderNew() {
   const navigate = useNavigate();
-  const { tenantId, user } = useTenant();
+  const { tenantId, user, tenants } = useTenant();
   const [saving, setSaving] = useState(false);
   const [createdOrder, setCreatedOrder] = useState(null);
   const [devices, setDevices] = useState([]);
   const [devicesLoading, setDevicesLoading] = useState(false);
+  const [technicians, setTechnicians] = useState([]);
+  const [techniciansLoading, setTechniciansLoading] = useState(false);
+  const [technicianId, setTechnicianId] = useState("");
+  const [clientSelection, setClientSelection] = useState("");
+  const [technicianSignature, setTechnicianSignature] = useState(null);
+  const [clientSignature, setClientSignature] = useState(null);
+  const technicianCanvasRef = React.useRef(null);
+  const clientCanvasRef = React.useRef(null);
+  const technicianDrawingRef = React.useRef(false);
+  const clientDrawingRef = React.useRef(false);
   const [form, setForm] = useState({
     startAt: "",
     status: "SOLICITADA",
@@ -95,6 +106,9 @@ export default function ServiceOrderNew() {
   );
 
   const resolvedClientId = tenantId || user?.clientId || null;
+  const canManageAll = user?.role === "admin";
+  const canSignAsTechnician = user?.role === "technician";
+  const canSignAsClient = user?.role === "user";
   const { vehicles } = useVehicles({ includeUnlinked: true });
 
   const addressStartState = useAddressSearchState({ initialValue: "" });
@@ -137,6 +151,47 @@ export default function ServiceOrderNew() {
     loadDevices();
   }, [resolvedClientId]);
 
+  useEffect(() => {
+    const loadTechnicians = async () => {
+      setTechniciansLoading(true);
+      try {
+        const params = canManageAll
+          ? undefined
+          : resolvedClientId
+            ? { clientId: resolvedClientId }
+            : undefined;
+        const response = await api.get("core/technicians", { params });
+        const list = response?.data?.items || [];
+        setTechnicians(Array.isArray(list) ? list : []);
+      } catch (error) {
+        console.error("Falha ao carregar técnicos", error);
+        setTechnicians([]);
+      } finally {
+        setTechniciansLoading(false);
+      }
+    };
+
+    loadTechnicians();
+  }, [canManageAll, resolvedClientId]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") {
+      const fallbackName = user?.attributes?.companyName || user?.name || "Meu cliente";
+      setClientSelection(user?.clientId ? String(user.clientId) : "");
+      setForm((prev) => ({ ...prev, clientName: prev.clientName || fallbackName }));
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!canManageAll) return;
+    if (clientSelection) return;
+    const preferredClient = tenants?.find((client) => String(client.id) === String(tenantId)) || tenants?.[0];
+    if (preferredClient?.id) {
+      setClientSelection(String(preferredClient.id));
+      setForm((prev) => ({ ...prev, clientName: preferredClient.name || prev.clientName }));
+    }
+  }, [canManageAll, clientSelection, tenantId, tenants]);
+
   const devicesById = useMemo(
     () => new Map(devices.map((device) => [String(device.id), device])),
     [devices],
@@ -174,6 +229,14 @@ export default function ServiceOrderNew() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const resolveClientName = (clientIdValue) => {
+    if (!clientIdValue) return "";
+    if (!canManageAll) {
+      return user?.attributes?.companyName || user?.name || "Meu cliente";
+    }
+    return "";
+  };
+
   const toggleEquipment = (option) => {
     setEquipments((prev) => {
       const exists = prev.find((item) => String(item.equipmentId) === String(option.id));
@@ -203,17 +266,89 @@ export default function ServiceOrderNew() {
     );
   };
 
-  const updateChecklist = (index, key, value) => {
+  const toggleChecklistValue = (index, key, value) => {
     setChecklist((prev) => {
       const next = [...prev];
-      next[index] = { ...next[index], [key]: value };
+      const current = next[index]?.[key] || "";
+      next[index] = { ...next[index], [key]: current === value ? "" : value };
       return next;
     });
+  };
+
+  const initSignatureCanvas = (canvas) => {
+    if (!canvas) return;
+    const context = canvas.getContext("2d");
+    if (!context) return;
+    context.lineWidth = 2;
+    context.lineCap = "round";
+    context.strokeStyle = "#ffffff";
+  };
+
+  useEffect(() => {
+    initSignatureCanvas(technicianCanvasRef.current);
+    initSignatureCanvas(clientCanvasRef.current);
+  }, []);
+
+  const getCanvasPosition = (canvas, event) => {
+    const rect = canvas.getBoundingClientRect();
+    const clientX = event.touches?.[0]?.clientX ?? event.clientX;
+    const clientY = event.touches?.[0]?.clientY ?? event.clientY;
+    return {
+      x: clientX - rect.left,
+      y: clientY - rect.top,
+    };
+  };
+
+  const handleSignatureStart = (canvasRef, drawingRef, event) => {
+    if (!canvasRef.current) return;
+    drawingRef.current = true;
+    const context = canvasRef.current.getContext("2d");
+    if (!context) return;
+    const { x, y } = getCanvasPosition(canvasRef.current, event);
+    context.beginPath();
+    context.moveTo(x, y);
+  };
+
+  const handleSignatureMove = (canvasRef, drawingRef, event) => {
+    if (!drawingRef.current || !canvasRef.current) return;
+    const context = canvasRef.current.getContext("2d");
+    if (!context) return;
+    const { x, y } = getCanvasPosition(canvasRef.current, event);
+    context.lineTo(x, y);
+    context.stroke();
+  };
+
+  const handleSignatureEnd = (drawingRef) => {
+    drawingRef.current = false;
+  };
+
+  const handleClearSignature = (canvasRef, setter) => {
+    if (!canvasRef.current) return;
+    const context = canvasRef.current.getContext("2d");
+    if (!context) return;
+    context.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    setter(null);
+  };
+
+  const handleSaveSignature = (canvasRef, setter) => {
+    if (!canvasRef.current) return;
+    const dataUrl = canvasRef.current.toDataURL("image/png");
+    setter(dataUrl);
   };
 
   const submit = async () => {
     if (!form.startAt) {
       alert("Informe a data do serviço.");
+      return;
+    }
+
+    if (!clientSelection && canManageAll) {
+      alert("Selecione o cliente.");
+      return;
+    }
+
+    if (!technicianId) {
+      alert("Selecione o técnico.");
       return;
     }
 
@@ -226,6 +361,7 @@ export default function ServiceOrderNew() {
     setSaving(true);
     try {
       const response = await api.post("core/service-orders", {
+        clientId: canManageAll ? clientSelection || null : resolvedClientId,
         startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
         status: form.status || "SOLICITADA",
         type: form.type,
@@ -242,6 +378,10 @@ export default function ServiceOrderNew() {
         equipmentsData: equipments,
         checklistItems: checklist,
         notes: form.notes || null,
+        signatures: {
+          technician: technicianSignature,
+          client: clientSignature,
+        },
       });
 
       if (!response?.data?.ok) {
@@ -335,21 +475,51 @@ export default function ServiceOrderNew() {
             </label>
             <label className="block text-xs text-white/60">
               Técnico
-              <input
-                value={form.technicianName}
-                onChange={(event) => setField("technicianName", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex: Lucas Lima"
-              />
+              <div className="mt-2">
+                <AutocompleteSelect
+                  placeholder={techniciansLoading ? "Carregando técnicos..." : "Selecione o técnico"}
+                  value={technicianId}
+                  options={technicians.map((tech) => ({
+                    value: tech.id,
+                    label: tech.name,
+                    description: canManageAll
+                      ? [tech.city, tech.state].filter(Boolean).join("/") || tech.contact
+                      : "",
+                    searchText: canManageAll
+                      ? [tech.name, tech.city, tech.state, tech.contact].filter(Boolean).join(" ")
+                      : tech.name,
+                  }))}
+                  onChange={(nextValue, option) => {
+                    setTechnicianId(nextValue);
+                    setField("technicianName", option?.label || "");
+                  }}
+                  disabled={techniciansLoading}
+                />
+              </div>
             </label>
             <label className="block text-xs text-white/60">
               Cliente
-              <input
-                value={form.clientName}
-                onChange={(event) => setField("clientName", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Nome do cliente"
-              />
+              <div className="mt-2">
+                <AutocompleteSelect
+                  placeholder="Selecione o cliente"
+                  value={clientSelection}
+                  options={(canManageAll
+                    ? tenants
+                    : clientSelection
+                      ? tenants?.filter((client) => String(client.id) === String(clientSelection))
+                      : []
+                  ).map((client) => ({
+                    value: String(client.id),
+                    label: client.name,
+                    searchText: client.name,
+                  }))}
+                  onChange={(nextValue, option) => {
+                    setClientSelection(String(nextValue || ""));
+                    setField("clientName", option?.label || resolveClientName(nextValue));
+                  }}
+                  disabled={!canManageAll}
+                />
+              </div>
             </label>
           </div>
         </div>
@@ -607,31 +777,169 @@ export default function ServiceOrderNew() {
                   <tr key={entry.item}>
                     <td className="px-3 py-2 text-white">{entry.item}</td>
                     <td className="px-3 py-2">
-                      <select
-                        value={entry.before}
-                        onChange={(event) => updateChecklist(index, "before", event.target.value)}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white focus:border-white/30 focus:outline-none"
-                      >
-                        <option value="">—</option>
-                        <option value="OK">OK</option>
-                        <option value="NOK">NOK</option>
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleChecklistValue(index, "before", "OK")}
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border text-sm transition ${
+                            entry.before === "OK"
+                              ? "border-emerald-400 bg-emerald-400/20 text-emerald-100"
+                              : "border-white/10 bg-black/30 text-white/60 hover:border-white/30"
+                          }`}
+                          aria-label="Antes OK"
+                        >
+                          ✔
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleChecklistValue(index, "before", "NOK")}
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border text-sm transition ${
+                            entry.before === "NOK"
+                              ? "border-rose-400 bg-rose-400/20 text-rose-100"
+                              : "border-white/10 bg-black/30 text-white/60 hover:border-white/30"
+                          }`}
+                          aria-label="Antes NOK"
+                        >
+                          ✖
+                        </button>
+                      </div>
                     </td>
                     <td className="px-3 py-2">
-                      <select
-                        value={entry.after}
-                        onChange={(event) => updateChecklist(index, "after", event.target.value)}
-                        className="w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white focus:border-white/30 focus:outline-none"
-                      >
-                        <option value="">—</option>
-                        <option value="OK">OK</option>
-                        <option value="NOK">NOK</option>
-                      </select>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleChecklistValue(index, "after", "OK")}
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border text-sm transition ${
+                            entry.after === "OK"
+                              ? "border-emerald-400 bg-emerald-400/20 text-emerald-100"
+                              : "border-white/10 bg-black/30 text-white/60 hover:border-white/30"
+                          }`}
+                          aria-label="Depois OK"
+                        >
+                          ✔
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleChecklistValue(index, "after", "NOK")}
+                          className={`flex h-7 w-7 items-center justify-center rounded-full border text-sm transition ${
+                            entry.after === "NOK"
+                              ? "border-rose-400 bg-rose-400/20 text-rose-100"
+                              : "border-white/10 bg-black/30 text-white/60 hover:border-white/30"
+                          }`}
+                          aria-label="Depois NOK"
+                        >
+                          ✖
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+
+        <div className="space-y-3 border-t border-white/10 pt-6">
+          <h2 className="text-sm font-semibold text-white">Assinaturas</h2>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs uppercase tracking-wide text-white/60">Assinatura do Técnico</p>
+              <canvas
+                ref={technicianCanvasRef}
+                width={420}
+                height={180}
+                className={`w-full rounded-lg border border-white/10 bg-black/40 ${
+                  !canSignAsTechnician ? "opacity-60" : ""
+                }`}
+                onMouseDown={
+                  canSignAsTechnician
+                    ? (event) => handleSignatureStart(technicianCanvasRef, technicianDrawingRef, event)
+                    : undefined
+                }
+                onMouseMove={
+                  canSignAsTechnician
+                    ? (event) => handleSignatureMove(technicianCanvasRef, technicianDrawingRef, event)
+                    : undefined
+                }
+                onMouseUp={canSignAsTechnician ? () => handleSignatureEnd(technicianDrawingRef) : undefined}
+                onMouseLeave={canSignAsTechnician ? () => handleSignatureEnd(technicianDrawingRef) : undefined}
+                onTouchStart={
+                  canSignAsTechnician
+                    ? (event) => handleSignatureStart(technicianCanvasRef, technicianDrawingRef, event)
+                    : undefined
+                }
+                onTouchMove={
+                  canSignAsTechnician
+                    ? (event) => handleSignatureMove(technicianCanvasRef, technicianDrawingRef, event)
+                    : undefined
+                }
+                onTouchEnd={canSignAsTechnician ? () => handleSignatureEnd(technicianDrawingRef) : undefined}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleClearSignature(technicianCanvasRef, setTechnicianSignature)}
+                  className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/70 transition hover:border-white/30 disabled:opacity-60"
+                  disabled={!canSignAsTechnician}
+                >
+                  Limpar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveSignature(technicianCanvasRef, setTechnicianSignature)}
+                  className="rounded-lg bg-emerald-400/80 px-3 py-1 text-xs font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-60"
+                  disabled={!canSignAsTechnician}
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+            <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-4">
+              <p className="text-xs uppercase tracking-wide text-white/60">Assinatura do Cliente</p>
+              <canvas
+                ref={clientCanvasRef}
+                width={420}
+                height={180}
+                className={`w-full rounded-lg border border-white/10 bg-black/40 ${!canSignAsClient ? "opacity-60" : ""}`}
+                onMouseDown={
+                  canSignAsClient
+                    ? (event) => handleSignatureStart(clientCanvasRef, clientDrawingRef, event)
+                    : undefined
+                }
+                onMouseMove={
+                  canSignAsClient ? (event) => handleSignatureMove(clientCanvasRef, clientDrawingRef, event) : undefined
+                }
+                onMouseUp={canSignAsClient ? () => handleSignatureEnd(clientDrawingRef) : undefined}
+                onMouseLeave={canSignAsClient ? () => handleSignatureEnd(clientDrawingRef) : undefined}
+                onTouchStart={
+                  canSignAsClient
+                    ? (event) => handleSignatureStart(clientCanvasRef, clientDrawingRef, event)
+                    : undefined
+                }
+                onTouchMove={
+                  canSignAsClient ? (event) => handleSignatureMove(clientCanvasRef, clientDrawingRef, event) : undefined
+                }
+                onTouchEnd={canSignAsClient ? () => handleSignatureEnd(clientDrawingRef) : undefined}
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleClearSignature(clientCanvasRef, setClientSignature)}
+                  className="rounded-lg border border-white/10 px-3 py-1 text-xs text-white/70 transition hover:border-white/30 disabled:opacity-60"
+                  disabled={!canSignAsClient}
+                >
+                  Limpar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveSignature(clientCanvasRef, setClientSignature)}
+                  className="rounded-lg bg-emerald-400/80 px-3 py-1 text-xs font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-60"
+                  disabled={!canSignAsClient}
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

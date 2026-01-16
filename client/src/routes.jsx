@@ -39,6 +39,7 @@ import Settings from "./pages/Settings";
 import Notifications from "./pages/Notifications";
 import Clients from "./pages/Clients";
 import Users from "./pages/Users";
+import Technicians from "./pages/Technicians.jsx";
 import Groups from "./pages/Groups";
 import Drivers from "./pages/Drivers";
 import Login from "./pages/Login";
@@ -116,6 +117,7 @@ export const routeConfig = [
   { path: "/notifications", element: Notifications, title: "Notificações", requireTenant: true },
   { path: "/clients", element: Clients, title: "Clientes", roles: ["admin", "manager"] },
   { path: "/users", element: Users, title: "Usuários", roles: ["admin", "manager"] },
+  { path: "/technicians", element: Technicians, title: "Técnico", roles: ["admin", "manager"] },
   { path: "/crm", element: Crm, title: "CRM", requireTenant: true },
   { path: "/crm/:section", element: Crm, title: "CRM", requireTenant: true },
   { path: "/finance", element: Finance, title: "Financeiro", requireTenant: true },

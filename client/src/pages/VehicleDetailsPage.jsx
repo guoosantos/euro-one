@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Button from "../ui/Button";
@@ -15,6 +15,13 @@ import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 
+const translateUnknownValue = (value) => {
+  if (value === null || value === undefined) return value;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "unknown") return "Desconhecido";
+  return value;
+};
+
 function AdminBindingsTab({
   vehicle,
   devices,
@@ -25,13 +32,7 @@ function AdminBindingsTab({
   onSaveVehicle,
   saving,
   onBindChip,
-  linkedDevices,
   autoPrimaryDeviceId,
-  linkingDeviceId = "",
-  setLinkingDeviceId = () => {},
-  availableDevices,
-  onLinkDevice,
-  onUnlinkDevice,
   onError = () => {},
 }) {
   const normalizeVehicleType = (value) => {
@@ -250,68 +251,6 @@ function AdminBindingsTab({
         </form>
       </div>
 
-      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs uppercase tracking-[0.12em] text-white/60">Equipamentos vinculados</p>
-          <span className="rounded-full bg-white/10 px-2 py-1 text-[11px] text-white/70">{linkedDevices.length} itens</span>
-        </div>
-        <div className="mt-2 flex flex-col gap-2 md:flex-row md:items-center">
-          <select
-            value={linkingDeviceId}
-            onChange={(event) => setLinkingDeviceId(event.target.value)}
-            className="w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:max-w-xs"
-          >
-            <option value="">Adicionar equipamento</option>
-            {availableDevices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.name || device.uniqueId || device.id}
-              </option>
-            ))}
-          </select>
-          <Button type="button" disabled={!linkingDeviceId || saving} onClick={onLinkDevice}>
-            Adicionar equipamento
-          </Button>
-        </div>
-        <div className="mt-2 space-y-2">
-          {linkedDevices.length === 0 && <p className="text-xs text-white/60">Nenhum equipamento vinculado.</p>}
-          {linkedDevices.map((device) => (
-            <div
-              key={device.id}
-              className="flex flex-col gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white"
-            >
-              <div className="flex items-center justify-between gap-2 text-sm font-semibold">
-                <span>{device.name || device.uniqueId || device.id}</span>
-                <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-white/70">
-                  {device.id === form.deviceId
-                    ? "Principal (manual)"
-                    : device.id === autoPrimaryDeviceId && autoPrimary
-                      ? "Principal (auto)"
-                      : "Secundário"}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-white/70">
-                <span className="rounded bg-white/5 px-2 py-0.5 text-[11px]">{device.lastSeen || "Sem comunicação"}</span>
-                {device.coordinates && (
-                  <span className="text-[11px] text-white/60">{device.coordinates}</span>
-                )}
-                <Button size="xs" variant="ghost" onClick={() => onUnlinkDevice(device.id)}>
-                  Desvincular
-                </Button>
-                <button
-                  type="button"
-                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[11px] uppercase tracking-[0.1em] text-white/80 transition hover:border-primary/50 hover:text-white"
-                  onClick={() => {
-                    setAutoPrimary(false);
-                    setForm((prev) => ({ ...prev, deviceId: device.id }));
-                  }}
-                >
-                  Definir como principal
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -329,7 +268,11 @@ export default function VehicleDetailsPage() {
   const [error, setError] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [linkingDeviceId, setLinkingDeviceId] = useState("");
+  const [equipmentSearch, setEquipmentSearch] = useState("");
   const [activeTab, setActiveTab] = useState("resumo");
+  const [lastPositionAddress, setLastPositionAddress] = useState(null);
+  const [lastPositionLoading, setLastPositionLoading] = useState(false);
+  const geocodeCacheRef = useRef(new Map());
 
   const isAdmin = ["admin", "manager"].includes(user?.role);
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -370,6 +313,70 @@ export default function VehicleDetailsPage() {
     };
   }, [getDeviceCoordinates, getDeviceLastSeen, getDevicePosition, getDeviceStatus, vehicle]);
 
+  const lastPositionInfo = useMemo(() => {
+    const position = detailedVehicle?.position || null;
+    if (!position) {
+      return { lat: null, lng: null, timestamp: null };
+    }
+    const rawLat = position.latitude ?? position.lat ?? null;
+    const rawLng = position.longitude ?? position.lon ?? null;
+    const lat = Number.isFinite(Number(rawLat)) ? Number(rawLat) : null;
+    const lng = Number.isFinite(Number(rawLng)) ? Number(rawLng) : null;
+    const timestamp = position.deviceTime || position.fixTime || position.serverTime || null;
+    return { lat, lng, timestamp };
+  }, [detailedVehicle?.position]);
+
+  const lastPositionDateTime = useMemo(() => {
+    if (!lastPositionInfo.timestamp) return "—";
+    const date = new Date(lastPositionInfo.timestamp);
+    if (Number.isNaN(date.getTime())) return "—";
+    return new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(date);
+  }, [lastPositionInfo.timestamp]);
+
+  useEffect(() => {
+    const { lat, lng } = lastPositionInfo;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      setLastPositionAddress(null);
+      setLastPositionLoading(false);
+      return;
+    }
+    const cacheKey = `${Number(lat).toFixed(5)},${Number(lng).toFixed(5)}`;
+    const cached = geocodeCacheRef.current.get(cacheKey);
+    if (cached) {
+      setLastPositionAddress(cached);
+      setLastPositionLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLastPositionLoading(true);
+
+    safeApi
+      .get(API_ROUTES.geocode.reverse, { params: { lat, lng, reason: "vehicle_details" } })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const address = data?.formattedAddress || data?.address || data?.shortAddress || null;
+        if (address) {
+          geocodeCacheRef.current.set(cacheKey, address);
+        }
+        setLastPositionAddress(address);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLastPositionAddress(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLastPositionLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lastPositionInfo]);
+
   const linkedDevices = useMemo(() => {
     const list = Array.isArray(vehicle?.devices) ? vehicle.devices : [];
     return list
@@ -397,6 +404,25 @@ export default function VehicleDetailsPage() {
       }),
     [devices, vehicle?.clientId, vehicle?.id],
   );
+
+  const filteredAvailableDevices = useMemo(() => {
+    const term = equipmentSearch.trim().toLowerCase();
+    if (!term) return availableDevices;
+    return availableDevices.filter((device) => {
+      const haystack = [
+        device.name,
+        device.uniqueId,
+        device.model,
+        device.status,
+        device.connectionStatusLabel,
+        device.id,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(term);
+    });
+  }, [availableDevices, equipmentSearch]);
 
   const reportError = (message, fallbackMessage = "Falha ao executar ação") => {
     const payload = message instanceof Error ? message : new Error(message || fallbackMessage);
@@ -548,9 +574,13 @@ export default function VehicleDetailsPage() {
               {vehicle?.brand || "Marca"} • {vehicle?.model || vehicle?.name || "Modelo"}
             </div>
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">{vehicle?.status || "—"}</span>
+              <span className="rounded-full bg-white/10 px-3 py-1 text-white/80">
+                {translateUnknownValue(vehicle?.status) || "—"}
+              </span>
               {detailedVehicle?.statusLabel && (
-                <span className="rounded-full bg-white/5 px-3 py-1 text-white/70">{detailedVehicle.statusLabel}</span>
+                <span className="rounded-full bg-white/5 px-3 py-1 text-white/70">
+                  {translateUnknownValue(detailedVehicle.statusLabel)}
+                </span>
               )}
             </div>
           </div>
@@ -642,23 +672,25 @@ export default function VehicleDetailsPage() {
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Tipo</div>
-                  <div className="text-white">{vehicle.type || "—"}</div>
+                  <div className="text-white">{translateUnknownValue(vehicle.type) || "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Motorista</div>
-                  <div className="text-white">{vehicle.driver || "—"}</div>
+                  <div className="text-white">{translateUnknownValue(vehicle.driver) || "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Grupo</div>
-                  <div className="text-white">{vehicle.group || "—"}</div>
+                  <div className="text-white">{translateUnknownValue(vehicle.group) || "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Marca</div>
-                  <div className="text-white">{vehicle.brand || "—"}</div>
+                  <div className="text-white">{translateUnknownValue(vehicle.brand) || "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Modelo</div>
-                  <div className="text-white">{vehicle.model || vehicle.name || "—"}</div>
+                  <div className="text-white">
+                    {translateUnknownValue(vehicle.model || vehicle.name) || "—"}
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Chassi</div>
@@ -670,7 +702,7 @@ export default function VehicleDetailsPage() {
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Cliente</div>
-                  <div className="text-white">{vehicle.clientName || vehicle.clientId || "—"}</div>
+                  <div className="text-white">{vehicle.clientName || "—"}</div>
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Odômetro</div>
@@ -678,7 +710,18 @@ export default function VehicleDetailsPage() {
                 </div>
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Última posição</div>
-                  <div className="text-white">{detailedVehicle?.coordinatesLabel || "—"}</div>
+                  <div className="text-white">
+                    {Number.isFinite(lastPositionInfo.lat) && Number.isFinite(lastPositionInfo.lng)
+                      ? lastPositionDateTime
+                      : "Sem posição"}
+                  </div>
+                  <div className="text-xs text-white/60">
+                    {Number.isFinite(lastPositionInfo.lat) && Number.isFinite(lastPositionInfo.lng)
+                      ? lastPositionLoading
+                        ? "Carregando endereço..."
+                        : lastPositionAddress || "Endereço não disponível"
+                      : "—"}
+                  </div>
                 </div>
               </div>
             </DataCard>
@@ -688,13 +731,42 @@ export default function VehicleDetailsPage() {
             <DataCard className="space-y-3">
               <div className="flex items-center justify-between px-4 pt-4">
                 <h2 className="text-sm font-semibold text-white">Equipamentos vinculados</h2>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("equipamentos")}
-                  className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
-                >
-                  Vincular equipamento
-                </button>
+              </div>
+              <div className="space-y-3 px-4">
+                <label className="block text-xs text-white/60">
+                  Buscar equipamento
+                  <input
+                    value={equipmentSearch}
+                    onChange={(event) => setEquipmentSearch(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                    placeholder="Digite ID, modelo, IMEI ou status"
+                  />
+                </label>
+                <div className="flex flex-col gap-2 md:flex-row md:items-center">
+                  <select
+                    value={linkingDeviceId}
+                    onChange={(event) => setLinkingDeviceId(event.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:max-w-md"
+                  >
+                    <option value="">Selecione o equipamento</option>
+                    {filteredAvailableDevices.map((device) => (
+                      <option key={device.id} value={device.id}>
+                        {device.model || device.name || device.uniqueId || device.id} • {device.uniqueId || device.id}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleLinkDevice}
+                    disabled={!linkingDeviceId || saving}
+                    className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+                  >
+                    Vincular equipamento
+                  </button>
+                </div>
+                {filteredAvailableDevices.length === 0 && (
+                  <p className="text-xs text-white/60">Nenhum equipamento encontrado para o filtro informado.</p>
+                )}
               </div>
               <div className="overflow-hidden rounded-xl border border-white/10">
                 <DataTable>
@@ -721,7 +793,7 @@ export default function VehicleDetailsPage() {
                       <td className="px-4 py-3 text-white/70">{device.model || device.name || "—"}</td>
                       <td className="px-4 py-3">
                         <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                          {device.status || "HABILITADO"}
+                          {translateUnknownValue(device.status) || "HABILITADO"}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-white/70">{device.location || "No veículo"}</td>
@@ -760,13 +832,7 @@ export default function VehicleDetailsPage() {
                 onSaveVehicle={handleSaveVehicle}
                 saving={saving}
                 onBindChip={handleBindChip}
-                linkedDevices={linkedDevices}
                 autoPrimaryDeviceId={autoPrimaryDeviceId}
-                linkingDeviceId={linkingDeviceId}
-                setLinkingDeviceId={setLinkingDeviceId}
-                availableDevices={availableDevices}
-                onLinkDevice={handleLinkDevice}
-                onUnlinkDevice={handleUnlinkDevice}
                 onError={reportError}
               />
             </DataCard>
