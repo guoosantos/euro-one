@@ -1,526 +1,402 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { EllipsisVertical, Package, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { MapPin, RefreshCw, Search, Send, Users } from "lucide-react";
 
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
-import PageHeader from "../ui/PageHeader";
-import Button from "../ui/Button";
-import Input from "../ui/Input";
-import Select from "../ui/Select";
-import DataState from "../ui/DataState.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import FilterBar from "../components/ui/FilterBar.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
+import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 
-const STATUS_OPTIONS = [
-  { value: "em-estoque", label: "Em estoque" },
-  { value: "reservado", label: "Reservado" },
-  { value: "instalado", label: "Instalado" },
-  { value: "defeito", label: "Defeito" },
+const FILTER_OPTIONS = [
+  { value: "both", label: "Ambos" },
+  { value: "available", label: "Disponíveis" },
+  { value: "linked", label: "Vinculados" },
 ];
 
-const LOW_STOCK_THRESHOLD = 5;
-
 export default function Stock() {
-  const { tenantId, user } = useTenant();
-  const [items, setItems] = useState([]);
+  const { tenantId, user, tenants } = useTenant();
+  const [devices, setDevices] = useState([]);
+  const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [form, setForm] = useState({ type: "", name: "", quantity: 1, status: "em-estoque", notes: "" });
-  const [activeTab, setActiveTab] = useState("geral");
-  const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [supplierFilter, setSupplierFilter] = useState("all");
-  const [onlyLowStock, setOnlyLowStock] = useState(false);
-  const [onlyActive, setOnlyActive] = useState(false);
+  const [view, setView] = useState("geral");
+  const [selectedClientId, setSelectedClientId] = useState(null);
+  const [availabilityFilter, setAvailabilityFilter] = useState("both");
+  const [searchClient, setSearchClient] = useState("");
+  const [searchId, setSearchId] = useState("");
+  const [cityFilter, setCityFilter] = useState("");
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [transferTechnician, setTransferTechnician] = useState("");
+  const [radiusKm, setRadiusKm] = useState("10");
+  const [addressQuery, setAddressQuery] = useState("");
 
   const resolvedClientId = tenantId || user?.clientId || null;
 
-  async function load() {
+  const loadStock = async () => {
     setLoading(true);
-    setError(null);
     try {
-      const list = await CoreApi.listStockItems(resolvedClientId ? { clientId: resolvedClientId } : undefined);
-      setItems(Array.isArray(list) ? list : []);
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar estoque"));
+      const params = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+      const [deviceList, modelList] = await Promise.all([CoreApi.listDevices(params), CoreApi.models(params)]);
+      setDevices(Array.isArray(deviceList) ? deviceList : []);
+      setModels(Array.isArray(modelList) ? modelList : []);
+    } catch (error) {
+      console.error("Falha ao carregar estoque", error);
+      setDevices([]);
     } finally {
       setLoading(false);
     }
-  }
-
-  useEffect(() => {
-    if (resolvedClientId || user) {
-      load();
-    }
-  }, [resolvedClientId, user]);
-
-  function resetForm() {
-    setEditingId(null);
-    setForm({ type: "", name: "", quantity: 1, status: "em-estoque", notes: "" });
-    setActiveTab("geral");
-  }
-
-  async function handleSave(event) {
-    event.preventDefault();
-    if (!form.type.trim() && !form.name.trim()) {
-      alert("Informe o tipo ou nome do item");
-      return;
-    }
-    setSaving(true);
-    try {
-      const payload = {
-        type: form.type.trim() || undefined,
-        name: form.name.trim() || undefined,
-        quantity: Number(form.quantity) || 0,
-        status: form.status,
-        notes: form.notes.trim() || undefined,
-        clientId: tenantId || user?.clientId,
-      };
-      if (editingId) {
-        await CoreApi.updateStockItem(editingId, payload);
-      } else {
-        await CoreApi.createStockItem(payload);
-      }
-      await load();
-      resetForm();
-      setDrawerOpen(false);
-    } catch (requestError) {
-      alert(requestError?.message || "Falha ao salvar item");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDelete(id) {
-    if (!id) return;
-    if (!window.confirm("Remover item do estoque?")) return;
-    try {
-      await CoreApi.deleteStockItem(id, { clientId: tenantId || user?.clientId });
-      await load();
-    } catch (requestError) {
-      alert(requestError?.message || "Não foi possível remover o item");
-    }
-  }
-
-  function openEdit(item) {
-    setEditingId(item.id);
-    setForm({
-      type: item.type || "",
-      name: item.name || "",
-      quantity: item.quantity ?? 1,
-      status: item.status || "em-estoque",
-      notes: item.notes || "",
-    });
-    setDrawerOpen(true);
-    setActiveTab("geral");
-  }
-
-  const categories = useMemo(
-    () => Array.from(new Set(items.map((item) => item.type).filter(Boolean))),
-    [items],
-  );
-
-  const suppliers = useMemo(
-    () => Array.from(new Set(items.map((item) => item.supplier).filter(Boolean))),
-    [items],
-  );
-
-  const filteredItems = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return items.filter((item) => {
-      const name = (item.name || "").toLowerCase();
-      const sku = (item.type || "").toLowerCase();
-      const supplier = (item.supplier || "").toLowerCase();
-      const quantity = Number(item.quantity) || 0;
-      const lowStock = quantity <= LOW_STOCK_THRESHOLD;
-      const active = item.status !== "defeito";
-
-      if (term && ![name, sku, supplier].some((value) => value.includes(term))) return false;
-      if (categoryFilter !== "all" && item.type !== categoryFilter) return false;
-      if (supplierFilter !== "all" && item.supplier !== supplierFilter) return false;
-      if (onlyLowStock && !lowStock) return false;
-      if (onlyActive && !active) return false;
-      return true;
-    });
-  }, [categoryFilter, items, onlyActive, onlyLowStock, search, supplierFilter]);
-
-  const formatDateLabel = (value) => {
-    if (!value) return "—";
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return "—";
-    return date.toLocaleString();
   };
 
-  const renderQuantityChip = (item) => {
-    const quantity = Number(item.quantity) || 0;
-    const isLow = quantity <= LOW_STOCK_THRESHOLD;
-    return (
-      <div className="flex items-center gap-2">
-        <span className="text-sm text-white">{quantity}</span>
-        {isLow && (
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-200">
-            Baixo
-          </span>
-        )}
-      </div>
-    );
+  useEffect(() => {
+    loadStock();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolvedClientId]);
+
+  const modelById = useMemo(() => {
+    const map = new Map();
+    models.forEach((model) => {
+      map.set(model.id, model);
+    });
+    return map;
+  }, [models]);
+
+  const clientNameById = useMemo(() => {
+    const map = new Map();
+    (tenants || []).forEach((tenant) => {
+      map.set(String(tenant.id), tenant.name || tenant.company || tenant.id);
+    });
+    return map;
+  }, [tenants]);
+
+  const availableDevices = useMemo(() => devices.filter((device) => !device.vehicleId), [devices]);
+  const linkedDevices = useMemo(() => devices.filter((device) => device.vehicleId), [devices]);
+
+  const totals = {
+    available: availableDevices.length,
+    linked: linkedDevices.length,
+  };
+
+  const groupedByClient = useMemo(() => {
+    const groups = new Map();
+    devices.forEach((device) => {
+      const clientId = device.clientId || "global";
+      if (!groups.has(clientId)) {
+        groups.set(clientId, []);
+      }
+      groups.get(clientId).push(device);
+    });
+    return Array.from(groups.entries()).map(([clientId, list]) => {
+      const available = list.filter((item) => !item.vehicleId).length;
+      const linked = list.filter((item) => item.vehicleId).length;
+      return {
+        clientId,
+        name: clientNameById.get(String(clientId)) || `Cliente ${String(clientId).slice(0, 6)}`,
+        available,
+        linked,
+      };
+    });
+  }, [clientNameById, devices]);
+
+  const filteredClients = useMemo(() => {
+    const term = searchClient.trim().toLowerCase();
+    return groupedByClient.filter((client) => {
+      if (!term) return true;
+      return client.name.toLowerCase().includes(term);
+    });
+  }, [groupedByClient, searchClient]);
+
+  const filteredDevices = useMemo(() => {
+    const term = searchId.trim().toLowerCase();
+    const cityTerm = cityFilter.trim().toLowerCase();
+    return devices.filter((device) => {
+      if (selectedClientId && String(device.clientId) !== String(selectedClientId)) return false;
+      if (availabilityFilter === "available" && device.vehicleId) return false;
+      if (availabilityFilter === "linked" && !device.vehicleId) return false;
+      if (term && !String(device.uniqueId || device.id || "").toLowerCase().includes(term)) return false;
+      if (cityTerm && !String(device.city || device.address || "").toLowerCase().includes(cityTerm)) return false;
+      return true;
+    });
+  }, [availabilityFilter, cityFilter, devices, searchId, selectedClientId]);
+
+  const toggleSelection = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleTransfer = () => {
+    if (!selectedIds.size || !transferTechnician) {
+      alert("Selecione equipamentos e informe o técnico destino.");
+      return;
+    }
+    alert(`Transferindo ${selectedIds.size} equipamentos para ${transferTechnician}.`);
+    setSelectedIds(new Set());
+    setTransferTechnician("");
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <PageHeader
         title="Estoque"
-        right={
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={load} icon={RefreshCw}>
-              Atualizar
-            </Button>
-            <Button onClick={() => { resetForm(); setDrawerOpen(true); }} icon={Plus}>
-              Novo item
-            </Button>
+        subtitle="Controle por cliente, disponíveis e vinculados."
+        actions={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={loadStock}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Atualizar
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={handleTransfer}
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Send className="h-4 w-4" />
+                Transferir
+              </span>
+            </button>
           </div>
         }
       />
 
-      <div className="space-y-3 rounded-2xl border border-white/10 bg-[#0d131c] px-4 py-3 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar produto, SKU, código de barras"
-              className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/50 focus:border-primary focus:outline-none"
-            />
-          </div>
-          <select
-            value={categoryFilter}
-            onChange={(event) => setCategoryFilter(event.target.value)}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+      <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
+        <span className="rounded-full bg-white/10 px-3 py-1">Disponíveis: {totals.available}</span>
+        <span className="rounded-full bg-white/10 px-3 py-1">Vinculados: {totals.linked}</span>
+        <div className="ml-auto flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setView("geral")}
+            className={`rounded-xl px-4 py-2 ${view === "geral" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
           >
-            <option value="all">Categoria</option>
-            {categories.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
-            ))}
-          </select>
-          <select
-            value={supplierFilter}
-            onChange={(event) => setSupplierFilter(event.target.value)}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
+            Geral
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("cliente")}
+            className={`rounded-xl px-4 py-2 ${view === "cliente" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
           >
-            <option value="all">Fornecedor</option>
-            {suppliers.map((sup) => (
-              <option key={sup} value={sup}>
-                {sup}
-              </option>
-            ))}
-          </select>
-          <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.1em] text-white/70">
-            <input
-              type="checkbox"
-              checked={onlyLowStock}
-              onChange={() => setOnlyLowStock((prev) => !prev)}
-              className="h-4 w-4 rounded border-white/30 bg-transparent"
-            />
-            Baixo estoque
-          </label>
-          <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.1em] text-white/70">
-            <input
-              type="checkbox"
-              checked={onlyActive}
-              onChange={() => setOnlyActive((prev) => !prev)}
-              className="h-4 w-4 rounded border-white/30 bg-transparent"
-            />
-            Ativo
-          </label>
-          <div className="ml-auto flex gap-2">
-            <Button variant="ghost" className="inline-flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              Entrada
-            </Button>
-            <Button variant="ghost" className="inline-flex items-center gap-2">
-              <Package className="h-4 w-4 rotate-180" />
-              Saída
-            </Button>
-          </div>
+            Cliente
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("mapa")}
+            className={`rounded-xl px-4 py-2 ${view === "mapa" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
+          >
+            Mapa/Região
+          </button>
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
+      <DataCard>
+        <FilterBar
+          left={
+            <>
+              <div className="relative min-w-[240px] flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <input
+                  value={searchClient}
+                  onChange={(event) => setSearchClient(event.target.value)}
+                  placeholder="Buscar cliente"
+                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                />
+              </div>
+              <input
+                value={searchId}
+                onChange={(event) => setSearchId(event.target.value)}
+                placeholder="Buscar equipamento por ID"
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+              <input
+                value={cityFilter}
+                onChange={(event) => setCityFilter(event.target.value)}
+                placeholder="Endereço/Cidade"
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+              <select
+                value={availabilityFilter}
+                onChange={(event) => setAvailabilityFilter(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                {FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={transferTechnician}
+                onChange={(event) => setTransferTechnician(event.target.value)}
+                placeholder="Transferir para técnico"
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+            </>
+          }
+        />
+      </DataCard>
+
+      {view === "geral" && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {filteredClients.map((client) => (
+            <DataCard key={client.clientId} className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white">{client.name}</div>
+                <Users className="h-4 w-4 text-white/40" />
+              </div>
+              <div className="flex items-center gap-3 text-sm text-white/70">
+                <span className="rounded-full bg-white/10 px-3 py-1">Disponíveis: {client.available}</span>
+                <span className="rounded-full bg-white/10 px-3 py-1">Vinculados: {client.linked}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedClientId(client.clientId);
+                  setView("cliente");
+                }}
+                className="w-full rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+              >
+                Ver detalhes
+              </button>
+            </DataCard>
+          ))}
+          {!filteredClients.length && !loading && (
+            <DataCard>
+              <EmptyState title="Nenhum cliente encontrado." subtitle="Ajuste os filtros para visualizar o estoque." />
+            </DataCard>
+          )}
+        </div>
       )}
 
-      <div className="rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-xl">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-white/80">
-            <thead className="bg-white/5 text-xs uppercase tracking-[0.12em] text-white/60">
-              <tr>
-                <th className="px-4 py-3 text-left">Produto</th>
-                <th className="px-4 py-3 text-left">Categoria</th>
-                <th className="px-4 py-3 text-left">Quantidade</th>
-                <th className="px-4 py-3 text-left">Custo / Preço</th>
-                <th className="px-4 py-3 text-left">Atualizado em</th>
-                <th className="px-4 py-3 text-right">Ações</th>
+      {view === "cliente" && (
+        <DataCard className="overflow-hidden p-0">
+          <DataTable>
+            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+              <tr className="text-left">
+                <th className="px-4 py-3">Selecionar</th>
+                <th className="px-4 py-3">ID</th>
+                <th className="px-4 py-3">Modelo</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Localização</th>
+                <th className="px-4 py-3">Veículo/Técnico</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/10">
               {loading && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-6 text-center text-white/60">
-                    Carregando estoque…
+                  <td colSpan={6} className="px-4 py-6">
+                    <SkeletonTable rows={6} columns={6} />
                   </td>
                 </tr>
               )}
-              {!loading && filteredItems.length === 0 && (
+              {!loading && filteredDevices.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center">
-                    <DataState
-                      tone="muted"
-                      state="info"
-                      title="Nenhum item encontrado"
-                      description="Ajuste os filtros ou cadastre um novo item."
-                      action={(
-                        <button
-                          type="button"
-                          className="rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em]"
-                          onClick={() => { resetForm(); setDrawerOpen(true); }}
-                        >
-                          Novo item
-                        </button>
-                      )}
-                      className="bg-[#0f141c]"
-                    />
+                  <td colSpan={6} className="px-4 py-8">
+                    <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para este cliente." />
                   </td>
                 </tr>
               )}
               {!loading &&
-                filteredItems.map((item) => {
-                  const quantity = Number(item.quantity) || 0;
-                  const statusLabel =
-                    STATUS_OPTIONS.find((opt) => opt.value === item.status)?.label || item.status || "—";
-                  return (
-                    <tr key={item.id} className="hover:bg-white/5">
-                      <td className="px-4 py-3">
-                        <div className="text-white font-semibold">{item.name || "Produto sem nome"}</div>
-                        <div className="text-[12px] text-white/60">{item.type || "SKU indefinido"}</div>
-                      </td>
-                      <td className="px-4 py-3">{item.type || "—"}</td>
-                      <td className="px-4 py-3">{renderQuantityChip(item)}</td>
-                      <td className="px-4 py-3 text-white/70">—</td>
-                      <td className="px-4 py-3">
-                        <div className="text-white">{formatDateLabel(item.updatedAt || item.createdAt)}</div>
-                        <div className="text-[11px] text-white/60">{statusLabel}</div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <ItemActions
-                          onEdit={() => openEdit(item)}
-                          onDelete={() => handleDelete(item.id)}
-                          onEntry={() => alert("Registrar entrada em breve.")}
-                          onExit={() => alert("Registrar saída em breve.")}
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
+                filteredDevices.map((device) => (
+                  <tr key={device.id} className="hover:bg-white/5">
+                    <td className="px-4 py-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(device.id)}
+                        onChange={() => toggleSelection(device.id)}
+                        className="h-4 w-4 rounded border-white/30 bg-transparent"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
+                    <td className="px-4 py-3 text-white/70">
+                      {modelById.get(device.modelId)?.name || device.model || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                        {device.vehicleId ? "Vinculado" : "Disponível"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-white/70">
+                      {device.address || device.city || "Base"}
+                    </td>
+                    <td className="px-4 py-3 text-white/70">
+                      {device.vehicle?.plate || device.vehicleId || "—"}
+                    </td>
+                  </tr>
+                ))}
             </tbody>
-          </table>
-        </div>
-      </div>
+          </DataTable>
+        </DataCard>
+      )}
 
-      <Drawer
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        title={editingId ? "Editar item" : "Novo item"}
-        description="Geral | Movimentações | Fornecedores | Ajustes"
-      >
-        <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-          {["geral", "movimentacoes", "fornecedores", "ajustes"].map((key) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`rounded-md px-3 py-2 transition ${activeTab === key ? "bg-primary/20 text-white border border-primary/40" : "border border-transparent hover:border-white/20"}`}
-            >
-              {key === "geral" && "Geral"}
-              {key === "movimentacoes" && "Movimentações"}
-              {key === "fornecedores" && "Fornecedores"}
-              {key === "ajustes" && "Ajustes"}
-            </button>
-          ))}
-        </div>
-
-        {activeTab === "geral" && (
-          <form onSubmit={handleSave} className="grid gap-4 md:grid-cols-2">
-            <Input
-              label="Produto"
-              value={form.name}
-              onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-              placeholder="Nome do produto"
-            />
-            <Input
-              label="SKU / Tipo"
-              value={form.type}
-              onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}
-              placeholder="Código interno"
-            />
-            <Input
-              label="Quantidade"
-              type="number"
-              min={0}
-              value={form.quantity}
-              onChange={(event) => setForm((current) => ({ ...current, quantity: event.target.value }))}
-            />
-            <Select
-              label="Status"
-              value={form.status}
-              onChange={(event) => setForm((current) => ({ ...current, status: event.target.value }))}
-            >
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </Select>
-            <div className="md:col-span-2">
-              <label className="text-sm text-white/70">Observações</label>
-              <textarea
-                className="mt-1 w-full rounded-xl border border-white/10 bg-white/10 px-3 py-2"
-                rows={3}
-                value={form.notes}
-                onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
+      {view === "mapa" && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+          <DataCard className="space-y-3">
+            <h2 className="text-sm font-semibold text-white">Busca por região</h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              <input
+                value={addressQuery}
+                onChange={(event) => setAddressQuery(event.target.value)}
+                placeholder="Endereço ou cidade"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+              <input
+                value={radiusKm}
+                onChange={(event) => setRadiusKm(event.target.value)}
+                placeholder="Raio (km)"
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
               />
             </div>
-            <div className="md:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setDrawerOpen(false)}>
-                Cancelar
-              </Button>
-              <Button type="submit" disabled={saving}>
-                {saving ? "Salvando…" : editingId ? "Atualizar" : "Salvar"}
-              </Button>
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+              <MapPin className="mb-2 h-4 w-4" />
+              Mapa indisponível nesta versão. Resultado exibido em lista por distância aproximada.
             </div>
-          </form>
-        )}
-
-        {activeTab === "movimentacoes" && (
-          <DataState
-            tone="muted"
-            state="info"
-            title="Movimentações"
-            description="Histórico de entradas e saídas ficará disponível aqui."
-            className="bg-white/5"
-          />
-        )}
-
-        {activeTab === "fornecedores" && (
-          <DataState
-            tone="muted"
-            state="info"
-            title="Fornecedores"
-            description="Associe fornecedores e contatos ao item."
-            className="bg-white/5"
-          />
-        )}
-
-        {activeTab === "ajustes" && (
-          <DataState
-            tone="muted"
-            state="info"
-            title="Ajustes"
-            description="Atualize estoque, status e observações em massa."
-            className="bg-white/5"
-          />
-        )}
-      </Drawer>
-    </div>
-  );
-}
-
-function ItemActions({ onEdit, onDelete, onEntry, onExit }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative inline-block text-left">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-        aria-label="Ações"
-      >
-        <EllipsisVertical className="h-4 w-4" />
-      </button>
-      {open && (
-        <div className="absolute right-0 mt-2 w-48 overflow-hidden rounded-xl border border-white/10 bg-[#0f141c] shadow-xl">
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
-            onClick={() => {
-              onEdit?.();
-              setOpen(false);
-            }}
-          >
-            ✏️ Editar
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
-            onClick={() => {
-              onEntry?.();
-              setOpen(false);
-            }}
-          >
-            ➕ Entrada
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5"
-            onClick={() => {
-              onExit?.();
-              setOpen(false);
-            }}
-          >
-            ➖ Saída
-          </button>
-          <button
-            type="button"
-            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-200 hover:bg-red-500/10"
-            onClick={() => {
-              onDelete?.();
-              setOpen(false);
-            }}
-          >
-            <Trash2 className="h-4 w-4" />
-            Remover
-          </button>
+          </DataCard>
+          <DataCard className="overflow-hidden p-0">
+            <DataTable>
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                <tr className="text-left">
+                  <th className="px-4 py-3">ID</th>
+                  <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3">Local</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {availableDevices.slice(0, 6).map((device) => (
+                  <tr key={device.id} className="hover:bg-white/5">
+                    <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
+                    <td className="px-4 py-3 text-white/70">
+                      {clientNameById.get(String(device.clientId)) || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-white/70">{device.address || device.city || "Base"}</td>
+                    <td className="px-4 py-3 text-white/70">Disponível</td>
+                  </tr>
+                ))}
+                {!availableDevices.length && !loading && (
+                  <tr>
+                    <td colSpan={4} className="px-4 py-8">
+                      <EmptyState title="Nenhum equipamento disponível." subtitle="Tente outro raio/região." />
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </DataTable>
+          </DataCard>
         </div>
       )}
-    </div>
-  );
-}
-
-function Drawer({ open, onClose, title, description, children }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-[9998] flex">
-      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
-        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
-          <div>
-            <h2 className="text-xl font-semibold text-white">{title}</h2>
-            {description && <p className="text-sm text-white/60">{description}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
-            aria-label="Fechar"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="h-[calc(100%-80px)] overflow-y-auto px-6 py-4">{children}</div>
-      </div>
     </div>
   );
 }

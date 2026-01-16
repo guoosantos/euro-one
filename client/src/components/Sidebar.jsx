@@ -193,7 +193,7 @@ export default function Sidebar() {
       icon: Wrench,
       children: [
         { to: "/services", label: "Ordem de Serviço", icon: Wrench },
-        { to: "/tasks", label: "Agendamentos", icon: CalendarClock },
+        { to: "/appointments", label: "Agendamentos", icon: CalendarClock },
       ],
     },
     { to: "/routes", label: "Rotas", icon: Map },

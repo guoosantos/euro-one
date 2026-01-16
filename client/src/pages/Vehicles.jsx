@@ -5,8 +5,7 @@ import "leaflet/dist/leaflet.css";
 
 import Button from "../ui/Button";
 import Modal from "../ui/Modal";
-import DropdownMenu from "../ui/DropdownMenu";
-import { EllipsisVertical, Link2, Plus, RefreshCw, Search, Trash2, Unlink } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -22,98 +21,88 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 
+const BRAND_COLORS = {
+  fiat: "bg-red-500/20 text-red-200",
+  vw: "bg-sky-500/20 text-sky-200",
+  volkswagen: "bg-sky-500/20 text-sky-200",
+  gm: "bg-slate-500/20 text-slate-200",
+  chevrolet: "bg-slate-500/20 text-slate-200",
+  ford: "bg-indigo-500/20 text-indigo-200",
+};
+
+function VehicleTypeIcon({ type }) {
+  const tone = "stroke-white/70";
+  if (type === "truck") {
+    return (
+      <svg width="28" height="20" viewBox="0 0 28 20" className={`${tone}`}>
+        <rect x="1" y="6" width="14" height="8" rx="2" fill="none" strokeWidth="1.5" />
+        <rect x="16" y="8" width="8" height="6" rx="2" fill="none" strokeWidth="1.5" />
+        <circle cx="6" cy="16" r="2" fill="none" strokeWidth="1.5" />
+        <circle cx="20" cy="16" r="2" fill="none" strokeWidth="1.5" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="28" height="20" viewBox="0 0 28 20" className={`${tone}`}>
+      <rect x="2" y="8" width="20" height="6" rx="2" fill="none" strokeWidth="1.5" />
+      <path d="M6 8l3-4h7l3 4" fill="none" strokeWidth="1.5" />
+      <circle cx="8" cy="16" r="2" fill="none" strokeWidth="1.5" />
+      <circle cx="18" cy="16" r="2" fill="none" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function BrandBadge({ brand }) {
+  const normalized = String(brand || "").toLowerCase();
+  const className = BRAND_COLORS[normalized] || "bg-white/10 text-white/80";
+  const initials = brand ? brand.slice(0, 2).toUpperCase() : "--";
+  return (
+    <span className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold ${className}`}>
+      {initials}
+    </span>
+  );
+}
+
 function VehicleRow({
   vehicle,
-  association,
-  deviceIdentifier,
-  lastSeen,
-  coordinates,
-  typeLabel,
-  showDriver,
-  showGroup,
-  showOdometer,
-  odometerLabel,
+  typeIcon,
+  brandBadge,
+  modelLabel,
+  plateLabel,
+  responsibleLabel,
+  statusLabel,
   onEdit,
-  onViewDevice,
-  onUnlink,
-  onDelete,
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuButtonRef = useRef(null);
-
   return (
     <tr className="hover:bg-white/5">
-      <td className="px-4 py-4">{association}</td>
+      <td className="px-4 py-4">{typeIcon}</td>
       <td className="px-4 py-4">
-        <div className="space-y-1">
-          <div className="font-semibold text-white">{deviceIdentifier}</div>
-          <div className="text-xs text-white/60">{lastSeen}</div>
-          <div className="text-[11px] text-white/50">{coordinates}</div>
+        <div className="flex items-center gap-2">
+          {brandBadge}
+          <div>
+            <div className="font-semibold text-white">{vehicle.brand || "—"}</div>
+            <div className="text-xs text-white/60">{vehicle.model || vehicle.name || "—"}</div>
+          </div>
         </div>
       </td>
       <td className="px-4 py-4">
-      <div className="font-semibold text-white">{vehicle.plate || "—"}</div>
-      <div className="text-xs text-white/60">{vehicle.model || vehicle.name || "—"}</div>
+        <div className="font-semibold text-white">{modelLabel}</div>
+        <div className="text-xs text-white/60">{plateLabel}</div>
       </td>
-      <td className="px-4 py-4">{typeLabel}</td>
-      {showDriver && <td className="px-4 py-4">{vehicle.driver || "—"}</td>}
-      {showGroup && <td className="px-4 py-4">{vehicle.group || "—"}</td>}
-      {showOdometer && <td className="px-4 py-4">{odometerLabel}</td>}
+      <td className="px-4 py-4">{plateLabel}</td>
+      <td className="px-4 py-4">{responsibleLabel}</td>
+      <td className="px-4 py-4">
+        <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">{statusLabel}</span>
+      </td>
       <td className="px-4 py-4 text-right">
         <button
           type="button"
-          ref={menuButtonRef}
-          onClick={() => setMenuOpen((prev) => !prev)}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-          aria-label="Ações"
+          onClick={onEdit}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white transition hover:border-white/30"
+          aria-label="Editar veículo"
         >
-          <EllipsisVertical className="h-5 w-5" />
+          <Pencil className="h-4 w-4" />
         </button>
-        <DropdownMenu open={menuOpen} anchorRef={menuButtonRef} onClose={() => setMenuOpen(false)}>
-          <div className="flex flex-col py-2 text-sm text-white">
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onEdit?.();
-              }}
-              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-            >
-              Editar veículo
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onViewDevice?.();
-              }}
-              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-            >
-              Ver dispositivo
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onUnlink?.();
-              }}
-              className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-            >
-              Desassociar dispositivo
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMenuOpen(false);
-                onDelete?.();
-              }}
-              className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-300 hover:bg-red-500/10"
-            >
-              <Trash2 className="h-4 w-4" />
-              Excluir veículo
-            </button>
-          </div>
-        </DropdownMenu>
       </td>
     </tr>
   );
@@ -236,6 +225,9 @@ export default function Vehicles() {
         vehicle.plate,
         vehicle.driver,
         vehicle.group,
+        vehicle.brand,
+        vehicle.clientName,
+        vehicle.client?.name,
         vehicle.device?.uniqueId,
         vehicle.device?.name,
       ]
@@ -291,8 +283,7 @@ export default function Vehicles() {
     saveColumnVisibility(columnStorageKey, visibleColumns);
   }, [columnStorageKey, visibleColumns]);
 
-  const tableColCount =
-    5 + (visibleColumns.driver ? 1 : 0) + (visibleColumns.group ? 1 : 0) + (visibleColumns.odometer ? 1 : 0);
+  const tableColCount = 7;
 
   const formatVehicleType = (value) => {
     if (!value) return "—";
@@ -571,14 +562,13 @@ export default function Vehicles() {
         <DataTable tableClassName="text-white/80">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
             <tr>
-              <th className="px-4 py-3 text-left">Associação</th>
-              <th className="px-4 py-3 text-left">N° EURO ONE / ID</th>
-              <th className="px-4 py-3 text-left">Placa</th>
               <th className="px-4 py-3 text-left">Tipo</th>
-              {visibleColumns.driver && <th className="px-4 py-3 text-left">Motorista</th>}
-              {visibleColumns.group && <th className="px-4 py-3 text-left">Grupo</th>}
-              {visibleColumns.odometer && <th className="px-4 py-3 text-left">Odômetro</th>}
-              <th className="px-4 py-3 text-left">Ações</th>
+              <th className="px-4 py-3 text-left">Marca</th>
+              <th className="px-4 py-3 text-left">Modelo</th>
+              <th className="px-4 py-3 text-left">Placa</th>
+              <th className="px-4 py-3 text-left">Responsável/Cliente</th>
+              <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
@@ -612,27 +602,20 @@ export default function Vehicles() {
               filteredVehicles.map((vehicle) => {
                 const latestPosition = getDevicePosition(vehicle);
                 const statusLive = getDeviceStatus(vehicle, latestPosition);
-                const lastSeen = getDeviceLastSeen(vehicle, latestPosition);
-                const coordinates = getDeviceCoordinates(vehicle, latestPosition);
-                const deviceIdentifier =
-                  vehicle.device?.uniqueId || vehicle.device?.identifier || vehicle.device?.id || "—";
+                const normalizedType = resolveVehicleIconType(vehicle.type) || vehicle.type;
+                const responsibleLabel =
+                  vehicle.clientName || vehicle.client?.name || vehicle.driver || vehicle.group || "—";
                 return (
                   <VehicleRow
                     key={vehicle.id}
                     vehicle={vehicle}
-                    association={renderAssociation(vehicle, statusLive)}
-                    deviceIdentifier={deviceIdentifier}
-                    lastSeen={lastSeen}
-                    coordinates={coordinates}
-                    typeLabel={formatVehicleType(vehicle.type)}
-                    showDriver={visibleColumns.driver}
-                    showGroup={visibleColumns.group}
-                    showOdometer={visibleColumns.odometer}
-                    odometerLabel={formatOdometer(vehicle.odometer)}
+                    typeIcon={<VehicleTypeIcon type={normalizedType} />}
+                    brandBadge={<BrandBadge brand={vehicle.brand} />}
+                    modelLabel={vehicle.model || vehicle.name || "—"}
+                    plateLabel={vehicle.plate || "—"}
+                    responsibleLabel={responsibleLabel}
+                    statusLabel={vehicle.status || statusLive?.label || "—"}
                     onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
-                    onViewDevice={() => handleViewDevice(vehicle, latestPosition)}
-                    onUnlink={() => handleUnlink(vehicle)}
-                    onDelete={() => handleDelete(vehicle)}
                   />
                 );
               })}

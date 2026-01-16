@@ -60,6 +60,7 @@ import Crm from "./pages/Crm";
 import Itineraries from "./pages/Itineraries.jsx";
 import VehicleDetailsPage from "./pages/VehicleDetailsPage.jsx";
 import AdminImportXlsx from "./pages/AdminImportXlsx.jsx";
+import Appointments from "./pages/Appointments.jsx";
 
 const isEuroImportEnabled = import.meta.env.VITE_FEATURE_EURO_XLSX_IMPORT === "true";
 
@@ -92,6 +93,7 @@ export const routeConfig = [
   { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"] },
   { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", requireTenant: true },
   { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", requireTenant: true },
+  { path: "/appointments", element: Appointments, title: "Agendamentos", requireTenant: true },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true },
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },

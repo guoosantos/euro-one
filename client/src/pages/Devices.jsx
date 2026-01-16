@@ -5,9 +5,9 @@ import {
   Battery,
   Clock3,
   Download,
-  EllipsisVertical,
   Link2,
   MapPin,
+  Pencil,
   Plus,
   Power,
   RefreshCw,
@@ -25,7 +25,6 @@ import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
-import DropdownMenu from "../ui/DropdownMenu";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataCard from "../components/ui/DataCard.jsx";
@@ -102,16 +101,15 @@ function DeviceRow({
   positionLabel,
   lastCommunication,
 }) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuButtonRef = useRef(null);
-
-  const toggleMenu = () => setMenuOpen((value) => !value);
-
   return (
     <tr className="hover:bg-white/5">
       <td className="px-4 py-3">
         <div className="font-semibold text-white">{device.name || traccarDevice?.name || "—"}</div>
         <div className="text-xs text-white/50">IMEI {device.uniqueId || traccarDevice?.uniqueId || "—"}</div>
+      </td>
+      <td className="px-4 py-3">
+        <div className="text-white">{model?.name || "—"}</div>
+        <div className="text-xs text-white/50">{model?.version || model?.protocol || ""}</div>
       </td>
       <td className="px-4 py-3">
         <StatusPill meta={status} />
@@ -186,73 +184,41 @@ function DeviceRow({
         </td>
       )}
       <td className="px-4 py-3 text-right">
-        <div className="relative inline-block text-left">
+        <div className="inline-flex items-center gap-2">
           <button
             type="button"
-            onClick={toggleMenu}
-            ref={menuButtonRef}
             className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-            aria-label="Ações"
+            onClick={onEdit}
+            aria-label="Editar equipamento"
           >
-            <EllipsisVertical className="h-4 w-4" />
+            <Pencil className="h-4 w-4" />
           </button>
-          <DropdownMenu open={menuOpen} anchorRef={menuButtonRef} onClose={() => setMenuOpen(false)}>
-            <div className="flex flex-col py-2 text-sm text-white">
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-                onClick={() => {
-                  onEdit?.();
-                  setMenuOpen(false);
-                }}
-              >
-                ✏️ Editar
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-                onClick={() => {
-                  onLink?.();
-                  setMenuOpen(false);
-                }}
-              >
-                🔗 Vincular veículo
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-                onClick={() => {
-                  onUnlink?.();
-                  setMenuOpen(false);
-                }}
-              >
-                <Unlink className="h-4 w-4" />
-                Desvincular
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-white/5"
-                onClick={() => {
-                  onMap?.();
-                  setMenuOpen(false);
-                }}
-              >
-                <MapPin className="h-4 w-4" />
-                Ver no mapa
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left text-red-200 hover:bg-red-500/10"
-                onClick={() => {
-                  onDelete?.();
-                  setMenuOpen(false);
-                }}
-              >
-                <Trash2 className="h-4 w-4" />
-                Remover
-              </button>
-            </div>
-          </DropdownMenu>
+          {vehicle && (
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+              onClick={onUnlink}
+              aria-label="Desvincular"
+            >
+              <Unlink className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+            onClick={onMap}
+            aria-label="Ver no mapa"
+          >
+            <MapPin className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-red-400/30 text-red-200 hover:border-red-300"
+            onClick={onDelete}
+            aria-label="Remover"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </td>
     </tr>
@@ -1122,7 +1088,7 @@ export default function Devices() {
   }
 
   const tableColCount =
-    6 + (visibleColumns.chip ? 1 : 0) + (visibleColumns.speed ? 1 : 0) + (visibleColumns.ignition ? 1 : 0);
+    7 + (visibleColumns.chip ? 1 : 0) + (visibleColumns.speed ? 1 : 0) + (visibleColumns.ignition ? 1 : 0);
 
   const toastClassName =
     "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
@@ -1296,6 +1262,7 @@ export default function Devices() {
           <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
             <tr>
               <th className="px-4 py-3 text-left">Nome / IMEI</th>
+              <th className="px-4 py-3 text-left">Modelo</th>
               <th className="px-4 py-3 text-left">Status</th>
               <th className="px-4 py-3 text-left">Última comunicação</th>
               <th className="px-4 py-3 text-left">Última posição</th>
