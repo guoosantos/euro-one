@@ -2,12 +2,12 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Pencil, RefreshCw } from "lucide-react";
 
-import PageHeader from "../../components/ui/PageHeader.jsx";
+import PageHeader from "../../ui/PageHeader.jsx";
 import FilterBar from "../../components/ui/FilterBar.jsx";
-import DataCard from "../../components/ui/DataCard.jsx";
 import DataTable from "../../components/ui/DataTable.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
+import api from "../../lib/api.js";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -48,11 +48,8 @@ export default function ServiceOrdersList() {
       if (from) params.set("from", new Date(from).toISOString());
       if (to) params.set("to", new Date(to).toISOString());
 
-      const response = await fetch(`/api/core/service-orders?${params.toString()}`, {
-        credentials: "include",
-      });
-      const payload = await response.json();
-      setItems(payload?.items || []);
+      const response = await api.get("core/service-orders", { params });
+      setItems(response?.data?.items || []);
     } catch (error) {
       console.error("Falha ao buscar ordens de serviço", error);
       setItems([]);
@@ -86,9 +83,9 @@ export default function ServiceOrdersList() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Serviços"
-        subtitle="Solicitações, execução e aprovação das OS."
-        actions={
+        title="Ordem de Serviço"
+        description="Solicitações, execução e aprovação das OS."
+        right={
           <>
             <Link
               className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
@@ -106,7 +103,7 @@ export default function ServiceOrdersList() {
         }
       />
 
-      <DataCard>
+      <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-4">
         <FilterBar
           left={
             <>
@@ -154,9 +151,9 @@ export default function ServiceOrdersList() {
             </button>
           }
         />
-      </DataCard>
+      </div>
 
-      <DataCard className="overflow-hidden p-0">
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.02]">
         <DataTable>
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
             <tr className="text-left">
@@ -164,7 +161,7 @@ export default function ServiceOrdersList() {
               <th className="px-4 py-3">Placa</th>
               <th className="px-4 py-3">Responsável</th>
               <th className="px-4 py-3">Técnico</th>
-              <th className="px-4 py-3">Início</th>
+              <th className="px-4 py-3">Data</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
@@ -226,7 +223,7 @@ export default function ServiceOrdersList() {
               ))}
           </tbody>
         </DataTable>
-      </DataCard>
+      </div>
     </div>
   );
 }

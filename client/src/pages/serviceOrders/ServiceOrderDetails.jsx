@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import DataCard from "../../components/ui/DataCard.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
+import api from "../../lib/api.js";
 
 const STATUS_OPTIONS = [
   "SOLICITADA",
@@ -45,6 +46,7 @@ function mapPayload(formState) {
   return {
     osInternalId: formState.osInternalId,
     vehiclePlate: formState.vehiclePlate,
+    clientName: formState.clientName,
     type: formState.type,
     status: formState.status,
     startAt: formState.startAt ? new Date(formState.startAt).toISOString() : null,
@@ -73,9 +75,8 @@ export default function ServiceOrderDetails() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/core/service-orders/${id}`, { credentials: "include" });
-      const payload = await response.json();
-      setItem(payload?.item || null);
+      const response = await api.get(`core/service-orders/${id}`);
+      setItem(response?.data?.item || null);
     } catch (error) {
       console.error("Falha ao carregar OS", error);
       setItem(null);
@@ -93,6 +94,7 @@ export default function ServiceOrderDetails() {
     setForm({
       osInternalId: item.osInternalId || "",
       vehiclePlate: item.vehicle?.plate || "",
+      clientName: item.clientName || "",
       type: item.type || "",
       status: item.status || "",
       startAt: toLocalInput(item.startAt),
@@ -119,17 +121,11 @@ export default function ServiceOrderDetails() {
     setSaving(true);
     try {
       const payload = mapPayload({ ...form, ...overrides });
-      const response = await fetch(`/api/core/service-orders/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      if (!data?.ok) {
-        throw new Error(data?.error || "Falha ao atualizar OS");
+      const response = await api.patch(`core/service-orders/${id}`, payload);
+      if (!response?.data?.ok) {
+        throw new Error(response?.data?.error || "Falha ao atualizar OS");
       }
-      setItem(data.item);
+      setItem(response.data.item);
     } catch (error) {
       console.error("Falha ao atualizar OS", error);
       alert("Falha ao atualizar OS.");
@@ -140,13 +136,11 @@ export default function ServiceOrderDetails() {
 
   const handleDownloadPdf = async () => {
     try {
-      const response = await fetch(`/api/core/service-orders/${id}/pdf`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
+      const response = await api.get(`core/service-orders/${id}/pdf`, { responseType: "blob" });
+      if (!response?.data) {
         throw new Error("Falha ao gerar PDF");
       }
-      const blob = await response.blob();
+      const blob = response.data;
       const url = window.URL.createObjectURL(blob);
       window.open(url, "_blank", "noopener,noreferrer");
       setTimeout(() => window.URL.revokeObjectURL(url), 5000);
@@ -159,6 +153,11 @@ export default function ServiceOrderDetails() {
   const headline = useMemo(() => {
     if (!item) return "";
     return item.osInternalId || item.id.slice(0, 8);
+  }, [item]);
+
+  const checklistItems = useMemo(() => {
+    if (!Array.isArray(item?.checklistItems)) return [];
+    return item.checklistItems;
   }, [item]);
 
   if (loading) {
@@ -249,9 +248,32 @@ export default function ServiceOrderDetails() {
 
           <DataCard className="space-y-3">
             <h2 className="text-sm font-semibold text-white">Checklist</h2>
-            <div className="text-sm text-white/60">
-              {form.notes ? form.notes : "Nenhum checklist registrado até o momento."}
-            </div>
+            {checklistItems.length > 0 ? (
+              <div className="overflow-hidden rounded-xl border border-white/10">
+                <table className="min-w-full text-left text-xs text-white/70">
+                  <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
+                    <tr>
+                      <th className="px-3 py-2">Item</th>
+                      <th className="px-3 py-2">Antes</th>
+                      <th className="px-3 py-2">Depois</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/10">
+                    {checklistItems.map((entry) => (
+                      <tr key={entry.item}>
+                        <td className="px-3 py-2 text-white">{entry.item}</td>
+                        <td className="px-3 py-2">{entry.before || "—"}</td>
+                        <td className="px-3 py-2">{entry.after || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-sm text-white/60">
+                {form.notes ? form.notes : "Nenhum checklist registrado até o momento."}
+              </div>
+            )}
           </DataCard>
 
           <DataCard className="space-y-3">

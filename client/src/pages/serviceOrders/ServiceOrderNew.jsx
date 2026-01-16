@@ -1,69 +1,230 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
-import PageHeader from "../../components/ui/PageHeader.jsx";
+import PageHeader from "../../ui/PageHeader.jsx";
 import DataCard from "../../components/ui/DataCard.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
+import AddressSearchInput, { useAddressSearchState } from "../../components/shared/AddressSearchInput.jsx";
+import VehicleSelector from "../../components/VehicleSelector.jsx";
+import api from "../../lib/api.js";
+import { CoreApi } from "../../lib/coreApi.js";
+import { useTenant } from "../../lib/tenant-context.jsx";
+
+const STATUS_OPTIONS = [
+  { value: "SOLICITADA", label: "Solicitada" },
+  { value: "AGENDADA", label: "Agendada" },
+  { value: "EM_DESLOCAMENTO", label: "Em deslocamento" },
+  { value: "EM_EXECUCAO", label: "Em execução" },
+  { value: "AGUARDANDO_APROVACAO", label: "Aguardando aprovação" },
+  { value: "CONCLUIDA", label: "Concluído" },
+  { value: "CANCELADA", label: "Cancelada" },
+  { value: "REMANEJADA", label: "Remanejada" },
+];
+
+const TYPE_OPTIONS = [
+  "Instalação",
+  "Manutenção",
+  "Retirada",
+  "Remanejamento",
+  "Socorro",
+  "Reinstalação",
+];
+
+const CHECKLIST_ITEMS = [
+  "Ignição",
+  "Rádio",
+  "Setas",
+  "Farol Alto",
+  "Luz Painel",
+  "Farol Baixo",
+  "Lanternas Traseiras",
+  "Lanternas Dianteiras",
+  "Limpador Pára-brisa",
+  "Iluminação Interna",
+  "Ar",
+  "Lataria",
+  "Inst. Elétrica",
+];
+
+function formatPhone(value) {
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
+  if (!digits) return "";
+  if (digits.length <= 10) {
+    return digits.replace(/(\d{2})(\d{0,4})(\d{0,4})/, (_, d1, d2, d3) => {
+      const middle = d2 ? ` ${d2}` : "";
+      const end = d3 ? `-${d3}` : "";
+      return `(${d1})${middle}${end}`;
+    });
+  }
+  return digits.replace(/(\d{2})(\d{0,5})(\d{0,4})/, (_, d1, d2, d3) => {
+    const middle = d2 ? ` ${d2}` : "";
+    const end = d3 ? `-${d3}` : "";
+    return `(${d1})${middle}${end}`;
+  });
+}
 
 export default function ServiceOrderNew() {
   const navigate = useNavigate();
+  const { tenantId, user } = useTenant();
   const [saving, setSaving] = useState(false);
+  const [createdOrder, setCreatedOrder] = useState(null);
+  const [devices, setDevices] = useState([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
   const [form, setForm] = useState({
-    osInternalId: "",
-    vehiclePlate: "",
+    startAt: "",
+    status: "SOLICITADA",
+    type: "Instalação",
     technicianName: "",
+    clientName: "",
     responsibleName: "",
     responsiblePhone: "",
-    status: "SOLICITADA",
-    addressStreet: "",
-    addressNumber: "",
-    addressNeighborhood: "",
-    addressCity: "",
-    addressState: "",
-    addressComplement: "",
-    addressReference: "",
-    type: "",
-    reason: "",
-    equipmentsText: "",
-    startAt: "",
+    addressStart: "",
+    address: "",
+    addressReturn: "",
+    km: "",
+    vehicleId: "",
+    vehiclePlate: "",
     notes: "",
   });
+
+  const [vehicleSnapshot, setVehicleSnapshot] = useState(null);
+  const [equipments, setEquipments] = useState([]);
+  const [checklist, setChecklist] = useState(() =>
+    CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
+  );
+
+  const resolvedClientId = tenantId || user?.clientId || null;
+
+  const addressStartState = useAddressSearchState({ initialValue: "" });
+  const addressServiceState = useAddressSearchState({ initialValue: "" });
+  const addressReturnState = useAddressSearchState({ initialValue: "" });
+
+  useEffect(() => {
+    if (addressStartState.query !== form.addressStart) {
+      setForm((prev) => ({ ...prev, addressStart: addressStartState.query }));
+    }
+  }, [addressStartState.query, form.addressStart]);
+
+  useEffect(() => {
+    if (addressServiceState.query !== form.address) {
+      setForm((prev) => ({ ...prev, address: addressServiceState.query }));
+    }
+  }, [addressServiceState.query, form.address]);
+
+  useEffect(() => {
+    if (addressReturnState.query !== form.addressReturn) {
+      setForm((prev) => ({ ...prev, addressReturn: addressReturnState.query }));
+    }
+  }, [addressReturnState.query, form.addressReturn]);
+
+  useEffect(() => {
+    const loadDevices = async () => {
+      setDevicesLoading(true);
+      try {
+        const params = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+        const list = await CoreApi.listDevices(params);
+        setDevices(Array.isArray(list) ? list : []);
+      } catch (error) {
+        console.error("Falha ao carregar equipamentos", error);
+        setDevices([]);
+      } finally {
+        setDevicesLoading(false);
+      }
+    };
+
+    loadDevices();
+  }, [resolvedClientId]);
+
+  const availableEquipments = useMemo(() => {
+    if (!form.vehicleId) return [];
+    return devices.filter((device) => String(device.vehicleId || "") === String(form.vehicleId));
+  }, [devices, form.vehicleId]);
+
+  const equipmentOptions = useMemo(
+    () =>
+      availableEquipments.map((device) => ({
+        id: device.id,
+        label: device.name || device.uniqueId || device.id,
+        model: device.model || device.modelName || device.type || null,
+      })),
+    [availableEquipments],
+  );
 
   const setField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const toggleEquipment = (option) => {
+    setEquipments((prev) => {
+      const exists = prev.find((item) => String(item.equipmentId) === String(option.id));
+      if (exists) {
+        return prev.filter((item) => String(item.equipmentId) !== String(option.id));
+      }
+      return [
+        ...prev,
+        {
+          equipmentId: option.id,
+          model: option.model || option.label,
+          installLocation: "",
+        },
+      ];
+    });
+  };
+
+  const updateEquipmentLocation = (equipmentId, value) => {
+    setEquipments((prev) =>
+      prev.map((item) =>
+        String(item.equipmentId) === String(equipmentId) ? { ...item, installLocation: value } : item,
+      ),
+    );
+  };
+
+  const updateChecklist = (index, key, value) => {
+    setChecklist((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [key]: value };
+      return next;
+    });
+  };
+
   const submit = async () => {
+    if (!form.startAt) {
+      alert("Informe a data do serviço.");
+      return;
+    }
+
+    const hasEquipmentWithoutLocation = equipments.some((item) => !item.installLocation);
+    if (hasEquipmentWithoutLocation) {
+      alert("Informe o local de instalação de todos os equipamentos selecionados.");
+      return;
+    }
+
     setSaving(true);
     try {
-      const response = await fetch("/api/core/service-orders", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...form,
-          address: [
-            form.addressStreet,
-            form.addressNumber,
-            form.addressNeighborhood,
-            form.addressCity,
-            form.addressState,
-            form.addressReference,
-          ]
-            .filter(Boolean)
-            .join(", "),
-          notes: form.notes,
-          startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
-          status: form.status || "SOLICITADA",
-        }),
+      const response = await api.post("core/service-orders", {
+        startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
+        status: form.status || "SOLICITADA",
+        type: form.type,
+        technicianName: form.technicianName,
+        clientName: form.clientName,
+        responsibleName: form.responsibleName,
+        responsiblePhone: form.responsiblePhone,
+        addressStart: form.addressStart || null,
+        address: form.address || null,
+        addressReturn: form.addressReturn || null,
+        km: form.km === "" ? null : Number(form.km),
+        vehicleId: form.vehicleId || null,
+        vehiclePlate: form.vehiclePlate || null,
+        equipmentsData: equipments,
+        checklistItems: checklist,
+        notes: form.notes || null,
       });
 
-      const payload = await response.json();
-      if (!payload?.ok) {
-        throw new Error(payload?.error || "Falha ao criar OS");
+      if (!response?.data?.ok) {
+        throw new Error(response?.data?.error || "Falha ao criar OS");
       }
 
-      navigate(`/services/${payload.item.id}`);
+      setCreatedOrder(response.data.item || null);
     } catch (error) {
       console.error("Falha ao criar ordem de serviço", error);
       alert("Falha ao criar OS.");
@@ -75,40 +236,49 @@ export default function ServiceOrderNew() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Nova OS"
-        subtitle="Solicite o serviço e acompanhe o status."
-        actions={
-          <button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
-          >
-            {saving ? "Salvando..." : "Criar OS"}
-          </button>
+        title="Nova Ordem de Serviço"
+        description="Solicite o serviço e acompanhe o status."
+        right={
+          <div className="flex flex-wrap items-center gap-2">
+            {createdOrder?.id && (
+              <button
+                type="button"
+                onClick={() => navigate(`/services/${createdOrder.id}`)}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+              >
+                Ver OS criada
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={submit}
+              disabled={saving}
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400 disabled:opacity-60"
+            >
+              {saving ? "Salvando..." : "Criar OS"}
+            </button>
+          </div>
         }
       />
 
-      <DataCard className="space-y-6">
+      {createdOrder?.osInternalId && (
+        <div className="rounded-2xl border border-emerald-400/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+          <span className="font-semibold">OS:</span> {createdOrder.osInternalId}
+        </div>
+      )}
+
+      <DataCard className="space-y-8">
         <div>
           <h2 className="text-sm font-semibold text-white">Dados básicos</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-3">
             <label className="block text-xs text-white/60">
-              OS (ID interno)
-              <input
-                value={form.osInternalId}
-                onChange={(event) => setField("osInternalId", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ex: OS-000123"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Data/hora
+              Data do serviço *
               <input
                 type="datetime-local"
                 value={form.startAt}
                 onChange={(event) => setField("startAt", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                required
               />
             </label>
             <label className="block text-xs text-white/60">
@@ -118,15 +288,29 @@ export default function ServiceOrderNew() {
                 onChange={(event) => setField("status", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               >
-                <option value="SOLICITADA">Solicitada</option>
-                <option value="AGENDADA">Agendada</option>
-                <option value="EM_DESLOCAMENTO">Em deslocamento</option>
-                <option value="EM_EXECUCAO">Em execução</option>
-                <option value="AGUARDANDO_APROVACAO">Aguardando aprovação</option>
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </label>
-            <label className="block text-xs text-white/60 md:col-span-2">
-              Técnico responsável
+            <label className="block text-xs text-white/60">
+              Tipo
+              <select
+                value={form.type}
+                onChange={(event) => setField("type", event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                {TYPE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs text-white/60">
+              Técnico
               <input
                 value={form.technicianName}
                 onChange={(event) => setField("technicianName", event.target.value)}
@@ -134,13 +318,13 @@ export default function ServiceOrderNew() {
                 placeholder="Ex: Lucas Lima"
               />
             </label>
-            <label className="block text-xs text-white/60">
-              Tipo
+            <label className="block text-xs text-white/60 md:col-span-2">
+              Cliente
               <input
-                value={form.type}
-                onChange={(event) => setField("type", event.target.value)}
+                value={form.clientName}
+                onChange={(event) => setField("clientName", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Instalação, manutenção, retirada..."
+                placeholder="Nome do cliente"
               />
             </label>
           </div>
@@ -150,19 +334,20 @@ export default function ServiceOrderNew() {
           <h2 className="text-sm font-semibold text-white">Responsável</h2>
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <label className="block text-xs text-white/60">
-              Nome
+              Nome *
               <input
                 value={form.responsibleName}
                 onChange={(event) => setField("responsibleName", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
                 placeholder="Nome do responsável"
+                required
               />
             </label>
             <label className="block text-xs text-white/60">
               Telefone/WhatsApp
               <input
                 value={form.responsiblePhone}
-                onChange={(event) => setField("responsiblePhone", event.target.value)}
+                onChange={(event) => setField("responsiblePhone", formatPhone(event.target.value))}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
                 placeholder="(31) 99999-9999"
               />
@@ -171,125 +356,201 @@ export default function ServiceOrderNew() {
         </div>
 
         <div>
-          <h2 className="text-sm font-semibold text-white">Veículo & Equipamentos</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <h2 className="text-sm font-semibold text-white">Endereços</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-2">
+            <div>
+              <span className="block text-xs text-white/60">Endereço Partida</span>
+              <div className="mt-2">
+                <AddressSearchInput
+                  state={addressStartState}
+                  placeholder="Buscar endereço de partida"
+                  variant="toolbar"
+                  containerClassName="w-full"
+                />
+              </div>
+            </div>
+            <div>
+              <span className="block text-xs text-white/60">Endereço Serviço</span>
+              <div className="mt-2">
+                <AddressSearchInput
+                  state={addressServiceState}
+                  placeholder="Buscar endereço do serviço"
+                  variant="toolbar"
+                  containerClassName="w-full"
+                />
+              </div>
+            </div>
+            <div>
+              <span className="block text-xs text-white/60">Endereço Volta</span>
+              <div className="mt-2">
+                <AddressSearchInput
+                  state={addressReturnState}
+                  placeholder="Buscar endereço de retorno"
+                  variant="toolbar"
+                  containerClassName="w-full"
+                />
+              </div>
+            </div>
             <label className="block text-xs text-white/60">
-              Busca/seleção do veículo
+              KM Total
               <input
-                value={form.vehiclePlate}
-                onChange={(event) => setField("vehiclePlate", event.target.value)}
+                type="number"
+                value={form.km}
+                onChange={(event) => setField("km", event.target.value)}
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Placa ou identificação"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Equipamentos (IDs/modelos)
-              <textarea
-                value={form.equipmentsText}
-                onChange={(event) => setField("equipmentsText", event.target.value)}
-                className="mt-2 min-h-[90px] w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="IDs, modelos, observações..."
+                placeholder="0"
+                min="0"
+                step="0.1"
               />
             </label>
           </div>
-          {form.vehiclePlate ? (
-            <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white/70">
-              <div className="font-semibold text-white">Placa informada</div>
-              <div className="text-xs text-white/60">{form.vehiclePlate}</div>
-            </div>
-          ) : (
-            <div className="mt-3">
-              <EmptyState title="Selecione um veículo para visualizar os equipamentos vinculados." />
-            </div>
-          )}
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-white">Veículo</h2>
+          <div className="mt-3 grid gap-4">
+            <VehicleSelector
+              label="Buscar veículo"
+              placeholder="Busque por placa ou nome"
+              onChange={(vehicleId, vehicle) => {
+                setField("vehicleId", vehicleId || "");
+                setField("vehiclePlate", vehicle?.plate || "");
+                setVehicleSnapshot(vehicle || null);
+                setEquipments([]);
+              }}
+            />
+
+            {vehicleSnapshot ? (
+              <div className="grid gap-3 rounded-xl border border-white/10 bg-black/30 p-4 text-xs text-white/70 md:grid-cols-2">
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Placa</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.plate || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Modelo</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.model || vehicleSnapshot.name || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Marca</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.brand || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Chassi</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.chassis || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Renavam</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.renavam || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Cor</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.color || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Ano Modelo</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.modelYear || "—"}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] uppercase tracking-wide text-white/50">Ano Fabricação</div>
+                  <div className="text-sm text-white">{vehicleSnapshot.manufactureYear || "—"}</div>
+                </div>
+              </div>
+            ) : (
+              <EmptyState title="Selecione um veículo para visualizar os dados." />
+            )}
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-sm font-semibold text-white">Equipamentos</h2>
+          <div className="mt-3 space-y-3">
+            {devicesLoading ? (
+              <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/70">
+                Carregando equipamentos...
+              </div>
+            ) : !form.vehicleId ? (
+              <EmptyState title="Selecione um veículo para carregar os equipamentos disponíveis." />
+            ) : equipmentOptions.length === 0 ? (
+              <EmptyState title="Nenhum equipamento encontrado para este veículo." />
+            ) : (
+              <div className="grid gap-2 md:grid-cols-2">
+                {equipmentOptions.map((option) => {
+                  const selected = equipments.some((item) => String(item.equipmentId) === String(option.id));
+                  return (
+                    <label
+                      key={option.id}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
+                        selected ? "border-sky-400/60 bg-sky-500/10 text-white" : "border-white/10 bg-black/30 text-white/70"
+                      }`}
+                    >
+                      <input type="checkbox" checked={selected} onChange={() => toggleEquipment(option)} />
+                      <span>{option.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
+            {equipments.length > 0 && (
+              <div className="space-y-3">
+                {equipments.map((equipment) => (
+                  <label key={equipment.equipmentId} className="block text-xs text-white/60">
+                    Local de instalação - {equipment.model || equipment.equipmentId}
+                    <input
+                      value={equipment.installLocation}
+                      onChange={(event) => updateEquipmentLocation(equipment.equipmentId, event.target.value)}
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                      placeholder="Ex: Painel, porta, porta-luvas"
+                      required
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div>
           <h2 className="text-sm font-semibold text-white">Checklist</h2>
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            {["Alarme ativo", "Fiação ok", "GPS fix", "Antena ok", "Bloqueio testado", "Etiqueta instalada"].map((item) => (
-              <label
-                key={item}
-                className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/80"
-              >
-                <span>{item}</span>
-                <div className="flex items-center gap-2 text-xs text-white/60">
-                  <button type="button" className="rounded-lg bg-white/10 px-2 py-1">
-                    OK
-                  </button>
-                  <button type="button" className="rounded-lg bg-white/5 px-2 py-1">
-                    N/A
-                  </button>
-                </div>
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <h2 className="text-sm font-semibold text-white">Endereço</h2>
-          <div className="mt-3 grid gap-3 md:grid-cols-3">
-            <label className="block text-xs text-white/60 md:col-span-2">
-              Logradouro
-              <input
-                value={form.addressStreet}
-                onChange={(event) => setField("addressStreet", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Rua, avenida..."
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Número
-              <input
-                value={form.addressNumber}
-                onChange={(event) => setField("addressNumber", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="123"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Bairro
-              <input
-                value={form.addressNeighborhood}
-                onChange={(event) => setField("addressNeighborhood", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Cidade
-              <input
-                value={form.addressCity}
-                onChange={(event) => setField("addressCity", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              UF
-              <input
-                value={form.addressState}
-                onChange={(event) => setField("addressState", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="MG"
-              />
-            </label>
-            <label className="block text-xs text-white/60">
-              Complemento
-              <input
-                value={form.addressComplement}
-                onChange={(event) => setField("addressComplement", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Apto, bloco..."
-              />
-            </label>
-            <label className="block text-xs text-white/60 md:col-span-2">
-              Referência
-              <input
-                value={form.addressReference}
-                onChange={(event) => setField("addressReference", event.target.value)}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                placeholder="Ponto de referência"
-              />
-            </label>
+          <div className="mt-3 overflow-hidden rounded-xl border border-white/10">
+            <table className="min-w-full text-left text-xs text-white/70">
+              <thead className="bg-white/5 text-[11px] uppercase tracking-wide text-white/60">
+                <tr>
+                  <th className="px-3 py-2">Item</th>
+                  <th className="px-3 py-2">Antes</th>
+                  <th className="px-3 py-2">Depois</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {checklist.map((entry, index) => (
+                  <tr key={entry.item}>
+                    <td className="px-3 py-2 text-white">{entry.item}</td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={entry.before}
+                        onChange={(event) => updateChecklist(index, "before", event.target.value)}
+                        className="w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white focus:border-white/30 focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value="OK">OK</option>
+                        <option value="NOK">NOK</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={entry.after}
+                        onChange={(event) => updateChecklist(index, "after", event.target.value)}
+                        className="w-full rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white focus:border-white/30 focus:outline-none"
+                      >
+                        <option value="">—</option>
+                        <option value="OK">OK</option>
+                        <option value="NOK">NOK</option>
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 

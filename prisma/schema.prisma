@@ -189,6 +189,7 @@ model Equipment {
 model ServiceOrder {
   id               String   @id @default(uuid())
   clientId         String
+  clientName       String?
   vehicleId        String?
   osInternalId     String
   type             String?
@@ -209,6 +210,8 @@ model ServiceOrder {
   serial           String?
   externalRef      String?
   equipmentsText   String?
+  equipmentsData   Json?
+  checklistItems   Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
