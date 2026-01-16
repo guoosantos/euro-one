@@ -4,7 +4,6 @@ import { Pencil, RefreshCw } from "lucide-react";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import FilterBar from "../../components/ui/FilterBar.jsx";
-import DataCard from "../../components/ui/DataCard.jsx";
 import DataTable from "../../components/ui/DataTable.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
@@ -16,7 +15,7 @@ const STATUS_OPTIONS = [
   { value: "EM_DESLOCAMENTO", label: "Em deslocamento" },
   { value: "EM_EXECUCAO", label: "Em execução" },
   { value: "AGUARDANDO_APROVACAO", label: "Aguardando aprovação" },
-  { value: "CONCLUIDA", label: "Concluída" },
+  { value: "CONCLUIDA", label: "Concluído" },
   { value: "CANCELADA", label: "Cancelada" },
   { value: "REMANEJADA", label: "Remanejada" },
 ];
@@ -32,6 +31,11 @@ function formatDate(value) {
 }
 
 export default function ServiceOrdersList() {
+  const statusLabel = useMemo(() => {
+    const map = new Map(STATUS_OPTIONS.filter((option) => option.value).map((option) => [option.value, option.label]));
+    return (value) => map.get(value) || value || "—";
+  }, []);
+
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
@@ -86,7 +90,7 @@ export default function ServiceOrdersList() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="Serviços"
+        title="Ordem de Serviço"
         subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
@@ -106,57 +110,55 @@ export default function ServiceOrdersList() {
         }
       />
 
-      <DataCard>
-        <FilterBar
-          left={
-            <>
-              <input
-                value={q}
-                onChange={(event) => setQ(event.target.value)}
-                placeholder="Buscar por OS, placa, contato, técnico..."
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-80"
-              />
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-60"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              />
-              <input
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              />
-            </>
-          }
-          right={
-            <button
-              type="button"
-              onClick={fetchOrders}
-              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+      <FilterBar
+        left={
+          <>
+            <input
+              value={q}
+              onChange={(event) => setQ(event.target.value)}
+              placeholder="Buscar por OS, placa, contato, técnico..."
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-80"
+            />
+            <select
+              value={status}
+              onChange={(event) => setStatus(event.target.value)}
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-60"
             >
-              <span className="inline-flex items-center gap-2">
-                <RefreshCw className="h-4 w-4" />
-                Atualizar
-              </span>
-            </button>
-          }
-        />
-      </DataCard>
+              {STATUS_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            />
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            />
+          </>
+        }
+        right={
+          <button
+            type="button"
+            onClick={fetchOrders}
+            className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+          >
+            <span className="inline-flex items-center gap-2">
+              <RefreshCw className="h-4 w-4" />
+              Atualizar
+            </span>
+          </button>
+        }
+      />
 
-      <DataCard className="overflow-hidden p-0">
+      <div className="overflow-hidden rounded-2xl border border-white/10">
         <DataTable>
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
             <tr className="text-left">
@@ -164,7 +166,7 @@ export default function ServiceOrdersList() {
               <th className="px-4 py-3">Placa</th>
               <th className="px-4 py-3">Responsável</th>
               <th className="px-4 py-3">Técnico</th>
-              <th className="px-4 py-3">Início</th>
+              <th className="px-4 py-3">Data</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
@@ -210,7 +212,7 @@ export default function ServiceOrdersList() {
                   <td className="px-4 py-3">{formatDate(item.startAt)}</td>
                   <td className="px-4 py-3">
                     <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                      {item.status || "—"}
+                      {statusLabel(item.status)}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -226,7 +228,7 @@ export default function ServiceOrdersList() {
               ))}
           </tbody>
         </DataTable>
-      </DataCard>
+      </div>
     </div>
   );
 }

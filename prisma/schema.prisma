@@ -190,6 +190,8 @@ model ServiceOrder {
   id               String   @id @default(uuid())
   clientId         String
   vehicleId        String?
+  clientName       String?
+  crmClientId      String?
   osInternalId     String
   type             String?
   status           String?
@@ -209,6 +211,7 @@ model ServiceOrder {
   serial           String?
   externalRef      String?
   equipmentsText   String?
+  checklist        Json?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
