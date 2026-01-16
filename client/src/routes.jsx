@@ -19,6 +19,10 @@ import CreateCommands from "./pages/CreateCommands";
 import Vehicles from "./pages/Vehicles";
 import Docs from "./pages/Docs";
 import Services from "./pages/Services";
+import ServiceOrderDetails from "./pages/serviceOrders/ServiceOrderDetails.jsx";
+import ServiceOrderExecute from "./pages/serviceOrders/ServiceOrderExecute.jsx";
+import ServiceOrderImport from "./pages/serviceOrders/ServiceOrderImport.jsx";
+import ServiceOrderNew from "./pages/serviceOrders/ServiceOrderNew.jsx";
 import Deliveries from "./pages/Deliveries";
 import DeviceImport from "./pages/DeviceImport";
 import Geofences from "./pages/Geofences.jsx";
@@ -84,6 +88,10 @@ export const routeConfig = [
   { path: "/drivers", element: Drivers, title: "Motoristas", requireTenant: true },
   { path: "/documents", element: Docs, title: "Documentos", requireTenant: true },
   { path: "/services", element: Services, title: "Serviços", requireTenant: true },
+  { path: "/services/new", element: ServiceOrderNew, title: "Nova OS", requireTenant: true },
+  { path: "/services/import", element: ServiceOrderImport, title: "Importar OS", requireTenant: true, roles: ["admin"] },
+  { path: "/services/:id", element: ServiceOrderDetails, title: "Detalhes da OS", requireTenant: true },
+  { path: "/services/:id/execute", element: ServiceOrderExecute, title: "Execução da OS", requireTenant: true },
   { path: "/deliveries", element: Deliveries, title: "Entregas", requireTenant: true },
   { path: "/tasks", element: Tasks, title: "Tasks", requireTenant: true },
   { path: "/tasks/new", element: TaskForm, title: "Nova task", requireTenant: true },

@@ -33,6 +33,7 @@ import trackerMappingRoutes from "./routes/tracker-mappings.js";
 import mapMatchingRoutes from "./routes/map-matching.js";
 import protocolRoutes from "./routes/protocols.js";
 import alertRoutes from "./routes/alerts.js";
+import serviceOrderRoutes from "./routes/service-orders.js";
 import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
 import { errorHandler } from "./middleware/error-handler.js";
@@ -114,6 +115,7 @@ app.use("/api", euroRoutes);
 app.use("/api", mapMatchingRoutes);
 app.use("/api", protocolRoutes);
 app.use("/api", xdmRoutes);
+app.use("/api/core", serviceOrderRoutes);
 app.use("/api/admin", xdmAdminRoutes);
 
 if (fs.existsSync(clientDistPath)) {
