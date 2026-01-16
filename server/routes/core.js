@@ -1894,11 +1894,22 @@ router.get("/technicians", async (req, res, next) => {
         id: tech.id,
         name: tech.name,
         email: tech.email,
+        username: tech.username || null,
         clientId: tech.clientId,
         phone: attributes.phone || null,
         city: attributes.city || null,
         state: attributes.state || null,
         status: attributes.status || "ativo",
+        type: attributes.type || null,
+        addressSearch: attributes.addressSearch || null,
+        street: attributes.street || null,
+        number: attributes.number || null,
+        complement: attributes.complement || null,
+        district: attributes.district || null,
+        zip: attributes.zip || null,
+        latitude: attributes.latitude ?? null,
+        longitude: attributes.longitude ?? null,
+        loginConfigured: attributes.loginConfigured ?? null,
         contact: attributes.phone || tech.email || null,
       };
     });
@@ -1922,6 +1933,17 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
     const city = body.city ? String(body.city).trim() : "";
     const state = body.state ? String(body.state).trim() : "";
     const status = body.status ? String(body.status).trim().toLowerCase() : "ativo";
+    const type = body.type ? String(body.type).trim() : "";
+    const addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
+    const street = body.street ? String(body.street).trim() : "";
+    const number = body.number ? String(body.number).trim() : "";
+    const complement = body.complement ? String(body.complement).trim() : "";
+    const district = body.district ? String(body.district).trim() : "";
+    const zip = body.zip ? String(body.zip).trim() : "";
+    const latitudeRaw = body.latitude !== undefined && body.latitude !== null && body.latitude !== "" ? Number(body.latitude) : null;
+    const longitudeRaw = body.longitude !== undefined && body.longitude !== null && body.longitude !== "" ? Number(body.longitude) : null;
+    const latitude = Number.isFinite(latitudeRaw) ? latitudeRaw : null;
+    const longitude = Number.isFinite(longitudeRaw) ? longitudeRaw : null;
 
     if (!name || !email) {
       throw createError(400, "Nome e e-mail são obrigatórios");
@@ -1939,6 +1961,16 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         city,
         state,
         status,
+        type,
+        addressSearch,
+        street,
+        number,
+        complement,
+        district,
+        zip,
+        latitude,
+        longitude,
+        loginConfigured: false,
       },
     });
 
@@ -1948,11 +1980,22 @@ router.post("/technicians", deps.requireRole("manager", "admin"), async (req, re
         id: technician.id,
         name: technician.name,
         email: technician.email,
+        username: technician.username || null,
         clientId: technician.clientId,
         phone,
         city,
         state,
         status,
+        type,
+        addressSearch,
+        street,
+        number,
+        complement,
+        district,
+        zip,
+        latitude,
+        longitude,
+        loginConfigured: false,
         contact: phone || email,
       },
     });
@@ -1992,6 +2035,35 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
     if (Object.prototype.hasOwnProperty.call(body, "status")) {
       attributes.status = body.status ? String(body.status).trim().toLowerCase() : "ativo";
     }
+    if (Object.prototype.hasOwnProperty.call(body, "type")) {
+      attributes.type = body.type ? String(body.type).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "addressSearch")) {
+      attributes.addressSearch = body.addressSearch ? String(body.addressSearch).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "street")) {
+      attributes.street = body.street ? String(body.street).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "number")) {
+      attributes.number = body.number ? String(body.number).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "complement")) {
+      attributes.complement = body.complement ? String(body.complement).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "district")) {
+      attributes.district = body.district ? String(body.district).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "zip")) {
+      attributes.zip = body.zip ? String(body.zip).trim() : "";
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "latitude")) {
+      const nextLatitude = body.latitude !== null && body.latitude !== "" ? Number(body.latitude) : null;
+      attributes.latitude = Number.isFinite(nextLatitude) ? nextLatitude : null;
+    }
+    if (Object.prototype.hasOwnProperty.call(body, "longitude")) {
+      const nextLongitude = body.longitude !== null && body.longitude !== "" ? Number(body.longitude) : null;
+      attributes.longitude = Number.isFinite(nextLongitude) ? nextLongitude : null;
+    }
 
     const payload = {
       name: body.name !== undefined ? String(body.name).trim() : undefined,
@@ -2007,12 +2079,73 @@ router.put("/technicians/:id", deps.requireRole("manager", "admin"), async (req,
         id: updated.id,
         name: updated.name,
         email: updated.email,
+        username: updated.username || null,
         clientId: updated.clientId,
         phone: attributes.phone || null,
         city: attributes.city || null,
         state: attributes.state || null,
         status: attributes.status || "ativo",
+        type: attributes.type || null,
+        addressSearch: attributes.addressSearch || null,
+        street: attributes.street || null,
+        number: attributes.number || null,
+        complement: attributes.complement || null,
+        district: attributes.district || null,
+        zip: attributes.zip || null,
+        latitude: attributes.latitude ?? null,
+        longitude: attributes.longitude ?? null,
+        loginConfigured: attributes.loginConfigured ?? null,
         contact: attributes.phone || updated.email || null,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/technicians/:id/login", deps.requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    if (!isPrismaAvailable()) {
+      throw createError(503, "Banco de dados indisponível");
+    }
+    const body = req.body || {};
+    const existing = await getUserById(req.params.id, { includeSensitive: true });
+    if (!existing || existing.role !== TECHNICIAN_ROLE) {
+      throw createError(404, "Técnico não encontrado");
+    }
+
+    if (req.user?.role !== "admin") {
+      const requiredClientId = deps.resolveClientId(req, body.clientId || existing.clientId, { required: true });
+      if (String(requiredClientId) !== String(existing.clientId)) {
+        throw createError(403, "Operação não permitida para este cliente");
+      }
+    }
+
+    const attributes = { ...(existing.attributes || {}) };
+    const shouldMarkConfigured = Boolean(body.password || body.username || body.email);
+    if (shouldMarkConfigured) {
+      attributes.loginConfigured = true;
+      attributes.loginUpdatedAt = new Date().toISOString();
+    }
+
+    const payload = {
+      email: body.email !== undefined ? String(body.email).trim() : undefined,
+      username: body.username !== undefined ? String(body.username).trim() : undefined,
+      password: body.password !== undefined ? String(body.password) : undefined,
+      attributes,
+    };
+
+    const updated = await updateUser(existing.id, payload);
+
+    res.json({
+      ok: true,
+      item: {
+        id: updated.id,
+        name: updated.name,
+        email: updated.email,
+        username: updated.username || null,
+        clientId: updated.clientId,
+        loginConfigured: attributes.loginConfigured ?? false,
       },
     });
   } catch (error) {

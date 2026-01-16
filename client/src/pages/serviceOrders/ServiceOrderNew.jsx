@@ -101,6 +101,9 @@ export default function ServiceOrderNew() {
   const [vehicleSnapshot, setVehicleSnapshot] = useState(null);
   const [equipments, setEquipments] = useState([]);
   const [equipmentQuery, setEquipmentQuery] = useState("");
+  const [equipmentDropdownOpen, setEquipmentDropdownOpen] = useState(false);
+  const [equipmentHighlightIndex, setEquipmentHighlightIndex] = useState(0);
+  const equipmentContainerRef = React.useRef(null);
   const [checklist, setChecklist] = useState(() =>
     CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
   );
@@ -215,15 +218,17 @@ export default function ServiceOrderNew() {
   );
   const filteredEquipmentOptions = useMemo(() => {
     const term = equipmentQuery.trim().toLowerCase();
-    if (!term) return equipmentOptions;
-    return equipmentOptions.filter((option) => {
+    const selectedIds = new Set(equipments.map((item) => String(item.equipmentId)));
+    const base = equipmentOptions.filter((option) => !selectedIds.has(String(option.id)));
+    if (!term) return base;
+    return base.filter((option) => {
       const haystack = [option.label, option.model, option.status, option.uniqueId, option.id]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
       return haystack.includes(term);
     });
-  }, [equipmentOptions, equipmentQuery]);
+  }, [equipmentOptions, equipmentQuery, equipments]);
 
   const setField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -237,11 +242,21 @@ export default function ServiceOrderNew() {
     return "";
   };
 
-  const toggleEquipment = (option) => {
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (!equipmentContainerRef.current) return;
+      if (equipmentContainerRef.current.contains(event.target)) return;
+      setEquipmentDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const addEquipment = (option) => {
     setEquipments((prev) => {
       const exists = prev.find((item) => String(item.equipmentId) === String(option.id));
       if (exists) {
-        return prev.filter((item) => String(item.equipmentId) !== String(option.id));
+        return prev;
       }
       return [
         ...prev,
@@ -256,6 +271,10 @@ export default function ServiceOrderNew() {
         },
       ];
     });
+  };
+
+  const removeEquipment = (equipmentId) => {
+    setEquipments((prev) => prev.filter((item) => String(item.equipmentId) !== String(equipmentId)));
   };
 
   const updateEquipmentLocation = (equipmentId, value) => {
@@ -665,37 +684,91 @@ export default function ServiceOrderNew() {
             ) : equipmentOptions.length === 0 ? (
               <EmptyState title="Nenhum equipamento disponível para seleção." />
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3" ref={equipmentContainerRef}>
                 <label className="block text-xs text-white/60">
                   Buscar equipamento
-                  <input
-                    value={equipmentQuery}
-                    onChange={(event) => setEquipmentQuery(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                    placeholder="Digite ID, modelo, IMEI ou status"
-                  />
+                  <div className="relative mt-2">
+                    <input
+                      value={equipmentQuery}
+                      onChange={(event) => {
+                        setEquipmentQuery(event.target.value);
+                        setEquipmentDropdownOpen(true);
+                        setEquipmentHighlightIndex(0);
+                      }}
+                      onFocus={() => setEquipmentDropdownOpen(true)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") {
+                          setEquipmentDropdownOpen(false);
+                          return;
+                        }
+                        if (event.key === "Enter" && equipmentDropdownOpen) {
+                          event.preventDefault();
+                          const candidate =
+                            filteredEquipmentOptions[equipmentHighlightIndex] || filteredEquipmentOptions[0];
+                          if (candidate) {
+                            addEquipment(candidate);
+                            setEquipmentQuery("");
+                            setEquipmentDropdownOpen(false);
+                          }
+                        }
+                      }}
+                      className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                      placeholder="Digite ID, modelo, IMEI ou status"
+                    />
+                    {equipmentDropdownOpen && (
+                      <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f141c] py-1 shadow-lg">
+                        {filteredEquipmentOptions.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-white/50">Nenhum equipamento encontrado.</div>
+                        ) : (
+                          <ul className="text-sm">
+                            {filteredEquipmentOptions.map((option, index) => (
+                              <li key={option.id}>
+                                <button
+                                  type="button"
+                                  className={`flex w-full items-start justify-between px-3 py-2 text-left transition hover:bg-white/5 ${
+                                    index === equipmentHighlightIndex ? "bg-white/5" : ""
+                                  }`}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                    addEquipment(option);
+                                    setEquipmentQuery("");
+                                    setEquipmentDropdownOpen(false);
+                                  }}
+                                  onMouseEnter={() => setEquipmentHighlightIndex(index)}
+                                >
+                                  <span className="flex flex-col">
+                                    <span className="text-white">{option.label}</span>
+                                    <span className="text-xs text-white/50">{option.model || "Modelo não informado"}</span>
+                                  </span>
+                                  <span className="text-[11px] text-white/40">{option.status || "—"}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </label>
-                <div className="grid gap-2 md:grid-cols-2">
-                  {filteredEquipmentOptions.map((option) => {
-                    const selected = equipments.some((item) => String(item.equipmentId) === String(option.id));
-                    return (
-                      <label
-                        key={option.id}
-                        className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-sm transition ${
-                          selected
-                            ? "border-sky-400/60 bg-sky-500/10 text-white"
-                            : "border-white/10 bg-black/30 text-white/70"
-                        }`}
+                {equipments.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {equipments.map((equipment) => (
+                      <div
+                        key={equipment.equipmentId}
+                        className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70"
                       >
-                        <input type="checkbox" checked={selected} onChange={() => toggleEquipment(option)} />
-                        <span className="flex flex-col">
-                          <span>{option.label}</span>
-                          <span className="text-xs text-white/50">{option.model || "Modelo não informado"}</span>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
+                        <span>{equipment.model || equipment.equipmentId}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeEquipment(equipment.equipmentId)}
+                          className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/70 transition hover:bg-white/20"
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -711,6 +784,16 @@ export default function ServiceOrderNew() {
                       key={equipment.equipmentId}
                       className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4"
                     >
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs uppercase tracking-wide text-white/50">Equipamento selecionado</div>
+                        <button
+                          type="button"
+                          onClick={() => removeEquipment(equipment.equipmentId)}
+                          className="rounded-full border border-white/10 px-3 py-1 text-[11px] text-white/70 transition hover:border-white/30"
+                        >
+                          Remover
+                        </button>
+                      </div>
                       <div className="grid gap-3 text-xs text-white/70 md:grid-cols-2">
                         <div>
                           <div className="text-[11px] uppercase tracking-wide text-white/50">ID</div>
@@ -733,7 +816,7 @@ export default function ServiceOrderNew() {
                               ? `${linkedVehicle.plate || linkedVehicle.name || linkedVehicle.id}`
                               : device?.vehicleId
                                 ? device.vehicleId
-                                : "Sem vínculo"}
+                                : "Disponível"}
                           </div>
                         </div>
                         <div>
