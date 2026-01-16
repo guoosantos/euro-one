@@ -1,6 +1,5 @@
 import express from "express";
 import createError from "http-errors";
-import { randomUUID } from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
@@ -12,6 +11,7 @@ const router = express.Router();
 router.use(authenticate);
 
 const STATUS_FALLBACK = "SOLICITADA";
+const CHECKLIST_STATUS_VALUES = new Set(["OK", "NOK"]);
 
 function ensurePrisma() {
   if (!isPrismaAvailable()) {
@@ -30,6 +30,102 @@ function parseNullableNumber(value) {
   if (value === null || value === undefined || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatYearMonth(date) {
+  const year = date.getFullYear() % 100;
+  const month = date.getMonth() + 1;
+  return `${String(year).padStart(2, "0")}${String(month).padStart(2, "0")}`;
+}
+
+function parseSequence(value) {
+  if (!value) return null;
+  const parsed = Number.parseInt(String(value).replace(/\D/g, ""), 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function buildSequence(value) {
+  const numeric = Number.isFinite(Number(value)) ? Number(value) : 1;
+  return String(numeric).padStart(4, "0");
+}
+
+async function generateOsInternalId(tx, { clientId, referenceDate }) {
+  const prefix = formatYearMonth(referenceDate);
+  const lastOrder = await tx.serviceOrder.findFirst({
+    where: {
+      clientId,
+      osInternalId: { startsWith: prefix },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { osInternalId: true },
+  });
+
+  const lastSequence = lastOrder?.osInternalId?.slice(prefix.length) || null;
+  const lastNumber = parseSequence(lastSequence);
+  const nextNumber = lastNumber ? lastNumber + 1 : 1;
+  return `${prefix}${buildSequence(nextNumber)}`;
+}
+
+function normalizeEquipmentsData(value) {
+  if (!value) return null;
+  let list = value;
+  if (typeof value === "string") {
+    try {
+      list = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+  if (!Array.isArray(list)) return null;
+
+  const normalized = list
+    .map((item) => ({
+      equipmentId: item?.equipmentId || item?.id || null,
+      model: item?.model || item?.name || item?.label || null,
+      installLocation: item?.installLocation || item?.location || null,
+    }))
+    .filter((item) => item.equipmentId || item.model || item.installLocation);
+
+  return normalized.length ? normalized : null;
+}
+
+function buildEquipmentsText(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  return list
+    .map((item) => {
+      const label = item.model || item.equipmentId || "Equipamento";
+      if (item.installLocation) {
+        return `${label} • ${item.installLocation}`;
+      }
+      return label;
+    })
+    .join("\n");
+}
+
+function normalizeChecklistItems(value) {
+  if (!value) return null;
+  let list = value;
+  if (typeof value === "string") {
+    try {
+      list = JSON.parse(value);
+    } catch (_error) {
+      return null;
+    }
+  }
+  if (!Array.isArray(list)) return null;
+  const normalized = list
+    .map((item) => {
+      const before = item?.before ? String(item.before).toUpperCase() : null;
+      const after = item?.after ? String(item.after).toUpperCase() : null;
+      return {
+        item: item?.item ? String(item.item) : null,
+        before: CHECKLIST_STATUS_VALUES.has(before) ? before : before ? String(item.before) : null,
+        after: CHECKLIST_STATUS_VALUES.has(after) ? after : after ? String(item.after) : null,
+      };
+    })
+    .filter((entry) => entry.item);
+
+  return normalized.length ? normalized : null;
 }
 
 async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
@@ -61,6 +157,7 @@ router.get("/service-orders", async (req, res, next) => {
         ? {
             OR: [
               { osInternalId: { contains: search, mode: "insensitive" } },
+              { clientName: { contains: search, mode: "insensitive" } },
               { technicianName: { contains: search, mode: "insensitive" } },
               { responsibleName: { contains: search, mode: "insensitive" } },
               { responsiblePhone: { contains: search, mode: "insensitive" } },
@@ -126,7 +223,20 @@ router.get("/service-orders/:id/pdf", async (req, res, next) => {
         clientId,
       },
       include: {
-        vehicle: { select: { id: true, plate: true, name: true } },
+        vehicle: {
+          select: {
+            id: true,
+            plate: true,
+            name: true,
+            model: true,
+            brand: true,
+            chassis: true,
+            renavam: true,
+            color: true,
+            modelYear: true,
+            manufactureYear: true,
+          },
+        },
       },
     });
 
@@ -162,17 +272,54 @@ router.get("/service-orders/:id/pdf", async (req, res, next) => {
 
     let cursorY = 730;
     const lineGap = 18;
+    const equipmentList =
+      item.equipmentsData || (item.equipmentsText ? [{ model: item.equipmentsText }] : null);
+    const checklistItems = item.checklistItems || null;
+
     const fields = [
       ["Cliente", item.clientName || "—"],
-      ["Veículo", item.vehicle?.plate || item.vehicle?.name || "—"],
+      [
+        "Veículo",
+        item.vehicle
+          ? `${item.vehicle.plate || "—"} • ${item.vehicle.model || item.vehicle.name || "—"}`
+          : "—",
+      ],
+      ["Marca/Modelo", item.vehicle?.brand || item.vehicle?.model || "—"],
+      ["Chassi", item.vehicle?.chassis || "—"],
+      ["Renavam", item.vehicle?.renavam || "—"],
+      ["Cor", item.vehicle?.color || "—"],
+      ["Ano modelo/fabricação", [item.vehicle?.modelYear, item.vehicle?.manufactureYear].filter(Boolean).join(" / ") || "—"],
       ["Técnico", item.technicianName || "—"],
       ["Status", item.status || "—"],
+      ["Tipo", item.type || "—"],
       ["Data/Hora", item.startAt ? new Date(item.startAt).toLocaleString("pt-BR") : "—"],
-      ["Endereço", item.address || "—"],
-      ["Equipamentos", item.equipmentsText || "—"],
-      ["Checklist", "—"],
+      ["Endereço partida", item.addressStart || "—"],
+      ["Endereço serviço", item.address || "—"],
+      ["Endereço volta", item.addressReturn || "—"],
+      ["KM total", item.km ? `${item.km} km` : "—"],
+      [
+        "Equipamentos",
+        equipmentList
+          ? equipmentList
+              .map((equipment) => {
+                const label = equipment.model || equipment.equipmentId || "Equipamento";
+                if (equipment.installLocation) {
+                  return `${label} (${equipment.installLocation})`;
+                }
+                return label;
+              })
+              .join(" | ")
+          : "—",
+      ],
+      [
+        "Checklist",
+        checklistItems
+          ? checklistItems
+              .map((entry) => `${entry.item}: ${entry.before || "—"} → ${entry.after || "—"}`)
+              .join(" | ")
+          : "—",
+      ],
       ["Assinaturas", "—"],
-      ["KM / Valores", item.km ? `${item.km} km` : "—"],
       ["Observações", item.notes || "—"],
     ];
 
@@ -204,40 +351,71 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
     const clientId = resolveClientId(req, req.body?.clientId, { required: true });
     const body = req.body || {};
 
-    const osInternalId = String(body.osInternalId || "").trim() || `OS-${randomUUID().slice(0, 8)}`;
+    const referenceDate = parseNullableDate(body.startAt) || new Date();
+    const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
+    const normalizedChecklist = normalizeChecklistItems(body.checklistItems || body.checklist);
+    const equipmentsText = body.equipmentsText
+      ? String(body.equipmentsText)
+      : buildEquipmentsText(normalizedEquipments);
 
     const resolvedVehicleId = body.vehiclePlate
       ? await resolveVehicleIdByPlate({ clientId, vehiclePlate: body.vehiclePlate })
       : null;
 
-    const created = await prisma.serviceOrder.create({
-      data: {
-        clientId,
-        osInternalId,
-        type: body.type ? String(body.type) : null,
-        status: body.status ? String(body.status) : STATUS_FALLBACK,
-        startAt: parseNullableDate(body.startAt),
-        endAt: parseNullableDate(body.endAt),
-        technicianName: body.technicianName ? String(body.technicianName) : null,
-        address: body.address ? String(body.address) : null,
-        addressStart: body.addressStart ? String(body.addressStart) : null,
-        addressReturn: body.addressReturn ? String(body.addressReturn) : null,
-        km: parseNullableNumber(body.km),
-        reason: body.reason ? String(body.reason) : null,
-        notes: body.notes ? String(body.notes) : null,
-        responsibleName: body.responsibleName ? String(body.responsibleName) : null,
-        responsiblePhone: body.responsiblePhone ? String(body.responsiblePhone) : null,
-        clientValue: parseNullableNumber(body.clientValue),
-        technicianValue: parseNullableNumber(body.technicianValue),
-        serial: body.serial ? String(body.serial) : null,
-        externalRef: body.externalRef ? String(body.externalRef) : null,
-        equipmentsText: body.equipmentsText ? String(body.equipmentsText) : null,
-        vehicleId: resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null),
-      },
-      include: {
-        vehicle: { select: { id: true, plate: true, name: true } },
-      },
-    });
+    let created = null;
+    let lastError = null;
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        created = await prisma.$transaction(async (tx) => {
+          const osInternalId = await generateOsInternalId(tx, { clientId, referenceDate });
+
+          return tx.serviceOrder.create({
+            data: {
+              clientId,
+              osInternalId,
+              clientName: body.clientName ? String(body.clientName) : null,
+              type: body.type ? String(body.type) : null,
+              status: body.status ? String(body.status) : STATUS_FALLBACK,
+              startAt: parseNullableDate(body.startAt),
+              endAt: parseNullableDate(body.endAt),
+              technicianName: body.technicianName ? String(body.technicianName) : null,
+              address: body.address ? String(body.address) : null,
+              addressStart: body.addressStart ? String(body.addressStart) : null,
+              addressReturn: body.addressReturn ? String(body.addressReturn) : null,
+              km: parseNullableNumber(body.km),
+              reason: body.reason ? String(body.reason) : null,
+              notes: body.notes ? String(body.notes) : null,
+              responsibleName: body.responsibleName ? String(body.responsibleName) : null,
+              responsiblePhone: body.responsiblePhone ? String(body.responsiblePhone) : null,
+              clientValue: parseNullableNumber(body.clientValue),
+              technicianValue: parseNullableNumber(body.technicianValue),
+              serial: body.serial ? String(body.serial) : null,
+              externalRef: body.externalRef ? String(body.externalRef) : null,
+              equipmentsText,
+              equipmentsData: normalizedEquipments,
+              checklistItems: normalizedChecklist,
+              vehicleId: resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null),
+            },
+            include: {
+              vehicle: { select: { id: true, plate: true, name: true } },
+            },
+          });
+        });
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+        if (error?.code === "P2002" && attempt < 2) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!created && lastError) {
+      throw lastError;
+    }
 
     return res.status(201).json({ ok: true, item: created });
   } catch (error) {
@@ -264,11 +442,22 @@ router.patch("/service-orders/:id", async (req, res, next) => {
     const resolvedVehicleId = body.vehiclePlate
       ? await resolveVehicleIdByPlate({ clientId, vehiclePlate: body.vehiclePlate })
       : null;
+    const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
+    const normalizedChecklist = normalizeChecklistItems(body.checklistItems || body.checklist);
+    const equipmentsText =
+      body.equipmentsText !== undefined
+        ? body.equipmentsText
+          ? String(body.equipmentsText)
+          : null
+        : normalizedEquipments
+          ? buildEquipmentsText(normalizedEquipments)
+          : undefined;
 
     const updated = await prisma.serviceOrder.update({
       where: { id },
       data: {
         osInternalId: body.osInternalId ? String(body.osInternalId) : undefined,
+        clientName: body.clientName !== undefined ? (body.clientName ? String(body.clientName) : null) : undefined,
         type: body.type !== undefined ? (body.type ? String(body.type) : null) : undefined,
         status: body.status !== undefined ? String(body.status) : undefined,
         startAt: body.startAt !== undefined ? parseNullableDate(body.startAt) : undefined,
@@ -290,8 +479,11 @@ router.patch("/service-orders/:id", async (req, res, next) => {
         technicianValue: body.technicianValue !== undefined ? parseNullableNumber(body.technicianValue) : undefined,
         serial: body.serial !== undefined ? (body.serial ? String(body.serial) : null) : undefined,
         externalRef: body.externalRef !== undefined ? (body.externalRef ? String(body.externalRef) : null) : undefined,
-        equipmentsText:
-          body.equipmentsText !== undefined ? (body.equipmentsText ? String(body.equipmentsText) : null) : undefined,
+        equipmentsText,
+        equipmentsData:
+          body.equipmentsData !== undefined || body.equipments !== undefined ? normalizedEquipments : undefined,
+        checklistItems:
+          body.checklistItems !== undefined || body.checklist !== undefined ? normalizedChecklist : undefined,
         vehicleId:
           body.vehicleId !== undefined || resolvedVehicleId
             ? resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null)

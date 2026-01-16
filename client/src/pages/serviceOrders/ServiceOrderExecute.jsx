@@ -4,6 +4,7 @@ import { useParams } from "react-router-dom";
 import PageHeader from "../../components/ui/PageHeader.jsx";
 import DataCard from "../../components/ui/DataCard.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
+import api from "../../lib/api.js";
 
 const DEFAULT_CHECKLIST = [
   { key: "foto_local", label: "Foto do local" },
@@ -58,11 +59,8 @@ export default function ServiceOrderExecute() {
     const load = async () => {
       setLoading(true);
       try {
-        const response = await fetch(`/api/core/service-orders/${id}`, {
-          credentials: "include",
-        });
-        const payload = await response.json();
-        const serviceOrder = payload?.item || null;
+        const response = await api.get(`core/service-orders/${id}`);
+        const serviceOrder = response?.data?.item || null;
         setItem(serviceOrder);
         setKm(serviceOrder?.km ? String(serviceOrder.km) : "");
         setNotes(serviceOrder?.notes || "");
@@ -96,22 +94,16 @@ export default function ServiceOrderExecute() {
         .filter(Boolean)
         .join("\n\n");
 
-      const response = await fetch(`/api/core/service-orders/${id}`, {
-        method: "PATCH",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          km: km === "" ? null : Number(km),
-          notes: mergedNotes,
-          status: "EM_EXECUCAO",
-        }),
+      const response = await api.patch(`core/service-orders/${id}`, {
+        km: km === "" ? null : Number(km),
+        notes: mergedNotes,
+        status: "EM_EXECUCAO",
       });
 
-      const payload = await response.json();
-      if (!payload?.ok) {
-        throw new Error(payload?.error || "Falha ao salvar execução");
+      if (!response?.data?.ok) {
+        throw new Error(response?.data?.error || "Falha ao salvar execução");
       }
-      setItem(payload.item);
+      setItem(response.data.item);
       alert("Execução salva.");
     } catch (error) {
       console.error("Falha ao salvar execução", error);

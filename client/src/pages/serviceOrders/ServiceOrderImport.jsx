@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 
+import api from "../../lib/api.js";
+
 export default function ServiceOrderImport() {
   const [file, setFile] = useState(null);
   const [clientId, setClientId] = useState("");
@@ -28,20 +30,14 @@ export default function ServiceOrderImport() {
 
     try {
       const contentBase64 = await toBase64(file);
-      const response = await fetch("/api/core/euro/import-xlsx", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          clientId: clientId || undefined,
-          fileName: file.name,
-          contentBase64,
-          mode,
-        }),
+      const response = await api.post("core/euro/import-xlsx", {
+        clientId: clientId || undefined,
+        fileName: file.name,
+        contentBase64,
+        mode,
       });
 
-      const payload = await response.json();
-      setResult(payload);
+      setResult(response?.data || null);
     } catch (error) {
       console.error("Falha no import", error);
       alert("Falha no import.");
