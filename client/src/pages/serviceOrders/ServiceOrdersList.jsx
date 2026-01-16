@@ -193,7 +193,6 @@ export default function ServiceOrdersList() {
     <div className="space-y-4">
       <PageHeader
         title="Ordem de Serviço"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Solicitações, execução e aprovação das OS."
         actions={
           <>
@@ -215,7 +214,7 @@ export default function ServiceOrdersList() {
 
       <FilterBar
         left={
-          <>
+          <div className="flex w-full flex-wrap items-center gap-3 md:flex-nowrap">
             <input
               value={q}
               onChange={(event) => setQ(event.target.value)}
@@ -234,7 +233,7 @@ export default function ServiceOrdersList() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-60"
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-56"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -242,21 +241,19 @@ export default function ServiceOrdersList() {
                 </option>
               ))}
             </select>
-            <div className="flex w-full flex-wrap items-center gap-3 md:w-auto md:flex-nowrap">
-              <input
-                type="date"
-                value={from}
-                onChange={(event) => setFrom(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:w-40"
-              />
-              <input
-                type="date"
-                value={to}
-                onChange={(event) => setTo(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none sm:w-40"
-              />
-            </div>
-          </>
+            <input
+              type="date"
+              value={from}
+              onChange={(event) => setFrom(event.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-40"
+            />
+            <input
+              type="date"
+              value={to}
+              onChange={(event) => setTo(event.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-40"
+            />
+          </div>
         }
         right={
           <button

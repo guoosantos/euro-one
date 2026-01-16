@@ -4,8 +4,7 @@ import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 import Button from "../ui/Button";
-import Modal from "../ui/Modal";
-import { Pencil, Plus, RefreshCw, Search } from "lucide-react";
+import { FolderPlus, Pencil, Plus, RefreshCw, Search, Tags } from "lucide-react";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -16,7 +15,6 @@ import VehicleForm from "../components/vehicles/VehicleForm.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
-import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
@@ -29,6 +27,33 @@ const BRAND_COLORS = {
   chevrolet: "bg-slate-500/20 text-slate-200",
   ford: "bg-indigo-500/20 text-indigo-200",
 };
+
+function Drawer({ open, onClose, title, description, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[9998] flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Veículos</p>
+            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            {description && <p className="text-sm text-white/60">{description}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 bg-white/5 p-2 text-white/70 transition hover:border-white/30 hover:text-white"
+            aria-label="Fechar"
+          >
+            ×
+          </button>
+        </div>
+        <div className="h-[calc(100%-80px)] overflow-y-auto px-6 py-4">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 function VehicleTypeIcon({ type }) {
   const tone = "stroke-white/70";
@@ -71,6 +96,7 @@ function VehicleRow({
   plateLabel,
   responsibleLabel,
   statusLabel,
+  attributeBadges,
   onEdit,
 }) {
   return (
@@ -93,6 +119,15 @@ function VehicleRow({
       <td className="px-4 py-4">{responsibleLabel}</td>
       <td className="px-4 py-4">
         <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">{statusLabel}</span>
+      </td>
+      <td className="px-4 py-4">
+        {attributeBadges?.length ? (
+          <div className="flex flex-wrap gap-2">
+            {attributeBadges}
+          </div>
+        ) : (
+          <span className="text-xs text-white/50">—</span>
+        )}
       </td>
       <td className="px-4 py-4 text-right">
         <button
@@ -118,10 +153,17 @@ export default function Vehicles() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
-  const [open, setOpen] = useState(false);
+  const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
   const [showColumnPicker, setShowColumnPicker] = useState(false);
+  const [vehicleAttributes, setVehicleAttributes] = useState([]);
+  const [attributeQuery, setAttributeQuery] = useState("");
+  const [attributeListQuery, setAttributeListQuery] = useState("");
+  const [attributeFilterId, setAttributeFilterId] = useState("");
+  const [attributeDrawerOpen, setAttributeDrawerOpen] = useState(false);
+  const [attributeDrawerTab, setAttributeDrawerTab] = useState("list");
+  const [attributeForm, setAttributeForm] = useState({ name: "", color: "#38bdf8" });
   const [form, setForm] = useState({
     name: "",
     plate: "",
@@ -144,6 +186,7 @@ export default function Vehicles() {
     fipeCode: "",
     fipeValue: "",
     zeroKm: false,
+    vehicleAttributes: [],
   });
 
   const resolvedClientId = tenantId || user?.clientId || null;
@@ -187,14 +230,32 @@ export default function Vehicles() {
     }
   }
 
+  const loadVehicleAttributes = async (clientId) => {
+    if (!clientId) {
+      setVehicleAttributes([]);
+      return;
+    }
+    try {
+      const list = await CoreApi.listVehicleAttributes({ clientId });
+      setVehicleAttributes(Array.isArray(list) ? list : []);
+    } catch (requestError) {
+      console.error("Falha ao carregar atributos de veículo", requestError);
+      setVehicleAttributes([]);
+    }
+  };
+
   useEffect(() => {
     if (resolvedClientId || user) {
       load();
+      loadVehicleAttributes(resolvedClientId);
     }
   }, [resolvedClientId, user]);
 
   useEffect(() => {
     setQuery("");
+    setAttributeQuery("");
+    setAttributeListQuery("");
+    setAttributeFilterId("");
     setShowColumnPicker(false);
     setMapTarget(null);
   }, [resolvedClientId]);
@@ -215,26 +276,48 @@ export default function Vehicles() {
     deviceIds: trackedDeviceIds,
   });
 
+  const getVehicleAttributeList = (vehicle) => {
+    const list = vehicle?.attributes?.vehicleAttributes;
+    return Array.isArray(list) ? list : [];
+  };
+
   const filteredVehicles = useMemo(() => {
-    if (!query.trim()) return vehicles;
     const term = query.trim().toLowerCase();
-    return vehicles.filter((vehicle) =>
-      [
-        vehicle.model,
-        vehicle.name,
-        vehicle.plate,
-        vehicle.driver,
-        vehicle.group,
-        vehicle.brand,
-        vehicle.clientName,
-        vehicle.client?.name,
-        vehicle.device?.uniqueId,
-        vehicle.device?.name,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(term)),
-    );
-  }, [vehicles, query]);
+    const attributeTerm = attributeQuery.trim().toLowerCase();
+    return vehicles.filter((vehicle) => {
+      if (term) {
+        const matches = [
+          vehicle.model,
+          vehicle.name,
+          vehicle.plate,
+          vehicle.driver,
+          vehicle.group,
+          vehicle.brand,
+          vehicle.clientName,
+          vehicle.client?.name,
+          vehicle.device?.uniqueId,
+          vehicle.device?.name,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(term));
+        if (!matches) return false;
+      }
+
+      const attributes = getVehicleAttributeList(vehicle);
+      if (attributeFilterId) {
+        const hasAttribute = attributes.some((item) => String(item.id) === String(attributeFilterId));
+        if (!hasAttribute) return false;
+      }
+      if (attributeTerm) {
+        const matchesAttribute = attributes.some((item) =>
+          String(item.name || "").toLowerCase().includes(attributeTerm),
+        );
+        if (!matchesAttribute) return false;
+      }
+
+      return true;
+    });
+  }, [attributeFilterId, attributeQuery, getVehicleAttributeList, query, vehicles]);
 
   const columnDefs = useMemo(
     () => [
@@ -283,7 +366,7 @@ export default function Vehicles() {
     saveColumnVisibility(columnStorageKey, visibleColumns);
   }, [columnStorageKey, visibleColumns]);
 
-  const tableColCount = 7;
+  const tableColCount = 8;
 
   const formatVehicleType = (value) => {
     if (!value) return "—";
@@ -326,7 +409,53 @@ export default function Vehicles() {
     });
   }, [devices, form.clientId, form.deviceId, hasAdminAccess, resolvedClientId, tenantId]);
 
-  function openModal() {
+  const attributeCounts = useMemo(() => {
+    const counts = new Map();
+    vehicles.forEach((vehicle) => {
+      getVehicleAttributeList(vehicle).forEach((attribute) => {
+        const key = String(attribute.id || attribute.name);
+        if (!key) return;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+    });
+    return counts;
+  }, [getVehicleAttributeList, vehicles]);
+
+  const filteredAttributeOptions = useMemo(() => {
+    const term = attributeListQuery.trim().toLowerCase();
+    if (!term) return vehicleAttributes;
+    return vehicleAttributes.filter((attribute) =>
+      String(attribute.name || "").toLowerCase().includes(term),
+    );
+  }, [attributeListQuery, vehicleAttributes]);
+
+  const handleCreateAttribute = async (event) => {
+    event.preventDefault();
+    if (!attributeForm.name.trim()) {
+      alert("Informe o nome do atributo.");
+      return;
+    }
+    if (!resolvedClientId && !form.clientId) {
+      alert("Selecione o cliente antes de criar o atributo.");
+      return;
+    }
+    const clientId = resolvedClientId || form.clientId || "";
+    try {
+      const response = await CoreApi.createVehicleAttribute({
+        clientId,
+        name: attributeForm.name.trim(),
+        color: attributeForm.color || "#38bdf8",
+      });
+      const updatedList = response?.items || [];
+      setVehicleAttributes(updatedList);
+      setAttributeForm({ name: "", color: "#38bdf8" });
+      setAttributeDrawerTab("list");
+    } catch (requestError) {
+      alert(requestError?.message || "Falha ao criar atributo.");
+    }
+  };
+
+  function openDrawer() {
     const nextClientId = hasAdminAccess ? tenantId || "" : resolvedClientId || "";
     setForm({
       name: "",
@@ -350,8 +479,9 @@ export default function Vehicles() {
       fipeCode: "",
       fipeValue: "",
       zeroKm: false,
+      vehicleAttributes: [],
     });
-    setOpen(true);
+    setCreateDrawerOpen(true);
   }
 
   async function handleUnlink(vehicle) {
@@ -455,9 +585,10 @@ export default function Vehicles() {
         fipeCode: form.fipeCode?.trim() || undefined,
         fipeValue: form.fipeValue || undefined,
         zeroKm: form.zeroKm || false,
+        vehicleAttributes: Array.isArray(form.vehicleAttributes) ? form.vehicleAttributes : [],
         clientId,
       });
-      setOpen(false);
+      setCreateDrawerOpen(false);
       await load();
     } catch (requestError) {
       alert(requestError?.message || "Falha ao salvar veículo");
@@ -470,7 +601,6 @@ export default function Vehicles() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
         title="Veículos"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Frota e dados principais."
         actions={
           <div className="flex flex-wrap items-center gap-2">
@@ -485,7 +615,19 @@ export default function Vehicles() {
             </button>
             <button
               type="button"
-              onClick={openModal}
+              onClick={() => {
+                setAttributeDrawerTab("list");
+                setAttributeDrawerOpen(true);
+              }}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Tags className="h-4 w-4" /> Atributos
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={openDrawer}
               className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
             >
               <span className="inline-flex items-center gap-2">
@@ -500,19 +642,37 @@ export default function Vehicles() {
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
       )}
 
-      <DataCard>
+      <div className="space-y-3">
         <FilterBar
           left={
             <>
+              <div className="relative min-w-[220px] flex-1">
+                <Tags className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <input
+                  placeholder="Buscar por atributos"
+                  value={attributeQuery}
+                  onChange={(event) => setAttributeQuery(event.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                />
+              </div>
               <div className="relative min-w-[240px] flex-1">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                 <input
-                  placeholder="Buscar (placa, veículo, motorista, equipamento)"
+                  placeholder="Buscar por placa, veículo, motorista, equipamento"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
                 />
               </div>
+              {attributeFilterId && (
+                <button
+                  type="button"
+                  onClick={() => setAttributeFilterId("")}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/70 transition hover:border-white/30"
+                >
+                  Limpar filtro de atributo
+                </button>
+              )}
             </>
           }
           right={
@@ -527,7 +687,7 @@ export default function Vehicles() {
         />
 
         {showColumnPicker && (
-          <div className="mt-3 flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
+          <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
             <label className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -557,9 +717,9 @@ export default function Vehicles() {
             </label>
           </div>
         )}
-      </DataCard>
+      </div>
 
-      <DataCard className="flex-1 overflow-hidden p-0">
+      <div className="flex-1 overflow-hidden rounded-2xl border border-white/10">
         <DataTable tableClassName="text-white/80">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
             <tr>
@@ -569,6 +729,7 @@ export default function Vehicles() {
               <th className="px-4 py-3 text-left">Placa</th>
               <th className="px-4 py-3 text-left">Responsável/Cliente</th>
               <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-left">Atributos</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -587,13 +748,13 @@ export default function Vehicles() {
                     title="Nenhum veículo cadastrado."
                     subtitle="Cadastre um novo veículo para iniciar o acompanhamento."
                     action={
-                      <button
-                        type="button"
-                        onClick={openModal}
-                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                      >
-                        Novo veículo
-                      </button>
+                  <button
+                    type="button"
+                    onClick={openDrawer}
+                    className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                  >
+                    Novo veículo
+                  </button>
                     }
                   />
                 </td>
@@ -606,6 +767,18 @@ export default function Vehicles() {
                 const normalizedType = resolveVehicleIconType(vehicle.type) || vehicle.type;
                 const responsibleLabel =
                   vehicle.clientName || vehicle.client?.name || vehicle.driver || vehicle.group || "—";
+                const attributeBadges = getVehicleAttributeList(vehicle).map((attribute) => (
+                  <span
+                    key={attribute.id || attribute.name}
+                    className="rounded-full border border-white/10 px-2 py-0.5 text-[11px] text-white/80"
+                    style={{
+                      backgroundColor: attribute.color ? `${attribute.color}22` : "rgba(255,255,255,0.08)",
+                      borderColor: attribute.color || "rgba(255,255,255,0.2)",
+                    }}
+                  >
+                    {attribute.name}
+                  </span>
+                ));
                 return (
                   <VehicleRow
                     key={vehicle.id}
@@ -616,15 +789,21 @@ export default function Vehicles() {
                     plateLabel={vehicle.plate || "—"}
                     responsibleLabel={responsibleLabel}
                     statusLabel={vehicle.status || statusLive?.label || "—"}
+                    attributeBadges={attributeBadges}
                     onEdit={() => navigate(`/vehicles/${vehicle.id}`)}
                   />
                 );
               })}
           </tbody>
         </DataTable>
-      </DataCard>
+      </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Novo veículo" width="max-w-3xl">
+      <Drawer
+        open={createDrawerOpen}
+        onClose={() => setCreateDrawerOpen(false)}
+        title="Novo veículo"
+        description="Cadastre os dados principais do veículo."
+      >
         <form onSubmit={handleSave} className="space-y-4">
           <VehicleForm
             value={form}
@@ -636,7 +815,7 @@ export default function Vehicles() {
             deviceOptions={availableDevices}
           />
           <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" onClick={() => setOpen(false)}>
+            <Button type="button" onClick={() => setCreateDrawerOpen(false)}>
               Cancelar
             </Button>
             <Button type="submit" disabled={saving}>
@@ -644,7 +823,107 @@ export default function Vehicles() {
             </Button>
           </div>
         </form>
-      </Modal>
+      </Drawer>
+
+      <Drawer
+        open={attributeDrawerOpen}
+        onClose={() => setAttributeDrawerOpen(false)}
+        title="Atributos"
+        description="Gerencie atributos usados nos veículos."
+      >
+        <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
+          {[
+            { key: "list", label: "Atributos" },
+            { key: "create", label: "Criar" },
+          ].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => setAttributeDrawerTab(tab.key)}
+              className={`rounded-full border px-4 py-2 transition ${
+                attributeDrawerTab === tab.key
+                  ? "border-sky-400 bg-sky-500/20 text-white"
+                  : "border-white/10 text-white/60 hover:border-white/30"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {attributeDrawerTab === "list" && (
+          <div className="space-y-4">
+            <label className="block text-xs text-white/60">
+              Buscar atributo
+              <input
+                value={attributeListQuery}
+                onChange={(event) => setAttributeListQuery(event.target.value)}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                placeholder="Digite o nome do atributo"
+              />
+            </label>
+            <div className="space-y-2">
+              {filteredAttributeOptions.length === 0 && (
+                <EmptyState title="Nenhum atributo cadastrado." subtitle="Crie um atributo para usar nos veículos." />
+              )}
+              {filteredAttributeOptions.map((attribute) => {
+                const count = attributeCounts.get(String(attribute.id || attribute.name)) || 0;
+                return (
+                  <button
+                    key={attribute.id || attribute.name}
+                    type="button"
+                    onClick={() => {
+                      setAttributeFilterId(String(attribute.id || attribute.name));
+                      setAttributeDrawerOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left text-sm text-white/80 transition hover:border-white/30"
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className="h-3 w-3 rounded-full"
+                        style={{ backgroundColor: attribute.color || "#38bdf8" }}
+                      />
+                      {attribute.name}
+                    </span>
+                    <span className="text-xs text-white/50">{count} veículos</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {attributeDrawerTab === "create" && (
+          <form onSubmit={handleCreateAttribute} className="space-y-4">
+            <label className="block text-xs text-white/60">
+              Nome do atributo
+              <input
+                value={attributeForm.name}
+                onChange={(event) => setAttributeForm((prev) => ({ ...prev, name: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                placeholder="Ex.: Rastreador VIP"
+              />
+            </label>
+            <label className="block text-xs text-white/60">
+              Cor do atributo
+              <input
+                type="color"
+                value={attributeForm.color}
+                onChange={(event) => setAttributeForm((prev) => ({ ...prev, color: event.target.value }))}
+                className="mt-2 h-12 w-24 rounded-lg border border-white/10 bg-black/30"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setAttributeDrawerTab("list")}>
+                Voltar
+              </Button>
+              <Button type="submit">
+                <FolderPlus className="h-4 w-4" /> Salvar atributo
+              </Button>
+            </div>
+          </form>
+        )}
+      </Drawer>
 
       <Modal
         open={Boolean(mapTarget)}

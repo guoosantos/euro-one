@@ -146,7 +146,6 @@ export default function Stock() {
     <div className="space-y-4">
       <PageHeader
         title="Estoque"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Controle por cliente, disponíveis e vinculados."
         actions={
           <div className="flex items-center gap-2">

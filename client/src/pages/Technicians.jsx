@@ -181,17 +181,8 @@ export default function Technicians() {
 
   useEffect(() => {
     if (!drawerOpen) return;
-    if (addressSearchState.query !== form.addressSearch) {
-      addressSearchState.setQuery(form.addressSearch || "");
-    }
-  }, [addressSearchState, drawerOpen, form.addressSearch]);
-
-  useEffect(() => {
-    if (!drawerOpen) return;
-    if (addressSearchState.query !== form.addressSearch) {
-      setForm((prev) => ({ ...prev, addressSearch: addressSearchState.query }));
-    }
-  }, [addressSearchState.query, drawerOpen, form.addressSearch]);
+    addressSearchState.resetSuggestions();
+  }, [addressSearchState, drawerOpen]);
 
   const clientNameById = useMemo(() => {
     const map = new Map();
@@ -399,6 +390,7 @@ export default function Technicians() {
       ...defaultForm,
       clientId: hasAdminAccess ? prev.clientId || resolvedClientId : prev.clientId,
     }));
+    addressSearchState.setQuery("");
     setLoginForm({ username: "", email: "", password: "" });
     setLoginConfigured(false);
     setDrawerTab("cadastro");
@@ -480,7 +472,7 @@ export default function Technicians() {
         status: form.status,
         type: form.type,
         profile: form.profile,
-        addressSearch: form.addressSearch.trim(),
+        addressSearch: addressSearchState.query.trim(),
         street: form.street.trim(),
         number: form.number.trim(),
         complement: form.complement.trim(),
@@ -566,6 +558,7 @@ export default function Technicians() {
       longitude: technician.longitude ?? "",
       clientId: technician.clientId || resolvedClientId,
     });
+    addressSearchState.setQuery(technician.addressSearch || "");
     setLoginForm({
       username: technician.username || "",
       email: technician.email || "",
@@ -648,6 +641,18 @@ export default function Technicians() {
     });
   };
 
+  const clearRadiusFilter = () => {
+    radiusSearchState.onClear();
+    setRadiusCandidate(null);
+    setRadiusApplied(null);
+  };
+
+  useEffect(() => {
+    if (radiusSearchState.query.trim()) return;
+    setRadiusCandidate(null);
+    setRadiusApplied(null);
+  }, [radiusSearchState.query]);
+
   const toggleEquipmentStatus = (key) => {
     setEquipmentStatusFilter((prev) =>
       prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key],
@@ -658,7 +663,6 @@ export default function Technicians() {
     <div className="space-y-6">
       <PageHeader
         title="Técnico"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Cadastre e gerencie técnicos disponíveis para ordens de serviço."
         actions={
           <button
@@ -688,6 +692,7 @@ export default function Technicians() {
               <AddressSearchInput
                 state={radiusSearchState}
                 onSelect={handleSelectRadius}
+                onClear={() => setRadiusCandidate(null)}
                 placeholder="Buscar endereço"
                 variant="toolbar"
                 containerClassName="w-full"
@@ -710,6 +715,13 @@ export default function Technicians() {
             className="h-10 rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
           >
             Aplicar
+          </button>
+          <button
+            type="button"
+            onClick={clearRadiusFilter}
+            className="h-10 rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+          >
+            Limpar filtro
           </button>
           <button
             type="button"
@@ -786,7 +798,7 @@ export default function Technicians() {
       </div>
 
       <div className="space-y-3">
-        <div className="overflow-hidden rounded-2xl border border-white/10">
+        <div className="overflow-hidden">
           <DataTable>
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
@@ -915,34 +927,36 @@ export default function Technicians() {
                 ))}
               </select>
             </label>
-            <label className="block text-xs text-white/60">
-              Status
-              <select
-                value={form.status}
-                onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block text-xs text-white/60">
-              Perfil
-              <select
-                value={form.profile}
-                onChange={(event) => setForm((prev) => ({ ...prev, profile: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                {PROFILE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-4 md:col-span-2 md:grid-cols-2">
+              <label className="block text-xs text-white/60">
+                Status
+                <select
+                  value={form.status}
+                  onChange={(event) => setForm((prev) => ({ ...prev, status: event.target.value }))}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                >
+                  {STATUS_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block text-xs text-white/60">
+                Perfil
+                <select
+                  value={form.profile}
+                  onChange={(event) => setForm((prev) => ({ ...prev, profile: event.target.value }))}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                >
+                  {PROFILE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
 
             <div className="md:col-span-2">
               <span className="block text-xs text-white/60">Buscar endereço</span>

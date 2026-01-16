@@ -1104,7 +1104,6 @@ export default function Devices() {
 
       <PageHeader
         title="Equipamentos"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Gestão, vínculo e status dos equipamentos."
         actions={
           <div className="flex flex-col items-end gap-2 text-right">
