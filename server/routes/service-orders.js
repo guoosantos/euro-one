@@ -178,12 +178,18 @@ async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
 router.get("/service-orders", async (req, res, next) => {
   try {
     ensurePrisma();
-    const clientId = resolveClientId(req, req.query?.clientId, { required: true });
+    const hasClientFilter = Boolean(req.query?.clientId);
+    const clientId =
+      req.user?.role === "admin"
+        ? hasClientFilter
+          ? resolveClientId(req, req.query?.clientId, { required: false })
+          : null
+        : resolveClientId(req, req.query?.clientId, { required: true });
     const { status, vehicleId, q } = req.query || {};
     const search = String(q || "").trim();
 
     const where = {
-      clientId,
+      ...(clientId ? { clientId } : {}),
       ...(status ? { status: String(status) } : {}),
       ...(vehicleId ? { vehicleId: String(vehicleId) } : {}),
       ...(search

@@ -8,6 +8,7 @@ import DataTable from "../../components/ui/DataTable.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
 import api from "../../lib/api.js";
+import { useTenant } from "../../lib/tenant-context.jsx";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -21,6 +22,16 @@ const STATUS_OPTIONS = [
   { value: "REMANEJADA", label: "Remanejada" },
 ];
 
+const TYPE_CHIPS = [
+  { key: "ALL", label: "TODOS" },
+  { key: "INSTALACAO", label: "INSTALAÇÃO" },
+  { key: "MANUTENCAO", label: "MANUTENÇÃO" },
+  { key: "RETIRADA", label: "RETIRADA" },
+  { key: "SOCORRO", label: "SOCORRO" },
+  { key: "REMANEJAMENTO", label: "REMANEJAMENTO" },
+  { key: "REINSTALACAO", label: "REINSTALAÇÃO" },
+];
+
 function formatDate(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -31,13 +42,39 @@ function formatDate(value) {
   }).format(date);
 }
 
+function normalizeType(value) {
+  if (!value) return "";
+  return String(value)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+}
+
+function resolveOrderDate(item) {
+  return item?.startAt || item?.createdAt || item?.updatedAt || null;
+}
+
 export default function ServiceOrdersList() {
+  const { user, tenants, hasAdminAccess } = useTenant();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const [clientId, setClientId] = useState(() => {
+    if (user?.role === "admin") return "";
+    return user?.clientId ? String(user.clientId) : "";
+  });
+  const [activeType, setActiveType] = useState("ALL");
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role !== "admin") {
+      setClientId(user.clientId ? String(user.clientId) : "");
+      return;
+    }
+  }, [user]);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -47,6 +84,7 @@ export default function ServiceOrdersList() {
       if (q) params.set("q", q);
       if (from) params.set("from", new Date(from).toISOString());
       if (to) params.set("to", new Date(to).toISOString());
+      if (clientId) params.set("clientId", clientId);
 
       const response = await api.get("core/service-orders", { params });
       setItems(response?.data?.items || []);
@@ -61,12 +99,24 @@ export default function ServiceOrdersList() {
   useEffect(() => {
     fetchOrders();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status]);
+  }, [status, clientId]);
 
-  const filtered = useMemo(() => {
-    if (!q) return items;
-    const term = q.toLowerCase();
+  const baseFiltered = useMemo(() => {
+    const term = q ? q.toLowerCase() : "";
+    const fromDate = from ? new Date(from) : null;
+    const toDate = to ? new Date(to) : null;
+    if (toDate) {
+      toDate.setHours(23, 59, 59, 999);
+    }
     return items.filter((item) => {
+      const orderDate = resolveOrderDate(item);
+      if (fromDate || toDate) {
+        const parsed = orderDate ? new Date(orderDate) : null;
+        if (!parsed || Number.isNaN(parsed.getTime())) return false;
+        if (fromDate && parsed < fromDate) return false;
+        if (toDate && parsed > toDate) return false;
+      }
+      if (!term) return true;
       const values = [
         item.osInternalId,
         item.vehicle?.plate,
@@ -78,7 +128,38 @@ export default function ServiceOrdersList() {
       ];
       return values.some((value) => String(value || "").toLowerCase().includes(term));
     });
-  }, [items, q]);
+  }, [items, q, from, to]);
+
+  const counts = useMemo(() => {
+    const nextCounts = TYPE_CHIPS.reduce(
+      (acc, chip) => ({ ...acc, [chip.key]: 0 }),
+      {},
+    );
+    nextCounts.ALL = baseFiltered.length;
+    baseFiltered.forEach((item) => {
+      const key = normalizeType(item.type);
+      if (key && Object.prototype.hasOwnProperty.call(nextCounts, key)) {
+        nextCounts[key] += 1;
+      }
+    });
+    return nextCounts;
+  }, [baseFiltered]);
+
+  const filtered = useMemo(() => {
+    if (activeType === "ALL") return baseFiltered;
+    return baseFiltered.filter((item) => normalizeType(item.type) === activeType);
+  }, [activeType, baseFiltered]);
+
+  const clientOptions = useMemo(() => {
+    if (!hasAdminAccess) {
+      return tenants.length
+        ? tenants
+        : user?.clientId
+          ? [{ id: user.clientId, name: user.attributes?.companyName || user.name || "Meu cliente" }]
+          : [];
+    }
+    return tenants;
+  }, [hasAdminAccess, tenants, user]);
 
   return (
     <div className="space-y-4">
@@ -112,6 +193,19 @@ export default function ServiceOrdersList() {
               placeholder="Buscar por OS, placa, contato, técnico..."
               className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-80"
             />
+            <select
+              value={clientId}
+              onChange={(event) => setClientId(event.target.value)}
+              disabled={!hasAdminAccess}
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none disabled:cursor-not-allowed disabled:opacity-70 md:w-64"
+            >
+              {hasAdminAccess && <option value="">Todos os clientes</option>}
+              {clientOptions.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
+              ))}
+            </select>
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
@@ -150,6 +244,26 @@ export default function ServiceOrdersList() {
           </button>
         }
       />
+
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {TYPE_CHIPS.map((chip) => {
+          const isActive = activeType === chip.key;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              onClick={() => setActiveType(chip.key)}
+              className={`whitespace-nowrap rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                isActive
+                  ? "border-sky-400 bg-sky-400/20 text-sky-100"
+                  : "border-white/10 bg-white/5 text-white/70 hover:border-white/30 hover:text-white"
+              }`}
+            >
+              {chip.label} {counts[chip.key] ?? 0}
+            </button>
+          );
+        })}
+      </div>
 
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
         <DataTable>
