@@ -420,7 +420,6 @@ export default function ServiceOrderNew() {
     <div className="space-y-6">
       <PageHeader
         title="Nova Ordem de Serviço"
-        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Solicite o serviço e acompanhe o status."
         actions={
           <div className="flex flex-wrap items-center gap-2">

@@ -541,6 +541,22 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
       ? String(body.equipmentsText)
       : buildEquipmentsText(normalizedEquipments);
 
+    if (!body.vehicleId && !body.vehiclePlate) {
+      throw createError(400, "Informe o veículo para a OS");
+    }
+    if (!body.technicianName && !body.technicianId) {
+      throw createError(400, "Informe o técnico responsável");
+    }
+    if ((body.equipmentsData || body.equipments) && !normalizedEquipments) {
+      throw createError(400, "Equipamentos inválidos ou malformados");
+    }
+    if ((body.checklistItems || body.checklist) && !normalizedChecklist) {
+      throw createError(400, "Checklist inválido ou malformado");
+    }
+    if (body.signatures && !normalizedSignatures) {
+      throw createError(400, "Assinaturas inválidas ou malformadas");
+    }
+
     const resolvedVehicleId = body.vehiclePlate
       ? await resolveVehicleIdByPlate({ clientId, vehiclePlate: body.vehiclePlate })
       : null;
@@ -611,6 +627,13 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
 
     return res.status(201).json({ ok: true, item: created, equipmentsLinked: autoLinked.linked });
   } catch (error) {
+    if (error?.code === "P2021") {
+      console.error("[service-orders] falha ao criar OS (schema)", {
+        message: error?.message,
+        meta: error?.meta,
+      });
+      return next(createError(500, "Falha ao criar OS. Atualize e tente novamente."));
+    }
     return next(error);
   }
 });

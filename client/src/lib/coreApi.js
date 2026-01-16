@@ -50,6 +50,11 @@ export const CoreApi = {
     const data = await http("vehicles", { params });
     return normaliseListPayload(data);
   },
+  listVehicleAttributes: async (params) => {
+    const data = await http("vehicle-attributes", { params });
+    return normaliseListPayload(data);
+  },
+  createVehicleAttribute: (payload) => http("vehicle-attributes", { method: "POST", payload }),
   createVehicle: (payload) => http("vehicles", { method: "POST", payload }),
   updateVehicle: (id, payload) => http(`vehicles/${id}`, { method: "PUT", payload }),
   deleteVehicle: (id, payload) => http(`vehicles/${id}`, { method: "DELETE", payload }),

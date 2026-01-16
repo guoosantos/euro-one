@@ -649,6 +649,26 @@ function buildVehicleResponse(vehicle, context) {
   };
 }
 
+function normalizeVehicleAttributesList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item) return null;
+      if (typeof item === "string") {
+        return { id: item, name: item, color: "#38bdf8" };
+      }
+      const id = item.id || item.value || item.key || item.name;
+      const name = item.name || item.label || item.value;
+      if (!name && !id) return null;
+      return {
+        id: id ? String(id) : String(name),
+        name: String(name || id),
+        color: item.color || "#38bdf8",
+      };
+    })
+    .filter(Boolean);
+}
+
 function ensureSameClient(resource, clientId, message) {
   if (!resource || String(resource.clientId) !== String(clientId)) {
     throw createError(404, message);
@@ -2161,6 +2181,53 @@ router.post("/technicians/:id/login", deps.requireRole("manager", "admin"), asyn
   }
 });
 
+router.get("/vehicle-attributes", async (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: true });
+    const client = await deps.getClientById(clientId);
+    if (!client) {
+      throw createError(404, "Cliente não encontrado");
+    }
+    const attributes = Array.isArray(client.attributes?.vehicleAttributes)
+      ? client.attributes.vehicleAttributes
+      : [];
+    res.json({ items: attributes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (req, res, next) => {
+  try {
+    const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
+    const client = await deps.getClientById(clientId);
+    if (!client) {
+      throw createError(404, "Cliente não encontrado");
+    }
+    const name = req.body?.name ? String(req.body.name).trim() : "";
+    if (!name) {
+      throw createError(400, "Nome do atributo é obrigatório");
+    }
+    const color = req.body?.color ? String(req.body.color).trim() : "#38bdf8";
+    const current = Array.isArray(client.attributes?.vehicleAttributes)
+      ? client.attributes.vehicleAttributes
+      : [];
+    const normalizedName = name.toLowerCase();
+    if (current.some((item) => String(item.name || "").toLowerCase() === normalizedName)) {
+      throw createError(409, "Já existe um atributo com este nome");
+    }
+    const nextItem = { id: randomUUID(), name, color };
+    const nextAttributes = {
+      ...(client.attributes || {}),
+      vehicleAttributes: [...current, nextItem],
+    };
+    await deps.updateClient(clientId, { attributes: nextAttributes });
+    res.status(201).json({ ok: true, item: nextItem, items: nextAttributes.vehicleAttributes });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/vehicles", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
@@ -2353,15 +2420,49 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
   try {
     const auditSentAt = new Date().toISOString();
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
-    const {
-      name,
-      plate,
+  const {
+    name,
+    plate,
+    driver,
+    group,
+    type,
+    status,
+    notes,
+    deviceId,
+    item,
+    identifier,
+    model,
+    brand,
+    chassis,
+    renavam,
+    color,
+    modelYear,
+    manufactureYear,
+    fipeCode,
+    fipeValue,
+    zeroKm,
+    attributes: incomingAttributes,
+    vehicleAttributes,
+  } = req.body || {};
+  const normalizedVehicleAttributes = normalizeVehicleAttributesList(
+    vehicleAttributes ?? incomingAttributes?.vehicleAttributes,
+  );
+  const attributes =
+    vehicleAttributes !== undefined || incomingAttributes?.vehicleAttributes !== undefined
+      ? {
+          ...(incomingAttributes && typeof incomingAttributes === "object" ? incomingAttributes : {}),
+          vehicleAttributes: normalizedVehicleAttributes,
+        }
+      : incomingAttributes;
+  const vehicle = deps.createVehicle({
+    clientId,
+    name,
+    plate,
       driver,
       group,
       type,
       status,
       notes,
-      deviceId,
       item,
       identifier,
       model,
@@ -2370,33 +2471,12 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
       renavam,
       color,
       modelYear,
-      manufactureYear,
-      fipeCode,
-      fipeValue,
-      zeroKm,
-    } = req.body || {};
-    const vehicle = deps.createVehicle({
-      clientId,
-      name,
-      plate,
-      driver,
-      group,
-      type,
-      status,
-      notes,
-      item,
-      identifier,
-      model,
-      brand,
-      chassis,
-      renavam,
-      color,
-      modelYear,
-      manufactureYear,
-      fipeCode,
-      fipeValue,
-      zeroKm,
-    });
+    manufactureYear,
+    fipeCode,
+    fipeValue,
+    zeroKm,
+    attributes,
+  });
 
     if (deviceId) {
       linkDeviceToVehicle(clientId, vehicle.id, deviceId);
@@ -2529,7 +2609,7 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
   }
 });
 
-router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+  router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const { id } = req.params;
@@ -2543,6 +2623,15 @@ router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientM
     const payload = { ...req.body };
     if (payload.deviceId === "") {
       payload.deviceId = null;
+    }
+    if (payload.vehicleAttributes !== undefined || payload.attributes?.vehicleAttributes !== undefined) {
+      const normalizedVehicleAttributes = normalizeVehicleAttributesList(
+        payload.vehicleAttributes ?? payload.attributes?.vehicleAttributes,
+      );
+      const baseAttributes =
+        payload.attributes && typeof payload.attributes === "object" ? payload.attributes : {};
+      payload.attributes = { ...baseAttributes, vehicleAttributes: normalizedVehicleAttributes };
+      delete payload.vehicleAttributes;
     }
 
     const updated = deps.updateVehicle(id, payload);

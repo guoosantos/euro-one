@@ -1,0 +1,3 @@
+ALTER TABLE "ServiceOrder" ADD COLUMN IF NOT EXISTS "equipmentsData" JSONB;
+ALTER TABLE "ServiceOrder" ADD COLUMN IF NOT EXISTS "checklistItems" JSONB;
+ALTER TABLE "Vehicle" ADD COLUMN IF NOT EXISTS "attributes" JSONB;

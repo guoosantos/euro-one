@@ -63,6 +63,7 @@ async function syncVehicleToPrisma(record) {
       type: record.type || null,
       status: record.status || null,
       notes: record.notes || null,
+      attributes: record.attributes || null,
       updatedAt: record.updatedAt ? new Date(record.updatedAt) : new Date(),
     };
 
@@ -128,6 +129,7 @@ export function buildVehicleRecordFromPrisma(record) {
     type: record.type || "",
     status: record.status || "",
     notes: record.notes || "",
+    attributes: record.attributes || {},
     deviceId: primaryDevice?.id ? String(primaryDevice.id) : null,
     deviceImei: resolvedDeviceImei,
     xdmDeviceUid: record.xdmDeviceUid ? String(record.xdmDeviceUid).trim() : null,
@@ -216,6 +218,7 @@ export function createVehicle({
   type = "",
   status = "ativo",
   notes = "",
+  attributes = null,
   deviceId = null,
   deviceImei = null,
   xdmDeviceUid = null,
@@ -270,6 +273,7 @@ export function createVehicle({
     type: normalizedType,
     status: status ? String(status).trim() : "ativo",
     notes: notes ? String(notes).trim() : "",
+    attributes: attributes && typeof attributes === "object" ? attributes : {},
     deviceId: deviceId ? String(deviceId) : null,
     deviceImei: deviceImei ? String(deviceImei).trim() : null,
     xdmDeviceUid: xdmDeviceUid ? String(xdmDeviceUid).trim() : null,
@@ -359,6 +363,9 @@ export function updateVehicle(id, updates = {}) {
   }
   if (Object.prototype.hasOwnProperty.call(updates, "notes")) {
     record.notes = updates.notes ? String(updates.notes).trim() : "";
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "attributes")) {
+    record.attributes = updates.attributes && typeof updates.attributes === "object" ? updates.attributes : {};
   }
   if (Object.prototype.hasOwnProperty.call(updates, "plate")) {
     const normalizedPlate = updates.plate ? String(updates.plate).trim() : "";
