@@ -19,9 +19,11 @@ import { syncDevicesFromTraccar } from "../services/device-sync.js";
 import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
+import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
 import { createTtlCache } from "../utils/ttl-cache.js";
+import { importEuroXlsx } from "../services/euro-xlsx-import.js";
 
 const router = express.Router();
 
@@ -922,6 +924,44 @@ router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClie
     res.status(201).json({ device: response });
   } catch (error) {
     next(error);
+  }
+});
+
+router.post("/euro/import-xlsx", deps.requireRole("admin"), async (req, res, next) => {
+  try {
+    if (!config.features.euroXlsxImport) {
+      throw createError(404, "Importação XLSX não habilitada");
+    }
+    if (!isPrismaReady()) {
+      throw createError(503, "Banco de dados indisponível para importação");
+    }
+    const { mode, importMode, targetClientId, fileName, contentBase64 } = req.body || {};
+    if (!mode || !["dry-run", "apply"].includes(mode)) {
+      throw createError(400, "Modo de importação inválido");
+    }
+    if (!importMode || !["singleClient", "byClientName"].includes(importMode)) {
+      throw createError(400, "Modo de cliente inválido");
+    }
+    if (!contentBase64 || typeof contentBase64 !== "string") {
+      throw createError(400, "Arquivo XLSX não informado");
+    }
+    if (importMode === "byClientName" && req.user?.role !== "admin") {
+      throw createError(403, "Somente administradores podem importar por nome de cliente");
+    }
+
+    const payload = {
+      buffer: Buffer.from(contentBase64, "base64"),
+      mode,
+      importMode,
+      targetClientId,
+      fileName,
+      user: req.user,
+    };
+
+    const result = await importEuroXlsx(payload);
+    return res.json(result);
+  } catch (error) {
+    return next(error);
   }
 });
 

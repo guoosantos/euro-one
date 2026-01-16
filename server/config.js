@@ -77,6 +77,9 @@ export const config = {
     reuseDistanceMeters: toNumber(process.env.GEOCODER_REUSE_DISTANCE_METERS, 25),
     maxConcurrent: toNumber(process.env.GEOCODER_MAX_CONCURRENT, 3),
   },
+  features: {
+    euroXlsxImport: process.env.FEATURE_EURO_XLSX_IMPORT === "true",
+  },
 };
 
 export { normaliseTraccarBaseUrl, normaliseBaseUrl };

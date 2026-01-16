@@ -61,6 +61,7 @@ export const CoreApi = {
   createStockItem: (payload) => http("stock", { method: "POST", payload }),
   updateStockItem: (id, payload) => http(`stock/${id}`, { method: "PUT", payload }),
   deleteStockItem: (id, params) => http(`stock/${id}`, { method: "DELETE", params }),
+  importEuroXlsx: (payload) => http("euro/import-xlsx", { method: "POST", payload }),
   // tasks
   listTasks: (params) => http("tasks", { params }),
   createTask: (payload) => http("tasks", { method: "POST", payload }),
