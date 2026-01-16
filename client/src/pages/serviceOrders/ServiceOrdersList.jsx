@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { RefreshCw } from "lucide-react";
+
+import PageHeader from "../../components/ui/PageHeader.jsx";
+import FilterBar from "../../components/ui/FilterBar.jsx";
+import DataCard from "../../components/ui/DataCard.jsx";
+import DataTable from "../../components/ui/DataTable.jsx";
+import EmptyState from "../../components/ui/EmptyState.jsx";
+import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
 
 const STATUS_OPTIONS = [
   { value: "", label: "Todos" },
@@ -28,6 +36,8 @@ export default function ServiceOrdersList() {
   const [items, setItems] = useState([]);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -35,6 +45,8 @@ export default function ServiceOrdersList() {
       const params = new URLSearchParams();
       if (status) params.set("status", status);
       if (q) params.set("q", q);
+      if (from) params.set("from", new Date(from).toISOString());
+      if (to) params.set("to", new Date(to).toISOString());
 
       const response = await fetch(`/api/core/service-orders?${params.toString()}`, {
         credentials: "include",
@@ -73,103 +85,147 @@ export default function ServiceOrdersList() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-lg font-semibold text-white">Ordens de Serviço</div>
-          <p className="text-sm text-white/60">Solicitações, execução e aprovação das OS.</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link className="btn" to="/services/import">
-            Importar XLSX
-          </Link>
-          <Link className="btn btn-primary" to="/services/new">
-            Nova OS
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Serviços"
+        subtitle="Ordens de Serviço"
+        actions={
+          <>
+            <Link
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
+              to="/services/import"
+            >
+              Importar XLSX
+            </Link>
+            <Link
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+              to="/services/new"
+            >
+              Nova OS
+            </Link>
+          </>
+        }
+      />
 
-      <div className="card space-y-3">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center">
-          <input
-            value={q}
-            onChange={(event) => setQ(event.target.value)}
-            placeholder="Buscar por OS, placa, contato, técnico..."
-            className="input md:w-96"
-          />
+      <DataCard>
+        <FilterBar
+          left={
+            <>
+              <input
+                value={q}
+                onChange={(event) => setQ(event.target.value)}
+                placeholder="Buscar por OS, placa, contato, técnico..."
+                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-80"
+              />
+              <select
+                value={status}
+                onChange={(event) => setStatus(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-60"
+              >
+                {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="date"
+                value={from}
+                onChange={(event) => setFrom(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+              <input
+                type="date"
+                value={to}
+                onChange={(event) => setTo(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+            </>
+          }
+          right={
+            <button
+              type="button"
+              onClick={fetchOrders}
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                Atualizar
+              </span>
+            </button>
+          }
+        />
+      </DataCard>
 
-          <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            className="input md:w-64"
-          >
-            {STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-
-          <button type="button" onClick={fetchOrders} className="btn">
-            Atualizar
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-white/50">
-              <tr className="border-b border-white/10 text-left">
-                <th className="py-2 pr-4">OS</th>
-                <th className="py-2 pr-4">Placa</th>
-                <th className="py-2 pr-4">Responsável</th>
-                <th className="py-2 pr-4">Técnico</th>
-                <th className="py-2 pr-4">Início</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 text-right">Ações</th>
+      <DataCard className="overflow-hidden p-0">
+        <DataTable>
+          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+            <tr className="text-left">
+              <th className="px-4 py-3">OS</th>
+              <th className="px-4 py-3">Placa</th>
+              <th className="px-4 py-3">Responsável</th>
+              <th className="px-4 py-3">Técnico</th>
+              <th className="px-4 py-3">Início</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading && (
+              <tr>
+                <td colSpan={7} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={7} />
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td className="py-4 text-white/50" colSpan={7}>
-                    Carregando...
-                  </td>
-                </tr>
-              ) : filtered.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="py-4 text-center text-white/50">
-                    Nenhuma ordem de serviço encontrada com os filtros atuais.
-                  </td>
-                </tr>
-              ) : (
-                filtered.map((item) => (
-                  <tr key={item.id} className="border-b border-white/5">
-                    <td className="py-3 pr-4 font-medium text-white">
-                      {item.osInternalId || item.id.slice(0, 8)}
-                    </td>
-                    <td className="py-3 pr-4">{item.vehicle?.plate || "—"}</td>
-                    <td className="py-3 pr-4">
-                      <div className="text-white">{item.responsibleName || "—"}</div>
-                      <div className="text-xs text-white/50">{item.responsiblePhone || ""}</div>
-                    </td>
-                    <td className="py-3 pr-4">{item.technicianName || "—"}</td>
-                    <td className="py-3 pr-4">{formatDate(item.startAt)}</td>
-                    <td className="py-3 pr-4">
-                      <span className="rounded-full bg-white/10 px-3 py-1 text-xs text-white/80">
-                        {item.status || "—"}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      <Link className="btn" to={`/services/${item.id}`}>
-                        Ver detalhes
+            )}
+            {!loading && filtered.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8">
+                  <EmptyState
+                    title="Nenhuma ordem de serviço encontrada com os filtros atuais."
+                    subtitle="Crie uma nova OS para iniciar o fluxo."
+                    action={
+                      <Link
+                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                        to="/services/new"
+                      >
+                        Criar OS
                       </Link>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    }
+                  />
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              filtered.map((item) => (
+                <tr key={item.id} className="border-t border-white/10 hover:bg-white/5">
+                  <td className="px-4 py-3 font-medium text-white">
+                    {item.osInternalId || item.id.slice(0, 8)}
+                  </td>
+                  <td className="px-4 py-3">{item.vehicle?.plate || "—"}</td>
+                  <td className="px-4 py-3">
+                    <div className="text-white">{item.responsibleName || "—"}</div>
+                    <div className="text-xs text-white/50">{item.responsiblePhone || ""}</div>
+                  </td>
+                  <td className="px-4 py-3">{item.technicianName || "—"}</td>
+                  <td className="px-4 py-3">{formatDate(item.startAt)}</td>
+                  <td className="px-4 py-3">
+                    <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                      {item.status || "—"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <Link
+                      className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+                      to={`/services/${item.id}`}
+                    >
+                      Ver
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </DataTable>
+      </DataCard>
     </div>
   );
 }

@@ -25,8 +25,13 @@ import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
-import PageHeader from "../ui/PageHeader";
 import DropdownMenu from "../ui/DropdownMenu";
+import PageHeader from "../components/ui/PageHeader.jsx";
+import FilterBar from "../components/ui/FilterBar.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
+import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
@@ -1131,107 +1136,123 @@ export default function Devices() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       {toast && <div className={toastClassName}>{toast.message}</div>}
 
-      <div className="-mx-4 space-y-3 border-b border-white/5 bg-[#0c1119]/90 px-4 pb-4 pt-2 backdrop-blur sm:mx-0 sm:rounded-2xl sm:border">
-        <PageHeader
-          title="Equipamentos"
-          right={
-            <div className="flex flex-col items-end gap-1 text-right">
-              <div className="flex gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={handleSyncDevices}
-                  className="inline-flex items-center gap-2"
-                  disabled={syncing}
-                >
+      <PageHeader
+        title="Equipamentos"
+        subtitle="Gestão, vínculo e status dos equipamentos."
+        actions={
+          <div className="flex flex-col items-end gap-2 text-right">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={handleSyncDevices}
+                disabled={syncing}
+                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+              >
+                <span className="inline-flex items-center gap-2">
                   <RefreshCw className="h-4 w-4" />
-                  <span>{syncing ? "Sincronizando…" : "Sincronizar Traccar"}</span>
-                </Button>
-                <Button
-                  onClick={() => {
-                    resetDeviceForm();
-                    setEditingId(null);
-                    setDrawerTab("geral");
-                    setShowDeviceDrawer(true);
-                  }}
-                  className="inline-flex items-center gap-2"
-                >
+                  {syncing ? "Sincronizando…" : "Sincronizar Traccar"}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetDeviceForm();
+                  setEditingId(null);
+                  setDrawerTab("geral");
+                  setShowDeviceDrawer(true);
+                }}
+                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+              >
+                <span className="inline-flex items-center gap-2">
                   <Plus className="h-4 w-4" />
-                  <span>Novo equipamento</span>
-                </Button>
-              </div>
-              <span className="text-[11px] uppercase tracking-[0.12em] text-white/60">
-                Última sincronização: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "—"}
-              </span>
+                  Novo equipamento
+                </span>
+              </button>
             </div>
+            <span className="text-[11px] uppercase tracking-[0.12em] text-white/60">
+              Última sincronização: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "—"}
+            </span>
+          </div>
+        }
+      />
+
+      <DataCard className="space-y-3">
+        <FilterBar
+          left={
+            <>
+              <div className="relative min-w-[240px] flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Buscar por nome, IMEI, chip, placa"
+                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                />
+              </div>
+              <select
+                value={filters.link}
+                onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="all">Vínculo: Todos</option>
+                <option value="linked">Vínculo: Vinculado</option>
+                <option value="unlinked">Vínculo: Sem vínculo</option>
+              </select>
+              <select
+                value={filters.status}
+                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="all">Status: Todos</option>
+                <option value="online">Online</option>
+                <option value="offline">Offline</option>
+                <option value="1-6h">Sem transmissão 1–6h</option>
+                <option value="6-24h">Sem transmissão 6–24h</option>
+                <option value=">24h">&gt;24h</option>
+              </select>
+              <select
+                value={filters.model}
+                onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                <option value="all">Modelo/Tipo</option>
+                {models.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name} · {model.brand}
+                  </option>
+                ))}
+              </select>
+            </>
+          }
+          right={
+            <>
+              <span className="text-xs text-white/60">
+                {filteredDevices.length} de {devices.length} equipamentos
+              </span>
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={!filteredDevices.length}
+                className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <Download className="h-4 w-4" />
+                  Exportar CSV
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowColumnPicker((prev) => !prev)}
+                className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <SignalMedium className="h-4 w-4" />
+                  Exibir colunas
+                </span>
+              </button>
+            </>
           }
         />
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[240px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Buscar por nome, IMEI, chip, placa"
-              className="w-full rounded-lg border border-white/10 bg-white/10 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/50 focus:border-primary focus:outline-none"
-            />
-          </div>
-          <select
-            value={filters.link}
-            onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
-            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-          >
-            <option value="all">Vínculo: Todos</option>
-            <option value="linked">Vínculo: Vinculados</option>
-            <option value="unlinked">Vínculo: Não vinculados</option>
-          </select>
-          <select
-            value={filters.status}
-            onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-          >
-            <option value="all">Status: Todos</option>
-            <option value="online">Online</option>
-            <option value="offline">Offline</option>
-            <option value="1-6h">Sem transmissão 1–6h</option>
-            <option value="6-24h">Sem transmissão 6–24h</option>
-            <option value=">24h">&gt;24h</option>
-          </select>
-          <select
-            value={filters.model}
-            onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
-            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-          >
-            <option value="all">Modelo/Tipo</option>
-            {models.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.name} · {model.brand}
-              </option>
-            ))}
-          </select>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-xs text-white/60">
-              {filteredDevices.length} de {devices.length} equipamentos
-            </span>
-            <Button
-              variant="ghost"
-              className="inline-flex items-center gap-2"
-              onClick={handleExportCsv}
-              disabled={!filteredDevices.length}
-            >
-              <Download className="h-4 w-4" />
-              <span>Exportar CSV</span>
-            </Button>
-            <Button
-              variant="ghost"
-              className="inline-flex items-center gap-2"
-              onClick={() => setShowColumnPicker((prev) => !prev)}
-            >
-              <SignalMedium className="h-4 w-4" />
-              <span>Exibir colunas</span>
-            </Button>
-          </div>
-        </div>
 
         {showColumnPicker && (
           <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
@@ -1264,116 +1285,120 @@ export default function Devices() {
             </label>
           </div>
         )}
-      </div>
+      </DataCard>
 
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex-1 rounded-2xl border border-white/10 bg-[#0d131c]/80 shadow-2xl">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm text-white/80">
-            <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+      <DataCard className="flex-1 overflow-hidden p-0">
+        <DataTable tableClassName="text-white/80">
+          <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
+            <tr>
+              <th className="px-4 py-3 text-left">Nome / IMEI</th>
+              <th className="px-4 py-3 text-left">Status</th>
+              <th className="px-4 py-3 text-left">Última comunicação</th>
+              <th className="px-4 py-3 text-left">Última posição</th>
+              <th className="px-4 py-3 text-left">Vínculo</th>
+              {visibleColumns.chip && <th className="px-4 py-3 text-left">Chip</th>}
+              {visibleColumns.speed && <th className="px-4 py-3 text-left">Vel.</th>}
+              {visibleColumns.ignition && <th className="px-4 py-3 text-left">Bateria / Ignição</th>}
+              <th className="px-4 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {(loading || traccarLoading) && (
               <tr>
-                <th className="px-4 py-3 text-left">Nome / IMEI</th>
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Última comunicação</th>
-                <th className="px-4 py-3 text-left">Última posição</th>
-                <th className="px-4 py-3 text-left">Vínculo</th>
-                {visibleColumns.chip && <th className="px-4 py-3 text-left">Chip</th>}
-                {visibleColumns.speed && <th className="px-4 py-3 text-left">Vel.</th>}
-                {visibleColumns.ignition && <th className="px-4 py-3 text-left">Bateria / Ignição</th>}
-                <th className="px-4 py-3 text-right">Ações</th>
+                <td colSpan={tableColCount} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={tableColCount} />
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-white/5">
-              {(loading || traccarLoading) && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-6 text-center text-white/60">
-                    Carregando equipamentos…
-                  </td>
-                </tr>
-              )}
-              {!loading && !traccarLoading && filteredDevices.length === 0 && (
-                <tr>
-                  <td colSpan={tableColCount} className="px-4 py-10 text-center text-white/60">
-                    <div className="space-y-2">
-                      <p className="text-sm font-semibold text-white">Nenhum resultado</p>
-                      <p className="text-xs text-white/60">
-                        Ajuste filtros ou cadastre um novo equipamento.
-                      </p>
-                      <div className="flex justify-center gap-2 text-xs">
-                        <Button
-                          variant="ghost"
-                          className="inline-flex items-center gap-2"
+            )}
+            {!loading && !traccarLoading && filteredDevices.length === 0 && (
+              <tr>
+                <td colSpan={tableColCount} className="px-4 py-8">
+                  <EmptyState
+                    title="Nenhum equipamento encontrado com os filtros atuais."
+                    subtitle="Ajuste filtros ou cadastre um novo equipamento."
+                    action={
+                      <div className="flex flex-wrap justify-center gap-2">
+                        <button
+                          type="button"
                           onClick={() => {
                             setFilters({ status: "all", link: "all", model: "all" });
                             setQuery("");
                           }}
+                          className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
                         >
-                          <RefreshCw className="h-4 w-4" />
-                          Limpar filtros
-                        </Button>
-                        <Button
-                          className="inline-flex items-center gap-2"
+                          <span className="inline-flex items-center gap-2">
+                            <RefreshCw className="h-4 w-4" />
+                            Limpar filtros
+                          </span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             resetDeviceForm();
                             setEditingId(null);
                             setDrawerTab("geral");
                             setShowDeviceDrawer(true);
                           }}
+                          className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
                         >
-                          <Plus className="h-4 w-4" />
-                          Cadastrar novo
-                        </Button>
+                          <span className="inline-flex items-center gap-2">
+                            <Plus className="h-4 w-4" />
+                            Cadastrar equipamento
+                          </span>
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                filteredDevices.map((device) => {
-                  const modelo = modeloById.get(device.modelId) || null;
-                  const chip = chipById.get(device.chipId) || device.chip;
-                  const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
-                  const position = latestPositionByDevice.get(deviceKey(device));
-                  const meta = statusMeta(device);
-                  const ignitionLabel = formatIgnition(device);
-                  const batteryLabel = formatBattery(device);
-                  const traccarDevice = traccarDeviceFor(device);
-                  return (
-                    <DeviceRow
-                      key={device.internalId || device.id || device.uniqueId}
-                      device={device}
-                      traccarDevice={traccarDevice}
-                      model={modelo}
-                      chip={chip}
-                      vehicle={vehicle}
-                      position={position}
-                      status={meta}
-                      batteryLabel={batteryLabel}
-                      ignitionLabel={ignitionLabel}
-                      speedLabel={formatSpeed(device)}
-                      showSpeed={visibleColumns.speed}
-                      showChip={visibleColumns.chip}
-                      showIgnition={visibleColumns.ignition}
-                      onMap={() => position && setMapTarget({ device, position })}
-                      onLink={() => {
-                        setLinkTarget(device);
-                        setLinkVehicleId(device.vehicleId || "");
-                      }}
-                      onUnlink={() => handleUnlinkFromVehicle(device)}
-                      onEdit={() => openEditDevice(device)}
-                      onDelete={() => handleDeleteDevice(device.id)}
-                      positionLabel={formatPositionSummary(position)}
-                      lastCommunication={formatLastCommunication(device)}
-                    />
-                  );
-                })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    }
+                  />
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              !traccarLoading &&
+              filteredDevices.map((device) => {
+                const modelo = modeloById.get(device.modelId) || null;
+                const chip = chipById.get(device.chipId) || device.chip;
+                const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
+                const position = latestPositionByDevice.get(deviceKey(device));
+                const meta = statusMeta(device);
+                const ignitionLabel = formatIgnition(device);
+                const batteryLabel = formatBattery(device);
+                const traccarDevice = traccarDeviceFor(device);
+                return (
+                  <DeviceRow
+                    key={device.internalId || device.id || device.uniqueId}
+                    device={device}
+                    traccarDevice={traccarDevice}
+                    model={modelo}
+                    chip={chip}
+                    vehicle={vehicle}
+                    position={position}
+                    status={meta}
+                    batteryLabel={batteryLabel}
+                    ignitionLabel={ignitionLabel}
+                    speedLabel={formatSpeed(device)}
+                    showSpeed={visibleColumns.speed}
+                    showChip={visibleColumns.chip}
+                    showIgnition={visibleColumns.ignition}
+                    onMap={() => position && setMapTarget({ device, position })}
+                    onLink={() => {
+                      setLinkTarget(device);
+                      setLinkVehicleId(device.vehicleId || "");
+                    }}
+                    onUnlink={() => handleUnlinkFromVehicle(device)}
+                    onEdit={() => openEditDevice(device)}
+                    onDelete={() => handleDeleteDevice(device.id)}
+                    positionLabel={formatPositionSummary(position)}
+                    lastCommunication={formatLastCommunication(device)}
+                  />
+                );
+              })}
+          </tbody>
+        </DataTable>
+      </DataCard>
 
       <Drawer
         open={showDeviceDrawer}

@@ -3,19 +3,16 @@ import React, { useEffect, useMemo, useState } from "react";
 
 import { CoreApi } from "../lib/coreApi.js";
 import Button from "../ui/Button";
-import DataState from "../ui/DataState.jsx";
 import Field from "../ui/Field";
 import Input from "../ui/Input";
 import Modal from "../ui/Modal";
-import PageHeader from "../ui/PageHeader";
 import Select from "../ui/Select";
-
-function formatDate(value) {
-  if (!value) return "—";
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) return "—";
-  return new Date(parsed).toLocaleString();
-}
+import PageHeader from "../components/ui/PageHeader.jsx";
+import FilterBar from "../components/ui/FilterBar.jsx";
+import DataCard from "../components/ui/DataCard.jsx";
+import DataTable from "../components/ui/DataTable.jsx";
+import EmptyState from "../components/ui/EmptyState.jsx";
+import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 
 export default function Products() {
   const [models, setModels] = useState([]);
@@ -131,81 +128,133 @@ export default function Products() {
     <div className="space-y-5">
       <PageHeader
         title="Modelos & Portas"
-        right={
-          <Button onClick={() => openDrawer(null)} className="inline-flex items-center gap-2">
-            <Plus className="h-4 w-4" />
-            Novo modelo
-          </Button>
+        subtitle="Cadastre modelos e configurações de portas/protocolos."
+        actions={
+          <button
+            type="button"
+            onClick={() => openDrawer(null)}
+            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+          >
+            <span className="inline-flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Novo modelo
+            </span>
+          </button>
         }
       />
 
-      <div className="rounded-2xl border border-white/10 bg-[#0d131c] px-4 py-3 shadow-lg">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[240px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar por modelo, fabricante ou protocolo"
-              className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/50 focus:border-primary focus:outline-none"
-            />
-          </div>
-          <select
-            value={brandFilter}
-            onChange={(event) => setBrandFilter(event.target.value)}
-            className="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-          >
-            {brandOptions.map((brand) => (
-              <option key={brand} value={brand}>
-                {brand === "all" ? "Todas as marcas" : brand}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0b1119] shadow-lg">
-        <DataState loading={loading} error={error} empty={!filtered.length} emptyMessage="Nenhum modelo cadastrado">
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm text-white">
-              <thead className="bg-white/5 text-xs uppercase tracking-[0.14em] text-white/60">
-                <tr>
-                  <th className="px-4 py-3 text-left">Modelo</th>
-                  <th className="px-4 py-3 text-left">Fabricante</th>
-                  <th className="px-4 py-3 text-left">Protocolo</th>
-                  <th className="px-4 py-3 text-left">Portas</th>
-                  <th className="px-4 py-3 text-left">Atualizado</th>
-                  <th className="px-4 py-3 text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((model) => (
-                  <tr key={model.id} className="border-t border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{model.name}</div>
-                    </td>
-                    <td className="px-4 py-3 text-white/80">{model.brand || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{model.protocol || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{Array.isArray(model.ports) ? model.ports.length : 0}</td>
-                    <td className="px-4 py-3 text-white/60">{formatDate(model.updatedAt || model.createdAt)}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="relative inline-block">
-                        <button
-                          type="button"
-                          onClick={() => openDrawer(model)}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-                        >
-                          <EllipsisVertical className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
+      <DataCard>
+        <FilterBar
+          left={
+            <>
+              <div className="relative min-w-[240px] flex-1">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                <input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder="Buscar por modelo, fabricante ou protocolo"
+                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                />
+              </div>
+              <select
+                value={brandFilter}
+                onChange={(event) => setBrandFilter(event.target.value)}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                {brandOptions.map((brand) => (
+                  <option key={brand} value={brand}>
+                    {brand === "all" ? "Todas as marcas" : brand}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </DataState>
-      </div>
+              </select>
+            </>
+          }
+        />
+      </DataCard>
+
+      <DataCard className="overflow-hidden p-0">
+        <DataTable>
+          <thead className="bg-white/5 text-xs uppercase tracking-[0.14em] text-white/70">
+            <tr>
+              <th className="px-4 py-3 text-left">Modelo</th>
+              <th className="px-4 py-3 text-left">Fabricante</th>
+              <th className="px-4 py-3 text-left">Protocolo</th>
+              <th className="px-4 py-3 text-left">Portas</th>
+              <th className="px-4 py-3 text-left">Sem comunicação</th>
+              <th className="px-4 py-3 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/10">
+            {loading && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={6} />
+                </td>
+              </tr>
+            )}
+            {!loading && error && (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-red-200/80">
+                  {error.message}
+                </td>
+              </tr>
+            )}
+            {!loading && !error && filtered.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8">
+                  <EmptyState
+                    title="Nenhum modelo cadastrado."
+                    subtitle="Cadastre modelos e protocolos para facilitar o vínculo de equipamentos."
+                    action={
+                      <button
+                        type="button"
+                        onClick={() => openDrawer(null)}
+                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                      >
+                        Novo modelo
+                      </button>
+                    }
+                  />
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              !error &&
+              filtered.map((model) => {
+                const noCommunication =
+                  model?.noCommunication || model?.communication === false || model?.connectivity === "SEM_COMUNICACAO";
+                return (
+                  <tr key={model.id} className="border-t border-white/10 hover:bg-white/5">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold">{model.name}</div>
+                  </td>
+                  <td className="px-4 py-3 text-white/80">{model.brand || "—"}</td>
+                  <td className="px-4 py-3 text-white/70">{model.protocol || "—"}</td>
+                  <td className="px-4 py-3 text-white/70">
+                    {Array.isArray(model.ports) && model.ports.length
+                      ? model.ports.map((port) => port.label).filter(Boolean).join(", ")
+                      : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-white/70">
+                    <span className="rounded-lg bg-white/10 px-2 py-1 text-xs">{noCommunication ? "Sim" : "Não"}</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="relative inline-block">
+                      <button
+                        type="button"
+                        onClick={() => openDrawer(model)}
+                        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
+                      >
+                        <EllipsisVertical className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                );
+              })}
+          </tbody>
+        </DataTable>
+      </DataCard>
 
       <Modal open={drawerOpen} onClose={() => setDrawerOpen(false)} title={editingId ? "Editar modelo" : "Novo modelo"} width="max-w-3xl">
         <form onSubmit={handleSave} className="space-y-4">
