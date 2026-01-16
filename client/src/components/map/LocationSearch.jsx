@@ -60,13 +60,7 @@ export default function LocationSearch({
   };
 
   const suggestionList = showSuggestions ? (
-    <div
-      className={
-        isToolbar
-          ? "absolute left-0 top-11 z-20 w-full rounded-lg border border-white/10 bg-[#0f141c] shadow-3xl"
-          : "map-search-suggestions"
-      }
-    >
+    <div className={isToolbar ? "map-search-suggestions left-0 w-full" : "map-search-suggestions"}>
       <ul className="max-h-64 overflow-auto text-xs text-white/80">
         {safeSuggestions.map((item, index) => {
           const key = item.id || `${item.lat}-${item.lng}-${index}`;

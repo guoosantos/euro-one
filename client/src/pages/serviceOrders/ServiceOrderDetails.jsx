@@ -195,6 +195,7 @@ export default function ServiceOrderDetails() {
             </span>
           </span>
         }
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle={`Placa ${item.vehicle?.plate || "—"} • Cliente ${item.clientName || "—"} • Técnico ${
           item.technicianName || "—"
         }`}

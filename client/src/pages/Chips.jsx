@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EllipsisVertical, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 
-import PageHeader from "../ui/PageHeader";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import Button from "../ui/Button";
@@ -378,7 +378,8 @@ export default function Chips() {
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-5">
       <PageHeader
         title="Chips"
-        right={
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
+        actions={
           <div className="flex gap-2">
             <Button variant="ghost" onClick={load} icon={RefreshCw}>
               Atualizar

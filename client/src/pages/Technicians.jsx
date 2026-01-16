@@ -19,6 +19,12 @@ const TYPE_OPTIONS = [
   { value: "terceirizado", label: "Terceirizado" },
 ];
 
+const PROFILE_OPTIONS = [
+  { value: "Técnico Completo", label: "Técnico Completo" },
+  { value: "Técnico Rastreador", label: "Técnico Rastreador" },
+  { value: "Socorrista", label: "Socorrista" },
+];
+
 const EQUIPMENT_STATUS_FILTERS = [
   { key: "disponivel", label: "Disponíveis" },
   { key: "retirado", label: "Retirados" },
@@ -32,6 +38,7 @@ const defaultForm = {
   phone: "",
   status: "ativo",
   type: "interno",
+  profile: "Técnico Completo",
   addressSearch: "",
   street: "",
   number: "",
@@ -259,6 +266,26 @@ export default function Technicians() {
     return map;
   }, [devicesByTechnician]);
 
+  const equipmentSummaryByTechnician = useMemo(() => {
+    const map = new Map();
+    devicesByTechnician.forEach((devicesList, technicianId) => {
+      const counts = new Map();
+      devicesList.forEach((device) => {
+        const status = resolveEquipmentStatus(device);
+        if (status !== "disponivel" && status !== "funcionando") return;
+        const model = device.modelName || device.model || device.modelId || "Sem modelo";
+        const key = String(model);
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+      const summary = Array.from(counts.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([model, count]) => `${model}: ${count}`)
+        .join(" • ");
+      map.set(String(technicianId), summary || "—");
+    });
+    return map;
+  }, [devicesByTechnician]);
+
   const filteredItems = useMemo(() => {
     const term = search.trim().toLowerCase();
     const filters = equipmentStatusFilter;
@@ -452,6 +479,7 @@ export default function Technicians() {
         state: form.state.trim(),
         status: form.status,
         type: form.type,
+        profile: form.profile,
         addressSearch: form.addressSearch.trim(),
         street: form.street.trim(),
         number: form.number.trim(),
@@ -525,6 +553,7 @@ export default function Technicians() {
       phone: technician.phone || "",
       status: technician.status || "ativo",
       type: technician.type || "interno",
+      profile: technician.profile || "Técnico Completo",
       addressSearch: technician.addressSearch || "",
       street: technician.street || "",
       number: technician.number || "",
@@ -629,6 +658,7 @@ export default function Technicians() {
     <div className="space-y-6">
       <PageHeader
         title="Técnico"
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Cadastre e gerencie técnicos disponíveis para ordens de serviço."
         actions={
           <button
@@ -641,7 +671,7 @@ export default function Technicians() {
         }
       />
 
-      <div className="rounded-2xl border border-white/10 bg-black/30 p-4 space-y-4">
+      <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
           <label className="block text-xs text-white/60">
             Buscar por nome, e-mail ou cidade
@@ -761,10 +791,10 @@ export default function Technicians() {
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="px-4 py-3">Nome</th>
-                <th className="px-4 py-3">E-mail</th>
+                <th className="px-4 py-3">Perfil</th>
                 <th className="px-4 py-3">Telefone</th>
                 <th className="px-4 py-3">Cidade/UF</th>
-                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Equipamentos</th>
                 <th className="px-4 py-3 text-right">Ações</th>
               </tr>
             </thead>
@@ -791,15 +821,13 @@ export default function Technicians() {
                 filteredItems.map((technician) => (
                   <tr key={technician.id} className="hover:bg-white/5">
                     <td className="px-4 py-3 text-white">{technician.name}</td>
-                    <td className="px-4 py-3 text-white/70">{technician.email || "—"}</td>
+                    <td className="px-4 py-3 text-white/70">{technician.profile || "—"}</td>
                     <td className="px-4 py-3 text-white/70">{technician.phone || "—"}</td>
                     <td className="px-4 py-3 text-white/70">
                       {[technician.city, technician.state].filter(Boolean).join("/") || "—"}
                     </td>
-                    <td className="px-4 py-3">
-                      <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                        {technician.status || "—"}
-                      </span>
+                    <td className="px-4 py-3 text-white/70">
+                      {equipmentSummaryByTechnician.get(String(technician.id)) || "—"}
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button
@@ -895,6 +923,20 @@ export default function Technicians() {
                 className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
               >
                 {STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs text-white/60">
+              Perfil
+              <select
+                value={form.profile}
+                onChange={(event) => setForm((prev) => ({ ...prev, profile: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                {PROFILE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>

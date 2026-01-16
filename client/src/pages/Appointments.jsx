@@ -102,6 +102,7 @@ export default function Appointments() {
     <div className="space-y-4">
       <PageHeader
         title="Agendamentos"
+        titleClassName="text-xs font-semibold uppercase tracking-[0.14em] text-white/70"
         subtitle="Janela de atendimento, confirmação, remarcar e lembretes."
         actions={
           <div className="flex items-center gap-2">
