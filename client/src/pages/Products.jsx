@@ -6,22 +6,46 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Field from "../ui/Field";
 import Input from "../ui/Input";
-import Modal from "../ui/Modal";
 import Select from "../ui/Select";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
-import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+
+function Drawer({ open, onClose, title, description, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[9998] flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative h-full w-full max-w-4xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Modelos & Portas</p>
+            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            {description ? <p className="mt-1 text-sm text-white/60">{description}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/70 hover:border-white/30 hover:text-white"
+          >
+            Fechar
+          </button>
+        </div>
+        <div className="h-[calc(100vh-120px)] overflow-y-auto px-6 py-6">{children}</div>
+      </div>
+    </div>
+  );
+}
 
 export default function Products() {
   const { tenants, tenantId, user } = useTenant();
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [search, setSearch] = useState("");
-  const [brandFilter, setBrandFilter] = useState("all");
+  const [searchModel, setSearchModel] = useState("");
+  const [searchManufacturer, setSearchManufacturer] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,22 +86,23 @@ export default function Products() {
     load();
   }, []);
 
-  const brandOptions = useMemo(() => {
-    const brands = Array.from(new Set(models.map((model) => model.brand).filter(Boolean)));
-    return ["all", ...brands];
-  }, [models]);
-
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const modelTerm = searchModel.trim().toLowerCase();
+    const manufacturerTerm = searchManufacturer.trim().toLowerCase();
     return models.filter((model) => {
-      if (brandFilter !== "all" && model.brand !== brandFilter) return false;
-      if (!term) return true;
-      const haystack = [model.name, model.brand, model.protocol, model.connectivity]
-        .filter(Boolean)
-        .map((value) => String(value).toLowerCase());
-      return haystack.some((value) => value.includes(term));
+      if (modelTerm) {
+        const modelHaystack = [model.name, model.protocol]
+          .filter(Boolean)
+          .map((value) => String(value).toLowerCase());
+        if (!modelHaystack.some((value) => value.includes(modelTerm))) return false;
+      }
+      if (manufacturerTerm) {
+        const manufacturer = String(model.brand || "").toLowerCase();
+        if (!manufacturer.includes(manufacturerTerm)) return false;
+      }
+      return true;
     });
-  }, [brandFilter, models, search]);
+  }, [models, searchManufacturer, searchModel]);
 
   function updatePort(index, key, value) {
     setForm((current) => {
@@ -205,44 +230,40 @@ export default function Products() {
         }
       />
 
-      <DataCard>
-        <FilterBar
-          left={
-            <>
-              <div className="relative min-w-[240px] flex-1">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-                <input
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                  placeholder="Buscar por modelo, fabricante ou protocolo"
-                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-                />
-              </div>
-              <select
-                value={brandFilter}
-                onChange={(event) => setBrandFilter(event.target.value)}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                {brandOptions.map((brand) => (
-                  <option key={brand} value={brand}>
-                    {brand === "all" ? "Todas as marcas" : brand}
-                  </option>
-                ))}
-              </select>
-            </>
-          }
-        />
-      </DataCard>
+      <FilterBar
+        left={
+          <div className="flex w-full flex-wrap items-center gap-3 md:flex-nowrap">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+              <input
+                value={searchModel}
+                onChange={(event) => setSearchModel(event.target.value)}
+                placeholder="Buscar por modelo ou protocolo"
+                className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+            </div>
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+              <input
+                value={searchManufacturer}
+                onChange={(event) => setSearchManufacturer(event.target.value)}
+                placeholder="Buscar por fabricante"
+                className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+              />
+            </div>
+          </div>
+        }
+      />
 
-      <DataCard className="overflow-hidden p-0">
+      <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
         <DataTable>
           <thead className="bg-white/5 text-xs uppercase tracking-[0.14em] text-white/70">
             <tr>
               <th className="px-4 py-3 text-left">Modelo</th>
               <th className="px-4 py-3 text-left">Fabricante</th>
               <th className="px-4 py-3 text-left">Versão</th>
-              <th className="px-4 py-3 text-left">Frequência</th>
-              <th className="px-4 py-3 text-left">Bloqueio</th>
+              <th className="px-4 py-3 text-left">Disponível</th>
+              <th className="px-4 py-3 text-left">Vinculados</th>
               <th className="px-4 py-3 text-left">Portas</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
@@ -250,21 +271,21 @@ export default function Products() {
           <tbody className="divide-y divide-white/10">
             {loading && (
               <tr>
-                <td colSpan={6} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={6} />
+                <td colSpan={7} className="px-4 py-6">
+                  <SkeletonTable rows={6} columns={7} />
                 </td>
               </tr>
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={6} className="px-4 py-6 text-center text-red-200/80">
+                <td colSpan={7} className="px-4 py-6 text-center text-red-200/80">
                   {error.message}
                 </td>
               </tr>
             )}
             {!loading && !error && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8">
+                <td colSpan={7} className="px-4 py-8">
                   <EmptyState
                     title="Nenhum modelo cadastrado."
                     subtitle="Cadastre modelos e protocolos para facilitar o vínculo de equipamentos."
@@ -292,8 +313,8 @@ export default function Products() {
                     </td>
                     <td className="px-4 py-3 text-white/80">{model.brand || "—"}</td>
                     <td className="px-4 py-3 text-white/70">{model.version || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{model.frequency || "—"}</td>
-                    <td className="px-4 py-3 text-white/70">{model.blockMode || model.jammerBlockTime || "—"}</td>
+                    <td className="px-4 py-3 text-white/70">{model.availableCount ?? 0}</td>
+                    <td className="px-4 py-3 text-white/70">{model.linkedCount ?? 0}</td>
                     <td className="px-4 py-3 text-white/70">
                       {Array.isArray(model.ports) && model.ports.length
                         ? model.ports.map((port) => port.label).filter(Boolean).join(", ")
@@ -314,9 +335,14 @@ export default function Products() {
               })}
           </tbody>
         </DataTable>
-      </DataCard>
+      </div>
 
-      <Modal open={drawerOpen} onClose={() => setDrawerOpen(false)} title={editingId ? "Editar modelo" : "Novo modelo"} width="max-w-3xl">
+      <Drawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        title={editingId ? "Editar modelo" : "Novo modelo"}
+        description="Cadastre informações técnicas e portas do modelo."
+      >
         <form onSubmit={handleSave} className="space-y-4">
           <Field label="Informações básicas">
             <div className="grid gap-3 md:grid-cols-2">
@@ -485,7 +511,7 @@ export default function Products() {
             </Button>
           </div>
         </form>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

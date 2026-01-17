@@ -25,6 +25,7 @@ function resolveStatus(error) {
   if (isPayloadParseError(error)) return 400;
   if (isTimeoutError(error)) return 504;
   if (NETWORK_ERROR_CODES.has(error.code)) return 502;
+  if (error?.code === "P2021") return 503;
 
   const fromError = Number(error.status || error.statusCode);
   if (!Number.isNaN(fromError) && fromError > 0) return fromError;
@@ -54,6 +55,10 @@ function extractResponseMessage(error) {
 }
 
 function buildMessage(error, status) {
+  if (error?.code === "P2021") {
+    return "Tabela ou view não encontrada no banco. Verifique migrações pendentes (prisma migrate deploy).";
+  }
+
   if (error?.code === "TRACCAR_UNAVAILABLE" || error?.isTraccarError) {
     return error?.message || "Não foi possível consultar o Traccar";
   }

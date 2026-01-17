@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import { Globe } from "lucide-react";
 import { useTranslation } from "../lib/i18n.js";
 
@@ -375,6 +375,7 @@ function PaginationButton({ children, disabled, onClick }) {
 
 export default function Monitoring() {
   const { t, locale } = useTranslation();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
 
   const { tenantId, user, tenant } = useTenant();
@@ -1285,6 +1286,13 @@ export default function Monitoring() {
     },
     [clearVehicleSelection, openDetailsFor, setVehicleSelection],
   );
+
+  useEffect(() => {
+    const focusDeviceId = location.state?.focusDeviceId ?? null;
+    if (!focusDeviceId) return;
+    pendingFocusDeviceIdRef.current = String(focusDeviceId);
+    focusDevice(String(focusDeviceId), { openDetails: true, allowToggle: false });
+  }, [focusDevice, location.state]);
   useEffect(() => {
     if (!globalDeviceId && !globalVehicleId) return;
     const rowsSource = decoratedRowsRef.current || [];

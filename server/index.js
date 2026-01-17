@@ -2,6 +2,8 @@ import express from "express";
 import http from "http";
 import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
@@ -14,6 +16,43 @@ const logErrorStack = (label, error) => {
     message: error?.message || error,
     stack: error?.stack || error,
   });
+};
+
+const execFileAsync = promisify(execFile);
+
+const runPrismaMigrations = async () => {
+  const shouldMigrate = process.env.PRISMA_MIGRATE_ON_START !== "false";
+  if (!shouldMigrate) {
+    console.info("[startup] PRISMA_MIGRATE_ON_START desativado; pulando migrate deploy.");
+    return;
+  }
+  if (!process.env.DATABASE_URL) {
+    console.warn("[startup] DATABASE_URL ausente; pulando migrate deploy.");
+    return;
+  }
+
+  try {
+    const result = await execFileAsync("npx", [
+      "prisma",
+      "migrate",
+      "deploy",
+      "--schema",
+      "../prisma/schema.prisma",
+    ]);
+    if (result?.stdout) {
+      console.info("[startup] prisma migrate deploy", result.stdout.trim());
+    }
+    if (result?.stderr) {
+      console.warn("[startup] prisma migrate deploy warnings", result.stderr.trim());
+    }
+  } catch (error) {
+    console.error("[startup] falha ao executar prisma migrate deploy", {
+      message: error?.message || error,
+      code: error?.code,
+      stdout: error?.stdout,
+      stderr: error?.stderr,
+    });
+  }
 };
 
 process.on("uncaughtException", (error) => {
@@ -197,6 +236,7 @@ async function bootstrapServer() {
     if (prismaModule?.initPrismaEnv) {
       await runWithTimeout(() => prismaModule.initPrismaEnv(), bootstrapTimeout, "initPrismaEnv");
     }
+    await runWithTimeout(() => runPrismaMigrations(), bootstrapTimeout, "prismaMigrateDeploy");
 
     const vehiclesModule = await importWithLog("./models/vehicle.js");
     if (vehiclesModule?.initVehicles) {

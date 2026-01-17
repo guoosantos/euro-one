@@ -1,23 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import {
-  Battery,
-  Clock3,
-  Download,
-  Link2,
-  MapPin,
-  Pencil,
-  Plus,
-  Power,
-  RefreshCw,
-  Search,
-  SignalMedium,
-  Trash2,
-  Unlink,
-  Wifi,
-  X,
-} from "lucide-react";
+import { Download, Link2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Unlink, Wifi, X } from "lucide-react";
 import { latLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -27,7 +11,6 @@ import Input from "../ui/Input";
 import Select from "../ui/Select";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
-import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
@@ -36,7 +19,6 @@ import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
 import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
-import { computeAutoVisibility, loadColumnVisibility, saveColumnVisibility } from "../lib/column-visibility.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { formatAddress } from "../lib/format-address.js";
 
@@ -52,15 +34,6 @@ function formatDate(value) {
   const parsed = Date.parse(value || 0);
   if (!value || Number.isNaN(parsed)) return null;
   return new Date(parsed).toLocaleString();
-}
-
-function formatBattery(position) {
-  if (!position) return "—";
-  const battery =
-    position.batteryLevel ?? position.attributes?.batteryLevel ?? position.attributes?.battery ?? position.battery;
-  if (battery === undefined || battery === null) return "—";
-  if (typeof battery === "number" && !Number.isNaN(battery)) return `${battery}%`;
-  return String(battery);
 }
 
 function formatPositionTimestamps(position) {
@@ -83,19 +56,14 @@ function DeviceRow({
   device,
   traccarDevice,
   model,
-  chip,
   vehicle,
   position,
   status,
-  batteryLabel,
-  ignitionLabel,
-  showSpeed,
-  showChip,
-  showIgnition,
-  speedLabel,
+  warrantyLabel,
   onMap,
   onLink,
   onUnlink,
+  onNavigateToMonitoring,
   onEdit,
   onDelete,
   positionLabel,
@@ -119,7 +87,7 @@ function DeviceRow({
       </td>
       <td className="px-4 py-3">
         <div className="flex items-center gap-2">
-          <span>{positionLabel}</span>
+          <span className="truncate">{positionLabel}</span>
           {position && (
             <button
               type="button"
@@ -134,13 +102,17 @@ function DeviceRow({
       </td>
       <td className="px-4 py-3">
         {vehicle ? (
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs">
+          <button
+            type="button"
+            onClick={onNavigateToMonitoring}
+            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white hover:border-primary"
+          >
             <Link2 className="h-3 w-3" />
-            <div className="text-white">
+            <div className="text-left">
               <div className="font-medium">{vehicle.plate || vehicle.name || "Veículo"}</div>
               <div className="text-[11px] text-white/60">{vehicle.clientName || "Vinculado"}</div>
             </div>
-          </div>
+          </button>
         ) : (
           <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
             <X className="h-3 w-3" />
@@ -155,34 +127,7 @@ function DeviceRow({
           </div>
         )}
       </td>
-      {showChip && (
-        <td className="px-4 py-3">
-          <div className="space-y-1 text-sm">
-            <div className="text-white">{chip?.iccid || chip?.phone || "Sem chip"}</div>
-            {chip?.carrier && <div className="text-xs text-white/60">{chip.carrier}</div>}
-          </div>
-        </td>
-      )}
-      {showSpeed && (
-        <td className="px-4 py-3">
-          <span>{speedLabel}</span>
-        </td>
-      )}
-      {showIgnition && (
-        <td className="px-4 py-3 space-y-1">
-          <div className="flex items-center gap-2">
-            <Battery className="h-4 w-4 text-white/60" />
-            <span>{batteryLabel}</span>
-          </div>
-          {ignitionLabel && (
-            <div className="flex items-center gap-2 text-xs">
-              <Power className="h-3 w-3 text-white/60" />
-              <span className="rounded-full bg-white/10 px-2 py-0.5">{ignitionLabel}</span>
-            </div>
-          )}
-          {model?.name && <div className="text-[11px] text-white/50">{model.name}</div>}
-        </td>
-      )}
+      <td className="px-4 py-3 text-white/70">{warrantyLabel}</td>
       <td className="px-4 py-3 text-right">
         <div className="inline-flex items-center gap-2">
           <button
@@ -293,24 +238,7 @@ export default function Devices() {
     link: "all",
     model: "all",
   });
-  const [showColumnPicker, setShowColumnPicker] = useState(false);
   const resolvedClientId = tenantId || user?.clientId || null;
-  const columnStorageKey = useMemo(
-    () => `devices.columns:${user?.id || "anon"}:${resolvedClientId || "all"}`,
-    [resolvedClientId, user?.id],
-  );
-  const columnDefaults = useMemo(
-    () => ({
-      speed: true,
-      chip: true,
-      ignition: true,
-    }),
-    [],
-  );
-  const [visibleColumns, setVisibleColumns] = useState(
-    () => loadColumnVisibility(columnStorageKey) ?? columnDefaults,
-  );
-  const columnAutoApplied = useRef(false);
   const [syncing, setSyncing] = useState(false);
   const [drawerTab, setDrawerTab] = useState("geral");
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
@@ -324,6 +252,8 @@ export default function Devices() {
     modelId: "",
     chipId: "",
     vehicleId: "",
+    warrantyUntil: "",
+    warrantyNotes: "",
   });
   const [query, setQuery] = useState("");
   const [mapTarget, setMapTarget] = useState(null);
@@ -553,65 +483,6 @@ export default function Devices() {
     return map;
   }, [devices, positionMap]);
 
-  const columnDefs = useMemo(
-    () => [
-      {
-        key: "chip",
-        label: "Chip",
-        defaultVisible: true,
-        isMissing: (device) => {
-          const chip = chipById.get(device.chipId) || device.chip;
-          return !(chip?.iccid || chip?.phone);
-        },
-      },
-      {
-        key: "speed",
-        label: "Velocidade",
-        defaultVisible: true,
-        isMissing: (device) => {
-          const key = deviceKey(device);
-          return !key || !latestPositionByDevice.get(key);
-        },
-      },
-      {
-        key: "ignition",
-        label: "Bateria / Ignição",
-        defaultVisible: true,
-        isMissing: (device) => {
-          const key = deviceKey(device);
-          const position = key ? latestPositionByDevice.get(key) : null;
-          const attrs = position?.attributes || {};
-          const battery = attrs.batteryLevel ?? attrs.battery ?? attrs.power ?? attrs.charge;
-          const ignition = typeof attrs.ignition === "boolean";
-          return (battery === undefined || battery === null) && !ignition;
-        },
-      },
-    ],
-    [chipById, latestPositionByDevice],
-  );
-
-  useEffect(() => {
-    columnAutoApplied.current = false;
-    const stored = loadColumnVisibility(columnStorageKey);
-    setVisibleColumns(stored ?? columnDefaults);
-  }, [columnDefaults, columnStorageKey]);
-
-  useEffect(() => {
-    if (columnAutoApplied.current) return;
-    if (!devices.length) return;
-    const stored = loadColumnVisibility(columnStorageKey);
-    if (stored) {
-      columnAutoApplied.current = true;
-      return;
-    }
-    const autoVisibility = computeAutoVisibility(devices, columnDefs, 0.9);
-    setVisibleColumns((current) => ({ ...current, ...autoVisibility }));
-    columnAutoApplied.current = true;
-  }, [columnDefs, columnStorageKey, devices]);
-
-  useEffect(() => {
-    saveColumnVisibility(columnStorageKey, visibleColumns);
-  }, [columnStorageKey, visibleColumns]);
 
   function relativeTimeFromNow(timestamp) {
     if (!timestamp) return null;
@@ -635,6 +506,15 @@ export default function Devices() {
       return `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
     }
     return "—";
+  }
+
+  function formatWarranty(device) {
+    const warranty =
+      device?.attributes?.warrantyUntil || device?.attributes?.warrantyDate || device?.warrantyUntil || null;
+    if (!warranty) return "—";
+    const parsed = new Date(warranty);
+    if (Number.isNaN(parsed.getTime())) return String(warranty);
+    return parsed.toLocaleDateString("pt-BR");
   }
 
   function latestTelemetry(device) {
@@ -778,7 +658,15 @@ export default function Devices() {
   }
 
   function resetDeviceForm() {
-    setDeviceForm({ name: "", uniqueId: "", modelId: "", chipId: "", vehicleId: "" });
+    setDeviceForm({
+      name: "",
+      uniqueId: "",
+      modelId: "",
+      chipId: "",
+      vehicleId: "",
+      warrantyUntil: "",
+      warrantyNotes: "",
+    });
     setEditingId(null);
   }
 
@@ -796,6 +684,13 @@ export default function Devices() {
     }
     setSavingDevice(true);
     try {
+      const warrantyPayload = {};
+      if (deviceForm.warrantyUntil) {
+        warrantyPayload.warrantyUntil = deviceForm.warrantyUntil;
+      }
+      if (deviceForm.warrantyNotes) {
+        warrantyPayload.warrantyNotes = deviceForm.warrantyNotes;
+      }
       const payload = {
         name: deviceForm.name?.trim() || undefined,
         uniqueId: deviceForm.uniqueId.trim(),
@@ -803,6 +698,7 @@ export default function Devices() {
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
         clientId,
+        attributes: Object.keys(warrantyPayload).length ? warrantyPayload : undefined,
       };
       if (editingId) {
         await CoreApi.updateDevice(editingId, payload);
@@ -890,10 +786,10 @@ export default function Devices() {
       modelId: device.modelId || "",
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
+      warrantyUntil: device.attributes?.warrantyUntil || "",
+      warrantyNotes: device.attributes?.warrantyNotes || "",
     });
     setDrawerTab("geral");
-    setLinkTarget(device);
-    setLinkVehicleId(device.vehicleId || "");
     setShowDeviceDrawer(true);
   }
 
@@ -1037,10 +933,6 @@ export default function Devices() {
     }
   }
 
-  function toggleColumn(key) {
-    setVisibleColumns((current) => ({ ...current, [key]: !current[key] }));
-  }
-
   function handleExportCsv() {
     if (!filteredDevices.length) return;
     const headers = [
@@ -1087,8 +979,13 @@ export default function Devices() {
     URL.revokeObjectURL(url);
   }
 
-  const tableColCount =
-    7 + (visibleColumns.chip ? 1 : 0) + (visibleColumns.speed ? 1 : 0) + (visibleColumns.ignition ? 1 : 0);
+  function handleNavigateToMonitoring(device) {
+    const focusDeviceId = device?.traccarId || device?.deviceId || device?.id || device?.uniqueId || null;
+    if (!focusDeviceId) return;
+    navigate("/monitoring", { state: { focusDeviceId } });
+  }
+
+  const tableColCount = 8;
 
   const toastClassName =
     "fixed right-4 top-4 z-50 rounded-lg border px-4 py-3 text-sm shadow-lg " +
@@ -1106,35 +1003,33 @@ export default function Devices() {
         title="Equipamentos"
         subtitle="Gestão, vínculo e status dos equipamentos."
         actions={
-          <div className="flex flex-col items-end gap-2 text-right">
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={handleSyncDevices}
-                disabled={syncing}
-                className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  {syncing ? "Sincronizando…" : "Sincronizar Traccar"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  resetDeviceForm();
-                  setEditingId(null);
-                  setDrawerTab("geral");
-                  setShowDeviceDrawer(true);
-                }}
-                className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Plus className="h-4 w-4" />
-                  Novo equipamento
-                </span>
-              </button>
-            </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSyncDevices}
+              disabled={syncing}
+              className="rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+            >
+              <span className="inline-flex items-center gap-2">
+                <RefreshCw className="h-4 w-4" />
+                {syncing ? "Atualizando…" : "Atualizar"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                resetDeviceForm();
+                setEditingId(null);
+                setDrawerTab("geral");
+                setShowDeviceDrawer(true);
+              }}
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Novo equipamento
+              </span>
+            </button>
             <span className="text-[11px] uppercase tracking-[0.12em] text-white/60">
               Última sincronização: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "—"}
             </span>
@@ -1142,123 +1037,79 @@ export default function Devices() {
         }
       />
 
-      <DataCard className="space-y-3">
-        <FilterBar
-          left={
-            <>
-              <div className="relative min-w-[240px] flex-1">
-                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Buscar por nome, IMEI, chip, placa"
-                  className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-                />
-              </div>
-              <select
-                value={filters.link}
-                onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                <option value="all">Vínculo: Todos</option>
-                <option value="linked">Vínculo: Vinculado</option>
-                <option value="unlinked">Vínculo: Sem vínculo</option>
-              </select>
-              <select
-                value={filters.status}
-                onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                <option value="all">Status: Todos</option>
-                <option value="online">Online</option>
-                <option value="offline">Offline</option>
-                <option value="1-6h">Sem transmissão 1–6h</option>
-                <option value="6-24h">Sem transmissão 6–24h</option>
-                <option value=">24h">&gt;24h</option>
-              </select>
-              <select
-                value={filters.model}
-                onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              >
-                <option value="all">Modelo/Tipo</option>
-                {models.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name} · {model.brand}
-                  </option>
-                ))}
-              </select>
-            </>
-          }
-          right={
-            <>
-              <span className="text-xs text-white/60">
-                {filteredDevices.length} de {devices.length} equipamentos
-              </span>
-              <button
-                type="button"
-                onClick={handleExportCsv}
-                disabled={!filteredDevices.length}
-                className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <Download className="h-4 w-4" />
-                  Exportar CSV
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowColumnPicker((prev) => !prev)}
-                className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
-              >
-                <span className="inline-flex items-center gap-2">
-                  <SignalMedium className="h-4 w-4" />
-                  Exibir colunas
-                </span>
-              </button>
-            </>
-          }
-        />
-
-        {showColumnPicker && (
-          <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
-            <label className="flex items-center gap-2">
+      <FilterBar
+        left={
+          <div className="flex w-full flex-wrap items-center gap-3">
+            <div className="relative min-w-[240px] flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
               <input
-                type="checkbox"
-                checked={visibleColumns.speed}
-                onChange={() => toggleColumn("speed")}
-                className="h-4 w-4 rounded border-white/30 bg-transparent"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Buscar por nome, IMEI, placa"
+                className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
               />
-              Velocidade
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={visibleColumns.chip}
-                onChange={() => toggleColumn("chip")}
-                className="h-4 w-4 rounded border-white/30 bg-transparent"
-              />
-              Chip
-            </label>
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={visibleColumns.ignition}
-                onChange={() => toggleColumn("ignition")}
-                className="h-4 w-4 rounded border-white/30 bg-transparent"
-              />
-              Bateria / Ignição
-            </label>
+            </div>
+            <select
+              value={filters.link}
+              onChange={(event) => setFilters((current) => ({ ...current, link: event.target.value }))}
+              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="all">Vínculo: Todos</option>
+              <option value="linked">Vínculo: Vinculado</option>
+              <option value="unlinked">Vínculo: Sem vínculo</option>
+            </select>
+            <select
+              value={filters.status}
+              onChange={(event) => setFilters((current) => ({ ...current, status: event.target.value }))}
+              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="all">Status: Todos</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+              <option value="1-6h">Sem transmissão 1–6h</option>
+              <option value="6-24h">Sem transmissão 6–24h</option>
+              <option value=">24h">&gt;24h</option>
+            </select>
+            <select
+              value={filters.model}
+              onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
+              className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            >
+              <option value="all">Modelo/Tipo</option>
+              {models.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.name} · {model.brand}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-      </DataCard>
+        }
+        right={
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-white/60">
+              {filteredDevices.length} de {devices.length} equipamentos
+            </span>
+            <button
+              type="button"
+              onClick={handleExportCsv}
+              disabled={!filteredDevices.length}
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15 disabled:opacity-60"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Download className="h-4 w-4" />
+                Exportar CSV
+              </span>
+            </button>
+          </div>
+        }
+      />
 
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <DataCard className="flex-1 overflow-hidden p-0">
-        <DataTable tableClassName="text-white/80">
+      <div className="flex-1 overflow-hidden rounded-2xl border border-white/10 bg-transparent">
+        <DataTable tableClassName="text-white/80 table-fixed w-full">
           <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
             <tr>
               <th className="px-4 py-3 text-left">Nome / IMEI</th>
@@ -1267,9 +1118,7 @@ export default function Devices() {
               <th className="px-4 py-3 text-left">Última comunicação</th>
               <th className="px-4 py-3 text-left">Última posição</th>
               <th className="px-4 py-3 text-left">Vínculo</th>
-              {visibleColumns.chip && <th className="px-4 py-3 text-left">Chip</th>}
-              {visibleColumns.speed && <th className="px-4 py-3 text-left">Vel.</th>}
-              {visibleColumns.ignition && <th className="px-4 py-3 text-left">Bateria / Ignição</th>}
+              <th className="px-4 py-3 text-left">Garantia</th>
               <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
@@ -1327,35 +1176,28 @@ export default function Devices() {
               !traccarLoading &&
               filteredDevices.map((device) => {
                 const modelo = modeloById.get(device.modelId) || null;
-                const chip = chipById.get(device.chipId) || device.chip;
                 const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
                 const position = latestPositionByDevice.get(deviceKey(device));
                 const meta = statusMeta(device);
-                const ignitionLabel = formatIgnition(device);
-                const batteryLabel = formatBattery(device);
                 const traccarDevice = traccarDeviceFor(device);
+                const warrantyLabel = formatWarranty(device);
                 return (
                   <DeviceRow
                     key={device.internalId || device.id || device.uniqueId}
                     device={device}
                     traccarDevice={traccarDevice}
                     model={modelo}
-                    chip={chip}
                     vehicle={vehicle}
                     position={position}
                     status={meta}
-                    batteryLabel={batteryLabel}
-                    ignitionLabel={ignitionLabel}
-                    speedLabel={formatSpeed(device)}
-                    showSpeed={visibleColumns.speed}
-                    showChip={visibleColumns.chip}
-                    showIgnition={visibleColumns.ignition}
+                    warrantyLabel={warrantyLabel}
                     onMap={() => position && setMapTarget({ device, position })}
                     onLink={() => {
                       setLinkTarget(device);
                       setLinkVehicleId(device.vehicleId || "");
                     }}
                     onUnlink={() => handleUnlinkFromVehicle(device)}
+                    onNavigateToMonitoring={() => handleNavigateToMonitoring(device)}
                     onEdit={() => openEditDevice(device)}
                     onDelete={() => handleDeleteDevice(device.id)}
                     positionLabel={formatPositionSummary(position)}
@@ -1365,7 +1207,7 @@ export default function Devices() {
               })}
           </tbody>
         </DataTable>
-      </DataCard>
+      </div>
 
       <Drawer
         open={showDeviceDrawer}
@@ -1374,7 +1216,7 @@ export default function Devices() {
         description="Edite dados gerais, vínculos e telemetria em um layout lateral."
       >
         <div className="flex gap-2 overflow-x-auto pb-2 text-[11px] uppercase tracking-[0.1em] text-white/60">
-          {["geral", "vinculos", "telemetria", "acoes"].map((key) => (
+          {["geral", "vinculos", "telemetria", "garantia", "massa", "acoes"].map((key) => (
             <button
               key={key}
               onClick={() => setDrawerTab(key)}
@@ -1383,6 +1225,8 @@ export default function Devices() {
               {key === "geral" && "Geral"}
               {key === "vinculos" && "Vínculos"}
               {key === "telemetria" && "Telemetria"}
+              {key === "garantia" && "Garantia"}
+              {key === "massa" && "Massa"}
               {key === "acoes" && "Ações"}
             </button>
           ))}
@@ -1524,6 +1368,44 @@ export default function Devices() {
               <span className="text-xs uppercase tracking-[0.1em] text-white/50">Status</span>
               <StatusPill meta={statusMeta(deviceForm)} />
             </div>
+          </div>
+        )}
+
+        {drawerTab === "garantia" && (
+          <form onSubmit={handleSaveDevice} className="space-y-4">
+            <Input
+              label="Garantia até"
+              type="date"
+              value={deviceForm.warrantyUntil}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyUntil: event.target.value }))}
+            />
+            <label className="block text-xs text-white/60">
+              Observações
+              <textarea
+                rows={3}
+                value={deviceForm.warrantyNotes}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyNotes: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit" disabled={savingDevice}>
+                {savingDevice ? "Salvando…" : "Salvar garantia"}
+              </Button>
+            </div>
+          </form>
+        )}
+
+        {drawerTab === "massa" && (
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+            <div className="text-xs uppercase tracking-[0.1em] text-white/50">Massa</div>
+            <p>Use esta área para aplicar ações em lote (associação, garantia ou atualização rápida).</p>
+            <Button type="button" variant="ghost" disabled>
+              Ação em lote (em breve)
+            </Button>
           </div>
         )}
 
