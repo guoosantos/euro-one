@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
-import { Download, Link2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Unlink, Wifi, X } from "lucide-react";
+import { Clock3, Download, Link2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Unlink, Wifi, X } from "lucide-react";
 import { latLngBounds } from "leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -408,13 +408,42 @@ export default function Devices() {
   useEffect(() => {
     const map = mapRef.current;
     const target = mapTarget?.position;
-    if (!map || !target) return;
+    if (!map || !target) return undefined;
     const lat = Number(target.latitude ?? target.lat ?? target.latitute);
     const lng = Number(target.longitude ?? target.lon ?? target.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
-    const bounds = latLngBounds([[lat, lng]]);
-    map.fitBounds(bounds.pad(0.02), { maxZoom: 16 });
-    setTimeout(() => map.invalidateSize(), 50);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return undefined;
+    let rafId = null;
+    let isActive = true;
+
+    const canInteract = () => {
+      if (!map || !map._loaded || !map._mapPane) return false;
+      const container = map.getContainer?.();
+      if (!container || container.isConnected === false) return false;
+      const rect = container.getBoundingClientRect?.();
+      if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+      return true;
+    };
+
+    const run = () => {
+      if (!isActive || !canInteract()) return;
+      const bounds = latLngBounds([[lat, lng]]);
+      map.fitBounds(bounds.pad(0.02), { maxZoom: 16 });
+      rafId = requestAnimationFrame(() => {
+        if (!isActive || !canInteract()) return;
+        map.invalidateSize({ pan: false });
+      });
+    };
+
+    if (map.whenReady && !map._loaded) {
+      map.whenReady(run);
+    } else {
+      run();
+    }
+
+    return () => {
+      isActive = false;
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [mapTarget]);
 
   useEffect(() => {

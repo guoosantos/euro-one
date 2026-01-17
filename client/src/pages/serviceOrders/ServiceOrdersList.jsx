@@ -8,6 +8,7 @@ import DataTable from "../../components/ui/DataTable.jsx";
 import EmptyState from "../../components/ui/EmptyState.jsx";
 import SkeletonTable from "../../components/ui/SkeletonTable.jsx";
 import AutocompleteSelect from "../../components/ui/AutocompleteSelect.jsx";
+import DataState from "../../ui/DataState.jsx";
 import api from "../../lib/api.js";
 import { useTenant } from "../../lib/tenant-context.jsx";
 
@@ -75,6 +76,7 @@ export default function ServiceOrdersList() {
   const { user, tenants, hasAdminAccess } = useTenant();
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
+  const [error, setError] = useState(null);
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [from, setFrom] = useState("");
@@ -95,8 +97,9 @@ export default function ServiceOrdersList() {
 
   const fetchOrders = async () => {
     setLoading(true);
+    setError(null);
+    const params = new URLSearchParams();
     try {
-      const params = new URLSearchParams();
       if (status) params.set("status", status);
       if (q) params.set("q", q);
       if (from) params.set("from", new Date(from).toISOString());
@@ -106,7 +109,12 @@ export default function ServiceOrdersList() {
       const response = await api.get("core/service-orders", { params });
       setItems(response?.data?.items || []);
     } catch (error) {
-      console.error("Falha ao buscar ordens de serviço", error);
+      console.error("Falha ao buscar ordens de serviço", {
+        params: Object.fromEntries(params.entries()),
+        status: error?.response?.status ?? error?.status,
+        error,
+      });
+      setError(error instanceof Error ? error : new Error("Falha ao carregar ordens de serviço."));
       setItems([]);
     } finally {
       setLoading(false);
@@ -311,7 +319,19 @@ export default function ServiceOrdersList() {
                 </td>
               </tr>
             )}
-            {!loading && filtered.length === 0 && (
+            {!loading && error && (
+              <tr>
+                <td colSpan={8} className="px-4 py-8">
+                  <DataState
+                    tone="error"
+                    state="error"
+                    title="Não foi possível carregar ordens de serviço"
+                    description={error.message}
+                  />
+                </td>
+              </tr>
+            )}
+            {!loading && !error && filtered.length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-8">
                   <EmptyState

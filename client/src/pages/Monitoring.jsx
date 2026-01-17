@@ -381,7 +381,7 @@ export default function Monitoring() {
   const { tenantId, user, tenant } = useTenant();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
-  const { tasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const { tasks, error: tasksError } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
@@ -1831,6 +1831,17 @@ export default function Monitoring() {
       {layoutVisibility.showTable && (
         <div className="relative z-20 flex h-full min-h-0 min-w-0 flex-col overflow-visible bg-[#0f141c]">
           <div className="relative z-30 overflow-visible border-b border-white/10 px-3 py-2">
+            {tasksError ? (
+              <div className="pb-2">
+                <DataState
+                  tone="error"
+                  state="error"
+                  compact
+                  title={t("tasks.loadError")}
+                  description={tasksError.message}
+                />
+              </div>
+            ) : null}
             {layoutVisibility.showToolbar ? (
               <MonitoringToolbar
                 vehicleSearchTerm={vehicleQuery}

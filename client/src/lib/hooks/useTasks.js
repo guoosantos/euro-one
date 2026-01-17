@@ -61,6 +61,11 @@ export default function useTasks(params = {}) {
       })
       .catch((err) => {
         if (cancelled) return;
+        console.error("[tasks] Falha ao carregar tasks", {
+          params: resolvedParams,
+          status: err?.response?.status ?? err?.status,
+          error: err,
+        });
         const friendly =
           err?.response?.data?.message ||
           err?.message ||

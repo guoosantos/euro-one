@@ -39,6 +39,15 @@ function isValidBounds(bounds) {
   return Boolean(bounds && typeof bounds.isValid === "function" && bounds.isValid());
 }
 
+function canInteractWithMap(map) {
+  if (!map || !map._loaded || !map._mapPane) return false;
+  const container = map.getContainer?.();
+  if (!container || container.isConnected === false) return false;
+  const rect = container.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+  return true;
+}
+
 export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const mapRef = useRef(null);
   const pendingFocusRef = useRef(null);
@@ -56,7 +65,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const applyFocusLatLng = useCallback(
     (payload, { pendingApplied = false } = {}) => {
       const map = mapRef.current;
-      if (!map) return false;
+      if (!map || !canInteractWithMap(map)) return false;
 
       const lat = Number(payload?.lat);
       const lng = Number(payload?.lng);
@@ -88,7 +97,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
       }
       fallbackTimeoutRef.current = setTimeout(() => {
         const currentMap = mapRef.current;
-        if (!currentMap || !currentMap._mapPane) return;
+        if (!currentMap || !canInteractWithMap(currentMap)) return;
         const currentCenter = currentMap.getCenter?.();
         const currentZoom = currentMap.getZoom?.();
         if (!hasCenterMoved(fromCenter, currentCenter, fromZoom, currentZoom)) {
@@ -114,7 +123,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const applyFitBounds = useCallback(
     (payload, { pendingApplied = false } = {}) => {
       const map = mapRef.current;
-      if (!map || !payload?.bounds || !isValidBounds(payload.bounds)) return false;
+      if (!map || !payload?.bounds || !isValidBounds(payload.bounds) || !canInteractWithMap(map)) return false;
 
       const fromCenter = map.getCenter?.();
       const fromZoom = map.getZoom?.();
@@ -155,6 +164,7 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const applyPending = useCallback(() => {
     const pending = pendingFocusRef.current;
     if (!pending) return;
+    if (!canInteractWithMap(mapRef.current)) return;
     pendingFocusRef.current = null;
     if (pending.type === "bounds") {
       applyFitBounds(pending.payload, { pendingApplied: true });
@@ -180,11 +190,12 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
   const focusLatLng = useCallback(
     (payload) => {
       const map = mapRef.current;
-      if (!map || !map._loaded) {
+      if (!map || !canInteractWithMap(map)) {
         setPendingFocus({ type: "latlng", payload });
         if (map?.whenReady) {
           map.whenReady(applyPending);
         }
+        requestAnimationFrame(applyPending);
         return false;
       }
       return applyFocusLatLng(payload);
@@ -197,11 +208,12 @@ export default function useLeafletFocus({ page = "Unknown" } = {}) {
       if (!isValidBounds(bounds)) return false;
       const map = mapRef.current;
       const payload = { bounds, options, reason };
-      if (!map || !map._loaded) {
+      if (!map || !canInteractWithMap(map)) {
         setPendingFocus({ type: "bounds", payload });
         if (map?.whenReady) {
           map.whenReady(applyPending);
         }
+        requestAnimationFrame(applyPending);
         return false;
       }
       return applyFitBounds(payload);
