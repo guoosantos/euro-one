@@ -2157,8 +2157,26 @@ function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, t
 function MapFollowController({ center, activeIndex, follow }) {
   const map = useMap();
   useEffect(() => {
-    if (!follow || !map || !center || !canInteractWithMap(map)) return;
-    map.setView(center, map.getZoom(), { animate: true });
+    if (!follow || !map || !center) return undefined;
+    let cancelled = false;
+
+    const run = () => {
+      if (cancelled) return;
+      if (!canInteractWithMap(map)) return;
+      map.setView(center, map.getZoom(), { animate: true });
+    };
+
+    if (map._loaded) {
+      run();
+    } else if (map.whenReady) {
+      map.whenReady(run);
+    } else {
+      run();
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, [activeIndex, center, follow, map]);
   return null;
 }
