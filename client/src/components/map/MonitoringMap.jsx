@@ -7,6 +7,7 @@ import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
 import { buildEffectiveMaxZoom } from "../../lib/map-config.js";
 import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
 import useMapDataRefresh from "../../lib/map/useMapDataRefresh.js";
+import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import MapZoomControls from "./MapZoomControls.jsx";
 import AppMap from "./AppMap.jsx";
 import { formatAddress } from "../../lib/format-address.js";
@@ -149,6 +150,7 @@ function MarkerLayer({
   const map = useMap();
   const [clusters, setClusters] = useState([]);
   const clusterSignatureRef = useRef("");
+  const canUseMap = useCallback(() => canInteractWithMap(map), [map]);
   
   const safeMarkers = useMemo(
     () => markers.filter((marker) => Number.isFinite(marker.lat) && Number.isFinite(marker.lng)),
@@ -159,19 +161,20 @@ function MarkerLayer({
     if (!map || !onViewportChange) return undefined;
 
     const handleMove = () => {
-      if (!map._loaded) return;
+      if (!canUseMap()) return;
       const center = map.getCenter();
       onViewportChange({ center: [center.lat, center.lng], zoom: map.getZoom() });
     };
 
     map.on("moveend", handleMove);
     return () => map.off("moveend", handleMove);
-  }, [map, onViewportChange]);
+  }, [canUseMap, map, onViewportChange]);
 
   useEffect(() => {
     if (!map) return undefined;
 
     const updateClusters = () => {
+      if (!canUseMap()) return;
       const zoom = map.getZoom();
       const radius = 60;
       const groupMap = new Map();
@@ -224,7 +227,7 @@ function MarkerLayer({
     return () => {
       map.off("moveend zoomend", updateClusters);
     };
-  }, [map, safeMarkers]);
+  }, [canUseMap, map, safeMarkers]);
 
   // Focar no marcador quando selecionado
   useEffect(() => {
@@ -373,14 +376,10 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
 
-  const canInteractWithMap = useCallback((map) => {
-    if (!map || !map._loaded || !map._mapPane) return false;
-    const container = map.getContainer?.() || containerRef.current;
-    if (!container || container.isConnected === false) return false;
-    const rect = container.getBoundingClientRect?.();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
-    return true;
-  }, []);
+  const canUseMap = useCallback(
+    (map) => canInteractWithMap(map, containerRef.current),
+    [],
+  );
 
   const focusDevice = useCallback(
     ({ lat, lng, zoom = 17, animate = true, reason } = {}) => {
@@ -388,7 +387,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       const nextLng = Number(lng);
       if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
       const map = mapRef.current;
-      if (!map || !isMapReady || !canInteractWithMap(map)) return false;
+      if (!map || !isMapReady || !canUseMap(map)) return false;
       userActionRef.current = true;
       if (isDev) {
         console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
@@ -399,7 +398,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         if (!container || container.isConnected === false) return;
         const rect = container.getBoundingClientRect?.();
         if (!rect || rect.width <= 0 || rect.height <= 0) return;
-        if (!map._loaded || !map._mapPane) return;
+        if (!canUseMap(map)) return;
         map.invalidateSize?.({ pan: false });
       };
       const scheduleResize = () => {
@@ -414,7 +413,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       pendingResizeRef.current.timeoutIds.push(timeoutId);
       return true;
     },
-    [canInteractWithMap, isDev, isMapReady],
+    [canUseMap, isDev, isMapReady],
   );
 
   useImperativeHandle(
@@ -425,12 +424,12 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         const nextLng = Number(lng);
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
         const map = mapRef.current;
-        if (!map || !isMapReady || !canInteractWithMap(map)) return false;
+        if (!map || !isMapReady || !canUseMap(map)) return false;
         return focusDevice({ lat: nextLat, lng: nextLng, zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
       },
       focusDevice,
     }),
-    [canInteractWithMap, focusDevice, isMapReady],
+    [canUseMap, focusDevice, isMapReady],
   );
 
   useEffect(() => {

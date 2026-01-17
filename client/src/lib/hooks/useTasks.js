@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useTranslation } from "../i18n.js";
 import { useTenant } from "../tenant-context.jsx";
@@ -11,6 +11,7 @@ export default function useTasks(params = {}) {
   const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   // 🔥 Memo verdadeiro — não muda enquanto valores internos não mudarem
   const resolvedParams = useMemo(() => {
@@ -23,11 +24,11 @@ export default function useTasks(params = {}) {
   const lastHashRef = useRef("");
   const currentHash = useMemo(() => {
     try {
-      return JSON.stringify(resolvedParams);
+      return JSON.stringify({ ...resolvedParams, reloadKey });
     } catch {
       return "";
     }
-  }, [resolvedParams]);
+  }, [reloadKey, resolvedParams]);
 
   const shouldRun = lastHashRef.current !== currentHash;
 
@@ -61,16 +62,21 @@ export default function useTasks(params = {}) {
       })
       .catch((err) => {
         if (cancelled) return;
+        const status = err?.response?.status ?? err?.status;
         console.error("[tasks] Falha ao carregar tasks", {
+          endpoint: "/core/tasks",
           params: resolvedParams,
-          status: err?.response?.status ?? err?.status,
+          status,
           error: err,
         });
         const friendly =
           err?.response?.data?.message ||
           err?.message ||
           t("errors.loadTasks");
-        setError(new Error(friendly));
+        const normalizedError = new Error(friendly);
+        normalizedError.status = status;
+        setTasks([]);
+        setError(normalizedError);
       })
       .finally(() => {
         if (cancelled) return;
@@ -82,5 +88,9 @@ export default function useTasks(params = {}) {
     };
   }, [currentHash, shouldRun, t, resolvedParams.clientId]);
 
-  return { tasks, loading, error };
+  const reload = useCallback(() => {
+    setReloadKey((current) => current + 1);
+  }, []);
+
+  return { tasks, loading, error, reload };
 }

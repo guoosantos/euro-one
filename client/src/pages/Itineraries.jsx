@@ -20,6 +20,7 @@ import useVehicles from "../lib/hooks/useVehicles.js";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../lib/mapLayers.js";
+import { canInteractWithMap } from "../lib/map/mapSafety.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import Button from "../ui/Button";
 import Input from "../ui/Input";
@@ -394,7 +395,7 @@ function buildItineraryItemDetails(itinerary, geofences, routes) {
 function MapFitBounds({ items }) {
   const map = useMap();
   useEffect(() => {
-    if (!map) return;
+    if (!map || !canInteractWithMap(map)) return;
     const bounds = collectGeometryBounds(items);
     if (!bounds || !bounds.isValid()) return;
     map.fitBounds(bounds, { padding: [24, 24] });
