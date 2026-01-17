@@ -3,6 +3,7 @@ import createError from "http-errors";
 
 import { authenticate } from "../middleware/auth.js";
 import { listModels } from "../models/model.js";
+import { listDevices } from "../models/device.js";
 
 const router = express.Router();
 
@@ -25,7 +26,32 @@ router.get("/models", (req, res, next) => {
   try {
     const clientId = resolveClientId(req);
     const models = listModels({ clientId, includeGlobal: true });
-    res.json({ models });
+    const devices = listDevices({ clientId });
+    const counts = new Map();
+
+    devices.forEach((device) => {
+      if (!device?.modelId) return;
+      const modelId = String(device.modelId);
+      if (!counts.has(modelId)) {
+        counts.set(modelId, { available: 0, linked: 0 });
+      }
+      const bucket = counts.get(modelId);
+      if (device.vehicleId) {
+        bucket.linked += 1;
+      } else {
+        bucket.available += 1;
+      }
+    });
+
+    const payload = models.map((model) => {
+      const modelCounts = counts.get(String(model.id)) || { available: 0, linked: 0 };
+      return {
+        ...model,
+        availableCount: modelCounts.available,
+        linkedCount: modelCounts.linked,
+      };
+    });
+    res.json({ models: payload });
   } catch (error) {
     next(error);
   }

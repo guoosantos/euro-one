@@ -391,6 +391,7 @@ export default function Technicians() {
       clientId: hasAdminAccess ? prev.clientId || resolvedClientId : prev.clientId,
     }));
     addressSearchState.setQuery("");
+    addressSearchState.resetSuggestions();
     setLoginForm({ username: "", email: "", password: "" });
     setLoginConfigured(false);
     setDrawerTab("cadastro");
@@ -559,6 +560,7 @@ export default function Technicians() {
       clientId: technician.clientId || resolvedClientId,
     });
     addressSearchState.setQuery(technician.addressSearch || "");
+    addressSearchState.resetSuggestions();
     setLoginForm({
       username: technician.username || "",
       email: technician.email || "",
@@ -966,7 +968,7 @@ export default function Technicians() {
                   onSelect={handleSelectAddress}
                   placeholder="Buscar endereço"
                   variant="toolbar"
-                  containerClassName="w-full"
+                  containerClassName="w-full z-30"
                 />
               </div>
             </div>

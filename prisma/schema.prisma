@@ -422,7 +422,18 @@ model Task {
   clientId           String
   vehicleId          String?
   driverId           String?
+  unit               String?
+  operation          String?
+  category           String?
+  clientName         String?
+  clientDocument     String?
+  contractPlan       String?
+  contactName        String?
+  contactChannel     String?
+  authorizationStatus String?
+  authorizationBy    String?
   address            String?
+  referencePoint     String?
   geoFenceId         String?
   geofenceRadius     Int?
   latitude           Float?
@@ -434,7 +445,17 @@ model Task {
   serviceEndTime     DateTime?
   checklistCompleted Boolean   @default(false)
   type               String
+  serviceReason      String?
+  serviceItem        String?
+  priority           String?
+  sla                String?
+  slaExceptionReason String?
   status             String
+  ownerName          String?
+  technicianName     String?
+  assignedTeam       String?
+  rescheduleReason   String?
+  cancelReason       String?
   attachments        Json?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

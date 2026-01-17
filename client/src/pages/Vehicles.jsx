@@ -18,6 +18,7 @@ import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+import Modal from "../ui/Modal";
 
 const BRAND_COLORS = {
   fiat: "bg-red-500/20 text-red-200",

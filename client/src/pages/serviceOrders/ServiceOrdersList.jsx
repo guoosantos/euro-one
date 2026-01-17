@@ -214,14 +214,14 @@ export default function ServiceOrdersList() {
 
       <FilterBar
         left={
-          <div className="flex w-full flex-wrap items-center gap-3 md:flex-nowrap">
+          <div className="flex w-full flex-wrap items-center gap-3">
             <input
               value={q}
               onChange={(event) => setQ(event.target.value)}
               placeholder="Buscar por OS, placa, contato, técnico..."
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none md:w-72"
+              className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
             />
-            <div className="w-full md:w-64">
+            <div className="min-w-[220px] flex-1">
               <AutocompleteSelect
                 placeholder="Buscar cliente"
                 value={clientId}
@@ -233,7 +233,7 @@ export default function ServiceOrdersList() {
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-56"
+              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -245,13 +245,13 @@ export default function ServiceOrdersList() {
               type="date"
               value={from}
               onChange={(event) => setFrom(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-40"
+              className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
             <input
               type="date"
               value={to}
               onChange={(event) => setTo(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none md:w-40"
+              className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
           </div>
         }
@@ -290,17 +290,17 @@ export default function ServiceOrdersList() {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-        <DataTable>
+        <DataTable className="overflow-x-hidden" tableClassName="w-full table-fixed">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
             <tr className="text-left">
-              <th className="px-4 py-3">OS</th>
-              <th className="px-4 py-3">Placa</th>
-              <th className="px-4 py-3">Responsável</th>
-              <th className="px-4 py-3">Técnico</th>
+              <th className="w-32 px-4 py-3">OS</th>
+              <th className="w-24 px-4 py-3">Placa</th>
+              <th className="w-48 px-4 py-3">Responsável</th>
+              <th className="w-32 px-4 py-3">Técnico</th>
               <th className="px-4 py-3">Equipamentos</th>
-              <th className="px-4 py-3">Data</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3 text-right">Ações</th>
+              <th className="w-36 px-4 py-3">Data</th>
+              <th className="w-28 px-4 py-3">Status</th>
+              <th className="w-20 px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
@@ -335,12 +335,12 @@ export default function ServiceOrdersList() {
                   <td className="px-4 py-3 font-medium text-white">
                     {item.osInternalId || item.id.slice(0, 8)}
                   </td>
-                  <td className="px-4 py-3">{item.vehicle?.plate || "—"}</td>
+                  <td className="px-4 py-3 truncate">{item.vehicle?.plate || "—"}</td>
                   <td className="px-4 py-3">
-                    <div className="text-white">{item.responsibleName || "—"}</div>
-                    <div className="text-xs text-white/50">{item.responsiblePhone || ""}</div>
+                    <div className="truncate text-white">{item.responsibleName || "—"}</div>
+                    <div className="truncate text-xs text-white/50">{item.responsiblePhone || ""}</div>
                   </td>
-                  <td className="px-4 py-3">{item.technicianName || "—"}</td>
+                  <td className="px-4 py-3 truncate">{item.technicianName || "—"}</td>
                   <td className="px-4 py-3">
                     {(() => {
                       const labels = buildEquipmentLabels(item).filter(Boolean);
@@ -350,7 +350,7 @@ export default function ServiceOrdersList() {
                           {labels.map((label, index) => (
                             <span
                               key={`${label}-${index}`}
-                              className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/80"
+                              className="max-w-[220px] truncate rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/80"
                             >
                               {label}
                             </span>
