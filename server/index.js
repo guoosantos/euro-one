@@ -4,6 +4,8 @@ import jwt from "jsonwebtoken";
 import { WebSocketServer, WebSocket } from "ws";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { loadEnv, validateEnv } from "./utils/env.js";
 import { assertDemoFallbackSafety } from "./services/fallback-data.js";
@@ -31,14 +33,18 @@ const runPrismaMigrations = async () => {
     return;
   }
 
+  // Resolve paths de forma robusta (não depende do cwd do PM2)
+  const serverDir = path.dirname(fileURLToPath(import.meta.url));
+  const repoRoot = path.resolve(serverDir, "..");
+  const prismaSchemaPath = path.join(repoRoot, "prisma", "schema.prisma");
+
   try {
-    const result = await execFileAsync("npx", [
-      "prisma",
-      "migrate",
-      "deploy",
-      "--schema",
-      "../prisma/schema.prisma",
-    ]);
+    const result = await execFileAsync(
+      "npx",
+      ["prisma", "migrate", "deploy", "--schema", prismaSchemaPath],
+      { cwd: repoRoot, env: process.env },
+    );
+
     if (result?.stdout) {
       console.info("[startup] prisma migrate deploy", result.stdout.trim());
     }
@@ -51,6 +57,8 @@ const runPrismaMigrations = async () => {
       code: error?.code,
       stdout: error?.stdout,
       stderr: error?.stderr,
+      schema: prismaSchemaPath,
+      cwd: repoRoot,
     });
   }
 };
@@ -73,15 +81,15 @@ process.on("exit", (code) => {
   console.warn("[startup] exit", { code });
 });
 
-const importWithLog = (path, { required = false } = {}) => {
-  console.info(`[startup] importing ${path}`);
-  return import(path)
+const importWithLog = (modulePath, { required = false } = {}) => {
+  console.info(`[startup] importing ${modulePath}`);
+  return import(modulePath)
     .then((module) => {
-      console.info(`[startup] imported ${path} ok`);
+      console.info(`[startup] imported ${modulePath} ok`);
       return module;
     })
     .catch((error) => {
-      logErrorStack(`[startup] failed importing ${path}`, error);
+      logErrorStack(`[startup] failed importing ${modulePath}`, error);
       if (required) {
         throw error;
       }
@@ -128,6 +136,7 @@ async function bootstrapServer() {
     configName: process.env.XDM_CONFIG_NAME || process.env.XDM_CONFIG_ID || null,
     secretLen: process.env.XDM_CLIENT_SECRET ? String(process.env.XDM_CLIENT_SECRET).length : 0,
   });
+
   const overrideConfig = getGeozoneGroupOverrideConfig();
   const overrideLogPayload = {
     overrideId: overrideConfig.overrideId,
@@ -140,6 +149,7 @@ async function bootstrapServer() {
   } else {
     console.warn("[startup] XDM override config inválido", overrideLogPayload);
   }
+
   const signatureConfig = resolveItinerarySignatureOverrideConfig();
   const signatureLogPayload = {
     overrideId: signatureConfig.overrideId,
@@ -193,6 +203,7 @@ async function bootstrapServer() {
   let stopGeocodeWorker = () => {};
   let stopGeocodeMonitor = () => {};
   const app = express();
+
   app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
   app.get("/ready", (_req, res) => {
     res.status(ready ? 200 : 503).json({ ok: ready, ready });
@@ -207,6 +218,7 @@ async function bootstrapServer() {
         : code === "EACCES"
           ? "Permissão negada ao tentar bindar a porta"
           : "Erro ao iniciar servidor HTTP";
+
     console.error(`[startup] ${reason}`, {
       message: error?.message || error,
       code,
@@ -236,6 +248,7 @@ async function bootstrapServer() {
     if (prismaModule?.initPrismaEnv) {
       await runWithTimeout(() => prismaModule.initPrismaEnv(), bootstrapTimeout, "initPrismaEnv");
     }
+
     await runWithTimeout(() => runPrismaMigrations(), bootstrapTimeout, "prismaMigrateDeploy");
 
     const vehiclesModule = await importWithLog("./models/vehicle.js");
@@ -250,7 +263,11 @@ async function bootstrapServer() {
     const addressModule = await importWithLog("./utils/address.js");
     if (addressModule?.initGeocodeCache) {
       try {
-        await runWithTimeout(() => addressModule.initGeocodeCache(), bootstrapTimeout, "initGeocodeCache");
+        await runWithTimeout(
+          () => addressModule.initGeocodeCache(),
+          bootstrapTimeout,
+          "initGeocodeCache",
+        );
       } catch (error) {
         console.warn("[startup] Falha ao hidratar cache de endereços", error?.message || error);
       }
@@ -328,9 +345,7 @@ async function bootstrapServer() {
 
     const authenticateWebSocket = (req) => {
       const token = extractToken(req);
-      if (!token) {
-        return null;
-      }
+      if (!token) return null;
 
       try {
         return jwt.verify(token, config.jwt.secret);
@@ -346,7 +361,6 @@ async function bootstrapServer() {
     const removeSocketFromClient = (clientId, socket) => {
       const sockets = liveSockets.get(clientId);
       if (!sockets) return;
-
       sockets.delete(socket);
       if (!sockets.size) {
         liveSockets.delete(clientId);
@@ -372,6 +386,7 @@ async function bootstrapServer() {
         const deviceIds = devices
           .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
           .filter(Boolean);
+
         if (!deviceIds.length) return;
 
         // Este WebSocket usa o banco do Traccar via módulo traccarDb como fonte de dados em tempo quase real (arquitetura C).
@@ -407,14 +422,13 @@ async function bootstrapServer() {
           liveSockets.delete(clientId);
           continue;
         }
-
         // Não chamamos a API HTTP do Traccar diretamente neste fluxo.
         await pushTelemetryToClient(clientId, sockets);
       }
     };
 
     if (canStartTelemetry) {
-      wss.on("connection", async (socket, req, user) => {
+      wss.on("connection", async (socket, _req, user) => {
         const clientId = user?.clientId;
         if (!clientId) {
           socket.close(4401, "Cliente não identificado");
@@ -500,12 +514,8 @@ async function bootstrapServer() {
     });
 
     const shutdown = () => {
-      if (stopSync) {
-        stopSync();
-      }
-      if (telemetryInterval) {
-        clearInterval(telemetryInterval);
-      }
+      if (stopSync) stopSync();
+      if (telemetryInterval) clearInterval(telemetryInterval);
       wss.close();
       stopGeocodeWorker();
       stopGeocodeMonitor();
