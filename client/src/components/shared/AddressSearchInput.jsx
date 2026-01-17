@@ -74,6 +74,7 @@ export default function AddressSearchInput({
   containerClassName = "",
   floating = false,
   variant = "map",
+  portalSuggestions = false,
 }) {
   const handleSelect = useCallback(
     (option) => {
@@ -113,6 +114,7 @@ export default function AddressSearchInput({
       floating={floating}
       variant={variant}
       onClear={handleClear}
+      portalSuggestions={portalSuggestions}
     />
   );
 }

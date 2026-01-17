@@ -23,6 +23,15 @@ function resolveZoom(zoom) {
   return Number.isFinite(next) && next > 0 ? next : null;
 }
 
+function canInvalidate(map) {
+  if (!map?.invalidateSize) return false;
+  const container = map.getContainer?.();
+  if (!container || container.isConnected === false) return false;
+  const rect = container.getBoundingClientRect?.();
+  if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+  return true;
+}
+
 const AppMap = React.forwardRef(function AppMap(
   { center, zoom, className = "", style, invalidateKey, onReadyStateChange, whenReady, ...props },
   ref,
@@ -51,7 +60,13 @@ const AppMap = React.forwardRef(function AppMap(
       onReadyStateChange?.(true);
       whenReady?.(event);
       const map = event?.target || mapRef.current;
-      map?.invalidateSize?.();
+      if (!map) return;
+      if (!canInvalidate(map)) return;
+      requestAnimationFrame(() => {
+        if (mapRef.current !== map) return;
+        if (!canInvalidate(map)) return;
+        map.invalidateSize({ pan: false });
+      });
     },
     [onReadyStateChange, whenReady],
   );
@@ -59,8 +74,12 @@ const AppMap = React.forwardRef(function AppMap(
   useEffect(() => {
     if (!isReady) return;
     const map = mapRef.current;
-    if (!map) return;
-    map.invalidateSize?.();
+    if (!map || !canInvalidate(map)) return;
+    requestAnimationFrame(() => {
+      if (mapRef.current !== map) return;
+      if (!canInvalidate(map)) return;
+      map.invalidateSize({ pan: false });
+    });
   }, [invalidateKey, isReady]);
 
   return (

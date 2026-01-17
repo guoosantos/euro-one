@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Pencil, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
+import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
@@ -19,6 +20,15 @@ const STATUS_OPTIONS = [
   { value: "cancelado", label: "Cancelado" },
 ];
 
+const SERVICE_TYPE_OPTIONS = [
+  "Instalação",
+  "Manutenção",
+  "Retirada",
+  "Remanejamento",
+  "Socorro",
+  "Reinstalação",
+];
+
 const DEFAULT_FORM = {
   clientId: "",
   unit: "",
@@ -29,13 +39,15 @@ const DEFAULT_FORM = {
   contractPlan: "",
   contactName: "",
   contactChannel: "",
+  requesterName: "",
+  requestChannel: "",
   authorizationStatus: "",
   authorizationBy: "",
   address: "",
   referencePoint: "",
   latitude: "",
   longitude: "",
-  type: "instalacao",
+  type: "Instalação",
   serviceReason: "",
   serviceItem: "",
   startTimeExpected: "",
@@ -44,6 +56,7 @@ const DEFAULT_FORM = {
   sla: "",
   status: "pendente",
   ownerName: "",
+  technicianId: "",
   technicianName: "",
   assignedTeam: "",
   slaExceptionReason: "",
@@ -61,9 +74,23 @@ function formatDate(value) {
   }).format(date);
 }
 
-function formatGeo(item) {
-  if (!item?.latitude || !item?.longitude) return "—";
-  return `${Number(item.latitude).toFixed(5)}, ${Number(item.longitude).toFixed(5)}`;
+function normalizeServiceType(value) {
+  if (!value) return "";
+  const normalized = String(value).trim().toLowerCase();
+  const match = SERVICE_TYPE_OPTIONS.find(
+    (option) => option.toLowerCase() === normalized,
+  );
+  if (match) return match;
+  const aliasMap = {
+    instalacao: "Instalação",
+    manutencao: "Manutenção",
+    manutencao_preventiva: "Manutenção",
+    retirada: "Retirada",
+    remanejamento: "Remanejamento",
+    socorro: "Socorro",
+    reinstalacao: "Reinstalação",
+  };
+  return aliasMap[normalized] || value;
 }
 
 function Drawer({ open, onClose, title, description, children }) {
@@ -93,10 +120,12 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Appointments() {
-  const { tenantId, user } = useTenant();
+  const { tenantId, user, tenants } = useTenant();
   const resolvedClientId = tenantId || user?.clientId || "";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [technicians, setTechnicians] = useState([]);
+  const [techniciansLoading, setTechniciansLoading] = useState(false);
   const [filters, setFilters] = useState({
     query: "",
     status: "",
@@ -110,6 +139,23 @@ export default function Appointments() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...DEFAULT_FORM, clientId: resolvedClientId });
   const addressSearchState = useAddressSearchState({ initialValue: "" });
+
+  const clientOptions = useMemo(
+    () => (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
+      id: tenant.id,
+      name: tenant.name || tenant.company || tenant.id,
+    })),
+    [tenants],
+  );
+
+  const technicianOptions = useMemo(
+    () => (Array.isArray(technicians) ? technicians : []).map((technician) => ({
+      id: technician.id,
+      name: technician.name || technician.fullName || technician.email || String(technician.id),
+      team: technician.team || technician.group || technician.assignedTeam || "",
+    })),
+    [technicians],
+  );
 
   const loadAppointments = async () => {
     setLoading(true);
@@ -133,6 +179,35 @@ export default function Appointments() {
     loadAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.status]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTechnicians = async () => {
+      setTechniciansLoading(true);
+      try {
+        const params = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+        const response = await api.get("core/technicians", { params });
+        const list = response?.data?.items || [];
+        if (!cancelled) {
+          setTechnicians(Array.isArray(list) ? list : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Falha ao carregar técnicos", error);
+          setTechnicians([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setTechniciansLoading(false);
+        }
+      }
+    };
+
+    loadTechnicians();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedClientId]);
 
   useEffect(() => {
     setForm((prev) => ({ ...prev, clientId: resolvedClientId || prev.clientId }));
@@ -178,13 +253,15 @@ export default function Appointments() {
         contractPlan: task.contractPlan || "",
         contactName: task.contactName || "",
         contactChannel: task.contactChannel || "",
+        requesterName: task.requesterName || task.requestedBy || "",
+        requestChannel: task.requestChannel || task.requestMethod || "",
         authorizationStatus: task.authorizationStatus || "",
         authorizationBy: task.authorizationBy || "",
         address: task.address || "",
         referencePoint: task.referencePoint || "",
         latitude: task.latitude ?? "",
         longitude: task.longitude ?? "",
-        type: task.type || "instalacao",
+        type: normalizeServiceType(task.type) || "Instalação",
         serviceReason: task.serviceReason || "",
         serviceItem: task.serviceItem || "",
         startTimeExpected: task.startTimeExpected ? new Date(task.startTimeExpected).toISOString().slice(0, 16) : "",
@@ -193,6 +270,7 @@ export default function Appointments() {
         sla: task.sla || "",
         status: task.status || "pendente",
         ownerName: task.ownerName || "",
+        technicianId: task.technicianId || "",
         technicianName: task.technicianName || "",
         assignedTeam: task.assignedTeam || "",
         slaExceptionReason: task.slaExceptionReason || "",
@@ -218,17 +296,17 @@ export default function Appointments() {
     }));
   };
 
-  const handleSave = async (event) => {
-    event.preventDefault();
+  const saveAppointment = async (payloadForm) => {
     setSaving(true);
     try {
       const payload = {
-        ...form,
-        clientId: form.clientId || resolvedClientId,
-        latitude: form.latitude !== "" ? Number(form.latitude) : null,
-        longitude: form.longitude !== "" ? Number(form.longitude) : null,
-        startTimeExpected: form.startTimeExpected ? new Date(form.startTimeExpected).toISOString() : null,
-        endTimeExpected: form.endTimeExpected ? new Date(form.endTimeExpected).toISOString() : null,
+        ...payloadForm,
+        clientId: payloadForm.clientId || resolvedClientId,
+        latitude: payloadForm.latitude !== "" ? Number(payloadForm.latitude) : null,
+        longitude: payloadForm.longitude !== "" ? Number(payloadForm.longitude) : null,
+        startTimeExpected: payloadForm.startTimeExpected ? new Date(payloadForm.startTimeExpected).toISOString() : null,
+        endTimeExpected: payloadForm.endTimeExpected ? new Date(payloadForm.endTimeExpected).toISOString() : null,
+        type: normalizeServiceType(payloadForm.type),
       };
       if (editingId) {
         await CoreApi.updateTask(editingId, payload);
@@ -244,6 +322,58 @@ export default function Appointments() {
       setSaving(false);
     }
   };
+
+  const handleSave = async (event) => {
+    event.preventDefault();
+    await saveAppointment(form);
+  };
+
+  const handleClientInput = (event) => {
+    const value = event.target.value;
+    const match = clientOptions.find((client) => client.name === value);
+    setForm((prev) => ({
+      ...prev,
+      clientName: value,
+      clientId: match?.id ?? prev.clientId,
+    }));
+  };
+
+  const handleTechnicianInput = (event) => {
+    const value = event.target.value;
+    const match = technicianOptions.find((technician) => technician.name === value);
+    setForm((prev) => ({
+      ...prev,
+      technicianName: value,
+      technicianId: match?.id ?? prev.technicianId,
+      assignedTeam: match?.team || prev.assignedTeam,
+    }));
+  };
+
+  const handleCancelAppointment = async () => {
+    const nextForm = { ...form, status: "cancelado" };
+    setForm(nextForm);
+    await saveAppointment(nextForm);
+  };
+
+  useEffect(() => {
+    if (!form.clientId) return;
+    const match = clientOptions.find((client) => String(client.id) === String(form.clientId));
+    if (match && form.clientName !== match.name) {
+      setForm((prev) => ({ ...prev, clientName: match.name }));
+    }
+  }, [clientOptions, form.clientId, form.clientName]);
+
+  useEffect(() => {
+    if (!form.technicianId) return;
+    const match = technicianOptions.find((technician) => String(technician.id) === String(form.technicianId));
+    if (match && form.technicianName !== match.name) {
+      setForm((prev) => ({
+        ...prev,
+        technicianName: match.name,
+        assignedTeam: match.team || prev.assignedTeam,
+      }));
+    }
+  }, [form.technicianId, form.technicianName, technicianOptions]);
 
   return (
     <div className="space-y-4">
@@ -320,119 +450,74 @@ export default function Appointments() {
         }
       />
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-        <DataTable className="overflow-x-hidden" tableClassName="w-full table-fixed">
-          <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
-            <tr className="text-left">
-              <th className="w-36 px-4 py-3">Identificação</th>
-              <th className="w-60 px-4 py-3">Cliente</th>
-              <th className="w-56 px-4 py-3">Contato</th>
-              <th className="w-72 px-4 py-3">Local</th>
-              <th className="w-56 px-4 py-3">Serviço</th>
-              <th className="w-56 px-4 py-3">Janela</th>
-              <th className="w-48 px-4 py-3">Responsável interno</th>
-              <th className="w-52 px-4 py-3">Gestão</th>
-              <th className="w-20 px-4 py-3 text-right">Ações</th>
+      <DataTable className="overflow-x-hidden" tableClassName="w-full table-fixed">
+        <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+          <tr className="text-left">
+            <th className="w-64 px-4 py-3">Cliente</th>
+            <th className="w-44 px-4 py-3">Data</th>
+            <th className="w-96 px-4 py-3">Endereço</th>
+            <th className="w-56 px-4 py-3">Tipo do Serviço</th>
+            <th className="w-52 px-4 py-3">Técnico</th>
+            <th className="w-52 px-4 py-3">Responsável</th>
+            <th className="w-36 px-4 py-3">Status</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-white/10">
+          {loading && (
+            <tr>
+              <td colSpan={7} className="px-4 py-6">
+                <SkeletonTable rows={6} columns={7} />
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-white/10">
-            {loading && (
-              <tr>
-                <td colSpan={9} className="px-4 py-6">
-                  <SkeletonTable rows={6} columns={9} />
-                </td>
-              </tr>
-            )}
-            {!loading && filtered.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-8">
-                  <EmptyState
-                    title="Nenhum agendamento encontrado."
-                    subtitle="Crie um novo agendamento para iniciar o atendimento."
-                    action={
-                      <button
-                        className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-                        onClick={() => openDrawer(null)}
-                      >
-                        Novo agendamento
-                      </button>
-                    }
-                  />
-                </td>
-              </tr>
-            )}
-            {!loading &&
-              filtered.map((item) => (
-                <tr key={item.id} className="border-t border-white/10 hover:bg-white/5">
-                  <td className="px-4 py-3">
-                    <div className="font-medium text-white">{item.id?.slice(0, 8) || "—"}</div>
-                    <div className="text-xs text-white/50">
-                      {item.unit || item.operation || "Unidade"} · {item.category || "Categoria"}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{item.clientName || "—"}</div>
-                    <div className="text-xs text-white/50">
-                      {item.clientDocument || "Documento"} · {item.contractPlan || "Plano"}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{item.contactName || "—"}</div>
-                    <div className="text-xs text-white/50">
-                      {item.contactChannel || "Canal"} · {item.authorizationStatus || "Autorização"}
-                    </div>
-                    <div className="text-[10px] text-white/40">{item.authorizationBy || "—"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{item.address || "—"}</div>
-                    <div className="text-xs text-white/50">
-                      {item.referencePoint || "Referência"} · {formatGeo(item)}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{item.type || "—"}</div>
-                    <div className="text-xs text-white/50">{item.serviceReason || "Motivo"}</div>
-                    <div className="text-[10px] text-white/40">{item.serviceItem || "Item"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{formatDate(item.startTimeExpected)}</div>
-                    <div className="text-xs text-white/50">até {formatDate(item.endTimeExpected)}</div>
-                    <div className="text-[10px] text-white/40">{item.priority || ""} {item.sla ? `· SLA ${item.sla}` : ""}</div>
-                    <span className="mt-1 inline-flex rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                      {item.status || "—"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-white/90">{item.technicianName || "A definir"}</div>
-                    <div className="text-xs text-white/50">{item.assignedTeam || "Equipe"}</div>
-                    <div className="text-[10px] text-white/40">Dono: {item.ownerName || "—"}</div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="text-xs text-white/60">
-                      SLA: {item.slaExceptionReason || "—"}
-                    </div>
-                    <div className="text-xs text-white/60">
-                      Remarcação: {item.rescheduleReason || "—"}
-                    </div>
-                    <div className="text-xs text-white/60">
-                      Cancelamento: {item.cancelReason || "—"}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-right">
+          )}
+          {!loading && filtered.length === 0 && (
+            <tr>
+              <td colSpan={7} className="px-4 py-8">
+                <EmptyState
+                  title="Nenhum agendamento encontrado."
+                  subtitle="Crie um novo agendamento para iniciar o atendimento."
+                  action={
                     <button
-                      type="button"
-                      onClick={() => openDrawer(item)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 text-white hover:border-white/30"
-                      aria-label="Editar agendamento"
+                      className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+                      onClick={() => openDrawer(null)}
                     >
-                      <Pencil className="h-4 w-4" />
+                      Novo agendamento
                     </button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </DataTable>
-      </div>
+                  }
+                />
+              </td>
+            </tr>
+          )}
+          {!loading &&
+            filtered.map((item) => (
+              <tr
+                key={item.id}
+                className="border-t border-white/10 hover:bg-white/5 cursor-pointer"
+                onClick={() => openDrawer(item)}
+              >
+                <td className="px-4 py-3">
+                  <div className="text-white/90">{item.clientName || "—"}</div>
+                  <div className="text-xs text-white/50">{item.clientDocument || "—"}</div>
+                </td>
+                <td className="px-4 py-3 text-white/90">
+                  {formatDate(item.startTimeExpected || item.endTimeExpected)}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="text-white/90">{item.address || "—"}</div>
+                  <div className="text-xs text-white/50">{item.referencePoint || "—"}</div>
+                </td>
+                <td className="px-4 py-3 text-white/90">{normalizeServiceType(item.type) || "—"}</td>
+                <td className="px-4 py-3 text-white/90">{item.technicianName || "—"}</td>
+                <td className="px-4 py-3 text-white/90">{item.contactName || item.ownerName || "—"}</td>
+                <td className="px-4 py-3">
+                  <span className="inline-flex rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                    {item.status || "—"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+        </tbody>
+      </DataTable>
 
       <Drawer
         open={drawerOpen}
@@ -470,10 +555,16 @@ export default function Appointments() {
             <div className="grid gap-3 md:grid-cols-3">
               <input
                 value={form.clientName}
-                onChange={(event) => setForm((prev) => ({ ...prev, clientName: event.target.value }))}
+                onChange={handleClientInput}
                 placeholder="Cliente/Empresa"
+                list="appointments-client-options"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
+              <datalist id="appointments-client-options">
+                {clientOptions.map((client) => (
+                  <option key={client.id} value={client.name} />
+                ))}
+              </datalist>
               <input
                 value={form.clientDocument}
                 onChange={(event) => setForm((prev) => ({ ...prev, clientDocument: event.target.value }))}
@@ -491,7 +582,7 @@ export default function Appointments() {
 
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Contato e autorização</h3>
-            <div className="grid gap-3 md:grid-cols-4">
+            <div className="grid gap-3 md:grid-cols-3">
               <input
                 value={form.contactName}
                 onChange={(event) => setForm((prev) => ({ ...prev, contactName: event.target.value }))}
@@ -501,13 +592,19 @@ export default function Appointments() {
               <input
                 value={form.contactChannel}
                 onChange={(event) => setForm((prev) => ({ ...prev, contactChannel: event.target.value }))}
-                placeholder="Canal"
+                placeholder="Contato"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
               <input
-                value={form.authorizationStatus}
-                onChange={(event) => setForm((prev) => ({ ...prev, authorizationStatus: event.target.value }))}
-                placeholder="Autorização"
+                value={form.requesterName}
+                onChange={(event) => setForm((prev) => ({ ...prev, requesterName: event.target.value }))}
+                placeholder="Quem solicitou o serviço"
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+              />
+              <input
+                value={form.requestChannel}
+                onChange={(event) => setForm((prev) => ({ ...prev, requestChannel: event.target.value }))}
+                placeholder="Forma da solicitação"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
               <input
@@ -527,6 +624,7 @@ export default function Appointments() {
               placeholder="Buscar endereço"
               variant="toolbar"
               containerClassName="w-full"
+              portalSuggestions
             />
             <div className="grid gap-3 md:grid-cols-3">
               <input
@@ -553,12 +651,17 @@ export default function Appointments() {
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Serviço</h3>
             <div className="grid gap-3 md:grid-cols-3">
-              <input
+              <select
                 value={form.type}
                 onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
-                placeholder="Tipo"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
+              >
+                {SERVICE_TYPE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
               <input
                 value={form.serviceReason}
                 onChange={(event) => setForm((prev) => ({ ...prev, serviceReason: event.target.value }))}
@@ -575,30 +678,26 @@ export default function Appointments() {
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Janela</h3>
-            <div className="grid gap-3 md:grid-cols-4">
+            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Datas</h3>
+            <div className="grid gap-3 md:grid-cols-3">
               <input
                 type="datetime-local"
                 value={form.startTimeExpected}
                 onChange={(event) => setForm((prev) => ({ ...prev, startTimeExpected: event.target.value }))}
+                placeholder="Data/Hora da Solicitação"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
               <input
                 type="datetime-local"
                 value={form.endTimeExpected}
                 onChange={(event) => setForm((prev) => ({ ...prev, endTimeExpected: event.target.value }))}
+                placeholder="Data/Hora do Serviço"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
               <input
                 value={form.priority}
                 onChange={(event) => setForm((prev) => ({ ...prev, priority: event.target.value }))}
                 placeholder="Prioridade"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.sla}
-                onChange={(event) => setForm((prev) => ({ ...prev, sla: event.target.value }))}
-                placeholder="SLA"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>
@@ -620,10 +719,16 @@ export default function Appointments() {
             <div className="grid gap-3 md:grid-cols-3">
               <input
                 value={form.technicianName}
-                onChange={(event) => setForm((prev) => ({ ...prev, technicianName: event.target.value }))}
-                placeholder="Técnico"
+                onChange={handleTechnicianInput}
+                placeholder={techniciansLoading ? "Carregando técnicos..." : "Buscar técnico"}
+                list="appointments-technician-options"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
+              <datalist id="appointments-technician-options">
+                {technicianOptions.map((technician) => (
+                  <option key={technician.id} value={technician.name} />
+                ))}
+              </datalist>
               <input
                 value={form.assignedTeam}
                 onChange={(event) => setForm((prev) => ({ ...prev, assignedTeam: event.target.value }))}
@@ -663,14 +768,26 @@ export default function Appointments() {
             </div>
           </section>
 
-          <div className="sticky bottom-0 flex justify-end gap-2 border-t border-white/10 bg-[#0f141c] pt-4">
-            <button
-              type="button"
-              onClick={() => setDrawerOpen(false)}
-              className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white"
-            >
-              Cancelar
-            </button>
+          <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-[#0f141c] pt-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {editingId ? (
+                <button
+                  type="button"
+                  onClick={handleCancelAppointment}
+                  className="rounded-xl border border-red-500/40 px-4 py-2 text-sm text-red-200 hover:border-red-400"
+                  disabled={saving}
+                >
+                  Cancelar agendamento
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setDrawerOpen(false)}
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-white"
+              >
+                Fechar
+              </button>
+            </div>
             <button
               type="submit"
               disabled={saving}

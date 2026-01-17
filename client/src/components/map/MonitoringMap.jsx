@@ -362,6 +362,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const userActionRef = useRef(false);
   const markerRefs = useRef(new Map());
   const isMountedRef = useRef(true);
+  const [isMapReady, setIsMapReady] = useState(false);
   const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
   const isDev = Boolean(import.meta?.env?.DEV);
@@ -371,13 +372,23 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
     [mapPreferences?.maxZoom, providerMaxZoom],
   );
   const shouldWarnMaxZoom = Boolean(mapPreferences?.shouldWarnMaxZoom);
+
+  const canInteractWithMap = useCallback((map) => {
+    if (!map || !map._loaded || !map._mapPane) return false;
+    const container = map.getContainer?.() || containerRef.current;
+    if (!container || container.isConnected === false) return false;
+    const rect = container.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return false;
+    return true;
+  }, []);
+
   const focusDevice = useCallback(
     ({ lat, lng, zoom = 17, animate = true, reason } = {}) => {
       const nextLat = Number(lat);
       const nextLng = Number(lng);
       if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
       const map = mapRef.current;
-      if (!map || !map._mapPane) return false;
+      if (!map || !isMapReady || !canInteractWithMap(map)) return false;
       userActionRef.current = true;
       if (isDev) {
         console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
@@ -403,7 +414,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       pendingResizeRef.current.timeoutIds.push(timeoutId);
       return true;
     },
-    [isDev],
+    [canInteractWithMap, isDev, isMapReady],
   );
 
   useImperativeHandle(
@@ -414,12 +425,12 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         const nextLng = Number(lng);
         if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
         const map = mapRef.current;
-        if (!map) return false;
+        if (!map || !isMapReady || !canInteractWithMap(map)) return false;
         return focusDevice({ lat: nextLat, lng: nextLng, zoom: 17, animate: true, reason: "ADDRESS_SELECT" });
       },
       focusDevice,
     }),
-    [focusDevice],
+    [canInteractWithMap, focusDevice, isMapReady],
   );
 
   useEffect(() => {
@@ -451,6 +462,14 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
 
   const tileSubdomains = mapLayer?.subdomains ?? "abc";
 
+  const handleMapReady = useCallback(
+    (event) => {
+      onMapReady?.(event);
+      setIsMapReady(true);
+    },
+    [onMapReady],
+  );
+
   return (
     <div className="monitoring-map-root h-full w-full min-w-0 bg-[#0b0f17] relative z-0">
       {shouldWarnMaxZoom ? (
@@ -465,7 +484,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
           scrollWheelZoom
           zoom={mapPreferences?.selectZoom}
           invalidateKey={invalidateKey}
-          whenReady={onMapReady}
+          whenReady={handleMapReady}
         >
           <TileLayer
             key={mapLayer?.key || tileUrl}

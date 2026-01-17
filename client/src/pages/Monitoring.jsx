@@ -1554,6 +1554,7 @@ export default function Monitoring() {
     storageKey: columnStorageKey,
     savePreferences,
     defaultColumnKeys: EURO_ONE_DEFAULT_COLUMNS,
+    alwaysVisibleKeys: ["client"],
   });
 
   const radiusValue = useMemo(() => clampRadius(searchRadius ?? DEFAULT_RADIUS), [clampRadius, searchRadius]);
@@ -1970,6 +1971,7 @@ export default function Monitoring() {
           onApply={applyColumns}
           onRestore={restoreColumns}
           onClose={() => setActivePopup(null)}
+          lockedKeys={["client"]}
         />
       )}
 

@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Search, X } from "lucide-react";
 
 import Input from "../../ui/Input.jsx";
@@ -24,9 +25,12 @@ export default function LocationSearch({
   floating = false,
   onClear,
   variant = "map",
+  portalSuggestions = false,
 }) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [isFocused, setIsFocused] = useState(false);
+  const [portalStyle, setPortalStyle] = useState(null);
+  const containerRef = useRef(null);
   const safeSuggestions = useMemo(() => (Array.isArray(suggestions) ? suggestions : []), [suggestions]);
   const trimmedValue = String(value ?? "").trim();
   const hasSuggestions = safeSuggestions.length > 0;
@@ -37,6 +41,35 @@ export default function LocationSearch({
   useEffect(() => {
     setActiveIndex(-1);
   }, [value, safeSuggestions.length]);
+
+  useEffect(() => {
+    if (!portalSuggestions || !showSuggestions) {
+      setPortalStyle(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const element = containerRef.current;
+      if (!element) return;
+      const rect = element.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      setPortalStyle({
+        position: "fixed",
+        top: rect.bottom + 8,
+        left: rect.left,
+        width: rect.width,
+        zIndex: 1400,
+      });
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    document.addEventListener("scroll", updatePosition, true);
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      document.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [portalSuggestions, showSuggestions]);
 
   const handleKeyDown = (event) => {
     if (!hasSuggestions) return;
@@ -60,7 +93,10 @@ export default function LocationSearch({
   };
 
   const suggestionList = showSuggestions ? (
-    <div className={isToolbar ? "map-search-suggestions left-0 w-full" : "map-search-suggestions"}>
+    <div
+      className={isToolbar ? "map-search-suggestions left-0 w-full" : "map-search-suggestions"}
+      style={portalSuggestions ? portalStyle : undefined}
+    >
       <ul className="max-h-64 overflow-auto text-xs text-white/80">
         {safeSuggestions.map((item, index) => {
           const key = item.id || `${item.lat}-${item.lng}-${index}`;
@@ -95,6 +131,7 @@ export default function LocationSearch({
   if (isToolbar) {
     return (
       <div
+        ref={containerRef}
         className={`relative flex min-w-[240px] max-w-xl flex-1 items-center gap-2 rounded-md border border-white/10 bg-[#0d1117] px-3 py-2.5 shadow-inner ${
           containerClassName
         }`}
@@ -133,7 +170,7 @@ export default function LocationSearch({
           ) : null}
         </div>
 
-        {suggestionList}
+        {portalSuggestions && suggestionList ? createPortal(suggestionList, document.body) : suggestionList}
 
         {errorMessage ? (
           <div className="absolute -bottom-5 left-0 text-[10px] text-amber-300/80">{errorMessage}</div>
@@ -143,7 +180,10 @@ export default function LocationSearch({
   }
 
   return (
-    <div className={`relative ${floating ? "floating-search" : ""} ${containerClassName}`.trim()}>
+    <div
+      ref={containerRef}
+      className={`relative ${floating ? "floating-search" : ""} ${containerClassName}`.trim()}
+    >
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -176,7 +216,7 @@ export default function LocationSearch({
           ) : null}
         </div>
       </form>
-      {suggestionList}
+      {portalSuggestions && suggestionList ? createPortal(suggestionList, document.body) : suggestionList}
     </div>
   );
 }

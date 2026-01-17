@@ -12,8 +12,20 @@ function reorder(list, fromKey, toKey) {
   return next;
 }
 
-export default function MonitoringColumnSelector({ columns, columnPrefs, defaultPrefs, onApply, onRestore, onClose }) {
+export default function MonitoringColumnSelector({
+  columns,
+  columnPrefs,
+  defaultPrefs,
+  onApply,
+  onRestore,
+  onClose,
+  lockedKeys = [],
+}) {
   const defaults = useMemo(() => defaultPrefs || buildColumnDefaults(columns), [columns, defaultPrefs]);
+  const lockedSet = useMemo(
+    () => new Set(Array.isArray(lockedKeys) ? lockedKeys.filter(Boolean) : []),
+    [lockedKeys],
+  );
 
   const initialState = useMemo(
     () => ({
@@ -34,6 +46,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
   }, [columns, working.order]);
 
   const toggleVisibility = (key) => {
+    if (lockedSet.has(key)) return;
     setWorking((prev) => ({
       ...prev,
       visible: { ...prev.visible, [key]: prev.visible?.[key] === false },
@@ -119,7 +132,7 @@ export default function MonitoringColumnSelector({ columns, columnPrefs, default
                 type="checkbox"
                 className="accent-primary"
                 checked={working.visible?.[column.key] !== false}
-                disabled={column.fixed}
+                disabled={column.fixed || lockedSet.has(column.key)}
                 onChange={() => toggleVisibility(column.key)}
               />
             </div>

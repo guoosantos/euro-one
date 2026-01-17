@@ -21,9 +21,19 @@ export default function useMonitoringSettings({
   loadingPreferences = false,
   savePreferences = null,
   defaultColumnKeys = null,
+  alwaysVisibleKeys = [],
 }) {
+  const lockedKeys = useMemo(
+    () => new Set(Array.isArray(alwaysVisibleKeys) ? alwaysVisibleKeys.filter(Boolean) : []),
+    [alwaysVisibleKeys],
+  );
   const defaults = useMemo(() => {
     const base = buildColumnDefaults(columns);
+    lockedKeys.forEach((key) => {
+      if (base.visible) {
+        base.visible[key] = true;
+      }
+    });
     if (Array.isArray(defaultColumnKeys) && defaultColumnKeys.length) {
       const orderFromDefaults = defaultColumnKeys.filter((key) => base.order.includes(key));
       const missing = base.order.filter((key) => !orderFromDefaults.includes(key));
@@ -33,17 +43,32 @@ export default function useMonitoringSettings({
 
       return {
         ...base,
-        visible,
+        visible: { ...visible, ...Object.fromEntries(Array.from(lockedKeys, (key) => [key, true])) },
         order: [...orderFromDefaults, ...missing],
       };
     }
-    return base;
-  }, [columns, defaultColumnKeys]);
+    const finalBase = { ...base };
+    lockedKeys.forEach((key) => {
+      if (finalBase.visible) {
+        finalBase.visible[key] = true;
+      }
+    });
+    return finalBase;
+  }, [columns, defaultColumnKeys, lockedKeys]);
 
   // memo estável
   const mergePrefs = useCallback(
-    (saved) => mergeColumnPreferences(defaults, saved),
-    [defaults]
+    (saved) => {
+      const merged = mergeColumnPreferences(defaults, saved);
+      lockedKeys.forEach((key) => {
+        merged.visible[key] = true;
+        if (!merged.order.includes(key) && defaults?.order?.includes(key)) {
+          merged.order.unshift(key);
+        }
+      });
+      return merged;
+    },
+    [defaults, lockedKeys]
   );
 
   const [columnPrefs, setColumnPrefs] = useState(defaults);
@@ -129,6 +154,7 @@ export default function useMonitoringSettings({
 
   const toggleColumn = useCallback(
     (key) => {
+      if (lockedKeys.has(key)) return;
       setColumnPrefs((current) => {
         const isVisible = current.visible?.[key] !== false;
         const next = {
@@ -143,9 +169,16 @@ export default function useMonitoringSettings({
   );
 
   const restoreColumns = useCallback(() => {
-    setColumnPrefs(defaults);
-    persistColumns(defaults);
-  }, [defaults, persistColumns]);
+    const next = { ...defaults };
+    lockedKeys.forEach((key) => {
+      next.visible[key] = true;
+      if (!next.order.includes(key) && defaults?.order?.includes(key)) {
+        next.order.unshift(key);
+      }
+    });
+    setColumnPrefs(next);
+    persistColumns(next);
+  }, [defaults, lockedKeys, persistColumns]);
 
   const moveColumn = useCallback(
     (fromKey, toKey) => {
@@ -220,10 +253,16 @@ export default function useMonitoringSettings({
     (nextPrefs) => {
       if (!nextPrefs) return;
       const merged = mergePrefs(nextPrefs);
+      lockedKeys.forEach((key) => {
+        merged.visible[key] = true;
+        if (!merged.order.includes(key) && defaults?.order?.includes(key)) {
+          merged.order.unshift(key);
+        }
+      });
       setColumnPrefs(merged);
       persistColumns(merged);
     },
-    [mergePrefs, persistColumns],
+    [defaults, lockedKeys, mergePrefs, persistColumns],
   );
 
   return {
