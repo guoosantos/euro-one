@@ -3,6 +3,15 @@ import createError from "http-errors";
 
 import prisma from "../services/prisma.js";
 
+function normalizeDate(value, label) {
+  if (value === undefined || value === null || value === "") return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw createError(400, `Parâmetro ${label} inválido`, { details: { param: label, value: String(value) } });
+  }
+  return date;
+}
+
 function clone(record) {
   if (!record) return null;
   return { ...record, attachments: Array.isArray(record.attachments) ? [...record.attachments] : [] };
@@ -17,6 +26,8 @@ export async function listTasks({ id, clientId, vehicleId, driverId, status, typ
           .map((item) => item.trim())
           .filter(Boolean)
     : undefined;
+  const fromDate = normalizeDate(from, "from");
+  const toDate = normalizeDate(to, "to");
 
   const tasks = await prisma.task.findMany({
     where: {
@@ -26,8 +37,8 @@ export async function listTasks({ id, clientId, vehicleId, driverId, status, typ
       driverId: driverId ? String(driverId) : undefined,
       type: type ? String(type) : undefined,
       status: statuses && statuses.length ? { in: statuses } : undefined,
-      startTimeExpected: from ? { gte: new Date(from) } : undefined,
-      endTimeExpected: to ? { lte: new Date(to) } : undefined,
+      startTimeExpected: fromDate ? { gte: fromDate } : undefined,
+      endTimeExpected: toDate ? { lte: toDate } : undefined,
     },
     orderBy: { createdAt: "desc" },
   });
