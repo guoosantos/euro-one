@@ -969,6 +969,7 @@ export default function Technicians() {
                   placeholder="Buscar endereço"
                   variant="toolbar"
                   containerClassName="w-full z-30"
+                  portalSuggestions
                 />
               </div>
             </div>

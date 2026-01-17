@@ -3,6 +3,7 @@ import { MapPin, RefreshCw, Search, Send, Users } from "lucide-react";
 import { Circle, MapContainer, Marker, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
+import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
@@ -73,6 +74,19 @@ function resolveDeviceCoords(device) {
   return { lat, lng };
 }
 
+function resolveTechnicianAddress(technician) {
+  if (!technician) return "";
+  if (technician.address) return technician.address;
+  const parts = [
+    technician.street,
+    technician.number,
+    technician.district,
+    technician.city,
+    technician.state,
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
 function distanceKm(lat1, lon1, lat2, lon2) {
   const toRad = (value) => (value * Math.PI) / 180;
   const radius = 6371;
@@ -91,17 +105,26 @@ export default function Stock() {
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("geral");
-  const [selectedClientId, setSelectedClientId] = useState(null);
   const [availabilityFilter, setAvailabilityFilter] = useState("both");
   const [searchClient, setSearchClient] = useState("");
   const [searchId, setSearchId] = useState("");
   const [cityFilter, setCityFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [radiusKm, setRadiusKm] = useState("10");
+  const [technicians, setTechnicians] = useState([]);
+  const [techniciansLoading, setTechniciansLoading] = useState(false);
   const [transferDrawerOpen, setTransferDrawerOpen] = useState(false);
+  const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
+  const [detailsClientId, setDetailsClientId] = useState(null);
+  const [transferSearch, setTransferSearch] = useState({
+    model: "",
+    deviceId: "",
+    client: "",
+  });
   const [transferForm, setTransferForm] = useState({
-    clientId: "",
-    technicianName: "",
+    destinationType: "client",
+    destinationClientId: "",
+    destinationTechnicianId: "",
     address: "",
     referencePoint: "",
     latitude: "",
@@ -136,6 +159,35 @@ export default function Stock() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedClientId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadTechnicians = async () => {
+      setTechniciansLoading(true);
+      try {
+        const params = resolvedClientId ? { clientId: resolvedClientId } : undefined;
+        const response = await api.get("core/technicians", { params });
+        const list = response?.data?.items || [];
+        if (!cancelled) {
+          setTechnicians(Array.isArray(list) ? list : []);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Falha ao carregar técnicos", error);
+          setTechnicians([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setTechniciansLoading(false);
+        }
+      }
+    };
+
+    loadTechnicians();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolvedClientId]);
+
   const modelById = useMemo(() => {
     const map = new Map();
     models.forEach((model) => {
@@ -151,6 +203,30 @@ export default function Stock() {
     });
     return map;
   }, [tenants]);
+
+  const clientOptions = useMemo(
+    () => (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
+      id: tenant.id,
+      name: tenant.name || tenant.company || tenant.id,
+    })),
+    [tenants],
+  );
+
+  const technicianOptions = useMemo(
+    () => (Array.isArray(technicians) ? technicians : []).map((technician) => ({
+      id: technician.id,
+      name: technician.name || technician.fullName || technician.email || String(technician.id),
+      address: technician.address || "",
+      street: technician.street || "",
+      number: technician.number || "",
+      district: technician.district || "",
+      city: technician.city || "",
+      state: technician.state || "",
+      latitude: technician.latitude ?? "",
+      longitude: technician.longitude ?? "",
+    })),
+    [technicians],
+  );
 
   const availableDevices = useMemo(() => devices.filter((device) => !device.vehicleId), [devices]);
   const linkedDevices = useMemo(() => devices.filter((device) => device.vehicleId), [devices]);
@@ -181,6 +257,16 @@ export default function Stock() {
     });
   }, [clientNameById, devices]);
 
+  const detailsClient = useMemo(
+    () => groupedByClient.find((client) => String(client.clientId) === String(detailsClientId)) || null,
+    [detailsClientId, groupedByClient],
+  );
+
+  const detailsDevices = useMemo(
+    () => devices.filter((device) => String(device.clientId || "global") === String(detailsClientId)),
+    [detailsClientId, devices],
+  );
+
   const filteredClients = useMemo(() => {
     const term = searchClient.trim().toLowerCase();
     return groupedByClient.filter((client) => {
@@ -193,14 +279,30 @@ export default function Stock() {
     const term = searchId.trim().toLowerCase();
     const cityTerm = cityFilter.trim().toLowerCase();
     return devices.filter((device) => {
-      if (selectedClientId && String(device.clientId) !== String(selectedClientId)) return false;
       if (availabilityFilter === "available" && device.vehicleId) return false;
       if (availabilityFilter === "linked" && !device.vehicleId) return false;
       if (term && !String(device.uniqueId || device.id || "").toLowerCase().includes(term)) return false;
       if (cityTerm && !String(device.city || device.address || "").toLowerCase().includes(cityTerm)) return false;
       return true;
     });
-  }, [availabilityFilter, cityFilter, devices, searchId, selectedClientId]);
+  }, [availabilityFilter, cityFilter, devices, searchId]);
+
+  const transferCandidates = useMemo(() => {
+    const modelTerm = transferSearch.model.trim().toLowerCase();
+    const idTerm = transferSearch.deviceId.trim().toLowerCase();
+    const clientTerm = transferSearch.client.trim().toLowerCase();
+
+    return devices.filter((device) => {
+      const modelLabel = modelById.get(device.modelId)?.name || device.model || "";
+      const clientLabel = clientNameById.get(String(device.clientId)) || "";
+      const deviceLabel = String(device.uniqueId || device.id || "").toLowerCase();
+
+      if (modelTerm && !modelLabel.toLowerCase().includes(modelTerm)) return false;
+      if (idTerm && !deviceLabel.includes(idTerm)) return false;
+      if (clientTerm && !clientLabel.toLowerCase().includes(clientTerm)) return false;
+      return true;
+    });
+  }, [clientNameById, devices, modelById, transferSearch]);
 
   const nearbyDevices = useMemo(() => {
     if (!regionTarget) return [];
@@ -226,24 +328,37 @@ export default function Stock() {
   };
 
   const handleOpenTransfer = () => {
-    if (!selectedIds.size) {
-      alert("Selecione equipamentos para transferir.");
-      return;
-    }
     setTransferForm((prev) => ({
       ...prev,
-      clientId: selectedClientId || resolvedClientId || "",
+      destinationClientId: resolvedClientId || "",
+      destinationTechnicianId: "",
+      destinationType: prev.destinationType || "client",
     }));
     transferAddressState.setQuery("");
+    setTransferSearch({ model: "", deviceId: "", client: "" });
     setTransferDrawerOpen(true);
   };
 
   const handleTransfer = () => {
-    if (!transferForm.technicianName.trim()) {
-      alert("Informe o técnico destino.");
+    if (!selectedIds.size) {
+      alert("Selecione equipamentos para transferir.");
       return;
     }
-    alert(`Transferindo ${selectedIds.size} equipamentos para ${transferForm.technicianName}.`);
+
+    if (transferForm.destinationType === "client" && !transferForm.destinationClientId) {
+      alert("Selecione o cliente destino.");
+      return;
+    }
+
+    if (
+      (transferForm.destinationType === "technician" || transferForm.destinationType === "client_technician") &&
+      !transferForm.destinationTechnicianId
+    ) {
+      alert("Selecione o técnico destino.");
+      return;
+    }
+
+    alert(`Transferindo ${selectedIds.size} equipamentos.`);
     setSelectedIds(new Set());
     setTransferDrawerOpen(false);
   };
@@ -272,6 +387,27 @@ export default function Stock() {
     () => devices.filter((device) => selectedIds.has(device.id)),
     [devices, selectedIds],
   );
+
+  useEffect(() => {
+    if (
+      transferForm.destinationType !== "technician" &&
+      transferForm.destinationType !== "client_technician"
+    ) {
+      return;
+    }
+    const technician = technicianOptions.find(
+      (option) => String(option.id) === String(transferForm.destinationTechnicianId),
+    );
+    if (!technician) return;
+    const resolvedAddress = resolveTechnicianAddress(technician);
+    setTransferForm((prev) => ({
+      ...prev,
+      address: resolvedAddress || prev.address,
+      latitude: technician.latitude ?? prev.latitude,
+      longitude: technician.longitude ?? prev.longitude,
+    }));
+    transferAddressState.setQuery(resolvedAddress || "");
+  }, [technicianOptions, transferAddressState, transferForm.destinationTechnicianId, transferForm.destinationType]);
 
   return (
     <div className="space-y-4">
@@ -372,8 +508,7 @@ export default function Stock() {
       />
 
       {view === "geral" && (
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-          <DataTable>
+        <DataTable>
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="px-4 py-3">Lista</th>
@@ -412,8 +547,8 @@ export default function Stock() {
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedClientId(client.clientId);
-                          setView("cliente");
+                          setDetailsClientId(client.clientId);
+                          setDetailsDrawerOpen(true);
                         }}
                         className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
                       >
@@ -424,12 +559,10 @@ export default function Stock() {
                 ))}
             </tbody>
           </DataTable>
-        </div>
       )}
 
       {view === "cliente" && (
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-          <DataTable>
+        <DataTable>
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="px-4 py-3">Selecionar</th>
@@ -490,7 +623,6 @@ export default function Stock() {
                 })}
             </tbody>
           </DataTable>
-        </div>
       )}
 
       {view === "mapa" && (
@@ -539,8 +671,7 @@ export default function Stock() {
               </MapContainer>
             </div>
           </div>
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-            <DataTable>
+          <DataTable>
               <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
                 <tr className="text-left">
                   <th className="px-4 py-3">Modelo</th>
@@ -570,10 +701,68 @@ export default function Stock() {
                   </tr>
                 )}
               </tbody>
-            </DataTable>
-          </div>
+          </DataTable>
         </div>
       )}
+
+      <Drawer
+        open={detailsDrawerOpen}
+        onClose={() => {
+          setDetailsDrawerOpen(false);
+          setDetailsClientId(null);
+        }}
+        title={detailsClient?.name || "Detalhes do estoque"}
+        description="Resumo do estoque e equipamentos vinculados."
+      >
+        <div className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.12em] text-white/50">Cliente</div>
+                <div className="text-base text-white">{detailsClient?.name || "—"}</div>
+              </div>
+              <div className="text-right text-xs text-white/60">
+                <div>Disponíveis: {detailsClient?.available ?? 0}</div>
+                <div>Vinculados: {detailsClient?.linked ?? 0}</div>
+              </div>
+            </div>
+          </div>
+          <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-white/10">
+            <table className="w-full text-left text-xs text-white/70">
+              <thead className="sticky top-0 bg-[#0f141c] text-[10px] uppercase tracking-wide text-white/50">
+                <tr>
+                  <th className="px-3 py-2">Modelo</th>
+                  <th className="px-3 py-2">ID</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2">Localização</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {detailsDevices.length ? (
+                  detailsDevices.map((device) => {
+                    const modelLabel = modelById.get(device.modelId)?.name || device.model || "—";
+                    const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
+                    return (
+                      <tr key={device.id}>
+                        <td className="px-3 py-2">{modelLabel}</td>
+                        <td className="px-3 py-2">{device.uniqueId || device.id}</td>
+                        <td className="px-3 py-2">{device.vehicleId ? "Vinculado" : "Disponível"}</td>
+                        <td className="px-3 py-2">{location}</td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-3 py-4 text-center text-white/50">
+                      Nenhum equipamento encontrado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </Drawer>
 
       <Drawer
         open={transferDrawerOpen}
@@ -596,19 +785,94 @@ export default function Stock() {
               ))}
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-3">
             <input
-              value={transferForm.clientId}
-              onChange={(event) => setTransferForm((prev) => ({ ...prev, clientId: event.target.value }))}
-              placeholder="Cliente destino"
+              value={transferSearch.model}
+              onChange={(event) => setTransferSearch((prev) => ({ ...prev, model: event.target.value }))}
+              placeholder="Buscar por modelo"
               className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
             />
             <input
-              value={transferForm.technicianName}
-              onChange={(event) => setTransferForm((prev) => ({ ...prev, technicianName: event.target.value }))}
-              placeholder="Técnico destino"
+              value={transferSearch.deviceId}
+              onChange={(event) => setTransferSearch((prev) => ({ ...prev, deviceId: event.target.value }))}
+              placeholder="Buscar por ID"
               className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
             />
+            <input
+              value={transferSearch.client}
+              onChange={(event) => setTransferSearch((prev) => ({ ...prev, client: event.target.value }))}
+              placeholder="Buscar por cliente"
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+            />
+          </div>
+
+          <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-white/10 bg-black/20 p-2 text-xs text-white/70">
+            {transferCandidates.length ? (
+              transferCandidates.map((device) => {
+                const modelLabel = modelById.get(device.modelId)?.name || device.model || "Modelo";
+                const clientLabel = clientNameById.get(String(device.clientId)) || "—";
+                return (
+                  <label key={device.id} className="flex items-center justify-between gap-3 px-2 py-1">
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(device.id)}
+                        onChange={() => toggleSelection(device.id)}
+                        className="h-4 w-4 rounded border-white/30 bg-transparent"
+                      />
+                      <span>{modelLabel}</span>
+                    </span>
+                    <span className="text-white/50">
+                      {device.uniqueId || device.id} · {clientLabel}
+                    </span>
+                  </label>
+                );
+              })
+            ) : (
+              <div className="px-2 py-2 text-white/50">Nenhum equipamento encontrado.</div>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <select
+              value={transferForm.destinationType}
+              onChange={(event) => setTransferForm((prev) => ({ ...prev, destinationType: event.target.value }))}
+              className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+            >
+              <option value="client">Destino: Cliente</option>
+              <option value="technician">Destino: Técnico</option>
+              <option value="client_technician">Destino: Cliente + Técnico</option>
+            </select>
+            {(transferForm.destinationType === "client" || transferForm.destinationType === "client_technician") && (
+              <select
+                value={transferForm.destinationClientId}
+                onChange={(event) => setTransferForm((prev) => ({ ...prev, destinationClientId: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+              >
+                <option value="">Selecione o cliente</option>
+                {clientOptions.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            )}
+            {(transferForm.destinationType === "technician" || transferForm.destinationType === "client_technician") && (
+              <select
+                value={transferForm.destinationTechnicianId}
+                onChange={(event) => setTransferForm((prev) => ({ ...prev, destinationTechnicianId: event.target.value }))}
+                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+              >
+                <option value="">
+                  {techniciansLoading ? "Carregando técnicos..." : "Selecione o técnico"}
+                </option>
+                {technicianOptions.map((technician) => (
+                  <option key={technician.id} value={technician.id}>
+                    {technician.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="space-y-2">
             <span className="text-xs text-white/60">Endereço da transferência</span>
@@ -618,6 +882,7 @@ export default function Stock() {
               placeholder="Buscar endereço"
               variant="toolbar"
               containerClassName="w-full"
+              portalSuggestions
             />
             <input
               value={transferForm.referencePoint}

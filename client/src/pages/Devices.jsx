@@ -376,7 +376,6 @@ export default function Devices() {
     setLinkQuery("");
     setMapTarget(null);
     setShowDeviceDrawer(false);
-    setShowColumnPicker(false);
     setInitializedFromSearch(false);
   }, [resolvedClientId]);
 
