@@ -6,6 +6,7 @@ export default function useMapDataRefresh(
   { markers = [], layers = [], selectedMarkerId = null, markerRefs = null } = {},
 ) {
   useEffect(() => {
+    let isActive = true;
     const map = mapRef?.current;
     if (!map || !map._loaded || !map._mapPane) return;
     const container = map.getContainer?.();
@@ -35,14 +36,20 @@ export default function useMapDataRefresh(
     const size = map.getSize?.();
     if (size && (size.x === 0 || size.y === 0)) {
       const rafId = requestAnimationFrame(() => {
+        if (!isActive) return;
         if (mapRef?.current !== map) return;
         if (!map._loaded || !map._mapPane) return;
         const rect = container.getBoundingClientRect?.();
         if (!rect || rect.width <= 0 || rect.height <= 0) return;
         map.invalidateSize?.({ pan: false });
       });
-      return () => cancelAnimationFrame(rafId);
+      return () => {
+        isActive = false;
+        cancelAnimationFrame(rafId);
+      };
     }
-    return undefined;
+    return () => {
+      isActive = false;
+    };
   }, [mapRef, markers, layers, selectedMarkerId, markerRefs]);
 }

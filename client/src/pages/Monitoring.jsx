@@ -5,7 +5,8 @@ import { useTranslation } from "../lib/i18n.js";
 
 import MonitoringMap from "../components/map/MonitoringMap.jsx";
 import MonitoringTable from "../components/monitoring/MonitoringTable.jsx";
-import MonitoringToolbar, { MonitoringSearchBox } from "../components/monitoring/MonitoringToolbar.jsx";
+import MonitoringToolbar from "../components/monitoring/MonitoringToolbar.jsx";
+import MonitoringSearchBox from "../components/monitoring/MonitoringSearchBox.jsx";
 import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnSelector.jsx";
 import MonitoringLayoutSelector from "../components/monitoring/MonitoringLayoutSelector.jsx";
 import MapTableSplitter from "../components/monitoring/MapTableSplitter.jsx";
@@ -381,7 +382,12 @@ export default function Monitoring() {
   const { tenantId, user, tenant } = useTenant();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
-  const { tasks, error: tasksError, reload: reloadTasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const {
+    tasks,
+    loading: tasksLoading,
+    error: tasksError,
+    reload: reloadTasks,
+  } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
@@ -393,22 +399,28 @@ export default function Monitoring() {
   });
   const mapPreferences = useMemo(() => resolveMapPreferences(tenant?.attributes), [tenant?.attributes]);
 
+  const hasTasksData = useMemo(
+    () => !tasksLoading && !tasksError && Array.isArray(tasks),
+    [tasks, tasksError, tasksLoading],
+  );
+
   const activeTasks = useMemo(
     () =>
-      Array.isArray(tasks)
+      hasTasksData
         ? tasks.filter((task) => !String(task.status || "").toLowerCase().includes("final"))
         : [],
-    [tasks],
+    [hasTasksData, tasks],
   );
 
   const routesByVehicle = useMemo(() => {
     const map = new Map();
+    if (!hasTasksData) return map;
     activeTasks.forEach((task) => {
       const key = String(task.vehicleId ?? task.deviceId ?? task.device?.id ?? task.device?.deviceId ?? "");
       if (key) map.set(key, task);
     });
     return map;
-  }, [activeTasks]);
+  }, [activeTasks, hasTasksData]);
 
   const vehiclesById = useMemo(() => {
     const map = new Map();
@@ -947,13 +959,13 @@ export default function Monitoring() {
       const stalenessMinutes = minutesSince(lastActivity);
       const hasStaleness = Number.isFinite(stalenessMinutes);
       const deviceKey = getDeviceKey(device);
-      const activeTask = deviceKey ? routesByVehicle.get(String(deviceKey)) : null;
-      const hasRoute = Boolean(activeTask);
+      const activeTask = hasTasksData && deviceKey ? routesByVehicle.get(String(deviceKey)) : null;
+      const hasRoute = hasTasksData && Boolean(activeTask);
       const startExpected = activeTask?.startTimeExpected ? Date.parse(activeTask.startTimeExpected) : null;
       const endExpected = activeTask?.endTimeExpected ? Date.parse(activeTask.endTimeExpected) : null;
       const statusText = String(activeTask?.status || "").toLowerCase();
-      const routeDelay = Boolean(hasRoute && startExpected && now > startExpected && !statusText.includes("final"));
-      const routeDeviation = Boolean(hasRoute && endExpected && now > endExpected && !statusText.includes("final"));
+      const routeDelay = Boolean(hasTasksData && hasRoute && startExpected && now > startExpected && !statusText.includes("final"));
+      const routeDeviation = Boolean(hasTasksData && hasRoute && endExpected && now > endExpected && !statusText.includes("final"));
       const alarmText = String(
         position?.attributes?.alarm ??
           position?.attributes?.event ??
@@ -969,9 +981,11 @@ export default function Monitoring() {
         (vehicleKey ? pendingAlertVehicleIds.has(String(vehicleKey)) : false);
       const isBlocked = Boolean(device?.blocked || position?.blocked || String(position?.status || "").toLowerCase() === "blocked");
 
-      if (routeFilter === "active" && !hasRoute) return false;
-      if (routeFilter === "with_signal" && (!hasRoute || !online)) return false;
-      if (routeFilter === "without_signal" && (!hasRoute || online)) return false;
+      if (hasTasksData) {
+        if (routeFilter === "active" && !hasRoute) return false;
+        if (routeFilter === "with_signal" && (!hasRoute || !online)) return false;
+        if (routeFilter === "without_signal" && (!hasRoute || online)) return false;
+      }
 
       if (securityFilters.length) {
         const matchesSecurity = securityFilters.some((filter) => {
@@ -979,8 +993,8 @@ export default function Monitoring() {
           if (filter === "violation") return alarmText.includes("viol");
           if (filter === "face") return alarmText.includes("face");
           if (filter === "blocked") return isBlocked;
-          if (filter === "routeDeviation") return routeDeviation;
-          if (filter === "routeDelay") return routeDelay;
+          if (filter === "routeDeviation") return hasTasksData && routeDeviation;
+          if (filter === "routeDelay") return hasTasksData && routeDelay;
           return false;
         });
         if (!matchesSecurity) return false;

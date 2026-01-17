@@ -366,6 +366,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   const markerRefs = useRef(new Map());
   const isMountedRef = useRef(true);
   const [isMapReady, setIsMapReady] = useState(false);
+  const [shouldRenderMap, setShouldRenderMap] = useState(false);
   const pendingResizeRef = useRef({ rafIds: [], timeoutIds: [] });
   const { onMapReady, refreshMap } = useMapLifecycle({ mapRef, containerRef });
   const isDev = Boolean(import.meta?.env?.DEV);
@@ -449,6 +450,23 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
   }, []);
 
   useEffect(() => {
+    if (containerRef.current) {
+      setShouldRenderMap(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const map = mapRef.current;
+      if (map?.remove) {
+        map.remove();
+      }
+      mapRef.current = null;
+      markerRefs.current?.clear?.();
+    };
+  }, []);
+
+  useEffect(() => {
     refreshMap();
   }, [invalidateKey, mapLayer?.key, refreshMap]);
 
@@ -477,40 +495,41 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
         </div>
       ) : null}
       <div ref={containerRef} className="h-full w-full">
-        <AppMap
-          ref={mapRef}
-          zoomControl={false}
-          scrollWheelZoom
-          zoom={mapPreferences?.selectZoom}
-          invalidateKey={invalidateKey}
-          whenReady={handleMapReady}
-        >
-          <TileLayer
-            key={mapLayer?.key || tileUrl}
-            url={tileUrl}
-            attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
-            maxZoom={effectiveMaxZoom}
-            subdomains={tileSubdomains}
-          />
-          <MapZoomControls variant="classic" />
+        {shouldRenderMap ? (
+          <AppMap
+            ref={mapRef}
+            zoomControl={false}
+            scrollWheelZoom
+            zoom={mapPreferences?.selectZoom}
+            invalidateKey={invalidateKey}
+            whenReady={handleMapReady}
+          >
+            <TileLayer
+              key={mapLayer?.key || tileUrl}
+              url={tileUrl}
+              attribution={mapLayer?.attribution || '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'}
+              maxZoom={effectiveMaxZoom}
+              subdomains={tileSubdomains}
+            />
+            <MapZoomControls variant="classic" />
 
-          <MarkerLayer
-            markers={markers}
-            focusMarkerId={focusMarkerId}
-            onViewportChange={onViewportChange}
-            onMarkerSelect={onMarkerSelect}
-            onMarkerOpenDetails={onMarkerOpenDetails}
-            onUserAction={() => {
-              userActionRef.current = true;
-            }}
-            onFocusDevice={focusDevice}
-            markerRefs={markerRefs}
-          />
+            <MarkerLayer
+              markers={markers}
+              focusMarkerId={focusMarkerId}
+              onViewportChange={onViewportChange}
+              onMarkerSelect={onMarkerSelect}
+              onMarkerOpenDetails={onMarkerOpenDetails}
+              onUserAction={() => {
+                userActionRef.current = true;
+              }}
+              onFocusDevice={focusDevice}
+              markerRefs={markerRefs}
+            />
 
-          <RegionOverlay target={regionTarget} />
-          <AddressMarker marker={addressMarker} />
-
-        </AppMap>
+            <RegionOverlay target={regionTarget} />
+            <AddressMarker marker={addressMarker} />
+          </AppMap>
+        ) : null}
       </div>
     </div>
   );

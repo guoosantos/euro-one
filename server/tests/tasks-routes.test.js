@@ -5,7 +5,7 @@ import { afterEach, describe, it } from "node:test";
 import { errorHandler } from "../middleware/error-handler.js";
 import tasksRoutes, { __resetTasksRouteMocks, __setTasksRouteMocks } from "../routes/tasks.js";
 
-const user = { id: "user-1", role: "admin", clientId: "tenant-1" };
+const user = { id: "user-1", role: "admin", clientId: "0e4779cf-1234-4c12-9cb2-2bbbf12e2fb9" };
 
 function buildApp({ listTasks } = {}) {
   const listCalls = [];
@@ -63,6 +63,7 @@ describe("Tasks routes", () => {
 
     assert.equal(status, 400);
     assert.equal(data.message, "clientId inválido");
+    assert.deepEqual(data.details, { param: "clientId", value: "invalid" });
     assert.equal(listCalls.length, 0);
   });
 
@@ -74,6 +75,19 @@ describe("Tasks routes", () => {
 
     assert.equal(status, 400);
     assert.equal(data.message, "Parâmetro from inválido");
+    assert.deepEqual(data.details, { param: "from", value: "not-a-date" });
+    assert.equal(listCalls.length, 0);
+  });
+
+  it("rejeita datas inválidas (to)", async () => {
+    const { app, listCalls } = buildApp();
+    const clientId = "0e4779cf-1234-4c12-9cb2-2bbbf12e2fb9";
+
+    const { status, data } = await callApp(app, `/api/core/tasks?clientId=${clientId}&to=invalid-date`);
+
+    assert.equal(status, 400);
+    assert.equal(data.message, "Parâmetro to inválido");
+    assert.deepEqual(data.details, { param: "to", value: "invalid-date" });
     assert.equal(listCalls.length, 0);
   });
 
@@ -87,5 +101,17 @@ describe("Tasks routes", () => {
     assert.equal(status, 200);
     assert.deepEqual(data.tasks, [task]);
     assert.equal(listCalls.length, 1);
+  });
+
+  it("usa clientId do usuário quando query não fornece", async () => {
+    const task = { id: "task-1", clientId: user.clientId };
+    const { app, listCalls } = buildApp({ listTasks: async () => [task] });
+
+    const { status, data } = await callApp(app, "/api/core/tasks");
+
+    assert.equal(status, 200);
+    assert.deepEqual(data.tasks, [task]);
+    assert.equal(listCalls.length, 1);
+    assert.equal(listCalls[0].clientId, user.clientId);
   });
 });
