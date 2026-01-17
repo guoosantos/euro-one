@@ -381,7 +381,7 @@ export default function Monitoring() {
   const { tenantId, user, tenant } = useTenant();
   const { telemetry, loading, reload } = useTelemetry();
   const safeTelemetry = useMemo(() => (Array.isArray(telemetry) ? telemetry : []), [telemetry]);
-  const { tasks, error: tasksError } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
+  const { tasks, error: tasksError, reload: reloadTasks } = useTasks(useMemo(() => ({ clientId: tenantId }), [tenantId]));
   const { vehicles } = useVehicles();
   const { alerts: pendingAlerts } = useAlerts({
     params: { status: "pending" },
@@ -1839,6 +1839,15 @@ export default function Monitoring() {
                   compact
                   title={t("tasks.loadError")}
                   description={tasksError.message}
+                  action={
+                    <button
+                      type="button"
+                      onClick={reloadTasks}
+                      className="text-xs font-semibold uppercase tracking-[0.08em] text-red-200 hover:text-red-100"
+                    >
+                      {t("refresh")}
+                    </button>
+                  }
                 />
               </div>
             ) : null}

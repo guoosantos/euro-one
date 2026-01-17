@@ -28,6 +28,7 @@ import { createVehicleMarkerIcon, resolveMarkerIconType } from "../lib/map/vehic
 import AddressStatus from "../ui/AddressStatus.jsx";
 import PageHeader from "../ui/PageHeader.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import { canInteractWithMap } from "../lib/map/mapSafety.js";
 import { resolveTelemetryDescriptor } from "../../../shared/telemetryDictionary.js";
 
 // Discovery note (Epic B): this page will receive map layer selection,
@@ -900,6 +901,17 @@ function MapFocus({ point }) {
 
     const applyView = () => {
       if (cancelled) return;
+      if (!canInteractWithMap(map)) {
+        clearRetry();
+        if (attemptsRef.current >= 5) return;
+        attemptsRef.current += 1;
+        retryRef.current = setTimeout(() => {
+          if (cancelled || !canInteractWithMap(map)) return;
+          map.invalidateSize?.();
+          applyView();
+        }, 180);
+        return;
+      }
       const normalized = normalizeLatLng(point);
       const target = normalized ? [normalized.lat, normalized.lng] : FALLBACK_CENTER;
       const zoom = lastViewRef.current ? map.getZoom() : normalized ? DEFAULT_ZOOM : FALLBACK_ZOOM;
@@ -915,7 +927,8 @@ function MapFocus({ point }) {
         attemptsRef.current += 1;
         retryRef.current = setTimeout(() => {
           if (cancelled) return;
-          map.invalidateSize();
+          if (!canInteractWithMap(map)) return;
+          map.invalidateSize?.();
           applyView();
         }, 180);
         return;
@@ -923,6 +936,7 @@ function MapFocus({ point }) {
 
       attemptsRef.current = 0;
       lastViewRef.current = key;
+      if (!canInteractWithMap(map)) return;
       map.setView(target, zoom, { animate: false });
     };
 
@@ -942,7 +956,7 @@ function ReplayFollower({ point, heading, enabled }) {
   const lastKeyRef = useRef(null);
 
   useEffect(() => {
-    if (!map || !point || !enabled) return undefined;
+    if (!map || !point || !enabled || !canInteractWithMap(map)) return undefined;
 
     const normalized = normalizeLatLng(point);
     if (!normalized) return undefined;
@@ -966,6 +980,7 @@ function ReplayFollower({ point, heading, enabled }) {
 
     if (distanceFromCenter < 5) return undefined;
 
+    if (!canInteractWithMap(map)) return undefined;
     map.panTo([targetOffset.lat, targetOffset.lng], { animate: true });
 
     return undefined;
@@ -979,11 +994,12 @@ function ManualCenter({ target }) {
   const lastTsRef = useRef(null);
 
   useEffect(() => {
-    if (!map || !target) return undefined;
+    if (!map || !target || !canInteractWithMap(map)) return undefined;
     if (!Number.isFinite(target.lat) || !Number.isFinite(target.lng)) return undefined;
     if (lastTsRef.current === target.ts) return undefined;
     lastTsRef.current = target.ts;
 
+    if (!canInteractWithMap(map)) return undefined;
     map.flyTo([target.lat, target.lng], map.getZoom(), { animate: true });
 
     return undefined;
@@ -1002,7 +1018,11 @@ function MapResizeHandler() {
     const scheduleInvalidate = (delay = 200) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
-        map.whenReady(() => map.invalidateSize());
+        if (!canInteractWithMap(map)) return;
+        map.whenReady(() => {
+          if (!canInteractWithMap(map)) return;
+          map.invalidateSize?.();
+        });
       }, delay);
     };
 

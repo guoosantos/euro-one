@@ -27,6 +27,7 @@ import safeApi from "../../lib/safe-api.js";
 import { API_ROUTES } from "../../lib/api-routes.js";
 import useAlerts from "../../lib/hooks/useAlerts.js";
 import { createVehicleMarkerIcon } from "../../lib/map/vehicleMarkerIcon.js";
+import { canInteractWithMap } from "../../lib/map/mapSafety.js";
 import { ENABLED_MAP_LAYERS, MAP_LAYER_FALLBACK } from "../../lib/mapLayers.js";
 import { filterCommandsBySearch, mergeCommands, resolveCommandSendError } from "../../pages/commands-helpers.js";
 
@@ -2156,11 +2157,7 @@ function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, t
 function MapFollowController({ center, activeIndex, follow }) {
   const map = useMap();
   useEffect(() => {
-    if (!follow || !map || !center || !map._loaded || !map._mapPane) return;
-    const container = map.getContainer?.();
-    if (!container || container.isConnected === false) return;
-    const rect = container.getBoundingClientRect?.();
-    if (!rect || rect.width <= 0 || rect.height <= 0) return;
+    if (!follow || !map || !center || !canInteractWithMap(map)) return;
     map.setView(center, map.getZoom(), { animate: true });
   }, [activeIndex, center, follow, map]);
   return null;

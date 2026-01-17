@@ -44,7 +44,7 @@ export default function Tasks() {
     };
   }, [filters, tenantId]);
 
-  const { tasks, loading, error } = useTasks(taskParams);
+  const { tasks, loading, error, reload } = useTasks(taskParams);
 
   const deviceIndex = useMemo(
     () => Object.fromEntries(devices.map((d) => [String(d.id), d])),
@@ -195,8 +195,20 @@ export default function Tasks() {
             )}
             {!loading && error && (
               <tr>
-                <td colSpan={8} className="px-4 py-6 text-center text-red-200/80">
-                  {t("tasks.loadError")}
+                <td colSpan={8} className="px-4 py-6">
+                  <EmptyState
+                    title={t("tasks.loadError")}
+                    subtitle={error?.message}
+                    action={
+                      <button
+                        type="button"
+                        onClick={reload}
+                        className="rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-white/80 transition hover:border-white/40 hover:text-white"
+                      >
+                        {t("refresh")}
+                      </button>
+                    }
+                  />
                 </td>
               </tr>
             )}
