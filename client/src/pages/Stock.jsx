@@ -13,6 +13,7 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
@@ -137,6 +138,25 @@ function resolveDeviceAddress(device) {
   );
 }
 
+function resolveDeviceTechnicianReference(device) {
+  const attributes = device?.attributes || {};
+  const rawTechnician = attributes.technician || attributes.tecnico || null;
+  const technicianId =
+    attributes.technicianId ||
+    attributes.technician?.id ||
+    attributes.technician?.technicianId ||
+    (rawTechnician && typeof rawTechnician === "object" ? rawTechnician.id : null);
+  const technicianName =
+    attributes.technicianName ||
+    attributes.technician?.name ||
+    (typeof rawTechnician === "string" ? rawTechnician : rawTechnician?.name) ||
+    null;
+  return {
+    id: technicianId ? String(technicianId) : null,
+    name: technicianName ? String(technicianName) : null,
+  };
+}
+
 export default function Stock() {
   const { tenantId, user, tenants, hasAdminAccess } = useTenant();
   const [devices, setDevices] = useState([]);
@@ -157,6 +177,7 @@ export default function Stock() {
   });
   const [conditionFilter, setConditionFilter] = useState("all");
   const [generalPage, setGeneralPage] = useState(1);
+  const [generalPageSize, setGeneralPageSize] = useState(20);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [radiusKm, setRadiusKm] = useState("10");
   const [technicians, setTechnicians] = useState([]);
@@ -164,6 +185,8 @@ export default function Stock() {
   const [transferDrawerOpen, setTransferDrawerOpen] = useState(false);
   const [detailsDrawerOpen, setDetailsDrawerOpen] = useState(false);
   const [detailsClientId, setDetailsClientId] = useState(null);
+  const [detailsTab, setDetailsTab] = useState("linked");
+  const [detailsSearch, setDetailsSearch] = useState("");
   const [transferSearch, setTransferSearch] = useState({
     model: "",
     deviceId: "",
@@ -181,7 +204,7 @@ export default function Stock() {
   });
   const mapSearchState = useAddressSearchState({ initialValue: "" });
   const transferAddressState = useAddressSearchState({ initialValue: "" });
-  const generalAddressState = useAddressSearchState({ initialValue: "" });
+  const [generalAddressResetKey, setGeneralAddressResetKey] = useState(0);
   const [generalAddressSelection, setGeneralAddressSelection] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
   const mapRef = useRef(null);
@@ -204,8 +227,8 @@ export default function Stock() {
     });
     setConditionFilter("all");
     setGeneralAddressSelection(null);
-    generalAddressState.setQuery("");
-  }, [generalAddressState, hasAdminAccess, resolvedClientId]);
+    setGeneralAddressResetKey((prev) => prev + 1);
+  }, [hasAdminAccess, resolvedClientId]);
 
   const loadStock = async () => {
     setLoading(true);
@@ -259,7 +282,10 @@ export default function Stock() {
   const modelById = useMemo(() => {
     const map = new Map();
     models.forEach((model) => {
-      map.set(model.id, model);
+      if (model?.id !== undefined && model?.id !== null) {
+        map.set(String(model.id), model);
+        map.set(model.id, model);
+      }
     });
     return map;
   }, [models]);
@@ -319,6 +345,16 @@ export default function Stock() {
     [technicians],
   );
 
+  const technicianById = useMemo(() => {
+    const map = new Map();
+    technicianOptions.forEach((technician) => {
+      if (technician?.id !== undefined && technician?.id !== null) {
+        map.set(String(technician.id), technician);
+      }
+    });
+    return map;
+  }, [technicianOptions]);
+
   const technicianAutocompleteOptions = useMemo(
     () =>
       technicianOptions.map((technician) => ({
@@ -377,6 +413,32 @@ export default function Stock() {
     [detailsClientId, devices],
   );
 
+  const detailsFilteredDevices = useMemo(() => {
+    const term = normalizeText(detailsSearch);
+    return detailsDevices.filter((device) => {
+      if (detailsTab === "linked" && !device.vehicleId) return false;
+      if (detailsTab === "available" && device.vehicleId) return false;
+      if (!term) return true;
+      const modelLabel = modelById.get(device.modelId)?.name || device.model || "";
+      const technicianRef = resolveDeviceTechnicianReference(device);
+      const technicianName =
+        technicianRef.name || (technicianRef.id ? technicianById.get(String(technicianRef.id))?.name : null) || "";
+      const haystack = [
+        device.uniqueId,
+        device.id,
+        modelLabel,
+        device.vehicle?.plate,
+        device.vehicleId,
+        technicianName,
+        resolveDeviceAddress(device),
+      ]
+        .filter(Boolean)
+        .map((value) => normalizeText(value))
+        .join(" ");
+      return haystack.includes(term);
+    });
+  }, [detailsDevices, detailsSearch, detailsTab, modelById, technicianById]);
+
   const filteredClients = useMemo(() => {
     const term = searchClient.trim().toLowerCase();
     return groupedByClient.filter((client) => {
@@ -421,11 +483,16 @@ export default function Stock() {
     return filteredDevicesBase.filter((device) => resolveDeviceCondition(device) === conditionFilter);
   }, [conditionFilter, filteredDevicesBase]);
 
-  const totalGeneralPages = Math.max(1, Math.ceil(filteredDevices.length / 20));
+  const effectiveGeneralPageSize = Math.max(1, Number(generalPageSize) || 20);
+  const totalGeneralPages = Math.max(1, Math.ceil(filteredDevices.length / effectiveGeneralPageSize));
   const pagedGeneralDevices = useMemo(() => {
-    const start = (generalPage - 1) * 20;
-    return filteredDevices.slice(start, start + 20);
-  }, [filteredDevices, generalPage]);
+    const start = (generalPage - 1) * effectiveGeneralPageSize;
+    return filteredDevices.slice(start, start + effectiveGeneralPageSize);
+  }, [effectiveGeneralPageSize, filteredDevices, generalPage]);
+
+  useEffect(() => {
+    setGeneralPage(1);
+  }, [effectiveGeneralPageSize, filteredDevices.length]);
 
   const transferCandidates = useMemo(() => {
     const modelTerm = transferSearch.model.trim().toLowerCase();
@@ -685,15 +752,18 @@ export default function Stock() {
             </div>
             <div className="min-w-[240px] flex-1">
               <span className="block text-xs uppercase tracking-wide text-white/60">Endereço</span>
-              <AddressSearchInput
-                state={generalAddressState}
-                onSelect={(option) => setGeneralAddressSelection(option)}
-                onClear={() => setGeneralAddressSelection(null)}
-                placeholder="Buscar endereço"
-                variant="toolbar"
-                containerClassName="mt-2 w-full"
-                portalSuggestions
-              />
+              <div className="mt-2">
+                <AddressAutocomplete
+                  key={generalAddressResetKey}
+                  label={null}
+                  placeholder="Buscar endereço"
+                  onSelect={(option) => setGeneralAddressSelection(option)}
+                  onClear={() => setGeneralAddressSelection(null)}
+                  variant="toolbar"
+                  containerClassName="w-full"
+                  portalSuggestions
+                />
+              </div>
             </div>
             <div className="min-w-[180px] flex-1">
               <span className="block text-xs uppercase tracking-wide text-white/60">Vínculo</span>
@@ -718,98 +788,117 @@ export default function Stock() {
             </button>
           </div>
 
-          <div className="overflow-hidden rounded-xl border border-white/10">
-            <DataTable>
-              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
-                <tr className="text-left">
-                  <th className="px-4 py-3">Selecionar</th>
-                  <th className="px-4 py-3">ID</th>
-                  <th className="px-4 py-3">Modelo</th>
-                  <th className="px-4 py-3">Cliente</th>
-                  <th className="px-4 py-3">Condição</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Localização</th>
-                  <th className="px-4 py-3">Vínculo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {loading && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-6">
-                      <SkeletonTable rows={6} columns={8} />
-                    </td>
+          <div className="flex flex-col gap-4">
+            <div className="overflow-hidden rounded-xl border border-white/10">
+              <DataTable>
+                <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                  <tr className="text-left">
+                    <th className="px-4 py-3">Selecionar</th>
+                    <th className="px-4 py-3">ID</th>
+                    <th className="px-4 py-3">Modelo</th>
+                    <th className="px-4 py-3">Cliente</th>
+                    <th className="px-4 py-3">Condição</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Localização</th>
+                    <th className="px-4 py-3">Vínculo</th>
                   </tr>
-                )}
-                {!loading && filteredDevices.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="px-4 py-8">
-                      <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para o estoque." />
-                    </td>
-                  </tr>
-                )}
-                {!loading &&
-                  pagedGeneralDevices.map((device) => {
-                    const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
-                    const condition = resolveDeviceCondition(device);
-                    return (
-                      <tr key={device.id} className="hover:bg-white/5">
-                        <td className="px-4 py-3">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(device.id)}
-                            onChange={() => toggleSelection(device.id)}
-                            className="h-4 w-4 rounded border-white/30 bg-transparent"
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
-                        <td className="px-4 py-3 text-white/70">
-                          {modelById.get(device.modelId)?.name || device.model || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-white/70">
-                          {clientNameById.get(String(device.clientId)) || "—"}
-                        </td>
-                        <td className="px-4 py-3 text-white/70">{formatConditionLabel(condition)}</td>
-                        <td className="px-4 py-3">
-                          <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                            {device.vehicleId ? "Vinculado" : "Disponível"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-3 text-white/70">{location}</td>
-                        <td className="px-4 py-3 text-white/70">
-                          {device.vehicle?.plate || device.vehicleId || "—"}
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </DataTable>
-          </div>
-
-          {filteredDevices.length > 0 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-              <span>
-                Página {generalPage} de {totalGeneralPages}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                  onClick={() => setGeneralPage((prev) => Math.max(1, prev - 1))}
-                  disabled={generalPage === 1}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                  onClick={() => setGeneralPage((prev) => Math.min(totalGeneralPages, prev + 1))}
-                  disabled={generalPage >= totalGeneralPages}
-                >
-                  Próxima
-                </button>
-              </div>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {loading && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-6">
+                        <SkeletonTable rows={6} columns={8} />
+                      </td>
+                    </tr>
+                  )}
+                  {!loading && filteredDevices.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="px-4 py-8">
+                        <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para o estoque." />
+                      </td>
+                    </tr>
+                  )}
+                  {!loading &&
+                    pagedGeneralDevices.map((device) => {
+                      const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
+                      const condition = resolveDeviceCondition(device);
+                      return (
+                        <tr key={device.id} className="hover:bg-white/5">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.has(device.id)}
+                              onChange={() => toggleSelection(device.id)}
+                              className="h-4 w-4 rounded border-white/30 bg-transparent"
+                            />
+                          </td>
+                          <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
+                          <td className="px-4 py-3 text-white/70">
+                            {modelById.get(device.modelId)?.name || device.model || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-white/70">
+                            {clientNameById.get(String(device.clientId)) || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-white/70">{formatConditionLabel(condition)}</td>
+                          <td className="px-4 py-3">
+                            <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                              {device.vehicleId ? "Vinculado" : "Disponível"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-white/70">{location}</td>
+                          <td className="px-4 py-3 text-white/70">
+                            {device.vehicle?.plate || device.vehicleId || "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </DataTable>
             </div>
-          )}
+
+            {filteredDevices.length > 0 && (
+              <div className="mt-auto flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+                <div className="flex items-center gap-2">
+                  <span>Itens por página</span>
+                  <select
+                    value={generalPageSize}
+                    onChange={(event) => {
+                      setGeneralPageSize(Number(event.target.value));
+                      setGeneralPage(1);
+                    }}
+                    className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+                  >
+                    {[10, 20, 50, 100].map((size) => (
+                      <option key={size} value={size}>
+                        {size}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span>
+                  Página {generalPage} de {totalGeneralPages}
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                    onClick={() => setGeneralPage((prev) => Math.max(1, prev - 1))}
+                    disabled={generalPage === 1}
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                    onClick={() => setGeneralPage((prev) => Math.min(totalGeneralPages, prev + 1))}
+                    disabled={generalPage >= totalGeneralPages}
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -870,6 +959,8 @@ export default function Stock() {
                         type="button"
                         onClick={() => {
                           setDetailsClientId(client.clientId);
+                          setDetailsTab("linked");
+                          setDetailsSearch("");
                           setDetailsDrawerOpen(true);
                         }}
                         className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
@@ -972,6 +1063,8 @@ export default function Stock() {
         onClose={() => {
           setDetailsDrawerOpen(false);
           setDetailsClientId(null);
+          setDetailsSearch("");
+          setDetailsTab("linked");
         }}
         title={detailsClient?.name || "Detalhes do estoque"}
         description="Resumo do estoque e equipamentos vinculados."
@@ -989,39 +1082,82 @@ export default function Stock() {
               </div>
             </div>
           </div>
-          <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-white/10">
-            <table className="w-full text-left text-xs text-white/70">
-              <thead className="sticky top-0 bg-[#0f141c] text-[10px] uppercase tracking-wide text-white/50">
-                <tr>
-                  <th className="px-3 py-2">Modelo</th>
-                  <th className="px-3 py-2">ID</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Localização</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/10">
-                {detailsDevices.length ? (
-                  detailsDevices.map((device) => {
-                    const modelLabel = modelById.get(device.modelId)?.name || device.model || "—";
-                    const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
-                    return (
-                      <tr key={device.id}>
-                        <td className="px-3 py-2">{modelLabel}</td>
-                        <td className="px-3 py-2">{device.uniqueId || device.id}</td>
-                        <td className="px-3 py-2">{device.vehicleId ? "Vinculado" : "Disponível"}</td>
-                        <td className="px-3 py-2">{location}</td>
-                      </tr>
-                    );
-                  })
-                ) : (
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { key: "linked", label: "Vinculados" },
+                  { key: "available", label: "Disponíveis" },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setDetailsTab(tab.key)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                      detailsTab === tab.key
+                        ? "border border-primary/60 bg-primary/20 text-white"
+                        : "border border-white/10 text-white/60 hover:text-white"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+              <label className="min-w-[200px] flex-1 text-xs uppercase tracking-wide text-white/60">
+                Buscar equipamento
+                <input
+                  value={detailsSearch}
+                  onChange={(event) => setDetailsSearch(event.target.value)}
+                  placeholder="Modelo, ID, placa ou técnico"
+                  className="mt-2 w-full rounded-lg border border-white/10 bg-black/30 px-3 py-2 text-xs text-white focus:border-white/30 focus:outline-none"
+                />
+              </label>
+            </div>
+
+            <div className="max-h-[50vh] overflow-y-auto rounded-xl border border-white/10">
+              <table className="w-full text-left text-xs text-white/70">
+                <thead className="sticky top-0 bg-[#0f141c] text-[10px] uppercase tracking-wide text-white/50">
                   <tr>
-                    <td colSpan={4} className="px-3 py-4 text-center text-white/50">
-                      Nenhum equipamento encontrado.
-                    </td>
+                    <th className="px-3 py-2">Modelo</th>
+                    <th className="px-3 py-2">ID</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Localização</th>
+                    <th className="px-3 py-2">Técnico</th>
                   </tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-white/10">
+                  {detailsFilteredDevices.length ? (
+                    detailsFilteredDevices.map((device) => {
+                      const modelLabel = modelById.get(device.modelId)?.name || device.model || "—";
+                      const location = resolveDeviceAddress(device) || "Sem localização";
+                      const technicianRef = resolveDeviceTechnicianReference(device);
+                      const technicianName =
+                        technicianRef.name ||
+                        (technicianRef.id ? technicianById.get(String(technicianRef.id))?.name : null) ||
+                        "";
+                      const technicianLabel = technicianName
+                        ? `Com técnico · ${technicianName}`
+                        : "Sem técnico";
+                      return (
+                        <tr key={device.id}>
+                          <td className="px-3 py-2">{modelLabel}</td>
+                          <td className="px-3 py-2">{device.uniqueId || device.id}</td>
+                          <td className="px-3 py-2">{device.vehicleId ? "Vinculado" : "Disponível"}</td>
+                          <td className="px-3 py-2">{location}</td>
+                          <td className="px-3 py-2">{technicianLabel}</td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-white/50">
+                        Nenhum equipamento encontrado.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </Drawer>

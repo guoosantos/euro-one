@@ -21,6 +21,12 @@ const STATUS_OPTIONS = [
   { value: "cancelado", label: "Cancelado" },
 ];
 
+const STATUS_TABS = [
+  { key: "requested", label: "Agendamentos Solicitados", statuses: ["pendente", "confirmado", "remarcado"] },
+  { key: "inProgress", label: "Agendamentos em Andamento", statuses: ["em_execucao"] },
+  { key: "completed", label: "Agendamento Concluído", statuses: ["concluido"] },
+];
+
 const SERVICE_TYPE_OPTIONS = [
   "Instalação",
   "Manutenção",
@@ -133,6 +139,7 @@ export default function Appointments() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [statusTab, setStatusTab] = useState(STATUS_TABS[0].key);
   const [form, setForm] = useState({ ...DEFAULT_FORM, clientId: resolvedClientId });
   const addressSearchState = useAddressSearchState({ initialValue: "" });
   const filterAddressState = useAddressSearchState({ initialValue: "" });
@@ -204,7 +211,6 @@ export default function Appointments() {
     setLoading(true);
     try {
       const params = {
-        status: filters.status || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
       };
@@ -301,6 +307,8 @@ export default function Appointments() {
 
   const filtered = useMemo(() => {
     const term = filters.query.trim().toLowerCase();
+    const statusConfig = STATUS_TABS.find((tab) => tab.key === statusTab);
+    const allowedStatuses = statusConfig?.statuses || [];
     return items.filter((item) => {
       const searchable = [
         item.id,
@@ -325,9 +333,12 @@ export default function Appointments() {
       if (filters.region && !String(item.address || "").toLowerCase().includes(filters.region.toLowerCase())) {
         return false;
       }
+      if (allowedStatuses.length > 0 && !allowedStatuses.includes(String(item.status || ""))) {
+        return false;
+      }
       return true;
     });
-  }, [filters.clientId, filters.query, filters.region, filters.technician, items]);
+  }, [filters.clientId, filters.query, filters.region, filters.technician, items, statusTab]);
 
   const openDrawer = (task = null) => {
     if (task) {
@@ -465,6 +476,23 @@ export default function Appointments() {
         }
       />
 
+      <div className="flex flex-wrap gap-2">
+        {STATUS_TABS.map((tab) => (
+          <button
+            key={tab.key}
+            type="button"
+            onClick={() => setStatusTab(tab.key)}
+            className={`rounded-full px-4 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+              statusTab === tab.key
+                ? "bg-sky-500 text-black"
+                : "bg-white/10 text-white/70 hover:bg-white/15"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
       <FilterBar
         left={
           <div className="flex w-full flex-wrap items-center gap-3">
@@ -512,18 +540,6 @@ export default function Appointments() {
                 portalSuggestions
               />
             </div>
-            <select
-              value={draftFilters.status}
-              onChange={(event) => setDraftFilters((prev) => ({ ...prev, status: event.target.value }))}
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-            >
-              <option value="">Todos</option>
-              {STATUS_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
             <input
               type="date"
               value={draftFilters.from}

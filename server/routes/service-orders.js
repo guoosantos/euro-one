@@ -640,8 +640,9 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
 
     return res.status(201).json({ ok: true, item: created, equipmentsLinked: autoLinked.linked });
   } catch (error) {
-    if (error?.code === "P2021") {
+    if (error?.code === "P2021" || error?.code === "P2022") {
       console.error("[service-orders] falha ao criar OS (schema)", {
+        code: error?.code,
         message: error?.message,
         meta: error?.meta,
       });

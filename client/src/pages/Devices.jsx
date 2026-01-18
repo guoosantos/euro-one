@@ -261,7 +261,8 @@ export default function Devices() {
   const [query, setQuery] = useState("");
   const [pageSize, setPageSize] = useState(20);
   const [currentPage, setCurrentPage] = useState(1);
-  const [bulkRows, setBulkRows] = useState([{ imei: "", internalCode: "" }]);
+  const [bulkRows, setBulkRows] = useState([{ imei: "", internalCode: "", gprsCommunication: null }]);
+  const [bulkGprsDefault, setBulkGprsDefault] = useState(true);
   const [bulkPrefix, setBulkPrefix] = useState("");
   const [bulkRangeStart, setBulkRangeStart] = useState("");
   const [bulkRangeEnd, setBulkRangeEnd] = useState("");
@@ -491,21 +492,21 @@ export default function Devices() {
   const modeloById = useMemo(() => {
     const map = new Map();
     models.forEach((model) => {
-      if (model?.id) {
-        map.set(model.id, model);
+      if (model?.id || model?.id === 0) {
+        map.set(String(model.id), model);
       }
     });
     return map;
   }, [models]);
   const modelOptions = useMemo(
     () =>
-      models.map((model) => ({
-        value: model.id,
-        label: model.name || model.model || model.id,
-        description: model.brand || model.vendor || model.protocol || "",
-        searchText: `${model.name || ""} ${model.brand || ""} ${model.protocol || ""}`.trim(),
-        data: model,
-      })),
+    models.map((model) => ({
+      value: String(model.id),
+      label: model.name || model.model || model.id,
+      description: model.brand || model.vendor || model.protocol || "",
+      searchText: `${model.name || ""} ${model.brand || ""} ${model.protocol || ""}`.trim(),
+      data: model,
+    })),
     [models],
   );
   const loadModelOptions = useCallback(
@@ -519,7 +520,7 @@ export default function Devices() {
       });
       const list = response?.models || response?.data || [];
       const options = list.map((model) => ({
-        value: model.id,
+        value: String(model.id),
         label: model.name || model.model || model.id,
         description: model.brand || model.vendor || model.protocol || "",
         searchText: `${model.name || ""} ${model.brand || ""} ${model.protocol || ""}`.trim(),
@@ -705,7 +706,7 @@ export default function Devices() {
       const chip = chipById.get(device.chipId) || device.chip;
       const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
       const deviceModelId = device.modelId || device.attributes?.modelId;
-      const model = modeloById.get(deviceModelId) || null;
+      const model = deviceModelId ? modeloById.get(String(deviceModelId)) : null;
 
       if (term) {
         const haystack = [
@@ -729,7 +730,7 @@ export default function Devices() {
       if (filters.link === "linked" && !device.vehicleId && !device.vehicle) return false;
       if (filters.link === "unlinked" && (device.vehicleId || device.vehicle)) return false;
 
-      if (filters.model && String(deviceModelId || "") !== String(filters.model)) return false;
+    if (filters.model && String(deviceModelId || "") !== String(filters.model)) return false;
 
       if (filters.status !== "all") {
         const meta = statusMeta(device);
@@ -1020,13 +1021,13 @@ export default function Devices() {
   }
 
   function handleAddBulkRow() {
-    setBulkRows((current) => [...current, { imei: "", internalCode: "" }]);
+    setBulkRows((current) => [...current, { imei: "", internalCode: "", gprsCommunication: null }]);
   }
 
   function handleRemoveBulkRow(index) {
     setBulkRows((current) => {
       const next = current.filter((_, rowIndex) => rowIndex !== index);
-      return next.length ? next : [{ imei: "", internalCode: "" }];
+      return next.length ? next : [{ imei: "", internalCode: "", gprsCommunication: null }];
     });
   }
 
@@ -1046,7 +1047,16 @@ export default function Devices() {
     for (let current = start; current <= end; current += 1) {
       nextRows.push({ imei: "", internalCode: `${prefix}${current}` });
     }
-    setBulkRows(nextRows.length ? nextRows : [{ imei: "", internalCode: "" }]);
+    setBulkRows(
+      nextRows.length
+        ? nextRows.map((row) => ({ ...row, gprsCommunication: null }))
+        : [{ imei: "", internalCode: "", gprsCommunication: null }],
+    );
+  }
+
+  function resolveBulkGprsCommunication(row) {
+    if (typeof row?.gprsCommunication === "boolean") return row.gprsCommunication;
+    return bulkGprsDefault;
   }
 
   async function handleSaveBulkDevices() {
@@ -1069,15 +1079,17 @@ export default function Devices() {
         const uniqueId = String(row.imei || "").trim();
         const internalCode = String(row.internalCode || "").trim();
         if (!uniqueId || !internalCode) continue;
+        const gprsCommunication = resolveBulkGprsCommunication(row);
         await CoreApi.createDevice({
           uniqueId,
           internalCode,
           clientId,
-          attributes: { internalCode },
+          gprsCommunication,
+          attributes: { internalCode, gprsCommunication },
         });
       }
       await load();
-      setBulkRows([{ imei: "", internalCode: "" }]);
+      setBulkRows([{ imei: "", internalCode: "", gprsCommunication: null }]);
       setBulkPrefix("");
       setBulkRangeStart("");
       setBulkRangeEnd("");
@@ -1131,7 +1143,7 @@ export default function Devices() {
     setDeviceForm({
       name: device.name || "",
       uniqueId: device.uniqueId || "",
-      modelId: device.modelId || device.attributes?.modelId || "",
+      modelId: device.modelId || device.attributes?.modelId ? String(device.modelId || device.attributes?.modelId) : "",
       internalCode: device.attributes?.internalCode || "",
       gprsCommunication: device.attributes?.gprsCommunication !== false,
       condition: device.attributes?.condition || "",
@@ -1321,7 +1333,7 @@ export default function Devices() {
       const chip = chipById.get(device.chipId) || device.chip;
       const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
       const deviceModelId = device.modelId || device.attributes?.modelId;
-      const model = modeloById.get(deviceModelId) || {};
+      const model = deviceModelId ? modeloById.get(String(deviceModelId)) || {} : {};
       return [
         device.name || "",
         device.uniqueId || "",
@@ -1480,7 +1492,7 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex-1">
+      <div className="flex flex-1 flex-col gap-4">
         <DataTable className="overflow-x-hidden" tableClassName="text-white/80 table-auto w-full">
           <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
             <tr>
@@ -1548,7 +1560,7 @@ export default function Devices() {
               !traccarLoading &&
               paginatedDevices.map((device) => {
                 const deviceModelId = device.modelId || device.attributes?.modelId || null;
-                const modelo = modeloById.get(deviceModelId) || null;
+                const modelo = deviceModelId ? modeloById.get(String(deviceModelId)) || null : null;
                 const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
                 const position = latestPositionByDevice.get(deviceKey(device));
                 const meta = statusMeta(device);
@@ -1580,9 +1592,7 @@ export default function Devices() {
               })}
           </tbody>
         </DataTable>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
         <div className="flex items-center gap-2">
           <span>Itens por página</span>
           <select
@@ -1623,6 +1633,7 @@ export default function Devices() {
             Próxima
           </button>
         </div>
+      </div>
       </div>
 
       <Drawer
@@ -1932,12 +1943,26 @@ export default function Devices() {
                 </Button>
               </div>
 
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                  Tem comunicação (GPRS) — padrão do lote
+                  <Select
+                    value={bulkGprsDefault ? "yes" : "no"}
+                    onChange={(event) => setBulkGprsDefault(event.target.value === "yes")}
+                    className="mt-2 w-full bg-layer text-xs"
+                  >
+                    <option value="yes">Sim</option>
+                    <option value="no">Não</option>
+                  </Select>
+                </label>
+              </div>
+
               <div className="mt-3 space-y-3">
                 {bulkRows.map((row, index) => {
                   const errors = bulkValidation.rowErrors[index] || [];
                   return (
                     <div key={`bulk-row-${index}`} className="rounded-lg border border-white/10 bg-black/30 p-3">
-                      <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
+                      <div className="grid gap-3 md:grid-cols-[1.1fr_1fr_1fr_auto]">
                         <Input
                           label={`IMEI #${index + 1}`}
                           value={row.imei}
@@ -1950,6 +1975,33 @@ export default function Devices() {
                           onChange={(event) => handleBulkRowChange(index, "internalCode", event.target.value)}
                           placeholder="Ex.: 01-100"
                         />
+                        <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                          Comunicação GPRS
+                          <Select
+                            value={
+                              typeof row.gprsCommunication === "boolean"
+                                ? row.gprsCommunication
+                                  ? "yes"
+                                  : "no"
+                                : "default"
+                            }
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              handleBulkRowChange(
+                                index,
+                                "gprsCommunication",
+                                value === "default" ? null : value === "yes",
+                              );
+                            }}
+                            className="mt-2 w-full bg-layer text-xs"
+                          >
+                            <option value="default">
+                              Padrão ({bulkGprsDefault ? "Sim" : "Não"})
+                            </option>
+                            <option value="yes">Sim</option>
+                            <option value="no">Não</option>
+                          </Select>
+                        </label>
                         <div className="flex items-end">
                           <Button type="button" variant="ghost" onClick={() => handleRemoveBulkRow(index)}>
                             Remover

@@ -5,6 +5,7 @@ import PageHeader from "../components/ui/PageHeader.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import api from "../lib/api.js";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -154,7 +155,8 @@ export default function Technicians() {
   const [savingLogin, setSavingLogin] = useState(false);
   const [error, setError] = useState(null);
   const [message, setMessage] = useState(null);
-  const [search, setSearch] = useState("");
+  const [profileFilter, setProfileFilter] = useState("all");
+  const [addressFilter, setAddressFilter] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerTab, setDrawerTab] = useState("cadastro");
@@ -168,12 +170,7 @@ export default function Technicians() {
   const [orders, setOrders] = useState([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersSearch, setOrdersSearch] = useState("");
-  const [radiusKm, setRadiusKm] = useState("10");
-  const [radiusCandidate, setRadiusCandidate] = useState(null);
-  const [radiusApplied, setRadiusApplied] = useState(null);
-
   const addressSearchState = useAddressSearchState({ initialValue: "" });
-  const radiusSearchState = useAddressSearchState({ initialValue: "" });
 
   const resolvedClientId = hasAdminAccess
     ? form.clientId || tenantId || tenants[0]?.id || ""
@@ -278,58 +275,28 @@ export default function Technicians() {
   }, [devicesByTechnician]);
 
   const filteredItems = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    const filters = equipmentStatusFilter;
+    const normalizedProfile = normalizeText(profileFilter);
+    const addressTerm = normalizeText(addressFilter);
     return items.filter((item) => {
-      const haystack = [item.name, item.email, item.phone, item.city, item.state, item.status]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      if (term && !haystack.includes(term)) return false;
-
-      if (radiusApplied) {
-        const lat = Number(item.latitude);
-        const lng = Number(item.longitude);
-        const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
-        if (radiusApplied.lat != null && radiusApplied.lng != null && hasCoords) {
-          const radians = (deg) => (deg * Math.PI) / 180;
-          const earthRadiusKm = 6371;
-          const dLat = radians(lat - radiusApplied.lat);
-          const dLng = radians(lng - radiusApplied.lng);
-          const a =
-            Math.sin(dLat / 2) ** 2 +
-            Math.cos(radians(radiusApplied.lat)) * Math.cos(radians(lat)) * Math.sin(dLng / 2) ** 2;
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          const distance = earthRadiusKm * c;
-          if (distance > radiusApplied.radiusKm) return false;
-        } else {
-          const cityMatch =
-            radiusApplied.city && normalizeText(radiusApplied.city) === normalizeText(item.city);
-          const stateMatch =
-            radiusApplied.state && normalizeText(radiusApplied.state) === normalizeText(item.state);
-          const zipMatch = radiusApplied.zip && normalizeText(radiusApplied.zip) === normalizeText(item.zip);
-          if (!cityMatch && !stateMatch && !zipMatch) return false;
-        }
+      if (profileFilter !== "all" && normalizeText(item.profile) !== normalizedProfile) {
+        return false;
       }
-
-      if (filters.length) {
-        const statuses = technicianEquipmentStatus.get(String(item.id)) || new Set();
-        const matchesStatus = filters.some((status) => statuses.has(status));
-        if (!matchesStatus) return false;
+      if (addressTerm) {
+        const haystack = [
+          item.addressSearch,
+          item.address,
+          item.city,
+          item.state,
+          item.zip,
+        ]
+          .filter(Boolean)
+          .map((value) => normalizeText(value))
+          .join(" ");
+        if (!haystack.includes(addressTerm)) return false;
       }
-
-      if (modelFilter !== "all") {
-        const list = devicesByTechnician.get(String(item.id)) || [];
-        const hasModel = list.some((device) => {
-          const model = device.modelName || device.model || device.modelId || "Sem modelo";
-          return String(model) === modelFilter;
-        });
-        if (!hasModel) return false;
-      }
-
       return true;
     });
-  }, [devicesByTechnician, equipmentStatusFilter, items, modelFilter, radiusApplied, search, technicianEquipmentStatus]);
+  }, [addressFilter, items, profileFilter]);
 
   const selectedTechnician = useMemo(
     () => items.find((technician) => String(technician.id) === String(editingId)) || null,
@@ -593,68 +560,6 @@ export default function Technicians() {
     }));
   };
 
-  const handleSelectRadius = (option) => {
-    if (!option) return;
-    const address = option.raw?.address || {};
-    setRadiusCandidate({
-      lat: option.lat ?? null,
-      lng: option.lng ?? null,
-      city: address.city || address.town || address.village || address.municipality || "",
-      state: address.state || address.state_code || "",
-      zip: address.postcode || "",
-      label: option.concise || option.label || "",
-    });
-  };
-
-  const applyRadiusFilter = async () => {
-    if (!radiusCandidate && !radiusSearchState.query.trim()) {
-      setRadiusApplied(null);
-      return;
-    }
-    let candidate = radiusCandidate;
-    if (!candidate && radiusSearchState.query.trim()) {
-      const result = await radiusSearchState.onSubmit?.();
-      if (result) {
-        const address = result.raw?.address || {};
-        candidate = {
-          lat: result.lat ?? null,
-          lng: result.lng ?? null,
-          city: address.city || address.town || address.village || address.municipality || "",
-          state: address.state || address.state_code || "",
-          zip: address.postcode || "",
-          label: result.concise || result.label || radiusSearchState.query,
-        };
-      }
-    }
-    if (!candidate) {
-      setRadiusApplied(null);
-      return;
-    }
-    const radiusValue = Number(radiusKm) || 0;
-    setRadiusApplied({
-      lat: candidate.lat ?? null,
-      lng: candidate.lng ?? null,
-      city: candidate.city || "",
-      state: candidate.state || "",
-      zip: candidate.zip || "",
-      label: candidate.label || radiusSearchState.query,
-      radiusKm: radiusValue || 0,
-      fallback: candidate.lat == null || candidate.lng == null,
-    });
-  };
-
-  const clearRadiusFilter = () => {
-    radiusSearchState.onClear();
-    setRadiusCandidate(null);
-    setRadiusApplied(null);
-  };
-
-  useEffect(() => {
-    if (radiusSearchState.query.trim()) return;
-    setRadiusCandidate(null);
-    setRadiusApplied(null);
-  }, [radiusSearchState.query]);
-
   const toggleEquipmentStatus = (key) => {
     setEquipmentStatusFilter((prev) =>
       prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key],
@@ -679,53 +584,31 @@ export default function Technicians() {
 
       <div className="space-y-4">
         <div className="flex flex-wrap items-end gap-3">
-          <label className="block text-xs text-white/60">
-            Buscar por nome, e-mail ou cidade
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+          <label className="min-w-[220px] flex-1 text-xs uppercase tracking-[0.14em] text-white/60">
+            PERFIL
+            <select
+              value={profileFilter}
+              onChange={(event) => setProfileFilter(event.target.value)}
               className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              placeholder="Buscar técnico"
-            />
+            >
+              <option value="all">Todos</option>
+              {PROFILE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="min-w-[280px] flex-1">
-            <span className="block text-xs text-white/60">Buscar endereço</span>
-            <div className="mt-2">
-              <AddressSearchInput
-                state={radiusSearchState}
-                onSelect={handleSelectRadius}
-                onClear={() => setRadiusCandidate(null)}
-                placeholder="Buscar endereço"
-                variant="toolbar"
-                containerClassName="w-full"
-                portalSuggestions
-              />
-            </div>
-          </div>
-          <label className="block text-xs text-white/60">
-            Raio (km)
-            <input
-              type="number"
-              value={radiusKm}
-              onChange={(event) => setRadiusKm(event.target.value)}
-              className="mt-2 w-32 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              min="0"
+            <AddressAutocomplete
+              label="Endereço"
+              placeholder="Buscar endereço"
+              onSelect={(option) => setAddressFilter(option?.label || option?.concise || option?.address || "")}
+              onClear={() => setAddressFilter("")}
+              variant="toolbar"
+              portalSuggestions
             />
-          </label>
-          <button
-            type="button"
-            onClick={applyRadiusFilter}
-            className="h-10 rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
-          >
-            Aplicar
-          </button>
-          <button
-            type="button"
-            onClick={clearRadiusFilter}
-            className="h-10 rounded-xl bg-white/10 px-4 py-2 text-sm text-white transition hover:bg-white/15"
-          >
-            Limpar filtro
-          </button>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -736,67 +619,6 @@ export default function Technicians() {
           >
             Atualizar
           </button>
-        </div>
-        {radiusApplied?.fallback && (
-          <p className="text-xs text-amber-200/80">
-            Filtro por raio usando cidade/UF/CEP (aproximação), pois não há coordenadas suficientes.
-          </p>
-        )}
-
-        <div className="space-y-2">
-          <span className="block text-xs uppercase tracking-[0.14em] text-white/50">
-            Status dos equipamentos
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {EQUIPMENT_STATUS_FILTERS.map((option) => {
-              const active = equipmentStatusFilter.includes(option.key);
-              return (
-                <button
-                  key={option.key}
-                  type="button"
-                  onClick={() => toggleEquipmentStatus(option.key)}
-                  className={`rounded-full px-3 py-1 text-xs transition ${
-                    active
-                      ? "bg-sky-500/20 text-white border border-sky-400/60"
-                      : "border border-white/10 bg-white/5 text-white/70"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <span className="block text-xs uppercase tracking-[0.14em] text-white/50">Modelos</span>
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setModelFilter("all")}
-              className={`rounded-full px-3 py-1 text-xs transition ${
-                modelFilter === "all"
-                  ? "bg-sky-500/20 text-white border border-sky-400/60"
-                  : "border border-white/10 bg-white/5 text-white/70"
-              }`}
-            >
-              Todos ({assignedDevices.length})
-            </button>
-            {modelPills.map((model) => (
-              <button
-                key={model.label}
-                type="button"
-                onClick={() => setModelFilter(model.label)}
-                className={`rounded-full px-3 py-1 text-xs transition ${
-                  modelFilter === model.label
-                    ? "bg-sky-500/20 text-white border border-sky-400/60"
-                    : "border border-white/10 bg-white/5 text-white/70"
-                }`}
-              >
-                {model.label} ({model.count})
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
