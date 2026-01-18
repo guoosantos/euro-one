@@ -323,8 +323,10 @@ function RegionOverlay({ target }) {
 }
 
 function AddressMarker({ marker }) {
-  if (!marker || !Number.isFinite(marker.lat) || !Number.isFinite(marker.lng)) return null;
-  const icon = useMemo(() => getAddressPinIcon(), []);
+  const hasValidMarker = Boolean(marker && Number.isFinite(marker.lat) && Number.isFinite(marker.lng));
+  const icon = getAddressPinIcon();
+
+  if (!hasValidMarker) return null;
 
   return (
     <>

@@ -19,5 +19,9 @@ export default defineConfig({
       "/core": backendTarget,
     },
   },
-  build: { outDir: "dist" },
+  build: {
+    outDir: "dist",
+    sourcemap: true,
+    minify: false,
+  },
 });
