@@ -489,6 +489,42 @@ export default function ReportsAnalytic() {
     return list.map(buildPositionRow);
   }, [buildPositionRow, positions]);
 
+  const buildActionRow = useCallback((entry) => {
+    const whoSent =
+      entry?.whoSent ||
+      formatWhoSentLabel({
+        name: entry?.user,
+        ipAddress: entry?.ipAddress,
+        fallback: "Sistema",
+      });
+    const eventLabel = entry?.event || "Emissão de Relatório";
+    const eventType = entry?.eventType || entry?.actionLabel || entry?.details?.report || "—";
+    return {
+      key: entry?.id || `${entry?.timestamp || "action"}-${Math.random()}`,
+      entryType: "action",
+      deviceTime: formatDateTime(entry?.deviceTime || entry?.sentAt || entry?.timestamp),
+      serverTime: formatDateTime(entry?.serverTime || entry?.respondedAt),
+      event: eventLabel,
+      eventType,
+      whoSent,
+      deviceStatus: entry?.status || "—",
+    };
+  }, []);
+
+  const buildIoEventRow = useCallback((entry) => {
+    return {
+      key: entry?.id || `${entry?.timestamp || "io-event"}-${Math.random()}`,
+      entryType: "io-event",
+      deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
+      serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
+      event: "Alerta",
+      eventType: entry?.title || "Entrada",
+      whoSent: formatWhoSentLabel({ fallback: "Sistema" }),
+      deviceStatus: entry?.statusText || "—",
+      address: entry?.address || "—",
+    };
+  }, []);
+
   const ioEventEntries = useMemo(() => {
     if (!Array.isArray(positions) || positions.length === 0) return [];
     const events = [];
@@ -920,42 +956,6 @@ export default function ReportsAnalytic() {
     toast?.type === "error"
       ? "border-red-500/30 bg-red-500/15 text-red-100"
       : "border-emerald-500/30 bg-emerald-500/15 text-emerald-100";
-
-  const buildActionRow = useCallback((entry) => {
-    const whoSent =
-      entry?.whoSent ||
-      formatWhoSentLabel({
-        name: entry?.user,
-        ipAddress: entry?.ipAddress,
-        fallback: "Sistema",
-      });
-    const eventLabel = entry?.event || "Emissão de Relatório";
-    const eventType = entry?.eventType || entry?.actionLabel || entry?.details?.report || "—";
-    return {
-      key: entry?.id || `${entry?.timestamp || "action"}-${Math.random()}`,
-      entryType: "action",
-      deviceTime: formatDateTime(entry?.deviceTime || entry?.sentAt || entry?.timestamp),
-      serverTime: formatDateTime(entry?.serverTime || entry?.respondedAt),
-      event: eventLabel,
-      eventType,
-      whoSent,
-      deviceStatus: entry?.status || "—",
-    };
-  }, []);
-
-  const buildIoEventRow = useCallback((entry) => {
-    return {
-      key: entry?.id || `${entry?.timestamp || "io-event"}-${Math.random()}`,
-      entryType: "io-event",
-      deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
-      serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
-      event: "Alerta",
-      eventType: entry?.title || "Entrada",
-      whoSent: formatWhoSentLabel({ fallback: "Sistema" }),
-      deviceStatus: entry?.statusText || "—",
-      address: entry?.address || "—",
-    };
-  }, []);
 
   const handlePageChange = useCallback(
     async (nextPage) => {
