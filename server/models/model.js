@@ -71,6 +71,7 @@ export function getModelById(id) {
 export function createModel({
   name,
   brand,
+  prefix = "",
   protocol = "",
   connectivity = "",
   ports = [],
@@ -120,6 +121,7 @@ export function createModel({
     id: randomUUID(),
     name: trimmedName,
     brand: trimmedBrand,
+    prefix: prefix ? String(prefix).trim() : "",
     protocol: String(protocol || "").trim(),
     connectivity: String(connectivity || "").trim(),
     ports: Array.isArray(ports) ? ports.map((port, index) => normalisePort(port, index)) : [],
@@ -154,6 +156,9 @@ export function updateModel(id, updates = {}) {
   }
   if (updates.brand) {
     record.brand = String(updates.brand).trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(updates, "prefix")) {
+    record.prefix = updates.prefix ? String(updates.prefix).trim() : "";
   }
   if (Object.prototype.hasOwnProperty.call(updates, "protocol")) {
     record.protocol = String(updates.protocol || "").trim();

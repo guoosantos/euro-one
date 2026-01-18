@@ -465,6 +465,40 @@ function invalidateDeviceCache() {
   invalidateRegistry("devices:");
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function resolveModelPrefix(model) {
+  const rawPrefix = model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null;
+  if (rawPrefix === null || rawPrefix === undefined) return null;
+  if (typeof rawPrefix === "number" && Number.isFinite(rawPrefix)) {
+    return String(rawPrefix).padStart(2, "0");
+  }
+  const normalized = String(rawPrefix).trim();
+  return normalized || null;
+}
+
+function resolveNextInternalCode({ clientId, modelId, prefix }) {
+  if (!clientId || !modelId || !prefix) return null;
+  const devices = deps.listDevices({ clientId });
+  const regex = new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`);
+  let maxSequence = 0;
+  devices.forEach((device) => {
+    const deviceModelId = device.modelId || device.attributes?.modelId;
+    if (!deviceModelId || String(deviceModelId) !== String(modelId)) return;
+    const internalCode = device.attributes?.internalCode || device.internalCode;
+    if (!internalCode) return;
+    const match = regex.exec(String(internalCode).trim());
+    if (!match) return;
+    const seq = Number(match[1]);
+    if (Number.isFinite(seq)) {
+      maxSequence = Math.max(maxSequence, seq);
+    }
+  });
+  return `${prefix}-${maxSequence + 1}`;
+}
+
 function buildDeviceResponse(device, context) {
   const { modelMap, chipMap, vehicleMap, traccarById, traccarByUnique } = context;
   const traccarDevice =
@@ -480,7 +514,8 @@ function buildDeviceResponse(device, context) {
     statusLabel = `${usageStatusLabel} (Nunca conectado)`;
   }
 
-  const model = device.modelId ? modelMap.get(device.modelId) : null;
+  const resolvedModelId = device.modelId || device.attributes?.modelId || null;
+  const model = resolvedModelId ? modelMap.get(resolvedModelId) : null;
   const chip = device.chipId ? chipMap.get(device.chipId) : null;
   const vehicle = device.vehicleId ? vehicleMap.get(device.vehicleId) : null;
   const attributes = { ...(traccarDevice?.attributes || {}), ...(device.attributes || {}) };
@@ -502,7 +537,7 @@ function buildDeviceResponse(device, context) {
     uniqueId: device.uniqueId,
     name: device.name,
     clientId: device.clientId,
-    modelId: device.modelId,
+    modelId: resolvedModelId,
     modelName: model?.name || null,
     modelBrand: model?.brand || null,
     chipId: device.chipId,
@@ -793,6 +828,7 @@ router.post("/models", deps.requireRole("manager", "admin"), (req, res, next) =>
     const payload = {
       name: req.body?.name,
       brand: req.body?.brand,
+      prefix: req.body?.prefix,
       protocol: req.body?.protocol,
       connectivity: req.body?.connectivity,
       version: req.body?.version,
@@ -827,6 +863,7 @@ router.put("/models/:id", deps.requireRole("manager", "admin"), (req, res, next)
     const payload = {
       name: req.body?.name,
       brand: req.body?.brand,
+      prefix: req.body?.prefix,
       protocol: req.body?.protocol,
       connectivity: req.body?.connectivity,
       version: req.body?.version,
@@ -1564,7 +1601,8 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     const { name, uniqueId, modelId, chipId, vehicleId } = req.body || {};
     const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
     const condition = req.body?.condition ?? req.body?.attributes?.condition ?? null;
-    const internalCode = req.body?.internalCode ?? req.body?.attributes?.internalCode ?? null;
+    const rawInternalCode = req.body?.internalCode ?? req.body?.attributes?.internalCode ?? null;
+    const internalCode = rawInternalCode === "" ? null : rawInternalCode;
     const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication;
     const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
     const warrantyFields = req.body?.attributes || {};
@@ -1581,10 +1619,19 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
       throw buildDeviceConflictError(normalizedUniqueId, existingDevice);
     }
 
+    let model = null;
     if (modelId) {
-      const model = deps.getModelById(modelId);
+      model = deps.getModelById(modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
         throw createError(404, "Modelo informado não pertence a este cliente");
+      }
+    }
+
+    let resolvedInternalCode = internalCode;
+    if (!resolvedInternalCode && modelId) {
+      const prefix = resolveModelPrefix(model);
+      if (prefix) {
+        resolvedInternalCode = resolveNextInternalCode({ clientId, modelId, prefix });
       }
     }
 
@@ -1596,8 +1643,8 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     if (iconType) {
       attributes.iconType = iconType;
     }
-    if (internalCode !== null && internalCode !== undefined) {
-      attributes.internalCode = internalCode;
+    if (resolvedInternalCode !== null && resolvedInternalCode !== undefined) {
+      attributes.internalCode = resolvedInternalCode;
     }
     if (condition !== null && condition !== undefined) {
       attributes.condition = condition;

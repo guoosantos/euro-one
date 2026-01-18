@@ -70,23 +70,27 @@ function DeviceRow({
   positionLabel,
   lastCommunication,
 }) {
+  const imei = device.uniqueId || traccarDevice?.uniqueId || "—";
+  const internalCode = device?.attributes?.internalCode || device?.internalCode || "—";
+  const modelLabel = model?.name || device?.modelName || "—";
+  const modelDetail = model?.version || model?.protocol || device?.modelProtocol || "";
   return (
     <tr className="hover:bg-white/5">
-      <td className="px-4 py-3">
-        <div className="font-semibold text-white">{device.name || traccarDevice?.name || "—"}</div>
-        <div className="text-xs text-white/50">IMEI {device.uniqueId || traccarDevice?.uniqueId || "—"}</div>
+      <td className="px-3 py-3">
+        <div className="font-semibold text-white">{imei}</div>
+        <div className="text-xs text-white/50">ID interno {internalCode}</div>
       </td>
-      <td className="px-4 py-3">
-        <div className="text-white">{model?.name || "—"}</div>
-        <div className="text-xs text-white/50">{model?.version || model?.protocol || ""}</div>
+      <td className="px-3 py-3">
+        <div className="text-white">{modelLabel}</div>
+        <div className="text-xs text-white/50">{modelDetail}</div>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         <StatusPill meta={status} />
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         <div className="text-white">{lastCommunication}</div>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         <div
           className="text-xs text-white/70 leading-snug break-words"
           title={positionLabel || ""}
@@ -94,7 +98,7 @@ function DeviceRow({
           {positionLabel}
         </div>
       </td>
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         {vehicle ? (
           <button
             type="button"
@@ -121,8 +125,8 @@ function DeviceRow({
           </div>
         )}
       </td>
-      <td className="px-4 py-3 text-white/70">{warrantyLabel}</td>
-      <td className="px-4 py-3 text-right">
+      <td className="px-3 py-3 text-white/70">{warrantyLabel}</td>
+      <td className="px-3 py-3 text-right">
         <div className="inline-flex items-center gap-2">
           <button
             type="button"
@@ -239,7 +243,6 @@ export default function Devices() {
   const [initializedFromSearch, setInitializedFromSearch] = useState(false);
   const [creatingVehicle, setCreatingVehicle] = useState(false);
   const [vehicleForm, setVehicleForm] = useState({ plate: "", name: "" });
-  const [lastSyncAt, setLastSyncAt] = useState(null);
 
   const [deviceForm, setDeviceForm] = useState({
     name: "",
@@ -250,14 +253,19 @@ export default function Devices() {
     condition: "",
     chipId: "",
     vehicleId: "",
-    warrantyUntil: "",
     productionDate: "",
+    installationDate: "",
     warrantyDays: "",
-    warrantyStartDate: "",
     warrantyEndDate: "",
-    warrantyNotes: "",
   });
   const [query, setQuery] = useState("");
+  const [pageSize, setPageSize] = useState(20);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [bulkRows, setBulkRows] = useState([{ imei: "", internalCode: "" }]);
+  const [bulkPrefix, setBulkPrefix] = useState("");
+  const [bulkRangeStart, setBulkRangeStart] = useState("");
+  const [bulkRangeEnd, setBulkRangeEnd] = useState("");
+  const [savingBulk, setSavingBulk] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
@@ -326,7 +334,6 @@ export default function Devices() {
 
       if (deviceResult.status === "fulfilled") {
         setDevices(normaliseListPayload(deviceResult.value));
-        setLastSyncAt(new Date());
       } else {
         throw deviceResult.reason || new Error("Falha ao carregar equipamentos");
       }
@@ -463,7 +470,7 @@ export default function Devices() {
   }, [conflictDevice, conflictMatch]);
 
   useEffect(() => {
-    const start = deviceForm.warrantyStartDate || deviceForm.productionDate;
+    const start = deviceForm.installationDate || deviceForm.productionDate;
     const days = Number(deviceForm.warrantyDays);
     if (!start || !Number.isFinite(days) || days <= 0) {
       if (deviceForm.warrantyEndDate) {
@@ -479,7 +486,7 @@ export default function Devices() {
     if (deviceForm.warrantyEndDate !== nextValue) {
       setDeviceForm((current) => ({ ...current, warrantyEndDate: nextValue }));
     }
-  }, [deviceForm.productionDate, deviceForm.warrantyDays, deviceForm.warrantyStartDate, deviceForm.warrantyEndDate]);
+  }, [deviceForm.installationDate, deviceForm.productionDate, deviceForm.warrantyDays, deviceForm.warrantyEndDate]);
 
   const modeloById = useMemo(() => {
     const map = new Map();
@@ -633,11 +640,23 @@ export default function Devices() {
   }
 
   function formatWarranty(device) {
-    const warranty =
-      device?.attributes?.warrantyUntil || device?.attributes?.warrantyDate || device?.warrantyUntil || null;
-    if (!warranty) return "—";
-    const parsed = new Date(warranty);
-    if (Number.isNaN(parsed.getTime())) return String(warranty);
+    const attrs = device?.attributes || {};
+    let warrantyEnd = attrs.warrantyEndDate || attrs.warrantyUntil || attrs.warrantyDate || null;
+    if (!warrantyEnd) {
+      const start = attrs.installationDate || attrs.warrantyStartDate || attrs.productionDate || null;
+      const days = Number(attrs.warrantyDays);
+      if (start && Number.isFinite(days) && days > 0) {
+        const parsed = new Date(start);
+        if (!Number.isNaN(parsed.getTime())) {
+          const computed = new Date(parsed);
+          computed.setDate(computed.getDate() + days);
+          warrantyEnd = computed.toISOString().slice(0, 10);
+        }
+      }
+    }
+    if (!warrantyEnd) return "—";
+    const parsed = new Date(warrantyEnd);
+    if (Number.isNaN(parsed.getTime())) return String(warrantyEnd);
     return parsed.toLocaleDateString("pt-BR");
   }
 
@@ -685,17 +704,20 @@ export default function Devices() {
     return devices.filter((device) => {
       const chip = chipById.get(device.chipId) || device.chip;
       const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
-      const model = modeloById.get(device.modelId) || null;
+      const deviceModelId = device.modelId || device.attributes?.modelId;
+      const model = modeloById.get(deviceModelId) || null;
 
       if (term) {
         const haystack = [
           device.name,
           device.uniqueId,
           device.imei,
+          device.attributes?.internalCode,
           chip?.iccid,
           chip?.phone,
           vehicle?.plate,
           vehicle?.name,
+          device.modelName,
           model?.name,
         ]
           .filter(Boolean)
@@ -707,7 +729,7 @@ export default function Devices() {
       if (filters.link === "linked" && !device.vehicleId && !device.vehicle) return false;
       if (filters.link === "unlinked" && (device.vehicleId || device.vehicle)) return false;
 
-      if (filters.model && String(device.modelId || "") !== String(filters.model)) return false;
+      if (filters.model && String(deviceModelId || "") !== String(filters.model)) return false;
 
       if (filters.status !== "all") {
         const meta = statusMeta(device);
@@ -717,6 +739,76 @@ export default function Devices() {
       return true;
     });
   }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, vehicleById]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters.link, filters.model, filters.status, query]);
+
+  const effectivePageSize = pageSize === "all" ? filteredDevices.length || 1 : Number(pageSize);
+  const totalPages =
+    pageSize === "all" ? 1 : Math.max(1, Math.ceil(filteredDevices.length / Math.max(effectivePageSize, 1)));
+  const resolvedPage = Math.min(currentPage, totalPages);
+  const paginatedDevices = useMemo(() => {
+    if (pageSize === "all") return filteredDevices;
+    const start = (resolvedPage - 1) * effectivePageSize;
+    return filteredDevices.slice(start, start + effectivePageSize);
+  }, [effectivePageSize, filteredDevices, pageSize, resolvedPage]);
+
+  const bulkValidation = useMemo(() => {
+    const normalizedRows = bulkRows.map((row) => ({
+      imei: String(row.imei || "").trim(),
+      internalCode: String(row.internalCode || "").trim(),
+    }));
+    const imeiCounts = new Map();
+    const codeCounts = new Map();
+    normalizedRows.forEach((row) => {
+      if (row.imei) {
+        const key = row.imei.toLowerCase();
+        imeiCounts.set(key, (imeiCounts.get(key) || 0) + 1);
+      }
+      if (row.internalCode) {
+        const key = row.internalCode.toLowerCase();
+        codeCounts.set(key, (codeCounts.get(key) || 0) + 1);
+      }
+    });
+
+    const existingImeis = new Set(
+      devices
+        .map((device) => (device.uniqueId ? String(device.uniqueId).toLowerCase() : null))
+        .filter(Boolean),
+    );
+    const existingInternalCodes = new Set(
+      devices
+        .map((device) => (device.attributes?.internalCode ? String(device.attributes.internalCode).toLowerCase() : null))
+        .filter(Boolean),
+    );
+
+    const rowErrors = normalizedRows.map((row) => {
+      const errors = [];
+      if (!row.imei) {
+        errors.push("Informe o IMEI.");
+      } else {
+        const key = row.imei.toLowerCase();
+        if ((imeiCounts.get(key) || 0) > 1) errors.push("IMEI duplicado na lista.");
+        if (existingImeis.has(key)) errors.push("IMEI já cadastrado.");
+      }
+
+      if (!row.internalCode) {
+        errors.push("Informe o código interno.");
+      } else {
+        const key = row.internalCode.toLowerCase();
+        if ((codeCounts.get(key) || 0) > 1) errors.push("Código interno duplicado na lista.");
+        if (existingInternalCodes.has(key)) errors.push("Código interno já cadastrado.");
+      }
+
+      return errors;
+    });
+
+    return {
+      rowErrors,
+      hasErrors: rowErrors.some((errors) => errors.length > 0),
+    };
+  }, [bulkRows, devices]);
 
   useEffect(() => {
     setModelDraft(filters.model || "");
@@ -834,12 +926,10 @@ export default function Devices() {
       condition: "",
       chipId: "",
       vehicleId: "",
-      warrantyUntil: "",
       productionDate: "",
+      installationDate: "",
       warrantyDays: "",
-      warrantyStartDate: "",
       warrantyEndDate: "",
-      warrantyNotes: "",
     });
     setEditingId(null);
   }
@@ -859,12 +949,13 @@ export default function Devices() {
     setSavingDevice(true);
     try {
       const warrantyPayload = {};
-      if (deviceForm.warrantyUntil) warrantyPayload.warrantyUntil = deviceForm.warrantyUntil;
       if (deviceForm.productionDate) warrantyPayload.productionDate = deviceForm.productionDate;
+      if (deviceForm.installationDate) {
+        warrantyPayload.installationDate = deviceForm.installationDate;
+        warrantyPayload.warrantyStartDate = deviceForm.installationDate;
+      }
       if (deviceForm.warrantyDays !== "") warrantyPayload.warrantyDays = Number(deviceForm.warrantyDays) || 0;
-      if (deviceForm.warrantyStartDate) warrantyPayload.warrantyStartDate = deviceForm.warrantyStartDate;
       if (deviceForm.warrantyEndDate) warrantyPayload.warrantyEndDate = deviceForm.warrantyEndDate;
-      if (deviceForm.warrantyNotes) warrantyPayload.warrantyNotes = deviceForm.warrantyNotes;
       if (deviceForm.internalCode) warrantyPayload.internalCode = deviceForm.internalCode;
       if (deviceForm.condition) warrantyPayload.condition = deviceForm.condition;
       warrantyPayload.gprsCommunication = Boolean(deviceForm.gprsCommunication);
@@ -922,6 +1013,82 @@ export default function Devices() {
     }
   }
 
+  function handleBulkRowChange(index, key, value) {
+    setBulkRows((current) =>
+      current.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row)),
+    );
+  }
+
+  function handleAddBulkRow() {
+    setBulkRows((current) => [...current, { imei: "", internalCode: "" }]);
+  }
+
+  function handleRemoveBulkRow(index) {
+    setBulkRows((current) => {
+      const next = current.filter((_, rowIndex) => rowIndex !== index);
+      return next.length ? next : [{ imei: "", internalCode: "" }];
+    });
+  }
+
+  function handleGenerateBulkCodes() {
+    const prefix = String(bulkPrefix || "").trim();
+    const start = Number(bulkRangeStart);
+    const end = Number(bulkRangeEnd);
+    if (!prefix) {
+      showToast("Informe o prefixo para gerar códigos", "error");
+      return;
+    }
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0 || start > end) {
+      showToast("Informe um intervalo válido para gerar códigos", "error");
+      return;
+    }
+    const nextRows = [];
+    for (let current = start; current <= end; current += 1) {
+      nextRows.push({ imei: "", internalCode: `${prefix}${current}` });
+    }
+    setBulkRows(nextRows.length ? nextRows : [{ imei: "", internalCode: "" }]);
+  }
+
+  async function handleSaveBulkDevices() {
+    if (!bulkRows.length) {
+      showToast("Adicione itens antes de salvar em massa.", "error");
+      return;
+    }
+    if (bulkValidation.hasErrors) {
+      showToast("Corrija os erros antes de salvar em massa.", "error");
+      return;
+    }
+    const clientId = tenantId || user?.clientId || "";
+    if (!clientId) {
+      showToast("Selecione um cliente para salvar os equipamentos", "error");
+      return;
+    }
+    setSavingBulk(true);
+    try {
+      for (const row of bulkRows) {
+        const uniqueId = String(row.imei || "").trim();
+        const internalCode = String(row.internalCode || "").trim();
+        if (!uniqueId || !internalCode) continue;
+        await CoreApi.createDevice({
+          uniqueId,
+          internalCode,
+          clientId,
+          attributes: { internalCode },
+        });
+      }
+      await load();
+      setBulkRows([{ imei: "", internalCode: "" }]);
+      setBulkPrefix("");
+      setBulkRangeStart("");
+      setBulkRangeEnd("");
+      showToast("Equipamentos cadastrados em massa", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Falha ao cadastrar equipamentos em massa", "error");
+    } finally {
+      setSavingBulk(false);
+    }
+  }
+
   async function handleDeleteDevice(id) {
     if (!id) return;
     if (!window.confirm("Remover este equipamento?")) return;
@@ -959,22 +1126,21 @@ export default function Devices() {
   }
 
   function openEditDevice(device) {
+    const installationDate = device.attributes?.installationDate || device.attributes?.warrantyStartDate || "";
     setEditingId(device.id);
     setDeviceForm({
       name: device.name || "",
       uniqueId: device.uniqueId || "",
-      modelId: device.modelId || "",
+      modelId: device.modelId || device.attributes?.modelId || "",
       internalCode: device.attributes?.internalCode || "",
       gprsCommunication: device.attributes?.gprsCommunication !== false,
       condition: device.attributes?.condition || "",
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
-      warrantyUntil: device.attributes?.warrantyUntil || "",
       productionDate: device.attributes?.productionDate || "",
+      installationDate,
       warrantyDays: device.attributes?.warrantyDays ?? "",
-      warrantyStartDate: device.attributes?.warrantyStartDate || "",
       warrantyEndDate: device.attributes?.warrantyEndDate || "",
-      warrantyNotes: device.attributes?.warrantyNotes || "",
     });
     setDrawerTab("geral");
     setShowDeviceDrawer(true);
@@ -1129,7 +1295,6 @@ export default function Devices() {
       await CoreApi.syncDevicesFromTraccar(clientId ? { clientId } : undefined);
       await load();
       showToast("Sincronização com o Traccar iniciada", "success");
-      setLastSyncAt(new Date());
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao sincronizar com o Traccar", "error");
     } finally {
@@ -1155,7 +1320,8 @@ export default function Devices() {
       const meta = statusMeta(device);
       const chip = chipById.get(device.chipId) || device.chip;
       const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
-      const model = modeloById.get(device.modelId) || {};
+      const deviceModelId = device.modelId || device.attributes?.modelId;
+      const model = modeloById.get(deviceModelId) || {};
       return [
         device.name || "",
         device.uniqueId || "",
@@ -1164,7 +1330,7 @@ export default function Devices() {
         formatPosition(device),
         vehicle?.plate || vehicle?.name || "",
         chip?.iccid || chip?.phone || "",
-        model?.name || "",
+        model?.name || device.modelName || "",
         formatBattery(device),
         formatIgnition(device) || "",
       ]
@@ -1234,9 +1400,6 @@ export default function Devices() {
                 Novo equipamento
               </span>
             </button>
-            <span className="text-[11px] uppercase tracking-[0.12em] text-white/60">
-              Última sincronização: {lastSyncAt ? new Date(lastSyncAt).toLocaleString() : "—"}
-            </span>
           </div>
         }
       />
@@ -1318,17 +1481,17 @@ export default function Devices() {
       )}
 
       <div className="flex-1">
-        <DataTable tableClassName="text-white/80 table-fixed w-full">
+        <DataTable className="overflow-x-hidden" tableClassName="text-white/80 table-auto w-full">
           <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
             <tr>
-              <th className="px-4 py-3 text-left">Nome / IMEI</th>
-              <th className="px-4 py-3 text-left">Modelo</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Última comunicação</th>
-              <th className="px-4 py-3 text-left">Última posição</th>
-              <th className="px-4 py-3 text-left">Vínculo</th>
-              <th className="px-4 py-3 text-left">Garantia</th>
-              <th className="px-4 py-3 text-right">Ações</th>
+              <th className="px-3 py-3 text-left">ID / IMEI</th>
+              <th className="px-3 py-3 text-left">Modelo</th>
+              <th className="px-3 py-3 text-left">Status</th>
+              <th className="px-3 py-3 text-left">Última comunicação</th>
+              <th className="px-3 py-3 text-left">Última posição</th>
+              <th className="px-3 py-3 text-left">Vínculo</th>
+              <th className="px-3 py-3 text-left">Garantia</th>
+              <th className="px-3 py-3 text-right">Ações</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/10">
@@ -1383,8 +1546,9 @@ export default function Devices() {
             )}
             {!loading &&
               !traccarLoading &&
-              filteredDevices.map((device) => {
-                const modelo = modeloById.get(device.modelId) || null;
+              paginatedDevices.map((device) => {
+                const deviceModelId = device.modelId || device.attributes?.modelId || null;
+                const modelo = modeloById.get(deviceModelId) || null;
                 const vehicle = vehicleById.get(device.vehicleId) || device.vehicle;
                 const position = latestPositionByDevice.get(deviceKey(device));
                 const meta = statusMeta(device);
@@ -1416,6 +1580,49 @@ export default function Devices() {
               })}
           </tbody>
         </DataTable>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
+        <div className="flex items-center gap-2">
+          <span>Itens por página</span>
+          <select
+            value={pageSize}
+            onChange={(event) => {
+              const value = event.target.value;
+              setPageSize(value === "all" ? "all" : Number(value));
+              setCurrentPage(1);
+            }}
+            className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
+          >
+            {[5, 20, 50, 100, 500].map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+            <option value="all">Todos</option>
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
+            disabled={resolvedPage <= 1}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+          >
+            Anterior
+          </button>
+          <span>
+            Página {resolvedPage} de {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
+            disabled={resolvedPage >= totalPages}
+            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10 disabled:opacity-50"
+          >
+            Próxima
+          </button>
+        </div>
       </div>
 
       <Drawer
@@ -1602,8 +1809,8 @@ export default function Devices() {
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <div className="text-xs uppercase tracking-[0.1em] text-white/50">ID</div>
-                <div className="text-sm text-white">{editingId || deviceForm.uniqueId || "—"}</div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">IMEI</div>
+                <div className="text-sm text-white">{deviceForm.uniqueId || "—"}</div>
               </div>
               <div>
                 <div className="text-xs uppercase tracking-[0.1em] text-white/50">Última transmissão</div>
@@ -1645,6 +1852,12 @@ export default function Devices() {
                 onChange={(event) => setDeviceForm((current) => ({ ...current, productionDate: event.target.value }))}
               />
               <Input
+                label="Data de instalação"
+                type="date"
+                value={deviceForm.installationDate}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, installationDate: event.target.value }))}
+              />
+              <Input
                 label="Dias de garantia"
                 type="number"
                 min="0"
@@ -1652,34 +1865,13 @@ export default function Devices() {
                 onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyDays: event.target.value }))}
               />
               <Input
-                label="Início da garantia"
-                type="date"
-                value={deviceForm.warrantyStartDate}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyStartDate: event.target.value }))}
-              />
-              <Input
-                label="Fim da garantia (automático)"
+                label="Data do fim da garantia"
                 type="date"
                 value={deviceForm.warrantyEndDate}
                 onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyEndDate: event.target.value }))}
                 disabled
               />
             </div>
-            <Input
-              label="Garantia até (legado)"
-              type="date"
-              value={deviceForm.warrantyUntil}
-              onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyUntil: event.target.value }))}
-            />
-            <label className="block text-xs text-white/60">
-              Observações
-              <textarea
-                rows={3}
-                value={deviceForm.warrantyNotes}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyNotes: event.target.value }))}
-                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-              />
-            </label>
             <div className="flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
                 Cancelar
@@ -1692,12 +1884,99 @@ export default function Devices() {
         )}
 
         {drawerTab === "massa" && (
-          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-            <div className="text-xs uppercase tracking-[0.1em] text-white/50">Massa</div>
-            <p>Use esta área para aplicar ações em lote (associação, garantia ou atualização rápida).</p>
-            <Button type="button" variant="ghost" disabled>
-              Ação em lote (em breve)
-            </Button>
+          <div className="space-y-4">
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+              <div className="text-xs uppercase tracking-[0.1em] text-white/50">Gerar códigos automáticos</div>
+              <p className="mt-1 text-xs text-white/60">
+                Informe prefixo e intervalo para gerar códigos internos automaticamente.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <Input
+                  label="Prefixo"
+                  value={bulkPrefix}
+                  onChange={(event) => setBulkPrefix(event.target.value)}
+                  placeholder="Ex.: 01-"
+                />
+                <Input
+                  label="Início"
+                  type="number"
+                  min="1"
+                  value={bulkRangeStart}
+                  onChange={(event) => setBulkRangeStart(event.target.value)}
+                  placeholder="2601"
+                />
+                <Input
+                  label="Fim"
+                  type="number"
+                  min="1"
+                  value={bulkRangeEnd}
+                  onChange={(event) => setBulkRangeEnd(event.target.value)}
+                  placeholder="2699"
+                />
+                <div className="flex items-end">
+                  <Button type="button" onClick={handleGenerateBulkCodes} className="w-full">
+                    Gerar lista
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.1em] text-white/50">Cadastro em massa</div>
+                  <p className="text-xs text-white/60">Preencha IMEI e código interno para cada item.</p>
+                </div>
+                <Button type="button" variant="ghost" onClick={handleAddBulkRow}>
+                  Adicionar linha
+                </Button>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                {bulkRows.map((row, index) => {
+                  const errors = bulkValidation.rowErrors[index] || [];
+                  return (
+                    <div key={`bulk-row-${index}`} className="rounded-lg border border-white/10 bg-black/30 p-3">
+                      <div className="grid gap-3 md:grid-cols-[1.2fr_1fr_auto]">
+                        <Input
+                          label={`IMEI #${index + 1}`}
+                          value={row.imei}
+                          onChange={(event) => handleBulkRowChange(index, "imei", event.target.value)}
+                          placeholder="Digite o IMEI"
+                        />
+                        <Input
+                          label="Código interno"
+                          value={row.internalCode}
+                          onChange={(event) => handleBulkRowChange(index, "internalCode", event.target.value)}
+                          placeholder="Ex.: 01-100"
+                        />
+                        <div className="flex items-end">
+                          <Button type="button" variant="ghost" onClick={() => handleRemoveBulkRow(index)}>
+                            Remover
+                          </Button>
+                        </div>
+                      </div>
+                      {errors.length > 0 && (
+                        <ul className="mt-2 space-y-1 text-xs text-red-200/90">
+                          {errors.map((message) => (
+                            <li key={`${index}-${message}`}>{message}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-xs text-white/50">
+                  {bulkRows.length} itens prontos para cadastro
+                </span>
+                <Button type="button" onClick={handleSaveBulkDevices} disabled={savingBulk || bulkValidation.hasErrors}>
+                  {savingBulk ? "Salvando..." : "Salvar em massa"}
+                </Button>
+              </div>
+            </div>
           </div>
         )}
 

@@ -88,12 +88,12 @@ export default function LocationSearch({
       });
     } else if (event.key === "Enter") {
       if (isToolbar && hasSuggestions) {
-        const selected = safeSuggestions[activeIndex >= 0 ? activeIndex : 0];
-        if (selected) {
-          event.preventDefault();
-          onSelectSuggestion?.(selected);
-          setIsFocused(false);
-        }
+        if (activeIndex < 0) return;
+        const selected = safeSuggestions[activeIndex];
+        if (!selected) return;
+        event.preventDefault();
+        onSelectSuggestion?.(selected);
+        setIsFocused(false);
         return;
       }
       if (!hasSuggestions || activeIndex < 0) return;
