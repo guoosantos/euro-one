@@ -26,6 +26,9 @@ router.get("/models", (req, res, next) => {
   try {
     const clientId = resolveClientId(req);
     const models = listModels({ clientId, includeGlobal: true });
+    const query = String(req.query?.query || "").trim().toLowerCase();
+    const page = Math.max(1, Number(req.query?.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(req.query?.pageSize) || 20));
     const devices = listDevices({ clientId });
     const counts = new Map();
 
@@ -43,7 +46,7 @@ router.get("/models", (req, res, next) => {
       }
     });
 
-    const payload = models.map((model) => {
+    let payload = models.map((model) => {
       const modelCounts = counts.get(String(model.id)) || { available: 0, linked: 0 };
       return {
         ...model,
@@ -51,7 +54,33 @@ router.get("/models", (req, res, next) => {
         linkedCount: modelCounts.linked,
       };
     });
-    res.json({ models: payload });
+    if (query) {
+      payload = payload.filter((model) => {
+        const haystack = [
+          model.name,
+          model.model,
+          model.brand,
+          model.vendor,
+          model.protocol,
+          model.id,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    const total = payload.length;
+    const start = (page - 1) * pageSize;
+    const paged = payload.slice(start, start + pageSize);
+    res.json({
+      models: paged,
+      page,
+      pageSize,
+      total,
+      hasMore: start + pageSize < total,
+    });
   } catch (error) {
     next(error);
   }

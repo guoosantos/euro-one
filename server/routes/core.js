@@ -100,6 +100,13 @@ function isTruthyParam(value) {
   return value === true || value === "true" || value === "1" || value === 1;
 }
 
+function parsePagination(query) {
+  const page = Math.max(1, Number(query?.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(query?.pageSize) || 20));
+  const start = (page - 1) * pageSize;
+  return { page, pageSize, start };
+}
+
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
   const protocolKey = protocol ? String(protocol).toLowerCase() : null;
   return mappings.filter((mapping) => {
@@ -929,7 +936,7 @@ router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClie
       throw createError(404, "Equipamento não encontrado no Traccar");
     }
 
-    const groupId = await ensureClientTraccarGroup(clientId);
+    const groupId = gprsCommunication ? await ensureClientTraccarGroup(clientId) : null;
     const attributes = { ...(traccarDevice.attributes || {}) };
     let attributesChanged = false;
     if (modelId) {
@@ -1022,7 +1029,7 @@ router.post("/euro/import-xlsx", deps.requireRole("admin"), async (req, res, nex
 router.post("/devices/sync", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
-    const groupId = await ensureClientTraccarGroup(clientId);
+    const groupId = gprsCommunication ? await ensureClientTraccarGroup(clientId) : null;
 
     const traccarResponse = await deps.traccarProxy("get", "/devices", {
       params: groupId ? { groupId } : undefined,
@@ -1556,6 +1563,11 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { name, uniqueId, modelId, chipId, vehicleId } = req.body || {};
     const iconType = req.body?.iconType || req.body?.attributes?.iconType || null;
+    const condition = req.body?.condition ?? req.body?.attributes?.condition ?? null;
+    const internalCode = req.body?.internalCode ?? req.body?.attributes?.internalCode ?? null;
+    const rawGprs = req.body?.gprsCommunication ?? req.body?.attributes?.gprsCommunication;
+    const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
+    const warrantyFields = req.body?.attributes || {};
     if (!uniqueId) {
       throw createError(400, "uniqueId é obrigatório");
     }
@@ -1584,13 +1596,29 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
     if (iconType) {
       attributes.iconType = iconType;
     }
+    if (internalCode !== null && internalCode !== undefined) {
+      attributes.internalCode = internalCode;
+    }
+    if (condition !== null && condition !== undefined) {
+      attributes.condition = condition;
+    }
+    if (rawGprs !== undefined) {
+      attributes.gprsCommunication = gprsCommunication;
+    }
+    if (warrantyFields?.productionDate) attributes.productionDate = warrantyFields.productionDate;
+    if (warrantyFields?.warrantyDays !== undefined) attributes.warrantyDays = warrantyFields.warrantyDays;
+    if (warrantyFields?.warrantyStartDate) attributes.warrantyStartDate = warrantyFields.warrantyStartDate;
+    if (warrantyFields?.warrantyEndDate) attributes.warrantyEndDate = warrantyFields.warrantyEndDate;
+    if (warrantyFields?.warrantyNotes) attributes.warrantyNotes = warrantyFields.warrantyNotes;
 
-    const traccarResult = await ensureTraccarDeviceExists({
-      uniqueId: normalizedUniqueId,
-      name,
-      groupId,
-      attributes,
-    });
+    const traccarResult = gprsCommunication
+      ? await ensureTraccarDeviceExists({
+          uniqueId: normalizedUniqueId,
+          name,
+          groupId,
+          attributes,
+        })
+      : { device: null };
 
     if (existingDevice) {
       const updated = deps.updateDevice(existingDevice.id, {
@@ -1692,6 +1720,28 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
     if (iconType) {
       payload.attributes = { ...(payload.attributes || {}), iconType };
     }
+    if (Object.prototype.hasOwnProperty.call(payload, "internalCode")) {
+      payload.attributes = { ...(payload.attributes || {}), internalCode: payload.internalCode };
+      delete payload.internalCode;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "condition")) {
+      payload.attributes = { ...(payload.attributes || {}), condition: payload.condition };
+      delete payload.condition;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "gprsCommunication")) {
+      const rawGprs = payload.gprsCommunication;
+      const gprsCommunication = rawGprs === false || rawGprs === "false" || rawGprs === 0 ? false : true;
+      payload.attributes = { ...(payload.attributes || {}), gprsCommunication };
+      delete payload.gprsCommunication;
+    }
+    if (payload.attributes) {
+      const warrantyFields = payload.attributes;
+      if (warrantyFields.productionDate) payload.attributes.productionDate = warrantyFields.productionDate;
+      if (warrantyFields.warrantyDays !== undefined) payload.attributes.warrantyDays = warrantyFields.warrantyDays;
+      if (warrantyFields.warrantyStartDate) payload.attributes.warrantyStartDate = warrantyFields.warrantyStartDate;
+      if (warrantyFields.warrantyEndDate) payload.attributes.warrantyEndDate = warrantyFields.warrantyEndDate;
+      if (warrantyFields.warrantyNotes) payload.attributes.warrantyNotes = warrantyFields.warrantyNotes;
+    }
     if (payload.modelId) {
       const model = deps.getModelById(payload.modelId);
       if (!model || (model.clientId && String(model.clientId) !== String(clientId))) {
@@ -1780,14 +1830,45 @@ router.delete("/devices/:id", deps.requireRole("manager", "admin"), async (req, 
 router.get("/chips", (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const query = String(req.query?.query || "").trim().toLowerCase();
+    const { page, pageSize, start } = parsePagination(req.query);
     const chips = deps.listChips({ clientId });
     const devices = deps.listDevices({ clientId });
     const vehicles = deps.listVehicles({ clientId });
     const deviceMap = new Map(devices.map((item) => [item.id, item]));
     const vehicleMap = new Map(vehicles.map((item) => [item.id, item]));
 
-    const response = chips.map((chip) => buildChipResponse(chip, { deviceMap, vehicleMap }));
-    res.json({ chips: response });
+    let response = chips.map((chip) => buildChipResponse(chip, { deviceMap, vehicleMap }));
+
+    if (query) {
+      response = response.filter((chip) => {
+        const haystack = [
+          chip.iccid,
+          chip.phone,
+          chip.carrier,
+          chip.provider,
+          chip.status,
+          chip.device?.name,
+          chip.device?.uniqueId,
+          chip.vehicle?.plate,
+          chip.vehicle?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+
+    const total = response.length;
+    const paged = response.slice(start, start + pageSize);
+    res.json({
+      chips: paged,
+      page,
+      pageSize,
+      total,
+      hasMore: start + pageSize < total,
+    });
   } catch (error) {
     next(error);
   }
@@ -1894,17 +1975,31 @@ router.get("/technicians", async (req, res, next) => {
     const isManager = req.user?.role === "manager";
     const includeDetails = isAdmin || isManager;
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: !isAdmin });
+    const query = String(req.query?.query || "").trim();
+    const { page, pageSize, start } = parsePagination(req.query);
 
     const where = {
       role: TECHNICIAN_ROLE,
       ...(clientId ? { clientId: String(clientId) } : {}),
+      ...(query
+        ? {
+            OR: [
+              { name: { contains: query, mode: "insensitive" } },
+              { email: { contains: query, mode: "insensitive" } },
+              { username: { contains: query, mode: "insensitive" } },
+            ],
+          }
+        : {}),
     };
 
     const technicians = await prisma.user.findMany({
       where,
       orderBy: { createdAt: "desc" },
+      skip: start,
+      take: pageSize,
     });
 
+    const total = await prisma.user.count({ where });
     const items = technicians.map((tech) => {
       const attributes = tech.attributes || {};
       if (!includeDetails) {
@@ -1935,7 +2030,14 @@ router.get("/technicians", async (req, res, next) => {
       };
     });
 
-    res.json({ ok: true, items });
+    res.json({
+      ok: true,
+      items,
+      page,
+      pageSize,
+      total,
+      hasMore: start + pageSize < total,
+    });
   } catch (error) {
     next(error);
   }
@@ -2231,12 +2333,15 @@ router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (
 router.get("/vehicles", async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    const query = String(req.query?.query || "").trim().toLowerCase();
+    const { page, pageSize, start } = parsePagination(req.query);
     const vehicles = deps.listVehicles({ clientId });
     const devices = deps.listDevices({ clientId });
+    const monitoringDevices = devices.filter((device) => device?.attributes?.gprsCommunication !== false);
     console.info("[vehicles] listagem para API", { clientId: clientId || null, vehicles: vehicles.length, devices: devices.length });
     const traccarDevices = deps.getCachedTraccarResources("devices");
     const traccarById = new Map(traccarDevices.map((item) => [String(item.id), item]));
-    const deviceMap = new Map(devices.map((item) => [item.id, item]));
+    const deviceMap = new Map(monitoringDevices.map((item) => [item.id, item]));
     let clientMap = new Map();
 
     if (isPrismaAvailable()) {
@@ -2255,16 +2360,20 @@ router.get("/vehicles", async (req, res, next) => {
     const onlyLinked = !includeUnlinked || isTruthyParam(req.query?.onlyLinked);
 
     const linkedVehicleIds = new Set(
-      devices
+      monitoringDevices
         .filter((device) => device?.vehicleId)
         .map((device) => String(device.vehicleId))
         .filter(Boolean),
     );
-    const knownDeviceIds = new Set(devices.map((device) => String(device.id)).filter(Boolean));
+    const knownDeviceIds = new Set(monitoringDevices.map((device) => String(device.id)).filter(Boolean));
 
     let positionsByDeviceId = new Map();
     const traccarIdsToQuery = Array.from(
-      new Set(devices.map((device) => (device?.traccarId != null ? String(device.traccarId) : null)).filter(Boolean)),
+      new Set(
+        monitoringDevices
+          .map((device) => (device?.traccarId != null ? String(device.traccarId) : null))
+          .filter(Boolean),
+      ),
     );
 
     if (traccarIdsToQuery.length) {
@@ -2299,10 +2408,35 @@ router.get("/vehicles", async (req, res, next) => {
         })
       : vehicles;
 
-    const response = vehiclesToExpose.map((vehicle) =>
+    let response = vehiclesToExpose.map((vehicle) =>
       buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId, clientMap }),
     );
-    res.json({ vehicles: response });
+    if (query) {
+      response = response.filter((vehicle) => {
+        const haystack = [
+          vehicle.plate,
+          vehicle.name,
+          vehicle.description,
+          vehicle.type,
+          vehicle.clientName,
+          vehicle.device?.name,
+          vehicle.device?.uniqueId,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    const total = response.length;
+    const paged = response.slice(start, start + pageSize);
+    res.json({
+      vehicles: paged,
+      page,
+      pageSize,
+      total,
+      hasMore: start + pageSize < total,
+    });
   } catch (error) {
     next(error);
   }

@@ -55,7 +55,36 @@ router.get("/clients", async (req, res, next) => {
       createdByUserId,
       view,
     });
-    res.json({ clients });
+    const query = String(req.query?.query || "").trim().toLowerCase();
+    const page = Math.max(1, Number(req.query?.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(req.query?.pageSize) || 20));
+    let filtered = clients;
+    if (query) {
+      filtered = clients.filter((client) => {
+        const haystack = [
+          client.name,
+          client.cnpj,
+          client.city,
+          client.state,
+          client.mainContactName,
+          client.mainContactEmail,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      });
+    }
+    const total = filtered.length;
+    const start = (page - 1) * pageSize;
+    const paged = filtered.slice(start, start + pageSize);
+    res.json({
+      clients: paged,
+      page,
+      pageSize,
+      total,
+      hasMore: start + pageSize < total,
+    });
   } catch (error) {
     next(error);
   }

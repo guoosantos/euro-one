@@ -24,12 +24,17 @@ export const CoreApi = {
     const data = response?.data || null;
     return normaliseListPayload(data);
   },
+  searchModels: async (params) => {
+    const response = await api.get(API_ROUTES.models, { params });
+    return response?.data || null;
+  },
   createModel: (payload) => http("models", { method: "POST", payload }),
   updateModel: (id, payload) => http(`models/${id}`, { method: "PUT", payload }),
   listDevices: async (params) => {
     const data = await http("devices", { params });
     return normaliseListPayload(data);
   },
+  searchDevices: (params) => http("devices", { params }),
   createDevice: (payload) => http("devices", { method: "POST", payload }),
   updateDevice: (id, payload) => http(`devices/${id}`, { method: "PUT", payload }),
   deleteDevice: (id, params) => http(`devices/${id}`, { method: "DELETE", params }),
@@ -43,6 +48,7 @@ export const CoreApi = {
     const data = await http("chips", { params });
     return normaliseListPayload(data);
   },
+  searchChips: (params) => http("chips", { params }),
   createChip: (payload) => http("chips", { method: "POST", payload }),
   updateChip: (id, payload) => http(`chips/${id}`, { method: "PUT", payload }),
   deleteChip: (id, params) => http(`chips/${id}`, { method: "DELETE", params }),
@@ -50,6 +56,7 @@ export const CoreApi = {
     const data = await http("vehicles", { params });
     return normaliseListPayload(data);
   },
+  searchVehicles: (params) => http("vehicles", { params }),
   listVehicleAttributes: async (params) => {
     const data = await http("vehicle-attributes", { params });
     return normaliseListPayload(data);
@@ -71,8 +78,10 @@ export const CoreApi = {
   listTasks: (params) => http("tasks", { params }),
   createTask: (payload) => http("tasks", { method: "POST", payload }),
   updateTask: (id, payload) => http(`tasks/${id}`, { method: "PUT", payload }),
+  searchTechnicians: (params) => http("technicians", { params }),
   // crm
   listCrmClients: (params) => crmHttp(API_ROUTES.crm.clients, { params }),
+  searchCrmClients: (params) => crmHttp(API_ROUTES.crm.clients, { params }),
   createCrmClient: (payload) => crmHttp(API_ROUTES.crm.clients, { method: "POST", payload }),
   getCrmClient: (id, params) => crmHttp(`${API_ROUTES.crm.clients}/${id}`, { params }),
   updateCrmClient: (id, payload) => crmHttp(`${API_ROUTES.crm.clients}/${id}`, { method: "PUT", payload }),
