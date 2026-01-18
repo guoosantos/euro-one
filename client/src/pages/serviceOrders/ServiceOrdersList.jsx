@@ -297,8 +297,7 @@ export default function ServiceOrdersList() {
         })}
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
-        <DataTable className="overflow-x-hidden" tableClassName="w-full table-fixed">
+      <DataTable className="w-full" tableClassName="min-w-[1100px] w-full">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
             <tr className="text-left">
               <th className="w-32 px-4 py-3">OS</th>
@@ -398,7 +397,6 @@ export default function ServiceOrdersList() {
               ))}
           </tbody>
         </DataTable>
-      </div>
     </div>
   );
 }

@@ -72,27 +72,36 @@ export default function LocationSearch({
   }, [portalSuggestions, showSuggestions]);
 
   const handleKeyDown = (event) => {
-    if (!hasSuggestions) return;
     if (event.key === "ArrowDown") {
+      if (!hasSuggestions) return;
       event.preventDefault();
       setActiveIndex((prev) => {
         const next = prev < 0 ? 0 : prev + 1;
         return Math.min(next, safeSuggestions.length - 1);
       });
     } else if (event.key === "ArrowUp") {
+      if (!hasSuggestions) return;
       event.preventDefault();
       setActiveIndex((prev) => {
         if (prev <= 0) return -1;
         return prev - 1;
       });
     } else if (event.key === "Enter") {
-      if (activeIndex < 0) return;
-      const selected = safeSuggestions[activeIndex];
-      if (selected) {
-        event.preventDefault();
-        onSelectSuggestion?.(selected);
-        setIsFocused(false);
+      if (isToolbar && hasSuggestions) {
+        const selected = safeSuggestions[activeIndex >= 0 ? activeIndex : 0];
+        if (selected) {
+          event.preventDefault();
+          onSelectSuggestion?.(selected);
+          setIsFocused(false);
+        }
+        return;
       }
+      if (!hasSuggestions || activeIndex < 0) return;
+      const selected = safeSuggestions[activeIndex];
+      if (!selected) return;
+      event.preventDefault();
+      onSelectSuggestion?.(selected);
+      setIsFocused(false);
     }
   };
 

@@ -4,6 +4,7 @@ import { RefreshCw, Settings2, Trash2, X } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -184,7 +185,6 @@ export default function Commands() {
   const { tenantId } = useTenant();
   const { vehicles, loading: vehiclesLoading } = useVehicles();
   const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
-  const [vehicleSearch, setVehicleSearch] = useState("");
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [device, setDevice] = useState(null);
@@ -322,32 +322,28 @@ export default function Commands() {
     toastTimeoutRef.current = setTimeout(() => setToast(null), 3500);
   }, []);
 
-  const vehicleOptions = useMemo(() => {
-    const search = normalizeValue(vehicleSearch).toLowerCase();
-    return vehicles
-      .map((vehicle) => ({
-        id: String(vehicle.id),
-        label: formatVehicleLabel(vehicle),
-        plate: normalizeValue(vehicle.plate).toLowerCase(),
-        name: normalizeValue(vehicle.name).toLowerCase(),
-      }))
-      .filter((vehicle) => {
-        if (!search) return true;
-        return (
-          vehicle.label.toLowerCase().includes(search) ||
-          vehicle.plate.includes(search) ||
-          vehicle.name.includes(search)
-        );
-      });
-  }, [vehicleSearch, vehicles]);
-
-  const vehicleOptionsAll = useMemo(
+  const vehicleSelectOptions = useMemo(
     () =>
       vehicles.map((vehicle) => ({
-        id: String(vehicle.id),
+        value: String(vehicle.id),
         label: formatVehicleLabel(vehicle),
+        description: vehicle.plate || "",
       })),
     [vehicles],
+  );
+
+  const loadVehicleOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = normalizeValue(query).toLowerCase();
+      const filtered = vehicleSelectOptions.filter((vehicle) => {
+        const haystack = [vehicle.label, vehicle.description].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(term);
+      });
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [vehicleSelectOptions],
   );
 
   const mergedCommands = useMemo(
@@ -1251,8 +1247,8 @@ export default function Commands() {
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
-      <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
-        <header className="space-y-2 px-6 pt-5">
+      <section className="flex min-h-0 flex-1 flex-col gap-4">
+        <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
@@ -1297,31 +1293,18 @@ export default function Commands() {
         <div className="flex min-h-0 flex-1 flex-col gap-4">
           {activeTab === "Comandos" && (
             <>
-              <div className="mx-6 flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-                <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                  Buscar veículo
-                  <Input
-                    value={vehicleSearch}
-                    onChange={(event) => setVehicleSearch(event.target.value)}
-                    placeholder="Digite placa ou nome"
-                    className="mt-2"
-                  />
-                </label>
-                <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                  Veículo
-                  <Select
-                    value={selectedVehicleId}
-                    onChange={(event) => setSelectedVehicleId(event.target.value)}
-                    className="mt-2 w-full bg-layer text-sm"
-                  >
-                    <option value="">Selecione</option>
-                    {vehicleOptions.map((vehicle) => (
-                      <option key={vehicle.id} value={vehicle.id}>
-                        {vehicle.label}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
+              <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
+                <AutocompleteSelect
+                  label="Veículo"
+                  placeholder={vehiclesLoading ? "Carregando veículos..." : "Selecione um veículo"}
+                  value={selectedVehicleId}
+                  onChange={(value) => setSelectedVehicleId(value)}
+                  options={vehicleSelectOptions}
+                  loadOptions={loadVehicleOptions}
+                  allowClear
+                  className="min-w-[240px] flex-1"
+                  disabled={vehiclesLoading}
+                />
                 <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                   Buscar comando
                   <Input
@@ -1331,17 +1314,16 @@ export default function Commands() {
                     className="mt-2"
                   />
                 </label>
-                {vehiclesLoading && <span className="text-xs text-white/50">Carregando veículos…</span>}
               </div>
 
               {!selectedVehicleId && (
-                <div className="mx-6 flex min-h-[160px] items-center justify-center rounded-2xl border border-white/10 bg-[#0b0f17] text-sm text-white/60">
+                <div className="flex min-h-[160px] items-center justify-center rounded-xl border border-white/10 bg-[#0b0f17] text-sm text-white/60">
                   Selecione um veículo
                 </div>
               )}
 
               {selectedVehicleId && (
-                <div className="mx-6 flex min-h-[200px] flex-col gap-3 rounded-2xl border border-white/10 bg-[#0b0f17] p-4">
+                <div className="flex min-h-[200px] flex-col gap-3 rounded-xl border border-white/10 bg-[#0b0f17] p-4">
                   {deviceLoading && <p className="text-sm text-white/60">Carregando dispositivo do Traccar…</p>}
                   {deviceError && <p className="text-sm text-red-300">{deviceError}</p>}
                   {!deviceLoading && !deviceError && commandsLoading && (
@@ -1433,7 +1415,7 @@ export default function Commands() {
           )}
 
           {activeTab === "Avançado" && (
-            <div className="mx-6 flex flex-col gap-6 rounded-2xl border border-white/10 bg-[#0b0f17] p-6">
+            <div className="flex flex-col gap-6 rounded-xl border border-white/10 bg-[#0b0f17] p-6">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -1465,21 +1447,15 @@ export default function Commands() {
 
                 {advancedMode === "vehicle" && (
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
-                      Veículo
-                      <Select
-                        value={selectedVehicleId}
-                        onChange={(event) => setSelectedVehicleId(event.target.value)}
-                        className="mt-2 w-full bg-layer text-sm"
-                      >
-                        <option value="">Selecione</option>
-                        {vehicleOptionsAll.map((vehicle) => (
-                          <option key={vehicle.id} value={vehicle.id}>
-                            {vehicle.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </label>
+                    <AutocompleteSelect
+                      label="Veículo"
+                      placeholder="Selecione um veículo"
+                      value={selectedVehicleId}
+                      onChange={(value) => setSelectedVehicleId(value)}
+                      options={vehicleSelectOptions}
+                      loadOptions={loadVehicleOptions}
+                      allowClear
+                    />
                     <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                       Comando
                       <Select
@@ -1626,15 +1602,15 @@ export default function Commands() {
           )}
 
           {activeTab === "Criar comandos" && (
-            <div className="mx-6 mb-6">
+            <div className="mb-6">
               <CreateCommands />
             </div>
           )}
         </div>
       </section>
 
-      <section className="card flex min-h-0 flex-col gap-4 p-0">
-        <header className="space-y-2 px-6 pt-5">
+      <section className="flex min-h-0 flex-col gap-4">
+        <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Histórico de comandos</p>
@@ -1662,7 +1638,7 @@ export default function Commands() {
           )}
         </header>
 
-        <div className="mx-6 mb-6 min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
+        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-[#0b0f17]">
           <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               {HISTORY_COLUMNS.map((column) => (
@@ -1770,7 +1746,7 @@ export default function Commands() {
         </div>
 
         {!historyLoading && !historyError && historyTotal > 0 && (
-          <div className="mx-6 mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
             <div className="flex items-center gap-2">
               <span>Itens por página</span>
               <Select

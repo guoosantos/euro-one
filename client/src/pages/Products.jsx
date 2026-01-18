@@ -1,5 +1,5 @@
 import { Pencil, Plus, Search } from "lucide-react";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -12,6 +12,7 @@ import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -40,7 +41,7 @@ function Drawer({ open, onClose, title, description, children }) {
 }
 
 export default function Products() {
-  const { tenants, tenantId, user } = useTenant();
+  const { tenants } = useTenant();
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -103,6 +104,28 @@ export default function Products() {
       return true;
     });
   }, [models, searchManufacturer, searchModel]);
+
+  const clientOptions = useMemo(
+    () =>
+      (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
+        value: tenant.id,
+        label: tenant.name || tenant.company || tenant.id,
+      })),
+    [tenants],
+  );
+
+  const loadClientOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = (query || "").trim().toLowerCase();
+      const filteredClients = clientOptions.filter((client) =>
+        client.label.toLowerCase().includes(term),
+      );
+      const start = (page - 1) * pageSize;
+      const paged = filteredClients.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filteredClients.length };
+    },
+    [clientOptions],
+  );
 
   function updatePort(index, key, value) {
     setForm((current) => {
@@ -255,7 +278,7 @@ export default function Products() {
         }
       />
 
-      <div className="overflow-hidden rounded-2xl border border-white/10 bg-transparent">
+      <div className="overflow-hidden">
         <DataTable>
           <thead className="bg-white/5 text-xs uppercase tracking-[0.14em] text-white/70">
             <tr>
@@ -443,21 +466,15 @@ export default function Products() {
                 Tornar modelo padrão para um cliente
               </label>
               {form.isClientDefault && (
-                <select
+                <AutocompleteSelect
+                  label="Cliente"
+                  placeholder="Selecionar cliente"
                   value={form.defaultClientId}
-                  onChange={(event) => setForm((current) => ({ ...current, defaultClientId: event.target.value }))}
-                  className="w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                >
-                  <option value="">Selecionar cliente</option>
-                  {(tenants || []).map((tenant) => (
-                    <option key={tenant.id} value={tenant.id}>
-                      {tenant.name || tenant.company || tenant.id}
-                    </option>
-                  ))}
-                  {!tenants?.length && (
-                    <option value={tenantId || user?.clientId || ""}>Cliente atual</option>
-                  )}
-                </select>
+                  onChange={(value) => setForm((current) => ({ ...current, defaultClientId: value }))}
+                  options={clientOptions}
+                  loadOptions={loadClientOptions}
+                  allowClear
+                />
               )}
             </div>
           </Field>

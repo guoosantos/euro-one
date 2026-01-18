@@ -6,6 +6,7 @@ import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import AddressCell from "../ui/AddressCell.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import useDevices from "../lib/hooks/useDevices.js";
@@ -197,7 +198,6 @@ export default function Events() {
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
   const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
-  const [vehicleSearch, setVehicleSearch] = useState("");
   const [eventType, setEventType] = useState("all");
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -328,11 +328,29 @@ export default function Events() {
     [deviceIdByKey, vehicles],
   );
 
-  const filteredVehicleOptions = useMemo(() => {
-    const term = vehicleSearch.trim().toLowerCase();
-    if (!term) return vehicleOptions;
-    return vehicleOptions.filter((vehicle) => (vehicle.searchLabel || vehicle.label.toLowerCase()).includes(term));
-  }, [vehicleOptions, vehicleSearch]);
+  const vehicleSelectOptions = useMemo(
+    () =>
+      vehicleOptions.map((vehicle) => ({
+        value: String(vehicle.id),
+        label: vehicle.label,
+        description: vehicle.searchLabel,
+      })),
+    [vehicleOptions],
+  );
+
+  const loadVehicleOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = String(query || "").trim().toLowerCase();
+      const filtered = vehicleSelectOptions.filter((vehicle) => {
+        const haystack = [vehicle.label, vehicle.description].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(term);
+      });
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [vehicleSelectOptions],
+  );
 
   const selectedVehicle = useMemo(
     () => vehicleOptions.find((vehicle) => String(vehicle.id) === String(selectedVehicleId)) || null,
@@ -719,8 +737,8 @@ export default function Events() {
 
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
-      <section className="card flex min-h-0 flex-1 flex-col gap-4 p-0">
-        <header className="space-y-2 px-6 pt-5">
+      <section className="flex min-h-0 flex-1 flex-col gap-4">
+        <header className="space-y-2">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de eventos</p>
@@ -780,7 +798,6 @@ export default function Events() {
                   variant="outline"
                   onClick={() => {
                     setSelectedVehicleId("");
-                    setVehicleSearch("");
                     setEventType("all");
                     setPage(1);
                   }}
@@ -834,31 +851,17 @@ export default function Events() {
 
         {activeTab === "Relatório" && (
           <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="mx-6 flex flex-wrap items-end gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                Buscar veículo
-                <Input
-                  value={vehicleSearch}
-                  onChange={(event) => setVehicleSearch(event.target.value)}
-                  placeholder="Digite placa ou nome"
-                  className="mt-2"
-                />
-              </label>
-              <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
-                Veículo
-                <Select
-                  value={selectedVehicleId}
-                  onChange={(event) => setSelectedVehicleId(event.target.value)}
-                  className="mt-2 w-full bg-layer text-sm"
-                >
-                  <option value="">Todos os veículos</option>
-                  {filteredVehicleOptions.map((vehicle) => (
-                    <option key={vehicle.id} value={vehicle.id}>
-                      {vehicle.label}
-                    </option>
-                  ))}
-                </Select>
-              </label>
+            <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
+              <AutocompleteSelect
+                label="Veículo"
+                placeholder="Todos os veículos"
+                value={selectedVehicleId}
+                onChange={(value) => setSelectedVehicleId(value)}
+                options={vehicleSelectOptions}
+                loadOptions={loadVehicleOptions}
+                allowClear
+                className="min-w-[240px] flex-1"
+              />
               <label className="flex min-w-[200px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 Tipo de evento
                 <Select
@@ -896,7 +899,7 @@ export default function Events() {
               )}
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto rounded-2xl border border-white/10 bg-[#0b0f17]">
+            <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-[#0b0f17]">
               <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
                 <colgroup>
                   {visibleColumns.map((column) => (
