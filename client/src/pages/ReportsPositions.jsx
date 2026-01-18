@@ -24,11 +24,12 @@ import {
 } from "../lib/report-column-labels.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
 import PageHeader from "../ui/PageHeader.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
 
 const COLUMN_STORAGE_KEY = "reports:positions:columns";
 const DEFAULT_RADIUS_METERS = 100;
-const DEFAULT_PAGE_SIZE = 1000;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -261,7 +262,6 @@ export default function ReportsPositions() {
   const totalPages = meta?.totalPages || 1;
   const currentPage = meta?.currentPage || page;
   const totalItems = meta?.totalItems ?? positions.length;
-  const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
 
   const reportProtocol = useMemo(() => resolveReportProtocol(positions), [positions]);
 
@@ -515,24 +515,27 @@ export default function ReportsPositions() {
   }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
 
 
-  const handleLoadMore = useCallback(async () => {
-    if (loadingMore || !meta || !baseQueryRef.current) return;
-    if (meta.currentPage >= meta.totalPages) return;
-    const nextPage = (meta.currentPage || 1) + 1;
-    setLoadingMore(true);
-    try {
-      const params = { ...baseQueryRef.current, page: nextPage, limit: effectivePageSize };
-      baseQueryRef.current = params;
-      const normalized = await fetchPage(params);
-      setPositions((prev) => [...prev, ...(normalized.positions || [])]);
-      setMeta(normalized.meta);
-      setPage(nextPage);
-    } catch (loadError) {
-      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais posições." });
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [effectivePageSize, fetchPage, loadingMore, meta]);
+  const handlePageChange = useCallback(
+    async (nextPage) => {
+      if (!baseQueryRef.current || loading) return;
+      const target = Math.max(1, Math.min(totalPages, nextPage));
+      if (target === currentPage) return;
+      setLoadingMore(true);
+      try {
+        const params = { ...baseQueryRef.current, page: target, limit: effectivePageSize };
+        baseQueryRef.current = params;
+        const normalized = await fetchPage(params);
+        setPositions(normalized.positions || []);
+        setMeta(normalized.meta);
+        setPage(target);
+      } catch (loadError) {
+        setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar a página." });
+      } finally {
+        setLoadingMore(false);
+      }
+    },
+    [currentPage, effectivePageSize, fetchPage, loading, totalPages],
+  );
 
   const handlePageSizeChange = useCallback(
     async (value) => {
@@ -742,20 +745,6 @@ export default function ReportsPositions() {
           title="Relatório de posições"
           right={(
             <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-              <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                <span className="whitespace-nowrap">Itens por página</span>
-                <select
-                  value={pageSize}
-                  onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-                  className="rounded bg-transparent text-white outline-none"
-                >
-                  {PAGE_SIZE_OPTIONS.map((option) => (
-                    <option key={option} value={option} className="bg-[#0d1117] text-white">
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <button
                 type="submit"
                 disabled={loading || geocoding || !selectedVehicleId}
@@ -938,17 +927,17 @@ export default function ReportsPositions() {
           liveGeocode={false}
         />
       </section>
-      {canLoadMore && (
-        <div className="flex items-center justify-center">
-          <button
-            type="button"
-            onClick={handleLoadMore}
-            disabled={loadingMore}
-            className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
-          >
-            {loadingMore ? "Carregando..." : "Carregar mais"}
-          </button>
-        </div>
+      {hasGenerated && (
+        <DataTablePagination
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageSizeChange={handlePageSizeChange}
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          onPageChange={handlePageChange}
+          disabled={loading || loadingMore}
+        />
       )}
 
       {activePopup === "columns" && (

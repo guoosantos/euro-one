@@ -12,6 +12,7 @@ import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import AddressAutocomplete from "../components/AddressAutocomplete.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
@@ -30,6 +31,7 @@ const CONDITION_FILTERS = [
   { value: "usado_funcionando", label: "Usados Funcionando" },
   { value: "usado_defeito", label: "Usados Defeito" },
 ];
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -857,46 +859,18 @@ export default function Stock() {
             </div>
 
             {filteredDevices.length > 0 && (
-              <div className="mt-auto flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-                <div className="flex items-center gap-2">
-                  <span>Itens por página</span>
-                  <select
-                    value={generalPageSize}
-                    onChange={(event) => {
-                      setGeneralPageSize(Number(event.target.value));
-                      setGeneralPage(1);
-                    }}
-                    className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
-                  >
-                    {[10, 20, 50, 100].map((size) => (
-                      <option key={size} value={size}>
-                        {size}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <span>
-                  Página {generalPage} de {totalGeneralPages}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                    onClick={() => setGeneralPage((prev) => Math.max(1, prev - 1))}
-                    disabled={generalPage === 1}
-                  >
-                    Anterior
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                    onClick={() => setGeneralPage((prev) => Math.min(totalGeneralPages, prev + 1))}
-                    disabled={generalPage >= totalGeneralPages}
-                  >
-                    Próxima
-                  </button>
-                </div>
-              </div>
+              <DataTablePagination
+                pageSize={generalPageSize}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={(value) => {
+                  setGeneralPageSize(Number(value));
+                  setGeneralPage(1);
+                }}
+                currentPage={generalPage}
+                totalPages={totalGeneralPages}
+                totalItems={filteredDevices.length}
+                onPageChange={(nextPage) => setGeneralPage(nextPage)}
+              />
             )}
           </div>
         </div>

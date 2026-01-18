@@ -4,6 +4,7 @@ import { RefreshCw, Settings2, Trash2, X } from "lucide-react";
 import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
@@ -30,9 +31,9 @@ const COLUMN_WIDTHS_STORAGE_KEY = "commands:history:columns:widths:v2";
 const COMMAND_PREFERENCES_STORAGE_KEY = "commands:list:preferences:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
-const PAGE_SIZE_OPTIONS = [5, 10, 15, 20, 50];
-const DEFAULT_PAGE_SIZE = 10;
-const DEFAULT_HISTORY_PAGE_SIZE = 10;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_HISTORY_PAGE_SIZE = 20;
 
 const normalizeValue = (value) => String(value ?? "");
 
@@ -1370,43 +1371,18 @@ export default function Commands() {
                     !commandsError &&
                     orderedCommands.length > 0 &&
                     paginatedCommands.length > 0 && (
-                      <div className="mt-2 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-                        <div className="flex items-center gap-2">
-                          <span>Itens por página</span>
-                          <Select
-                            value={commandsPerPage}
-                            onChange={(event) => setCommandsPerPage(Number(event.target.value))}
-                            className="w-[90px] bg-layer text-sm"
-                          >
-                            {PAGE_SIZE_OPTIONS.map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </Select>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                            onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
-                            disabled={currentPage === 1}
-                          >
-                            Anterior
-                          </button>
-                          <span>
-                            Página {currentPage} de {totalPages}
-                          </span>
-                          <button
-                            type="button"
-                            className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                            onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
-                            disabled={currentPage >= totalPages}
-                          >
-                            Próxima
-                          </button>
-                        </div>
-                      </div>
+                      <DataTablePagination
+                        pageSize={commandsPerPage}
+                        pageSizeOptions={PAGE_SIZE_OPTIONS}
+                        onPageSizeChange={(value) => {
+                          setCommandsPerPage(Number(value) || DEFAULT_PAGE_SIZE);
+                          setCurrentPage(1);
+                        }}
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        totalItems={filteredCommands.length}
+                        onPageChange={(nextPage) => setCurrentPage(nextPage)}
+                      />
                     )}
                   {customCommandsLoading && (
                     <p className="text-sm text-white/60">Carregando comandos personalizados…</p>
@@ -1753,43 +1729,19 @@ export default function Commands() {
         </div>
 
         {!historyLoading && !historyError && historyTotal > 0 && (
-          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
-            <div className="flex items-center gap-2">
-              <span>Itens por página</span>
-              <Select
-                value={historyPerPage}
-                onChange={(event) => setHistoryPerPage(Number(event.target.value))}
-                className="w-[90px] bg-layer text-sm"
-              >
-                {PAGE_SIZE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                onClick={() => setHistoryPage((current) => Math.max(1, current - 1))}
-                disabled={historyPage === 1}
-              >
-                Anterior
-              </button>
-              <span>
-                Página {historyPage} de {totalHistoryPages}
-              </span>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
-                onClick={() => setHistoryPage((current) => Math.min(totalHistoryPages, current + 1))}
-                disabled={historyPage >= totalHistoryPages}
-              >
-                Próxima
-              </button>
-            </div>
-          </div>
+          <DataTablePagination
+            pageSize={historyPerPage}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            onPageSizeChange={(value) => {
+              setHistoryPerPage(Number(value) || DEFAULT_HISTORY_PAGE_SIZE);
+              setHistoryPage(1);
+            }}
+            currentPage={historyPage}
+            totalPages={totalHistoryPages}
+            totalItems={historyTotal}
+            onPageChange={(nextPage) => setHistoryPage(nextPage)}
+            className="mb-6"
+          />
         )}
       </section>
 
