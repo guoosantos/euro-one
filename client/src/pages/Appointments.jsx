@@ -725,20 +725,24 @@ export default function Appointments() {
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Datas</h3>
             <div className="grid gap-3 md:grid-cols-2">
-              <input
-                type="datetime-local"
-                value={form.startTimeExpected}
-                onChange={(event) => setForm((prev) => ({ ...prev, startTimeExpected: event.target.value }))}
-                placeholder="Data da solicitação"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                type="datetime-local"
-                value={form.endTimeExpected}
-                onChange={(event) => setForm((prev) => ({ ...prev, endTimeExpected: event.target.value }))}
-                placeholder="Data do serviço"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
+              <label className="block text-xs text-white/60">
+                Data da Solicitação
+                <input
+                  type="datetime-local"
+                  value={form.startTimeExpected}
+                  onChange={(event) => setForm((prev) => ({ ...prev, startTimeExpected: event.target.value }))}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+                />
+              </label>
+              <label className="block text-xs text-white/60">
+                Data do Serviço
+                <input
+                  type="datetime-local"
+                  value={form.endTimeExpected}
+                  onChange={(event) => setForm((prev) => ({ ...prev, endTimeExpected: event.target.value }))}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+                />
+              </label>
             </div>
             <select
               value={form.status}

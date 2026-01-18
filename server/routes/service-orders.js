@@ -162,20 +162,24 @@ function normalizeChecklistItems(value) {
 }
 
 function normalizeSignatures(value) {
-  if (!value) return null;
+  if (value === undefined || value === null || value === "") {
+    return { value: null, invalid: false };
+  }
   let payload = value;
   if (typeof value === "string") {
     try {
       payload = JSON.parse(value);
     } catch (_error) {
-      return null;
+      return { value: null, invalid: true };
     }
   }
-  if (typeof payload !== "object" || Array.isArray(payload)) return null;
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    return { value: null, invalid: true };
+  }
   const technician = payload?.technician ? String(payload.technician) : null;
   const client = payload?.client ? String(payload.client) : null;
-  if (!technician && !client) return null;
-  return { technician, client };
+  if (!technician && !client) return { value: null, invalid: false };
+  return { value: { technician, client }, invalid: false };
 }
 
 async function resolveVehicleIdByPlate({ clientId, vehiclePlate }) {
@@ -241,6 +245,15 @@ router.get("/service-orders", async (req, res, next) => {
 
     return res.json({ ok: true, items });
   } catch (error) {
+    if (error?.code === "P2022") {
+      console.error("[service-orders] falha ao listar OS (schema)", {
+        code: error?.code,
+        message: error?.message,
+        meta: error?.meta,
+        stack: error?.stack,
+      });
+      return next(createError(500, "Banco desatualizado. Execute prisma migrate deploy."));
+    }
     return next(error);
   }
 });
@@ -537,6 +550,9 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
     const normalizedEquipments = normalizeEquipmentsData(body.equipmentsData || body.equipments);
     const normalizedChecklist = normalizeChecklistItems(body.checklistItems || body.checklist);
     const normalizedSignatures = normalizeSignatures(body.signatures);
+    if (body.signatures !== undefined && normalizedSignatures.invalid) {
+      throw createError(400, "Assinaturas inválidas ou malformadas");
+    }
     const equipmentsText = body.equipmentsText
       ? String(body.equipmentsText)
       : buildEquipmentsText(normalizedEquipments);
@@ -552,9 +568,6 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
     }
     if ((body.checklistItems || body.checklist) && !normalizedChecklist) {
       throw createError(400, "Checklist inválido ou malformado");
-    }
-    if (body.signatures && !normalizedSignatures) {
-      throw createError(400, "Assinaturas inválidas ou malformadas");
     }
 
     const resolvedVehicleId = body.vehiclePlate
@@ -594,7 +607,7 @@ router.post("/service-orders", requireRole("manager", "admin"), async (req, res,
               equipmentsText,
               equipmentsData: normalizedEquipments,
               checklistItems: normalizedChecklist,
-              signatures: normalizedSignatures,
+              signatures: normalizedSignatures.value,
               vehicleId: resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null),
             },
             include: {
@@ -700,7 +713,7 @@ router.patch("/service-orders/:id", async (req, res, next) => {
           body.equipmentsData !== undefined || body.equipments !== undefined ? normalizedEquipments : undefined,
         checklistItems:
           body.checklistItems !== undefined || body.checklist !== undefined ? normalizedChecklist : undefined,
-        signatures: body.signatures !== undefined ? normalizedSignatures : undefined,
+        signatures: body.signatures !== undefined ? normalizedSignatures.value : undefined,
         vehicleId:
           body.vehicleId !== undefined || resolvedVehicleId
             ? resolvedVehicleId || (body.vehicleId ? String(body.vehicleId) : null)

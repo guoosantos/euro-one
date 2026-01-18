@@ -73,6 +73,17 @@ router.post("/tasks", (req, res, next) => routeDeps.resolveClientIdMiddleware(re
     }
     res.status(201).json({ task, geofence });
   } catch (error) {
+    const correlationId = res.get?.("X-Correlation-Id") || req.get?.("x-correlation-id");
+    console.error("[tasks] create failed", {
+      correlationId,
+      code: error?.code,
+      message: error?.message,
+      meta: error?.meta,
+      stack: error?.stack,
+    });
+    if (error?.code === "P2022") {
+      return next(createError(500, "Banco desatualizado. Execute prisma migrate deploy."));
+    }
     next(error);
   }
 });
@@ -190,6 +201,17 @@ router.put("/tasks/:id", (req, res, next) => routeDeps.resolveClientIdMiddleware
     }
     res.json({ task: updated });
   } catch (error) {
+    const correlationId = res.get?.("X-Correlation-Id") || req.get?.("x-correlation-id");
+    console.error("[tasks] update failed", {
+      correlationId,
+      code: error?.code,
+      message: error?.message,
+      meta: error?.meta,
+      stack: error?.stack,
+    });
+    if (error?.code === "P2022") {
+      return next(createError(500, "Banco desatualizado. Execute prisma migrate deploy."));
+    }
     next(error);
   }
 });

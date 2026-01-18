@@ -405,7 +405,8 @@ export default function ServiceOrderNew() {
     setSaving(true);
     try {
       const serviceDate = form.startAt ? new Date(form.startAt) : null;
-      const response = await api.post("core/service-orders", {
+      const hasSignatures = Boolean(technicianSignature || clientSignature);
+      const payload = {
         clientId: canManageAll ? clientSelection || null : resolvedClientId,
         startAt: serviceDate ? serviceDate.toISOString() : null,
         status: form.status || "SOLICITADA",
@@ -423,11 +424,15 @@ export default function ServiceOrderNew() {
         equipmentsData: equipments,
         checklistItems: checklist,
         notes: form.notes || null,
-        signatures: {
+      };
+      if (hasSignatures) {
+        payload.signatures = {
           technician: technicianSignature,
           client: clientSignature,
-        },
-      });
+        };
+      }
+
+      const response = await api.post("core/service-orders", payload);
 
       if (!response?.data?.ok) {
         throw new Error(response?.data?.error || "Falha ao criar OS");
@@ -446,6 +451,7 @@ export default function ServiceOrderNew() {
           await CoreApi.updateDevice(device.id, {
             attributes: {
               ...device.attributes,
+              installationDate: startDate,
               warrantyStartDate: startDate,
               warrantyEndDate: endDate,
             },

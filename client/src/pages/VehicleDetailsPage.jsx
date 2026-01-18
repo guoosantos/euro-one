@@ -15,7 +15,6 @@ import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
-import Modal from "../ui/Modal";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -225,7 +224,6 @@ export default function VehicleDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [linkEquipmentOpen, setLinkEquipmentOpen] = useState(false);
   const [linkEquipmentId, setLinkEquipmentId] = useState("");
   const [chipLinkId, setChipLinkId] = useState("");
   const [chipDeviceId, setChipDeviceId] = useState("");
@@ -809,9 +807,26 @@ export default function VehicleDetailsPage() {
                     <span className="text-xs uppercase tracking-[0.12em] text-white/60">
                       Equipamentos vinculados
                     </span>
-                    <Button type="button" onClick={() => setLinkEquipmentOpen(true)}>
-                      Vincular Equipamento
-                    </Button>
+                  </div>
+                  <div className="grid gap-3 px-4 md:grid-cols-[2fr_auto]">
+                    <AutocompleteSelect
+                      label="Buscar equipamento"
+                      placeholder="Buscar equipamento"
+                      value={linkEquipmentId}
+                      onChange={(value) => setLinkEquipmentId(value)}
+                      options={availableDeviceOptions}
+                      loadOptions={loadDeviceOptions}
+                      allowClear
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        onClick={() => handleLinkDevice(linkEquipmentId)}
+                        disabled={!linkEquipmentId || saving}
+                      >
+                        {saving ? "Vinculando..." : "Vincular equipamento"}
+                      </Button>
+                    </div>
                   </div>
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <DataTable>
@@ -856,36 +871,6 @@ export default function VehicleDetailsPage() {
                       </tbody>
                     </DataTable>
                   </div>
-                  <Modal
-                    open={linkEquipmentOpen}
-                    onClose={() => setLinkEquipmentOpen(false)}
-                    title="Vincular equipamento"
-                    width="max-w-xl"
-                  >
-                    <div className="space-y-4">
-                      <AutocompleteSelect
-                        label="Equipamento"
-                        placeholder="Buscar equipamento"
-                        value={linkEquipmentId}
-                        onChange={(value) => setLinkEquipmentId(value)}
-                        options={availableDeviceOptions}
-                        loadOptions={loadDeviceOptions}
-                        allowClear
-                      />
-                      <div className="flex justify-end gap-2">
-                        <Button type="button" onClick={() => setLinkEquipmentOpen(false)}>
-                          Cancelar
-                        </Button>
-                        <Button
-                          type="button"
-                          onClick={() => handleLinkDevice(linkEquipmentId)}
-                          disabled={!linkEquipmentId || saving}
-                        >
-                          {saving ? "Vinculando..." : "Vincular"}
-                        </Button>
-                      </div>
-                    </div>
-                  </Modal>
                 </>
               )}
 
