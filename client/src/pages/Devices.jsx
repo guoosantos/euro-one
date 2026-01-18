@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MapContainer, Marker, Popup, TileLayer } from "react-leaflet";
 import { Clock3, Download, Link2, MapPin, Pencil, Plus, RefreshCw, Search, Trash2, Unlink, Wifi, X } from "lucide-react";
@@ -9,6 +9,7 @@ import Button from "../ui/Button";
 import Modal from "../ui/Modal";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import PageHeader from "../components/ui/PageHeader.jsx";
 import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
@@ -86,18 +87,11 @@ function DeviceRow({
         <div className="text-white">{lastCommunication}</div>
       </td>
       <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <span className="truncate">{positionLabel}</span>
-          {position && (
-            <button
-              type="button"
-              onClick={onMap}
-              className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2 py-1 text-xs text-white hover:border-primary"
-            >
-              <MapPin className="h-3 w-3" />
-              Ver
-            </button>
-          )}
+        <div
+          className="text-xs text-white/70 leading-snug break-words"
+          title={positionLabel || ""}
+        >
+          {positionLabel}
         </div>
       </td>
       <td className="px-4 py-3">
@@ -236,8 +230,9 @@ export default function Devices() {
   const [filters, setFilters] = useState({
     status: "all",
     link: "all",
-    model: "all",
+    model: "",
   });
+  const [modelDraft, setModelDraft] = useState("");
   const resolvedClientId = tenantId || user?.clientId || null;
   const [syncing, setSyncing] = useState(false);
   const [drawerTab, setDrawerTab] = useState("geral");
@@ -250,9 +245,16 @@ export default function Devices() {
     name: "",
     uniqueId: "",
     modelId: "",
+    internalCode: "",
+    gprsCommunication: true,
+    condition: "",
     chipId: "",
     vehicleId: "",
     warrantyUntil: "",
+    productionDate: "",
+    warrantyDays: "",
+    warrantyStartDate: "",
+    warrantyEndDate: "",
     warrantyNotes: "",
   });
   const [query, setQuery] = useState("");
@@ -369,7 +371,7 @@ export default function Devices() {
   }, [resolvedClientId, user]);
 
   useEffect(() => {
-    setFilters({ status: "all", link: "all", model: "all" });
+    setFilters({ status: "all", link: "all", model: "" });
     setQuery("");
     setLinkTarget(null);
     setLinkVehicleId("");
@@ -460,6 +462,25 @@ export default function Devices() {
     });
   }, [conflictDevice, conflictMatch]);
 
+  useEffect(() => {
+    const start = deviceForm.warrantyStartDate || deviceForm.productionDate;
+    const days = Number(deviceForm.warrantyDays);
+    if (!start || !Number.isFinite(days) || days <= 0) {
+      if (deviceForm.warrantyEndDate) {
+        setDeviceForm((current) => ({ ...current, warrantyEndDate: "" }));
+      }
+      return;
+    }
+    const parsed = new Date(start);
+    if (Number.isNaN(parsed.getTime())) return;
+    const next = new Date(parsed);
+    next.setDate(next.getDate() + days);
+    const nextValue = next.toISOString().slice(0, 10);
+    if (deviceForm.warrantyEndDate !== nextValue) {
+      setDeviceForm((current) => ({ ...current, warrantyEndDate: nextValue }));
+    }
+  }, [deviceForm.productionDate, deviceForm.warrantyDays, deviceForm.warrantyStartDate, deviceForm.warrantyEndDate]);
+
   const modeloById = useMemo(() => {
     const map = new Map();
     models.forEach((model) => {
@@ -469,11 +490,45 @@ export default function Devices() {
     });
     return map;
   }, [models]);
+  const modelOptions = useMemo(
+    () =>
+      models.map((model) => ({
+        value: model.id,
+        label: model.name || model.model || model.id,
+        description: model.brand || model.vendor || model.protocol || "",
+        searchText: `${model.name || ""} ${model.brand || ""} ${model.protocol || ""}`.trim(),
+        data: model,
+      })),
+    [models],
+  );
+  const loadModelOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchModels({
+        clientId: resolvedClientId || undefined,
+        includeGlobal: true,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.models || response?.data || [];
+      const options = list.map((model) => ({
+        value: model.id,
+        label: model.name || model.model || model.id,
+        description: model.brand || model.vendor || model.protocol || "",
+        searchText: `${model.name || ""} ${model.brand || ""} ${model.protocol || ""}`.trim(),
+        data: model,
+      }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [resolvedClientId],
+  );
 
   const chipOptions = useMemo(() => {
     return chips.map((chip) => ({
       value: chip.id,
       label: chip.iccid || chip.phone || chip.device?.uniqueId || chip.id,
+      description: chip.carrier || chip.provider || "",
+      data: chip,
     }));
   }, [chips]);
   const chipById = useMemo(() => {
@@ -488,6 +543,8 @@ export default function Devices() {
     return vehicles.map((vehicle) => ({
       value: vehicle.id,
       label: vehicle.name || vehicle.plate || vehicle.id,
+      description: vehicle.plate || "",
+      data: vehicle,
     }));
   }, [vehicles]);
   const vehicleById = useMemo(() => {
@@ -497,6 +554,45 @@ export default function Devices() {
     });
     return map;
   }, [vehicles]);
+  const loadChipOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchChips({
+        clientId: resolvedClientId || undefined,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.chips || response?.data || [];
+      const options = list.map((chip) => ({
+        value: chip.id,
+        label: chip.iccid || chip.phone || chip.device?.uniqueId || chip.id,
+        description: chip.carrier || chip.provider || "",
+        data: chip,
+      }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [resolvedClientId],
+  );
+  const loadVehicleOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchVehicles({
+        clientId: resolvedClientId || undefined,
+        query,
+        page,
+        pageSize,
+        includeUnlinked: true,
+      });
+      const list = response?.vehicles || response?.data || [];
+      const options = list.map((vehicle) => ({
+        value: vehicle.id,
+        label: `${vehicle.plate || vehicle.name || vehicle.id}${vehicle.clientName ? ` · ${vehicle.clientName}` : ""}`,
+        description: vehicle.type || "",
+        data: vehicle,
+      }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [resolvedClientId],
+  );
 
   const latestPositionByDevice = useMemo(() => {
     const map = new Map();
@@ -611,7 +707,7 @@ export default function Devices() {
       if (filters.link === "linked" && !device.vehicleId && !device.vehicle) return false;
       if (filters.link === "unlinked" && (device.vehicleId || device.vehicle)) return false;
 
-      if (filters.model !== "all" && String(device.modelId || "") !== String(filters.model)) return false;
+      if (filters.model && String(device.modelId || "") !== String(filters.model)) return false;
 
       if (filters.status !== "all") {
         const meta = statusMeta(device);
@@ -621,6 +717,10 @@ export default function Devices() {
       return true;
     });
   }, [chipById, devices, filters.link, filters.model, filters.status, modeloById, query, vehicleById]);
+
+  useEffect(() => {
+    setModelDraft(filters.model || "");
+  }, [filters.model]);
 
 
   function parseTimestamp(value) {
@@ -685,14 +785,60 @@ export default function Devices() {
 
   }
 
+  function formatIoSummary(attrs, prefix) {
+    if (!attrs) return "—";
+    const entries = Object.entries(attrs).filter(([key]) => key.toLowerCase().startsWith(prefix));
+    if (!entries.length) return "—";
+    return entries
+      .map(([key, value]) => {
+        const normalized = typeof value === "boolean" ? (value ? "On" : "Off") : value;
+        return `${key.replace(prefix, prefix.toUpperCase())}: ${normalized}`;
+      })
+      .join(" · ");
+  }
+
+  function formatInputs(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const attrs = position?.attributes || {};
+    return formatIoSummary(attrs, "input");
+  }
+
+  function formatOutputs(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const attrs = position?.attributes || {};
+    return formatIoSummary(attrs, "output");
+  }
+
+  function formatVehicleVoltage(device) {
+    const key = deviceKey(device);
+    const position = latestPositionByDevice.get(key);
+    const attrs = position?.attributes || {};
+    const voltage = attrs.vehicleVoltage ?? attrs.voltage ?? attrs.power ?? attrs.batteryVoltage;
+    if (voltage === null || voltage === undefined) return "—";
+    const numeric = Number(voltage);
+    if (Number.isFinite(numeric)) {
+      return `${numeric.toFixed(1)} V`;
+    }
+    return String(voltage);
+  }
+
   function resetDeviceForm() {
     setDeviceForm({
       name: "",
       uniqueId: "",
       modelId: "",
+      internalCode: "",
+      gprsCommunication: true,
+      condition: "",
       chipId: "",
       vehicleId: "",
       warrantyUntil: "",
+      productionDate: "",
+      warrantyDays: "",
+      warrantyStartDate: "",
+      warrantyEndDate: "",
       warrantyNotes: "",
     });
     setEditingId(null);
@@ -713,18 +859,24 @@ export default function Devices() {
     setSavingDevice(true);
     try {
       const warrantyPayload = {};
-      if (deviceForm.warrantyUntil) {
-        warrantyPayload.warrantyUntil = deviceForm.warrantyUntil;
-      }
-      if (deviceForm.warrantyNotes) {
-        warrantyPayload.warrantyNotes = deviceForm.warrantyNotes;
-      }
+      if (deviceForm.warrantyUntil) warrantyPayload.warrantyUntil = deviceForm.warrantyUntil;
+      if (deviceForm.productionDate) warrantyPayload.productionDate = deviceForm.productionDate;
+      if (deviceForm.warrantyDays !== "") warrantyPayload.warrantyDays = Number(deviceForm.warrantyDays) || 0;
+      if (deviceForm.warrantyStartDate) warrantyPayload.warrantyStartDate = deviceForm.warrantyStartDate;
+      if (deviceForm.warrantyEndDate) warrantyPayload.warrantyEndDate = deviceForm.warrantyEndDate;
+      if (deviceForm.warrantyNotes) warrantyPayload.warrantyNotes = deviceForm.warrantyNotes;
+      if (deviceForm.internalCode) warrantyPayload.internalCode = deviceForm.internalCode;
+      if (deviceForm.condition) warrantyPayload.condition = deviceForm.condition;
+      warrantyPayload.gprsCommunication = Boolean(deviceForm.gprsCommunication);
       const payload = {
         name: deviceForm.name?.trim() || undefined,
         uniqueId: deviceForm.uniqueId.trim(),
         modelId: deviceForm.modelId || undefined,
         chipId: deviceForm.chipId || undefined,
         vehicleId: deviceForm.vehicleId || undefined,
+        gprsCommunication: deviceForm.gprsCommunication,
+        condition: deviceForm.condition || undefined,
+        internalCode: deviceForm.internalCode || undefined,
         clientId,
         attributes: Object.keys(warrantyPayload).length ? warrantyPayload : undefined,
       };
@@ -812,9 +964,16 @@ export default function Devices() {
       name: device.name || "",
       uniqueId: device.uniqueId || "",
       modelId: device.modelId || "",
+      internalCode: device.attributes?.internalCode || "",
+      gprsCommunication: device.attributes?.gprsCommunication !== false,
+      condition: device.attributes?.condition || "",
       chipId: device.chipId || "",
       vehicleId: device.vehicleId || "",
       warrantyUntil: device.attributes?.warrantyUntil || "",
+      productionDate: device.attributes?.productionDate || "",
+      warrantyDays: device.attributes?.warrantyDays ?? "",
+      warrantyStartDate: device.attributes?.warrantyStartDate || "",
+      warrantyEndDate: device.attributes?.warrantyEndDate || "",
       warrantyNotes: device.attributes?.warrantyNotes || "",
     });
     setDrawerTab("geral");
@@ -943,6 +1102,23 @@ export default function Devices() {
       showToast("Equipamento desvinculado do veículo", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao desvincular equipamento", "error");
+    }
+  }
+
+  async function handleUnlinkChip(device) {
+    if (!device?.chipId) return;
+    if (!window.confirm("Desvincular chip deste equipamento?")) return;
+    try {
+      const clientId = device?.clientId || tenantId || user?.clientId || "";
+      if (!clientId) {
+        showToast("Selecione um cliente antes de desvincular", "error");
+        return;
+      }
+      await CoreApi.updateDevice(device.id, { chipId: "", clientId });
+      await load();
+      showToast("Chip desvinculado do equipamento", "success");
+    } catch (requestError) {
+      showToast(requestError?.message || "Falha ao desvincular chip", "error");
     }
   }
 
@@ -1098,18 +1274,23 @@ export default function Devices() {
               <option value="6-24h">Sem transmissão 6–24h</option>
               <option value=">24h">&gt;24h</option>
             </select>
-            <select
-              value={filters.model}
-              onChange={(event) => setFilters((current) => ({ ...current, model: event.target.value }))}
-              className="min-w-[220px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            <div className="min-w-[240px] flex-1">
+              <AutocompleteSelect
+                value={modelDraft}
+                onChange={(nextValue) => setModelDraft(String(nextValue || ""))}
+                placeholder="Buscar modelo"
+                options={modelOptions}
+                loadOptions={loadModelOptions}
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setFilters((current) => ({ ...current, model: modelDraft }))}
+              disabled={modelDraft === filters.model}
+              className="rounded-xl border border-white/10 bg-white/10 px-4 py-2 text-sm text-white transition hover:border-white/30 hover:bg-white/15 disabled:opacity-60"
             >
-              <option value="all">Modelo/Tipo</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name} · {model.brand}
-                </option>
-              ))}
-            </select>
+              Aplicar
+            </button>
           </div>
         }
         right={
@@ -1136,7 +1317,7 @@ export default function Devices() {
         <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-100">{error.message}</div>
       )}
 
-      <div className="flex-1 overflow-hidden rounded-2xl border border-white/10 bg-transparent">
+      <div className="flex-1">
         <DataTable tableClassName="text-white/80 table-fixed w-full">
           <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
             <tr>
@@ -1169,7 +1350,7 @@ export default function Devices() {
                         <button
                           type="button"
                           onClick={() => {
-                            setFilters({ status: "all", link: "all", model: "all" });
+                            setFilters({ status: "all", link: "all", model: "" });
                             setQuery("");
                           }}
                           className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
@@ -1275,17 +1456,69 @@ export default function Devices() {
               onChange={(event) => setDeviceForm((current) => ({ ...current, uniqueId: event.target.value }))}
               placeholder="Ex.: 866512345678901"
             />
+            <Input
+              label="Código interno"
+              value={deviceForm.internalCode}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, internalCode: event.target.value }))}
+              placeholder="Ex.: INT-2024-045"
+            />
+            <div className="md:col-span-2">
+              <label className="text-xs uppercase tracking-[0.1em] text-white/60">Modelo</label>
+              <AutocompleteSelect
+                value={deviceForm.modelId}
+                onChange={(nextValue, option) => {
+                  setDeviceForm((current) => ({ ...current, modelId: String(nextValue || "") }));
+                }}
+                placeholder="Buscar modelo"
+                options={modelOptions}
+                loadOptions={loadModelOptions}
+              />
+            </div>
+            {deviceForm.modelId ? (
+              <div className="md:col-span-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70">
+                <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Dados do modelo</div>
+                <div className="mt-2 grid gap-3 text-sm md:grid-cols-3">
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Fabricante</div>
+                    <div className="text-white">{modeloById.get(deviceForm.modelId)?.brand || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Protocolo</div>
+                    <div className="text-white">{modeloById.get(deviceForm.modelId)?.protocol || "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] uppercase tracking-[0.1em] text-white/50">Portas</div>
+                    <div className="text-white">
+                      {Array.isArray(modeloById.get(deviceForm.modelId)?.ports)
+                        ? modeloById.get(deviceForm.modelId)?.ports?.length
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <Select
-              label="Modelo"
-              value={deviceForm.modelId}
-              onChange={(event) => setDeviceForm((current) => ({ ...current, modelId: event.target.value }))}
+              label="Comunicação GPRS"
+              value={deviceForm.gprsCommunication ? "true" : "false"}
+              onChange={(event) =>
+                setDeviceForm((current) => ({
+                  ...current,
+                  gprsCommunication: event.target.value === "true",
+                }))
+              }
+            >
+              <option value="true">Sim</option>
+              <option value="false">Não</option>
+            </Select>
+            <Select
+              label="Condição"
+              value={deviceForm.condition}
+              onChange={(event) => setDeviceForm((current) => ({ ...current, condition: event.target.value }))}
             >
               <option value="">— Selecione —</option>
-              {models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.name} · {model.brand}
-                </option>
-              ))}
+              <option value="novo">Novo</option>
+              <option value="usado_funcionando">Usado Funcionando</option>
+              <option value="usado_defeito">Usado Defeito</option>
             </Select>
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setShowDeviceDrawer(false)}>
@@ -1301,42 +1534,25 @@ export default function Devices() {
         {drawerTab === "vinculos" && (
           <form onSubmit={handleLinkToVehicle} className="space-y-4">
             <div className="grid gap-3 md:grid-cols-2">
-              <Select
-                label="Chip vinculado"
-                value={deviceForm.chipId}
-                onChange={(event) => setDeviceForm((current) => ({ ...current, chipId: event.target.value }))}
-              >
-                <option value="">— Sem chip —</option>
-                {chipOptions.map((chip) => (
-                  <option key={chip.value} value={chip.value}>
-                    {chip.label}
-                  </option>
-                ))}
-              </Select>
               <div className="space-y-2">
-                <label className="text-xs uppercase tracking-[0.1em] text-white/60">Buscar placa/veículo</label>
-                <input
-                  value={linkQuery}
-                  onChange={(event) => setLinkQuery(event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-                  placeholder="Digite a placa ou nome"
+                <label className="text-xs uppercase tracking-[0.1em] text-white/60">Selecionar chip</label>
+                <AutocompleteSelect
+                  value={deviceForm.chipId}
+                  onChange={(nextValue) => setDeviceForm((current) => ({ ...current, chipId: String(nextValue || "") }))}
+                  placeholder="Buscar chip"
+                  options={chipOptions}
+                  loadOptions={loadChipOptions}
                 />
               </div>
               <div className="md:col-span-2 space-y-2">
                 <label className="text-xs uppercase tracking-[0.1em] text-white/60">Selecionar veículo</label>
-                <select
+                <AutocompleteSelect
                   value={linkVehicleId}
-                  onChange={(event) => setLinkVehicleId(event.target.value)}
-                  className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-                  required
-                >
-                  <option value="">— Escolha um veículo —</option>
-                  {linkVehicleOptions.map((vehicle) => (
-                    <option key={vehicle.value} value={vehicle.value}>
-                      {vehicle.label}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(nextValue) => setLinkVehicleId(String(nextValue || ""))}
+                  placeholder="Buscar veículo"
+                  options={vehicleOptions}
+                  loadOptions={loadVehicleOptions}
+                />
                 {linkVehicleId && (
                   <div className="text-xs text-white/60">
                     Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}
@@ -1383,26 +1599,74 @@ export default function Devices() {
         )}
 
         {drawerTab === "telemetria" && (
-          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Última comunicação</span>
-              <span className="text-sm text-white">{formatLastCommunication(deviceForm)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Posição</span>
-              <span className="text-sm text-white">{formatPosition(deviceForm)}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-[0.1em] text-white/50">Status</span>
-              <StatusPill meta={statusMeta(deviceForm)} />
+          <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">ID</div>
+                <div className="text-sm text-white">{editingId || deviceForm.uniqueId || "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Última transmissão</div>
+                <div className="text-sm text-white">{formatLastCommunication(deviceForm)}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Ignição</div>
+                <div className="text-sm text-white">{formatIgnition(deviceForm) || "—"}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Status</div>
+                <div className="mt-1">
+                  <StatusPill meta={statusMeta(deviceForm)} />
+                </div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Entradas</div>
+                <div className="text-sm text-white">{formatInputs(deviceForm)}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Saídas</div>
+                <div className="text-sm text-white">{formatOutputs(deviceForm)}</div>
+              </div>
+              <div>
+                <div className="text-xs uppercase tracking-[0.1em] text-white/50">Tensão do veículo</div>
+                <div className="text-sm text-white">{formatVehicleVoltage(deviceForm)}</div>
+              </div>
             </div>
           </div>
         )}
 
         {drawerTab === "garantia" && (
           <form onSubmit={handleSaveDevice} className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Input
+                label="Data de produção"
+                type="date"
+                value={deviceForm.productionDate}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, productionDate: event.target.value }))}
+              />
+              <Input
+                label="Dias de garantia"
+                type="number"
+                min="0"
+                value={deviceForm.warrantyDays}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyDays: event.target.value }))}
+              />
+              <Input
+                label="Início da garantia"
+                type="date"
+                value={deviceForm.warrantyStartDate}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyStartDate: event.target.value }))}
+              />
+              <Input
+                label="Fim da garantia (automático)"
+                type="date"
+                value={deviceForm.warrantyEndDate}
+                onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyEndDate: event.target.value }))}
+                disabled
+              />
+            </div>
             <Input
-              label="Garantia até"
+              label="Garantia até (legado)"
               type="date"
               value={deviceForm.warrantyUntil}
               onChange={(event) => setDeviceForm((current) => ({ ...current, warrantyUntil: event.target.value }))}
@@ -1441,6 +1705,30 @@ export default function Devices() {
           <div className="space-y-3">
             <Button
               variant="ghost"
+              className="inline-flex items-center gap-2"
+              onClick={() => {
+                const device = devices.find((item) => String(item.id) === String(editingId));
+                if (device) handleUnlinkFromVehicle(device);
+              }}
+              disabled={!editingId}
+            >
+              <Unlink className="h-4 w-4" />
+              Desvincular veículo
+            </Button>
+            <Button
+              variant="ghost"
+              className="inline-flex items-center gap-2"
+              onClick={() => {
+                const device = devices.find((item) => String(item.id) === String(editingId));
+                if (device) handleUnlinkChip(device);
+              }}
+              disabled={!editingId}
+            >
+              <Unlink className="h-4 w-4" />
+              Desvincular chip
+            </Button>
+            <Button
+              variant="ghost"
               className="inline-flex items-center gap-2 text-red-200 hover:text-white"
               onClick={() => handleDeleteDevice(editingId)}
               disabled={!editingId}
@@ -1468,29 +1756,14 @@ export default function Devices() {
       >
         <form onSubmit={handleLinkToVehicle} className="space-y-4">
           <div className="space-y-2">
-            <label className="text-xs uppercase tracking-[0.1em] text-white/60">Buscar placa/veículo</label>
-            <input
-              value={linkQuery}
-              onChange={(event) => setLinkQuery(event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-              placeholder="Digite a placa ou nome"
-            />
-          </div>
-          <div className="space-y-2">
             <label className="text-xs uppercase tracking-[0.1em] text-white/60">Selecionar veículo</label>
-            <select
+            <AutocompleteSelect
               value={linkVehicleId}
-              onChange={(event) => setLinkVehicleId(event.target.value)}
-              className="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm text-white focus:border-primary focus:outline-none"
-              required
-            >
-              <option value="">— Escolha um veículo —</option>
-              {linkVehicleOptions.map((vehicle) => (
-                <option key={vehicle.value} value={vehicle.value}>
-                  {vehicle.label}
-                </option>
-              ))}
-            </select>
+              onChange={(nextValue) => setLinkVehicleId(String(nextValue || ""))}
+              placeholder="Buscar veículo"
+              options={vehicleOptions}
+              loadOptions={loadVehicleOptions}
+            />
             {linkVehicleId && (
               <div className="text-xs text-white/60">
                 Tipo do veículo: {vehicleById.get(linkVehicleId)?.type || "—"}

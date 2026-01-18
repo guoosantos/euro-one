@@ -75,19 +75,23 @@ export default function LocationSearch({
     if (!hasSuggestions) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setActiveIndex((prev) => Math.min(prev + 1, safeSuggestions.length - 1));
+      setActiveIndex((prev) => {
+        const next = prev < 0 ? 0 : prev + 1;
+        return Math.min(next, safeSuggestions.length - 1);
+      });
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setActiveIndex((prev) => Math.max(prev - 1, 0));
+      setActiveIndex((prev) => {
+        if (prev <= 0) return -1;
+        return prev - 1;
+      });
     } else if (event.key === "Enter") {
-      const selected = safeSuggestions[Math.max(activeIndex, 0)];
+      if (activeIndex < 0) return;
+      const selected = safeSuggestions[activeIndex];
       if (selected) {
         event.preventDefault();
         onSelectSuggestion?.(selected);
         setIsFocused(false);
-      } else if (onSubmit) {
-        event.preventDefault();
-        onSubmit();
       }
     }
   };
