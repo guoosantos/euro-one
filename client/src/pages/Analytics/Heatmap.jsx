@@ -3,7 +3,6 @@ import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import { useLocation, useSearchParams } from "react-router-dom";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.heat";
 
 import { useTranslation } from "../../lib/i18n.js";
 import { translateEventType } from "../../lib/event-translations.js";
@@ -32,6 +31,7 @@ function HeatLayer({ points }) {
 
   useEffect(() => {
     if (!map) return undefined;
+    if (typeof L.heatLayer !== "function") return undefined;
     if (!layerRef.current) {
       layerRef.current = L.heatLayer([], { radius: 20, blur: 25, minOpacity: 0.2, maxZoom: 14 }).addTo(map);
     }
@@ -62,6 +62,7 @@ export default function HeatmapAnalytics() {
   const [searchParams, setSearchParams] = useSearchParams();
   const { search } = useLocation();
   const [filters, setFilters] = useState({ from: "", to: "", eventTypes: [], groupId: "" });
+  const [isHeatReady, setIsHeatReady] = useState(false);
   const { groups } = useGroups();
   const mapRef = useRef(null);
   const { onMapReady } = useMapLifecycle({ mapRef });
@@ -91,6 +92,20 @@ export default function HeatmapAnalytics() {
       from: prev.from || defaultFrom,
       to: prev.to || defaultTo,
     }));
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    import("leaflet.heat")
+      .then(() => {
+        if (active) setIsHeatReady(true);
+      })
+      .catch((err) => {
+        console.error("Falha ao carregar leaflet.heat", err);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -229,7 +244,7 @@ export default function HeatmapAnalytics() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 url={tileUrl}
               />
-              <HeatLayer points={points} />
+              {isHeatReady ? <HeatLayer points={points} /> : null}
             </MapContainer>
             {!hasPoints && !loading ? (
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/70 text-sm text-gray-700">
