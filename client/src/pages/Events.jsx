@@ -6,6 +6,7 @@ import Button from "../ui/Button.jsx";
 import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import AddressCell from "../ui/AddressCell.jsx";
+import Modal from "../ui/Modal.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
@@ -240,6 +241,7 @@ export default function Events() {
   const [configLoading, setConfigLoading] = useState(false);
   const [configError, setConfigError] = useState(null);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [bulkAction, setBulkAction] = useState(null);
 
   const vehicleByDeviceId = useMemo(() => {
     const map = new Map();
@@ -677,6 +679,13 @@ export default function Events() {
     );
   };
 
+  const handleBulkActiveChange = (value) => {
+    const ids = new Set(filteredProtocolEvents.map((event) => event.id));
+    setProtocolEvents((current) =>
+      current.map((event) => (ids.has(event.id) ? { ...event, active: value } : event)),
+    );
+  };
+
   const handleCategoryChange = (eventId, value) => {
     setProtocolEvents((current) =>
       current.map((event) => (event.id === eventId ? { ...event, category: value } : event)),
@@ -763,27 +772,6 @@ export default function Events() {
             </div>
             {activeTab === "Relatório" && (
               <div className="flex flex-wrap items-center justify-end gap-2">
-                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                  <span className="whitespace-nowrap">Itens por página</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => {
-                      const value = Number(event.target.value) || DEFAULT_PAGE_SIZE;
-                      setPageSize(value);
-                      setPage(1);
-                      if (reportGenerated) {
-                        fetchReport(1);
-                      }
-                    }}
-                    className="rounded bg-transparent text-white outline-none"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((option) => (
-                      <option key={option} value={option} className="bg-[#0d1117] text-white">
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <Button
                   type="button"
                   onClick={() => {
@@ -970,26 +958,49 @@ export default function Events() {
                 </tbody>
               </table>
             </div>
-            <div className="flex items-center justify-between px-2 pb-4 text-xs text-white/70">
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-                onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                disabled={currentPage <= 1 || reportLoading}
-              >
-                Anterior
-              </button>
+            <div className="flex flex-wrap items-center justify-between gap-3 px-2 pb-4 text-xs text-white/70">
+              <div className="flex items-center gap-2">
+                <span className="whitespace-nowrap">Itens por página</span>
+                <select
+                  value={pageSize}
+                  onChange={(event) => {
+                    const value = Number(event.target.value) || DEFAULT_PAGE_SIZE;
+                    setPageSize(value);
+                    setPage(1);
+                    if (reportGenerated) {
+                      fetchReport(1);
+                    }
+                  }}
+                  className="rounded border border-white/10 bg-[#0d1117] px-2 py-1 text-xs text-white"
+                >
+                  {PAGE_SIZE_OPTIONS.map((option) => (
+                    <option key={option} value={option} className="bg-[#0d1117] text-white">
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <span>
                 Página {currentPage} de {totalPages} • {totalItems} itens
               </span>
-              <button
-                type="button"
-                className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-                onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                disabled={currentPage >= totalPages || reportLoading}
-              >
-                Próxima
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage <= 1 || reportLoading}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
+                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages || reportLoading}
+                >
+                  Próxima
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -1034,9 +1045,27 @@ export default function Events() {
                       {configLoading ? "Carregando catálogo…" : `${filteredProtocolEvents.length} eventos`}
                     </p>
                   </div>
-                  <Button type="button" onClick={handleSaveConfig} disabled={savingConfig || configLoading}>
-                    {savingConfig ? "Salvando…" : "Salvar"}
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setBulkAction("activate")}
+                      disabled={configLoading || filteredProtocolEvents.length === 0}
+                    >
+                      Marcar todos como ativos
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setBulkAction("deactivate")}
+                      disabled={configLoading || filteredProtocolEvents.length === 0}
+                    >
+                      Desmarcar todos
+                    </Button>
+                    <Button type="button" onClick={handleSaveConfig} disabled={savingConfig || configLoading}>
+                      {savingConfig ? "Salvando…" : "Salvar"}
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
@@ -1151,6 +1180,40 @@ export default function Events() {
           </div>
         )}
       </section>
+
+      <Modal
+        open={Boolean(bulkAction)}
+        onClose={() => setBulkAction(null)}
+        title={bulkAction === "activate" ? "Marcar eventos como ativos" : "Desmarcar eventos"}
+        width="max-w-xl"
+        footer={(
+          <>
+            <Button type="button" variant="ghost" onClick={() => setBulkAction(null)}>
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                if (bulkAction === "activate") {
+                  handleBulkActiveChange(true);
+                }
+                if (bulkAction === "deactivate") {
+                  handleBulkActiveChange(false);
+                }
+                setBulkAction(null);
+              }}
+            >
+              Confirmar
+            </Button>
+          </>
+        )}
+      >
+        <div className="text-sm text-white/80">
+          {bulkAction === "activate"
+            ? `Deseja marcar ${filteredProtocolEvents.length} eventos como ativos?`
+            : `Deseja desmarcar ${filteredProtocolEvents.length} eventos (Não ativo)?`}
+        </div>
+      </Modal>
     </div>
   );
 }

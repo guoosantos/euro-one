@@ -1106,11 +1106,18 @@ export default function Commands() {
     [columnWidths],
   );
 
+  const totalHistoryWidth = useMemo(
+    () =>
+      HISTORY_COLUMNS.reduce((total, column) => total + (columnWidths[column.id] || column.width), 0),
+    [columnWidths],
+  );
+
   const getWidthStyle = (columnId) => {
     const column = HISTORY_COLUMNS.find((item) => item.id === columnId);
     if (!column) return undefined;
     const width = columnWidths[columnId] || column.width;
-    return { width: `${width}px`, minWidth: `${column.minWidth || width}px` };
+    const ratio = totalHistoryWidth ? (width / totalHistoryWidth) * 100 : 0;
+    return { width: `${ratio}%`, minWidth: 0, maxWidth: `${ratio}%` };
   };
 
   const toastClassName =
@@ -1638,8 +1645,8 @@ export default function Commands() {
           )}
         </header>
 
-        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-white/10 bg-[#0b0f17]">
-          <table className="w-full min-w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
+        <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+          <table className="w-full table-fixed border-collapse text-left text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
               {HISTORY_COLUMNS.map((column) => (
                 <col key={column.id} style={getWidthStyle(column.id)} />
@@ -1654,7 +1661,7 @@ export default function Commands() {
                     className="relative border-r border-white/5 px-3 py-2 font-semibold last:border-r-0"
                   >
                     <div className="flex items-center justify-between gap-2 pr-2">
-                      <span className="truncate whitespace-nowrap" title={column.label}>
+                      <span className="whitespace-normal" title={column.label}>
                         {column.label}
                       </span>
                       <span
@@ -1716,26 +1723,26 @@ export default function Commands() {
                     <tr key={correlationKey} className="hover:bg-white/5">
                       <td
                         style={getWidthStyle("sentAt")}
-                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80"
+                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
                       >
                         {formatDateTime(sentAt)}
                       </td>
                       <td
                         style={getWidthStyle("responseAt")}
-                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80"
+                        className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words"
                       >
                         {formatDateTime(responseAt)}
                       </td>
-                      <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                      <td style={getWidthStyle("command")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
                         {commandLabel}
                       </td>
-                      <td style={getWidthStyle("requestedBy")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                      <td style={getWidthStyle("requestedBy")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
                         {requestedBy}
                       </td>
-                      <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                      <td style={getWidthStyle("status")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
                         {statusLabel}
                       </td>
-                      <td style={getWidthStyle("result")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80">
+                      <td style={getWidthStyle("result")} className="border-r border-white/5 px-3 py-2 text-[11px] text-white/80 break-words">
                         {resultText}
                       </td>
                     </tr>

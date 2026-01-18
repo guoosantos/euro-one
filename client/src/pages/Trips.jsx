@@ -590,6 +590,28 @@ function normalizeTripEvent(point, helpers = {}) {
   };
 }
 
+function resolveTripEventFlags(point) {
+  const attributes = point?.attributes || point?.__attributes || point?.position?.attributes || {};
+  const eventActive =
+    point?.eventActive ??
+    attributes?.eventActive ??
+    point?.position?.eventActive ??
+    null;
+  const eventRequiresHandling =
+    point?.eventRequiresHandling ??
+    attributes?.eventRequiresHandling ??
+    point?.position?.eventRequiresHandling ??
+    null;
+  return { eventActive, eventRequiresHandling };
+}
+
+function isHandlingTripEvent(point) {
+  const { eventActive, eventRequiresHandling } = resolveTripEventFlags(point);
+  if (eventRequiresHandling !== true) return false;
+  if (eventActive === false) return false;
+  return true;
+}
+
 function normalizeSeverityFromPoint(point) {
   const raw = point?.alarm ?? point?.attributes?.alarm ?? point?.event ?? point?.attributes?.event ?? point?.type ?? "normal";
   const normalized = String(raw).toLowerCase();
@@ -1777,6 +1799,7 @@ export default function Trips() {
   const tripEvents = useMemo(
     () =>
       routePoints
+        .filter((point) => isHandlingTripEvent(point))
         .map((point, index) => {
           const normalized = point.__event || normalizeTripEvent(point, { locale, t });
           if (!normalized) return null;

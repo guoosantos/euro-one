@@ -20,7 +20,7 @@ import { formatAddress as formatAddressString } from "../../lib/format-address.j
 import { FALLBACK_ADDRESS } from "../../lib/utils/geocode.js";
 import { resolveTelemetryDescriptor } from "../../../../shared/telemetryDictionary.js";
 import { resolveEventDefinitionFromPayload } from "../../lib/event-translations.js";
-import { getIgnition, pickSpeed } from "../../lib/monitoring-helpers.js";
+import { getIgnition, isOnline, pickSpeed } from "../../lib/monitoring-helpers.js";
 import useTrips from "../../lib/hooks/useTrips.js";
 import useReportsRoute from "../../lib/hooks/useReportsRoute.js";
 import safeApi from "../../lib/safe-api.js";
@@ -260,6 +260,13 @@ export default function VehicleDetailsDrawer({
     refreshInterval: 30_000,
     enabled: Boolean(vehicleId),
   });
+  const filteredVehicleAlerts = useMemo(
+    () =>
+      (vehicleAlerts || []).filter(
+        (alert) => alert?.requiresHandling !== false && alert?.eventActive !== false && alert?.active !== false,
+      ),
+    [vehicleAlerts],
+  );
 
   useEffect(() => {
     if (!deviceIdForReports) {
@@ -403,7 +410,8 @@ export default function VehicleDetailsDrawer({
   }, [safeVehicle?.client?.id, safeVehicle?.clientId, safeVehicle?.client_id]);
 
   useEffect(() => {
-    if (!commandModalOpen) return;
+    const shouldLoadCommands = commandModalOpen || activeTab === "commands";
+    if (!shouldLoadCommands) return;
     if (!device?.protocol) {
       setCommandOptions([]);
       setCommandOptionsError(new Error("Dispositivo sem protocolo configurado."));
@@ -443,7 +451,15 @@ export default function VehicleDetailsDrawer({
     return () => {
       isActive = false;
     };
-  }, [commandModalOpen, device?.protocol, device?.traccarId, device?.id, safeVehicle?.client?.id, safeVehicle?.clientId]);
+  }, [
+    activeTab,
+    commandModalOpen,
+    device?.protocol,
+    device?.traccarId,
+    device?.id,
+    safeVehicle?.client?.id,
+    safeVehicle?.clientId,
+  ]);
 
   const itinerarySummary = useMemo(() => {
     const items = Array.isArray(itineraryStatus?.items) ? itineraryStatus.items : [];
@@ -542,6 +558,7 @@ export default function VehicleDetailsDrawer({
   const tripEventSummaries = useMemo(() => {
     const summary = new Map();
     routePoints.forEach((point) => {
+      if (!isHandlingTripEvent(point)) return;
       const definition = resolveEventDefinitionFromPayload(point);
       const label = definition?.label || "Posição registrada";
       const key = definition?.type || label;
@@ -1239,6 +1256,43 @@ export default function VehicleDetailsDrawer({
             </label>
           </div>
 
+          <div className="mt-3 rounded-lg border border-white/10 bg-white/5 p-3 text-xs text-white/70">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-white/50">Comandos disponíveis</p>
+              <input
+                value={commandSearch}
+                onChange={(event) => setCommandSearch(event.target.value)}
+                placeholder="Buscar comando"
+                className="w-full rounded-md border border-white/10 bg-white/10 px-2 py-2 text-[11px] text-white sm:w-[220px]"
+              />
+            </div>
+            {commandOptionsLoading && <p className="mt-2 text-xs text-white/50">Carregando comandos...</p>}
+            {!commandOptionsLoading && commandOptionsError && (
+              <p className="mt-2 text-xs text-red-200/80">{commandOptionsError.message}</p>
+            )}
+            {!commandOptionsLoading && !commandOptionsError && filteredCommandOptions.length === 0 && (
+              <p className="mt-2 text-xs text-white/50">Nenhum comando disponível para este equipamento.</p>
+            )}
+            {filteredCommandOptions.length > 0 && (
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {filteredCommandOptions.map((command) => (
+                  <button
+                    key={getCommandKey(command)}
+                    type="button"
+                    onClick={() => {
+                      setSelectedCommandKey(getCommandKey(command));
+                      setCommandModalOpen(true);
+                    }}
+                    className="flex items-center justify-between rounded-md border border-white/10 bg-black/20 px-3 py-2 text-left text-[11px] text-white/70 hover:border-white/30"
+                  >
+                    <span className="font-semibold text-white">{command.name || command.code || command.type}</span>
+                    <span className="text-white/40">Selecionar</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {commandsLoading && <p className="text-xs text-white/60">Carregando comandos...</p>}
           <div className="mt-3 overflow-x-auto rounded-lg border border-white/10">
             <table className="min-w-full text-xs text-white/70">
@@ -1467,11 +1521,11 @@ export default function VehicleDetailsDrawer({
           </div>
 
           {alertsLoading && <p className="text-xs text-white/60">Carregando alertas...</p>}
-          {!alertsLoading && vehicleAlerts.length === 0 && (
+          {!alertsLoading && filteredVehicleAlerts.length === 0 && (
             <p className="text-xs text-white/50">Sem dados para exibir.</p>
           )}
           <div className="space-y-3">
-            {vehicleAlerts.map((alert) => (
+            {filteredVehicleAlerts.map((alert) => (
               <AlertCard
                 key={alert.id}
                 alert={alert}
@@ -1491,7 +1545,7 @@ export default function VehicleDetailsDrawer({
           </div>
           <AlertHandleModal
             isOpen={Boolean(activeAlertId)}
-            alert={vehicleAlerts.find((item) => item.id === activeAlertId) || null}
+            alert={filteredVehicleAlerts.find((item) => item.id === activeAlertId) || null}
             draft={activeAlertId ? handlingDrafts[activeAlertId] || {} : {}}
             onClose={() => setActiveAlertId(null)}
             onDraftChange={(field, value) =>
@@ -2116,6 +2170,42 @@ function resolvePointSpeed(point) {
   return `${Math.round(Number(raw))} km/h`;
 }
 
+function resolvePointHeading(point) {
+  const raw =
+    point?.heading ??
+    point?.course ??
+    point?.attributes?.heading ??
+    point?.attributes?.course ??
+    point?.position?.heading ??
+    point?.position?.course;
+  const heading = Number(raw);
+  return Number.isFinite(heading) ? heading : 0;
+}
+
+function resolveTripEventFlags(point) {
+  const attributes = point?.attributes || point?.position?.attributes || point?.__attributes || {};
+  const eventActive =
+    point?.eventActive ??
+    attributes?.eventActive ??
+    point?.attributes?.eventActive ??
+    point?.position?.eventActive ??
+    null;
+  const eventRequiresHandling =
+    point?.eventRequiresHandling ??
+    attributes?.eventRequiresHandling ??
+    point?.attributes?.eventRequiresHandling ??
+    point?.position?.eventRequiresHandling ??
+    null;
+  return { eventActive, eventRequiresHandling };
+}
+
+function isHandlingTripEvent(point) {
+  const { eventActive, eventRequiresHandling } = resolveTripEventFlags(point);
+  if (eventRequiresHandling !== true) return false;
+  if (eventActive === false) return false;
+  return true;
+}
+
 function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, tileLayer }) {
   if (!points.length) {
     return (
@@ -2129,9 +2219,17 @@ function MiniReplayMap({ points = [], activeIndex = 0, vehicle, follow = true, t
   const activePoint = points[safeIndex] || points[0];
   const positions = points.map((point) => [point.lat, point.lng]);
   const center = [activePoint.lat, activePoint.lng];
+  const resolvedHeading = resolvePointHeading(activePoint);
+  const ignition = getIgnition(activePoint, vehicle?.device || vehicle?.devices?.[0]);
+  const ignitionColor =
+    ignition === true ? "#22c55e" : ignition === false ? "#ef4444" : "#60a5fa";
+  const currentPosition =
+    vehicle?.position || vehicle?.device?.position || vehicle?.devices?.[0]?.position || activePoint;
+  const isDeviceOnline = isOnline(currentPosition);
   const markerIcon = createVehicleMarkerIcon({
-    bearing: activePoint.heading || 0,
-    color: "#60a5fa",
+    bearing: resolvedHeading,
+    color: ignitionColor,
+    muted: !isDeviceOnline,
     label: vehicle?.plate || vehicle?.name || "",
     plate: vehicle?.plate,
     iconType: vehicle?.iconType,
