@@ -391,6 +391,12 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       if (!Number.isFinite(nextLat) || !Number.isFinite(nextLng)) return false;
       const map = mapRef.current;
       if (!map || !isMapReady || !canUseMap(map)) return false;
+      if (!isMountedRef.current) return false;
+      const container = map.getContainer?.();
+      if (!container || container.isConnected === false) return false;
+      const rect = container.getBoundingClientRect?.();
+      const hasContainerSize = Boolean(rect && rect.width > 0 && rect.height > 0);
+      const shouldAnimate = Boolean(animate && hasContainerSize);
       userActionRef.current = true;
       if (isDev) {
         console.info("[MAP] USER_DEVICE_SELECT", { lat: nextLat, lng: nextLng, zoom, reason });
@@ -411,7 +417,7 @@ const MonitoringMap = React.forwardRef(function MonitoringMap({
       map.whenReady?.(scheduleResize);
       scheduleResize();
       map.stop?.();
-      map.setView([nextLat, nextLng], zoom, { animate });
+      map.setView([nextLat, nextLng], zoom, { animate: shouldAnimate });
       const timeoutId = setTimeout(runInvalidate, 60);
       pendingResizeRef.current.timeoutIds.push(timeoutId);
       return true;
