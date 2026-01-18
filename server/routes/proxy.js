@@ -4621,11 +4621,132 @@ function resolvePositionTimestamp(position) {
   );
 }
 
+const ANALYTIC_EVENT_CATEGORIES = {
+  position: "Posição",
+  alert: "Alerta",
+  command: "Comando",
+  signalLoss: "Perda de Sinal",
+  report: "Emissão de Relatório",
+};
+const ANALYTIC_POSITION_TYPE = "Registrada";
+const ANALYTIC_SIGNAL_LOSS_TYPE = "Acima de 6 horas";
+const ANALYTIC_SIGNAL_LOSS_THRESHOLD_MS = 6 * 60 * 60 * 1000;
+
+function buildWhoSentLabel({ name, ipAddress, fallback = "Sistema" } = {}) {
+  const safeName = typeof name === "string" ? name.trim() : "";
+  const safeIp = typeof ipAddress === "string" ? ipAddress.trim() : "";
+  if (safeName && safeIp) return `${safeName} — ${safeIp}`;
+  if (safeName) return safeName;
+  if (safeIp) return safeIp;
+  return fallback;
+}
+
+function resolveIoValueFromPosition(position, keys = []) {
+  if (!position) return null;
+  for (const key of keys) {
+    const directValue = position[key];
+    const normalized = normalizeIoState(directValue);
+    if (normalized !== null) return normalized;
+    const attributeValue = position?.attributes?.[key];
+    const normalizedAttribute = normalizeIoState(attributeValue);
+    if (normalizedAttribute !== null) return normalizedAttribute;
+  }
+  return null;
+}
+
+function resolveAnalyticBlockedLabel(position, { protocol, deviceModel } = {}) {
+  if (!isIotmProtocol(protocol, deviceModel)) return null;
+  const in2 = resolveIoValueFromPosition(position, ["digitalInput2", "input2", "in2", "signalIn2"]);
+  const in4 = resolveIoValueFromPosition(position, ["digitalInput4", "input4", "in4", "signalIn4"]);
+  const out1 = resolveIoValueFromPosition(position, ["digitalOutput1", "output1", "out1"]);
+  if (in2 === null || in4 === null || out1 === null) return null;
+  const notBlocked = in2 === false && in4 === false && out1 === true;
+  return notBlocked ? "NÃO" : "SIM";
+}
+
+function resolveAnalyticPositionDetails(position) {
+  const rawLabel = typeof position?.event === "string" ? position.event.trim() : "";
+  const isFallback =
+    !rawLabel ||
+    rawLabel === POSITION_FALLBACK_LABEL ||
+    GENERIC_EVENT_LABELS_PT.has(rawLabel);
+  if (isFallback) {
+    return {
+      event: ANALYTIC_EVENT_CATEGORIES.position,
+      eventType: ANALYTIC_POSITION_TYPE,
+      whoSent: "—",
+    };
+  }
+  return {
+    event: ANALYTIC_EVENT_CATEGORIES.alert,
+    eventType: rawLabel,
+    whoSent: buildWhoSentLabel({ fallback: "Sistema" }),
+  };
+}
+
+function buildSignalLossEntries(positions = []) {
+  const list = Array.isArray(positions) ? positions : [];
+  const sorted = [...list]
+    .map((position) => ({
+      position,
+      timestamp: resolvePositionTimestamp(position),
+    }))
+    .filter((entry) => entry.timestamp)
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  const entries = [];
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const current = sorted[index];
+    const previousTime = new Date(previous.timestamp).getTime();
+    const currentTime = new Date(current.timestamp).getTime();
+    if (!Number.isFinite(previousTime) || !Number.isFinite(currentTime)) continue;
+    const delta = currentTime - previousTime;
+    if (delta < ANALYTIC_SIGNAL_LOSS_THRESHOLD_MS) continue;
+    const lossTime = new Date(previousTime + ANALYTIC_SIGNAL_LOSS_THRESHOLD_MS).toISOString();
+    entries.push({
+      id: `signal-loss-${previous.position?.id || index}-${current.position?.id || index}`,
+      type: "signal-loss",
+      timestamp: lossTime,
+      deviceTime: lossTime,
+      serverTime: lossTime,
+      event: ANALYTIC_EVENT_CATEGORIES.signalLoss,
+      eventType: ANALYTIC_SIGNAL_LOSS_TYPE,
+      whoSent: buildWhoSentLabel({ fallback: "Sistema" }),
+      status: "—",
+      row: {
+        deviceTime: lossTime,
+        serverTime: lossTime,
+        event: ANALYTIC_EVENT_CATEGORIES.signalLoss,
+        eventType: ANALYTIC_SIGNAL_LOSS_TYPE,
+        whoSent: buildWhoSentLabel({ fallback: "Sistema" }),
+        deviceStatus: "—",
+      },
+    });
+  }
+  return entries;
+}
+
 async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination }) {
   const positionsReport = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
   const commandHistory = await fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientId }).catch(() => []);
   const auditEvents = listAuditEvents({ clientId, vehicleId, from, to });
+
+  const protocol = positionsReport?.meta?.protocol || null;
+  const deviceModel = positionsReport?.meta?.deviceModel || null;
+
+  const analyticPositions = (positionsReport.positions || []).map((position) => {
+    const details = resolveAnalyticPositionDetails(position);
+    const blocked = resolveAnalyticBlockedLabel(position, { protocol, deviceModel });
+    return {
+      ...position,
+      event: details.event,
+      eventType: details.eventType,
+      whoSent: details.whoSent,
+      blocked: blocked ?? "—",
+    };
+  });
 
   const auditCommandMap = new Map(
     auditEvents
@@ -4637,6 +4758,12 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
     .filter((item) => item.source === "EURO_ONE")
     .map((item) => {
       const audit = auditCommandMap.get(item.id) || null;
+      const eventType = item.commandName || item.command || "Comando";
+      const whoSent = buildWhoSentLabel({
+        name: item.user?.name || audit?.user?.name || null,
+        ipAddress: audit?.ipAddress || null,
+        fallback: "Sistema",
+      });
       return {
         id: item.id,
         type: "action",
@@ -4651,41 +4778,112 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
           command: item.commandName || item.command || null,
         },
         timestamp: item.sentAt || item.respondedAt || audit?.sentAt || audit?.respondedAt || null,
+        event: ANALYTIC_EVENT_CATEGORIES.command,
+        eventType,
+        whoSent,
+        deviceTime: item.sentAt || audit?.sentAt || null,
+        serverTime: item.respondedAt || audit?.respondedAt || null,
+        row: {
+          deviceTime: item.sentAt || audit?.sentAt || null,
+          serverTime: item.respondedAt || audit?.respondedAt || null,
+          event: ANALYTIC_EVENT_CATEGORIES.command,
+          eventType,
+          whoSent,
+          deviceStatus: mapCommandStatusToLabel(item.status),
+        },
       };
     });
 
   const auditActionEntries = auditEvents
     .filter((event) => event.category !== "command")
-    .map((event) => ({
-      id: event.id,
-      type: "action",
-      actionType: event.category || "audit",
-      actionLabel: event.action || "AÇÃO DO USUÁRIO",
-      sentAt: event.sentAt || null,
-      respondedAt: event.respondedAt || null,
-      status: event.status || "Pendente",
-      user: event.user?.name || null,
-      ipAddress: event.ipAddress || null,
-      details: event.details || null,
-      timestamp: event.sentAt || event.respondedAt || event.createdAt || null,
-    }));
+    .map((event) => {
+      const actionLabel = event.action || "AÇÃO DO USUÁRIO";
+      const reportName = event.details?.report || null;
+      const eventType = reportName || actionLabel;
+      const whoSent = buildWhoSentLabel({
+        name: event.user?.name || null,
+        ipAddress: event.ipAddress || null,
+        fallback: "Sistema",
+      });
+      return {
+        id: event.id,
+        type: "action",
+        actionType: event.category || "audit",
+        actionLabel,
+        sentAt: event.sentAt || null,
+        respondedAt: event.respondedAt || null,
+        status: event.status || "Pendente",
+        user: event.user?.name || null,
+        ipAddress: event.ipAddress || null,
+        details: event.details || null,
+        timestamp: event.sentAt || event.respondedAt || event.createdAt || null,
+        event: ANALYTIC_EVENT_CATEGORIES.report,
+        eventType,
+        whoSent,
+        deviceTime: event.sentAt || null,
+        serverTime: event.respondedAt || null,
+        row: {
+          deviceTime: event.sentAt || null,
+          serverTime: event.respondedAt || null,
+          event: ANALYTIC_EVENT_CATEGORIES.report,
+          eventType,
+          whoSent,
+          deviceStatus: event.status || "Pendente",
+        },
+      };
+    });
 
-  const positionEntries = positionsReport.positions.map((position) => ({
+  const positionEntries = analyticPositions.map((position) => ({
     id: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
     type: "position",
     timestamp: resolvePositionTimestamp(position),
     position,
+    event: position.event,
+    eventType: position.eventType,
+    whoSent: position.whoSent,
+    deviceTime: position.deviceTime || null,
+    serverTime: position.serverTime || null,
+    row: position,
   }));
 
-  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries]
+  const signalLossEntries = buildSignalLossEntries(analyticPositions);
+
+  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries, ...signalLossEntries]
     .filter((entry) => entry.timestamp)
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+  const analyticMeta = { ...positionsReport.meta, protocol, deviceModel };
+  const extraKeys = ["eventType", "blocked", "whoSent"];
+  const availableSet = new Set(Array.isArray(analyticMeta.availableColumns) ? analyticMeta.availableColumns : []);
+  extraKeys.forEach((key) => availableSet.add(key));
+  analyticMeta.availableColumns = Array.from(availableSet);
+  const columnDefinitions = Array.isArray(analyticMeta.columns) ? analyticMeta.columns : [];
+  const columnDefinitionMap = new Map(columnDefinitions.map((column) => [column.key, column]));
+  const iotmContext = { protocol, deviceModel };
+  extraKeys.forEach((key) => {
+    if (columnDefinitionMap.has(key)) return;
+    const base = resolveColumnDefinition(key, { protocol }) || positionsColumnMap.get(key) || { key };
+    const label = resolveColumnLabel(base, "pt", iotmContext);
+    const labelPdf = resolveColumnLabel(base, "pdf", iotmContext);
+    columnDefinitionMap.set(key, {
+      ...base,
+      label,
+      labelPdf,
+      width: base.width || Math.min(240, Math.max(120, label.length * 7)),
+      weight: base.weight || 1,
+      defaultVisible: base.defaultVisible ?? true,
+    });
+  });
+  analyticMeta.columns = Array.from(columnDefinitionMap.values());
+
   return {
-    positions: positionsReport.positions,
-    meta: positionsReport.meta,
+    positions: analyticPositions,
+    meta: analyticMeta,
     actions: [...commandEntries, ...auditActionEntries],
     entries,
+    rows: entries
+      .map((entry) => entry.row || entry.position || null)
+      .filter(Boolean),
   };
 }
 
@@ -4721,9 +4919,11 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
     let contentType = "application/octet-stream";
     let fileName = "export.bin";
 
+    const analyticRows = Array.isArray(report?.rows) && report.rows.length ? report.rows : report.positions;
+
     if (job.format === "pdf") {
       buffer = await generatePositionsReportPdf({
-        rows: report.positions,
+        rows: analyticRows,
         columns,
         columnDefinitions: resolvedColumnDefinitions,
         meta: report.meta,
@@ -4736,7 +4936,7 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
       fileName = buildAnalyticPdfFileName(report?.meta, from, to);
     } else if (job.format === "xlsx") {
       const xlsxBuffer = await generatePositionsReportXlsx({
-        rows: report.positions,
+        rows: analyticRows,
         columns,
         columnDefinitions: resolvedColumnDefinitions,
         meta: report.meta,
@@ -4752,7 +4952,7 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
       buffer = exportTarget === "actions"
         ? generateActionsReportCsv({ actions: report.actions })
         : generatePositionsReportCsv({
-            rows: report.positions,
+            rows: analyticRows,
             columns,
             columnDefinitions: resolvedColumnDefinitions,
             availableColumns,
@@ -5209,8 +5409,9 @@ router.post("/reports/analytic/pdf", async (req, res) => {
       : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
+    const analyticRows = Array.isArray(report?.rows) && report.rows.length ? report.rows : report.positions;
     const pdf = await generatePositionsReportPdf({
-      rows: report.positions,
+      rows: analyticRows,
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
@@ -5226,7 +5427,7 @@ router.post("/reports/analytic/pdf", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/pdf] relatório analítico gerado", {
       vehicleId,
-      rows: report.positions.length,
+      rows: analyticRows.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
@@ -5293,8 +5494,9 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
       : report?.meta?.columns;
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
 
+    const analyticRows = Array.isArray(report?.rows) && report.rows.length ? report.rows : report.positions;
     const xlsxBuffer = await generatePositionsReportXlsx({
-      rows: report.positions,
+      rows: analyticRows,
       columns,
       columnDefinitions: resolvedColumnDefinitions,
       meta: report.meta,
@@ -5311,7 +5513,7 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/xlsx] relatório analítico gerado", {
       vehicleId,
-      rows: report.positions.length,
+      rows: analyticRows.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,
@@ -5379,10 +5581,11 @@ router.post("/reports/analytic/csv", async (req, res) => {
     const columns = resolvePdfColumns(req.body?.columns, availableColumns);
     const exportTarget = String(req.body?.exportTarget || "positions");
 
+    const analyticRows = Array.isArray(report?.rows) && report.rows.length ? report.rows : report.positions;
     const csvBuffer = exportTarget === "actions"
       ? generateActionsReportCsv({ actions: report.actions })
       : generatePositionsReportCsv({
-          rows: report.positions,
+          rows: analyticRows,
           columns,
           columnDefinitions: resolvedColumnDefinitions,
           availableColumns,
@@ -5398,7 +5601,7 @@ router.post("/reports/analytic/csv", async (req, res) => {
     res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
     console.info("[reports/analytic/csv] relatório analítico gerado", {
       vehicleId,
-      rows: report.positions.length,
+      rows: analyticRows.length,
       columns: columns.length,
       durationMs,
       clientAborted: aborted,

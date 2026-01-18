@@ -3,7 +3,10 @@ import { resolveReportColumnLabelOverride } from "./reportColumnLabels.js";
 
 const BASE_COLUMNS = [
   { key: "gpsTime", labelPt: "Hora do Evento", labelPdf: "Hora do Evento", width: 140, defaultVisible: true, weight: 1.4, group: "base" },
-  { key: "event", labelPt: "Evento", labelPdf: "Evento", width: 200, defaultVisible: true, weight: 1.8, group: "base" },
+  { key: "event", labelPt: "Evento", labelPdf: "Evento", width: 160, defaultVisible: true, weight: 1.6, group: "base" },
+  { key: "eventType", labelPt: "Tipo", labelPdf: "Tipo", width: 180, defaultVisible: true, weight: 1.6, group: "base" },
+  { key: "blocked", labelPt: "Bloqueado", labelPdf: "Bloqueado", width: 120, defaultVisible: true, weight: 1.2, group: "base", type: "string" },
+  { key: "whoSent", labelPt: "Quem enviou", labelPdf: "Quem enviou", width: 200, defaultVisible: true, weight: 1.6, group: "base" },
   {
     key: "address",
     labelPt: "Endereço",
@@ -207,8 +210,8 @@ const BASE_COLUMNS = [
     group: "other",
   },
 
-  { key: "deviceTime", labelPt: "Hora do Dispositivo", labelPdf: "Hora do Dispositivo", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
-  { key: "serverTime", labelPt: "Hora do Servidor", labelPdf: "Hora do Servidor", width: 140, defaultVisible: false, weight: 1.4, group: "other" },
+  { key: "deviceTime", labelPt: "Data / Hora Envio", labelPdf: "Data / Hora Envio", width: 170, defaultVisible: false, weight: 1.4, group: "other" },
+  { key: "serverTime", labelPt: "Data / Hora Recebido", labelPdf: "Data / Hora Recebido", width: 180, defaultVisible: false, weight: 1.4, group: "other" },
   { key: "latitude", labelPt: "Latitude", labelPdf: "Latitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
   { key: "longitude", labelPt: "Longitude", labelPdf: "Longitude", width: 110, defaultVisible: false, weight: 1, group: "other" },
   { key: "direction", labelPt: "Direção em graus", labelPdf: "Direção em graus", width: 140, defaultVisible: false, weight: 1.1, group: "other" },
@@ -239,8 +242,8 @@ const IOTM_REPORT_COLUMN_LABELS = {
   precision: "Precisão GPS",
   distance: "Distância",
   totaldistance: "Distância Total",
-  devicetime: "Hora do Dispositivo",
-  servertime: "Hora do Servidor",
+  devicetime: "Data / Hora Envio",
+  servertime: "Data / Hora Recebido",
   latitude: "Latitude",
   longitude: "Longitude",
   direction: "Direção em graus",
