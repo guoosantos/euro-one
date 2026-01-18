@@ -142,6 +142,15 @@ function formatIoState(value) {
   return value;
 }
 
+function formatWhoSentLabel({ name, ipAddress, fallback = "Sistema" } = {}) {
+  const safeName = typeof name === "string" ? name.trim() : "";
+  const safeIp = typeof ipAddress === "string" ? ipAddress.trim() : "";
+  if (safeName && safeIp) return `${safeName} — ${safeIp}`;
+  if (safeName) return safeName;
+  if (safeIp) return safeIp;
+  return fallback;
+}
+
 function normalizeIoValue(value) {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "boolean") return value;
@@ -311,7 +320,7 @@ export default function ReportsAnalytic() {
     // Relatório usa schema baseado nas chaves/attributes recebidas; não reaproveita colunas opinadas do monitoring.
     if (positions.length) {
       const schema = buildPositionsSchema(positions, { protocol: reportProtocol });
-      return schema.map((column) => {
+      const normalizedSchema = schema.map((column) => {
         const normalized = normalizeColumnLabel(column, { protocol: reportProtocol });
         return {
           ...normalized,
@@ -319,6 +328,22 @@ export default function ReportsAnalytic() {
           width: normalized.width ?? Math.min(240, Math.max(120, normalized.label.length * 7)),
         };
       });
+      const requiredKeys = ["eventType", "blocked", "whoSent"];
+      const requiredColumns = positionsColumns
+        .filter((column) => requiredKeys.includes(column.key))
+        .map((column) => normalizeColumnLabel(column, { protocol: reportProtocol }))
+        .map((column) => ({
+          ...column,
+          defaultVisible: column.defaultVisible ?? true,
+          width: column.width ?? Math.min(240, Math.max(120, column.label.length * 7)),
+        }));
+      const byKey = new Map(normalizedSchema.map((column) => [column.key, column]));
+      requiredColumns.forEach((column) => {
+        if (!byKey.has(column.key)) {
+          byKey.set(column.key, column);
+        }
+      });
+      return Array.from(byKey.values());
     }
     return FALLBACK_COLUMNS.map((column) => normalizeColumnLabel(column, { protocol: reportProtocol }));
   }, [positions, reportProtocol]);
@@ -412,6 +437,10 @@ export default function ReportsAnalytic() {
         commandResponse: position.commandResponse || "—",
         deviceStatusEvent: position.deviceStatusEvent || "—",
         deviceStatus: position.deviceStatus || "Dado não disponível",
+        event: position.event || "—",
+        eventType: position.eventType || "—",
+        whoSent: position.whoSent || "—",
+        blocked: position.blocked || "—",
         digitalInput1: formatIoState(position.digitalInput1),
         digitalInput2: formatIoState(position.digitalInput2),
         digitalOutput1: formatIoState(position.digitalOutput1),
@@ -527,37 +556,41 @@ export default function ReportsAnalytic() {
       .sort((a, b) => {
         const timeDelta = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
         if (timeDelta !== 0) return timeDelta;
-        const priority = { "io-event": 0, position: 1, action: 2 };
+        const priority = { "io-event": 0, "signal-loss": 1, position: 2, action: 3 };
         const aRank = priority[a.type] ?? 3;
         const bRank = priority[b.type] ?? 3;
         return aRank - bRank;
       });
   }, [actions, entries, ioEventEntries, positions]);
 
-  const timelineSegments = useMemo(() => {
-    const segments = [];
-    let buffer = [];
-
-    timelineEntries.forEach((entry) => {
-      if (entry?.type === "position" && entry.position) {
-        buffer.push(buildPositionRow(entry.position));
-        return;
-      }
-      if (buffer.length) {
-        segments.push({ type: "positions", rows: buffer });
-        buffer = [];
-      }
-      if (entry?.type === "action" || entry?.type === "io-event") {
-        segments.push({ type: entry.type, entry });
-      }
-    });
-
-    if (buffer.length) {
-      segments.push({ type: "positions", rows: buffer });
-    }
-
-    return segments;
-  }, [buildPositionRow, timelineEntries]);
+  const timelineRows = useMemo(() => (
+    timelineEntries
+      .map((entry) => {
+        if (entry?.type === "position" && entry.position) {
+          return buildPositionRow(entry.position);
+        }
+        if (entry?.type === "action") {
+          return buildActionRow(entry);
+        }
+        if (entry?.type === "io-event") {
+          return buildIoEventRow(entry);
+        }
+        if (entry?.type === "signal-loss") {
+          return {
+            key: entry?.id || `${entry?.timestamp || "signal-loss"}-${Math.random()}`,
+            entryType: "signal-loss",
+            deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
+            serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
+            event: entry?.event || "Perda de Sinal",
+            eventType: entry?.eventType || "Acima de 6 horas",
+            whoSent: entry?.whoSent || formatWhoSentLabel({ fallback: "Sistema" }),
+            deviceStatus: entry?.status || "—",
+          };
+        }
+        return null;
+      })
+      .filter(Boolean)
+  ), [buildActionRow, buildIoEventRow, buildPositionRow, timelineEntries]);
 
   const resolveAddressFilter = useCallback(async () => {
     const text = addressQuery.trim();
@@ -888,122 +921,41 @@ export default function ReportsAnalytic() {
       ? "border-red-500/30 bg-red-500/15 text-red-100"
       : "border-emerald-500/30 bg-emerald-500/15 text-emerald-100";
 
-  const resolveActionStatusVariant = (status) => {
-    const normalized = String(status || "").toUpperCase();
-    if (["ENVIADO", "PENDENTE"].includes(normalized)) return "warning";
-    if (["RESPONDIDO", "GERADO", "CONFIRMADO", "SUCESSO"].includes(normalized)) return "success";
-    if (["ERRO", "FALHA", "NÃO RESPONDIDO", "NAO RESPONDIDO", "TIMEOUT"].includes(normalized)) return "danger";
-    if (["CANCELADO", "CANCELADA"].includes(normalized)) return "neutral";
-    return "neutral";
-  };
-
-  const resolveCriticalityVariant = (criticality) => {
-    const normalized = String(criticality || "").toUpperCase();
-    if (["ALTA", "CRÍTICA", "CRITICA", "ALERT", "ALERTA", "HIGH"].includes(normalized)) return "danger";
-    if (["MÉDIA", "MEDIA", "WARN", "WARNING", "ATENÇÃO", "ATENCAO"].includes(normalized)) return "warning";
-    if (["BAIXA", "LOW", "INFO", "INFORMATIVO", "NORMAL"].includes(normalized)) return "neutral";
-    return "neutral";
-  };
-
-  const buildActionSummary = (entry) => {
-    const details = entry?.details || {};
-    const summary =
-      details.command ||
-      details.report ||
-      details.itinerary ||
-      details.summary ||
-      details.description ||
-      entry?.summary ||
-      "";
-    const clean = String(summary || "").trim();
-    const label = String(entry?.actionLabel || "").trim();
-    if (!clean || clean.toLowerCase() === label.toLowerCase()) return "—";
-    return clean;
-  };
-
-  const renderActionCard = (entry) => {
-    const resolvedRespondedAt = entry?.respondedAt ? formatDateTime(entry.respondedAt) : "—";
-    const actionTitle = entry?.actionLabel || entry?.actionType || "Ação do usuário";
-    const statusLabel = entry?.status || "—";
-    const statusVariant = resolveActionStatusVariant(statusLabel);
-    const badgeStyles = {
-      warning: "border-yellow-400/40 bg-yellow-500/15 text-yellow-100",
-      success: "border-emerald-400/40 bg-emerald-500/15 text-emerald-100",
-      danger: "border-red-400/40 bg-red-500/15 text-red-100",
-      neutral: "border-white/10 bg-white/10 text-white/60",
+  const buildActionRow = useCallback((entry) => {
+    const whoSent =
+      entry?.whoSent ||
+      formatWhoSentLabel({
+        name: entry?.user,
+        ipAddress: entry?.ipAddress,
+        fallback: "Sistema",
+      });
+    const eventLabel = entry?.event || "Emissão de Relatório";
+    const eventType = entry?.eventType || entry?.actionLabel || entry?.details?.report || "—";
+    return {
+      key: entry?.id || `${entry?.timestamp || "action"}-${Math.random()}`,
+      entryType: "action",
+      deviceTime: formatDateTime(entry?.deviceTime || entry?.sentAt || entry?.timestamp),
+      serverTime: formatDateTime(entry?.serverTime || entry?.respondedAt),
+      event: eventLabel,
+      eventType,
+      whoSent,
+      deviceStatus: entry?.status || "—",
     };
-    const baseFields = [
-      { label: "Enviado em", value: formatDateTime(entry?.sentAt) },
-      { label: "Respondido em", value: resolvedRespondedAt },
-      { label: "Quem enviou", value: entry?.user || "—" },
-      { label: "Endereço IP", value: entry?.ipAddress || "—" },
-    ];
-    const actionSummary = buildActionSummary(entry);
+  }, []);
 
-    return (
-      <div className="rounded-lg border border-white/10 bg-white/5 p-2 text-white/80 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/70">{actionTitle}</span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[statusVariant]}`}
-          >
-            {statusLabel}
-          </span>
-        </div>
-        <div className="mt-1 text-[13px] text-white/85">
-          <span className="text-[11px] uppercase tracking-[0.18em] text-white/50">O que foi feito</span>
-          <span className="ml-2 text-[13px] text-white/85">{actionSummary}</span>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2 text-[12px] text-white/70">
-          {baseFields.map((field) => (
-            <div key={field.label} className="space-y-0.5 leading-tight">
-              <div className="text-[11px] uppercase tracking-[0.16em] text-white/50">{field.label}</div>
-              <div className="text-[13px] text-white/80">{field.value || "—"}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderIoEventCard = (entry) => {
-    const eventTime = formatDateTime(entry?.deviceTime || entry?.serverTime || entry?.timestamp);
-    const criticalityLabel = entry?.criticality || "Normal";
-    const variant = resolveCriticalityVariant(criticalityLabel);
-    const badgeStyles = {
-      warning: "border-yellow-400/40 bg-yellow-500/15 text-yellow-100",
-      danger: "border-red-400/40 bg-red-500/15 text-red-100",
-      neutral: "border-white/10 bg-white/10 text-white/60",
+  const buildIoEventRow = useCallback((entry) => {
+    return {
+      key: entry?.id || `${entry?.timestamp || "io-event"}-${Math.random()}`,
+      entryType: "io-event",
+      deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
+      serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
+      event: "Alerta",
+      eventType: entry?.title || "Entrada",
+      whoSent: formatWhoSentLabel({ fallback: "Sistema" }),
+      deviceStatus: entry?.statusText || "—",
+      address: entry?.address || "—",
     };
-    return (
-      <div className="rounded-xl border border-primary/30 bg-primary/10 p-3 text-white/85 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[12px] font-semibold uppercase tracking-[0.18em] text-white/80">
-            {entry?.title || "Entrada"}
-          </span>
-          <span
-            className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${badgeStyles[variant]}`}
-          >
-            {criticalityLabel}
-          </span>
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-3 text-[12px] text-white/70">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Horário</div>
-            <div className="text-[13px] text-white/85">{eventTime}</div>
-          </div>
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Status</div>
-            <div className="text-[13px] text-white/85">{entry?.statusText || "—"}</div>
-          </div>
-        </div>
-        <div className="mt-2 text-[12px] text-white/70">
-          <div className="text-[10px] uppercase tracking-[0.18em] text-white/50">Local</div>
-          <div className="text-[13px] text-white/85">{entry?.address || "—"}</div>
-        </div>
-      </div>
-    );
-  };
+  }, []);
 
   const handlePageChange = useCallback(
     async (nextPage) => {
@@ -1223,35 +1175,24 @@ export default function ReportsAnalytic() {
         )}
         </form>
         <section className="flex-1 min-h-0 w-full space-y-4">
-        {timelineSegments.length ? (
-          timelineSegments.map((segment, index) => {
-            if (segment.type === "positions") {
-              const segmentRows = hideUnavailableIgnition
-                ? segment.rows.filter(
-                    (row) => row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível",
+        {timelineRows.length ? (
+          <MonitoringTable
+            rows={
+              hideUnavailableIgnition
+                ? timelineRows.filter(
+                    (row) =>
+                      row.entryType !== "position" ||
+                      (row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível"),
                   )
-                : segment.rows;
-              return (
-                <MonitoringTable
-                  key={`segment-${index}`}
-                  rows={segmentRows}
-                  columns={visibleColumnsWithWidths}
-                  loading={loading || loadingMore}
-                  emptyText="Nenhuma posição encontrada para o período selecionado."
-                  columnWidths={columnPrefs?.widths}
-                  onColumnWidthChange={handleColumnWidthChange}
-                  liveGeocode={false}
-                />
-              );
+                : timelineRows
             }
-            if (segment.type === "action") {
-              return <div key={`segment-${index}`}>{renderActionCard(segment.entry)}</div>;
-            }
-            if (segment.type === "io-event") {
-              return <div key={`segment-${index}`}>{renderIoEventCard(segment.entry)}</div>;
-            }
-            return null;
-          })
+            columns={visibleColumnsWithWidths}
+            loading={loading || loadingMore}
+            emptyText="Nenhum registro encontrado para o período selecionado."
+            columnWidths={columnPrefs?.widths}
+            onColumnWidthChange={handleColumnWidthChange}
+            liveGeocode={false}
+          />
         ) : (
           <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/60">
             {hasGenerated

@@ -470,24 +470,11 @@ function buildHtml({
   `;
 
   const renderTimeline = () => {
-    const segments = [];
-    let buffer = [];
-    safeEntries.forEach((entry) => {
-      if (entry?.type === "position" && entry.position) {
-        buffer.push(entry.position);
-        return;
-      }
-      if (buffer.length) {
-        segments.push({ type: "positions", rows: buffer });
-        buffer = [];
-      }
-      if (entry?.type === "action") {
-        segments.push({ type: "action", entry });
-      }
-    });
-    if (buffer.length) segments.push({ type: "positions", rows: buffer });
+    const timelineRows = safeEntries
+      .map((entry) => entry?.row || (entry?.type === "position" ? entry.position : null))
+      .filter(Boolean);
 
-    if (!segments.length) {
+    if (!timelineRows.length) {
       const fallbackSlices = chunkArray(rows, chunkSize);
       return fallbackSlices
         .map((slice, index) =>
@@ -501,22 +488,15 @@ function buildHtml({
         .join("");
     }
 
-    return segments
-      .flatMap((segment) => {
-        if (segment.type === "positions") {
-          return chunkArray(segment.rows, chunkSize)
-            .map((slice, index) =>
-              renderTable(slice, index, {
-                includeHeader: false,
-                includePageBreak: false,
-                includeMetaHeader: false,
-              }),
-            )
-            .filter(Boolean);
-        }
-        const card = renderActionCard(segment.entry);
-        return card ? [card] : [];
-      })
+    return chunkArray(timelineRows, chunkSize)
+      .map((slice, index) =>
+        renderTable(slice, index, {
+          includeHeader: false,
+          includePageBreak: false,
+          includeMetaHeader: false,
+        }),
+      )
+      .filter(Boolean)
       .join("");
   };
 
