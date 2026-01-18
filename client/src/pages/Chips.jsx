@@ -5,8 +5,7 @@ import PageHeader from "../components/ui/PageHeader.jsx";
 import Input from "../ui/Input";
 import Select from "../ui/Select";
 import Button from "../ui/Button";
-import Modal from "../ui/Modal";
-import Field from "../ui/Field";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import DropdownMenu from "../ui/DropdownMenu";
 import { CoreApi } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
@@ -68,6 +67,32 @@ function ChipRow({ chip, lastPing, deviceLabel, showCarrier, showStatus, showLas
         </DropdownMenu>
       </td>
     </tr>
+  );
+}
+
+function Drawer({ open, onClose, title, description, children }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[9998] flex">
+      <div className="flex-1 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative h-full w-full max-w-3xl border-l border-white/10 bg-[#0f141c] shadow-3xl">
+        <div className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
+          <div>
+            <p className="text-xs uppercase tracking-[0.12em] text-white/50">Chips</p>
+            <h2 className="text-xl font-semibold text-white">{title}</h2>
+            {description ? <p className="mt-1 text-sm text-white/60">{description}</p> : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full border border-white/10 px-3 py-1 text-xs text-white/70 hover:border-white/30 hover:text-white"
+          >
+            Fechar
+          </button>
+        </div>
+        <div className="h-[calc(100vh-120px)] overflow-y-auto px-6 py-6">{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -235,6 +260,28 @@ export default function Chips() {
     return Array.from(set);
   }, [chips]);
 
+  const loadDeviceOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchDevices({
+        clientId: resolvedClientId || undefined,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.devices || response?.data || [];
+      const options = list
+        .filter((device) => !device.chipId || device.chipId === editingId)
+        .map((device) => ({
+          value: device.id,
+          label: device.name || device.uniqueId || device.id,
+          description: device.modelName || device.model || "",
+          data: device,
+        }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [editingId, resolvedClientId],
+  );
+
   const filteredChips = useMemo(() => {
     return chips.filter((chip) => {
       if (query.trim()) {
@@ -254,7 +301,10 @@ export default function Chips() {
     });
   }, [chips, query, statusFilter, carrierFilter]);
 
-  const availableDevices = useMemo(() => devices.filter((device) => !device.chipId || device.chipId === editingId), [devices, editingId]);
+  const availableDevices = useMemo(
+    () => devices.filter((device) => !device.chipId || device.chipId === editingId),
+    [devices, editingId],
+  );
   const deviceById = useMemo(() => {
     const map = new Map();
     devices.forEach((device) => {
@@ -394,7 +444,8 @@ export default function Chips() {
         <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">{error.message}</div>
       )}
 
-      <Field label="Filtros">
+      <div className="space-y-2">
+        <span className="block text-xs uppercase tracking-wide text-white/60">Filtros</span>
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           <Input
             placeholder="Buscar ICCID/Telefone"
@@ -429,7 +480,7 @@ export default function Chips() {
             Exibir colunas
           </Button>
         </div>
-      </Field>
+      </div>
 
       {showColumnPicker && (
         <div className="flex flex-wrap gap-4 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/80">
@@ -472,8 +523,8 @@ export default function Chips() {
         </div>
       )}
 
-      <div className="flex-1 rounded-2xl border border-white/10 bg-white/5">
-        <div className="overflow-x-auto">
+      <div className="flex-1">
+        <div className="overflow-x-auto rounded-xl border border-white/10">
           <table className="min-w-full text-sm text-white/80">
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
               <tr>
@@ -521,7 +572,12 @@ export default function Chips() {
         </div>
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title={editingId ? "Editar chip" : "Novo chip"} width="max-w-3xl">
+      <Drawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title={editingId ? "Editar chip" : "Novo chip"}
+        description="Cadastre dados do chip e vincule um equipamento."
+      >
         <form onSubmit={handleSave} className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
             <Input
@@ -550,14 +606,19 @@ export default function Chips() {
               <option value="Ativo">Ativo</option>
               <option value="Inativo">Inativo</option>
             </Select>
-            <Select value={form.deviceId} onChange={(event) => setForm((current) => ({ ...current, deviceId: event.target.value }))}>
-              <option value="">Equipamento (opcional)</option>
-              {availableDevices.map((device) => (
-                <option key={device.internalId || device.id || device.uniqueId} value={device.internalId || device.id}>
-                  {device.name || device.uniqueId || device.internalId}
-                </option>
-              ))}
-            </Select>
+            <AutocompleteSelect
+              label="Equipamento"
+              placeholder="Buscar equipamento"
+              value={form.deviceId}
+              onChange={(nextValue) => setForm((current) => ({ ...current, deviceId: nextValue }))}
+              loadOptions={loadDeviceOptions}
+              options={availableDevices.map((device) => ({
+                value: device.internalId || device.id,
+                label: device.name || device.uniqueId || device.internalId,
+                description: device.modelName || device.model || "",
+              }))}
+              allowClear
+            />
             <Input
               placeholder="APN"
               value={form.apn}
@@ -590,7 +651,7 @@ export default function Chips() {
             </Button>
           </div>
         </form>
-      </Modal>
+      </Drawer>
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import Button from "../ui/Button";
@@ -14,6 +14,8 @@ import PageHeader from "../components/ui/PageHeader.jsx";
 import DataCard from "../components/ui/DataCard.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
+import Modal from "../ui/Modal";
 
 const translateUnknownValue = (value) => {
   if (value === null || value === undefined) return value;
@@ -223,16 +225,10 @@ export default function VehicleDetailsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [feedback, setFeedback] = useState(null);
-  const [equipmentSearch, setEquipmentSearch] = useState("");
-  const [equipmentDropdownOpen, setEquipmentDropdownOpen] = useState(false);
-  const [equipmentHighlightIndex, setEquipmentHighlightIndex] = useState(0);
-  const equipmentDropdownRef = useRef(null);
-  const [chipSearch, setChipSearch] = useState("");
+  const [linkEquipmentOpen, setLinkEquipmentOpen] = useState(false);
+  const [linkEquipmentId, setLinkEquipmentId] = useState("");
   const [chipLinkId, setChipLinkId] = useState("");
   const [chipDeviceId, setChipDeviceId] = useState("");
-  const [chipDropdownOpen, setChipDropdownOpen] = useState(false);
-  const [chipHighlightIndex, setChipHighlightIndex] = useState(0);
-  const chipDropdownRef = useRef(null);
   const [activeTab, setActiveTab] = useState("resumo");
   const [equipmentTab, setEquipmentTab] = useState("equipamentos");
   const [lastPositionAddress, setLastPositionAddress] = useState(null);
@@ -383,24 +379,31 @@ export default function VehicleDetailsPage() {
     [devices, vehicle?.clientId, vehicle?.id],
   );
 
-  const filteredAvailableDevices = useMemo(() => {
-    const term = equipmentSearch.trim().toLowerCase();
-    if (!term) return availableDevices;
-    return availableDevices.filter((device) => {
-      const haystack = [
-        device.name,
-        device.uniqueId,
-        device.model,
-        device.status,
-        device.connectionStatusLabel,
-        device.id,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [availableDevices, equipmentSearch]);
+  const availableDeviceOptions = useMemo(
+    () =>
+      availableDevices.map((device) => ({
+        value: device.id,
+        label: device.model || device.name || device.uniqueId || device.id,
+        description: device.uniqueId || device.connectionStatusLabel || "",
+        data: device,
+      })),
+    [availableDevices],
+  );
+
+  const linkedDeviceOptions = useMemo(
+    () =>
+      linkedDevices.map((device) => ({
+        value: device.id,
+        label: device.model || device.name || device.uniqueId || device.id,
+        description: device.uniqueId || device.connectionStatusLabel || "",
+      })),
+    [linkedDevices],
+  );
+
+  const availableDeviceIds = useMemo(
+    () => new Set(availableDevices.map((device) => String(device.id))),
+    [availableDevices],
+  );
 
   const linkedChips = useMemo(() => {
     if (!linkedDevices.length) return [];
@@ -414,37 +417,65 @@ export default function VehicleDetailsPage() {
     return chips.filter((chip) => !chip.deviceId || deviceIds.has(String(chip.deviceId)));
   }, [chips, linkedDevices, vehicle]);
 
-  const filteredChips = useMemo(() => {
-    const term = chipSearch.trim().toLowerCase();
-    if (!term) return availableChips;
-    return availableChips.filter((chip) => {
-      const haystack = [chip.iccid, chip.phone, chip.carrier, chip.provider, chip.status]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [availableChips, chipSearch]);
+  const availableChipOptions = useMemo(
+    () =>
+      availableChips.map((chip) => ({
+        value: chip.id,
+        label: chip.iccid || chip.phone || chip.id,
+        description: chip.carrier || chip.provider || chip.status || "",
+        data: chip,
+      })),
+    [availableChips],
+  );
 
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (!equipmentDropdownRef.current) return;
-      if (equipmentDropdownRef.current.contains(event.target)) return;
-      setEquipmentDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
+  const availableChipIds = useMemo(
+    () => new Set(availableChips.map((chip) => String(chip.id))),
+    [availableChips],
+  );
 
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (!chipDropdownRef.current) return;
-      if (chipDropdownRef.current.contains(event.target)) return;
-      setChipDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
+  const loadDeviceOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchDevices({
+        clientId: resolvedClientId || vehicle?.clientId || undefined,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.devices || response?.data || [];
+      const options = list
+        .filter((device) => availableDeviceIds.has(String(device.id)))
+        .map((device) => ({
+          value: device.id,
+          label: device.model || device.name || device.uniqueId || device.id,
+          description: device.uniqueId || device.connectionStatusLabel || "",
+          data: device,
+        }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [availableDeviceIds, resolvedClientId, vehicle?.clientId],
+  );
+
+  const loadChipOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchChips({
+        clientId: resolvedClientId || vehicle?.clientId || undefined,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.chips || response?.data || [];
+      const options = list
+        .filter((chip) => availableChipIds.has(String(chip.id)))
+        .map((chip) => ({
+          value: chip.id,
+          label: chip.iccid || chip.phone || chip.id,
+          description: chip.carrier || chip.provider || chip.status || "",
+          data: chip,
+        }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [availableChipIds, resolvedClientId, vehicle?.clientId],
+  );
 
   const reportError = (message, fallbackMessage = "Falha ao executar ação") => {
     const payload = message instanceof Error ? message : new Error(message || fallbackMessage);
@@ -506,8 +537,8 @@ export default function VehicleDetailsPage() {
     setSaving(true);
     try {
       await CoreApi.linkDeviceToVehicle(vehicle.id, deviceId, { clientId: targetClientId });
-      setEquipmentSearch("");
-      setEquipmentDropdownOpen(false);
+      setLinkEquipmentId("");
+      setLinkEquipmentOpen(false);
       await loadData();
       reportSuccess("Equipamento vinculado ao veículo.");
     } catch (requestError) {
@@ -603,7 +634,6 @@ export default function VehicleDetailsPage() {
       clientId: vehicle?.clientId || resolvedClientId,
     });
     setChipLinkId("");
-    setChipSearch("");
   };
 
   const tabs = useMemo(() => {
@@ -775,70 +805,13 @@ export default function VehicleDetailsPage() {
 
               {equipmentTab === "equipamentos" && (
                 <>
-                  <div className="space-y-3 px-4" ref={equipmentDropdownRef}>
-                    <label className="block text-xs text-white/60">
-                      Buscar equipamento
-                      <div className="relative mt-2">
-                        <input
-                          value={equipmentSearch}
-                          onChange={(event) => {
-                            setEquipmentSearch(event.target.value);
-                            setEquipmentDropdownOpen(true);
-                            setEquipmentHighlightIndex(0);
-                          }}
-                          onFocus={() => setEquipmentDropdownOpen(true)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              setEquipmentDropdownOpen(false);
-                              return;
-                            }
-                            if (event.key === "Enter" && equipmentDropdownOpen) {
-                              event.preventDefault();
-                              const candidate =
-                                filteredAvailableDevices[equipmentHighlightIndex] || filteredAvailableDevices[0];
-                              if (candidate) {
-                                handleLinkDevice(candidate.id);
-                              }
-                            }
-                          }}
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                          placeholder="Digite ID, modelo, IMEI ou status"
-                        />
-                        {equipmentDropdownOpen && (
-                          <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f141c] py-1 shadow-lg">
-                            {filteredAvailableDevices.length === 0 ? (
-                              <div className="px-3 py-2 text-xs text-white/50">Nenhum equipamento encontrado.</div>
-                            ) : (
-                              <ul className="text-sm">
-                                {filteredAvailableDevices.map((device, index) => (
-                                  <li key={device.id}>
-                                    <button
-                                      type="button"
-                                      className={`flex w-full items-start justify-between px-3 py-2 text-left transition hover:bg-white/5 ${
-                                        index === equipmentHighlightIndex ? "bg-white/5" : ""
-                                      }`}
-                                      onMouseDown={(event) => {
-                                        event.preventDefault();
-                                        handleLinkDevice(device.id);
-                                      }}
-                                      onMouseEnter={() => setEquipmentHighlightIndex(index)}
-                                    >
-                                      <span className="flex flex-col">
-                                        <span className="text-white">{device.model || device.name || "Equipamento"}</span>
-                                        <span className="text-xs text-white/50">{device.uniqueId || device.id}</span>
-                                      </span>
-                                      <span className="text-[11px] text-white/40">
-                                        {device.status || device.connectionStatusLabel || "—"}
-                                      </span>
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </label>
+                  <div className="flex flex-wrap items-center justify-between gap-3 px-4">
+                    <span className="text-xs uppercase tracking-[0.12em] text-white/60">
+                      Equipamentos vinculados
+                    </span>
+                    <Button type="button" onClick={() => setLinkEquipmentOpen(true)}>
+                      Vincular Equipamento
+                    </Button>
                   </div>
                   <div className="overflow-hidden rounded-xl border border-white/10">
                     <DataTable>
@@ -883,91 +856,60 @@ export default function VehicleDetailsPage() {
                       </tbody>
                     </DataTable>
                   </div>
+                  <Modal
+                    open={linkEquipmentOpen}
+                    onClose={() => setLinkEquipmentOpen(false)}
+                    title="Vincular equipamento"
+                    width="max-w-xl"
+                  >
+                    <div className="space-y-4">
+                      <AutocompleteSelect
+                        label="Equipamento"
+                        placeholder="Buscar equipamento"
+                        value={linkEquipmentId}
+                        onChange={(value) => setLinkEquipmentId(value)}
+                        options={availableDeviceOptions}
+                        loadOptions={loadDeviceOptions}
+                        allowClear
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button type="button" onClick={() => setLinkEquipmentOpen(false)}>
+                          Cancelar
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleLinkDevice(linkEquipmentId)}
+                          disabled={!linkEquipmentId || saving}
+                        >
+                          {saving ? "Vinculando..." : "Vincular"}
+                        </Button>
+                      </div>
+                    </div>
+                  </Modal>
                 </>
               )}
 
               {equipmentTab === "chips" && (
                 <div className="space-y-4 px-4 pb-4">
-                  <div className="grid gap-3 md:grid-cols-3" ref={chipDropdownRef}>
-                    <label className="block text-xs text-white/60 md:col-span-2">
-                      Buscar chip
-                      <div className="relative mt-2">
-                        <input
-                          value={chipSearch}
-                          onChange={(event) => {
-                            setChipSearch(event.target.value);
-                            setChipDropdownOpen(true);
-                            setChipHighlightIndex(0);
-                          }}
-                          onFocus={() => setChipDropdownOpen(true)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") {
-                              setChipDropdownOpen(false);
-                              return;
-                            }
-                            if (event.key === "Enter" && chipDropdownOpen) {
-                              event.preventDefault();
-                              const candidate = filteredChips[chipHighlightIndex] || filteredChips[0];
-                              if (candidate) {
-                                setChipLinkId(candidate.id);
-                                setChipSearch(candidate.iccid || candidate.phone || "");
-                                setChipDropdownOpen(false);
-                              }
-                            }
-                          }}
-                          className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                          placeholder="Digite ICCID, telefone ou operadora"
-                        />
-                        {chipDropdownOpen && (
-                          <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f141c] py-1 shadow-lg">
-                            {filteredChips.length === 0 ? (
-                              <div className="px-3 py-2 text-xs text-white/50">Nenhum chip encontrado.</div>
-                            ) : (
-                              <ul className="text-sm">
-                                {filteredChips.map((chip, index) => (
-                                  <li key={chip.id}>
-                                    <button
-                                      type="button"
-                                      className={`flex w-full items-start justify-between px-3 py-2 text-left transition hover:bg-white/5 ${
-                                        index === chipHighlightIndex ? "bg-white/5" : ""
-                                      }`}
-                                      onMouseDown={(event) => {
-                                        event.preventDefault();
-                                        setChipLinkId(chip.id);
-                                        setChipSearch(chip.iccid || chip.phone || "");
-                                        setChipDropdownOpen(false);
-                                      }}
-                                      onMouseEnter={() => setChipHighlightIndex(index)}
-                                    >
-                                      <span className="flex flex-col">
-                                        <span className="text-white">{chip.iccid}</span>
-                                        <span className="text-xs text-white/50">{chip.phone || chip.carrier || "—"}</span>
-                                      </span>
-                                      <span className="text-[11px] text-white/40">{chip.status || "—"}</span>
-                                    </button>
-                                  </li>
-                                ))}
-                              </ul>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </label>
-                    <label className="block text-xs text-white/60">
-                      Equipamento
-                      <select
-                        value={chipDeviceId}
-                        onChange={(event) => setChipDeviceId(event.target.value)}
-                        className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                      >
-                        <option value="">Selecione o equipamento</option>
-                        {linkedDevices.map((device) => (
-                          <option key={device.id} value={device.id}>
-                            {device.name || device.uniqueId || device.id}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <AutocompleteSelect
+                      label="Chip"
+                      placeholder="Buscar chip"
+                      value={chipLinkId}
+                      onChange={(value) => setChipLinkId(value)}
+                      options={availableChipOptions}
+                      loadOptions={loadChipOptions}
+                      allowClear
+                      className="md:col-span-2"
+                    />
+                    <AutocompleteSelect
+                      label="Equipamento"
+                      placeholder="Selecione o equipamento"
+                      value={chipDeviceId}
+                      onChange={(value) => setChipDeviceId(value)}
+                      options={linkedDeviceOptions}
+                      allowClear
+                    />
                   </div>
                   <div className="flex justify-end">
                     <button

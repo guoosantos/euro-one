@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 
 import api from "../lib/api.js";
@@ -10,6 +10,7 @@ import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 const STATUS_OPTIONS = [
   { value: "pendente", label: "Pendente" },
@@ -31,37 +32,22 @@ const SERVICE_TYPE_OPTIONS = [
 
 const DEFAULT_FORM = {
   clientId: "",
-  unit: "",
-  operation: "",
-  category: "",
   clientName: "",
   clientDocument: "",
-  contractPlan: "",
   contactName: "",
   contactChannel: "",
-  requesterName: "",
-  requestChannel: "",
-  authorizationStatus: "",
-  authorizationBy: "",
   address: "",
   referencePoint: "",
   latitude: "",
   longitude: "",
   type: "Instalação",
   serviceReason: "",
-  serviceItem: "",
   startTimeExpected: "",
   endTimeExpected: "",
-  priority: "",
-  sla: "",
   status: "pendente",
-  ownerName: "",
   technicianId: "",
   technicianName: "",
   assignedTeam: "",
-  slaExceptionReason: "",
-  rescheduleReason: "",
-  cancelReason: "",
 };
 
 function formatDate(value) {
@@ -133,12 +119,23 @@ export default function Appointments() {
     to: "",
     technician: "",
     region: "",
+    clientId: "",
+  });
+  const [draftFilters, setDraftFilters] = useState({
+    query: "",
+    status: "",
+    from: "",
+    to: "",
+    technician: "",
+    region: "",
+    clientId: "",
   });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ ...DEFAULT_FORM, clientId: resolvedClientId });
   const addressSearchState = useAddressSearchState({ initialValue: "" });
+  const filterAddressState = useAddressSearchState({ initialValue: "" });
 
   const clientOptions = useMemo(
     () => (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
@@ -155,6 +152,52 @@ export default function Appointments() {
       team: technician.team || technician.group || technician.assignedTeam || "",
     })),
     [technicians],
+  );
+
+  const clientAutocompleteOptions = useMemo(
+    () =>
+      clientOptions.map((client) => ({
+        value: String(client.id),
+        label: client.name,
+      })),
+    [clientOptions],
+  );
+
+  const technicianAutocompleteOptions = useMemo(
+    () =>
+      technicianOptions.map((technician) => ({
+        value: String(technician.id),
+        label: technician.name,
+        description: technician.team,
+      })),
+    [technicianOptions],
+  );
+
+  const loadClientOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = String(query || "").trim().toLowerCase();
+      const filtered = clientAutocompleteOptions.filter((client) =>
+        client.label.toLowerCase().includes(term),
+      );
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [clientAutocompleteOptions],
+  );
+
+  const loadTechnicianOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = String(query || "").trim().toLowerCase();
+      const filtered = technicianAutocompleteOptions.filter((technician) => {
+        const haystack = [technician.label, technician.description].filter(Boolean).join(" ").toLowerCase();
+        return haystack.includes(term);
+      });
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [technicianAutocompleteOptions],
   );
 
   const loadAppointments = async () => {
@@ -178,7 +221,7 @@ export default function Appointments() {
   useEffect(() => {
     loadAppointments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.status]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -213,6 +256,49 @@ export default function Appointments() {
     setForm((prev) => ({ ...prev, clientId: resolvedClientId || prev.clientId }));
   }, [resolvedClientId]);
 
+  useEffect(() => {
+    const nextRegion = filterAddressState.query || "";
+    if (draftFilters.region === nextRegion) return;
+    setDraftFilters((prev) => ({ ...prev, region: nextRegion }));
+  }, [draftFilters.region, filterAddressState.query]);
+
+  const applyFilters = () => {
+    setFilters((prev) => ({
+      ...prev,
+      query: draftFilters.query,
+      status: draftFilters.status,
+      from: draftFilters.from,
+      to: draftFilters.to,
+      technician: draftFilters.technician,
+      region: draftFilters.region,
+      clientId: draftFilters.clientId,
+    }));
+    loadAppointments();
+  };
+
+  const clearFilters = () => {
+    setDraftFilters({
+      query: "",
+      status: "",
+      from: "",
+      to: "",
+      technician: "",
+      region: "",
+      clientId: "",
+    });
+    filterAddressState.setQuery("");
+    setFilters({
+      query: "",
+      status: "",
+      from: "",
+      to: "",
+      technician: "",
+      region: "",
+      clientId: "",
+    });
+    loadAppointments();
+  };
+
   const filtered = useMemo(() => {
     const term = filters.query.trim().toLowerCase();
     return items.filter((item) => {
@@ -224,12 +310,16 @@ export default function Appointments() {
         item.clientName,
         item.clientDocument,
         item.contactName,
+        item.contactChannel,
         item.serviceReason,
       ]
         .filter(Boolean)
         .map((value) => String(value).toLowerCase());
       if (term && !searchable.some((value) => value.includes(term))) return false;
-      if (filters.technician && !String(item.technicianName || "").toLowerCase().includes(filters.technician.toLowerCase())) {
+      if (filters.technician && String(item.technicianId || "") !== String(filters.technician)) {
+        return false;
+      }
+      if (filters.clientId && String(item.clientId || "") !== String(filters.clientId)) {
         return false;
       }
       if (filters.region && !String(item.address || "").toLowerCase().includes(filters.region.toLowerCase())) {
@@ -237,7 +327,7 @@ export default function Appointments() {
       }
       return true;
     });
-  }, [filters.query, filters.region, filters.technician, items]);
+  }, [filters.clientId, filters.query, filters.region, filters.technician, items]);
 
   const openDrawer = (task = null) => {
     if (task) {
@@ -245,37 +335,22 @@ export default function Appointments() {
       setForm({
         ...DEFAULT_FORM,
         clientId: task.clientId || resolvedClientId || "",
-        unit: task.unit || "",
-        operation: task.operation || "",
-        category: task.category || "",
         clientName: task.clientName || "",
         clientDocument: task.clientDocument || "",
-        contractPlan: task.contractPlan || "",
         contactName: task.contactName || "",
         contactChannel: task.contactChannel || "",
-        requesterName: task.requesterName || task.requestedBy || "",
-        requestChannel: task.requestChannel || task.requestMethod || "",
-        authorizationStatus: task.authorizationStatus || "",
-        authorizationBy: task.authorizationBy || "",
         address: task.address || "",
         referencePoint: task.referencePoint || "",
         latitude: task.latitude ?? "",
         longitude: task.longitude ?? "",
         type: normalizeServiceType(task.type) || "Instalação",
         serviceReason: task.serviceReason || "",
-        serviceItem: task.serviceItem || "",
         startTimeExpected: task.startTimeExpected ? new Date(task.startTimeExpected).toISOString().slice(0, 16) : "",
         endTimeExpected: task.endTimeExpected ? new Date(task.endTimeExpected).toISOString().slice(0, 16) : "",
-        priority: task.priority || "",
-        sla: task.sla || "",
         status: task.status || "pendente",
-        ownerName: task.ownerName || "",
         technicianId: task.technicianId || "",
         technicianName: task.technicianName || "",
         assignedTeam: task.assignedTeam || "",
-        slaExceptionReason: task.slaExceptionReason || "",
-        rescheduleReason: task.rescheduleReason || "",
-        cancelReason: task.cancelReason || "",
       });
       addressSearchState.setQuery(task.address || "");
     } else {
@@ -300,8 +375,18 @@ export default function Appointments() {
     setSaving(true);
     try {
       const payload = {
-        ...payloadForm,
         clientId: payloadForm.clientId || resolvedClientId,
+        clientName: payloadForm.clientName,
+        clientDocument: payloadForm.clientDocument,
+        contactName: payloadForm.contactName,
+        contactChannel: payloadForm.contactChannel,
+        address: payloadForm.address,
+        referencePoint: payloadForm.referencePoint,
+        serviceReason: payloadForm.serviceReason,
+        status: payloadForm.status,
+        technicianId: payloadForm.technicianId,
+        technicianName: payloadForm.technicianName,
+        assignedTeam: payloadForm.assignedTeam,
         latitude: payloadForm.latitude !== "" ? Number(payloadForm.latitude) : null,
         longitude: payloadForm.longitude !== "" ? Number(payloadForm.longitude) : null,
         startTimeExpected: payloadForm.startTimeExpected ? new Date(payloadForm.startTimeExpected).toISOString() : null,
@@ -326,27 +411,6 @@ export default function Appointments() {
   const handleSave = async (event) => {
     event.preventDefault();
     await saveAppointment(form);
-  };
-
-  const handleClientInput = (event) => {
-    const value = event.target.value;
-    const match = clientOptions.find((client) => client.name === value);
-    setForm((prev) => ({
-      ...prev,
-      clientName: value,
-      clientId: match?.id ?? prev.clientId,
-    }));
-  };
-
-  const handleTechnicianInput = (event) => {
-    const value = event.target.value;
-    const match = technicianOptions.find((technician) => technician.name === value);
-    setForm((prev) => ({
-      ...prev,
-      technicianName: value,
-      technicianId: match?.id ?? prev.technicianId,
-      assignedTeam: match?.team || prev.assignedTeam,
-    }));
   };
 
   const handleCancelAppointment = async () => {
@@ -405,14 +469,52 @@ export default function Appointments() {
         left={
           <div className="flex w-full flex-wrap items-center gap-3">
             <input
-              value={filters.query}
-              onChange={(event) => setFilters((prev) => ({ ...prev, query: event.target.value }))}
+              value={draftFilters.query}
+              onChange={(event) => setDraftFilters((prev) => ({ ...prev, query: event.target.value }))}
               placeholder="Buscar por cliente, documento, motivo"
               className="min-w-[240px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
             />
+            <AutocompleteSelect
+              label="Cliente"
+              placeholder="Buscar cliente"
+              value={draftFilters.clientId}
+              options={clientAutocompleteOptions}
+              loadOptions={loadClientOptions}
+              onChange={(value) => setDraftFilters((prev) => ({ ...prev, clientId: value }))}
+              allowClear
+              className="min-w-[220px] flex-1"
+            />
+            <AutocompleteSelect
+              label="Técnico"
+              placeholder={techniciansLoading ? "Carregando técnicos..." : "Buscar técnico"}
+              value={draftFilters.technician}
+              options={technicianAutocompleteOptions}
+              loadOptions={loadTechnicianOptions}
+              onChange={(value) => setDraftFilters((prev) => ({ ...prev, technician: value }))}
+              allowClear
+              disabled={techniciansLoading}
+              className="min-w-[220px] flex-1"
+            />
+            <div className="min-w-[240px] flex-1">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Endereço</span>
+              <AddressSearchInput
+                state={filterAddressState}
+                onSelect={(option) =>
+                  setDraftFilters((prev) => ({
+                    ...prev,
+                    region: option?.label || option?.concise || option?.address || "",
+                  }))
+                }
+                onClear={() => setDraftFilters((prev) => ({ ...prev, region: "" }))}
+                placeholder="Buscar endereço"
+                variant="toolbar"
+                containerClassName="mt-2 w-full"
+                portalSuggestions
+              />
+            </div>
             <select
-              value={filters.status}
-              onChange={(event) => setFilters((prev) => ({ ...prev, status: event.target.value }))}
+              value={draftFilters.status}
+              onChange={(event) => setDraftFilters((prev) => ({ ...prev, status: event.target.value }))}
               className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             >
               <option value="">Todos</option>
@@ -424,33 +526,39 @@ export default function Appointments() {
             </select>
             <input
               type="date"
-              value={filters.from}
-              onChange={(event) => setFilters((prev) => ({ ...prev, from: event.target.value }))}
+              value={draftFilters.from}
+              onChange={(event) => setDraftFilters((prev) => ({ ...prev, from: event.target.value }))}
               className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
             <input
               type="date"
-              value={filters.to}
-              onChange={(event) => setFilters((prev) => ({ ...prev, to: event.target.value }))}
+              value={draftFilters.to}
+              onChange={(event) => setDraftFilters((prev) => ({ ...prev, to: event.target.value }))}
               className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
             />
-            <input
-              value={filters.technician}
-              onChange={(event) => setFilters((prev) => ({ ...prev, technician: event.target.value }))}
-              placeholder="Técnico / equipe"
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-            />
-            <input
-              value={filters.region}
-              onChange={(event) => setFilters((prev) => ({ ...prev, region: event.target.value }))}
-              placeholder="Endereço / região"
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-            />
+          </div>
+        }
+        right={
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={applyFilters}
+              className="rounded-xl bg-sky-500 px-3 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
+            >
+              Aplicar
+            </button>
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
+            >
+              Limpar
+            </button>
           </div>
         }
       />
 
-      <DataTable className="overflow-x-hidden" tableClassName="w-full table-fixed">
+      <DataTable className="w-full" tableClassName="min-w-[1200px] w-full">
         <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
           <tr className="text-left">
             <th className="w-64 px-4 py-3">Cliente</th>
@@ -527,62 +635,35 @@ export default function Appointments() {
       >
         <form onSubmit={handleSave} className="space-y-6">
           <section className="space-y-3">
-            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Identificação</h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <input
-                value={form.unit}
-                onChange={(event) => setForm((prev) => ({ ...prev, unit: event.target.value }))}
-                placeholder="Unidade"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.operation}
-                onChange={(event) => setForm((prev) => ({ ...prev, operation: event.target.value }))}
-                placeholder="Operação"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.category}
-                onChange={(event) => setForm((prev) => ({ ...prev, category: event.target.value }))}
-                placeholder="Categoria"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-            </div>
-          </section>
-
-          <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Cliente</h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <input
-                value={form.clientName}
-                onChange={handleClientInput}
-                placeholder="Cliente/Empresa"
-                list="appointments-client-options"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+            <div className="grid gap-3 md:grid-cols-2">
+              <AutocompleteSelect
+                label="Nome do cliente"
+                placeholder="Buscar cliente"
+                value={form.clientId}
+                options={clientAutocompleteOptions}
+                loadOptions={loadClientOptions}
+                onChange={(value, option) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    clientId: value || "",
+                    clientName: option?.label || prev.clientName,
+                  }));
+                }}
+                allowClear
               />
-              <datalist id="appointments-client-options">
-                {clientOptions.map((client) => (
-                  <option key={client.id} value={client.name} />
-                ))}
-              </datalist>
               <input
                 value={form.clientDocument}
                 onChange={(event) => setForm((prev) => ({ ...prev, clientDocument: event.target.value }))}
-                placeholder="Documento"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.contractPlan}
-                onChange={(event) => setForm((prev) => ({ ...prev, contractPlan: event.target.value }))}
-                placeholder="Contrato/Plano"
+                placeholder="CNPJ"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Contato e autorização</h3>
-            <div className="grid gap-3 md:grid-cols-3">
+            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Contato</h3>
+            <div className="grid gap-3 md:grid-cols-2">
               <input
                 value={form.contactName}
                 onChange={(event) => setForm((prev) => ({ ...prev, contactName: event.target.value }))}
@@ -593,24 +674,6 @@ export default function Appointments() {
                 value={form.contactChannel}
                 onChange={(event) => setForm((prev) => ({ ...prev, contactChannel: event.target.value }))}
                 placeholder="Contato"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.requesterName}
-                onChange={(event) => setForm((prev) => ({ ...prev, requesterName: event.target.value }))}
-                placeholder="Quem solicitou o serviço"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.requestChannel}
-                onChange={(event) => setForm((prev) => ({ ...prev, requestChannel: event.target.value }))}
-                placeholder="Forma da solicitação"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.authorizationBy}
-                onChange={(event) => setForm((prev) => ({ ...prev, authorizationBy: event.target.value }))}
-                placeholder="Autorizado por"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>
@@ -626,23 +689,11 @@ export default function Appointments() {
               containerClassName="w-full"
               portalSuggestions
             />
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <input
                 value={form.referencePoint}
                 onChange={(event) => setForm((prev) => ({ ...prev, referencePoint: event.target.value }))}
                 placeholder="Referência"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.latitude}
-                onChange={(event) => setForm((prev) => ({ ...prev, latitude: event.target.value }))}
-                placeholder="Latitude"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.longitude}
-                onChange={(event) => setForm((prev) => ({ ...prev, longitude: event.target.value }))}
-                placeholder="Longitude"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>
@@ -650,7 +701,7 @@ export default function Appointments() {
 
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Serviço</h3>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <select
                 value={form.type}
                 onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value }))}
@@ -668,36 +719,24 @@ export default function Appointments() {
                 placeholder="Motivo / descrição curta"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
-              <input
-                value={form.serviceItem}
-                onChange={(event) => setForm((prev) => ({ ...prev, serviceItem: event.target.value }))}
-                placeholder="Item atendido"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
             </div>
           </section>
 
           <section className="space-y-3">
             <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Datas</h3>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-2">
               <input
                 type="datetime-local"
                 value={form.startTimeExpected}
                 onChange={(event) => setForm((prev) => ({ ...prev, startTimeExpected: event.target.value }))}
-                placeholder="Data/Hora da Solicitação"
+                placeholder="Data da solicitação"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
               <input
                 type="datetime-local"
                 value={form.endTimeExpected}
                 onChange={(event) => setForm((prev) => ({ ...prev, endTimeExpected: event.target.value }))}
-                placeholder="Data/Hora do Serviço"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.priority}
-                onChange={(event) => setForm((prev) => ({ ...prev, priority: event.target.value }))}
-                placeholder="Prioridade"
+                placeholder="Data do serviço"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>
@@ -715,54 +754,29 @@ export default function Appointments() {
           </section>
 
           <section className="space-y-3">
-            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Responsável interno</h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <input
-                value={form.technicianName}
-                onChange={handleTechnicianInput}
+            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Responsáveis</h3>
+            <div className="grid gap-3 md:grid-cols-2">
+              <AutocompleteSelect
+                label="Técnico"
                 placeholder={techniciansLoading ? "Carregando técnicos..." : "Buscar técnico"}
-                list="appointments-technician-options"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
+                value={form.technicianId}
+                options={technicianAutocompleteOptions}
+                loadOptions={loadTechnicianOptions}
+                onChange={(value, option) => {
+                  setForm((prev) => ({
+                    ...prev,
+                    technicianId: value || "",
+                    technicianName: option?.label || prev.technicianName,
+                    assignedTeam: option?.description || prev.assignedTeam,
+                  }));
+                }}
+                allowClear
+                disabled={techniciansLoading}
               />
-              <datalist id="appointments-technician-options">
-                {technicianOptions.map((technician) => (
-                  <option key={technician.id} value={technician.name} />
-                ))}
-              </datalist>
               <input
                 value={form.assignedTeam}
                 onChange={(event) => setForm((prev) => ({ ...prev, assignedTeam: event.target.value }))}
                 placeholder="Equipe"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.ownerName}
-                onChange={(event) => setForm((prev) => ({ ...prev, ownerName: event.target.value }))}
-                placeholder="Dono do agendamento"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <h3 className="text-xs uppercase tracking-[0.14em] text-white/50">Gestão</h3>
-            <div className="grid gap-3 md:grid-cols-3">
-              <input
-                value={form.slaExceptionReason}
-                onChange={(event) => setForm((prev) => ({ ...prev, slaExceptionReason: event.target.value }))}
-                placeholder="Motivo exceção SLA"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.rescheduleReason}
-                onChange={(event) => setForm((prev) => ({ ...prev, rescheduleReason: event.target.value }))}
-                placeholder="Motivo remarcação"
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              />
-              <input
-                value={form.cancelReason}
-                onChange={(event) => setForm((prev) => ({ ...prev, cancelReason: event.target.value }))}
-                placeholder="Motivo cancelamento"
                 className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
               />
             </div>

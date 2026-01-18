@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import PageHeader from "../../components/ui/PageHeader.jsx";
@@ -100,10 +100,8 @@ export default function ServiceOrderNew() {
 
   const [vehicleSnapshot, setVehicleSnapshot] = useState(null);
   const [equipments, setEquipments] = useState([]);
-  const [equipmentQuery, setEquipmentQuery] = useState("");
-  const [equipmentDropdownOpen, setEquipmentDropdownOpen] = useState(false);
-  const [equipmentHighlightIndex, setEquipmentHighlightIndex] = useState(0);
-  const equipmentContainerRef = React.useRef(null);
+  const [selectedEquipmentId, setSelectedEquipmentId] = useState("");
+  const [warrantyFromInstallation, setWarrantyFromInstallation] = useState(false);
   const [checklist, setChecklist] = useState(() =>
     CHECKLIST_ITEMS.map((item) => ({ item, before: "", after: "" })),
   );
@@ -117,6 +115,12 @@ export default function ServiceOrderNew() {
   const addressStartState = useAddressSearchState({ initialValue: "" });
   const addressServiceState = useAddressSearchState({ initialValue: "" });
   const addressReturnState = useAddressSearchState({ initialValue: "" });
+
+  useEffect(() => {
+    if (form.type !== "Instalação" || !form.startAt || equipments.length === 0) {
+      setWarrantyFromInstallation(false);
+    }
+  }, [equipments.length, form.startAt, form.type]);
 
   useEffect(() => {
     if (addressStartState.query !== form.addressStart) {
@@ -216,19 +220,50 @@ export default function ServiceOrderNew() {
       })),
     [devices],
   );
-  const filteredEquipmentOptions = useMemo(() => {
-    const term = equipmentQuery.trim().toLowerCase();
+  const equipmentAutocompleteOptions = useMemo(() => {
     const selectedIds = new Set(equipments.map((item) => String(item.equipmentId)));
-    const base = equipmentOptions.filter((option) => !selectedIds.has(String(option.id)));
-    if (!term) return base;
-    return base.filter((option) => {
-      const haystack = [option.label, option.model, option.status, option.uniqueId, option.id]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(term);
-    });
-  }, [equipmentOptions, equipmentQuery, equipments]);
+    return equipmentOptions
+      .filter((option) => !selectedIds.has(String(option.id)))
+      .map((option) => ({
+        value: option.id,
+        label: option.label,
+        description: option.model || "Modelo não informado",
+        searchText: [option.label, option.model, option.status, option.uniqueId, option.id].filter(Boolean).join(" "),
+        data: option,
+      }));
+  }, [equipmentOptions, equipments]);
+
+  const loadEquipmentOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const response = await CoreApi.searchDevices({
+        clientId: resolvedClientId || undefined,
+        query,
+        page,
+        pageSize,
+      });
+      const list = response?.devices || response?.data || [];
+      const selectedIds = new Set(equipments.map((item) => String(item.equipmentId)));
+      const options = list
+        .filter((device) => !selectedIds.has(String(device.id)))
+        .map((device) => ({
+          value: device.id,
+          label: device.name || device.uniqueId || device.id,
+          description: device.model || device.modelName || device.type || "",
+          searchText: [device.name, device.uniqueId, device.model, device.modelName].filter(Boolean).join(" "),
+          data: {
+            id: device.id,
+            label: device.name || device.uniqueId || device.id,
+            model: device.model || device.modelName || device.type || device.name || null,
+            status: device.status || device.connectionStatusLabel || device.attributes?.status || null,
+            vehicleId: device.vehicleId || null,
+            uniqueId: device.uniqueId || device.attributes?.imei || device.attributes?.serial || null,
+            chipId: device.chipId || device.attributes?.chipId || null,
+          },
+        }));
+      return { options, hasMore: Boolean(response?.hasMore) };
+    },
+    [equipments, resolvedClientId],
+  );
 
   const setField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -241,16 +276,6 @@ export default function ServiceOrderNew() {
     }
     return "";
   };
-
-  useEffect(() => {
-    const handleOutsideClick = (event) => {
-      if (!equipmentContainerRef.current) return;
-      if (equipmentContainerRef.current.contains(event.target)) return;
-      setEquipmentDropdownOpen(false);
-    };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
 
   const addEquipment = (option) => {
     setEquipments((prev) => {
@@ -379,9 +404,10 @@ export default function ServiceOrderNew() {
 
     setSaving(true);
     try {
+      const serviceDate = form.startAt ? new Date(form.startAt) : null;
       const response = await api.post("core/service-orders", {
         clientId: canManageAll ? clientSelection || null : resolvedClientId,
-        startAt: form.startAt ? new Date(form.startAt).toISOString() : null,
+        startAt: serviceDate ? serviceDate.toISOString() : null,
         status: form.status || "SOLICITADA",
         type: form.type,
         technicianName: form.technicianName,
@@ -407,6 +433,27 @@ export default function ServiceOrderNew() {
         throw new Error(response?.data?.error || "Falha ao criar OS");
       }
 
+      if (warrantyFromInstallation && form.type === "Instalação" && serviceDate) {
+        const startDate = serviceDate.toISOString().slice(0, 10);
+        const updates = equipments.map(async (equipment) => {
+          const device = devicesById.get(String(equipment.equipmentId));
+          if (!device) return;
+          const warrantyDays = Number(device.attributes?.warrantyDays || 0);
+          if (!Number.isFinite(warrantyDays) || warrantyDays <= 0) return;
+          const end = new Date(serviceDate);
+          end.setDate(end.getDate() + warrantyDays);
+          const endDate = end.toISOString().slice(0, 10);
+          await CoreApi.updateDevice(device.id, {
+            attributes: {
+              ...device.attributes,
+              warrantyStartDate: startDate,
+              warrantyEndDate: endDate,
+            },
+          });
+        });
+        await Promise.allSettled(updates);
+      }
+
       setCreatedOrder(response.data.item || null);
     } catch (error) {
       console.error("Falha ao criar ordem de serviço", error);
@@ -415,6 +462,9 @@ export default function ServiceOrderNew() {
       setSaving(false);
     }
   };
+
+  const canToggleWarranty =
+    form.type === "Instalação" && equipments.length > 0 && Boolean(form.startAt);
 
   return (
     <div className="space-y-6">
@@ -684,72 +734,20 @@ export default function ServiceOrderNew() {
             ) : equipmentOptions.length === 0 ? (
               <EmptyState title="Nenhum equipamento disponível para seleção." />
             ) : (
-              <div className="space-y-3" ref={equipmentContainerRef}>
-                <label className="block text-xs text-white/60">
-                  Buscar equipamento
-                  <div className="relative mt-2">
-                    <input
-                      value={equipmentQuery}
-                      onChange={(event) => {
-                        setEquipmentQuery(event.target.value);
-                        setEquipmentDropdownOpen(true);
-                        setEquipmentHighlightIndex(0);
-                      }}
-                      onFocus={() => setEquipmentDropdownOpen(true)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Escape") {
-                          setEquipmentDropdownOpen(false);
-                          return;
-                        }
-                        if (event.key === "Enter" && equipmentDropdownOpen) {
-                          event.preventDefault();
-                          const candidate =
-                            filteredEquipmentOptions[equipmentHighlightIndex] || filteredEquipmentOptions[0];
-                          if (candidate) {
-                            addEquipment(candidate);
-                            setEquipmentQuery("");
-                            setEquipmentDropdownOpen(false);
-                          }
-                        }
-                      }}
-                      className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                      placeholder="Digite ID, modelo, IMEI ou status"
-                    />
-                    {equipmentDropdownOpen && (
-                      <div className="absolute z-[60] mt-2 max-h-60 w-full overflow-auto rounded-xl border border-white/10 bg-[#0f141c] py-1 shadow-lg">
-                        {filteredEquipmentOptions.length === 0 ? (
-                          <div className="px-3 py-2 text-xs text-white/50">Nenhum equipamento encontrado.</div>
-                        ) : (
-                          <ul className="text-sm">
-                            {filteredEquipmentOptions.map((option, index) => (
-                              <li key={option.id}>
-                                <button
-                                  type="button"
-                                  className={`flex w-full items-start justify-between px-3 py-2 text-left transition hover:bg-white/5 ${
-                                    index === equipmentHighlightIndex ? "bg-white/5" : ""
-                                  }`}
-                                  onMouseDown={(event) => {
-                                    event.preventDefault();
-                                    addEquipment(option);
-                                    setEquipmentQuery("");
-                                    setEquipmentDropdownOpen(false);
-                                  }}
-                                  onMouseEnter={() => setEquipmentHighlightIndex(index)}
-                                >
-                                  <span className="flex flex-col">
-                                    <span className="text-white">{option.label}</span>
-                                    <span className="text-xs text-white/50">{option.model || "Modelo não informado"}</span>
-                                  </span>
-                                  <span className="text-[11px] text-white/40">{option.status || "—"}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </label>
+              <div className="space-y-3">
+                <AutocompleteSelect
+                  label="Buscar equipamento"
+                  placeholder="Digite ID, modelo, IMEI ou status"
+                  value={selectedEquipmentId}
+                  options={equipmentAutocompleteOptions}
+                  loadOptions={loadEquipmentOptions}
+                  onChange={(nextValue, option) => {
+                    if (!option?.data) return;
+                    addEquipment(option.data);
+                    setSelectedEquipmentId("");
+                  }}
+                  allowClear
+                />
                 {equipments.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     {equipments.map((equipment) => (
@@ -779,13 +777,23 @@ export default function ServiceOrderNew() {
                   const linkedVehicle = device?.vehicleId
                     ? vehiclesById.get(String(device.vehicleId))
                     : null;
+                  const equipmentIdLabel = equipment.equipmentId || device?.id || "—";
+                  const uniqueIdLabel = device?.uniqueId || equipment.uniqueId || "—";
+                  const modelLabel = device?.modelName || device?.model || equipment.model || "—";
+                  const statusLabel =
+                    device?.connectionStatusLabel || device?.status || equipment.status || "—";
+                  const chipLabel =
+                    device?.chip?.iccid ||
+                    device?.chip?.phone ||
+                    device?.chipId ||
+                    equipment.chipId ||
+                    "—";
                   return (
                     <div
                       key={equipment.equipmentId}
                       className="space-y-3 rounded-xl border border-white/10 bg-black/30 p-4"
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs uppercase tracking-wide text-white/50">Equipamento selecionado</div>
+                      <div className="flex items-center justify-end">
                         <button
                           type="button"
                           onClick={() => removeEquipment(equipment.equipmentId)}
@@ -794,20 +802,22 @@ export default function ServiceOrderNew() {
                           Remover
                         </button>
                       </div>
-                      <div className="grid gap-3 text-xs text-white/70 md:grid-cols-2">
+                      <div className="grid gap-3 text-xs text-white/70 md:grid-cols-3">
                         <div>
-                          <div className="text-[11px] uppercase tracking-wide text-white/50">ID</div>
-                          <div className="text-sm text-white">{equipment.equipmentId}</div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Equipamento</div>
+                          <div className="text-sm text-white">{equipmentIdLabel}</div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">IMEI/Serial</div>
+                          <div className="text-sm text-white">{uniqueIdLabel}</div>
                         </div>
                         <div>
                           <div className="text-[11px] uppercase tracking-wide text-white/50">Modelo</div>
-                          <div className="text-sm text-white">{equipment.model || device?.model || "—"}</div>
+                          <div className="text-sm text-white">{modelLabel}</div>
                         </div>
                         <div>
                           <div className="text-[11px] uppercase tracking-wide text-white/50">Status</div>
-                          <div className="text-sm text-white">
-                            {equipment.status || device?.status || device?.connectionStatusLabel || "—"}
-                          </div>
+                          <div className="text-sm text-white">{statusLabel}</div>
                         </div>
                         <div>
                           <div className="text-[11px] uppercase tracking-wide text-white/50">Vínculo atual</div>
@@ -820,22 +830,20 @@ export default function ServiceOrderNew() {
                           </div>
                         </div>
                         <div>
-                          <div className="text-[11px] uppercase tracking-wide text-white/50">Chip/IMEI</div>
-                          <div className="text-sm text-white">
-                            {equipment.uniqueId || equipment.chipId || device?.uniqueId || device?.chipId || "—"}
-                          </div>
+                          <div className="text-[11px] uppercase tracking-wide text-white/50">Chip</div>
+                          <div className="text-sm text-white">{chipLabel}</div>
                         </div>
+                        <label className="block text-xs text-white/60 md:col-span-3">
+                          Local de instalação do equipamento
+                          <input
+                            value={equipment.installLocation}
+                            onChange={(event) => updateEquipmentLocation(equipment.equipmentId, event.target.value)}
+                            className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+                            placeholder="Ex: Painel, porta, porta-luvas"
+                            required
+                          />
+                        </label>
                       </div>
-                      <label className="block text-xs text-white/60">
-                        Local de instalação do equipamento
-                        <input
-                          value={equipment.installLocation}
-                          onChange={(event) => updateEquipmentLocation(equipment.equipmentId, event.target.value)}
-                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
-                          placeholder="Ex: Painel, porta, porta-luvas"
-                          required
-                        />
-                      </label>
                     </div>
                   );
                 })}
@@ -843,6 +851,27 @@ export default function ServiceOrderNew() {
             )}
           </div>
         </div>
+
+        {form.type === "Instalação" && (
+          <div className="space-y-3 border-t border-white/10 pt-6">
+            <h2 className="text-sm font-semibold text-white">Garantia</h2>
+            <label className="flex items-center gap-2 text-sm text-white/70">
+              <input
+                type="checkbox"
+                checked={warrantyFromInstallation}
+                onChange={(event) => setWarrantyFromInstallation(event.target.checked)}
+                className="h-4 w-4 rounded border-white/30 bg-transparent disabled:opacity-60"
+                disabled={!canToggleWarranty}
+              />
+              Definir garantia a partir desta instalação
+            </label>
+            {!canToggleWarranty && (
+              <p className="text-xs text-white/50">
+                Informe a data do serviço e selecione ao menos um equipamento para habilitar.
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="space-y-3 border-t border-white/10 pt-6">
           <h2 className="text-sm font-semibold text-white">Checklist</h2>

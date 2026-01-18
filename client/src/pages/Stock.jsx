@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MapPin, RefreshCw, Search, Send, Users } from "lucide-react";
+import L from "leaflet";
 import { Circle, MapContainer, Marker, TileLayer } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
@@ -13,6 +14,7 @@ import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
 import AddressSearchInput, { useAddressSearchState } from "../components/shared/AddressSearchInput.jsx";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
+import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 
 const FILTER_OPTIONS = [
   { value: "both", label: "Ambos" },
@@ -21,6 +23,12 @@ const FILTER_OPTIONS = [
 ];
 
 const DEFAULT_CENTER = [-15.7801, -47.9292];
+const CONDITION_FILTERS = [
+  { value: "all", label: "Todos" },
+  { value: "novo", label: "Novos" },
+  { value: "usado_funcionando", label: "Usados Funcionando" },
+  { value: "usado_defeito", label: "Usados Defeito" },
+];
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -99,16 +107,56 @@ function distanceKm(lat1, lon1, lat2, lon2) {
   return radius * c;
 }
 
+function normalizeText(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveDeviceCondition(device) {
+  return (
+    normalizeText(device?.condition) ||
+    normalizeText(device?.attributes?.condition) ||
+    "novo"
+  );
+}
+
+function formatConditionLabel(condition) {
+  if (condition === "usado_funcionando") return "Usado Funcionando";
+  if (condition === "usado_defeito") return "Usado Defeito";
+  return "Novo";
+}
+
+function resolveDeviceAddress(device) {
+  return (
+    device?.address ||
+    device?.formattedAddress ||
+    device?.attributes?.addressSearch ||
+    device?.attributes?.address ||
+    device?.attributes?.formattedAddress ||
+    device?.attributes?.shortAddress ||
+    ""
+  );
+}
+
 export default function Stock() {
-  const { tenantId, user, tenants } = useTenant();
+  const { tenantId, user, tenants, hasAdminAccess } = useTenant();
   const [devices, setDevices] = useState([]);
   const [models, setModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("geral");
-  const [availabilityFilter, setAvailabilityFilter] = useState("both");
   const [searchClient, setSearchClient] = useState("");
-  const [searchId, setSearchId] = useState("");
-  const [cityFilter, setCityFilter] = useState("");
+  const [generalFilters, setGeneralFilters] = useState({
+    clientId: "",
+    deviceId: "",
+    address: null,
+    availability: "both",
+  });
+  const [draftFilters, setDraftFilters] = useState({
+    clientId: "",
+    deviceId: "",
+    availability: "both",
+  });
+  const [conditionFilter, setConditionFilter] = useState("all");
+  const [generalPage, setGeneralPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [radiusKm, setRadiusKm] = useState("10");
   const [technicians, setTechnicians] = useState([]);
@@ -133,11 +181,31 @@ export default function Stock() {
   });
   const mapSearchState = useAddressSearchState({ initialValue: "" });
   const transferAddressState = useAddressSearchState({ initialValue: "" });
+  const generalAddressState = useAddressSearchState({ initialValue: "" });
+  const [generalAddressSelection, setGeneralAddressSelection] = useState(null);
   const [regionTarget, setRegionTarget] = useState(null);
   const mapRef = useRef(null);
-  const { onMapReady } = useMapLifecycle({ mapRef });
+  const { onMapReady, map } = useMapLifecycle({ mapRef });
 
   const resolvedClientId = tenantId || user?.clientId || null;
+
+  useEffect(() => {
+    const defaultClientId = hasAdminAccess ? "" : resolvedClientId || "";
+    setGeneralFilters({
+      clientId: defaultClientId,
+      deviceId: "",
+      address: null,
+      availability: "both",
+    });
+    setDraftFilters({
+      clientId: defaultClientId,
+      deviceId: "",
+      availability: "both",
+    });
+    setConditionFilter("all");
+    setGeneralAddressSelection(null);
+    generalAddressState.setQuery("");
+  }, [generalAddressState, hasAdminAccess, resolvedClientId]);
 
   const loadStock = async () => {
     setLoading(true);
@@ -205,11 +273,34 @@ export default function Stock() {
   }, [tenants]);
 
   const clientOptions = useMemo(
-    () => (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
-      id: tenant.id,
-      name: tenant.name || tenant.company || tenant.id,
-    })),
+    () =>
+      (Array.isArray(tenants) ? tenants : []).map((tenant) => ({
+        id: tenant.id,
+        name: tenant.name || tenant.company || tenant.id,
+      })),
     [tenants],
+  );
+
+  const clientAutocompleteOptions = useMemo(
+    () =>
+      clientOptions.map((client) => ({
+        value: client.id,
+        label: client.name,
+      })),
+    [clientOptions],
+  );
+
+  const loadClientOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = normalizeText(query);
+      const filtered = clientAutocompleteOptions.filter((client) =>
+        normalizeText(client.label).includes(term),
+      );
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [clientAutocompleteOptions],
   );
 
   const technicianOptions = useMemo(
@@ -228,13 +319,32 @@ export default function Stock() {
     [technicians],
   );
 
+  const technicianAutocompleteOptions = useMemo(
+    () =>
+      technicianOptions.map((technician) => ({
+        value: technician.id,
+        label: technician.name,
+        description: resolveTechnicianAddress(technician),
+      })),
+    [technicianOptions],
+  );
+
+  const loadTechnicianOptions = useCallback(
+    async ({ query, page, pageSize }) => {
+      const term = normalizeText(query);
+      const filtered = technicianAutocompleteOptions.filter((technician) => {
+        const haystack = [technician.label, technician.description].filter(Boolean).join(" ");
+        return normalizeText(haystack).includes(term);
+      });
+      const start = (page - 1) * pageSize;
+      const paged = filtered.slice(start, start + pageSize);
+      return { options: paged, hasMore: start + pageSize < filtered.length };
+    },
+    [technicianAutocompleteOptions],
+  );
+
   const availableDevices = useMemo(() => devices.filter((device) => !device.vehicleId), [devices]);
   const linkedDevices = useMemo(() => devices.filter((device) => device.vehicleId), [devices]);
-
-  const totals = {
-    available: availableDevices.length,
-    linked: linkedDevices.length,
-  };
 
   const groupedByClient = useMemo(() => {
     const groups = new Map();
@@ -275,17 +385,47 @@ export default function Stock() {
     });
   }, [groupedByClient, searchClient]);
 
-  const filteredDevices = useMemo(() => {
-    const term = searchId.trim().toLowerCase();
-    const cityTerm = cityFilter.trim().toLowerCase();
+  const filteredDevicesBase = useMemo(() => {
+    const term = normalizeText(generalFilters.deviceId);
+    const addressTerm = normalizeText(
+      generalFilters.address?.label ||
+        generalFilters.address?.concise ||
+        generalFilters.address?.address ||
+        "",
+    );
     return devices.filter((device) => {
-      if (availabilityFilter === "available" && device.vehicleId) return false;
-      if (availabilityFilter === "linked" && !device.vehicleId) return false;
-      if (term && !String(device.uniqueId || device.id || "").toLowerCase().includes(term)) return false;
-      if (cityTerm && !String(device.city || device.address || "").toLowerCase().includes(cityTerm)) return false;
+      if (generalFilters.availability === "available" && device.vehicleId) return false;
+      if (generalFilters.availability === "linked" && !device.vehicleId) return false;
+      if (generalFilters.clientId && String(device.clientId || "") !== String(generalFilters.clientId)) {
+        return false;
+      }
+      if (term && !normalizeText(device.uniqueId || device.id || "").includes(term)) return false;
+      if (addressTerm && !normalizeText(resolveDeviceAddress(device)).includes(addressTerm)) return false;
       return true;
     });
-  }, [availabilityFilter, cityFilter, devices, searchId]);
+  }, [devices, generalFilters]);
+
+  const conditionCounts = useMemo(() => {
+    const counts = { all: filteredDevicesBase.length, novo: 0, usado_funcionando: 0, usado_defeito: 0 };
+    filteredDevicesBase.forEach((device) => {
+      const condition = resolveDeviceCondition(device);
+      if (condition === "usado_funcionando") counts.usado_funcionando += 1;
+      else if (condition === "usado_defeito") counts.usado_defeito += 1;
+      else counts.novo += 1;
+    });
+    return counts;
+  }, [filteredDevicesBase]);
+
+  const filteredDevices = useMemo(() => {
+    if (conditionFilter === "all") return filteredDevicesBase;
+    return filteredDevicesBase.filter((device) => resolveDeviceCondition(device) === conditionFilter);
+  }, [conditionFilter, filteredDevicesBase]);
+
+  const totalGeneralPages = Math.max(1, Math.ceil(filteredDevices.length / 20));
+  const pagedGeneralDevices = useMemo(() => {
+    const start = (generalPage - 1) * 20;
+    return filteredDevices.slice(start, start + 20);
+  }, [filteredDevices, generalPage]);
 
   const transferCandidates = useMemo(() => {
     const modelTerm = transferSearch.model.trim().toLowerCase();
@@ -314,6 +454,21 @@ export default function Stock() {
       return distanceKm(regionTarget.lat, regionTarget.lng, coords.lat, coords.lng) <= radiusValue;
     });
   }, [devices, radiusKm, regionTarget]);
+
+  const regionCountIcon = useMemo(() => {
+    if (!regionTarget) return null;
+    return L.divIcon({
+      html: `<div class="flex h-9 w-9 items-center justify-center rounded-full bg-sky-500 text-xs font-semibold text-black shadow-lg">${nearbyDevices.length}</div>`,
+      className: "region-count-marker",
+      iconSize: [36, 36],
+      iconAnchor: [18, 18],
+    });
+  }, [nearbyDevices.length, regionTarget]);
+
+  useEffect(() => {
+    if (!map || !regionTarget) return;
+    map.setView([regionTarget.lat, regionTarget.lng], 12, { animate: true });
+  }, [map, regionTarget]);
 
   const toggleSelection = (id) => {
     setSelectedIds((prev) => {
@@ -383,6 +538,21 @@ export default function Stock() {
     }));
   };
 
+  const handleApplyGeneralFilters = useCallback(() => {
+    setGeneralFilters((prev) => ({
+      ...prev,
+      clientId: draftFilters.clientId,
+      deviceId: draftFilters.deviceId,
+      availability: draftFilters.availability,
+      address: generalAddressSelection,
+    }));
+    setGeneralPage(1);
+  }, [draftFilters, generalAddressSelection]);
+
+  useEffect(() => {
+    setGeneralPage(1);
+  }, [conditionFilter, generalFilters]);
+
   const selectedDevicesList = useMemo(
     () => devices.filter((device) => selectedIds.has(device.id)),
     [devices, selectedIds],
@@ -440,75 +610,227 @@ export default function Stock() {
         }
       />
 
-      <div className="flex flex-wrap items-center gap-3 text-sm text-white/80">
-        <span className="rounded-full bg-white/10 px-3 py-1">Disponíveis: {totals.available}</span>
-        <span className="rounded-full bg-white/10 px-3 py-1">Vinculados: {totals.linked}</span>
-        <div className="ml-auto flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setView("geral")}
-            className={`rounded-xl px-4 py-2 ${view === "geral" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
-          >
-            Geral
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("cliente")}
-            className={`rounded-xl px-4 py-2 ${view === "cliente" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
-          >
-            Cliente
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("mapa")}
-            className={`rounded-xl px-4 py-2 ${view === "mapa" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
-          >
-            Mapa/Região
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setView("geral")}
+          className={`rounded-xl px-4 py-2 ${view === "geral" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
+        >
+          Geral
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("cliente")}
+          className={`rounded-xl px-4 py-2 ${view === "cliente" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
+        >
+          Cliente
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("mapa")}
+          className={`rounded-xl px-4 py-2 ${view === "mapa" ? "bg-sky-500 text-black" : "bg-white/10 text-white"}`}
+        >
+          Mapa/Região
+        </button>
       </div>
 
-      <FilterBar
-        left={
-          <div className="flex w-full flex-wrap items-center gap-3">
-            <div className="relative min-w-[220px] flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+      {view === "geral" && (
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {CONDITION_FILTERS.map((option) => {
+              const isActive = conditionFilter === option.value;
+              const count =
+                option.value === "all"
+                  ? conditionCounts.all
+                  : option.value === "novo"
+                    ? conditionCounts.novo
+                    : option.value === "usado_funcionando"
+                      ? conditionCounts.usado_funcionando
+                      : conditionCounts.usado_defeito;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => setConditionFilter(option.value)}
+                  className={`rounded-full px-4 py-2 text-xs uppercase tracking-wide transition ${
+                    isActive ? "bg-sky-500 text-black" : "bg-white/10 text-white/70 hover:bg-white/15"
+                  }`}
+                >
+                  {option.label}: {count}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-end gap-3">
+            <AutocompleteSelect
+              label="Cliente"
+              placeholder={hasAdminAccess ? "Todos os clientes" : "Cliente atual"}
+              value={draftFilters.clientId}
+              onChange={(value) => setDraftFilters((prev) => ({ ...prev, clientId: value }))}
+              options={clientAutocompleteOptions}
+              loadOptions={loadClientOptions}
+              allowClear={hasAdminAccess}
+              disabled={!hasAdminAccess}
+              className="min-w-[220px] flex-1"
+            />
+            <div className="min-w-[200px] flex-1">
+              <span className="block text-xs uppercase tracking-wide text-white/60">ID do equipamento</span>
               <input
-                value={searchClient}
-                onChange={(event) => setSearchClient(event.target.value)}
-                placeholder="Buscar lista/cliente"
-                className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                value={draftFilters.deviceId}
+                onChange={(event) => setDraftFilters((prev) => ({ ...prev, deviceId: event.target.value }))}
+                placeholder="Buscar equipamento por ID"
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
               />
             </div>
-            <input
-              value={searchId}
-              onChange={(event) => setSearchId(event.target.value)}
-              placeholder="Buscar equipamento por ID"
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-            />
-            <input
-              value={cityFilter}
-              onChange={(event) => setCityFilter(event.target.value)}
-              placeholder="Cidade/UF"
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
-            />
-            <select
-              value={availabilityFilter}
-              onChange={(event) => setAvailabilityFilter(event.target.value)}
-              className="min-w-[200px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+            <div className="min-w-[240px] flex-1">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Endereço</span>
+              <AddressSearchInput
+                state={generalAddressState}
+                onSelect={(option) => setGeneralAddressSelection(option)}
+                onClear={() => setGeneralAddressSelection(null)}
+                placeholder="Buscar endereço"
+                variant="toolbar"
+                containerClassName="mt-2 w-full"
+                portalSuggestions
+              />
+            </div>
+            <div className="min-w-[180px] flex-1">
+              <span className="block text-xs uppercase tracking-wide text-white/60">Vínculo</span>
+              <select
+                value={draftFilters.availability}
+                onChange={(event) => setDraftFilters((prev) => ({ ...prev, availability: event.target.value }))}
+                className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white focus:border-white/30 focus:outline-none"
+              >
+                {FILTER_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={handleApplyGeneralFilters}
+              className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-medium text-black transition hover:bg-sky-400"
             >
-              {FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+              Aplicar
+            </button>
           </div>
-        }
-      />
 
-      {view === "geral" && (
-        <DataTable>
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <DataTable>
+              <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
+                <tr className="text-left">
+                  <th className="px-4 py-3">Selecionar</th>
+                  <th className="px-4 py-3">ID</th>
+                  <th className="px-4 py-3">Modelo</th>
+                  <th className="px-4 py-3">Cliente</th>
+                  <th className="px-4 py-3">Condição</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Localização</th>
+                  <th className="px-4 py-3">Vínculo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/10">
+                {loading && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-6">
+                      <SkeletonTable rows={6} columns={8} />
+                    </td>
+                  </tr>
+                )}
+                {!loading && filteredDevices.length === 0 && (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-8">
+                      <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para o estoque." />
+                    </td>
+                  </tr>
+                )}
+                {!loading &&
+                  pagedGeneralDevices.map((device) => {
+                    const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
+                    const condition = resolveDeviceCondition(device);
+                    return (
+                      <tr key={device.id} className="hover:bg-white/5">
+                        <td className="px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(device.id)}
+                            onChange={() => toggleSelection(device.id)}
+                            className="h-4 w-4 rounded border-white/30 bg-transparent"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
+                        <td className="px-4 py-3 text-white/70">
+                          {modelById.get(device.modelId)?.name || device.model || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-white/70">
+                          {clientNameById.get(String(device.clientId)) || "—"}
+                        </td>
+                        <td className="px-4 py-3 text-white/70">{formatConditionLabel(condition)}</td>
+                        <td className="px-4 py-3">
+                          <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
+                            {device.vehicleId ? "Vinculado" : "Disponível"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-white/70">{location}</td>
+                        <td className="px-4 py-3 text-white/70">
+                          {device.vehicle?.plate || device.vehicleId || "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </DataTable>
+          </div>
+
+          {filteredDevices.length > 0 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-white/70">
+              <span>
+                Página {generalPage} de {totalGeneralPages}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                  onClick={() => setGeneralPage((prev) => Math.max(1, prev - 1))}
+                  disabled={generalPage === 1}
+                >
+                  Anterior
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-white/10 px-2 py-1 transition hover:border-primary/50 disabled:opacity-50"
+                  onClick={() => setGeneralPage((prev) => Math.min(totalGeneralPages, prev + 1))}
+                  disabled={generalPage >= totalGeneralPages}
+                >
+                  Próxima
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {view === "cliente" && (
+        <div className="space-y-4">
+          <FilterBar
+            left={
+              <div className="flex w-full flex-wrap items-center gap-3">
+                <div className="relative min-w-[220px] flex-1">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
+                  <input
+                    value={searchClient}
+                    onChange={(event) => setSearchClient(event.target.value)}
+                    placeholder="Buscar lista/cliente"
+                    className="w-full rounded-xl border border-white/10 bg-black/30 py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                  />
+                </div>
+              </div>
+            }
+          />
+          <DataTable>
             <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
               <tr className="text-left">
                 <th className="px-4 py-3">Lista</th>
@@ -559,89 +881,26 @@ export default function Stock() {
                 ))}
             </tbody>
           </DataTable>
-      )}
-
-      {view === "cliente" && (
-        <DataTable>
-            <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
-              <tr className="text-left">
-                <th className="px-4 py-3">Selecionar</th>
-                <th className="px-4 py-3">ID</th>
-                <th className="px-4 py-3">Modelo</th>
-                <th className="px-4 py-3">Cliente</th>
-                <th className="px-4 py-3">Status</th>
-                <th className="px-4 py-3">Localização</th>
-                <th className="px-4 py-3">Vínculo</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-white/10">
-              {loading && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-6">
-                    <SkeletonTable rows={6} columns={7} />
-                  </td>
-                </tr>
-              )}
-              {!loading && filteredDevices.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-4 py-8">
-                    <EmptyState title="Nenhum equipamento encontrado." subtitle="Refine os filtros para este cliente." />
-                  </td>
-                </tr>
-              )}
-              {!loading &&
-                filteredDevices.map((device) => {
-                  const location = [device.city, device.state].filter(Boolean).join(" - ") || "Base";
-                  return (
-                    <tr key={device.id} className="hover:bg-white/5">
-                      <td className="px-4 py-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(device.id)}
-                          onChange={() => toggleSelection(device.id)}
-                          className="h-4 w-4 rounded border-white/30 bg-transparent"
-                        />
-                      </td>
-                      <td className="px-4 py-3 text-white/80">{device.uniqueId || device.id}</td>
-                      <td className="px-4 py-3 text-white/70">
-                        {modelById.get(device.modelId)?.name || device.model || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-white/70">
-                        {clientNameById.get(String(device.clientId)) || "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="rounded-lg bg-white/10 px-2 py-1 text-xs text-white/80">
-                          {device.vehicleId ? "Vinculado" : "Disponível"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-white/70">{location}</td>
-                      <td className="px-4 py-3 text-white/70">
-                        {device.vehicle?.plate || device.vehicleId || "—"}
-                      </td>
-                    </tr>
-                  );
-                })}
-            </tbody>
-          </DataTable>
+        </div>
       )}
 
       {view === "mapa" && (
         <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-          <div className="space-y-3 rounded-2xl border border-white/10 bg-transparent p-4">
+          <div className="space-y-3">
             <h2 className="text-sm font-semibold text-white">Busca por região</h2>
-            <div className="space-y-3">
+            <div className="flex flex-wrap gap-3">
               <AddressSearchInput
                 state={mapSearchState}
                 onSelect={handleSelectRegion}
                 placeholder="Buscar endereço"
                 variant="toolbar"
-                containerClassName="w-full"
+                containerClassName="min-w-[260px] flex-1"
               />
               <input
                 value={radiusKm}
                 onChange={(event) => setRadiusKm(event.target.value)}
                 placeholder="Raio (km)"
-                className="w-full rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
+                className="min-w-[160px] flex-1 rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white placeholder:text-white/50 focus:border-white/30 focus:outline-none"
               />
             </div>
             <div className="h-[360px] overflow-hidden rounded-xl border border-white/10">
@@ -655,7 +914,10 @@ export default function Stock() {
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="OpenStreetMap" />
                 {regionTarget && (
                   <>
-                    <Marker position={[regionTarget.lat, regionTarget.lng]} />
+                    <Marker
+                      position={[regionTarget.lat, regionTarget.lng]}
+                      icon={regionCountIcon || undefined}
+                    />
                     <Circle
                       center={[regionTarget.lat, regionTarget.lng]}
                       radius={(Number(radiusKm) || 0) * 1000}
@@ -844,34 +1106,27 @@ export default function Stock() {
               <option value="client_technician">Destino: Cliente + Técnico</option>
             </select>
             {(transferForm.destinationType === "client" || transferForm.destinationType === "client_technician") && (
-              <select
+              <AutocompleteSelect
+                label="Cliente destino"
+                placeholder="Selecione o cliente"
                 value={transferForm.destinationClientId}
-                onChange={(event) => setTransferForm((prev) => ({ ...prev, destinationClientId: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              >
-                <option value="">Selecione o cliente</option>
-                {clientOptions.map((client) => (
-                  <option key={client.id} value={client.id}>
-                    {client.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setTransferForm((prev) => ({ ...prev, destinationClientId: value }))}
+                options={clientAutocompleteOptions}
+                loadOptions={loadClientOptions}
+                allowClear
+              />
             )}
             {(transferForm.destinationType === "technician" || transferForm.destinationType === "client_technician") && (
-              <select
+              <AutocompleteSelect
+                label="Técnico destino"
+                placeholder={techniciansLoading ? "Carregando técnicos..." : "Selecione o técnico"}
                 value={transferForm.destinationTechnicianId}
-                onChange={(event) => setTransferForm((prev) => ({ ...prev, destinationTechnicianId: event.target.value }))}
-                className="rounded-xl border border-white/10 bg-black/30 px-4 py-2 text-sm text-white"
-              >
-                <option value="">
-                  {techniciansLoading ? "Carregando técnicos..." : "Selecione o técnico"}
-                </option>
-                {technicianOptions.map((technician) => (
-                  <option key={technician.id} value={technician.id}>
-                    {technician.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setTransferForm((prev) => ({ ...prev, destinationTechnicianId: value }))}
+                options={technicianAutocompleteOptions}
+                loadOptions={loadTechnicianOptions}
+                allowClear
+                disabled={techniciansLoading}
+              />
             )}
           </div>
           <div className="space-y-2">

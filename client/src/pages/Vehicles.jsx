@@ -720,7 +720,7 @@ export default function Vehicles() {
         )}
       </div>
 
-      <div className="flex-1 overflow-hidden rounded-2xl border border-white/10">
+      <div className="flex-1 overflow-hidden">
         <DataTable tableClassName="text-white/80">
           <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/60">
             <tr>
