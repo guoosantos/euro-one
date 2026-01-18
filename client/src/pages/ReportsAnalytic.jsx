@@ -5,6 +5,8 @@ import MonitoringColumnSelector from "../components/monitoring/MonitoringColumnS
 import useVehicleSelection from "../lib/hooks/useVehicleSelection.js";
 import useAnalyticReport from "../lib/hooks/useAnalyticReport.js";
 import PageHeader from "../ui/PageHeader.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
+import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 import { resolvePortLabel, useModelPorts } from "../lib/hooks/useModelPorts.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import {
@@ -28,10 +30,11 @@ import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity
 
 const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
-const DEFAULT_PAGE_SIZE = 1000;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
+const DEFAULT_PAGE_SIZE = 50;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
 const IO_EVENT_INPUTS = [2, 4];
 const IO_EVENT_STATUS_RESET = "Veículo voltou ao normal";
+const POSITION_FALLBACK_LABEL = "Posição registrada";
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -274,6 +277,7 @@ export default function ReportsAnalytic() {
   const { selectedVehicleId, selectedVehicle } = useVehicleSelection({ syncQuery: true });
   const { loading, error, generate, exportPdf, exportXlsx, exportCsv, fetchPage } = useAnalyticReport();
   const { portsIndex } = useModelPorts();
+  const { preferences, loading: loadingPreferences } = useUserPreferences();
 
   const [from, setFrom] = useState(() => new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 16));
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 16));
@@ -306,13 +310,12 @@ export default function ReportsAnalytic() {
   const baseQueryRef = useRef(null);
   const [lastResolvedFilter, setLastResolvedFilter] = useState(null);
 
+  const reportEventScope = preferences?.reportEventScope || "active";
+
   const effectivePageSize = pageSize;
   const totalPages = meta?.totalPages || 1;
   const currentPage = meta?.currentPage || page;
   const totalItems = meta?.totalItems ?? positions.length;
-  const canLoadMore = Boolean(meta && meta.currentPage < meta.totalPages);
-  const canGoPrev = currentPage > 1;
-  const canGoNext = currentPage < totalPages;
 
   const reportProtocol = useMemo(() => resolveReportProtocol(positions), [positions]);
 
@@ -407,6 +410,12 @@ export default function ReportsAnalytic() {
 
   const buildPositionRow = useCallback(
     (position) => {
+      const resolvedEventSeverity =
+        position.eventSeverity ||
+        position.criticality ||
+        ((position.eventType === POSITION_FALLBACK_LABEL || position.event === POSITION_FALLBACK_LABEL)
+          ? "Informativa"
+          : null);
       const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
         deviceId: position.id ?? position.gpsTime ?? Math.random(),
@@ -439,6 +448,7 @@ export default function ReportsAnalytic() {
         deviceStatus: position.deviceStatus || "Dado não disponível",
         event: position.event || "—",
         eventType: position.eventType || "—",
+        eventSeverity: resolvedEventSeverity ?? "—",
         whoSent: position.whoSent || "—",
         blocked: position.blocked || "—",
         digitalInput1: formatIoState(position.digitalInput1),
@@ -508,6 +518,20 @@ export default function ReportsAnalytic() {
       eventType,
       whoSent,
       deviceStatus: entry?.status || "—",
+    };
+  }, []);
+
+  const buildItineraryRow = useCallback((entry) => {
+    return {
+      key: entry?.id || `${entry?.timestamp || "itinerary"}-${Math.random()}`,
+      entryType: "itinerary",
+      deviceTime: formatDateTime(entry?.deviceTime || entry?.timestamp),
+      serverTime: formatDateTime(entry?.serverTime || entry?.timestamp),
+      event: entry?.event || "Itinerário",
+      eventType: entry?.eventType || entry?.description || "Embarque aplicado",
+      eventSeverity: entry?.eventSeverity || "Informativa",
+      whoSent: entry?.whoSent || formatWhoSentLabel({ fallback: "Sistema" }),
+      address: normalizeAddressDisplay(entry?.address),
     };
   }, []);
 
@@ -592,7 +616,7 @@ export default function ReportsAnalytic() {
       .sort((a, b) => {
         const timeDelta = new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
         if (timeDelta !== 0) return timeDelta;
-        const priority = { "io-event": 0, "signal-loss": 1, position: 2, action: 3 };
+        const priority = { "io-event": 0, "signal-loss": 1, itinerary: 2, position: 3, action: 4 };
         const aRank = priority[a.type] ?? 3;
         const bRank = priority[b.type] ?? 3;
         return aRank - bRank;
@@ -607,6 +631,9 @@ export default function ReportsAnalytic() {
         }
         if (entry?.type === "action") {
           return buildActionRow(entry);
+        }
+        if (entry?.type === "itinerary") {
+          return buildItineraryRow(entry);
         }
         if (entry?.type === "io-event") {
           return buildIoEventRow(entry);
@@ -626,7 +653,7 @@ export default function ReportsAnalytic() {
         return null;
       })
       .filter(Boolean)
-  ), [buildActionRow, buildIoEventRow, buildPositionRow, timelineEntries]);
+  ), [buildActionRow, buildIoEventRow, buildItineraryRow, buildPositionRow, timelineEntries]);
 
   const resolveAddressFilter = useCallback(async () => {
     const text = addressQuery.trim();
@@ -668,8 +695,9 @@ export default function ReportsAnalytic() {
       addressRadius: filter?.radius,
       page: pageParam,
       limit: limitParam,
+      reportEventScope,
     }),
-    [effectivePageSize, from, selectedVehicleId, to],
+    [effectivePageSize, from, reportEventScope, selectedVehicleId, to],
   );
 
   const handleGenerate = useCallback(
@@ -726,27 +754,6 @@ export default function ReportsAnalytic() {
       .catch(() => {});
   }, [addressFilter, addressQuery, buildQueryParams, effectivePageSize, fetchPage, from, hasGenerated, loading, selectedVehicleId, to]);
 
-
-  const handleLoadMore = useCallback(async () => {
-    if (loadingMore || !meta || !baseQueryRef.current) return;
-    if (meta.currentPage >= meta.totalPages) return;
-    const nextPage = (meta.currentPage || 1) + 1;
-    setLoadingMore(true);
-    try {
-      const params = { ...baseQueryRef.current, page: nextPage, limit: effectivePageSize };
-      baseQueryRef.current = params;
-      const normalized = await fetchPage(params);
-      setPositions((prev) => [...prev, ...(normalized.positions || [])]);
-      setEntries(normalized.entries || []);
-      setActions((prev) => prev.length ? prev : (normalized.actions || []));
-      setMeta(normalized.meta);
-      setPage(nextPage);
-    } catch (loadError) {
-      setFeedback({ type: "error", message: loadError?.message || "Falha ao carregar mais registros." });
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [effectivePageSize, fetchPage, loadingMore, meta]);
 
   const handlePageSizeChange = useCallback(
     async (value) => {
@@ -808,6 +815,7 @@ export default function ReportsAnalytic() {
         columns: columnsToExport,
         availableColumns: availableColumnKeys,
         columnDefinitions: columnDefinitionsPayload,
+        reportEventScope,
         addressFilter: resolvedFilter
           ? {
               lat: resolvedFilter.lat,
@@ -989,20 +997,6 @@ export default function ReportsAnalytic() {
             title="Relatório Analítico"
             right={(
               <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
-                <label className="flex items-center gap-2 rounded-md border border-white/15 bg-[#0d1117] px-3 py-2 text-xs font-semibold text-white/80 transition hover:border-white/30">
-                  <span className="whitespace-nowrap">Itens por página</span>
-                  <select
-                    value={pageSize}
-                    onChange={(event) => handlePageSizeChange(Number(event.target.value))}
-                    className="rounded bg-transparent text-white outline-none"
-                  >
-                    {PAGE_SIZE_OPTIONS.map((option) => (
-                      <option key={option} value={option} className="bg-[#0d1117] text-white">
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                </label>
                 <button
                   type="submit"
                   disabled={loading || geocoding || !selectedVehicleId}
@@ -1202,50 +1196,16 @@ export default function ReportsAnalytic() {
         )}
         </section>
         {hasGenerated && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => handlePageChange(currentPage - 1)}
-                disabled={!canGoPrev || loadingMore}
-                className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
-              >
-                Anterior
-              </button>
-              <button
-                type="button"
-                onClick={() => handlePageChange(currentPage + 1)}
-                disabled={!canGoNext || loadingMore}
-                className="rounded-md border border-white/20 px-3 py-1.5 font-semibold text-white/80 hover:border-primary/40 hover:text-primary disabled:opacity-50"
-              >
-                Próximo
-              </button>
-            </div>
-            <div className="flex items-center gap-2">
-              <span>Ir para página</span>
-              <input
-                type="number"
-                min={1}
-                max={totalPages}
-                value={currentPage}
-                onChange={(event) => handlePageChange(Number(event.target.value || 1))}
-                className="w-20 rounded-md border border-white/15 bg-[#0d1117] px-2 py-1 text-xs text-white/80 outline-none"
-              />
-              <span className="text-white/50">de {totalPages}</span>
-            </div>
-          </div>
-        )}
-        {canLoadMore && (
-          <div className="flex items-center justify-center">
-            <button
-              type="button"
-              onClick={handleLoadMore}
-              disabled={loadingMore}
-              className="rounded-lg border border-white/20 bg-white/5 px-4 py-2 text-sm font-semibold text-white hover:border-primary/40 hover:text-primary disabled:opacity-50"
-            >
-              {loadingMore ? "Carregando..." : "Carregar mais"}
-            </button>
-          </div>
+          <DataTablePagination
+            pageSize={pageSize}
+            pageSizeOptions={PAGE_SIZE_OPTIONS}
+            onPageSizeChange={handlePageSizeChange}
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalItems={totalItems}
+            onPageChange={handlePageChange}
+            disabled={loading || loadingMore || loadingPreferences}
+          />
         )}
       </div>
 

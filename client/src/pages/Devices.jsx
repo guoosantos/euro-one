@@ -15,6 +15,7 @@ import FilterBar from "../components/ui/FilterBar.jsx";
 import DataTable from "../components/ui/DataTable.jsx";
 import EmptyState from "../components/ui/EmptyState.jsx";
 import SkeletonTable from "../components/ui/SkeletonTable.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
 import { CoreApi, normaliseListPayload } from "../lib/coreApi.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import { useLivePositions } from "../lib/hooks/useLivePositions.js";
@@ -22,6 +23,8 @@ import useTraccarDevices from "../lib/hooks/useTraccarDevices.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import useMapLifecycle from "../lib/map/useMapLifecycle.js";
 import { formatAddress } from "../lib/format-address.js";
+
+const PAGE_SIZE_OPTIONS = [20, 50, 100, "all"];
 
 function parsePositionTime(position) {
   if (!position) return null;
@@ -1592,48 +1595,18 @@ export default function Devices() {
               })}
           </tbody>
         </DataTable>
-        <div className="mt-auto flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/70">
-        <div className="flex items-center gap-2">
-          <span>Itens por página</span>
-          <select
-            value={pageSize}
-            onChange={(event) => {
-              const value = event.target.value;
-              setPageSize(value === "all" ? "all" : Number(value));
-              setCurrentPage(1);
-            }}
-            className="rounded-lg border border-white/10 bg-black/30 px-2 py-1 text-xs text-white"
-          >
-            {[5, 20, 50, 100, 500].map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-            <option value="all">Todos</option>
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setCurrentPage((current) => Math.max(1, current - 1))}
-            disabled={resolvedPage <= 1}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-          >
-            Anterior
-          </button>
-          <span>
-            Página {resolvedPage} de {totalPages}
-          </span>
-          <button
-            type="button"
-            onClick={() => setCurrentPage((current) => Math.min(totalPages, current + 1))}
-            disabled={resolvedPage >= totalPages}
-            className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 transition hover:bg-white/10 disabled:opacity-50"
-          >
-            Próxima
-          </button>
-        </div>
-      </div>
+        <DataTablePagination
+          pageSize={pageSize}
+          pageSizeOptions={PAGE_SIZE_OPTIONS}
+          onPageSizeChange={(value) => {
+            setPageSize(value === "all" ? "all" : Number(value));
+            setCurrentPage(1);
+          }}
+          currentPage={resolvedPage}
+          totalPages={totalPages}
+          totalItems={filteredDevices.length}
+          onPageChange={(nextPage) => setCurrentPage(nextPage)}
+        />
       </div>
 
       <Drawer

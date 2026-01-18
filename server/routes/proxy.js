@@ -14,6 +14,7 @@ import { getProtocolCommands, getProtocolList, normalizeProtocolKey } from "../s
 import { resolveEventConfiguration } from "../services/event-config.js";
 import { upsertAlertFromEvent } from "../services/alerts.js";
 import { listSignalEvents } from "../services/signal-events.js";
+import { listVehicleEmbarkHistory } from "../services/embark-history.js";
 import { getGroupIdsForGeofence } from "../models/geofence-group.js";
 import { listAuditEvents, recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import {
@@ -74,6 +75,7 @@ import {
   ioFriendlyNames,
 } from "../../shared/telemetryDictionary.js";
 import { resolveEventDefinition, resolveEventDefinitionFromPayload } from "../../client/src/lib/event-translations.js";
+import { computeBlocked } from "../../shared/computeBlocked.js";
 
 
 const router = express.Router();
@@ -460,6 +462,7 @@ async function hydrateTraccarDevice(req, traccarId, baseDevice = null) {
 
 async function resolveTraccarDevice(req, { allowVehicleFallback = true } = {}) {
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
+  const eventScope = normalizeReportEventScope(reportEventScope);
   const requestedVehicleId = req.body?.vehicleId || req.query?.vehicleId;
   const requestedDeviceId = req.body?.deviceId || req.query?.deviceId;
   let vehicleId = requestedVehicleId ? String(requestedVehicleId).trim() : "";
@@ -1359,7 +1362,7 @@ function applyEventConfigToPosition(position, { clientId } = {}) {
 const POSITION_FALLBACK_LABEL = "Posição registrada";
 const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
 
-function resolvePositionEventLabel(position, { clientId } = {}) {
+function resolvePositionEventLabel(position, { clientId, eventScope = "active" } = {}) {
   if (!position) return { label: POSITION_FALLBACK_LABEL, severity: null, active: null };
   const attributes = position.attributes || {};
   const protocol = position.protocol || attributes.protocol || attributes.deviceProtocol || null;
@@ -1408,15 +1411,33 @@ function resolvePositionEventLabel(position, { clientId } = {}) {
       eventActive,
     },
   };
-  const definition = resolveEventDefinitionFromPayload(payload, "pt-BR", null);
+  const shouldForceActive = eventScope === "all" && eventActive === false;
+  const definitionPayload = shouldForceActive
+    ? {
+        ...payload,
+        eventActive: true,
+        attributes: {
+          ...payload.attributes,
+          eventActive: true,
+        },
+      }
+    : payload;
+  const definition = resolveEventDefinitionFromPayload(definitionPayload, "pt-BR", null);
   let label = definition?.label || eventLabel || POSITION_FALLBACK_LABEL;
   if (GENERIC_EVENT_LABELS_PT.has(label)) {
     label = POSITION_FALLBACK_LABEL;
   }
+  let severity = definition?.severity ?? eventSeverity ?? null;
+  if (label === POSITION_FALLBACK_LABEL && !severity) {
+    severity = "Informativa";
+  }
   return {
     label,
-    severity: definition?.severity ?? eventSeverity ?? null,
-    active: definition?.suppressed ? false : eventActive,
+    severity,
+    active: shouldForceActive ? false : definition?.suppressed ? false : eventActive,
+    rawLabel: eventLabel ?? null,
+    rawEventId: eventCode ?? null,
+    rawAttributes: attributes ?? null,
   };
 }
 
@@ -4221,7 +4242,7 @@ async function fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientI
   return [...dispatchItems, ...traccarItems].filter((item) => item.sentAt || item.receivedAt);
 }
 
-async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null }) {
+async function buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination = null, reportEventScope = "active" }) {
   if (!vehicleId) {
     throw createError(400, "vehicleId é obrigatório");
   }
@@ -4327,7 +4348,7 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         clientId,
         deviceId: position.deviceId ?? null,
       });
-      const eventResolution = resolvePositionEventLabel(position, { clientId });
+      const eventResolution = resolvePositionEventLabel(position, { clientId, eventScope });
       const fallbackShort = buildShortAddressFallback(position.latitude, position.longitude);
       const resolvedAddress =
         normalizeAddressValue(position.address, position.fullAddress, position.shortAddress) || fallbackShort;
@@ -4368,6 +4389,13 @@ async function buildPositionsReportData(req, { vehicleId, from, to, addressFilte
         event: eventResolution.label,
         eventSeverity: eventResolution.severity,
         eventActive: eventResolution.active,
+        ...(eventResolution.active === false
+          ? {
+              rawEventType: eventResolution.rawLabel,
+              rawEventId: eventResolution.rawEventId,
+              rawAttributes: eventResolution.rawAttributes,
+            }
+          : null),
         commandResponse: commandResponse || null,
         ioDetails,
         deviceStatus: resolveDeviceStatusLabel(statusToken),
@@ -4632,6 +4660,11 @@ const ANALYTIC_POSITION_TYPE = "Registrada";
 const ANALYTIC_SIGNAL_LOSS_TYPE = "Acima de 6 horas";
 const ANALYTIC_SIGNAL_LOSS_THRESHOLD_MS = 6 * 60 * 60 * 1000;
 
+function normalizeReportEventScope(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "all" ? "all" : "active";
+}
+
 function buildWhoSentLabel({ name, ipAddress, fallback = "Sistema" } = {}) {
   const safeName = typeof name === "string" ? name.trim() : "";
   const safeIp = typeof ipAddress === "string" ? ipAddress.trim() : "";
@@ -4659,17 +4692,22 @@ function resolveAnalyticBlockedLabel(position, { protocol, deviceModel } = {}) {
   const in2 = resolveIoValueFromPosition(position, ["digitalInput2", "input2", "in2", "signalIn2"]);
   const in4 = resolveIoValueFromPosition(position, ["digitalInput4", "input4", "in4", "signalIn4"]);
   const out1 = resolveIoValueFromPosition(position, ["digitalOutput1", "output1", "out1"]);
-  if (in2 === null || in4 === null || out1 === null) return null;
-  const notBlocked = in2 === false && in4 === false && out1 === true;
-  return notBlocked ? "NÃO" : "SIM";
+  return computeBlocked({ input2: in2, input4: in4, out1 });
 }
 
-function resolveAnalyticPositionDetails(position) {
+function resolveAnalyticPositionDetails(position, { forcePositionLabel = false } = {}) {
   const rawLabel = typeof position?.event === "string" ? position.event.trim() : "";
   const isFallback =
     !rawLabel ||
     rawLabel === POSITION_FALLBACK_LABEL ||
     GENERIC_EVENT_LABELS_PT.has(rawLabel);
+  if (forcePositionLabel) {
+    return {
+      event: POSITION_FALLBACK_LABEL,
+      eventType: POSITION_FALLBACK_LABEL,
+      whoSent: "—",
+    };
+  }
   if (isFallback) {
     return {
       event: ANALYTIC_EVENT_CATEGORIES.position,
@@ -4727,23 +4765,52 @@ function buildSignalLossEntries(positions = []) {
   return entries;
 }
 
-async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination }) {
-  const positionsReport = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination });
+function resolveItineraryDescription(entry) {
+  const action = String(entry?.action || "").toUpperCase();
+  if (action === "DISEMBARK") return "Desembarque aplicado";
+  if (action === "EMBARK") return "Embarque aplicado";
+  if (action === "UPDATE") return "Atualização aplicada";
+  if (action === "CREATE") return "Itinerário criado";
+  if (action === "DELETE") return "Itinerário removido";
+  return entry?.message || entry?.actionLabel || "Itinerário aplicado";
+}
+
+function resolveItineraryAddress(entry) {
+  const latitude = entry?.latitude ?? entry?.lat ?? null;
+  const longitude = entry?.longitude ?? entry?.lng ?? null;
+  if (latitude == null || longitude == null) {
+    return { address: "—", latitude: null, longitude: null };
+  }
+  const address = entry?.address || entry?.formattedAddress || entry?.fullAddress || "—";
+  return { address, latitude, longitude };
+}
+
+async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope = "active" }) {
+  const positionsReport = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
   const commandHistory = await fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientId }).catch(() => []);
   const auditEvents = listAuditEvents({ clientId, vehicleId, from, to });
 
   const protocol = positionsReport?.meta?.protocol || null;
   const deviceModel = positionsReport?.meta?.deviceModel || null;
+  const eventScope = normalizeReportEventScope(reportEventScope);
 
   const analyticPositions = (positionsReport.positions || []).map((position) => {
-    const details = resolveAnalyticPositionDetails(position);
+    const details = resolveAnalyticPositionDetails(position, {
+      forcePositionLabel: eventScope === "active" && position.eventActive === false,
+    });
     const blocked = resolveAnalyticBlockedLabel(position, { protocol, deviceModel });
+    const normalizedEventSeverity =
+      position.eventSeverity ??
+      (details.eventType === POSITION_FALLBACK_LABEL || details.event === POSITION_FALLBACK_LABEL
+        ? "Informativa"
+        : null);
     return {
       ...position,
       event: details.event,
       eventType: details.eventType,
       whoSent: details.whoSent,
+      eventSeverity: normalizedEventSeverity ?? position.eventSeverity ?? null,
       blocked: blocked ?? "—",
     };
   });
@@ -4833,6 +4900,40 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
       };
     });
 
+  const itineraryHistory = await listVehicleEmbarkHistory({ vehicleId, clientId, from, to });
+  const itineraryEntries = itineraryHistory.map((entry) => {
+    const timestamp = entry.sentAt || entry.deviceConfirmedAt || entry.at || entry.receivedAt || null;
+    const description = resolveItineraryDescription(entry);
+    const whoSent = buildWhoSentLabel({
+      name: entry.sentByName || entry.requestedByName || null,
+      ipAddress: entry.ipAddress || null,
+      fallback: "Sistema",
+    });
+    const { address, latitude, longitude } = resolveItineraryAddress(entry);
+    const row = {
+      deviceTime: entry.sentAt || null,
+      serverTime: entry.deviceConfirmedAt || entry.receivedAt || null,
+      event: "Itinerário",
+      eventType: description,
+      whoSent,
+      eventSeverity: "Informativa",
+      address,
+      latitude,
+      longitude,
+    };
+    return {
+      id: entry.id || `itinerary-${entry.vehicleId}-${entry.itineraryId}-${timestamp}`,
+      type: "itinerary",
+      timestamp,
+      event: "Itinerário",
+      eventType: description,
+      whoSent,
+      deviceTime: row.deviceTime,
+      serverTime: row.serverTime,
+      row,
+    };
+  });
+
   const positionEntries = analyticPositions.map((position) => ({
     id: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
     type: "position",
@@ -4848,7 +4949,7 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
 
   const signalLossEntries = buildSignalLossEntries(analyticPositions);
 
-  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries, ...signalLossEntries]
+  const entries = [...positionEntries, ...commandEntries, ...auditActionEntries, ...itineraryEntries, ...signalLossEntries]
     .filter((entry) => entry.timestamp)
     .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
@@ -4904,9 +5005,10 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
     const from = parseDateOrThrow(payload?.from, "from");
     const to = parseDateOrThrow(payload?.to, "to");
     const addressFilter = payload?.addressFilter && typeof payload.addressFilter === "object" ? payload.addressFilter : null;
+    const reportEventScope = normalizeReportEventScope(payload?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(jobReq, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildAnalyticReportData(jobReq, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
     const availableColumns = Array.isArray(payload?.availableColumns) && payload.availableColumns.length
       ? payload.availableColumns
       : report?.meta?.availableColumns;
@@ -5212,8 +5314,9 @@ router.get("/reports/analytic", async (req, res) => {
     const to = parseDateOrThrow(req.query?.to, "to");
     const addressFilter = parseAddressFilterQuery(req.query);
     const pagination = normalizePagination(req.query);
+    const reportEventScope = normalizeReportEventScope(req.query?.reportEventScope);
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
     recordReportAudit({
       req,
       reportName: "Relatório Analítico",
@@ -5398,9 +5501,10 @@ router.post("/reports/analytic/pdf", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -5483,9 +5587,10 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -5569,9 +5674,10 @@ router.post("/reports/analytic/csv", async (req, res) => {
     const from = parseDateOrThrow(req.body?.from, "from");
     const to = parseDateOrThrow(req.body?.to, "to");
     const addressFilter = req.body?.addressFilter && typeof req.body.addressFilter === "object" ? req.body.addressFilter : null;
+    const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination });
+    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -6221,5 +6327,11 @@ router.post("/reports/trips", requireRole("manager", "admin"), async (req, res, 
     next(createError(status, message));
   }
 });
+
+export {
+  normalizeReportEventScope,
+  resolveAnalyticPositionDetails,
+  resolvePositionEventLabel,
+};
 
 export default router;

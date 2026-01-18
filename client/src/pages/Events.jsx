@@ -7,6 +7,7 @@ import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import AddressCell from "../ui/AddressCell.jsx";
 import Modal from "../ui/Modal.jsx";
+import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
 import api from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
@@ -16,6 +17,7 @@ import { translateEventType } from "../lib/event-translations.js";
 import { useTranslation } from "../lib/i18n.js";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
 import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity-badge.js";
+import useUserPreferences from "../lib/hooks/useUserPreferences.js";
 
 const EVENT_TABS = ["Relatório", "Severidade"];
 const EVENT_TYPES = [
@@ -85,8 +87,8 @@ const COLUMN_WIDTHS_STORAGE_KEY = "events:columns:widths:v1";
 const MIN_COLUMN_WIDTH = 80;
 const MAX_COLUMN_WIDTH = 800;
 const DEFAULT_COLUMN_WIDTH = 140;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 500, 1000, 5000];
-const DEFAULT_PAGE_SIZE = 100;
+const PAGE_SIZE_OPTIONS = [20, 50, 100];
+const DEFAULT_PAGE_SIZE = 50;
 
 const SEVERITY_LABELS = {
   info: "Informativa",
@@ -195,6 +197,7 @@ export default function Events() {
   const [searchParams] = useSearchParams();
   const { devices, positionsByDeviceId } = useDevices({ withPositions: true });
   const { vehicles } = useVehicles();
+  const { preferences, loading: loadingPreferences, savePreferences } = useUserPreferences();
 
   const [activeTab, setActiveTab] = useState(EVENT_TABS[0]);
   const [activeCategoryTab, setActiveCategoryTab] = useState("Segurança");
@@ -233,6 +236,7 @@ export default function Events() {
   const [reportGenerated, setReportGenerated] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [reportEventScope, setReportEventScope] = useState("active");
 
   const [protocols, setProtocols] = useState([]);
   const [selectedProtocol, setSelectedProtocol] = useState("");
@@ -377,6 +381,21 @@ export default function Events() {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (loadingPreferences) return;
+    setReportEventScope(preferences?.reportEventScope || "active");
+  }, [loadingPreferences, preferences?.reportEventScope]);
+
+  const handleReportEventScopeChange = useCallback(
+    (nextScope) => {
+      setReportEventScope(nextScope);
+      if (!loadingPreferences) {
+        savePreferences({ reportEventScope: nextScope }).catch(() => {});
+      }
+    },
+    [loadingPreferences, savePreferences],
+  );
 
   const fetchReport = useCallback(async (pageOverride = page) => {
     setReportLoading(true);
@@ -864,6 +883,33 @@ export default function Events() {
                   ))}
                 </Select>
               </label>
+              <label className="flex min-w-[220px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
+                Eventos no relatório
+                <div className="mt-2 inline-flex w-full overflow-hidden rounded-lg border border-white/10 bg-[#0f141c] text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => handleReportEventScopeChange("all")}
+                    className={`flex-1 px-3 py-2 transition ${
+                      reportEventScope === "all"
+                        ? "bg-primary/20 text-white"
+                        : "text-white/60 hover:text-white"
+                    }`}
+                  >
+                    Todos
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleReportEventScopeChange("active")}
+                    className={`flex-1 px-3 py-2 transition ${
+                      reportEventScope === "active"
+                        ? "bg-primary/20 text-white"
+                        : "text-white/60 hover:text-white"
+                    }`}
+                  >
+                    Somente ativos
+                  </button>
+                </div>
+              </label>
               <label className="flex min-w-[190px] flex-1 flex-col text-xs uppercase tracking-wide text-white/60">
                 De
                 <input
@@ -958,50 +1004,24 @@ export default function Events() {
                 </tbody>
               </table>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3 px-2 pb-4 text-xs text-white/70">
-              <div className="flex items-center gap-2">
-                <span className="whitespace-nowrap">Itens por página</span>
-                <select
-                  value={pageSize}
-                  onChange={(event) => {
-                    const value = Number(event.target.value) || DEFAULT_PAGE_SIZE;
-                    setPageSize(value);
-                    setPage(1);
-                    if (reportGenerated) {
-                      fetchReport(1);
-                    }
-                  }}
-                  className="rounded border border-white/10 bg-[#0d1117] px-2 py-1 text-xs text-white"
-                >
-                  {PAGE_SIZE_OPTIONS.map((option) => (
-                    <option key={option} value={option} className="bg-[#0d1117] text-white">
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <span>
-                Página {currentPage} de {totalPages} • {totalItems} itens
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-                  onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentPage <= 1 || reportLoading}
-                >
-                  Anterior
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:opacity-50"
-                  onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage >= totalPages || reportLoading}
-                >
-                  Próxima
-                </button>
-              </div>
-            </div>
+            <DataTablePagination
+              pageSize={pageSize}
+              pageSizeOptions={PAGE_SIZE_OPTIONS}
+              onPageSizeChange={(value) => {
+                const nextValue = Number(value) || DEFAULT_PAGE_SIZE;
+                setPageSize(nextValue);
+                setPage(1);
+                if (reportGenerated) {
+                  fetchReport(1);
+                }
+              }}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalItems={totalItems}
+              onPageChange={(nextPage) => setPage(nextPage)}
+              disabled={reportLoading}
+              className="mt-4"
+            />
           </div>
         )}
 

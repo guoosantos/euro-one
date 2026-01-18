@@ -13,6 +13,7 @@ const DEFAULT_PREFERENCES = {
   monitoringDefaultFilters: null,
   monitoringLayoutVisibility: null,
   monitoringMapHeight: null,
+  reportEventScope: "active",
 };
 
 function normaliseColumns(columns) {
@@ -45,6 +46,7 @@ function normalisePreferences(raw) {
       typeof raw.monitoringLayoutVisibility === "object"
         ? { ...raw.monitoringLayoutVisibility }
         : null,
+    reportEventScope: raw.reportEventScope === "all" ? "all" : "active",
   };
 }
 
