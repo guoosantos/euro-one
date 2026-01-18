@@ -234,6 +234,20 @@ export default function VehicleDetailsDrawer({
   const [commandSending, setCommandSending] = useState(false);
   const [commandSendError, setCommandSendError] = useState(null);
 
+  const filteredCommandOptions = useMemo(
+    () => filterCommandsBySearch(commandOptions, commandSearch),
+    [commandOptions, commandSearch],
+  );
+  const selectedCommand = useMemo(
+    () => filteredCommandOptions.find((command) => getCommandKey(command) === selectedCommandKey) || null,
+    [filteredCommandOptions, selectedCommandKey],
+  );
+
+  useEffect(() => {
+    setCommandParams({});
+    setCommandSendError(null);
+  }, [selectedCommandKey]);
+
   const alertParams = useMemo(
     () => ({
       status: alertStatus,
@@ -707,14 +721,6 @@ export default function VehicleDetailsDrawer({
     }));
   }, [device, latestPosition, position]);
 
-  const filteredCommandOptions = useMemo(
-    () => filterCommandsBySearch(commandOptions, commandSearch),
-    [commandOptions, commandSearch],
-  );
-  const selectedCommand = useMemo(
-    () => filteredCommandOptions.find((command) => getCommandKey(command) === selectedCommandKey) || null,
-    [filteredCommandOptions, selectedCommandKey],
-  );
   const filteredItineraries = useMemo(() => {
     const query = itineraryQuery.trim().toLowerCase();
     if (!query) return itineraryList;
@@ -724,11 +730,6 @@ export default function VehicleDetailsDrawer({
       return name.includes(query) || description.includes(query);
     });
   }, [itineraryList, itineraryQuery]);
-
-  useEffect(() => {
-    setCommandParams({});
-    setCommandSendError(null);
-  }, [selectedCommandKey]);
 
   const renderContent = () => {
     if (!vehicle) {
