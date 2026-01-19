@@ -21,6 +21,10 @@ export default function MonitoringTable({
   columnWidths: externalWidths,
   onColumnWidthChange,
   onRowClick,
+  sortKey,
+  sortDir,
+  onSortChange,
+  sortableColumns = [],
 }) {
   const { t } = useTranslation();
   const normalizedColumns = useMemo(() => {
@@ -69,6 +73,10 @@ export default function MonitoringTable({
       return acc;
     }, {})
   ), [normalizedColumns]);
+  const sortableSet = useMemo(
+    () => new Set(Array.isArray(sortableColumns) ? sortableColumns : []),
+    [sortableColumns],
+  );
 
   useEffect(() => {
     liveWidthsRef.current = columnWidths;
@@ -190,6 +198,15 @@ export default function MonitoringTable({
           <tr>
             {normalizedColumns.map((col) => {
               const columnTitle = col.title || col.fullLabel || col.label;
+              const isSortable = sortableSet.has(col.key) && typeof onSortChange === "function";
+              const isActiveSort = isSortable && sortKey === col.key && sortDir;
+              const sortIndicator = isActiveSort
+                ? sortDir === "desc"
+                  ? "↓"
+                  : "↑"
+                : isSortable
+                  ? "↕"
+                  : null;
               return (
               <th
                 key={col.key}
@@ -200,7 +217,25 @@ export default function MonitoringTable({
               >
                 <div className="flex items-center justify-between gap-2 pr-2">
 
-                  <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={columnTitle}>{col.label}</span>
+                  {isSortable ? (
+                    <button
+                      type="button"
+                      onClick={() => onSortChange?.(col.key)}
+                      className="flex min-w-0 items-center gap-1 text-left text-white/70 transition hover:text-white"
+                      title={`Ordenar por ${columnTitle}`}
+                    >
+                      <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis">{col.label}</span>
+                      {sortIndicator && (
+                        <span className={`text-[10px] ${isActiveSort ? "text-white" : "text-white/40"}`}>
+                          {sortIndicator}
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <span className="truncate whitespace-nowrap overflow-hidden text-ellipsis" title={columnTitle}>
+                      {col.label}
+                    </span>
+                  )}
 
                   <span
                     role="separator"

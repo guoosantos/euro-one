@@ -258,6 +258,7 @@ export default function Devices() {
     vehicleId: "",
     productionDate: "",
     installationDate: "",
+    warrantyOrigin: "production",
     warrantyDays: "",
     warrantyEndDate: "",
   });
@@ -266,9 +267,10 @@ export default function Devices() {
   const [currentPage, setCurrentPage] = useState(1);
   const [bulkRows, setBulkRows] = useState([{ imei: "", internalCode: "", gprsCommunication: null }]);
   const [bulkGprsDefault, setBulkGprsDefault] = useState(true);
-  const [bulkPrefix, setBulkPrefix] = useState("");
-  const [bulkRangeStart, setBulkRangeStart] = useState("");
-  const [bulkRangeEnd, setBulkRangeEnd] = useState("");
+  const [bulkModelId, setBulkModelId] = useState("");
+  const [bulkImeiPrefix, setBulkImeiPrefix] = useState("");
+  const [bulkImeiStart, setBulkImeiStart] = useState("");
+  const [bulkImeiEnd, setBulkImeiEnd] = useState("");
   const [savingBulk, setSavingBulk] = useState(false);
   const [mapTarget, setMapTarget] = useState(null);
   const mapRef = useRef(null);
@@ -474,7 +476,8 @@ export default function Devices() {
   }, [conflictDevice, conflictMatch]);
 
   useEffect(() => {
-    const start = deviceForm.installationDate || deviceForm.productionDate;
+    const origin = deviceForm.warrantyOrigin || "production";
+    const start = origin === "installation" ? deviceForm.installationDate : deviceForm.productionDate;
     const days = Number(deviceForm.warrantyDays);
     if (!start || !Number.isFinite(days) || days <= 0) {
       if (deviceForm.warrantyEndDate) {
@@ -490,7 +493,13 @@ export default function Devices() {
     if (deviceForm.warrantyEndDate !== nextValue) {
       setDeviceForm((current) => ({ ...current, warrantyEndDate: nextValue }));
     }
-  }, [deviceForm.installationDate, deviceForm.productionDate, deviceForm.warrantyDays, deviceForm.warrantyEndDate]);
+  }, [
+    deviceForm.installationDate,
+    deviceForm.productionDate,
+    deviceForm.warrantyDays,
+    deviceForm.warrantyEndDate,
+    deviceForm.warrantyOrigin,
+  ]);
 
   const modeloById = useMemo(() => {
     const map = new Map();
@@ -647,7 +656,11 @@ export default function Devices() {
     const attrs = device?.attributes || {};
     let warrantyEnd = attrs.warrantyEndDate || attrs.warrantyUntil || attrs.warrantyDate || null;
     if (!warrantyEnd) {
-      const start = attrs.installationDate || attrs.warrantyStartDate || attrs.productionDate || null;
+      const origin = attrs.warrantyOrigin || "production";
+      const start =
+        origin === "installation"
+          ? attrs.installationDate || attrs.warrantyStartDate || null
+          : attrs.productionDate || attrs.warrantyStartDate || null;
       const days = Number(attrs.warrantyDays);
       if (start && Number.isFinite(days) && days > 0) {
         const parsed = new Date(start);
@@ -789,9 +802,15 @@ export default function Devices() {
 
     const rowErrors = normalizedRows.map((row) => {
       const errors = [];
+      if (!bulkModelId) {
+        errors.push("Selecione o modelo do lote.");
+      }
       if (!row.imei) {
         errors.push("Informe o IMEI.");
       } else {
+        if (!/^\d{8}$/.test(row.imei)) {
+          errors.push("IMEI deve ter 8 dígitos.");
+        }
         const key = row.imei.toLowerCase();
         if ((imeiCounts.get(key) || 0) > 1) errors.push("IMEI duplicado na lista.");
         if (existingImeis.has(key)) errors.push("IMEI já cadastrado.");
@@ -812,7 +831,7 @@ export default function Devices() {
       rowErrors,
       hasErrors: rowErrors.some((errors) => errors.length > 0),
     };
-  }, [bulkRows, devices]);
+  }, [bulkModelId, bulkRows, devices]);
 
   useEffect(() => {
     setModelDraft(filters.model || "");
@@ -932,6 +951,7 @@ export default function Devices() {
       vehicleId: "",
       productionDate: "",
       installationDate: "",
+      warrantyOrigin: "production",
       warrantyDays: "",
       warrantyEndDate: "",
     });
@@ -944,6 +964,23 @@ export default function Devices() {
       showToast("Informe o IMEI / uniqueId", "error");
       return;
     }
+    const warrantyOrigin = deviceForm.warrantyOrigin || "production";
+    const hasWarrantyDates = Boolean(deviceForm.productionDate || deviceForm.installationDate);
+    const warrantyDaysValue = deviceForm.warrantyDays === "" ? null : Number(deviceForm.warrantyDays);
+    const startDate =
+      warrantyOrigin === "installation" ? deviceForm.installationDate : deviceForm.productionDate;
+    if (hasWarrantyDates && (!Number.isFinite(warrantyDaysValue) || warrantyDaysValue <= 0)) {
+      showToast("Informe os dias de garantia para calcular o fim da garantia.", "error");
+      return;
+    }
+    if (Number.isFinite(warrantyDaysValue) && warrantyDaysValue > 0 && !startDate) {
+      showToast("Informe a data base para calcular a garantia.", "error");
+      return;
+    }
+    if (Number.isFinite(warrantyDaysValue) && warrantyDaysValue > 0 && !deviceForm.warrantyEndDate) {
+      showToast("Data fim da garantia não pode ficar vazia.", "error");
+      return;
+    }
     const currentDevice = editingId ? devices.find((item) => String(item.id) === String(editingId)) : null;
     const clientId = tenantId || user?.clientId || currentDevice?.clientId || "";
     if (!clientId) {
@@ -954,10 +991,8 @@ export default function Devices() {
     try {
       const warrantyPayload = {};
       if (deviceForm.productionDate) warrantyPayload.productionDate = deviceForm.productionDate;
-      if (deviceForm.installationDate) {
-        warrantyPayload.installationDate = deviceForm.installationDate;
-        warrantyPayload.warrantyStartDate = deviceForm.installationDate;
-      }
+      if (deviceForm.installationDate) warrantyPayload.installationDate = deviceForm.installationDate;
+      if (deviceForm.warrantyOrigin) warrantyPayload.warrantyOrigin = deviceForm.warrantyOrigin;
       if (deviceForm.warrantyDays !== "") warrantyPayload.warrantyDays = Number(deviceForm.warrantyDays) || 0;
       if (deviceForm.warrantyEndDate) warrantyPayload.warrantyEndDate = deviceForm.warrantyEndDate;
       if (deviceForm.internalCode) warrantyPayload.internalCode = deviceForm.internalCode;
@@ -1017,6 +1052,40 @@ export default function Devices() {
     }
   }
 
+  function resolveInternalCodeSequence(code) {
+    if (!code) return null;
+    const match = String(code).trim().match(/-(\d+)$/);
+    if (!match) return null;
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? value : null;
+  }
+
+  function resolveModelPrefix(model) {
+    const rawPrefix = model?.prefix ?? model?.internalPrefix ?? model?.codePrefix ?? null;
+    if (rawPrefix === null || rawPrefix === undefined) return null;
+    if (typeof rawPrefix === "number" && Number.isFinite(rawPrefix)) {
+      return String(rawPrefix).padStart(2, "0");
+    }
+    const normalized = String(rawPrefix).trim();
+    return normalized || null;
+  }
+
+  function resolveNextInternalCode(prefix, rows = []) {
+    if (!prefix) return "";
+    const sequences = [];
+    devices.forEach((device) => {
+      const code = device.attributes?.internalCode || device.internalCode;
+      const seq = resolveInternalCodeSequence(code);
+      if (seq !== null) sequences.push(seq);
+    });
+    rows.forEach((row) => {
+      const seq = resolveInternalCodeSequence(row.internalCode);
+      if (seq !== null) sequences.push(seq);
+    });
+    const max = sequences.length ? Math.max(...sequences) : 0;
+    return `${prefix}-${max + 1}`;
+  }
+
   function handleBulkRowChange(index, key, value) {
     setBulkRows((current) =>
       current.map((row, rowIndex) => (rowIndex === index ? { ...row, [key]: value } : row)),
@@ -1024,7 +1093,12 @@ export default function Devices() {
   }
 
   function handleAddBulkRow() {
-    setBulkRows((current) => [...current, { imei: "", internalCode: "", gprsCommunication: null }]);
+    setBulkRows((current) => {
+      const model = bulkModelId ? modeloById.get(bulkModelId) : null;
+      const prefix = resolveModelPrefix(model);
+      const internalCode = resolveNextInternalCode(prefix, current);
+      return [...current, { imei: "", internalCode, gprsCommunication: null }];
+    });
   }
 
   function handleRemoveBulkRow(index) {
@@ -1035,20 +1109,43 @@ export default function Devices() {
   }
 
   function handleGenerateBulkCodes() {
-    const prefix = String(bulkPrefix || "").trim();
-    const start = Number(bulkRangeStart);
-    const end = Number(bulkRangeEnd);
-    if (!prefix) {
-      showToast("Informe o prefixo para gerar códigos", "error");
+    const imeiPrefix = String(bulkImeiPrefix || "").trim();
+    const start = Number(bulkImeiStart);
+    const end = Number(bulkImeiEnd);
+    const model = bulkModelId ? modeloById.get(bulkModelId) : null;
+    const internalPrefix = resolveModelPrefix(model);
+
+    if (!bulkModelId) {
+      showToast("Selecione um modelo para o lote.", "error");
+      return;
+    }
+    if (!internalPrefix) {
+      showToast("O modelo selecionado não possui prefixo para gerar ID.", "error");
+      return;
+    }
+    if (!imeiPrefix || !/^\d+$/.test(imeiPrefix)) {
+      showToast("Informe um prefixo numérico para gerar IMEIs.", "error");
+      return;
+    }
+    if (imeiPrefix.length >= 8) {
+      showToast("Prefixo do IMEI deve ter até 7 dígitos.", "error");
       return;
     }
     if (!Number.isFinite(start) || !Number.isFinite(end) || start <= 0 || end <= 0 || start > end) {
-      showToast("Informe um intervalo válido para gerar códigos", "error");
+      showToast("Informe um intervalo válido para gerar IMEIs.", "error");
       return;
     }
+    const suffixLength = 8 - imeiPrefix.length;
+    const baseSequence = resolveInternalCodeSequence(resolveNextInternalCode(internalPrefix)) || 1;
     const nextRows = [];
+    let sequence = baseSequence;
     for (let current = start; current <= end; current += 1) {
-      nextRows.push({ imei: "", internalCode: `${prefix}${current}` });
+      const imeiSuffix = String(current).padStart(suffixLength, "0");
+      nextRows.push({
+        imei: `${imeiPrefix}${imeiSuffix}`,
+        internalCode: `${internalPrefix}-${sequence}`,
+      });
+      sequence += 1;
     }
     setBulkRows(
       nextRows.length
@@ -1071,6 +1168,10 @@ export default function Devices() {
       showToast("Corrija os erros antes de salvar em massa.", "error");
       return;
     }
+    if (!bulkModelId) {
+      showToast("Selecione um modelo para o cadastro em massa.", "error");
+      return;
+    }
     const clientId = tenantId || user?.clientId || "";
     if (!clientId) {
       showToast("Selecione um cliente para salvar os equipamentos", "error");
@@ -1080,22 +1181,22 @@ export default function Devices() {
     try {
       for (const row of bulkRows) {
         const uniqueId = String(row.imei || "").trim();
-        const internalCode = String(row.internalCode || "").trim();
-        if (!uniqueId || !internalCode) continue;
+        if (!uniqueId) continue;
         const gprsCommunication = resolveBulkGprsCommunication(row);
         await CoreApi.createDevice({
           uniqueId,
-          internalCode,
+          modelId: bulkModelId,
           clientId,
           gprsCommunication,
-          attributes: { internalCode, gprsCommunication },
+          attributes: { gprsCommunication },
         });
       }
       await load();
       setBulkRows([{ imei: "", internalCode: "", gprsCommunication: null }]);
-      setBulkPrefix("");
-      setBulkRangeStart("");
-      setBulkRangeEnd("");
+      setBulkModelId("");
+      setBulkImeiPrefix("");
+      setBulkImeiStart("");
+      setBulkImeiEnd("");
       showToast("Equipamentos cadastrados em massa", "success");
     } catch (requestError) {
       showToast(requestError?.message || "Falha ao cadastrar equipamentos em massa", "error");
@@ -1142,6 +1243,7 @@ export default function Devices() {
 
   function openEditDevice(device) {
     const installationDate = device.attributes?.installationDate || device.attributes?.warrantyStartDate || "";
+    const warrantyOrigin = device.attributes?.warrantyOrigin || "production";
     setEditingId(device.id);
     setDeviceForm({
       name: device.name || "",
@@ -1154,6 +1256,7 @@ export default function Devices() {
       vehicleId: device.vehicleId || "",
       productionDate: device.attributes?.productionDate || "",
       installationDate,
+      warrantyOrigin,
       warrantyDays: device.attributes?.warrantyDays ?? "",
       warrantyEndDate: device.attributes?.warrantyEndDate || "",
     });
@@ -1496,8 +1599,8 @@ export default function Devices() {
       )}
 
       <div className="flex flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
-          <DataTable className="flex-1 min-h-0 overflow-auto" tableClassName="text-white/80 table-auto w-full">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10" tableClassName="text-white/80 table-auto w-full">
             <thead className="sticky top-0 bg-white/5 text-xs uppercase tracking-wide text-white/60 backdrop-blur">
               <tr>
                 <th className="px-3 py-3 text-left">ID / IMEI</th>
@@ -1650,10 +1753,11 @@ export default function Devices() {
               placeholder="Ex.: 866512345678901"
             />
             <Input
-              label="Código interno"
+              label="Código interno (gerado automaticamente)"
               value={deviceForm.internalCode}
               onChange={(event) => setDeviceForm((current) => ({ ...current, internalCode: event.target.value }))}
-              placeholder="Ex.: INT-2024-045"
+              placeholder="Gerado automaticamente"
+              disabled
             />
             <div className="md:col-span-2">
               <label className="text-xs uppercase tracking-[0.1em] text-white/60">Modelo</label>
@@ -1842,6 +1946,7 @@ export default function Devices() {
                 type="date"
                 value={deviceForm.installationDate}
                 onChange={(event) => setDeviceForm((current) => ({ ...current, installationDate: event.target.value }))}
+                required
               />
               <Input
                 label="Dias de garantia"
@@ -1872,32 +1977,45 @@ export default function Devices() {
         {drawerTab === "massa" && (
           <div className="space-y-4">
             <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-white/80">
-              <div className="text-xs uppercase tracking-[0.1em] text-white/50">Gerar códigos automáticos</div>
+              <div className="text-xs uppercase tracking-[0.1em] text-white/50">Gerar IMEIs em lote</div>
               <p className="mt-1 text-xs text-white/60">
-                Informe prefixo e intervalo para gerar códigos internos automaticamente.
+                Selecione o modelo e informe prefixo e intervalo para gerar IMEIs com 8 dígitos.
               </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="text-xs uppercase tracking-[0.1em] text-white/60">
+                  Modelo do lote
+                  <AutocompleteSelect
+                    value={bulkModelId}
+                    onChange={(nextValue) => setBulkModelId(String(nextValue || ""))}
+                    placeholder="Buscar modelo"
+                    options={modelOptions}
+                    loadOptions={loadModelOptions}
+                    className="mt-2"
+                  />
+                </label>
+              </div>
               <div className="mt-3 grid gap-3 md:grid-cols-4">
                 <Input
-                  label="Prefixo"
-                  value={bulkPrefix}
-                  onChange={(event) => setBulkPrefix(event.target.value)}
-                  placeholder="Ex.: 01-"
+                  label="Prefixo do IMEI"
+                  value={bulkImeiPrefix}
+                  onChange={(event) => setBulkImeiPrefix(event.target.value)}
+                  placeholder="Ex.: 25300"
                 />
                 <Input
                   label="Início"
                   type="number"
                   min="1"
-                  value={bulkRangeStart}
-                  onChange={(event) => setBulkRangeStart(event.target.value)}
-                  placeholder="2601"
+                  value={bulkImeiStart}
+                  onChange={(event) => setBulkImeiStart(event.target.value)}
+                  placeholder="1"
                 />
                 <Input
                   label="Fim"
                   type="number"
                   min="1"
-                  value={bulkRangeEnd}
-                  onChange={(event) => setBulkRangeEnd(event.target.value)}
-                  placeholder="2699"
+                  value={bulkImeiEnd}
+                  onChange={(event) => setBulkImeiEnd(event.target.value)}
+                  placeholder="100"
                 />
                 <div className="flex items-end">
                   <Button type="button" onClick={handleGenerateBulkCodes} className="w-full">
@@ -1911,7 +2029,7 @@ export default function Devices() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <div className="text-xs uppercase tracking-[0.1em] text-white/50">Cadastro em massa</div>
-                  <p className="text-xs text-white/60">Preencha IMEI e código interno para cada item.</p>
+                  <p className="text-xs text-white/60">Preencha IMEI e acompanhe o ID automático.</p>
                 </div>
                 <Button type="button" variant="ghost" onClick={handleAddBulkRow}>
                   Adicionar linha
@@ -1945,10 +2063,10 @@ export default function Devices() {
                           placeholder="Digite o IMEI"
                         />
                         <Input
-                          label="Código interno"
+                          label="Código interno (auto)"
                           value={row.internalCode}
-                          onChange={(event) => handleBulkRowChange(index, "internalCode", event.target.value)}
-                          placeholder="Ex.: 01-100"
+                          placeholder="Gerado automaticamente"
+                          disabled
                         />
                         <label className="text-xs uppercase tracking-[0.1em] text-white/60">
                           Comunicação GPRS

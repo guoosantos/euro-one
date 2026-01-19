@@ -132,7 +132,7 @@ export default function Equipamentos(){
       )}
 
       {tab==="lista" && (
-        <div className="rounded-2xl border border-white/10 overflow-x-auto">
+        <div className="border border-white/10 overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="bg-white/5">
               <tr className="text-left">
@@ -143,13 +143,15 @@ export default function Equipamentos(){
             </thead>
             <tbody>
               {devices.length===0 && <tr><td className="p-3 opacity-60" colSpan={3}>Nenhum equipamento.</td></tr>}
-              {devices.map(d => (
+              {devices.map(d => {
+                const modelId = d.modelId || d.attributes?.modelId || "";
+                return (
                 <tr key={d.id} className="border-t border-white/10">
                   <td className="p-2">{d.name||"—"}</td>
                   <td className="p-2">{d.uniqueId||d.phone||d.id}</td>
-                  <td className="p-2">{(modeloById[d.modelId||""]?.name) || "—"}</td>
+                  <td className="p-2">{(modeloById[modelId]?.name) || "—"}</td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>

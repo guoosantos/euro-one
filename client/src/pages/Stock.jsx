@@ -791,8 +791,8 @@ export default function Stock() {
           </div>
 
           <div className="flex flex-col">
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
-              <DataTable className="flex-1 min-h-0 overflow-auto">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              <DataTable className="flex-1 min-h-0 overflow-auto border border-white/10">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
                   <tr className="text-left">
                     <th className="px-4 py-3">Selecionar</th>

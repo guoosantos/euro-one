@@ -4824,7 +4824,39 @@ function resolveItineraryAddress(entry) {
   return { address, latitude, longitude };
 }
 
-async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope = "active" }) {
+const ANALYTIC_SORT_KEYS = new Set(["deviceTime", "serverTime", "gpsTime"]);
+
+function normalizeAnalyticSortBy(value) {
+  if (!value) return null;
+  const key = String(value).trim();
+  return ANALYTIC_SORT_KEYS.has(key) ? key : null;
+}
+
+function normalizeAnalyticSortDir(value) {
+  if (!value) return null;
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === "asc") return "asc";
+  if (normalized === "desc") return "desc";
+  return null;
+}
+
+function resolveAnalyticSortTime(entry, sortBy) {
+  if (!entry) return 0;
+  const candidate =
+    entry?.[sortBy] ??
+    entry?.row?.[sortBy] ??
+    entry?.timestamp ??
+    entry?.deviceTime ??
+    entry?.serverTime ??
+    null;
+  const parsed = candidate ? new Date(candidate).getTime() : 0;
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function buildAnalyticReportData(
+  req,
+  { vehicleId, from, to, addressFilter, pagination, reportEventScope = "active", sortBy, sortDir },
+) {
   const positionsReport = await buildPositionsReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
   const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
   const commandHistory = await fetchCommandHistoryForVehicle(req, { vehicleId, from, to, clientId }).catch(() => []);
@@ -4992,9 +5024,15 @@ async function buildAnalyticReportData(req, { vehicleId, from, to, addressFilter
 
   const signalLossEntries = buildSignalLossEntries(analyticPositions);
 
+  const resolvedSortBy = normalizeAnalyticSortBy(sortBy);
+  const resolvedSortDir = normalizeAnalyticSortDir(sortDir) || "asc";
   const entries = [...positionEntries, ...commandEntries, ...auditActionEntries, ...itineraryEntries, ...signalLossEntries]
     .filter((entry) => entry.timestamp)
-    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    .sort((a, b) => {
+      const aTime = resolveAnalyticSortTime(a, resolvedSortBy);
+      const bTime = resolveAnalyticSortTime(b, resolvedSortBy);
+      return resolvedSortDir === "desc" ? bTime - aTime : aTime - bTime;
+    });
 
   const analyticMeta = { ...positionsReport.meta, protocol, deviceModel };
   const extraKeys = ["eventType", "blocked", "whoSent"];
@@ -5051,7 +5089,18 @@ async function runAnalyticExportJob({ jobId, payload, user }) {
     const reportEventScope = normalizeReportEventScope(payload?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(jobReq, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
+    const sortBy = normalizeAnalyticSortBy(payload?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(payload?.sortDir);
+    const report = await buildAnalyticReportData(jobReq, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      reportEventScope,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(payload?.availableColumns) && payload.availableColumns.length
       ? payload.availableColumns
       : report?.meta?.availableColumns;
@@ -5359,7 +5408,18 @@ router.get("/reports/analytic", async (req, res) => {
     const pagination = normalizePagination(req.query);
     const reportEventScope = normalizeReportEventScope(req.query?.reportEventScope);
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
+    const sortBy = normalizeAnalyticSortBy(req.query?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.query?.sortDir);
+    const report = await buildAnalyticReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      reportEventScope,
+      sortBy,
+      sortDir,
+    });
     recordReportAudit({
       req,
       reportName: "Relatório Analítico",
@@ -5547,7 +5607,18 @@ router.post("/reports/analytic/pdf", async (req, res) => {
     const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
+    const report = await buildAnalyticReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      reportEventScope,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -5633,7 +5704,18 @@ router.post("/reports/analytic/xlsx", async (req, res) => {
     const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
+    const report = await buildAnalyticReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      reportEventScope,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;
@@ -5720,7 +5802,18 @@ router.post("/reports/analytic/csv", async (req, res) => {
     const reportEventScope = normalizeReportEventScope(req.body?.reportEventScope);
     const pagination = { page: 1, limit: null };
 
-    const report = await buildAnalyticReportData(req, { vehicleId, from, to, addressFilter, pagination, reportEventScope });
+    const sortBy = normalizeAnalyticSortBy(req.body?.sortBy);
+    const sortDir = normalizeAnalyticSortDir(req.body?.sortDir);
+    const report = await buildAnalyticReportData(req, {
+      vehicleId,
+      from,
+      to,
+      addressFilter,
+      pagination,
+      reportEventScope,
+      sortBy,
+      sortDir,
+    });
     const availableColumns = Array.isArray(req.body?.availableColumns) && req.body.availableColumns.length
       ? req.body.availableColumns
       : report?.meta?.availableColumns;

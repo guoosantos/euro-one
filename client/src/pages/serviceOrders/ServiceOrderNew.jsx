@@ -424,6 +424,7 @@ export default function ServiceOrderNew() {
         equipmentsData: equipments,
         checklistItems: checklist,
         notes: form.notes || null,
+        warrantyFromInstallation,
       };
       if (hasSignatures) {
         payload.signatures = {
@@ -436,28 +437,6 @@ export default function ServiceOrderNew() {
 
       if (!response?.data?.ok) {
         throw new Error(response?.data?.error || "Falha ao criar OS");
-      }
-
-      if (warrantyFromInstallation && form.type === "Instalação" && serviceDate) {
-        const startDate = serviceDate.toISOString().slice(0, 10);
-        const updates = equipments.map(async (equipment) => {
-          const device = devicesById.get(String(equipment.equipmentId));
-          if (!device) return;
-          const warrantyDays = Number(device.attributes?.warrantyDays || 0);
-          if (!Number.isFinite(warrantyDays) || warrantyDays <= 0) return;
-          const end = new Date(serviceDate);
-          end.setDate(end.getDate() + warrantyDays);
-          const endDate = end.toISOString().slice(0, 10);
-          await CoreApi.updateDevice(device.id, {
-            attributes: {
-              ...device.attributes,
-              installationDate: startDate,
-              warrantyStartDate: startDate,
-              warrantyEndDate: endDate,
-            },
-          });
-        });
-        await Promise.allSettled(updates);
       }
 
       setCreatedOrder(response.data.item || null);
