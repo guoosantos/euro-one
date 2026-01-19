@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import createError from "http-errors";
 
 import { config } from "../config.js";
+import { enforceUserAccess } from "./user-access.js";
 
 export function signSession(payload) {
   return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
@@ -49,8 +50,9 @@ export function authenticate(req, _res, next) {
   if (!token) {
     return next(createError(401, "Token ausente"));
   }
+  let decoded;
   try {
-    const decoded = jwt.verify(token, config.jwt.secret);
+    decoded = jwt.verify(token, config.jwt.secret);
     req.sessionToken = token;
     req.user = {
       ...decoded,
@@ -62,10 +64,15 @@ export function authenticate(req, _res, next) {
     if (!req.clientId) {
       req.clientId = req.user.clientId ?? null;
     }
-    return next();
   } catch (error) {
     return next(createError(401, "Token inválido ou expirado"));
   }
+  try {
+    enforceUserAccess(req);
+  } catch (accessError) {
+    return next(accessError);
+  }
+  return next();
 }
 
 // Alias para compatibilidade com imports antigos

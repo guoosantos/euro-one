@@ -36,6 +36,7 @@ import alertRoutes from "./routes/alerts.js";
 import serviceOrderRoutes from "./routes/service-orders.js";
 import xdmRoutes from "./routes/xdm.js";
 import xdmAdminRoutes from "./routes/xdm-admin.js";
+import mirrorRoutes from "./routes/mirrors.js";
 import { errorHandler } from "./middleware/error-handler.js";
 
 const app = express();
@@ -100,6 +101,7 @@ app.use("/api", routeRoutes);
 app.use("/api", clientRoutes);
 app.use("/api", groupRoutes);
 app.use("/api", userRoutes);
+app.use("/api", mirrorRoutes);
 app.use("/api", moduleRoutes);
 app.use("/api", analyticsRoutes);
 app.use("/api", exportRoutes);

@@ -20,6 +20,7 @@ import { recordAuditEvent, resolveRequestIp } from "../services/audit-log.js";
 import { ingestSignalStateEvents } from "../services/signal-events.js";
 import { listTelemetryFieldMappings } from "../models/tracker-mapping.js";
 import { createUser, getUserById, updateUser } from "../models/user.js";
+import { listMirrors } from "../models/mirror.js";
 import { config } from "../config.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
 import * as addressUtils from "../utils/address.js";
@@ -105,6 +106,28 @@ function parsePagination(query) {
   const pageSize = Math.min(100, Math.max(1, Number(query?.pageSize) || 20));
   const start = (page - 1) * pageSize;
   return { page, pageSize, start };
+}
+
+function isMirrorActive(mirror, now = new Date()) {
+  if (!mirror) return false;
+  const start = mirror.startAt ? new Date(mirror.startAt) : null;
+  const end = mirror.endAt ? new Date(mirror.endAt) : null;
+  if (start && Number.isNaN(start.getTime())) return false;
+  if (end && Number.isNaN(end.getTime())) return false;
+  if (start && now < start) return false;
+  if (end && now > end) return false;
+  return true;
+}
+
+function mergeVehicles(primary = [], secondary = []) {
+  const map = new Map(primary.map((vehicle) => [String(vehicle.id), vehicle]));
+  secondary.forEach((vehicle) => {
+    const key = String(vehicle.id);
+    if (!map.has(key)) {
+      map.set(key, vehicle);
+    }
+  });
+  return Array.from(map.values());
 }
 
 function filterMappingsForDevice(mappings = [], { deviceId = null, protocol = null } = {}) {
@@ -2136,6 +2159,7 @@ router.get("/technicians", async (req, res, next) => {
       throw createError(503, "Banco de dados indisponível");
     }
     const isAdmin = req.user?.role === "admin";
+    let mirrorOwnerIds = [];
     const isManager = req.user?.role === "manager";
     const includeDetails = isAdmin || isManager;
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: !isAdmin });
@@ -2499,8 +2523,40 @@ router.get("/vehicles", async (req, res, next) => {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const query = String(req.query?.query || "").trim().toLowerCase();
     const { page, pageSize, start } = parsePagination(req.query);
-    const vehicles = deps.listVehicles({ clientId });
-    const devices = deps.listDevices({ clientId });
+    const isAdmin = req.user?.role === "admin";
+    const accessVehicleIds =
+      req.user?.attributes?.userAccess?.vehicleAccess?.mode === "selected"
+        ? new Set((req.user?.attributes?.userAccess?.vehicleAccess?.vehicleIds || []).map(String))
+        : null;
+    let vehicles = deps.listVehicles({ clientId });
+    if (!isAdmin && req.user?.clientId) {
+      const client = await deps.getClientById(req.user.clientId).catch(() => null);
+      const clientType = client?.attributes?.clientProfile?.clientType || client?.attributes?.clientType || "";
+      const isReceiver = ["GERENCIADORA", "SEGURADORA", "GERENCIADORA DE RISCO", "COMPANHIA DE SEGURO"]
+        .includes(String(clientType).toUpperCase());
+      const mirrors = listMirrors({ targetClientId: req.user.clientId }).filter((mirror) =>
+        isMirrorActive(mirror),
+      );
+      if (mirrors.length) {
+        mirrorOwnerIds = mirrors.map((mirror) => mirror.ownerClientId).filter(Boolean);
+        const mirroredVehicles = mirrors.flatMap((mirror) => {
+          const ownerVehicles = deps.listVehicles({ clientId: mirror.ownerClientId });
+          const allowedIds = new Set((mirror.vehicleIds || []).map(String));
+          return ownerVehicles.filter((vehicle) => allowedIds.has(String(vehicle.id)));
+        });
+        vehicles = isReceiver ? mirroredVehicles : mergeVehicles(vehicles, mirroredVehicles);
+      } else if (isReceiver) {
+        vehicles = [];
+      }
+    }
+    if (accessVehicleIds) {
+      vehicles = vehicles.filter((vehicle) => accessVehicleIds.has(String(vehicle.id)));
+    }
+    let devices = deps.listDevices({ clientId });
+    if (mirrorOwnerIds.length) {
+      const extraDevices = mirrorOwnerIds.flatMap((ownerId) => deps.listDevices({ clientId: ownerId }));
+      devices = mergeVehicles(devices, extraDevices);
+    }
     const monitoringDevices = devices.filter((device) => device?.attributes?.gprsCommunication !== false);
     console.info("[vehicles] listagem para API", { clientId: clientId || null, vehicles: vehicles.length, devices: devices.length });
     const traccarDevices = deps.getCachedTraccarResources("devices");
