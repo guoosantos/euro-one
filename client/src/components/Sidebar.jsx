@@ -149,6 +149,7 @@ export default function Sidebar() {
 
   const clientLink = { to: "/clients", label: "Clientes", icon: Users };
   const userLink = { to: "/users", label: "Usuários", icon: User };
+  const mirrorsReceivedLink = { to: "/mirrors/received", label: "Espelhamentos recebidos", icon: Users };
 
   const primaryLinks = [
     { to: "/home", label: "Home", icon: Home },
@@ -208,7 +209,10 @@ export default function Sidebar() {
     role === "admin" && isEuroImportEnabled
       ? { to: "/admin/import-euro-xlsx", label: "Importar Base (XLSX)", icon: UploadCloud }
       : null;
-  const adminLinks = [...(canManageUsers ? [clientLink, userLink] : []), ...(importLink ? [importLink] : [])];
+  const adminLinks = [
+    ...(canManageUsers ? [clientLink, userLink, mirrorsReceivedLink] : []),
+    ...(importLink ? [importLink] : []),
+  ];
 
   const euroCanLinks = [
     { to: "/fuel", label: "Combustível", icon: Flame },

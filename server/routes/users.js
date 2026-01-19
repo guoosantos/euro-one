@@ -143,4 +143,46 @@ router.delete("/users/:id", (req, res, next) => {
   }
 });
 
+router.post("/users/:id/transfer-access", async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { toUserId } = req.body || {};
+    if (!toUserId) {
+      throw createError(400, "toUserId é obrigatório");
+    }
+    const source = await getUserById(id, { includeSensitive: true });
+    if (!source) {
+      throw createError(404, "Usuário origem não encontrado");
+    }
+    const target = await getUserById(toUserId, { includeSensitive: true });
+    if (!target) {
+      throw createError(404, "Usuário destino não encontrado");
+    }
+    if (req.user.role !== "admin") {
+      ensureClientAccess(req.user, source.clientId);
+      ensureClientAccess(req.user, target.clientId);
+      if (String(source.clientId) !== String(target.clientId)) {
+        throw createError(403, "Usuários devem pertencer ao mesmo cliente");
+      }
+      if (source.role === "admin" || target.role === "admin") {
+        throw createError(403, "Não é permitido transferir acesso de administradores");
+      }
+    }
+
+    const sourceAttributes = source.attributes || {};
+    const targetAttributes = target.attributes || {};
+    const nextAttributes = {
+      ...targetAttributes,
+      userAccess: sourceAttributes.userAccess || targetAttributes.userAccess,
+      permissionGroupId: sourceAttributes.permissionGroupId || null,
+      mirrorAccess: sourceAttributes.mirrorAccess || targetAttributes.mirrorAccess,
+    };
+
+    const updated = await updateUser(toUserId, { attributes: nextAttributes });
+    return res.json({ user: updated });
+  } catch (error) {
+    return next(error);
+  }
+});
+
 export default router;
