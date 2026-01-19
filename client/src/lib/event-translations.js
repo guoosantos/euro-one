@@ -55,8 +55,19 @@ const EVENT_LABELS = {
   "en-US": EVENT_LABELS_PT,
 };
 
-const POSITION_LABEL_PT = "Posição registrada";
+const POSITION_LABEL_PT = "Posição";
+const POSITION_REGISTERED_LABELS = new Set(["posicao registrada", "position registered"]);
 const GENERIC_EVENT_LABELS_PT = new Set(["Evento padrão", "Evento do dispositivo"]);
+
+const stripDiacritics = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+const isPositionRegisteredLabel = (label) => {
+  if (!label) return false;
+  const normalized = stripDiacritics(label).toLowerCase().trim();
+  return POSITION_REGISTERED_LABELS.has(normalized);
+};
+
+const normalizePositionLabel = (label) => (isPositionRegisteredLabel(label) ? POSITION_LABEL_PT : label);
 
 const EVENT_SEVERITY = {
   deviceoffline: "high",
@@ -396,6 +407,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
   }
 
   const payloadEventLabel = resolvePayloadEventLabel(payload);
+  const normalizedPayloadLabel = normalizePositionLabel(payloadEventLabel);
   const payloadEventSeverity = resolvePayloadEventSeverity(payload);
   const payloadEventActive = resolvePayloadEventActive(payload);
   if (payloadEventActive === false) {
@@ -417,7 +429,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
     };
   }
   if (payloadEventLabel) {
-    if (shouldFallbackToPosition(payloadEventLabel, payload)) {
+    if (isPositionRegisteredLabel(payloadEventLabel) || shouldFallbackToPosition(payloadEventLabel, payload)) {
       return {
         label: POSITION_LABEL_PT,
         raw: candidate,
@@ -432,7 +444,7 @@ export function resolveEventDefinition(rawType, locale = "pt-BR", fallbackTransl
         ? J16_EVENT_DEFINITIONS[candidate]
         : null;
     return {
-      label: payloadEventLabel,
+      label: normalizedPayloadLabel,
       raw: candidate,
       type: "event",
       icon: null,
@@ -641,7 +653,7 @@ export function resolveEventDefinitionFromPayload(payload = {}, locale = "pt-BR"
   const protocolKey = normalizeProtocol(protocol);
   const iotmSignalLabel = protocolKey === "iotm" ? resolveIotmSignalLabel(payload) : null;
   if (iotmSignalLabel) {
-    const normalizedLabel = String(definition?.label || "").trim();
+    const normalizedLabel = normalizePositionLabel(String(definition?.label || "").trim());
     const shouldOverride =
       !normalizedLabel ||
       normalizedLabel === POSITION_LABEL_PT ||

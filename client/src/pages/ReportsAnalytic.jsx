@@ -31,10 +31,32 @@ import { getSeverityBadgeClassName, resolveSeverityLabel } from "../lib/severity
 const COLUMN_STORAGE_KEY = "reports:analytic:columns";
 const DEFAULT_RADIUS_METERS = 100;
 const DEFAULT_PAGE_SIZE = 50;
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
+const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
 const IO_EVENT_INPUTS = [2, 4];
 const IO_EVENT_STATUS_RESET = "Veículo voltou ao normal";
-const POSITION_FALLBACK_LABEL = "Posição registrada";
+const POSITION_FALLBACK_LABEL = "Posição";
+const POSITION_TYPE_LABEL = "Registrada";
+const POSITION_REGISTERED_LABELS = new Set(["posicao registrada", "position registered"]);
+
+const stripDiacritics = (value) => String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const normalizePositionKey = (value) => stripDiacritics(value).toLowerCase().trim();
+const isPositionRegisteredLabel = (value) => POSITION_REGISTERED_LABELS.has(normalizePositionKey(value));
+
+const normalizePositionEventFields = (event, eventType) => {
+  const normalizedEvent = normalizePositionKey(event || "");
+  const normalizedType = normalizePositionKey(eventType || "");
+  const isRegistered = isPositionRegisteredLabel(event) || isPositionRegisteredLabel(eventType);
+  if (isRegistered) {
+    return { event: POSITION_FALLBACK_LABEL, eventType: POSITION_TYPE_LABEL };
+  }
+  if (normalizedEvent === "posicao" && !eventType) {
+    return { event: POSITION_FALLBACK_LABEL, eventType: POSITION_TYPE_LABEL };
+  }
+  if (normalizedEvent === "posicao" && normalizedType === "posicao") {
+    return { event: POSITION_FALLBACK_LABEL, eventType: POSITION_TYPE_LABEL };
+  }
+  return { event, eventType };
+};
 
 const FALLBACK_COLUMNS = positionsColumns.map((column) => {
   const label = resolveColumnLabel(column, "pt");
@@ -426,12 +448,15 @@ export default function ReportsAnalytic() {
 
   const buildPositionRow = useCallback(
     (position) => {
+      const normalizedEventFields = normalizePositionEventFields(position.event, position.eventType);
+      const resolvedEvent = normalizedEventFields.event ?? position.event;
+      const resolvedEventType = normalizedEventFields.eventType ?? position.eventType;
+      const isPositionEntry =
+        resolvedEvent === POSITION_FALLBACK_LABEL && resolvedEventType === POSITION_TYPE_LABEL;
       const resolvedEventSeverity = normalizeReportSeverity(
         position.eventSeverity ||
           position.criticality ||
-          ((position.eventType === POSITION_FALLBACK_LABEL || position.event === POSITION_FALLBACK_LABEL)
-            ? "Informativa"
-            : null),
+          (isPositionEntry ? "Informativa" : null),
       );
       const row = {
         key: position.id ?? `${position.gpsTime}-${position.latitude}-${position.longitude}`,
@@ -463,8 +488,8 @@ export default function ReportsAnalytic() {
         commandResponse: position.commandResponse || "—",
         deviceStatusEvent: position.deviceStatusEvent || "—",
         deviceStatus: position.deviceStatus || "Dado não disponível",
-        event: position.event || "—",
-        eventType: position.eventType || "—",
+        event: resolvedEvent || "—",
+        eventType: resolvedEventType || "—",
         eventSeverity: resolvedEventSeverity,
         whoSent: position.whoSent || "—",
         blocked: position.blocked || "—",
@@ -1185,45 +1210,47 @@ export default function ReportsAnalytic() {
           </div>
         )}
         </form>
-        <section className="flex-1 min-h-0 w-full space-y-4">
-        {timelineRows.length ? (
-          <MonitoringTable
-            rows={
-              hideUnavailableIgnition
-                ? timelineRows.filter(
-                    (row) =>
-                      row.entryType !== "position" ||
-                      (row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível"),
-                  )
-                : timelineRows
-            }
-            columns={visibleColumnsWithWidths}
-            loading={loading || loadingMore}
-            emptyText="Nenhum registro encontrado para o período selecionado."
-            columnWidths={columnPrefs?.widths}
-            onColumnWidthChange={handleColumnWidthChange}
-            liveGeocode={false}
-          />
-        ) : (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/60">
-            {hasGenerated
-              ? "Nenhum registro encontrado para o período selecionado."
-              : "Selecione o veículo e gere o relatório para visualizar a linha do tempo."}
+        <section className="flex min-h-0 w-full flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+            {timelineRows.length ? (
+              <MonitoringTable
+                rows={
+                  hideUnavailableIgnition
+                    ? timelineRows.filter(
+                        (row) =>
+                          row.entryType !== "position" ||
+                          (row.ignition !== "Dado não disponível" && row.vehicleState !== "Dado não disponível"),
+                      )
+                    : timelineRows
+                }
+                columns={visibleColumnsWithWidths}
+                loading={loading || loadingMore}
+                emptyText="Nenhum registro encontrado para o período selecionado."
+                columnWidths={columnPrefs?.widths}
+                onColumnWidthChange={handleColumnWidthChange}
+                liveGeocode={false}
+              />
+            ) : (
+              <div className="flex min-h-[260px] flex-1 items-center justify-center p-6 text-center text-sm text-white/60">
+                {hasGenerated
+                  ? "Nenhum registro encontrado para o período selecionado."
+                  : "Selecione o veículo e gere o relatório para visualizar a linha do tempo."}
+              </div>
+            )}
+            {hasGenerated && (
+              <DataTablePagination
+                pageSize={pageSize}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={handlePageSizeChange}
+                currentPage={currentPage}
+                totalPages={totalPages}
+                totalItems={totalItems}
+                onPageChange={handlePageChange}
+                disabled={loading || loadingMore || loadingPreferences}
+              />
+            )}
           </div>
-        )}
         </section>
-        {hasGenerated && (
-          <DataTablePagination
-            pageSize={pageSize}
-            pageSizeOptions={PAGE_SIZE_OPTIONS}
-            onPageSizeChange={handlePageSizeChange}
-            currentPage={currentPage}
-            totalPages={totalPages}
-            totalItems={totalItems}
-            onPageChange={handlePageChange}
-            disabled={loading || loadingMore || loadingPreferences}
-          />
-        )}
       </div>
 
       {activePopup === "columns" && (

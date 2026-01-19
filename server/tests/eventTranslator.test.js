@@ -19,7 +19,7 @@ test("translateDiagnosticEvent resolve eventos diagnósticos e fallback", () => 
 
 test("translateDiagnosticEvent reconhece posições sem evento", () => {
   const positionOnly = translateDiagnosticEvent({ payload: { latitude: -19.9, longitude: -43.9 } });
-  assert.equal(positionOnly?.label_ptBR, "Posição registrada");
+  assert.equal(positionOnly?.label_ptBR, "Posição");
 });
 
 test("translateDiagnosticEvent usa payload para identificar fun_id/war_id", () => {

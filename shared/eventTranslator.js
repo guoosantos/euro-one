@@ -1,6 +1,6 @@
 import diagnosticCatalog from "./deviceDiagnosticEvents.pt-BR.json" with { type: "json" };
 
-const POSITION_LABEL_PT = "Posição registrada";
+const POSITION_LABEL_PT = "Posição";
 
 const DIAGNOSTIC_EVENT_MAP = new Map(
   (diagnosticCatalog?.events || []).map((entry) => [String(entry.key).toLowerCase(), entry]),

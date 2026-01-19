@@ -54,8 +54,8 @@ const ROUTE_OPACITY = 0.85;
 const ROUTE_WEIGHT = 8;
 
 const TRIP_EVENT_TRANSLATIONS = {
-  "position registered": "Posição registrada",
-  position: "Posição registrada",
+  "position registered": "Posição",
+  position: "Posição",
   overspeed: "Excesso de velocidade",
   "harsh braking": "Frenagem brusca",
   "harsh-braking": "Frenagem brusca",
@@ -570,7 +570,7 @@ function normalizeTripEvent(point, helpers = {}) {
   if (resolvedDefinition?.suppressed) {
     return {
       type: resolvedDefinition?.type || "position",
-      label: resolvedDefinition?.label || "Posição registrada",
+      label: resolvedDefinition?.label || "Posição",
       icon: null,
       ignition: resolvedDefinition?.ignition,
       suppressed: true,
@@ -1360,7 +1360,7 @@ export default function Trips() {
               point.attributes?.event ||
               point.attributes?.alarm ||
               point.attributes?.status ||
-              "Posição registrada",
+              "Posição",
           );
 
         const heading = toFiniteNumber(

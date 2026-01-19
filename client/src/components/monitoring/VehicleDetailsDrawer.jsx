@@ -560,7 +560,7 @@ export default function VehicleDetailsDrawer({
     routePoints.forEach((point) => {
       if (!isHandlingTripEvent(point)) return;
       const definition = resolveEventDefinitionFromPayload(point);
-      const label = definition?.label || "Posição registrada";
+      const label = definition?.label || "Posição";
       const key = definition?.type || label;
       const current = summary.get(key) || { label, count: 0 };
       summary.set(key, { ...current, count: current.count + 1 });
@@ -1021,7 +1021,7 @@ export default function VehicleDetailsDrawer({
                           return (
                             <tr key={`${point.id || point.index}-${point.fixTime || point.deviceTime || point.serverTime}`} className="border-t border-white/5">
                               <td className="px-3 py-2">{resolvePointTime(point)}</td>
-                              <td className="px-3 py-2">{definition?.label || "Posição registrada"}</td>
+                              <td className="px-3 py-2">{definition?.label || "Posição"}</td>
                               <td className="px-3 py-2">{resolvePointSpeed(point)}</td>
                             </tr>
                           );

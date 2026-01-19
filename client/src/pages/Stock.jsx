@@ -31,7 +31,7 @@ const CONDITION_FILTERS = [
   { value: "usado_funcionando", label: "Usados Funcionando" },
   { value: "usado_defeito", label: "Usados Defeito" },
 ];
-const PAGE_SIZE_OPTIONS = [20, 50, 100, 1000];
+const PAGE_SIZE_OPTIONS = [5, 20, 50, 100, 500, 1000, 5000];
 
 function Drawer({ open, onClose, title, description, children }) {
   if (!open) return null;
@@ -790,9 +790,9 @@ export default function Stock() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-4">
-            <div className="overflow-hidden rounded-xl border border-white/10">
-              <DataTable>
+          <div className="flex flex-col">
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-white/10 bg-[#0b0f17]">
+              <DataTable className="flex-1 min-h-0 overflow-auto">
                 <thead className="bg-white/5 text-xs uppercase tracking-wide text-white/70">
                   <tr className="text-left">
                     <th className="px-4 py-3">Selecionar</th>
@@ -856,22 +856,21 @@ export default function Stock() {
                     })}
                 </tbody>
               </DataTable>
+              {filteredDevices.length > 0 && (
+                <DataTablePagination
+                  pageSize={generalPageSize}
+                  pageSizeOptions={PAGE_SIZE_OPTIONS}
+                  onPageSizeChange={(value) => {
+                    setGeneralPageSize(Number(value));
+                    setGeneralPage(1);
+                  }}
+                  currentPage={generalPage}
+                  totalPages={totalGeneralPages}
+                  totalItems={filteredDevices.length}
+                  onPageChange={(nextPage) => setGeneralPage(nextPage)}
+                />
+              )}
             </div>
-
-            {filteredDevices.length > 0 && (
-              <DataTablePagination
-                pageSize={generalPageSize}
-                pageSizeOptions={PAGE_SIZE_OPTIONS}
-                onPageSizeChange={(value) => {
-                  setGeneralPageSize(Number(value));
-                  setGeneralPage(1);
-                }}
-                currentPage={generalPage}
-                totalPages={totalGeneralPages}
-                totalItems={filteredDevices.length}
-                onPageChange={(nextPage) => setGeneralPage(nextPage)}
-              />
-            )}
           </div>
         </div>
       )}
