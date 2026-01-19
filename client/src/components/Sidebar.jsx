@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { NavLink, useLocation } from "react-router-dom";
-import { ChevronDown, ChevronRight, Menu } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, Menu } from "lucide-react";
 
 import { sidebarGroupIcons } from "../lib/sidebarGroupIcons";
 
@@ -344,7 +344,7 @@ export default function Sidebar() {
                 aria-expanded={openProfile}
                 title={openProfile ? "Fechar resumo" : "Abrir resumo"}
               >
-                {openProfile ? <ChevronUp size={16} /> : <ChevronDownIcon size={16} />}
+                {openProfile ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
               </button>
             )}
           </div>
