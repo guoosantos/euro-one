@@ -1,12 +1,14 @@
 import React from "react";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function VideoTelematics() {
   return (
     <div className="space-y-4">
-      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-sm text-white/80">
-        <h1 className="text-xl font-semibold text-white">Vídeo Telemetria</h1>
-        <p className="mt-2 text-white/70">Em desenvolvimento — módulo de vídeo telemetria e câmeras.</p>
-      </div>
+      <PageHeader
+        overline="Central de vídeo"
+        title="Vídeo Telemetria"
+        subtitle="Em desenvolvimento — módulo de vídeo telemetria e câmeras."
+      />
     </div>
   );
 }

@@ -30,7 +30,7 @@ export default function MirrorReceivers() {
         setMirrors(Array.isArray(mirrorList) ? mirrorList : EMPTY_LIST);
         setVehicles(Array.isArray(vehicleList) ? vehicleList : EMPTY_LIST);
       } catch (loadError) {
-        console.error("Erro ao carregar espelhamentos recebidos", loadError);
+        console.error("Erro ao carregar espelhamentos", loadError);
         if (isMounted) {
           setMirrors(EMPTY_LIST);
           setVehicles(EMPTY_LIST);
@@ -55,7 +55,7 @@ export default function MirrorReceivers() {
   return (
     <div className="space-y-6 text-white">
       <PageHeader
-        title="Espelhamentos recebidos"
+        title="Espelhamento"
         subtitle="Veja os veículos espelhados por clientes parceiros dentro do período ativo."
       />
 
@@ -94,7 +94,7 @@ export default function MirrorReceivers() {
               {!mirrors.length && (
                 <tr>
                   <td colSpan={3} className="py-4 text-center text-sm text-white/60">
-                    Nenhum espelhamento recebido no momento.
+                    Nenhum espelhamento disponível no momento.
                   </td>
                 </tr>
               )}

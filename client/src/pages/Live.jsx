@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import useDevices from "../lib/hooks/useDevices";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const HLS_CDN = "https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js";
 
@@ -128,14 +129,15 @@ export default function Live() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        overline="Central de vídeo"
+        title="Streams ao vivo"
+        subtitle="O Euro One detecta automaticamente URLs de streaming nos atributos dos dispositivos Traccar (streamUrl, videoUrl)."
+      />
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Streams ao vivo</h2>
-          <p className="text-xs opacity-70">
-            O Euro One detecta automaticamente URLs de streaming nos atributos dos dispositivos Traccar (streamUrl, videoUrl).
-            Também é possível informar manualmente um endpoint RTSP/HLS.
-          </p>
-        </header>
+        <p className="text-xs opacity-70">
+          Também é possível informar manualmente um endpoint RTSP/HLS.
+        </p>
         <form className="flex flex-col gap-3 md:flex-row" onSubmit={handleAddStream}>
           <input
             type="text"

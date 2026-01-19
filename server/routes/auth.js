@@ -6,7 +6,6 @@ import { authenticate, signSession } from "../middleware/auth.js";
 import { listClients } from "../models/client.js";
 import { sanitizeUser, verifyUserCredentials } from "../models/user.js";
 import prisma, { isPrismaAvailable } from "../services/prisma.js";
-import { loginTraccar, isTraccarConfigured } from "../services/traccar.js";
 import {
   getFallbackClient,
   getFallbackUser,
@@ -38,16 +37,7 @@ const AUTH_ERROR_CODES = {
   missingTenant: "MISSING_TENANT",
   sessionCreationFailed: "SESSION_CREATION_FAILED",
   invalidRequest: "INVALID_REQUEST",
-  traccarUnavailable: "TRACCAR_UNAVAILABLE",
 };
-
-const TRACCAR_NETWORK_ERROR_CODES = new Set([
-  "ECONNREFUSED",
-  "ENOTFOUND",
-  "EAI_AGAIN",
-  "ECONNRESET",
-  "ETIMEDOUT",
-]);
 
 function buildDatabaseUnavailableError(error) {
   const unavailable = createError(503, "Banco de dados indisponível ou mal configurado");
@@ -122,8 +112,8 @@ function normaliseAuthError(error, defaultStatus = 500) {
   if (status === 502) {
     return {
       status,
-      message: error?.message || "Servidor Traccar indisponível",
-      errorCode: errorCode || AUTH_ERROR_CODES.traccarUnavailable,
+      message: error?.message || "Serviço de autenticação indisponível",
+      errorCode: errorCode || AUTH_ERROR_CODES.authUnavailable,
       details,
     };
   }
@@ -182,7 +172,6 @@ const baseAuthDeps = {
   shouldUseDemoFallback,
   getFallbackUser,
   getFallbackClient,
-  authenticateWithTraccar,
 };
 
 const authDeps = { ...baseAuthDeps };
@@ -206,7 +195,6 @@ const handleLogin = async (req, res, next) => {
       shouldUseDemoFallback: shouldUseDemoFallbackFn,
       getFallbackUser: getFallbackUserFn,
       getFallbackClient: getFallbackClientFn,
-      authenticateWithTraccar: authenticateWithTraccarFn,
     } = authDeps;
 
     const loginBody = req.body;
@@ -242,43 +230,6 @@ const handleLogin = async (req, res, next) => {
 
     console.info("[auth] início do login", { userLogin });
 
-    let traccarAuth = null;
-    try {
-      traccarAuth = await authenticateWithTraccarFn(userLogin, userPassword);
-      if (!traccarAuth?.ok) {
-        console.warn("[auth] resposta inesperada do Traccar", {
-          userLogin,
-          status: traccarAuth?.status || traccarAuth?.error?.code,
-          response: traccarAuth?.error || null,
-        });
-        throw buildAuthError(502, "Erro ao autenticar no Traccar", AUTH_ERROR_CODES.traccarUnavailable);
-      }
-      if (traccarAuth?.ok) {
-        console.info("[auth] autenticação Traccar OK", { userLogin, traccarUserId: traccarAuth?.user?.id });
-      }
-    } catch (error) {
-      const status = Number(error?.status || error?.statusCode);
-      console.warn("[auth] falha ao autenticar no Traccar", {
-        userLogin,
-        status: status || error?.traccar?.status || null,
-        message: error?.message || error,
-        response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
-      });
-      if (status === 401 || status === 403) {
-        traccarAuth = null;
-      }
-      if (status === 502) {
-        throw buildAuthError(502, error?.message || "Servidor Traccar indisponível", AUTH_ERROR_CODES.traccarUnavailable);
-      }
-      const upstreamError = buildAuthError(502, "Erro ao autenticar no Traccar", AUTH_ERROR_CODES.traccarUnavailable);
-      upstreamError.details = {
-        status: status || error?.traccar?.status || error?.code,
-        response: error?.traccar?.response || error?.details?.response || error?.response?.data || null,
-      };
-      throw upstreamError;
-    }
-    const traccarUser = traccarAuth?.user || null;
-
     let user = null;
     let sessionPayload = null;
     let localAuthError = null;
@@ -309,9 +260,7 @@ const handleLogin = async (req, res, next) => {
     }
 
     if (!user) {
-      if (traccarUser) {
-        user = buildTraccarSessionUser(traccarUser, userLogin);
-      } else if (
+      if (
         localAuthError &&
         isDatabaseUnavailableError(localAuthError) &&
         !shouldUseDemoFallbackFn({ prismaAvailable: isPrismaAvailableFn() })
@@ -349,13 +298,6 @@ const handleLogin = async (req, res, next) => {
       tenantError.details = { userId: sessionUser.id, login: userLogin, clientId: sessionUser.clientId ?? null };
       throw tenantError;
     }
-    const traccarContext = traccarAuth?.ok
-      ? traccarAuth?.session
-        ? { type: "session", session: traccarAuth.session }
-        : traccarAuth?.token
-        ? { type: "token", token: traccarAuth.token }
-        : null
-      : null;
     const tokenPayload = {
       id: sessionUser.id,
       role: sessionUser.role,
@@ -363,7 +305,6 @@ const handleLogin = async (req, res, next) => {
       name: sessionUser.name,
       email: sessionUser.email,
       username: sessionUser.username ?? null,
-      traccar: traccarContext,
     };
     try {
       const token = signSessionFn(tokenPayload);
@@ -432,74 +373,6 @@ const handleSession = async (req, res, next) => {
     return next(error);
   }
 };
-
-function buildTraccarSessionUser(traccarUser, fallbackLogin) {
-  const traccarId = traccarUser?.id ? String(traccarUser.id) : null;
-  const baseId = traccarId || String(fallbackLogin || "traccar");
-  const email =
-    traccarUser?.email
-    || (String(fallbackLogin || "").includes("@") ? String(fallbackLogin).trim() : null);
-  const username =
-    traccarUser?.name
-    || traccarUser?.username
-    || (!email ? String(fallbackLogin || "").trim() : null);
-  const name = traccarUser?.name || traccarUser?.username || String(fallbackLogin || "Usuário Traccar");
-  const role = traccarUser?.administrator ? "admin" : "manager";
-
-  return sanitizeUser({
-    id: `traccar:${baseId}`,
-    name,
-    email,
-    username,
-    role,
-    clientId: null,
-    attributes: {
-      traccarUserId: traccarId,
-    },
-  });
-}
-
-async function authenticateWithTraccar(login, password) {
-  if (!isTraccarConfigured()) {
-    console.warn("[auth] TRACCAR_BASE_URL ausente, não é possível autenticar no Traccar");
-    const error = createError(502, "Servidor Traccar indisponível");
-    error.traccar = { status: null, response: null, reason: "missing-base-url" };
-    throw error;
-  }
-  const traccarAuth = await loginTraccar(login, password);
-  if (traccarAuth?.ok) {
-    return traccarAuth;
-  }
-
-  const status = Number(traccarAuth?.error?.code || traccarAuth?.status || traccarAuth?.statusCode);
-  const errorCode = traccarAuth?.error?.code;
-  const errorCodeNormalized = typeof errorCode === "string" ? errorCode.toUpperCase() : null;
-
-  if (status === 401 || status === 403) {
-    throw createError(401, "Usuário ou senha inválidos");
-  }
-
-  if (
-    TRACCAR_NETWORK_ERROR_CODES.has(errorCodeNormalized)
-    || status === 502
-    || status === 503
-    || status === 504
-  ) {
-    const error = createError(502, "Servidor Traccar indisponível");
-    error.traccar = {
-      status: status || errorCodeNormalized,
-      response: traccarAuth?.error || null,
-    };
-    throw error;
-  }
-
-  const error = createError(502, "Erro ao autenticar no Traccar");
-  error.traccar = {
-    status: status || errorCodeNormalized,
-    response: traccarAuth?.error || null,
-  };
-  throw error;
-}
 
 async function buildSessionPayload(
   userId,

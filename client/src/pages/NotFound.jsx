@@ -1,6 +1,7 @@
 import React from "react";
 import { Link } from "react-router-dom";
 import { useTenant } from "../lib/tenant-context";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function NotFound() {
   const { isAuthenticated } = useTenant();
@@ -11,11 +12,11 @@ export default function NotFound() {
     <div className="flex min-h-[70vh] items-center justify-center bg-bg text-text">
       <div className="mx-auto flex max-w-xl flex-col items-center gap-4 px-6 text-center">
         <div className="text-6xl font-extrabold text-primary">404</div>
-        <h1 className="text-2xl font-semibold">Página não encontrada</h1>
-        <p className="text-sm text-gray-500">
-          O endereço acessado não existe ou pode ter sido movido. Verifique a URL ou retorne para uma
-          página segura do sistema.
-        </p>
+        <PageHeader
+          className="items-center text-center"
+          title="Página não encontrada"
+          subtitle="O endereço acessado não existe ou pode ter sido movido. Verifique a URL ou retorne para uma página segura do sistema."
+        />
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link
             to={primaryCta}

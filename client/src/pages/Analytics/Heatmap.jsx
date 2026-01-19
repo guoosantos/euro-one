@@ -9,6 +9,7 @@ import { translateEventType } from "../../lib/event-translations.js";
 import useGroups from "../../lib/hooks/useGroups.js";
 import { useHeatmapEvents } from "../../lib/hooks/useHeatmapEvents.js";
 import useMapLifecycle from "../../lib/map/useMapLifecycle.js";
+import PageHeader from "../../components/ui/PageHeader.jsx";
 
 const CRIME_TYPES = ["crime", "theft", "assalto", "robbery"];
 const EVENT_TYPE_OPTIONS = [
@@ -156,70 +157,71 @@ export default function HeatmapAnalytics() {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">{t("analyticsHeatmap")}</h1>
-          <p className="text-sm text-gray-600">{t("analyticsHeatmapDescription")}</p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-sm">
-          <label className="flex flex-col">
-            <span className="text-gray-600">{t("from")}</span>
-            <input
-              type="datetime-local"
-              name="from"
-              value={filters.from}
-              onChange={handleDateChange}
-              className="rounded border px-2 py-1"
-            />
-          </label>
-          <label className="flex flex-col">
-            <span className="text-gray-600">{t("to")}</span>
-            <input
-              type="datetime-local"
-              name="to"
-              value={filters.to}
-              onChange={handleDateChange}
-              className="rounded border px-2 py-1"
-            />
-          </label>
-          <div className="flex flex-col">
-            <span className="text-gray-600">{t("eventType")}</span>
-            <div className="flex flex-wrap gap-2 rounded border px-2 py-1">
-              {EVENT_TYPE_OPTIONS.map((option) => {
-                const active = filters.eventTypes.includes(option);
-                return (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => toggleEventType(option)}
-                    className={`rounded px-2 py-1 text-xs ${active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
-                  >
-                    {translateEventType(option, locale, t)}
-                  </button>
-                );
-              })}
+      <PageHeader
+        overline="Analytics"
+        title={t("analyticsHeatmap")}
+        subtitle={t("analyticsHeatmapDescription")}
+        rightSlot={
+          <div className="flex flex-wrap gap-2 text-sm">
+            <label className="flex flex-col">
+              <span className="text-gray-600">{t("from")}</span>
+              <input
+                type="datetime-local"
+                name="from"
+                value={filters.from}
+                onChange={handleDateChange}
+                className="rounded border px-2 py-1"
+              />
+            </label>
+            <label className="flex flex-col">
+              <span className="text-gray-600">{t("to")}</span>
+              <input
+                type="datetime-local"
+                name="to"
+                value={filters.to}
+                onChange={handleDateChange}
+                className="rounded border px-2 py-1"
+              />
+            </label>
+            <div className="flex flex-col">
+              <span className="text-gray-600">{t("eventType")}</span>
+              <div className="flex flex-wrap gap-2 rounded border px-2 py-1">
+                {EVENT_TYPE_OPTIONS.map((option) => {
+                  const active = filters.eventTypes.includes(option);
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => toggleEventType(option)}
+                      className={`rounded px-2 py-1 text-xs ${active ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+                    >
+                      {translateEventType(option, locale, t)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
+            <label className="flex flex-col">
+              <span className="text-gray-600">{t("group")}</span>
+              <select value={filters.groupId} onChange={handleGroupChange} className="rounded border px-2 py-1">
+                <option value="">{t("all")}</option>
+                {groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={applyFilters}
+              className="self-end rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+            >
+              {loading ? t("loading") : t("refresh")}
+            </button>
           </div>
-          <label className="flex flex-col">
-            <span className="text-gray-600">{t("group")}</span>
-            <select value={filters.groupId} onChange={handleGroupChange} className="rounded border px-2 py-1">
-              <option value="">{t("all")}</option>
-              {groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            onClick={applyFilters}
-            className="self-end rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
-          >
-            {loading ? t("loading") : t("refresh")}
-          </button>
-        </div>
-      </div>
+        }
+      />
 
       {error ? <div className="rounded border border-red-200 bg-red-50 p-3 text-red-700">{error.message}</div> : null}
 

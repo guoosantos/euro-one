@@ -1488,6 +1488,7 @@ export default function Devices() {
       {toast && <div className={toastClassName}>{toast.message}</div>}
 
       <PageHeader
+        overline="Central de equipamentos"
         title="Equipamentos"
         subtitle="Gestão, vínculo e status dos equipamentos."
         actions={

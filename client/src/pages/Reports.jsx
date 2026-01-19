@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { CoreApi } from "../lib/coreApi";
 import { useReports } from "../lib/hooks/useReports";
 import { useTenant } from "../lib/tenant-context.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 export default function Reports() {
   const { tenantId } = useTenant();
@@ -91,12 +92,12 @@ export default function Reports() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        overline="Central de relatórios"
+        title="Relatórios de viagens"
+        subtitle="Selecione o veículo e o período para gerar relatórios detalhados."
+      />
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Relatórios de viagens</h2>
-          <p className="text-xs opacity-70">Selecione o veículo e o período para gerar relatórios detalhados.</p>
-        </header>
-
         <form onSubmit={handleGenerate} className="grid gap-4 md:grid-cols-4">
           <label className="text-sm md:col-span-2">
             <span className="block text-xs uppercase tracking-wide opacity-60">Veículos</span>

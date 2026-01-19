@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import useVehicles, { normalizeVehicleDevices } from "../lib/hooks/useVehicles.js";
 import useReportsSummary from "../lib/hooks/useReportsSummary";
 import { toDeviceKey } from "../lib/hooks/useDevices.helpers.js";
@@ -68,12 +69,12 @@ export default function ReportsSummary() {
 
   return (
     <div className="space-y-6">
+      <PageHeader
+        overline="Central de relatórios"
+        title="Resumo de utilização"
+        subtitle="Métricas agregadas de velocidade, distância e tempo em movimento."
+      />
       <section className="card space-y-4">
-        <header>
-          <h2 className="text-lg font-semibold">Resumo de utilização</h2>
-          <p className="text-xs opacity-70">Métricas agregadas de velocidade, distância e tempo em movimento.</p>
-        </header>
-
         <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-4">
           <VehicleSelector className="text-sm md:col-span-2" />
 

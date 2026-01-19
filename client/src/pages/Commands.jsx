@@ -6,10 +6,12 @@ import Input from "../ui/Input.jsx";
 import Select from "../ui/Select.jsx";
 import DataTablePagination from "../ui/DataTablePagination.jsx";
 import AutocompleteSelect from "../components/ui/AutocompleteSelect.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import api, { getStoredSession } from "../lib/api.js";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 import useVehicles, { formatVehicleLabel } from "../lib/hooks/useVehicles.js";
+import { usePermissionGate, usePermissionResolver } from "../lib/permissions/permission-gate.js";
 import {
   filterCommandsBySearch,
   mergeCommands,
@@ -18,7 +20,11 @@ import {
 } from "./commands-helpers.js";
 import CreateCommands from "./CreateCommands.jsx";
 
-const COMMAND_TABS = ["Comandos", "Avançado", "Criar comandos"];
+const COMMAND_TABS = [
+  { id: "list", label: "Comandos", permission: { menuKey: "primary", pageKey: "commands", subKey: "list" } },
+  { id: "advanced", label: "Avançado", permission: { menuKey: "primary", pageKey: "commands", subKey: "advanced" } },
+  { id: "create", label: "Criar comandos", permission: { menuKey: "primary", pageKey: "commands", subKey: "create" } },
+];
 const HISTORY_COLUMNS = [
   { id: "sentAt", label: "Enviado em", width: 170, minWidth: 150 },
   { id: "responseAt", label: "Respondido em", width: 170, minWidth: 150 },
@@ -184,8 +190,16 @@ const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}
 
 export default function Commands() {
   const { tenantId } = useTenant();
+  const { getPermission } = usePermissionResolver();
+  const listPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "list" });
+  const advancedPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "advanced" });
+  const createPermission = usePermissionGate({ menuKey: "primary", pageKey: "commands", subKey: "create" });
+  const canEditList = listPermission.isFull;
+  const canEditAdvanced = advancedPermission.isFull;
+  const canEditCreate = createPermission.isFull;
+  const canAccessCreateTab = createPermission.hasAccess;
   const { vehicles, loading: vehiclesLoading } = useVehicles();
-  const [activeTab, setActiveTab] = useState(COMMAND_TABS[0]);
+  const [activeTab, setActiveTab] = useState(COMMAND_TABS[0].id);
   const [commandSearch, setCommandSearch] = useState("");
   const [selectedVehicleId, setSelectedVehicleId] = useState("");
   const [device, setDevice] = useState(null);
@@ -231,6 +245,18 @@ export default function Commands() {
   const [commandsPerPage, setCommandsPerPage] = useState(DEFAULT_PAGE_SIZE);
   const [currentPage, setCurrentPage] = useState(1);
   const [deletingCommandId, setDeletingCommandId] = useState(null);
+  const availableTabs = useMemo(
+    () => COMMAND_TABS.filter((tab) => getPermission(tab.permission).hasAccess),
+    [getPermission],
+  );
+
+  useEffect(() => {
+    if (!availableTabs.length) return;
+    const activeStillAvailable = availableTabs.some((tab) => tab.id === activeTab);
+    if (!activeStillAvailable) {
+      setActiveTab(availableTabs[0].id);
+    }
+  }, [activeTab, availableTabs]);
   const manualCustomCommand = useMemo(
     () => ({
       id: "custom-manual",
@@ -807,7 +833,10 @@ export default function Commands() {
     traccarCommandId: null,
   });
 
-  const handleSendCommand = async (command) => {
+  const handleSendCommand = async (command, { allowSend = canEditList } = {}) => {
+    if (!allowSend) {
+      return;
+    }
     const commandKey = getCommandKey(command);
     if (!selectedVehicleId || !commandKey) {
       showToast("Selecione um veículo válido", "error");
@@ -913,6 +942,7 @@ export default function Commands() {
 
   const handleDeleteCustomCommand = useCallback(
     async (command) => {
+      if (!canEditList) return;
       const commandId = command?.id;
       if (!commandId) return;
       const uiKey = getCommandKey(command);
@@ -932,7 +962,7 @@ export default function Commands() {
         setDeletingCommandId(null);
       }
     },
-    [expandedCommandId, setCustomCommands, showToast],
+    [canEditList, expandedCommandId, setCustomCommands, showToast],
   );
 
   const handleUpdateParam = (commandId, key, value) => {
@@ -968,6 +998,9 @@ export default function Commands() {
   };
 
   const handleSendSmsByPhone = async () => {
+    if (!canEditAdvanced) {
+      return;
+    }
     const phone = phoneForm.phone.trim();
     const message = phoneForm.message.trim();
     if (!phone || !message) {
@@ -1136,9 +1169,9 @@ export default function Commands() {
     const paramValues = commandParams[commandKey] || {};
     const commandError = commandErrors[commandKey];
     const shouldShowConfigure = hasParams;
-    const sendDisabled = sendingCommandId === commandKey;
+    const sendDisabled = sendingCommandId === commandKey || !canEditList;
     const isCustomCommand = command.kind === "custom";
-    const canDeleteCustom = isCustomCommand && command.readonly !== true;
+    const canDeleteCustom = isCustomCommand && command.readonly !== true && canEditList;
 
     return (
       <div key={uiKey} className="rounded-xl border border-white/10 bg-white/5 p-4">
@@ -1161,7 +1194,7 @@ export default function Commands() {
                 onClick={() => handleDeleteCustomCommand(command)}
                 className="rounded-xl border border-white/10 p-2 text-white/70 transition hover:border-red-400/50 hover:text-red-200 disabled:opacity-50"
                 aria-label="Excluir comando personalizado"
-                disabled={deletingCommandId === command.id}
+                disabled={deletingCommandId === command.id || !canEditList}
               >
                 <Trash2 size={16} />
               </button>
@@ -1256,30 +1289,12 @@ export default function Commands() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] w-full flex-col gap-6">
       <section className="flex min-h-0 flex-1 flex-col gap-4">
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/50">Central de comandos</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div className="flex flex-wrap gap-2">
-              {COMMAND_TABS.map((tab) => (
-                <button
-                  key={tab}
-                  type="button"
-                  onClick={() => setActiveTab(tab)}
-                  className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
-                    activeTab === tab
-                      ? "bg-primary/20 text-white border border-primary/40"
-                      : "border border-white/10 text-white/60 hover:text-white"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2">
+        <PageHeader
+          overline="Central de comandos"
+          title="Comandos"
+          subtitle="Envie comandos aos veículos, personalize preferências e acompanhe o histórico."
+          actions={(
+            <>
               <Button type="button" onClick={handleShow}>
                 Mostrar
               </Button>
@@ -1294,12 +1309,31 @@ export default function Commands() {
               >
                 <Settings2 size={18} />
               </button>
-            </div>
+            </>
+          )}
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+          <div className="flex flex-wrap gap-2">
+            {availableTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`rounded-xl px-3 py-2 text-xs font-semibold uppercase tracking-wide transition ${
+                  activeTab === tab.id
+                    ? "bg-primary/20 text-white border border-primary/40"
+                    : "border border-white/10 text-white/60 hover:text-white"
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-        </header>
+        </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          {activeTab === "Comandos" && (
+          {activeTab === "list" && (
             <>
               <div className="flex flex-wrap items-end gap-3 border-b border-white/10 pb-4">
                 <AutocompleteSelect
@@ -1397,7 +1431,7 @@ export default function Commands() {
             </>
           )}
 
-          {activeTab === "Avançado" && (
+          {activeTab === "advanced" && (
             <div className="flex flex-col gap-6 rounded-xl border border-white/10 bg-[#0b0f17] p-6">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1438,6 +1472,7 @@ export default function Commands() {
                       options={vehicleSelectOptions}
                       loadOptions={loadVehicleOptions}
                       allowClear
+                      disabled={!canEditAdvanced}
                     />
                     <label className="flex flex-col text-xs uppercase tracking-wide text-white/60">
                       Comando
@@ -1445,6 +1480,7 @@ export default function Commands() {
                         value={advancedCommandKey}
                         onChange={(event) => handleAdvancedCommandSelect(event.target.value)}
                         className="mt-2 w-full bg-layer text-sm"
+                        disabled={!canEditAdvanced}
                       >
                         <option value="">Selecione</option>
                         {advancedCommands.map((command) => {
@@ -1482,6 +1518,7 @@ export default function Commands() {
                                     handleUpdateParam(getCommandKey(selectedAdvancedCommand), param.key, event.target.value)
                                   }
                                   className="mt-2 w-full bg-layer text-sm"
+                                  disabled={!canEditAdvanced}
                                 >
                                   {options.map((option) => (
                                     <option key={option.value ?? option} value={option.value ?? option}>
@@ -1501,6 +1538,7 @@ export default function Commands() {
                                     handleUpdateParam(getCommandKey(selectedAdvancedCommand), param.key, event.target.value)
                                   }
                                   className="mt-2"
+                                  disabled={!canEditAdvanced}
                                 />
                               )}
                             </label>
@@ -1516,9 +1554,9 @@ export default function Commands() {
                             showToast("Selecione um comando para enviar.", "error");
                             return;
                           }
-                          handleSendCommand(selectedAdvancedCommand);
+                          handleSendCommand(selectedAdvancedCommand, { allowSend: canEditAdvanced });
                         }}
-                        disabled={!selectedAdvancedCommand || !selectedVehicleId}
+                        disabled={!canEditAdvanced || !selectedAdvancedCommand || !selectedVehicleId}
                       >
                         Enviar comando
                       </Button>
@@ -1534,6 +1572,7 @@ export default function Commands() {
                         value={phoneForm.commandId}
                         onChange={(event) => handlePhonePresetSelect(event.target.value)}
                         className="mt-2 w-full bg-layer text-sm"
+                        disabled={!canEditAdvanced}
                       >
                         <option value="">Selecione</option>
                         {smsPresetOptions.map((preset) => (
@@ -1549,6 +1588,7 @@ export default function Commands() {
                         value={phoneForm.phone}
                         onChange={(event) => handlePhoneFormChange("phone", event.target.value)}
                         className="mt-2"
+                        disabled={!canEditAdvanced}
                       />
                     </label>
                     <label className="flex flex-col text-xs uppercase tracking-wide text-white/60 md:col-span-2">
@@ -1557,10 +1597,11 @@ export default function Commands() {
                         value={phoneForm.message}
                         onChange={(event) => handlePhoneFormChange("message", event.target.value)}
                         className="mt-2"
+                        disabled={!canEditAdvanced}
                       />
                     </label>
                     <div className="md:col-span-2">
-                      <Button type="button" onClick={handleSendSmsByPhone} disabled={sendingPhone}>
+                      <Button type="button" onClick={handleSendSmsByPhone} disabled={!canEditAdvanced || sendingPhone}>
                         {sendingPhone ? "Enviando…" : "Enviar SMS"}
                       </Button>
                     </div>
@@ -1576,7 +1617,12 @@ export default function Commands() {
                       A criação e o gerenciamento de comandos personalizados agora ficam na tela dedicada.
                     </p>
                   </div>
-                  <Button type="button" variant="outline" onClick={() => setActiveTab("Criar comandos")}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setActiveTab("create")}
+                    disabled={!canAccessCreateTab}
+                  >
                     Criar comandos
                   </Button>
                 </div>
@@ -1584,9 +1630,9 @@ export default function Commands() {
             </div>
           )}
 
-          {activeTab === "Criar comandos" && (
+          {activeTab === "create" && (
             <div className="mb-6">
-              <CreateCommands />
+              <CreateCommands readOnly={!canEditCreate} />
             </div>
           )}
         </div>

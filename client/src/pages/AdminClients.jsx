@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import api from "../lib/api";
 import { API_ROUTES } from "../lib/api-routes.js";
 import { useTenant } from "../lib/tenant-context";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 const initialForm = {
   name: "",
@@ -111,12 +112,11 @@ export default function AdminClients() {
 
   return (
     <div className="space-y-6">
-      <section className="card space-y-4">
-        <header className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold">Clientes</h1>
-            <p className="text-xs opacity-70">Crie locatários (usuários manager no Traccar) e defina limites de dispositivos.</p>
-          </div>
+      <PageHeader
+        overline="Central de clientes"
+        title="Clientes"
+        subtitle="Crie locatários (usuários manager no Traccar) e defina limites de dispositivos."
+        actions={
           <button
             type="button"
             onClick={() => {
@@ -127,8 +127,9 @@ export default function AdminClients() {
           >
             Novo cliente
           </button>
-        </header>
-
+        }
+      />
+      <section className="card space-y-4">
         <form className="grid gap-3 md:grid-cols-2" onSubmit={handleSubmit}>
           <label className="text-sm">
             <span className="block text-xs uppercase tracking-wide opacity-60">Nome da empresa</span>

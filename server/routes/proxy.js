@@ -4,6 +4,7 @@ import createError from "http-errors";
 import { randomUUID } from "node:crypto";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { resolveClientId } from "../middleware/client.js";
 import { getDeviceById, listDevices } from "../models/device.js";
 import { listVehicles } from "../models/vehicle.js";
@@ -2874,7 +2875,10 @@ router.get("/home/critical-vehicles", async (req, res, next) => {
   }
 });
 
-router.patch("/events/:id/resolve", async (req, res, next) => {
+router.patch(
+  "/events/:id/resolve",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "report", requireFull: true }),
+  async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
     const resolution = markEventResolved(req.params.id, {
@@ -2886,10 +2890,13 @@ router.patch("/events/:id/resolve", async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.all("/events", (req, res, next) =>
-  handleEventsReport(req, res, next),
+router.all(
+  "/events",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "report" }),
+  (req, res, next) => handleEventsReport(req, res, next),
 );
 
 /**
@@ -2981,7 +2988,10 @@ router.delete("/drivers/:id", requireRole("manager", "admin"), async (req, res, 
  * === Commands ===
  */
 
-router.get("/commands/types", async (req, res, next) => {
+router.get(
+  "/commands/types",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };
     enforceDeviceFilterInQuery(req, params);
@@ -2991,9 +3001,13 @@ router.get("/commands/types", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/commands/send", async (req, res, next) => {
+router.get(
+  "/commands/send",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };
     enforceDeviceFilterInQuery(req, params);
@@ -3003,9 +3017,14 @@ router.get("/commands/send", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/commands/send-sms", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/commands/send-sms",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "advanced", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const phone = String(req.body?.phone || "").trim();
     const message = String(req.body?.message || "").trim();
@@ -3034,9 +3053,14 @@ router.post("/commands/send-sms", requireRole("manager", "admin"), async (req, r
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/commands/send", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/commands/send",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const commandDispatchModel = ensureCommandPrismaModel("commandDispatch");
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: false });
@@ -3260,7 +3284,10 @@ router.post("/commands/send", requireRole("manager", "admin"), async (req, res, 
   }
 });
 
-router.get("/commands", async (req, res, next) => {
+router.get(
+  "/commands",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  async (req, res, next) => {
   try {
     const params = { ...(req.query || {}) };
     enforceDeviceFilterInQuery(req, params);
@@ -3270,9 +3297,13 @@ router.get("/commands", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/commands/history", async (req, res, next) => {
+router.get(
+  "/commands/history",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  async (req, res, next) => {
   try {
     const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
     if (!vehicleId) {
@@ -3467,7 +3498,10 @@ router.get("/commands/history", async (req, res, next) => {
   }
 });
 
-router.get("/commands/history/status", async (req, res, next) => {
+router.get(
+  "/commands/history/status",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  async (req, res, next) => {
   try {
     const vehicleId = req.query?.vehicleId ? String(req.query.vehicleId).trim() : "";
     if (!vehicleId) {
@@ -3631,9 +3665,13 @@ router.get("/commands/history/status", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/commands/custom", async (req, res, next) => {
+router.get(
+  "/commands/custom",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create" }),
+  async (req, res, next) => {
   try {
     let clientId = null;
     try {
@@ -3699,9 +3737,14 @@ router.get("/commands/custom", async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/commands/custom", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/commands/custom",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const clientId = resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const customCommandModel = ensureCommandPrismaModel("customCommand");
@@ -3749,9 +3792,14 @@ router.post("/commands/custom", requireRole("manager", "admin"), async (req, res
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/commands/custom/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
       throw createError(403, "Comando personalizado de template não pode ser alterado");
@@ -3791,9 +3839,14 @@ router.put("/commands/custom/:id", requireRole("manager", "admin"), async (req, 
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.patch("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.patch(
+  "/commands/custom/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
       throw createError(403, "Comando personalizado de template não pode ser alterado");
@@ -3831,9 +3884,14 @@ router.patch("/commands/custom/:id", requireRole("manager", "admin"), async (req
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/commands/custom/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "create", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     if (findBuiltinCustomCommand(req.params.id)) {
       throw createError(403, "Comando personalizado de template não pode ser removido");
@@ -3861,9 +3919,14 @@ router.delete("/commands/custom/:id", requireRole("manager", "admin"), async (re
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/commands", requireRole("manager", "admin"), async (req, res, next) => {
+router.post(
+  "/commands",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const allowed = resolveAllowedDeviceIds(req);
     const traccarDeviceId = resolveTraccarDeviceId(req, allowed);
@@ -3886,25 +3949,36 @@ router.post("/commands", requireRole("manager", "admin"), async (req, res, next)
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/commands/:id", requireRole("manager", "admin"), async (req, res, next) => {
-  try {
-    const data = await traccarProxy("put", `/commands/${req.params.id}`, { data: req.body, asAdmin: true });
-    res.json(data);
-  } catch (error) {
-    next(error);
-  }
-});
+router.put(
+  "/commands/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
+    try {
+      const data = await traccarProxy("put", `/commands/${req.params.id}`, { data: req.body, asAdmin: true });
+      res.json(data);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
-router.delete("/commands/:id", requireRole("manager", "admin"), async (req, res, next) => {
-  try {
-    await traccarProxy("delete", `/commands/${req.params.id}`, { asAdmin: true });
-    res.status(204).send();
-  } catch (error) {
-    next(error);
-  }
-});
+router.delete(
+  "/commands/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
+    try {
+      await traccarProxy("delete", `/commands/${req.params.id}`, { asAdmin: true });
+      res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 
 function normalizePagination(query = {}) {
   const page = Math.max(1, Number(query.page) || 1);

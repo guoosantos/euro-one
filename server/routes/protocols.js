@@ -1,6 +1,7 @@
 import express from "express";
 
 import { authenticate } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import {
   getProtocolCommandAllowlist,
   getProtocolCommands,
@@ -21,7 +22,10 @@ router.get("/protocols", (_req, res) => {
   res.json({ protocols: getProtocolList() });
 });
 
-router.get("/protocols/:protocol/commands", (req, res) => {
+router.get(
+  "/protocols/:protocol/commands",
+  authorizePermission({ menuKey: "primary", pageKey: "commands", subKey: "list" }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
 
   const buildKey = (command) => command?.id || command?.code || command?.type || command?.name || null;
@@ -64,18 +68,26 @@ router.get("/protocols/:protocol/commands", (req, res) => {
       const commands = filterCommands(fallback);
       return res.json({ protocol: protocolKey, commands });
     });
-});
+  },
+);
 
-router.get("/protocols/:protocol/events", (req, res) => {
+router.get(
+  "/protocols/:protocol/events",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "severity" }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
   const events = getProtocolEvents(protocolKey);
   if (!events) {
     return res.status(404).json({ message: "Protocolo não encontrado" });
   }
   return res.json({ protocol: protocolKey, events });
-});
+  },
+);
 
-router.get("/protocols/:protocol/events/config", (req, res) => {
+router.get(
+  "/protocols/:protocol/events/config",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "severity" }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
   const events = getProtocolEvents(protocolKey);
   if (!events) {
@@ -84,9 +96,13 @@ router.get("/protocols/:protocol/events/config", (req, res) => {
   const clientId = resolveClientId(req, req.query?.clientId, { required: false });
   const config = getEventConfig({ clientId, protocol: protocolKey, catalogEvents: events });
   return res.json({ protocol: protocolKey, config });
-});
+  },
+);
 
-router.put("/protocols/:protocol/events/config", (req, res) => {
+router.put(
+  "/protocols/:protocol/events/config",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "severity", requireFull: true }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
   const events = getProtocolEvents(protocolKey);
   if (!events) {
@@ -107,9 +123,13 @@ router.put("/protocols/:protocol/events/config", (req, res) => {
 
   const next = updateEventConfig({ clientId, protocol: protocolKey, items, catalogEvents: events });
   return res.json({ protocol: protocolKey, config: next });
-});
+  },
+);
 
-router.get("/protocols/:protocol/events/severity", (req, res) => {
+router.get(
+  "/protocols/:protocol/events/severity",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "severity" }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
   const events = getProtocolEvents(protocolKey);
   if (!events) {
@@ -117,9 +137,13 @@ router.get("/protocols/:protocol/events/severity", (req, res) => {
   }
   const severity = getProtocolSeverity(protocolKey);
   return res.json({ protocol: protocolKey, severity });
-});
+  },
+);
 
-router.put("/protocols/:protocol/events/severity", (req, res) => {
+router.put(
+  "/protocols/:protocol/events/severity",
+  authorizePermission({ menuKey: "primary", pageKey: "events", subKey: "severity", requireFull: true }),
+  (req, res) => {
   const protocolKey = normalizeProtocolKey(req.params.protocol);
   const events = getProtocolEvents(protocolKey);
   if (!events) {
@@ -134,6 +158,7 @@ router.put("/protocols/:protocol/events/severity", (req, res) => {
 
   const next = updateProtocolSeverity(protocolKey, updates);
   return res.json({ protocol: protocolKey, severity: next });
-});
+  },
+);
 
 export default router;

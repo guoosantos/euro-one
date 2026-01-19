@@ -326,10 +326,10 @@ export default function Clients() {
       const response = await api.get(`/clients/${client.id}/details`);
       setDetailsData({
         summary: response?.data?.summary || { vehiclesCount: 0, usersCount: 0, equipmentModelsSummary: [] },
-        vehicles: response?.data?.vehicles || EMPTY_LIST,
-        equipments: response?.data?.equipments || EMPTY_LIST,
-        users: response?.data?.users || EMPTY_LIST,
-        mirrors: response?.data?.mirrors || EMPTY_LIST,
+        vehicles: Array.isArray(response?.data?.vehicles) ? response.data.vehicles : EMPTY_LIST,
+        equipments: Array.isArray(response?.data?.equipments) ? response.data.equipments : EMPTY_LIST,
+        users: Array.isArray(response?.data?.users) ? response.data.users : EMPTY_LIST,
+        mirrors: Array.isArray(response?.data?.mirrors) ? response.data.mirrors : EMPTY_LIST,
       });
     } catch (loadError) {
       console.error("Erro ao carregar detalhes do cliente", loadError);
@@ -357,10 +357,10 @@ export default function Clients() {
     });
   }
 
-  const detailsVehicles = detailsData.vehicles || EMPTY_LIST;
-  const detailsEquipments = detailsData.equipments || EMPTY_LIST;
-  const detailsUsers = detailsData.users || EMPTY_LIST;
-  const detailsMirrors = detailsData.mirrors || EMPTY_LIST;
+  const detailsVehicles = Array.isArray(detailsData.vehicles) ? detailsData.vehicles : EMPTY_LIST;
+  const detailsEquipments = Array.isArray(detailsData.equipments) ? detailsData.equipments : EMPTY_LIST;
+  const detailsUsers = Array.isArray(detailsData.users) ? detailsData.users : EMPTY_LIST;
+  const detailsMirrors = Array.isArray(detailsData.mirrors) ? detailsData.mirrors : EMPTY_LIST;
 
   const filteredDetailsVehicles = useMemo(() => {
     const search = detailsSearch.vehicles.trim().toLowerCase();
@@ -425,6 +425,7 @@ export default function Clients() {
   return (
     <div className="flex min-h-[calc(100vh-180px)] flex-col gap-6">
       <PageHeader
+        overline="Central de clientes"
         title="Clientes"
         subtitle="Cadastre, acompanhe limites e gerencie as informações dos clientes."
         actions={

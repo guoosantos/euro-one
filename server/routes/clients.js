@@ -2,6 +2,7 @@ import express from "express";
 import createError from "http-errors";
 
 import { authenticate, requireRole } from "../middleware/auth.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import { createClient, deleteClient, getClientById, listClients, updateClient } from "../models/client.js";
 import { listDevices } from "../models/device.js";
 import { listModels } from "../models/model.js";
@@ -14,7 +15,11 @@ const router = express.Router();
 
 router.use(authenticate);
 
-router.get("/clients", requireRole("manager", "admin"), async (req, res, next) => {
+router.get(
+  "/clients",
+  authorizePermission({ menuKey: "admin", pageKey: "clients" }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const allClients = await listClients();
     const vehicles = listVehicles();
@@ -75,9 +80,14 @@ router.get("/clients", requireRole("manager", "admin"), async (req, res, next) =
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/clients/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.get(
+  "/clients/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "clients" }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
@@ -91,9 +101,14 @@ router.get("/clients/:id", requireRole("manager", "admin"), async (req, res, nex
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.get("/clients/:id/details", requireRole("manager", "admin"), async (req, res, next) => {
+router.get(
+  "/clients/:id/details",
+  authorizePermission({ menuKey: "admin", pageKey: "clients" }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
@@ -158,9 +173,14 @@ router.get("/clients/:id/details", requireRole("manager", "admin"), async (req, 
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/clients", requireRole("admin"), async (req, res, next) => {
+router.post(
+  "/clients",
+  authorizePermission({ menuKey: "admin", pageKey: "clients", requireFull: true }),
+  requireRole("admin"),
+  async (req, res, next) => {
   try {
     const { name, deviceLimit, userLimit, attributes = {} } = req.body || {};
     if (!name) {
@@ -176,9 +196,14 @@ router.post("/clients", requireRole("admin"), async (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.put("/clients/:id", requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/clients/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "clients", requireFull: true }),
+  requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     if (req.user.role !== "admin" && String(req.user.clientId) !== String(id)) {
@@ -189,9 +214,14 @@ router.put("/clients/:id", requireRole("manager", "admin"), async (req, res, nex
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.delete("/clients/:id", requireRole("admin"), (req, res, next) => {
+router.delete(
+  "/clients/:id",
+  authorizePermission({ menuKey: "admin", pageKey: "clients", requireFull: true }),
+  requireRole("admin"),
+  (req, res, next) => {
   try {
     const { id } = req.params;
     deleteClient(id);
@@ -201,7 +231,8 @@ router.delete("/clients/:id", requireRole("admin"), (req, res, next) => {
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
 router.get("/clients/:id/users", requireRole("admin"), (req, res, next) => {
   try {

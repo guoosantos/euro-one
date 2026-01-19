@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { authenticate, requireRole } from "../middleware/auth.js";
 import * as clientMiddleware from "../middleware/client.js";
 import { resolveClientIdMiddleware } from "../middleware/resolve-client.js";
+import { authorizePermission } from "../middleware/permissions.js";
 import * as clientModel from "../models/client.js";
 import * as modelModel from "../models/model.js";
 import * as deviceModel from "../models/device.js";
@@ -879,7 +880,10 @@ function detachVehicle(clientId, vehicleId) {
   deps.updateVehicle(vehicle.id, { deviceId: null });
 }
 
-router.get("/models", (req, res, next) => {
+router.get(
+  "/models",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-models" }),
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query.clientId, { required: false });
     const models = deps.listModels({ clientId, includeGlobal: true });
@@ -887,9 +891,14 @@ router.get("/models", (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/models", deps.requireRole("manager", "admin"), (req, res, next) => {
+router.post(
+  "/models",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-models", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: req.user.role !== "admin" });
     const payload = {
@@ -918,9 +927,14 @@ router.post("/models", deps.requireRole("manager", "admin"), (req, res, next) =>
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/models/:id", deps.requireRole("manager", "admin"), (req, res, next) => {
+router.put(
+  "/models/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-models", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  (req, res, next) => {
   try {
     const existing = deps.getModelById(req.params.id);
     const clientId = deps.resolveClientId(req, req.body?.clientId ?? existing?.clientId, {
@@ -952,9 +966,15 @@ router.put("/models/:id", deps.requireRole("manager", "admin"), (req, res, next)
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/devices/import", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.get(
+  "/devices/import",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: req.user.role !== "admin" });
     const knownDevices = deps.listDevices({});
@@ -980,9 +1000,15 @@ router.get("/devices/import", deps.requireRole("manager", "admin"), resolveClien
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/devices/import", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
+router.post(
+  "/devices/import",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { traccarId, uniqueId, modelId, name } = req.body || {};
@@ -1128,9 +1154,15 @@ router.post("/euro/import-xlsx", deps.requireRole("admin"), async (req, res, nex
   } catch (error) {
     return next(error);
   }
-});
+  },
+);
 
-router.post("/devices/sync", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
+router.post(
+  "/devices/sync",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId || req.query?.clientId, { required: true });
     const groupId = gprsCommunication ? await ensureClientTraccarGroup(clientId) : null;
@@ -1170,7 +1202,8 @@ router.post("/devices/sync", deps.requireRole("manager", "admin"), resolveClient
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   try {
@@ -1598,7 +1631,10 @@ router.get("/telemetry", resolveClientMiddleware, async (req, res, next) => {
   }
 });
 
-router.get("/devices", async (req, res, next) => {
+router.get(
+  "/devices",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list" }),
+  async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
 
@@ -1667,9 +1703,15 @@ router.get("/devices", async (req, res, next) => {
 
     return res.status(503).json(TRACCAR_DB_UNAVAILABLE);
   }
-});
+  },
+);
 
-router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddleware, async (req, res, next) => {
+router.post(
+  "/devices",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  async (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { name, uniqueId, modelId, chipId, vehicleId } = req.body || {};
@@ -1835,9 +1877,14 @@ router.post("/devices", deps.requireRole("manager", "admin"), resolveClientMiddl
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res, next) => {
+router.put(
+  "/devices/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     const device = deps.getDeviceById(id);
@@ -1997,9 +2044,14 @@ router.put("/devices/:id", deps.requireRole("manager", "admin"), async (req, res
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/devices/:id", deps.requireRole("manager", "admin"), async (req, res, next) => {
+router.delete(
+  "/devices/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-list", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     const device = deps.getDeviceById(id);
@@ -2030,9 +2082,13 @@ router.delete("/devices/:id", deps.requireRole("manager", "admin"), async (req, 
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/chips", (req, res, next) => {
+router.get(
+  "/chips",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-chips" }),
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const query = String(req.query?.query || "").trim().toLowerCase();
@@ -2077,9 +2133,15 @@ router.get("/chips", (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/chips", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.post(
+  "/chips",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-chips", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { iccid, phone, carrier, status, apn, apnUser, apnPass, notes, provider, deviceId } = req.body || {};
@@ -2111,9 +2173,15 @@ router.post("/chips", deps.requireRole("manager", "admin"), resolveClientMiddlew
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.put(
+  "/chips/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-chips", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const chip = deps.getChipById(id);
@@ -2147,9 +2215,15 @@ router.put("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMidd
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/chips/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.delete(
+  "/chips/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-chips", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const chip = deps.getChipById(id);
@@ -2169,7 +2243,8 @@ router.delete("/chips/:id", deps.requireRole("manager", "admin"), resolveClientM
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 router.get("/technicians", async (req, res, next) => {
   try {
@@ -2536,7 +2611,10 @@ router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (
   }
 });
 
-router.get("/vehicles", async (req, res, next) => {
+router.get(
+  "/vehicles",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles" }),
+  async (req, res, next) => {
   const startedAt = Date.now();
   let includeUnlinked = false;
   let onlyLinked = true;
@@ -2768,9 +2846,13 @@ router.get("/vehicles", async (req, res, next) => {
     }
     return next(error);
   }
-});
+  },
+);
 
-router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
+router.get(
+  "/vehicles/:id/traccar-device",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles" }),
+  async (req, res, next) => {
   try {
     const { id } = req.params;
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
@@ -2876,9 +2958,15 @@ router.get("/vehicles/:id/traccar-device", async (req, res, next) => {
     }
     next(error);
   }
-});
+  },
+);
 
-router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.post(
+  "/vehicles",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
@@ -2973,9 +3061,15 @@ router.post("/vehicles", deps.requireRole("manager", "admin"), resolveClientMidd
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.post(
+  "/vehicles/:vehicleId/devices/:deviceId",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const { vehicleId, deviceId } = req.params;
@@ -3018,9 +3112,15 @@ router.post("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager"
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.delete(
+  "/vehicles/:vehicleId/devices/:deviceId",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const { vehicleId, deviceId } = req.params;
@@ -3069,9 +3169,15 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-  router.put("/vehicles/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.put(
+  "/vehicles/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const { id } = req.params;
@@ -3134,9 +3240,14 @@ router.delete("/vehicles/:vehicleId/devices/:deviceId", deps.requireRole("manage
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, next) => {
+router.delete(
+  "/vehicles/:id",
+  authorizePermission({ menuKey: "fleet", pageKey: "vehicles", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  (req, res, next) => {
   try {
     const auditSentAt = new Date().toISOString();
     const { id } = req.params;
@@ -3166,9 +3277,13 @@ router.delete("/vehicles/:id", deps.requireRole("manager", "admin"), (req, res, 
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.get("/stock", (req, res, next) => {
+router.get(
+  "/stock",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-stock" }),
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const items = deps.listStockItems({ clientId });
@@ -3176,9 +3291,15 @@ router.get("/stock", (req, res, next) => {
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.post("/stock", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.post(
+  "/stock",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-stock", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const clientId = deps.resolveClientId(req, req.body?.clientId, { required: true });
     const { type, name, quantity, notes, status } = req.body || {};
@@ -3187,9 +3308,15 @@ router.post("/stock", deps.requireRole("manager", "admin"), resolveClientMiddlew
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.put("/stock/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.put(
+  "/stock/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-stock", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const item = deps.getStockItemById(id);
@@ -3204,9 +3331,15 @@ router.put("/stock/:id", deps.requireRole("manager", "admin"), resolveClientMidd
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
-router.delete("/stock/:id", deps.requireRole("manager", "admin"), resolveClientMiddleware, (req, res, next) => {
+router.delete(
+  "/stock/:id",
+  authorizePermission({ menuKey: "primary", pageKey: "devices", subKey: "devices-stock", requireFull: true }),
+  deps.requireRole("manager", "admin"),
+  resolveClientMiddleware,
+  (req, res, next) => {
   try {
     const { id } = req.params;
     const item = deps.getStockItemById(id);
@@ -3220,7 +3353,8 @@ router.delete("/stock/:id", deps.requireRole("manager", "admin"), resolveClientM
   } catch (error) {
     next(error);
   }
-});
+  },
+);
 
 export function __setCoreRouteMocks(overrides = {}) {
   Object.assign(deps, overrides);

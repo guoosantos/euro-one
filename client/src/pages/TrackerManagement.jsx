@@ -4,6 +4,7 @@ import { Plus, Trash } from "lucide-react";
 import Button from "../ui/Button";
 import Card from "../ui/Card";
 import Input from "../ui/Input";
+import PageHeader from "../components/ui/PageHeader.jsx";
 import useTrackerMappings from "../lib/hooks/useTrackerMappings.js";
 import { useTenant } from "../lib/tenant-context.jsx";
 
@@ -84,7 +85,11 @@ export default function TrackerManagement() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Gerenciar rastreador</h1>
+      <PageHeader
+        overline="Central de rastreadores"
+        title="Gerenciar rastreador"
+        subtitle="Configure atributos, mapeamentos e eventos do Traccar."
+      />
       {error && <p className="text-red-400">{error.message}</p>}
       <Card>
         <div className="flex flex-col gap-4">

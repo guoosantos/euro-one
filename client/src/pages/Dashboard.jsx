@@ -29,6 +29,7 @@ import { useTranslation } from "../lib/i18n.js";
 import Loading from "../components/Loading.jsx";
 import ErrorMessage from "../components/ErrorMessage.jsx";
 import { useTenant } from "../lib/tenant-context.jsx";
+import PageHeader from "../components/ui/PageHeader.jsx";
 
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
@@ -450,23 +451,23 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="dashboard-hero">
-        <div className="dashboard-hero-content flex flex-wrap items-center justify-between gap-3">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/70">Dashboard dinâmico</p>
-            <h1 className="text-2xl font-semibold text-white">Operação ao vivo</h1>
-            <p className="text-sm text-white/70">
-              Arraste, redimensione e salve sua visão. Preferências ficam atreladas ao seu perfil e tenant.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="muted" className="glass-badge">
-              <Sparkles size={14} />
-              Novo visual com animações suaves
-            </Badge>
-            <Badge variant="muted" className="glass-badge animate-pulse-soft">
-              <span className="dot" /> Layout salvo
-            </Badge>
-          </div>
+        <div className="dashboard-hero-content">
+          <PageHeader
+            overline="Dashboard dinâmico"
+            title="Operação ao vivo"
+            subtitle="Arraste, redimensione e salve sua visão. Preferências ficam atreladas ao seu perfil e tenant."
+            rightSlot={
+              <>
+                <Badge variant="muted" className="glass-badge">
+                  <Sparkles size={14} />
+                  Novo visual com animações suaves
+                </Badge>
+                <Badge variant="muted" className="glass-badge animate-pulse-soft">
+                  <span className="dot" /> Layout salvo
+                </Badge>
+              </>
+            }
+          />
         </div>
       </div>
 
