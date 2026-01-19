@@ -22,6 +22,17 @@ function ensurePrisma() {
   }
 }
 
+function buildServiceUnavailablePayload(message, retryAfterSeconds) {
+  const payload = {
+    code: "SERVICE_UNAVAILABLE",
+    message: message || "Serviço indisponível no momento",
+  };
+  if (Number.isFinite(retryAfterSeconds)) {
+    payload.retryAfterSeconds = retryAfterSeconds;
+  }
+  return payload;
+}
+
 function parseNullableDate(value) {
   if (!value) return null;
   const date = new Date(value);
@@ -296,14 +307,21 @@ router.get("/service-orders", async (req, res, next) => {
         error: { message: error.message || "Requisição inválida." },
       });
     }
-    if (error?.code === "P2022") {
-      console.error("[service-orders] falha ao listar OS (schema)", {
-        code: error?.code,
-        message: error?.message,
-        meta: error?.meta,
-        stack: error?.stack,
-      });
-      return next(createError(503, "Banco desatualizado. Execute prisma migrate deploy."));
+    if (
+      error?.status === 503 ||
+      error?.statusCode === 503 ||
+      error?.code === "P2021" ||
+      error?.code === "P2022"
+    ) {
+      if (error?.code === "P2022") {
+        console.error("[service-orders] falha ao listar OS (schema)", {
+          code: error?.code,
+          message: error?.message,
+          meta: error?.meta,
+          stack: error?.stack,
+        });
+      }
+      return res.status(503).json(buildServiceUnavailablePayload());
     }
     return next(error);
   }

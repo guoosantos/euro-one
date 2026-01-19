@@ -311,6 +311,23 @@ function normaliseBoolean(value) {
   return null;
 }
 
+function isDependencyFailure(error) {
+  const status = Number(error?.status || error?.statusCode || error?.response?.status);
+  if ([502, 503, 504].includes(status)) return true;
+  if (error?.code === "TRACCAR_UNAVAILABLE" || error?.isTraccarError) return true;
+  if (error?.code === "P2021" || error?.code === "P2022") return true;
+  if (["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "ECONNRESET", "ETIMEDOUT"].includes(error?.code)) return true;
+  return false;
+}
+
+function buildServiceUnavailablePayload({ message, details } = {}) {
+  return {
+    code: "SERVICE_UNAVAILABLE",
+    message: message || "Serviço indisponível no momento",
+    details,
+  };
+}
+
 function pickNumber(...candidates) {
   for (const value of candidates) {
     if (value === null || value === undefined) continue;
@@ -2519,11 +2536,16 @@ router.post("/vehicle-attributes", deps.requireRole("manager", "admin"), async (
 });
 
 router.get("/vehicles", async (req, res, next) => {
+  const startedAt = Date.now();
+  let includeUnlinked = false;
+  let onlyLinked = true;
+  let clientId = null;
   try {
-    const clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
+    clientId = deps.resolveClientId(req, req.query?.clientId, { required: false });
     const query = String(req.query?.query || "").trim().toLowerCase();
     const { page, pageSize, start } = parsePagination(req.query);
     const isAdmin = req.user?.role === "admin";
+    let mirrorOwnerIds = [];
     const accessVehicleIds =
       req.user?.attributes?.userAccess?.vehicleAccess?.mode === "selected"
         ? new Set((req.user?.attributes?.userAccess?.vehicleAccess?.vehicleIds || []).map(String))
@@ -2567,17 +2589,35 @@ router.get("/vehicles", async (req, res, next) => {
     if (isPrismaAvailable()) {
       const clientIds = Array.from(new Set(vehicles.map((vehicle) => vehicle?.clientId).filter(Boolean)));
       if (clientIds.length) {
-        const clients = await prisma.client.findMany({
-          where: { id: { in: clientIds.map((id) => String(id)) } },
-          select: { id: true, name: true },
-        });
-        clientMap = new Map(clients.map((client) => [String(client.id), client]));
+        try {
+          const clients = await prisma.client.findMany({
+            where: { id: { in: clientIds.map((id) => String(id)) } },
+            select: { id: true, name: true },
+          });
+          clientMap = new Map(clients.map((client) => [String(client.id), client]));
+        } catch (prismaError) {
+          logTelemetryWarning("vehicles-clients", prismaError);
+        }
       }
     }
 
-    const includeUnlinked =
-      (req.user?.role === "admin" || req.user?.role === "manager") && isTruthyParam(req.query?.includeUnlinked);
-    const onlyLinked = !includeUnlinked || isTruthyParam(req.query?.onlyLinked);
+    const allowUnlinked = req.user?.role === "admin" || req.user?.role === "manager";
+    if (req.query?.includeUnlinked !== undefined) {
+      const parsedInclude = normaliseBoolean(req.query?.includeUnlinked);
+      if (parsedInclude === null) {
+        return respondBadRequest(res, "includeUnlinked deve ser booleano (true/false).");
+      }
+      includeUnlinked = allowUnlinked ? parsedInclude : false;
+    }
+    if (req.query?.onlyLinked !== undefined) {
+      const parsedOnlyLinked = normaliseBoolean(req.query?.onlyLinked);
+      if (parsedOnlyLinked === null) {
+        return respondBadRequest(res, "onlyLinked deve ser booleano (true/false).");
+      }
+      onlyLinked = parsedOnlyLinked;
+    } else {
+      onlyLinked = !includeUnlinked;
+    }
 
     const linkedVehicleIds = new Set(
       monitoringDevices
@@ -2588,6 +2628,7 @@ router.get("/vehicles", async (req, res, next) => {
     const knownDeviceIds = new Set(monitoringDevices.map((device) => String(device.id)).filter(Boolean));
 
     let positionsByDeviceId = new Map();
+    let telemetryUnavailable = false;
     const traccarIdsToQuery = Array.from(
       new Set(
         monitoringDevices
@@ -2615,6 +2656,7 @@ router.get("/vehicles", async (req, res, next) => {
           received: positionsByDeviceId.size,
         });
       } catch (positionsError) {
+        telemetryUnavailable = true;
         logTelemetryWarning("vehicles-positions", positionsError);
       }
     }
@@ -2628,9 +2670,29 @@ router.get("/vehicles", async (req, res, next) => {
         })
       : vehicles;
 
-    let response = vehiclesToExpose.map((vehicle) =>
-      buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId, clientMap }),
-    );
+    let response = vehiclesToExpose.map((vehicle) => {
+      try {
+        const built = buildVehicleResponse(vehicle, { deviceMap, traccarById, positionsByDeviceId, clientMap });
+        return telemetryUnavailable ? { ...built, telemetryStatus: "unavailable" } : built;
+      } catch (buildError) {
+        telemetryUnavailable = true;
+        console.warn("[vehicles] falha ao enriquecer veículo", {
+          vehicleId: vehicle?.id,
+          message: buildError?.message,
+        });
+        return {
+          ...vehicle,
+          device: null,
+          devices: [],
+          deviceCount: 0,
+          position: null,
+          connectionStatus: null,
+          connectionStatusLabel: "Indisponível",
+          lastCommunication: null,
+          telemetryStatus: "unavailable",
+        };
+      }
+    });
     if (query) {
       response = response.filter((vehicle) => {
         const haystack = [
@@ -2656,9 +2718,39 @@ router.get("/vehicles", async (req, res, next) => {
       pageSize,
       total,
       hasMore: start + pageSize < total,
+      ...(telemetryUnavailable ? { telemetryStatus: "unavailable" } : {}),
     });
   } catch (error) {
-    next(error);
+    const durationMs = Date.now() - startedAt;
+    console.error("[vehicles] falha ao listar", {
+      route: req.originalUrl,
+      clientId,
+      includeUnlinked,
+      userId: req.user?.id ? String(req.user.id) : null,
+      role: req.user?.role || null,
+      durationMs,
+      message: error?.message,
+      stack: error?.stack,
+    });
+    const status = Number(error?.status || error?.statusCode);
+    if (status === 400) {
+      return res.status(400).json({ code: "BAD_REQUEST", message: error?.message || "Parâmetros inválidos." });
+    }
+    if (status === 403) {
+      return res.status(403).json({ code: "FORBIDDEN", message: error?.message || "Acesso negado." });
+    }
+    if (isDependencyFailure(error)) {
+      return res.status(503).json(
+        buildServiceUnavailablePayload({
+          message: "Serviço indisponível no momento",
+          details: { route: "/api/core/vehicles" },
+        }),
+      );
+    }
+    if (status && status >= 500 && status < 600) {
+      return res.status(500).json({ code: "INTERNAL_SERVER_ERROR", message: "Erro interno no servidor" });
+    }
+    return next(error);
   }
 });
 

@@ -225,7 +225,20 @@ export default function Vehicles() {
       setVehicles(Array.isArray(vehicleList) ? vehicleList : []);
       setDevices(Array.isArray(deviceList) ? deviceList : []);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
+      const status = requestError?.status || requestError?.response?.status;
+      if (status === 503) {
+        setError(new Error("Telemetria indisponível no momento. Tente novamente em instantes."));
+      } else if (status >= 500) {
+        const requestId =
+          requestError?.response?.data?.requestId ||
+          requestError?.response?.data?.request_id ||
+          requestError?.response?.data?.id ||
+          null;
+        console.error("Erro interno ao carregar veículos", { status, requestId, error: requestError });
+        setError(new Error("Erro interno no servidor ao carregar veículos."));
+      } else {
+        setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
+      }
     } finally {
       setLoading(false);
     }
