@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Pencil, RefreshCw } from "lucide-react";
 
@@ -86,6 +86,7 @@ export default function ServiceOrdersList() {
     return user?.clientId ? String(user.clientId) : "";
   });
   const [activeType, setActiveType] = useState("ALL");
+  const retryCooldownRef = useRef(0);
 
   useEffect(() => {
     if (!user) return;
@@ -95,7 +96,11 @@ export default function ServiceOrdersList() {
     }
   }, [user]);
 
-  const fetchOrders = async () => {
+  const fetchOrders = async ({ force = false } = {}) => {
+    const now = Date.now();
+    if (!force && retryCooldownRef.current > now) {
+      return;
+    }
     setLoading(true);
     setError(null);
     const params = new URLSearchParams();
@@ -108,13 +113,20 @@ export default function ServiceOrdersList() {
 
       const response = await api.get("core/service-orders", { params });
       setItems(response?.data?.items || []);
+      retryCooldownRef.current = 0;
     } catch (error) {
+      const statusCode = error?.response?.status ?? error?.status;
       console.error("Falha ao buscar ordens de serviço", {
         params: Object.fromEntries(params.entries()),
-        status: error?.response?.status ?? error?.status,
+        status: statusCode,
         error,
       });
-      setError(error instanceof Error ? error : new Error("Falha ao carregar ordens de serviço."));
+      if (statusCode === 503) {
+        retryCooldownRef.current = now + 30_000;
+        setError(new Error("Serviço indisponível no momento. Tente novamente em instantes."));
+      } else {
+        setError(error instanceof Error ? error : new Error("Falha ao carregar ordens de serviço."));
+      }
       setItems([]);
     } finally {
       setLoading(false);
@@ -266,7 +278,7 @@ export default function ServiceOrdersList() {
         right={
           <button
             type="button"
-            onClick={fetchOrders}
+            onClick={() => fetchOrders({ force: true })}
             className="rounded-xl bg-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/15"
           >
             <span className="inline-flex items-center gap-2">

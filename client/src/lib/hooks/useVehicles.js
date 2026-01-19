@@ -4,6 +4,7 @@ import { useTenant } from "../tenant-context.jsx";
 import { getDeviceKey, toDeviceKey } from "./useDevices.helpers.js";
 
 const vehiclesCache = new Map();
+const vehiclesCooldowns = new Map();
 const cacheListeners = new Set();
 const compareVehicleEntries = (prev = [], next = []) => {
   if (prev === next) return true;
@@ -78,7 +79,12 @@ export function useVehicles({ includeUnlinked = false } = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchVehicles = useCallback(async () => {
+  const fetchVehicles = useCallback(async ({ force = false } = {}) => {
+    const now = Date.now();
+    const cooldownUntil = vehiclesCooldowns.get(cacheKey) || 0;
+    if (!force && cooldownUntil > now) {
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -93,7 +99,28 @@ export function useVehicles({ includeUnlinked = false } = {}) {
       if (!compareVehicleEntries(cached, list)) {
         vehiclesCache.set(cacheKey, list);
       }
+      vehiclesCooldowns.delete(cacheKey);
     } catch (requestError) {
+      const status = requestError?.status || requestError?.response?.status;
+      if (status === 503) {
+        vehiclesCooldowns.set(cacheKey, now + 30_000);
+        const unavailable = new Error("Telemetria indisponível no momento. Tente novamente em instantes.");
+        unavailable.status = status;
+        setError(unavailable);
+        return;
+      }
+      if (status >= 500) {
+        const requestId =
+          requestError?.response?.data?.requestId ||
+          requestError?.response?.data?.request_id ||
+          requestError?.response?.data?.id ||
+          null;
+        console.error("Erro interno ao carregar veículos", { status, requestId, error: requestError });
+        const internal = new Error("Erro interno no servidor ao carregar veículos.");
+        internal.status = status;
+        setError(internal);
+        return;
+      }
       setError(requestError instanceof Error ? requestError : new Error("Falha ao carregar veículos"));
     } finally {
       setLoading(false);
